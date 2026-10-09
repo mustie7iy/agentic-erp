@@ -4,6 +4,16 @@ Move off SAP one company code at a time, with every step proven by
 reconciliation, and run the business processes on an agentic layer instead of
 SAP screens.
 
+Two objectives drive the design:
+
+1. **Replace SAP's capabilities.** The [capability map](docs/capability-map.md)
+   covers 115 capabilities across S/4HANA and SAP's cloud products, each built
+   in the native core, rebuilt with agents, or integrated with a specialist product.
+2. **Cut consultant and engineering cost.** Agents configure the system,
+   migrate it (configuration as well as data) and run it day to day, working on
+   configuration as code with validation, simulation and human approval. See
+   [docs/agentic-delivery.md](docs/agentic-delivery.md).
+
 Written in Go. The only dependency is the Anthropic Go SDK.
 
 ## Why this approach
@@ -21,8 +31,16 @@ with the "Headless ERP" model from Rimini Street's *The Rise of Agentic AI ERP*:
 5. **Repeat** for the next scope, then decommission SAP.
 
 The savings come from shrinking what you license, upgrade and staff on SAP,
-scope by scope, rather than from a single replacement project. See
-[docs/migration.md](docs/migration.md) for the strategy and cost levers.
+scope by scope, and from agents doing the configuration, migration, testing and
+support work that consultants do today.
+
+| Document | Contents |
+|---|---|
+| [docs/plan.md](docs/plan.md) | Two-track roadmap (business modules and delivery agents), exit criteria, risks |
+| [docs/capability-map.md](docs/capability-map.md) | Every SAP capability, its approach, phase and status |
+| [docs/agentic-delivery.md](docs/agentic-delivery.md) | Consultant roles mapped to agents, configuration as code, change tiers |
+| [docs/architecture.md](docs/architecture.md) | Platform layers and full tech stack |
+| [docs/migration.md](docs/migration.md) | Cutover protocol, migration modes, reconciliation controls |
 
 ## Quick start
 
@@ -79,8 +97,11 @@ profile). The default model is `claude-opus-5-5`; override it with `ERP_AGENT_MO
 
 ## Status
 
-This is a working vertical slice for Procure-to-Pay and Record-to-Report
-(AP and general ledger). See [docs/plan.md](docs/plan.md) for the roadmap. Known gaps:
+Phase 0 is complete and Phase 1 is partly built: a working vertical slice for
+accounts payable and the general ledger, with deterministic migration and
+reconciliation. None of the delivery agents (configuration, migration,
+discovery, test and the rest) exist yet; they are next in Phase 1. See
+[docs/plan.md](docs/plan.md). Known gaps:
 
 - Storage is an in-memory store with JSON snapshots. Postgres comes next.
 - Single currency per company code. No FX revaluation yet.

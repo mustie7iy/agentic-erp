@@ -1,50 +1,53 @@
 # Implementation plan
 
-Based on Rimini Street, *The Rise of Agentic AI ERP* (rev. US-07012026), adapted
-to a migration goal: the agentic layer runs **on our own core** rather than
-permanently on top of SAP, and SAP is retired scope by scope.
+Based on Rimini Street, *The Rise of Agentic AI ERP* (rev. US-07012026),
+adapted to two objectives:
 
-## Reference architecture → this repo
+1. **Replace SAP's capabilities** scope by scope: every capability in the
+   [capability map](capability-map.md) is built in the native core, rebuilt
+   with agents, or integrated with a specialist product.
+2. **Cut consultant and engineering cost**: agents configure the system,
+   migrate it from SAP and run it day to day; people approve and own
+   decisions. See [agentic-delivery.md](agentic-delivery.md).
 
-| White-paper layer | Implementation | Status |
-|---|---|---|
-| Intelligent Persona Experience | CLI review queue today; web command center later | CLI done |
-| AI Agent Layer | `internal/agent`: Claude exception agent (tool runner, read and escalate tools only) | AP exceptions done |
-| Orchestration Layer | `agent.ProcessInvoices` composite pipeline; durable workflows (Temporal) later | Basic |
-| Federated Data Fabric | `sap.Source`: file and OData V2; CDC later | Read path done |
-| Composable Enterprise Platform | `internal/core` native services: ledger, AP, purchasing | AP/GL done |
-| Governance & Security | `internal/governance`: identities, SoD, autonomy levels, thresholds, hash-chained audit | Done |
+Architecture and tech stack: [architecture.md](architecture.md). Migration
+protocol: [migration.md](migration.md).
 
-## Phases
+## Roadmap: two tracks
 
-**Phase 0: foundations (done).** Core ledger, SAP extract model, data-quality
-gate, migration modes, reconciliation, governance, audit trail, CLI, tests.
+Business modules and delivery agents ship together. The migration and
+configuration agents come first, because every later module is configured and
+migrated by them.
 
-**Phase 1: Procure-to-Pay pilot (in progress).**
-- Done: three-way match, rule-based posting, Claude exception agent, human approval.
-- Next: Postgres storage; payment proposals with segregation of duties (a separate
-  identity releases payments); vendor master change workflow (bank changes always
-  go to a human); invoice intake from PDF and email using Claude document input.
-- Exit criteria: one pilot company code cut over; at least 60% of invoices
-  posted with no human touch; no unauthorized postings; documented cost per invoice.
+| Phase | Business track | Delivery track | Status |
+|---|---|---|---|
+| 0 Foundation | General ledger core, migration engine (extract, quality gate, load, reconcile), governance and audit chain | Deterministic migration and reconciliation; no delivery agents yet | Done |
+| 1 Procure-to-Pay and platform basics | Purchasing, contracts, goods receipt, invoice verification (done), invoice capture, payments, supplier master, MDG workflows, org structure, workflow, output, user roles | Migration agent; configuration agent with the configuration-as-code engine, validators and sandbox simulation; test agent regression replay | In progress |
+| 2 Record-to-Report | Asset accounting, banking and cash, close, consolidation, parallel ledgers, FX, controlling (cost and profit centers, CO-PA), tax, e-invoicing, operational reporting, extensibility | Discovery agent, custom-code agent, access agent, regulatory agent | Planned |
+| 3 Order-to-Cash | Customer master, quotations and orders, pricing, billing, rebates, returns, AR, credit, collections and disputes, revenue recognition, order intake, CRM integration | Integration agent, support agent (first line), enablement agent | Planned |
+| 4 Supply chain | Material master, inventory and valuation, batches and serials, shipping, ATP, MRP, demand planning and S&OP, warehouse, transport and trade integrations, sourcing and supplier network | Operations agent: monitoring, incident triage, continuous releases | Planned |
+| 5 Manufacturing and quality | BOMs and routings, planning and capacity, discrete, process and repetitive production, variant configuration, subcontracting, quality management, product costing, MES integration | Configuration and test agents extended to manufacturing customizing | Planned |
+| 6 Assets, service and EHS | Plant maintenance, predictive maintenance, mobile maintenance, field service, real estate and lease accounting, EHS incidents, product compliance | Support agent moves to L2/L3 with configuration fixes | Planned |
+| 7 Projects and product lifecycle | Project system, portfolio management, engineering change, document management, recipe development, subscription billing | Reporting agent on a governed semantic layer | Planned |
+| 8 Human capital | Core HR and org management, time and attendance, workforce scheduling; payroll, talent, travel and expense, contingent workforce through integrations | Access agent covers HR data privacy controls | Planned |
+| 9 Analytics, GRC and sustainability | Planning and budgeting, data warehouse, dashboards, spend analytics, process controls, risk management, data privacy, archiving, ESG reporting | All delivery agents in steady state; autonomy raised where evidence supports it | Planned |
+| 10 Industry packs | Industry configuration packs on demand, starting with the first client's industry | Configuration agent generates packs from the client's SAP industry customizing | Planned |
+| 11 Decommission SAP | SAP read-only for audit, then archived and switched off | | Planned |
 
-**Phase 2: Record-to-Report.** Period close, accruals, reconciliations, close
-agent with variance commentary, financial statements, multi-currency and FX revaluation.
+### Phase 1 exit criteria
 
-**Phase 3: Order-to-Cash.** Customers, sales orders, billing, cash application,
-collections agent, AR migration (KNA1/KNB1/BSID equivalents from ACDOCA).
-
-**Phase 4: Supply chain.** Inventory (MARA/MARD/MBEW), valuation, MRP-lite
-replenishment agent, warehouse integration.
-
-**Phase 5: decommission.** All scopes migrated, SAP set to read-only, then archived.
+- One pilot company code cut over through the protocol in [migration.md](migration.md).
+- At least 60% of supplier invoices posted with no human touch; no unauthorized postings.
+- Pilot company code configured by the configuration agent from the client's SAP customizing, with every change through the approval loop.
+- Documented consultant hours and agent cost for the pilot, against the integrator's quote for the same scope.
 
 ## Agent autonomy ladder
 
-Agents start at L0 (suggest only). An agent moves up one level only when it
-has eval results plus production evidence (override rate, error rate) for at
-least one period, signed off by the process owner. Human corrections become
-eval cases. Agents never change their own prompts or policies.
+Business and delivery agents start at L0 (suggest only). An agent moves up one
+level only with eval results plus production evidence (override rate, error
+rate) for at least one period, signed off by the process owner. Human
+corrections become eval cases. Agents never change their own prompts or
+policies.
 
 ## Risks
 
@@ -52,7 +55,10 @@ eval cases. Agents never change their own prompts or policies.
 |---|---|
 | Migrated balances wrong | Independent reconciliation; cutover blocked on any difference |
 | Agent posts wrong data | Agents cannot post exceptions; the ledger validates every entry; thresholds |
-| Prompt injection via vendor documents | Vendor text treated as data; the agent has no write tools except escalate |
+| Agent misconfigures the system | Configuration as code, deterministic validators, sandbox replay, change tiers with human approval, one-step rollback |
+| Prompt injection via vendor documents | Vendor text treated as data; business agents have no write tools except escalate |
 | Fraud via bank-detail change | Always a human action; bank data masked from agents |
+| SAP customizing or ABAP not exportable | Confirm access to customizing tables, ABAP source and usage statistics during discovery |
 | SAP licensing | Read-only integration; contract review before the pilot |
+| Scope too broad | Capabilities move only in phase order and only for licensed, used scope found by discovery |
 | Pilot never ends | Hard exit criteria per phase |
