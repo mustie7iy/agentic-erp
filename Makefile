@@ -1,4 +1,4 @@
-.PHONY: build test test-short coverage fuzz perf demo demo-analytics clean
+.PHONY: build test test-short db-up test-db coverage fuzz perf demo demo-analytics clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -13,6 +13,15 @@ test-short:
 	go test -short ./...
 
 # Whole-suite statement coverage of production code, with the CI minimum.
+# Schema tests need PostgreSQL. `make db-up` starts one in Docker on port 55432.
+DATABASE_URL ?= postgres://postgres:dev@localhost:55432/postgres?sslmode=disable
+
+db-up:
+	docker start erp-pg 2>/dev/null || docker run -d --name erp-pg -e POSTGRES_PASSWORD=dev -p 55432:5432 postgres:17
+
+test-db:
+	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./db
+
 coverage:
 	./scripts/coverage.sh
 

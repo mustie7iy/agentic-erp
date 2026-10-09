@@ -8,6 +8,16 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -17,6 +27,22 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: Vet
         run: go vet ./...
+      - name: Static analysis
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - name: Vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: API contract lint
+        run: go run github.com/daveshanley/vacuum@v0.32.0 lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml
+      - name: API breaking-change check against main
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          if git cat-file -e FETCH_HEAD:api/openapi.yaml 2>/dev/null; then
+            git show FETCH_HEAD:api/openapi.yaml > /tmp/base-openapi.yaml
+            go run github.com/oasdiff/oasdiff@latest breaking --fail-on ERR /tmp/base-openapi.yaml api/openapi.yaml
+          fi
+      - name: Schema tests (migrations and database-enforced rules)
+        run: go test -count=1 -v ./db
       - name: Functional and non-functional tests (race detector)
         run: go test -race -count=1 ./...
       - name: Coverage gate

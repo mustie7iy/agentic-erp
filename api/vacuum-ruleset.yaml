@@ -1,0 +1,24 @@
+# vacuum ruleset for api/openapi.yaml:
+#   go run github.com/daveshanley/vacuum@latest lint -r api/vacuum-ruleset.yaml -d api/openapi.yaml
+# The recommended rules apply, except where they contradict docs/design/04-api-design.md.
+extends: [[vacuum:oas, recommended]]
+rules:
+  # 04 §4.2: JSON field names are snake_case (posting_date, gross_amount).
+  camel-case-properties: off
+  # 04 §4.3 / AIP-136: state transitions are custom methods with a ':verb' suffix
+  # (/v1/payment-runs:propose, /v1/journal-entries/{id}:reverse), which the stock
+  # rule rejects. Replaced by the rule below, which still enforces kebab-case.
+  paths-kebab-case: off
+  paths-kebab-case-with-custom-methods:
+    description: Path segments are kebab-case nouns or {params}; a custom method adds one ':verb' (lowerCamelCase) at the end.
+    message: "Path must be /v1/ followed by kebab-case segments or {params}, optionally ending in :verb"
+    severity: warn
+    given: $.paths[*]~
+    then:
+      function: pattern
+      functionOptions:
+        match: "^/v1(/([a-z0-9]+(-[a-z0-9]+)*|\\{[a-z_]+\\}))+(:[a-z][a-zA-Z]*)?$"
+  # OpenAPI 3.1 allows keywords next to $ref. Properties such as
+  # `amount: {$ref: Money, description: ..., readOnly: true}` take their type
+  # from the referenced schema; the rule reports them as untyped.
+  oas-missing-type: off

@@ -1,0 +1,833 @@
+package db
+
+// Schema tests run against a real PostgreSQL. Set DATABASE_URL to an admin
+// connection (for example postgres://postgres:dev@localhost:55432/postgres);
+// each run creates and drops its own database. Without DATABASE_URL the
+// tests are skipped.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
+
+var testDB *pgx.Conn
+
+func TestMain(m *testing.M) {
+	admin := os.Getenv("DATABASE_URL")
+	if admin == "" {
+		fmt.Println("DATABASE_URL not set; schema tests skipped")
+		os.Exit(m.Run())
+	}
+	ctx := context.Background()
+	name := fmt.Sprintf("erp_test_%d", time.Now().UnixNano())
+	conn, err := pgx.Connect(ctx, admin)
+	if err != nil {
+		fmt.Println("connect:", err)
+		os.Exit(1)
+	}
+	if _, err := conn.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		fmt.Println("create database:", err)
+		os.Exit(1)
+	}
+	u, _ := url.Parse(admin)
+	u.Path = "/" + name
+	testDB, err = pgx.Connect(ctx, u.String())
+	if err != nil {
+		fmt.Println("connect test database:", err)
+		os.Exit(1)
+	}
+	if err := apply(ctx, testDB, true); err != nil {
+		fmt.Println("migrate:", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	testDB.Close(ctx)
+	conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
+	conn.Close(ctx)
+	os.Exit(code)
+}
+
+func apply(ctx context.Context, c *pgx.Conn, up bool) error {
+	ms := Migrations()
+	if !up {
+		for i, j := 0, len(ms)-1; i < j; i, j = i+1, j-1 {
+			ms[i], ms[j] = ms[j], ms[i]
+		}
+	}
+	for _, m := range ms {
+		sql := m.Up
+		if !up {
+			sql = m.Down
+		}
+		if _, err := c.PgConn().Exec(ctx, sql).ReadAll(); err != nil {
+			return fmt.Errorf("%s: %w", m.Name, err)
+		}
+	}
+	return nil
+}
+
+func need(t *testing.T) {
+	t.Helper()
+	if testDB == nil {
+		t.Skip("DATABASE_URL not set")
+	}
+}
+
+// asApp runs fn in a transaction as the application role for a tenant, the
+// way the service does: row-level security and grants apply.
+func asApp(t *testing.T, tenant uuid.UUID, fn func(tx pgx.Tx) error) error {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE erp_app"); err != nil {
+		t.Fatal(err)
+	}
+	if tenant != uuid.Nil {
+		if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenant.String()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func mustApp(t *testing.T, tenant uuid.UUID, fn func(tx pgx.Tx) error) {
+	t.Helper()
+	if err := asApp(t, tenant, fn); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// failsWith asserts err is a PostgreSQL error whose message contains want.
+func failsWith(t *testing.T, err error, want string) {
+	t.Helper()
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) {
+		t.Fatalf("want database error containing %q, got %v", want, err)
+	}
+	if !strings.Contains(pg.Message, want) {
+		t.Fatalf("want error containing %q, got %q", want, pg.Message)
+	}
+}
+
+func id() uuid.UUID { return uuid.Must(uuid.NewV7()) }
+
+func exec(tx pgx.Tx, sql string, args ...any) error {
+	_, err := tx.Exec(context.Background(), sql, args...)
+	return err
+}
+
+// fixture is one tenant with a legal entity, ledger, open 2026 periods,
+// accounts and a supplier.
+type fixture struct {
+	tenant, actor, entity, ledger, calendar, chart  uuid.UUID
+	bank, ap, expense, tax, supplier, otherSupplier uuid.UUID
+}
+
+func newFixture(t *testing.T) fixture {
+	t.Helper()
+	f := fixture{tenant: id(), actor: id(), entity: id(), ledger: id(), calendar: id(), chart: id(),
+		bank: id(), ap: id(), expense: id(), tax: id(), supplier: id(), otherSupplier: id()}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		steps := []struct {
+			sql  string
+			args []any
+		}{
+			{"INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", []any{f.tenant}},
+			{"INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by) VALUES ($1,$2,'1000','Acme US','US','USD',$3,'active',$4,$4)", []any{f.tenant, f.entity, f.calendar, f.actor}},
+			{"INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1,$2,'0L','Leading',true,'IFRS',$3)", []any{f.tenant, f.ledger, f.actor}},
+			{"INSERT INTO ledger.fiscal_calendar (tenant_id, id, code, name, normal_periods, special_periods, created_by) VALUES ($1,$2,'K4','Calendar year',12,4,$3)", []any{f.tenant, f.calendar, f.actor}},
+			{"INSERT INTO ledger.chart_of_accounts (tenant_id, id, code, name, created_by) VALUES ($1,$2,'INT','International',$3)", []any{f.tenant, f.chart, f.actor}},
+		}
+		for _, s := range steps {
+			if err := exec(tx, s.sql, s.args...); err != nil {
+				return fmt.Errorf("%s: %w", s.sql[:40], err)
+			}
+		}
+		for m := 1; m <= 12; m++ {
+			start := time.Date(2026, time.Month(m), 1, 0, 0, 0, 0, time.UTC)
+			end := start.AddDate(0, 1, -1)
+			if err := exec(tx, "INSERT INTO ledger.fiscal_period VALUES ($1,$2,2026,$3,$4,$5,false)", f.tenant, f.calendar, m, start, end); err != nil {
+				return err
+			}
+			status := "open"
+			if m == 1 {
+				status = "closed"
+			}
+			if err := exec(tx, "INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by) VALUES ($1,gen_random_uuid(),$2,$3,$4,2026,$5,$6,$7)",
+				f.tenant, f.entity, f.ledger, f.calendar, m, status, f.actor); err != nil {
+				return err
+			}
+		}
+		for _, a := range []struct {
+			id           uuid.UUID
+			num, typ, rk string
+		}{{f.bank, "100000", "asset", "none"}, {f.ap, "211000", "liability", "supplier"}, {f.expense, "520000", "expense", "none"}, {f.tax, "140000", "asset", "none"}} {
+			if err := exec(tx, "INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by) VALUES ($1,$2,$3,$4,$4,$5,$6,'active',$7,$7)",
+				f.tenant, a.id, f.chart, a.num, a.typ, a.rk, f.actor); err != nil {
+				return err
+			}
+			if err := exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)", f.tenant, f.entity, a.id, f.actor); err != nil {
+				return err
+			}
+		}
+		if err := exec(tx, "INSERT INTO partner.payment_term (tenant_id, code, description, net_days, created_by, updated_by) VALUES ($1,'NT30','Net 30',30,$2,$2)", f.tenant, f.actor); err != nil {
+			return err
+		}
+		for i, p := range []uuid.UUID{f.supplier, f.otherSupplier} {
+			if err := exec(tx, "INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by) VALUES ($1,$2,$3,'organization',$4,'US','active',$5,$5)",
+				f.tenant, p, fmt.Sprintf("S%04d", i+1), fmt.Sprintf("Supplier %d", i+1), f.actor); err != nil {
+				return err
+			}
+			if err := exec(tx, "INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1,$2,'supplier',$3)", f.tenant, p, f.actor); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return f
+}
+
+// entry posts a journal entry with the given (account, amount) lines in USD.
+func (f fixture) entry(tx pgx.Tx, period int, date string, lines ...line) (uuid.UUID, error) {
+	je := id()
+	if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+		document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+		VALUES ($1,2026,$2,$3,$4,$5,'SA',$6,$7,$7,'USD','USD','EUR',1,0.9,'ledger',$8)`,
+		f.tenant, je, f.entity, f.ledger, period, je.String()[24:], date, f.actor); err != nil {
+		return je, err
+	}
+	for i, l := range lines {
+		if err := exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+			posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id) VALUES ($1,2026,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11)`,
+			f.tenant, je, i+1, f.entity, f.ledger, period, date, l.account, l.amount, l.amount*9/10, l.partner); err != nil {
+			return je, err
+		}
+	}
+	return je, nil
+}
+
+type line struct {
+	account uuid.UUID
+	amount  int64
+	partner *uuid.UUID
+}
+
+// --- Structural rules -------------------------------------------------------
+
+// Every design rule in 03-data-model §3.1 that can be checked from the catalog.
+func TestDesignRules(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	query := func(sql string) []string {
+		rows, err := testDB.Query(ctx, sql)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for rows.Next() {
+			var s string
+			rows.Scan(&s)
+			out = append(out, s)
+		}
+		return out
+	}
+	tenantSchemas := `('platform','tenancy','identity','config','partner','ledger','procurement','payables','payments','workflow','audit','integration','agents','analytics')`
+
+	if bad := query(`SELECT c.oid::regclass::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname IN ` + tenantSchemas + ` AND c.relkind IN ('r','p') AND NOT c.relispartition AND NOT c.relrowsecurity`); len(bad) > 0 {
+		t.Errorf("tables without row-level security: %v", bad)
+	}
+	if bad := query(`SELECT c.oid::regclass::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname IN ` + tenantSchemas + ` AND c.relkind IN ('r','p') AND NOT c.relispartition
+		AND c.oid <> 'tenancy.tenant'::regclass AND c.oid <> 'audit.chain_head'::regclass
+		AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary
+		                AND (SELECT attname FROM pg_attribute WHERE attrelid = c.oid AND attnum = i.indkey[0]) = 'tenant_id')`); len(bad) > 0 {
+		t.Errorf("primary keys not led by tenant_id: %v", bad)
+	}
+	if bad := query(`SELECT conrelid::regclass::text || ' -> ' || confrelid::regclass::text FROM pg_constraint c
+		JOIN pg_class s ON s.oid = c.conrelid JOIN pg_namespace sn ON sn.oid = s.relnamespace
+		JOIN pg_class d ON d.oid = c.confrelid JOIN pg_namespace dn ON dn.oid = d.relnamespace
+		WHERE c.contype = 'f' AND sn.nspname <> dn.nspname AND dn.nspname <> 'ref' AND NOT s.relispartition
+		AND NOT (sn.nspname = 'tenancy' AND dn.nspname = 'tenancy')`); len(bad) > 0 {
+		t.Errorf("foreign keys crossing bounded contexts: %v", bad)
+	}
+	if bad := query(`SELECT conrelid::regclass::text FROM pg_constraint c JOIN pg_class s ON s.oid = c.conrelid
+		JOIN pg_namespace n ON n.oid = s.relnamespace
+		WHERE c.contype = 'f' AND n.nspname IN ` + tenantSchemas + ` AND NOT s.relispartition
+		AND c.confrelid::regclass::text NOT LIKE 'ref.%' AND c.confrelid <> 'tenancy.tenant'::regclass
+		AND (SELECT attname FROM pg_attribute WHERE attrelid = c.conrelid AND attnum = c.conkey[1]) <> 'tenant_id'`); len(bad) > 0 {
+		t.Errorf("foreign keys that do not start with tenant_id: %v", bad)
+	}
+	if bad := query(`SELECT table_schema || '.' || table_name || '.' || column_name FROM information_schema.columns
+		WHERE table_schema IN ` + tenantSchemas + ` AND data_type IN ('real', 'double precision', 'money')`); len(bad) > 0 {
+		t.Errorf("floating-point or money columns: %v", bad)
+	}
+	if bad := query(`SELECT c.oid::regclass::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname IN ` + tenantSchemas + ` AND c.relkind IN ('r','p') AND NOT c.relispartition
+		AND has_table_privilege('erp_app', c.oid, 'DELETE')`); len(bad) > 0 {
+		t.Errorf("the application may delete from: %v", bad)
+	}
+	if bad := query(`SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+		WHERE p.prosecdef AND (r.rolsuper OR r.rolbypassrls)`); len(bad) > 0 {
+		t.Errorf("security-definer functions that would bypass row-level security: %v", bad)
+	}
+	if bad := query(`SELECT p.oid::regprocedure::text FROM pg_proc p
+		WHERE p.prosecdef AND NOT coalesce(array_to_string(p.proconfig, ',') LIKE '%search_path=%', false)`); len(bad) > 0 {
+		t.Errorf("security-definer functions without a pinned search_path: %v", bad)
+	}
+	insertOnly := query(`SELECT DISTINCT t.tgrelid::regclass::text FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+		JOIN pg_class c ON c.oid = t.tgrelid WHERE p.proname = 'forbid_mutation' AND NOT c.relispartition`)
+	if len(insertOnly) < 15 {
+		t.Errorf("expected the insert-only tables to be protected, found %v", insertOnly)
+	}
+	for _, tbl := range insertOnly {
+		var can bool
+		testDB.QueryRow(ctx, "SELECT has_table_privilege('erp_app', $1, 'UPDATE')", tbl).Scan(&can)
+		if can {
+			t.Errorf("the application may update insert-only table %s", tbl)
+		}
+	}
+}
+
+func TestMigrationsRevertCleanly(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	if err := apply(ctx, testDB, false); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	var schemas int
+	testDB.QueryRow(ctx, "SELECT count(*) FROM pg_namespace WHERE nspname IN ('ledger','partner','payables')").Scan(&schemas)
+	if schemas != 0 {
+		t.Fatal("down migrations left schemas behind")
+	}
+	if err := apply(ctx, testDB, true); err != nil {
+		t.Fatalf("up again: %v", err)
+	}
+}
+
+// --- Tenant isolation -------------------------------------------------------
+
+func TestTenantIsolation(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	var seen int
+	mustApp(t, b.tenant, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), "SELECT count(*) FROM partner.business_partner WHERE id = $1", a.supplier).Scan(&seen)
+	})
+	if seen != 0 {
+		t.Fatal("tenant B can see tenant A's partner")
+	}
+	err := asApp(t, b.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by) VALUES ($1,$2,'X1','organization','X','US','active',$3,$3)", a.tenant, id(), b.actor)
+	})
+	failsWith(t, err, "row-level security")
+	// Without a tenant, nothing is visible.
+	mustApp(t, uuid.Nil, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), "SELECT count(*) FROM partner.business_partner").Scan(&seen)
+	})
+	if seen != 0 {
+		t.Fatal("rows visible without a tenant")
+	}
+	// A row can never reference another tenant's row: foreign keys include tenant_id.
+	err = asApp(t, b.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO partner.supplier_company (tenant_id, partner_id, legal_entity_id, reconciliation_account_id, payment_term_code, created_by, updated_by) VALUES ($1,$2,$3,$4,'NT30',$5,$5)",
+			b.tenant, a.supplier, b.entity, b.ap, b.actor)
+	})
+	failsWith(t, err, "foreign key")
+}
+
+// --- Ledger -----------------------------------------------------------------
+
+func TestJournalEntriesMustBalance(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		_, err := f.entry(tx, 3, "2026-03-15", line{account: f.expense, amount: 10_000}, line{account: f.bank, amount: -10_000})
+		return err
+	})
+	err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+		_, err := f.entry(tx, 3, "2026-03-15", line{account: f.expense, amount: 10_000}, line{account: f.bank, amount: -9_999})
+		return err
+	})
+	failsWith(t, err, "unbalanced")
+	err = asApp(t, f.tenant, func(tx pgx.Tx) error {
+		_, err := f.entry(tx, 3, "2026-03-15", line{account: f.expense, amount: 0})
+		return err
+	})
+	failsWith(t, err, "at least two")
+}
+
+func TestJournalIsInsertOnly(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var je uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		je, err = f.entry(tx, 4, "2026-04-02", line{account: f.expense, amount: 500}, line{account: f.bank, amount: -500})
+		return err
+	})
+	err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE ledger.journal_line SET amount_tc = 1 WHERE journal_entry_id = $1", je)
+	})
+	failsWith(t, err, "permission denied")
+	err = asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "DELETE FROM ledger.journal_entry WHERE id = $1", je)
+	})
+	failsWith(t, err, "permission denied")
+	// Even the owner cannot change posted lines.
+	_, err = testDB.Exec(context.Background(), "UPDATE ledger.journal_line SET amount_tc = 1 WHERE journal_entry_id = $1", je)
+	failsWith(t, err, "insert-only")
+}
+
+func TestPostingPeriods(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+		_, err := f.entry(tx, 1, "2026-01-15", line{account: f.expense, amount: 1}, line{account: f.bank, amount: -1})
+		return err
+	})
+	failsWith(t, err, "is closed")
+	err = asApp(t, f.tenant, func(tx pgx.Tx) error {
+		_, err := f.entry(tx, 3, "2026-04-15", line{account: f.expense, amount: 1}, line{account: f.bank, amount: -1})
+		return err
+	})
+	failsWith(t, err, "outside period")
+}
+
+func TestReconciliationAccountsNeedPartner(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+		_, err := f.entry(tx, 5, "2026-05-10", line{account: f.expense, amount: 100}, line{account: f.ap, amount: -100})
+		return err
+	})
+	failsWith(t, err, "without a partner")
+}
+
+func TestReversalAndClearingHappenOnce(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var inv, pay uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		if inv, err = f.entry(tx, 6, "2026-06-01", line{account: f.expense, amount: 700}, line{account: f.ap, amount: -700, partner: &f.supplier}); err != nil {
+			return err
+		}
+		pay, err = f.entry(tx, 6, "2026-06-20", line{account: f.ap, amount: 700, partner: &f.supplier}, line{account: f.bank, amount: -700})
+		return err
+	})
+	var open int
+	count := func() {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), "SELECT count(*) FROM ledger.open_item WHERE partner_id = $1", f.supplier).Scan(&open)
+		})
+	}
+	count()
+	if open != 2 {
+		t.Fatalf("want 2 open items, got %d", open)
+	}
+	clr := id()
+	clear := func(tx pgx.Tx, c uuid.UUID) error {
+		if err := exec(tx, "INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by) VALUES ($1,$2,$3,'2026-06-20',2026,$4,$5)",
+			f.tenant, c, f.entity, pay, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO ledger.clearing_item VALUES ($1,2026,$2,2,$3)", f.tenant, inv, c); err != nil {
+			return err
+		}
+		return exec(tx, "INSERT INTO ledger.clearing_item VALUES ($1,2026,$2,1,$3)", f.tenant, pay, c)
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return clear(tx, clr) })
+	count()
+	if open != 0 {
+		t.Fatalf("cleared items are not open: %d", open)
+	}
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return clear(tx, id()) }), "duplicate key")
+
+	rev := func(tx pgx.Tx) error {
+		r, err := f.entry(tx, 6, "2026-06-25", line{account: f.expense, amount: -700}, line{account: f.ap, amount: 700, partner: &f.supplier})
+		if err != nil {
+			return err
+		}
+		return exec(tx, "INSERT INTO ledger.reversal VALUES ($1,2026,$2,2026,$3)", f.tenant, inv, r)
+	}
+	mustApp(t, f.tenant, rev)
+	failsWith(t, asApp(t, f.tenant, rev), "duplicate key")
+}
+
+// --- Documents ----------------------------------------------------------------
+
+func TestDuplicateInvoicesAreImpossible(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	ins := func(ref string, sha []byte, source string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
+				invoice_date, currency, gross_amount, tax_amount, status, source, capture_sha256, created_by, updated_by)
+				VALUES ($1,$2,$3,$4,$5,$6,'2026-06-01','USD',1080,80,'parked',$7,$8,$9,$9)`,
+				f.tenant, id(), ref+"-"+source, f.entity, f.supplier, ref, source, sha, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, ins("INV-2026/001", nil, "manual"))
+	failsWith(t, asApp(t, f.tenant, ins("inv 2026 001", nil, "edi")), "supplier_invoice_no_duplicates")
+	sha := make([]byte, 32)
+	mustApp(t, f.tenant, ins("INV-2", sha, "capture"))
+	failsWith(t, asApp(t, f.tenant, ins("INV-3", sha, "capture")), "supplier_invoice_capture_once")
+}
+
+func TestPaymentItemsAreReservedOnce(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var inv uuid.UUID
+	hb, run1, run2 := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		if inv, err = f.entry(tx, 7, "2026-07-01", line{account: f.expense, amount: 300}, line{account: f.ap, amount: -300, partner: &f.supplier}); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		for i, r := range []uuid.UUID{run1, run2} {
+			if err := exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+				VALUES ($1,$2,$3,$4,$5,'2026-07-31','2026-07-31','USD',300,'proposed',$6,$6,$6)`, f.tenant, r, fmt.Sprintf("PR%d", i), f.entity, hb, f.actor); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	addItem := func(run uuid.UUID, e2e string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			p := id()
+			if err := exec(tx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, currency, end_to_end_id, created_by)
+				VALUES ($1,$2,$3,$4,$5,300,'USD',$6,$7)`, f.tenant, p, run, f.supplier, id(), e2e, f.actor); err != nil {
+				return err
+			}
+			return exec(tx, "INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date) VALUES ($1,$2,2026,$3,2,300,'2026-07-31')", f.tenant, p, inv)
+		}
+	}
+	mustApp(t, f.tenant, addItem(run1, "E2E-1"))
+	failsWith(t, asApp(t, f.tenant, addItem(run2, "E2E-2")), "payment_item_reserved_once")
+	// Rejecting run 1 releases the item; reactivation is refused.
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE payments.payment_item SET is_active = false WHERE tenant_id = $1 AND item_entry_id = $2", f.tenant, inv)
+	})
+	mustApp(t, f.tenant, addItem(run2, "E2E-3"))
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE payments.payment_item SET is_active = true WHERE tenant_id = $1 AND item_entry_id = $2 AND NOT is_active", f.tenant, inv)
+	}), "only be deactivated")
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE payments.payment_item SET amount = 1 WHERE tenant_id = $1", f.tenant)
+	}), "permission denied")
+	// Whoever proposed a run can never release it, and a release records who decided.
+	release := func(by any) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payments.payment_run SET status = 'released', decided_by = $3, decided_at = now(), version = version + 1
+				WHERE tenant_id = $1 AND id = $2`, f.tenant, run2, by)
+		})
+	}
+	failsWith(t, release(f.actor), "payment_run_sod")
+	failsWith(t, release(nil), "payment_run_check")
+	if err := release(id()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBankAccountValidityCannotOverlap(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	add := func(from string, to *string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO partner.bank_account (tenant_id, id, partner_id, account_cipher, account_fingerprint, account_last4, account_scheme,
+				bank_country_code, holder_name, valid_from, valid_to, partner_change_id, created_by)
+				VALUES ($1,$2,$3,'\x01',$4,'4321','iban','DE','Supplier 1',$5,$6,$7,$8)`,
+				f.tenant, id(), f.supplier, strings.Repeat("a", 64), from, to, id(), f.actor)
+		}
+	}
+	end := "2026-07-01"
+	mustApp(t, f.tenant, add("2026-01-01", &end))
+	mustApp(t, f.tenant, add("2026-07-01", nil))
+	failsWith(t, asApp(t, f.tenant, add("2026-06-15", nil)), "conflicting key value violates exclusion constraint")
+}
+
+func TestGoodsReceiptLimits(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	po := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date, payment_term_code, status, created_by, updated_by)
+			VALUES ($1,$2,'4500000001',$3,$4,'USD','2026-08-01','NT30','released',$5,$5)`, f.tenant, po, f.entity, f.supplier, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price, account_id, over_delivery_pct)
+			VALUES ($1,$2,10,'Paper',10,'EA',250,$3,10)`, f.tenant, po, f.expense)
+	})
+	receive := func(qty string, mt string, rev *uuid.UUID) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			gm := id()
+			if err := exec(tx, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, movement_type, document_date, posting_date, reversal_of_id, posted_by)
+				VALUES ($1,$2,$3,$4,$5,'2026-08-05','2026-08-05',$6,$7)`, f.tenant, gm, gm.String()[24:], f.entity, mt, rev, f.actor); err != nil {
+				return err
+			}
+			if rev != nil {
+				*rev = gm
+			}
+			return exec(tx, "INSERT INTO procurement.goods_movement_item VALUES ($1,$2,1,$3,10,$4,'EA')", f.tenant, gm, po, qty)
+		}
+	}
+	mustApp(t, f.tenant, receive("10", "101", nil))
+	mustApp(t, f.tenant, receive("1", "101", nil)) // within 10% tolerance
+	failsWith(t, asApp(t, f.tenant, receive("1", "101", nil)), "exceeds ordered")
+	var first uuid.UUID
+	testDB.QueryRow(context.Background(), "SELECT id FROM procurement.goods_movement WHERE tenant_id = $1 ORDER BY posted_at LIMIT 1", f.tenant).Scan(&first)
+	failsWith(t, asApp(t, f.tenant, receive("-12", "102", &first)), "reversal exceeds")
+}
+
+// --- Identity and workflow ----------------------------------------------------
+
+func TestAgentsCannotHoldApprovalPermissions(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	agent, approver, clerk := id(), id(), id()
+	grant := func(tx pgx.Tx, role uuid.UUID, perm string) error {
+		return exec(tx, "INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by) VALUES ($1,$2,$3,$4,current_date,$5)",
+			f.tenant, id(), role, perm, f.actor)
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1,$2,'agent','Config agent','active',$3,$3)", f.tenant, agent, f.actor); err != nil {
+			return err
+		}
+		for _, r := range []struct {
+			id   uuid.UUID
+			code string
+			perm string
+		}{{approver, "approver", "payments.run.release"}, {clerk, "clerk", "payables.invoice.capture"}} {
+			if err := exec(tx, "INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1,$2,$3,$3,'active',$4,$4)", f.tenant, r.id, r.code, f.actor); err != nil {
+				return err
+			}
+			if err := grant(tx, r.id, r.perm); err != nil {
+				return err
+			}
+		}
+		return exec(tx, "INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1,gen_random_uuid(),$2,$3,'2026-01-01',$4)", f.tenant, agent, clerk, f.actor)
+	})
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1,gen_random_uuid(),$2,$3,'2026-01-01',$4)", f.tenant, agent, approver, f.actor)
+	}), "agents may not hold approval permission")
+	// Adding an approval permission to a role an agent already holds is refused too.
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return grant(tx, clerk, "config.change.approve")
+	}), "agents may not hold approval permission")
+}
+
+func TestWorkflowDecisionRules(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	req, role, requester, alice, bob := id(), id(), id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO workflow.approval_request (tenant_id, id, object_type, object_id, title, requester_id, status, created_by)
+			VALUES ($1,$2,'requisition',$3,'PR 1',$4,'pending',$4)`, f.tenant, req, id(), requester); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO workflow.approval_step VALUES ($1,$2,1,$3,1)", f.tenant, req, role); err != nil {
+			return err
+		}
+		return exec(tx, "INSERT INTO workflow.approval_step VALUES ($1,$2,2,$3,1)", f.tenant, req, role)
+	})
+	decide := func(actor uuid.UUID, kind, decision string, step int, comment *string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO workflow.decision (tenant_id, id, request_id, step_no, actor_id, actor_kind, decision, comment) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+				f.tenant, id(), req, step, actor, kind, decision, comment)
+		})
+	}
+	failsWith(t, decide(requester, "human", "approve", 1, nil), "cannot decide their own")
+	failsWith(t, decide(alice, "agent", "approve", 1, nil), "decision_people_decide")
+	failsWith(t, decide(alice, "human", "reject", 1, nil), "decision_check")
+	failsWith(t, decide(alice, "human", "approve", 2, nil), "request is at step 1")
+	if err := decide(alice, "human", "approve", 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE workflow.approval_request SET current_step = 2, version = version + 1 WHERE tenant_id = $1 AND id = $2", f.tenant, req)
+	})
+	failsWith(t, decide(alice, "human", "approve", 2, nil), "decision_one_approval_per_actor")
+	reason := "raised in error"
+	failsWith(t, decide(bob, "human", "cancel", 2, &reason), "only the requester can cancel")
+	failsWith(t, decide(requester, "agent", "cancel", 2, nil), "decision_check")
+	// An agent that raised a request may withdraw it; it can never approve.
+	if err := decide(requester, "agent", "cancel", 2, &reason); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Platform mechanics -------------------------------------------------------
+
+func TestOptimisticLocking(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE partner.business_partner SET name = 'Renamed' WHERE tenant_id = $1 AND id = $2", f.tenant, f.supplier)
+	}), "optimistic lock")
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE partner.business_partner SET name = 'Renamed', version = version + 1 WHERE tenant_id = $1 AND id = $2", f.tenant, f.supplier)
+	})
+}
+
+func TestGaplessDocumentNumbers(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO config.number_range (tenant_id, id, legal_entity_id, document_type, fiscal_year, prefix, first_value, last_value, next_value, is_gapless, created_by)
+			VALUES ($1,$2,$3,'supplier_invoice',2026,'INV-',1,3,1,true,$4)`, f.tenant, id(), f.entity, f.actor)
+	})
+	next := func() (string, error) {
+		var n string
+		err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), "SELECT config.next_document_number($1,$2,'supplier_invoice',2026::smallint)", f.tenant, f.entity).Scan(&n)
+		})
+		return n, err
+	}
+	if n, _ := next(); n != "INV-1" {
+		t.Fatalf("first number %q", n)
+	}
+	// A rolled-back transaction gives its number back.
+	ctx := context.Background()
+	tx, _ := testDB.Begin(ctx)
+	tx.Exec(ctx, "SET LOCAL ROLE erp_app")
+	tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", f.tenant.String())
+	var lost string
+	tx.QueryRow(ctx, "SELECT config.next_document_number($1,$2,'supplier_invoice',2026::smallint)", f.tenant, f.entity).Scan(&lost)
+	tx.Rollback(ctx)
+	if n, _ := next(); n != "INV-2" {
+		t.Fatalf("gapless range skipped a number: %q", n)
+	}
+	next()
+	_, err := next()
+	failsWith(t, err, "exhausted")
+	var missing string
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), "SELECT config.next_document_number($1,$2,'payment_run',2026::smallint)", f.tenant, f.entity).Scan(&missing)
+	}), "no number range")
+}
+
+func TestAssignmentsAreEndedNeverRewritten(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	principal, role, assignment := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','idp|ann','Ann','active',$3,$3)", f.tenant, principal, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1,$2,'ap','AP clerk','active',$3,$3)", f.tenant, role, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, "INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1,$2,$3,$4,current_date - 30,$5)", f.tenant, assignment, principal, role, f.actor)
+	})
+	end := func(set string, args ...any) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE identity.principal_role SET "+set+" WHERE tenant_id = $1 AND id = $2", append([]any{f.tenant, assignment}, args...)...)
+		})
+	}
+	failsWith(t, end("role_id = $3", id()), "permission denied")
+	failsWith(t, end("valid_to = current_date - 1, ended_by = $3", f.actor), "in the past")
+	failsWith(t, end("valid_to = current_date + 10"), "ended_by is required")
+	if err := end("valid_to = current_date + 10, ended_by = $3", f.actor); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, end("valid_to = current_date + 20, ended_by = $3", f.actor), "only be ended or shortened")
+	failsWith(t, end("valid_to = NULL, ended_by = $3", f.actor), "only be ended or shortened")
+	if err := end("valid_to = current_date + 5, ended_by = $3", f.actor); err != nil {
+		t.Fatal(err)
+	}
+	var endedAt *time.Time
+	testDB.QueryRow(context.Background(), "SELECT ended_at FROM identity.principal_role WHERE tenant_id = $1 AND id = $2", f.tenant, assignment).Scan(&endedAt)
+	if endedAt == nil {
+		t.Fatal("ended_at not recorded")
+	}
+	// A new assignment may start where the old one ends, not before.
+	reassign := func(from string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1,$2,$3,$4,"+from+",$5)", f.tenant, id(), principal, role, f.actor)
+		})
+	}
+	failsWith(t, reassign("current_date + 4"), "exclusion constraint")
+	if err := reassign("current_date + 5"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOutboxFollowsTheEventContract(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	publish := func(schema, eventType string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO "+schema+".outbox (tenant_id, id, aggregate_type, aggregate_id, event_type, payload, actor_id) VALUES ($1,$2,'x',$3,$4,'{}',$5)",
+				f.tenant, id(), id(), eventType, f.actor)
+		})
+	}
+	if err := publish("payables", "com.example.erp.payables.supplier_invoice_posted.v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := publish("config", "com.example.erp.configuration.configuration_activated.v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := publish("platform", "com.example.erp.platform.operation_completed.v1"); err != nil {
+		t.Fatal(err)
+	}
+	// A context can only publish its own events, in the CloudEvents type format.
+	failsWith(t, publish("payables", "com.example.erp.ledger.journal_entry_posted.v1"), "outbox_event_type_check")
+	failsWith(t, publish("payables", "erp.payables.supplier_invoice.posted.v1"), "outbox_event_type_check")
+	// The relay marks rows published; nothing else about an event can change.
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE payables.outbox SET payload = '{\"x\":1}' WHERE tenant_id = $1", f.tenant)
+	}), "permission denied")
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE payables.outbox SET published_at = now() WHERE tenant_id = $1", f.tenant)
+	})
+}
+
+func TestInvoiceLifecycleConsistency(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	invoice := func(status string, entry, reversal bool) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			var je, rev any
+			if entry {
+				je = id()
+			}
+			if reversal {
+				rev = id()
+			}
+			return exec(tx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
+				invoice_date, currency, gross_amount, tax_amount, status, source, journal_entry_year, journal_entry_id, reversal_entry_year, reversal_entry_id, created_by, updated_by)
+				VALUES ($1,$2,$3,$4,$5,'R-1','2026-06-01','USD',100,0,$6,'manual',
+				        CASE WHEN $7::uuid IS NULL THEN NULL ELSE 2026 END, $7, CASE WHEN $8::uuid IS NULL THEN NULL ELSE 2026 END, $8, $9,$9)`,
+				f.tenant, id(), id().String()[24:], f.entity, f.supplier, status, je, rev, f.actor)
+		}
+	}
+	failsWith(t, asApp(t, f.tenant, invoice("posted", false, false)), "supplier_invoice_check")
+	failsWith(t, asApp(t, f.tenant, invoice("reversed", true, false)), "supplier_invoice_check")
+	failsWith(t, asApp(t, f.tenant, invoice("parked", false, true)), "supplier_invoice_check")
+	// A reversed invoice frees its reference for a corrected entry; a posted one does not.
+	mustApp(t, f.tenant, invoice("reversed", true, true))
+	mustApp(t, f.tenant, invoice("posted", true, false))
+	failsWith(t, asApp(t, f.tenant, invoice("parked", false, false)), "supplier_invoice_no_duplicates")
+}

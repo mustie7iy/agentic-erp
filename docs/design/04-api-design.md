@@ -1,0 +1,269 @@
+# 4. API design
+
+The API is the product. The web UI, agents, CLI, SAP connectors and partner
+integrations are all clients of the same public API; there are no private
+endpoints and no direct database access (ADR-0013). This document lists the
+rules every endpoint follows. The contract itself is
+[`api/openapi.yaml`](../../api/openapi.yaml); events are in
+[`api/asyncapi.yaml`](../../api/asyncapi.yaml).
+
+## 4.1 Contract first
+
+1. A capability starts as a change to `api/openapi.yaml` (and
+   `api/asyncapi.yaml` if it emits events), reviewed like code.
+2. CI lints the spec and runs a breaking-change check against `main`.
+3. Server interfaces, request/response types and the Go client are
+   generated from the spec. Handlers implement the generated interfaces, so
+   the code cannot drift from the contract.
+4. Contract tests replay the examples in the spec against the running service.
+
+Implementation starts only after the contract is approved
+([06-engineering-process.md](06-engineering-process.md)).
+
+## 4.2 Resources and URLs
+
+| Rule | Example |
+|---|---|
+| Base path carries the major version | `https://{cell}.api.example.com/v1` |
+| Collections are plural kebab-case nouns | `/v1/supplier-invoices` |
+| Resources are addressed by UUID | `/v1/supplier-invoices/0192f3a4-...` |
+| Child collections are nested only when the child cannot exist alone | `/v1/purchase-orders/{id}/items` |
+| Human document numbers are a filter, not a path | `?document_number=5100000123` |
+| Company scope is a filter or a field, never a path prefix | `?legal_entity_id=...` |
+| JSON field names are `snake_case` | `posting_date`, `gross_amount` |
+
+The tenant is never in the URL or body. It comes from the access token and is
+set on the database session (ADR-0003); a client cannot address another
+tenant's data by any URL.
+
+## 4.3 Methods
+
+Standard methods map to HTTP verbs. State transitions are **custom methods**
+(AIP-136): `POST` to `{resource}:{verb}`. A document's state is never changed
+by `PATCH`, so every transition has its own permission, validation, audit
+record and event.
+
+| Method | HTTP | Returns | Notes |
+|---|---|---|---|
+| List | `GET /v1/things` | 200, page | Filters, sort, cursor |
+| Get | `GET /v1/things/{id}` | 200, resource, `ETag` | |
+| Create | `POST /v1/things` | 201, resource, `Location`, `ETag` | `Idempotency-Key` required |
+| Update | `PATCH /v1/things/{id}` | 200, resource, `ETag` | JSON Merge Patch; `If-Match` required; only drafts and master data |
+| Custom | `POST /v1/things/{id}:release` | 200 resource, or 202 `Operation` | `If-Match` and `Idempotency-Key` required |
+| Collection custom | `POST /v1/things:propose` | 202 `Operation` (or 200) | `Idempotency-Key` required; no `If-Match` (no single resource) |
+| Delete | — | — | No hard deletes. Drafts are `:cancel`led, master data is `:block`ed |
+
+Posted financial documents have no update method at all. Creating a journal
+entry *is* posting it (`POST /v1/journal-entries`; there are no draft journal
+entries). Corrections are custom methods that create new documents:
+`journal-entries/{id}:reverse`, `supplier-invoices/{id}:reverse` (posts a
+reversal entry). `supplier-invoices/{id}:cancel` applies only to invoices not
+yet posted.
+
+**Effective-dated assignments** (role assignments, role permissions, company
+access, SoD rules) are created and then ended with `POST {id}:end`
+(`{"valid_to": "..."}`); they are never updated or deleted. Bank accounts are
+ended only through an approved partner change.
+
+**Approvals** are decided in one place: `approval-requests/{id}:approve` and
+`:reject`, by humans only. Objects that need approval (requisitions, change
+requests, partner changes, high-value invoices) are `:submit`ted, and move on
+when their approval request completes; they have no `:approve` method of their
+own. Payment-run `:release` / `:reject` are the single SoD-checked human
+release step, not a multi-step approval. The requester, human or agent, may
+`:cancel` its own pending request with a reason.
+
+## 4.4 Representations
+
+- Money is an object: `{"amount": "1080.00", "currency": "EUR"}`. The amount
+  is a decimal **string** with exactly the currency's minor-unit digits, so no
+  client parses money as floating point. The server stores minor units
+  (ADR-0005) and rejects amounts with the wrong number of decimals.
+- Quantities are decimal strings with a unit: `{"value": "12.5", "unit": "KG"}`.
+- Instants are RFC 3339 UTC (`2026-10-09T14:03:11Z`); business dates are
+  `YYYY-MM-DD`.
+- Enumerations are lower-case strings and are **open**: clients must accept
+  values they do not know, so adding a status is not a breaking change.
+- Every resource has a uuid `id`, `created_at` and `created_by`. Mutable
+  resources add `version`, `updated_at` and `updated_by`, and their ETag is
+  `version`. Insert-only resources (journal entries, goods movements, match
+  results, decisions) have no `version`; their ETag is a hash of the
+  representation. Effective-dated assignments add `valid_from`, `valid_to`,
+  `ended_at` and `ended_by`. Human keys (document numbers, configuration
+  version numbers) are fields and filters, never the path.
+- References to other resources are ids (`supplier_id`). `?expand=supplier`
+  may embed a read-only copy for a fixed list of fields; expansion never
+  crosses tenants or permissions.
+- Custom fields (ADR-0009) appear under `extensions`, validated against the
+  tenant's published schema for that resource.
+- Sensitive values are never returned in full: bank accounts expose
+  `account_last4` and `account_scheme` only.
+
+## 4.5 Lists, filters and pagination
+
+- **Cursor pagination only:** `?page_size=50&page_token=...`; responses carry
+  `next_page_token` (absent on the last page). `page_size` defaults to 50,
+  maximum 500. Tokens are opaque, signed and encode the sort keys, so pages
+  stay stable while rows are inserted, and every page is an index range scan
+  whatever the table size (05-scalability).
+- No total counts by default. `?include=total_estimate` returns a planner
+  estimate where it is cheap.
+- Filters are named query parameters documented per resource
+  (`status`, `legal_entity_id`, `supplier_id`, `posting_date_from`,
+  `posting_date_to`). Each one is backed by an index that leads with
+  `tenant_id`; filters without an index are not offered.
+- Sorting is restricted to documented fields: `?order_by=posting_date desc`.
+- Bulk reads and exports (more than about 10,000 rows) use an export
+  operation that writes a file to object storage, not deep pagination.
+
+## 4.6 Errors
+
+Errors use RFC 9457 Problem Details (`application/problem+json`):
+
+```json
+{
+  "type": "https://errors.example.com/payables/duplicate-invoice",
+  "title": "Duplicate supplier invoice",
+  "status": 409,
+  "code": "payables.duplicate_invoice",
+  "detail": "Supplier S0001 already has invoice INV-2026/001 (5100000123).",
+  "instance": "/v1/supplier-invoices",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "errors": [{"field": "supplier_reference", "code": "duplicate", "message": "..."}]
+}
+```
+
+| Status | When |
+|---|---|
+| 400 | Malformed request, unknown field, wrong money precision |
+| 401 | Missing or invalid token |
+| 403 | No permission, no company access, or a segregation-of-duties conflict (`code` says which) |
+| 404 | Not found, **or** exists in another company the caller cannot see |
+| 409 | Business rule conflict: wrong state for the transition, duplicate, period closed |
+| 412 | `If-Match` does not match the current version |
+| 422 | Validation failed (`errors[]` lists fields), or `Idempotency-Key` reused with a different body |
+| 428 | `If-Match` or `Idempotency-Key` missing where required |
+| 429 | Rate limit; `Retry-After` set |
+| 503 | Dependency unavailable; safe to retry with the same `Idempotency-Key` |
+
+`code` values are stable and documented; clients and agents branch on `code`,
+never on `detail`. Database constraint violations are translated to these
+codes by the repository layer; a raw database message never reaches a client.
+
+## 4.7 Concurrency and idempotency
+
+Per ADR-0008:
+
+- `GET` returns `ETag: "<version>"`. `PATCH` and custom methods require
+  `If-Match`; a mismatch is 412 and nothing changes.
+- Every `POST` and `PATCH` requires `Idempotency-Key` (8–255 characters,
+  a UUID is recommended). A repeat with the same body within 7 days returns
+  the original status and body with `Idempotent-Replayed: true`; a different
+  body is 422; a repeat while the first is still running is 409 with
+  `Retry-After`.
+- Keys are scoped to tenant, so two tenants cannot collide.
+
+## 4.8 Long-running operations
+
+Requests that may exceed 5 seconds (payment proposals, migrations,
+simulations, exports, period close) return **202** with an `Operation`
+(ADR-0012):
+
+```json
+{"id": "...", "kind": "payments.propose", "status": "running",
+ "progress": {"done": 41000, "total": 100000},
+ "resource": "/v1/payment-runs/...", "error": null}
+```
+
+`progress.total` is null while unknown; counts are integers. The resource the
+operation creates is visible immediately in an in-progress status (for
+example a payment run in `proposing`).
+
+`GET /v1/operations/{id}` polls; `POST /v1/operations/{id}:cancel` cancels
+where the operation supports it; completion is also published as an event.
+
+## 4.9 Security
+
+- OAuth 2.0 bearer tokens (OIDC) from the tenant's identity provider; the
+  gateway validates signature, issuer and audience. Agents and services use
+  client-credentials tokens tied to their `principal`.
+- Every operation in the spec declares its permission with
+  `x-permission: payables.invoice.post`. The generated router refuses to start
+  if a handler has no permission, and a test checks that every permission in
+  the spec exists in `ref.permission`.
+- Company access is checked on every read and write; resources outside the
+  caller's companies are 404, not 403, so ids cannot be probed.
+- Segregation of duties is checked on transitions (for example, the user who
+  created a payment run cannot release it).
+- Approval decisions (`:approve`, `:reject` on approval requests) require a
+  human principal; agent tokens are refused with `403 identity.agent_not_allowed`
+  and the database enforces the same rule (ADR-0010).
+
+## 4.10 Versioning and compatibility
+
+Within `/v1`, only additive changes are allowed: new resources, new optional
+fields, new optional parameters, new enum values, new error codes. Removing or
+renaming anything, making a field required or changing a type needs `/v2`,
+which runs side by side with `/v1` for at least 12 months. Deprecations are
+announced with the `Deprecation` and `Sunset` headers. The breaking-change
+check in CI enforces this.
+
+## 4.11 Limits and quotas
+
+| Limit | Default |
+|---|---|
+| Requests per tenant | 2,000/s sustained, burst 10,000 |
+| Requests per principal | 50/s (agents configurable per profile) |
+| Request body | 5 MB (documents go to `:upload` URLs in object storage) |
+| Lines per document | 10,000 (larger loads use import operations) |
+| `page_size` | 500 |
+
+Responses carry `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`.
+
+## 4.12 Events
+
+Every state change of a business document, and every change to master data
+or access that other contexts or external systems consume (partners, bank
+accounts, principals, roles, assignments, exchange rates), publishes a domain
+event through the outbox (ADR-0007). Settings maintained only through
+configuration (accounts, payment terms, number ranges, house banks, approval
+policies, custom field schemas) change only by activating a configuration
+version, so `ConfigurationActivated` covers them. Internal mechanics
+(integration message delivery states, agent session bookkeeping) publish no
+events. Drafts are private to their context, so a document's first
+event is its submission or release, not its creation as a draft; individual
+approval steps are recorded in the audit trail, and the request publishes
+`ApprovalRequested` and `ApprovalCompleted`.
+Events are CloudEvents 1.0 with `type` `com.example.erp.<context>.<event>.v1`
+(for example `com.example.erp.payables.supplier_invoice_posted.v1`),
+`subject` = resource id, and the extension attributes `tenantid`, `actorid`
+and `traceid`. Payloads carry ids and the changed facts, not whole
+aggregates. Delivery is at least once and ordered per resource; consumers
+deduplicate on `id` through their inbox table. External subscribers receive
+the same events through signed webhooks.
+
+## 4.13 Agents
+
+Agents use the public API like any client. Agent tools are generated from the
+OpenAPI operations (one tool per operation, with the operation's schema as the
+tool input), so agents cannot do anything the API does not allow, and every
+agent call carries the same permission, company and SoD checks and the same
+audit record. Operations marked `x-agent: false` (approval decisions, user
+and role administration) are never exposed as agent tools.
+
+## 4.14 Phase 1 resources
+
+| Context | Resources | Custom methods |
+|---|---|---|
+| tenancy | `legal-entities`, `org-units` | `:activate`, `:block`, `:unblock` |
+| identity | `principals`, `roles`, `role-permissions`, `role-assignments`, `company-access`, `sod-rules` | `:block`, `:end` |
+| configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
+| partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
+| ledger | `accounts`, `fiscal-periods`, `journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close` |
+| procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:cancel`, `:reverse` |
+| payables | `supplier-invoices`, `match-results` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
+| payments | `payment-runs`, `bank-files` | `:propose`, `:release`, `:reject`, `:transmit` |
+| workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
+| audit | `audit-events` | `:verify` |
+| integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |
+| platform | `operations` | `:cancel` |
