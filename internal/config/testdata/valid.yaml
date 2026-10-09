@@ -1,0 +1,309 @@
+version: 1
+companies:
+  - code: "1000"
+    name: Acme Corp US
+    currency: USD
+    country: US
+    fiscal_year_start_month: 1
+    chart_of_accounts:
+      - number: "100000"
+        name: Bank - Operating
+        type: asset
+      - number: "140000"
+        name: Input Tax
+        type: asset
+      - number: "211000"
+        name: Accounts Payable - Domestic
+        type: liability
+        vendor_reconciliation: true
+      - number: "300000"
+        name: Share Capital
+        type: equity
+      - number: "400000"
+        name: Sales Revenue
+        type: revenue
+      - number: "510000"
+        name: Raw Materials Consumed
+        type: expense
+      - number: "520000"
+        name: Office Supplies
+        type: expense
+      - number: "530000"
+        name: IT Services
+        type: expense
+      - number: "540000"
+        name: Freight Inbound
+        type: expense
+      - number: "610000"
+        name: Salaries and Wages
+        type: expense
+    account_determination:
+      ap_reconciliation: "211000"
+      input_tax: "140000"
+      bank: "100000"
+    tax_codes:
+      - code: V1
+        description: Input tax, standard rate
+        rate_percent: "8"
+        account: "140000"
+      - code: V0
+        description: Input tax exempt
+        rate_percent: "0"
+        account: "140000"
+    invoice_tolerance:
+      price_percent: 2
+      price_absolute: "5.00"
+    auto_post_limit: "50000.00"
+    gr_over_delivery_percent: 0
+    house_bank:
+      name: MAIN
+      iban: GB33BUKB20201555555555
+      bic: BUKBGB22
+  - code: "2000"
+    name: Acme GmbH
+    currency: EUR
+    country: DE
+    fiscal_year_start_month: 1
+    chart_of_accounts:
+      - number: "100000"
+        name: Bank - Operating
+        type: asset
+      - number: "140000"
+        name: Input Tax
+        type: asset
+      - number: "211000"
+        name: Accounts Payable - Domestic
+        type: liability
+        vendor_reconciliation: true
+      - number: "300000"
+        name: Share Capital
+        type: equity
+      - number: "400000"
+        name: Sales Revenue
+        type: revenue
+      - number: "510000"
+        name: Raw Materials Consumed
+        type: expense
+      - number: "520000"
+        name: Office Supplies
+        type: expense
+      - number: "530000"
+        name: IT Services
+        type: expense
+      - number: "540000"
+        name: Freight Inbound
+        type: expense
+      - number: "610000"
+        name: Salaries and Wages
+        type: expense
+    account_determination:
+      ap_reconciliation: "211000"
+      input_tax: "140000"
+      bank: "100000"
+    tax_codes:
+      - code: V1
+        description: Input tax, standard rate
+        rate_percent: "19"
+        account: "140000"
+      - code: V0
+        description: Input tax exempt
+        rate_percent: "0"
+        account: "140000"
+    invoice_tolerance:
+      price_percent: 2
+      price_absolute: "5.00"
+    auto_post_limit: "50000.00"
+    gr_over_delivery_percent: 0
+    house_bank:
+      name: MAIN
+      iban: DE89370400440532013000
+      bic: COBADEFFXXX
+payment_terms:
+  - key: NT14
+    description: Net 14 days
+    net_days: 14
+  - key: NT30
+    description: Net 30 days
+    net_days: 30
+  - key: NT45
+    description: Net 45 days
+    net_days: 45
+  - key: NT60
+    description: Net 60 days
+    net_days: 60
+purchasing:
+  requisition_approval:
+    - up_to: "10000.00"
+      steps:
+        - role: Z_PURCH_MGR
+          approvals: 1
+    - steps:
+        - role: Z_PURCH_MGR
+          approvals: 1
+        - role: process_owner
+          approvals: 1
+payments:
+  release_role: Z_TREASURY_MGR
+  release_approvals: 1
+  bank_change_hold_days: 5
+  vendor_approver_role: vendor_master_approver
+roles:
+  - name: Z_AP_CLERK
+    description: Accounts payable clerk
+    permissions:
+      - analytics.query
+      - invoice.capture
+      - invoice.post
+      - invoice.review
+  - name: Z_BUYER
+    description: Buyer
+    permissions:
+      - contract.manage
+      - po.create
+      - requisition.create
+  - name: Z_PURCH_MGR
+    description: Purchasing manager
+    permissions:
+      - requisition.approve
+  - name: Z_WAREHOUSE
+    description: Warehouse clerk
+    permissions:
+      - goods_receipt.post
+  - name: Z_VENDOR_MAINT
+    description: Vendor master maintenance
+    permissions:
+      - vendor.bank_change
+      - vendor.change
+      - vendor.create
+  - name: Z_TREASURY
+    description: Treasury clerk
+    permissions:
+      - payment.propose
+  - name: Z_TREASURY_MGR
+    description: Treasury manager
+    permissions:
+      - payment.release
+  - name: process_owner
+    description: Process owner P2P
+    permissions:
+      - config.approve
+      - requisition.approve
+  - name: controller
+    description: Financial controller
+    permissions:
+      - analytics.query
+      - config.approve
+  - name: solution_architect
+    description: Solution architect
+    permissions:
+      - config.activate
+      - config.approve
+  - name: vendor_master_approver
+    description: Master data approver
+    permissions:
+      - vendor.approve
+  - name: config_analyst
+    description: Proposes configuration changes
+    permissions:
+      - config.propose
+users:
+  - id: apclerk1
+    name: APCLERK1
+    roles:
+      - Z_AP_CLERK
+  - id: architect1
+    name: ARCHITECT1
+    roles:
+      - solution_architect
+  - id: buyer1
+    name: BUYER1
+    roles:
+      - Z_BUYER
+  - id: controller1
+    name: CONTROLLER1
+    roles:
+      - controller
+  - id: mdclerk1
+    name: MDCLERK1
+    roles:
+      - Z_VENDOR_MAINT
+  - id: mdmgr1
+    name: MDMGR1
+    roles:
+      - vendor_master_approver
+  - id: owner1
+    name: OWNER1
+    roles:
+      - process_owner
+  - id: purchmgr1
+    name: PURCHMGR1
+    roles:
+      - Z_PURCH_MGR
+  - id: super1
+    name: SUPER1
+    roles:
+      - Z_AP_CLERK
+  - id: treas1
+    name: TREAS1
+    roles:
+      - Z_TREASURY
+  - id: treasmgr1
+    name: TREASMGR1
+    roles:
+      - Z_TREASURY_MGR
+  - id: whclerk1
+    name: WHCLERK1
+    roles:
+      - Z_WAREHOUSE
+  - id: analyst1
+    name: Config Analyst
+    roles:
+      - config_analyst
+agents:
+  - id: agent:ap-exceptions
+    description: Investigates invoices that fail matching
+    permissions:
+      - invoice.hold
+      - invoice.review
+    autonomy: 0
+  - id: agent:invoice-capture
+    description: Reads supplier invoices from PDF and email
+    permissions:
+      - invoice.capture
+    autonomy: 0
+  - id: agent:configuration
+    description: Proposes configuration changes
+    permissions:
+      - config.propose
+    autonomy: 0
+  - id: agent:migration
+    description: Runs migration rehearsals and explains differences
+    permissions:
+      - migration.run
+    autonomy: 0
+  - id: agent:test
+    description: Builds and runs regression suites
+    permissions: []
+    autonomy: 0
+  - id: agent:analytics
+    description: Answers questions with on-demand dashboards
+    permissions:
+      - analytics.query
+    autonomy: 0
+sod_conflicts:
+  - - vendor.create
+    - payment.release
+  - - vendor.bank_change
+    - payment.release
+  - - invoice.post
+    - payment.release
+  - - payment.propose
+    - payment.release
+  - - requisition.create
+    - requisition.approve
+  - - vendor.change
+    - vendor.approve
+  - - config.propose
+    - config.approve
+output:
+  purchase_order_channel: email

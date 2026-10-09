@@ -79,3 +79,19 @@ func TestSegregationOfDuties(t *testing.T) {
 		t.Fatalf("conflicting identity must be denied, got %v", d)
 	}
 }
+
+func TestAuditReloadWithStructuredDetail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	l, _ := NewAuditLog(path)
+	type nested struct {
+		Zeta  []string `json:"zeta"`
+		Alpha int64    `json:"alpha"`
+	}
+	if _, err := l.Append("user:x", "analytics.query", "q1", "ok",
+		map[string]any{"query": nested{Zeta: []string{"a"}, Alpha: 9007199254740993}, "rows": 18}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewAuditLog(path); err != nil {
+		t.Fatalf("structured detail must verify after reload: %v", err)
+	}
+}

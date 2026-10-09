@@ -9,13 +9,40 @@ import (
 
 // Actions agents and users can request.
 const (
-	ActInvoicePost   = "invoice.post"
-	ActInvoiceHold   = "invoice.hold"
-	ActInvoiceReview = "invoice.review"
-	ActVendorCreate  = "vendor.create"
-	ActVendorBank    = "vendor.bank_change"
-	ActPaymentRun    = "payment.release"
+	ActInvoicePost    = "invoice.post"
+	ActInvoiceHold    = "invoice.hold"
+	ActInvoiceReview  = "invoice.review"
+	ActInvoiceCapture = "invoice.capture"
+	ActVendorCreate   = "vendor.create"
+	ActVendorChange   = "vendor.change"
+	ActVendorBank     = "vendor.bank_change"
+	ActVendorApprove  = "vendor.approve"
+	ActPaymentPropose = "payment.propose"
+	ActPaymentRun     = "payment.release"
+	ActRequisition    = "requisition.create"
+	ActRequisitionApp = "requisition.approve"
+	ActPOCreate       = "po.create"
+	ActContractManage = "contract.manage"
+	ActGoodsReceipt   = "goods_receipt.post"
+	ActConfigPropose  = "config.propose"
+	ActConfigApprove  = "config.approve"
+	ActConfigActivate = "config.activate"
+	ActMigrationRun   = "migration.run"
+	ActAnalyticsQuery = "analytics.query"
 )
+
+// Permissions lists every action the platform knows; configuration that
+// grants anything else is rejected.
+var Permissions = []string{
+	ActInvoicePost, ActInvoiceHold, ActInvoiceReview, ActInvoiceCapture,
+	ActVendorCreate, ActVendorChange, ActVendorBank, ActVendorApprove,
+	ActPaymentPropose, ActPaymentRun, ActRequisition, ActRequisitionApp, ActPOCreate,
+	ActContractManage, ActGoodsReceipt, ActConfigPropose, ActConfigApprove, ActConfigActivate,
+	ActMigrationRun, ActAnalyticsQuery,
+}
+
+// ApprovalPermissions may only be held by people, never by agents.
+var ApprovalPermissions = []string{ActRequisitionApp, ActVendorApprove, ActPaymentRun, ActConfigApprove, ActConfigActivate}
 
 // Autonomy levels, from the plan: agents start low and earn more.
 type Autonomy int
@@ -63,13 +90,9 @@ type Policy struct {
 
 func DefaultPolicy() Policy {
 	return Policy{
-		AutoLimit:   5_000_000, // 50,000.00
-		AlwaysHuman: []string{ActVendorBank, ActPaymentRun},
-		SoDConflicts: [][2]string{
-			{ActVendorCreate, ActPaymentRun},
-			{ActVendorBank, ActPaymentRun},
-			{ActInvoicePost, ActPaymentRun},
-		},
+		AutoLimit:    5_000_000, // 50,000.00
+		AlwaysHuman:  []string{ActVendorBank, ActPaymentRun},
+		SoDConflicts: DefaultSoDConflicts(),
 	}
 }
 
@@ -105,4 +128,18 @@ func (p Policy) Decide(id Identity, action string, amount money.Minor) Decision 
 		}
 	}
 	return Decision{Allow, "within policy"}
+}
+
+// DefaultSoDConflicts are the segregation-of-duties pairs every
+// configuration starts from.
+func DefaultSoDConflicts() [][2]string {
+	return [][2]string{
+		{ActVendorCreate, ActPaymentRun},
+		{ActVendorBank, ActPaymentRun},
+		{ActInvoicePost, ActPaymentRun},
+		{ActPaymentPropose, ActPaymentRun},
+		{ActRequisition, ActRequisitionApp},
+		{ActVendorChange, ActVendorApprove},
+		{ActConfigPropose, ActConfigApprove},
+	}
 }

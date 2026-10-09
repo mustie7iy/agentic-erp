@@ -24,8 +24,8 @@ against the client's licensed and activated scope during discovery.
 | Capability | SAP equivalent | Approach | Phase | Status |
 |---|---|---|---|---|
 | General ledger and universal journal | FI-GL · ACDOCA | Native core | 0 | Done |
-| Accounts payable | FI-AP | Native core | 1 | Partly built |
-| Payments and bank communication | F110 · BCM | Native core | 1 | Planned |
+| Accounts payable | FI-AP | Native core | 1 | Done |
+| Payments and bank communication | F110 · BCM | Native core | 1 | Done |
 | Accounts receivable | FI-AR | Native core | 3 | Planned |
 | Asset accounting | FI-AA | Native core | 2 | Planned |
 | Bank accounting and statement reconciliation | FI-BL · FEBAN | Agent-native | 2 | Planned |
@@ -60,13 +60,13 @@ against the client's licensed and activated scope during discovery.
 
 | Capability | SAP equivalent | Approach | Phase | Status |
 |---|---|---|---|---|
-| Purchase requisitions and approvals | MM-PUR · ME51N | Native core | 1 | Planned |
-| Purchase orders | MM-PUR · ME21N | Native core | 1 | Partly built |
-| Contracts and scheduling agreements | Outline agreements | Native core | 1 | Planned |
-| Goods receipt | MIGO · MSEG 101 | Native core | 1 | Partly built |
+| Purchase requisitions and approvals | MM-PUR · ME51N | Native core | 1 | Done |
+| Purchase orders | MM-PUR · ME21N | Native core | 1 | Done |
+| Contracts and scheduling agreements | Outline agreements | Native core | 1 | Done |
+| Goods receipt | MIGO · MSEG 101 | Native core | 1 | Done |
 | Invoice verification and three-way match | MM-IV · MIRO | Native core | 1 | Done |
-| Invoice capture from PDF and email | VIM · OCR | Agent-native | 1 | Planned |
-| Supplier onboarding and management | Ariba SLP · Business Partner | Agent-native | 1 | Partly built |
+| Invoice capture from PDF and email | VIM · OCR | Agent-native | 1 | Done |
+| Supplier onboarding and management | Ariba SLP · Business Partner | Agent-native | 1 | Done |
 | Sourcing, RFQ and bid analysis | Ariba Sourcing | Agent-native | 4 | Planned |
 | Catalogs and guided buying | Ariba Guided Buying | Integrate | 4 | Planned |
 | Supplier network (cXML, EDI) | Ariba Network | Integrate | 4 | Planned |
@@ -158,9 +158,9 @@ against the client's licensed and activated scope during discovery.
 
 | Capability | SAP equivalent | Approach | Phase | Status |
 |---|---|---|---|---|
-| Business partner model | Business Partner | Native core | 1 | Partly built |
-| Master data governance workflows | MDG | Agent-native | 1 | Planned |
-| Data quality and deduplication | Information Steward | Agent-native | 1 | Partly built |
+| Business partner model | Business Partner | Native core | 1 | Done |
+| Master data governance workflows | MDG | Agent-native | 1 | Done |
+| Data quality and deduplication | Information Steward | Agent-native | 1 | Done |
 | Archiving and data retention | ILM | Native core | 9 | Planned |
 
 ### GRC and security (6)
@@ -168,8 +168,8 @@ against the client's licensed and activated scope during discovery.
 | Capability | SAP equivalent | Approach | Phase | Status |
 |---|---|---|---|---|
 | Audit trail and audit management | Audit Management | Native core | 0 | Done |
-| Access control and segregation of duties | GRC Access Control | Native core | 1 | Partly built |
-| Roles and authorizations | PFCG · IAG | Agent-native | 1 | Planned |
+| Access control and segregation of duties | GRC Access Control | Native core | 1 | Done |
+| Roles and authorizations | PFCG · IAG | Agent-native | 1 | Done |
 | Process controls and continuous monitoring | GRC Process Control | Agent-native | 9 | Planned |
 | Risk management | GRC Risk Management | Agent-native | 9 | Planned |
 | Data privacy (blocking, deletion) | ILM · DPP | Native core | 9 | Planned |
@@ -178,12 +178,12 @@ against the client's licensed and activated scope during discovery.
 
 | Capability | SAP equivalent | Approach | Phase | Status |
 |---|---|---|---|---|
-| On-demand reports and dashboards | Embedded analytics · Analytics Cloud stories · ALV reports | Agent-native | 2 | Planned |
-| Semantic layer and governed metrics | CDS analytical views · BW InfoObjects | Native core | 2 | Planned |
-| Analytical store | BW/4HANA · Datasphere | Native core | 2 | Planned |
+| On-demand reports and dashboards | Embedded analytics · Analytics Cloud stories · ALV reports | Agent-native | 2 | Partly built |
+| Semantic layer and governed metrics | CDS analytical views · BW InfoObjects | Native core | 2 | Partly built |
+| Analytical store | BW/4HANA · Datasphere | Native core | 2 | Partly built |
 | Drill-down and ad-hoc analysis | Analysis for Office · BEx | Agent-native | 2 | Planned |
-| Saved, scheduled and shared reports | SAC scheduling · report distribution | Agent-native | 2 | Planned |
-| Export to Excel and PDF | Analysis for Office · broadcasting | Native core | 2 | Planned |
+| Saved, scheduled and shared reports | SAC scheduling · report distribution | Agent-native | 2 | Partly built |
+| Export to Excel and PDF | Analysis for Office · broadcasting | Native core | 2 | Partly built |
 | Proactive insights and anomaly alerts | Smart Insights · SAC alerts | Agent-native | 3 | Planned |
 | Forecasting and what-if analysis | SAC Predictive · Smart Predict | Agent-native | 9 | Planned |
 | Process mining | Signavio | Agent-native | 2 | Planned |
@@ -192,14 +192,14 @@ against the client's licensed and activated scope during discovery.
 
 | Capability | SAP equivalent | Approach | Phase | Status |
 |---|---|---|---|---|
-| Enterprise structure configuration | IMG enterprise structure | Agent-native | 1 | Planned |
-| Workflow and approvals | Flexible Workflow | Native core | 1 | Partly built |
-| Output management (forms, email, EDI) | Output Management · Adobe Forms | Agent-native | 1 | Planned |
+| Enterprise structure configuration | IMG enterprise structure | Agent-native | 1 | Done |
+| Workflow and approvals | Flexible Workflow | Native core | 1 | Done |
+| Output management (forms, email, EDI) | Output Management · Adobe Forms | Agent-native | 1 | Done |
 | Integration (APIs, IDoc, EDI, events) | Integration Suite · PI/PO | Agent-native | 3 | Planned |
 | Extensibility (custom fields, rules, apps) | Key-user extensibility · BTP · ABAP | Native core | 2 | Planned |
 | Localization and country versions | Country versions | Agent-native | 2 | Planned |
-| Data migration | Migration Cockpit · LTMC | Agent-native | 0 | Partly built |
-| Test automation | Cloud ALM · Tricentis | Agent-native | 1 | Planned |
+| Data migration | Migration Cockpit · LTMC | Agent-native | 0 | Done |
+| Test automation | Cloud ALM · Tricentis | Agent-native | 1 | Done |
 | Application lifecycle and operations | Solution Manager · Cloud ALM · Basis | Agent-native | 4 | Planned |
 | Assistant | Joule | Agent-native | 1 | Partly built |
 | User interface and mobile | Fiori | Native core | 1 | Planned |

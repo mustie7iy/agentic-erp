@@ -45,7 +45,7 @@ type EntityMapping struct {
 // DefaultEntities covers the tables in Extract with standard S/4HANA APIs.
 var DefaultEntities = []EntityMapping{
 	{Table: "T001", Service: "API_COMPANYCODE_SRV", Entity: "A_CompanyCode", CompanyField: "CompanyCode",
-		Fields: map[string]string{"BUKRS": "CompanyCode", "BUTXT": "CompanyCodeName", "WAERS": "Currency"}},
+		Fields: map[string]string{"BUKRS": "CompanyCode", "BUTXT": "CompanyCodeName", "WAERS": "Currency", "LAND1": "Country"}},
 	{Table: "SKB1", Service: "API_GLACCOUNTINCOMPANYCODE_SRV", Entity: "A_GLAccountInCompanyCode", CompanyField: "CompanyCode",
 		Fields: map[string]string{"BUKRS": "CompanyCode", "SAKNR": "GLAccount", "TXT50": "GLAccountLongName",
 			"XBILK": "IsBalanceSheetAccount", "MITKZ": "ReconciliationAccountType"}},
@@ -102,14 +102,11 @@ func (o *ODataSource) Extract(ctx context.Context, scope Scope) (*Extract, error
 		}
 	}
 	// Assemble via JSON so each SAP field lands in its struct field by tag.
-	data, err := json.Marshal(tables)
-	if err != nil {
-		return nil, err
-	}
+	// Every row is a map of strings and every Extract field is a slice of
+	// string-only structs, so this round trip cannot fail.
+	data, _ := json.Marshal(tables)
 	var e Extract
-	if err := json.Unmarshal(data, &e); err != nil {
-		return nil, err
-	}
+	_ = json.Unmarshal(data, &e)
 	// Supplier-level tables are fetched unfiltered; narrow them to the scope.
 	return FilterScope(&e, scope), nil
 }

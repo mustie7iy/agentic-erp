@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/core"
 	"github.com/mustie7iy/agentic-erp/internal/governance"
 )
@@ -20,6 +21,22 @@ type Service struct {
 	InputTaxAccount map[string]string
 	Tolerance       core.MatchTolerance
 	Today           func() string
+	// Config, when set, supplies per-company tolerances, tax accounts and
+	// auto-post limits from the active configuration instead of the defaults.
+	Config *config.Config
+}
+
+// rules returns the matching tolerance, input tax account and policy for a company.
+func (svc *Service) rules(company string) (core.MatchTolerance, string, governance.Policy, error) {
+	if svc.Config == nil {
+		return svc.Tolerance, svc.InputTaxAccount[company], svc.Policy, nil
+	}
+	set, err := svc.Config.Settings(company)
+	if err != nil {
+		return core.MatchTolerance{}, "", governance.Policy{}, err
+	}
+	pol, err := svc.Config.Policy(company)
+	return set.Tolerance, set.InputTax, pol, err
 }
 
 func NewService(s *core.Store, audit *governance.AuditLog) *Service {
@@ -41,7 +58,11 @@ func (svc *Service) Match(invoiceID string) (core.MatchResult, error) {
 	if inv == nil {
 		return core.MatchResult{}, fmt.Errorf("invoice %s not found", invoiceID)
 	}
-	return svc.Store.ThreeWayMatch(inv, svc.Tolerance), nil
+	tol, _, _, err := svc.rules(inv.CompanyCode)
+	if err != nil {
+		return core.MatchResult{}, err
+	}
+	return svc.Store.ThreeWayMatch(inv, tol), nil
 }
 
 // PostResult reports what happened to a posting request.
@@ -62,7 +83,14 @@ func (svc *Service) PostInvoice(id governance.Identity, invoiceID, note string) 
 	if inv == nil {
 		return PostResult{}, fmt.Errorf("invoice %s not found", invoiceID)
 	}
-	match := svc.Store.ThreeWayMatch(inv, svc.Tolerance)
+	if !open(inv) {
+		return PostResult{}, fmt.Errorf("invoice %s is %s and cannot be posted", invoiceID, inv.Status)
+	}
+	tol, inputTax, policy, err := svc.rules(inv.CompanyCode)
+	if err != nil {
+		return PostResult{}, err
+	}
+	match := svc.Store.ThreeWayMatch(inv, tol)
 	detail := map[string]any{"gross": inv.GrossAmount, "match": match.Summary(), "note": note}
 
 	var res PostResult
@@ -70,13 +98,13 @@ func (svc *Service) PostInvoice(id governance.Identity, invoiceID, note string) 
 	case !match.Clean && id.Kind != "human":
 		res = PostResult{Outcome: governance.Escalate, Reason: "match exceptions need human review: " + match.Summary()}
 	default:
-		d := svc.Policy.Decide(id, governance.ActInvoicePost, inv.GrossAmount)
+		d := policy.Decide(id, governance.ActInvoicePost, inv.GrossAmount)
 		res = PostResult{Outcome: d.Outcome, Reason: d.Reason}
 	}
 
 	switch res.Outcome {
 	case governance.Allow:
-		je, err := svc.Store.PostInvoice(invoiceID, svc.InputTaxAccount[inv.CompanyCode], svc.Today())
+		je, err := svc.Store.PostInvoice(invoiceID, inputTax, svc.Today())
 		if err != nil {
 			svc.audit(id.ID, governance.ActInvoicePost, invoiceID, "error", map[string]any{"error": err.Error()})
 			return PostResult{}, err
@@ -103,14 +131,23 @@ func (svc *Service) Escalate(id governance.Identity, invoiceID, reason, recommen
 	if inv == nil {
 		return "", fmt.Errorf("invoice %s not found", invoiceID)
 	}
+	if !open(inv) {
+		return "", fmt.Errorf("invoice %s is %s; only parked or held invoices can be escalated", invoiceID, inv.Status)
+	}
 	taskID := svc.openTask(inv, reason, recommendation, id.ID)
 	svc.audit(id.ID, governance.ActInvoiceReview, invoiceID, "escalated",
 		map[string]any{"task": taskID, "reason": reason, "recommendation": recommendation})
 	return taskID, nil
 }
 
+// open reports whether an invoice is still waiting for a decision.
+func open(inv *core.SupplierInvoice) bool {
+	return inv.Status == core.InvoiceParked || inv.Status == core.InvoiceOnHold
+}
+
 // openTask holds the invoice and creates (or updates) its open review task.
-// Caller holds the store lock.
+// Caller holds the store lock and has checked the invoice is open, so the
+// hold cannot fail.
 func (svc *Service) openTask(inv *core.SupplierInvoice, reason, recommendation, createdBy string) string {
 	_ = svc.Store.HoldInvoice(inv.ID, reason)
 	for _, tid := range core.SortedKeys(svc.Store.Tasks) {
@@ -137,6 +174,9 @@ func (svc *Service) openTask(inv *core.SupplierInvoice, reason, recommendation, 
 func (svc *Service) Decide(human governance.Identity, taskID string, approve bool, comment string) (PostResult, error) {
 	if human.Kind != "human" {
 		return PostResult{}, fmt.Errorf("only humans can close review tasks")
+	}
+	if !human.Can(governance.ActInvoiceReview) {
+		return PostResult{}, fmt.Errorf("%s lacks %s", human.ID, governance.ActInvoiceReview)
 	}
 	svc.Store.Mu.Lock()
 	t := svc.Store.Tasks[taskID]

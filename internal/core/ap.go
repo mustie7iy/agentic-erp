@@ -72,8 +72,11 @@ func (s *Store) ThreeWayMatch(inv *SupplierInvoice, tol MatchTolerance) MatchRes
 	if expected := res.NetAmount + inv.TaxAmount; expected != inv.GrossAmount {
 		add(IssueTotalMismatch, 0, "gross %s does not equal lines %s + tax %s", inv.GrossAmount, res.NetAmount, inv.TaxAmount)
 	}
-	for _, id := range SortedKeys(s.Invoices) {
+	for _, id := range s.idx().byVendor[inv.VendorID] {
 		other := s.Invoices[id]
+		if other == nil {
+			continue
+		}
 		if other.ID != inv.ID && other.VendorID == inv.VendorID && other.Status != InvoiceRejected &&
 			normalizeRef(other.VendorReference) == normalizeRef(inv.VendorReference) {
 			add(IssueDuplicate, 0, "vendor reference %q already used by invoice %s (%s)", inv.VendorReference, other.ID, other.Status)
@@ -134,8 +137,9 @@ func (po *PurchaseOrder) line(no int) *POLine {
 // invoicedQty sums quantities already posted against each PO line.
 func (s *Store) invoicedQty(poID, excludeID string) map[int]money.Qty {
 	out := map[int]money.Qty{}
-	for _, inv := range s.Invoices {
-		if inv.ID == excludeID || inv.POID != poID || inv.Status != InvoicePosted {
+	for _, id := range s.idx().byPO[poID] {
+		inv := s.Invoices[id]
+		if inv == nil || inv.ID == excludeID || inv.POID != poID || inv.Status != InvoicePosted {
 			continue
 		}
 		for _, l := range inv.Lines {

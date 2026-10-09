@@ -37,6 +37,10 @@ type Vendor struct {
 	TaxID            string `json:"taxId,omitempty"`
 	BankAccount      string `json:"bankAccount,omitempty"`
 	PaymentTermsDays int    `json:"paymentTermsDays"`
+	PaymentTerms     string `json:"paymentTerms,omitempty"`
+	// BankChangedAt is the date of the last approved bank change; payments
+	// are held for a configured number of days after it.
+	BankChangedAt string `json:"bankChangedAt,omitempty"`
 	// APAccount is the reconciliation account per company code.
 	APAccount map[string]string `json:"apAccount"`
 	Blocked   bool              `json:"blocked,omitempty"`
@@ -60,6 +64,10 @@ type PurchaseOrder struct {
 	Currency    string   `json:"currency"`
 	OrderDate   string   `json:"orderDate"`
 	Lines       []POLine `json:"lines"`
+	// Set for purchase orders created in the platform (not migrated).
+	RequisitionID string `json:"requisitionId,omitempty"`
+	ContractID    string `json:"contractId,omitempty"`
+	CreatedBy     string `json:"createdBy,omitempty"`
 }
 
 type GoodsReceipt struct {
@@ -68,6 +76,9 @@ type GoodsReceipt struct {
 	POLineNo    int       `json:"poLineNo"`
 	Quantity    money.Qty `json:"quantity"`
 	PostingDate string    `json:"postingDate"`
+	// MovementType follows SAP: 101 receipt, 102 reversal (negative quantity).
+	MovementType string `json:"movementType,omitempty"`
+	PostedBy     string `json:"postedBy,omitempty"`
 }
 
 type InvoiceLine struct {
@@ -141,4 +152,162 @@ type ReviewTask struct {
 	Recommendation string     `json:"recommendation,omitempty"`
 	CreatedBy      string     `json:"createdBy"`
 	Status         TaskStatus `json:"status"`
+}
+
+type RequisitionStatus string
+
+const (
+	ReqPending   RequisitionStatus = "pending_approval"
+	ReqApproved  RequisitionStatus = "approved"
+	ReqRejected  RequisitionStatus = "rejected"
+	ReqCancelled RequisitionStatus = "cancelled"
+	ReqOrdered   RequisitionStatus = "ordered"
+)
+
+type RequisitionLine struct {
+	LineNo      int         `json:"lineNo"`
+	Material    string      `json:"material,omitempty"`
+	Description string      `json:"description"`
+	Quantity    money.Qty   `json:"quantity"`
+	UnitPrice   money.Minor `json:"unitPrice"` // estimate; contract prices win
+	GLAccount   string      `json:"glAccount"`
+}
+
+// Requisition is a request to buy, approved before it becomes a PO (SAP EBAN).
+type Requisition struct {
+	ID          string            `json:"id"`
+	CompanyCode string            `json:"companyCode"`
+	Requester   string            `json:"requester"`
+	VendorID    string            `json:"vendorId,omitempty"`
+	ContractID  string            `json:"contractId,omitempty"`
+	Currency    string            `json:"currency"`
+	NeededBy    string            `json:"neededBy,omitempty"`
+	Lines       []RequisitionLine `json:"lines"`
+	Status      RequisitionStatus `json:"status"`
+	WorkflowID  string            `json:"workflowId"`
+	POID        string            `json:"poId,omitempty"`
+	CreatedAt   string            `json:"createdAt"`
+}
+
+// Total is the estimated value of the requisition.
+func (r *Requisition) Total() money.Minor {
+	var t money.Minor
+	for _, l := range r.Lines {
+		t += money.Extend(l.Quantity, l.UnitPrice, 1)
+	}
+	return t
+}
+
+type ContractItem struct {
+	Material    string      `json:"material"`
+	Description string      `json:"description"`
+	UnitPrice   money.Minor `json:"unitPrice"`
+	PriceUnit   int64       `json:"priceUnit"`
+	GLAccount   string      `json:"glAccount"`
+}
+
+// Contract is an outline agreement with agreed prices and a target value (SAP ME31K).
+type Contract struct {
+	ID            string         `json:"id"`
+	CompanyCode   string         `json:"companyCode"`
+	VendorID      string         `json:"vendorId"`
+	Currency      string         `json:"currency"`
+	ValidFrom     string         `json:"validFrom"`
+	ValidTo       string         `json:"validTo"`
+	TargetValue   money.Minor    `json:"targetValue"`
+	ReleasedValue money.Minor    `json:"releasedValue"`
+	Items         []ContractItem `json:"items"`
+	CreatedBy     string         `json:"createdBy"`
+}
+
+type ChangeKind string
+
+const (
+	VendorCreate     ChangeKind = "vendor_create"
+	VendorBankChange ChangeKind = "vendor_bank_change"
+	VendorUnblock    ChangeKind = "vendor_unblock"
+)
+
+type ChangeStatus string
+
+const (
+	ChangePending  ChangeStatus = "pending"
+	ChangeApplied  ChangeStatus = "applied"
+	ChangeRejected ChangeStatus = "rejected"
+)
+
+// MasterDataChange is a governed change to supplier master data (SAP MDG):
+// it takes effect only after a different person approves it.
+type MasterDataChange struct {
+	ID             string       `json:"id"`
+	Kind           ChangeKind   `json:"kind"`
+	VendorID       string       `json:"vendorId"`
+	Proposed       *Vendor      `json:"proposed,omitempty"`
+	NewBankAccount string       `json:"newBankAccount,omitempty"`
+	Reason         string       `json:"reason,omitempty"`
+	Warnings       []string     `json:"warnings,omitempty"`
+	Requester      string       `json:"requester"`
+	WorkflowID     string       `json:"workflowId"`
+	Status         ChangeStatus `json:"status"`
+	CreatedAt      string       `json:"createdAt"`
+	AppliedAt      string       `json:"appliedAt,omitempty"`
+}
+
+type RunStatus string
+
+const (
+	RunProposed RunStatus = "proposed"
+	RunReleased RunStatus = "released"
+	RunRejected RunStatus = "rejected"
+)
+
+type PaidItem struct {
+	JournalEntryID string      `json:"journalEntryId"`
+	Line           int         `json:"line"`
+	Reference      string      `json:"reference,omitempty"`
+	DueDate        string      `json:"dueDate"`
+	Amount         money.Minor `json:"amount"` // positive: what is paid
+}
+
+type VendorPayment struct {
+	VendorID    string      `json:"vendorId"`
+	VendorName  string      `json:"vendorName"`
+	BankAccount string      `json:"bankAccount"`
+	Items       []PaidItem  `json:"items"`
+	Total       money.Minor `json:"total"`
+}
+
+type Exclusion struct {
+	VendorID string      `json:"vendorId"`
+	Reason   string      `json:"reason"`
+	Amount   money.Minor `json:"amount"`
+}
+
+// PaymentRun is a proposal of what to pay, released by a different person
+// before anything is posted (SAP F110 with bank approval).
+type PaymentRun struct {
+	ID              string          `json:"id"`
+	CompanyCode     string          `json:"companyCode"`
+	RunDate         string          `json:"runDate"`
+	ProposedBy      string          `json:"proposedBy"`
+	Status          RunStatus       `json:"status"`
+	Payments        []VendorPayment `json:"payments"`
+	Excluded        []Exclusion     `json:"excluded"`
+	Total           money.Minor     `json:"total"`
+	WorkflowID      string          `json:"workflowId"`
+	JournalEntryIDs []string        `json:"journalEntryIds,omitempty"`
+	BankFile        string          `json:"bankFile,omitempty"`
+	ReleasedAt      string          `json:"releasedAt,omitempty"`
+}
+
+// OutputDocument is a message sent to a business partner (SAP output management).
+type OutputDocument struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"` // purchase_order
+	Reference string `json:"reference"`
+	Channel   string `json:"channel"`
+	Recipient string `json:"recipient"`
+	Subject   string `json:"subject"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"createdAt"`
 }

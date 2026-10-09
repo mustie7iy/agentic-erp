@@ -1,0 +1,112 @@
+# Governed metric definitions (configuration as code).
+#
+# Every on-demand report and dashboard is computed from these definitions, so
+# "revenue" means the same thing in every answer. Owned by Finance; changes go
+# through the configuration approval loop as tier 2 changes.
+version: 1
+
+calendar:
+  fiscal_year_start_month: 1
+
+# What everyday words mean when a question doesn't name a metric exactly.
+defaults:
+  sales: revenue
+  spend: purchase_order_value
+  profit: operating_profit
+
+dimensions:
+  - {name: company, label: Company code}
+  - {name: fiscal_year, label: Fiscal year}
+  - {name: fiscal_quarter, label: Fiscal quarter, description: "1-4"}
+  - {name: fiscal_month, label: Fiscal month, description: "1-12 within the fiscal year"}
+  - {name: posting_date, label: Posting date}
+  - {name: account, label: G/L account}
+  - {name: account_name, label: G/L account name}
+  - {name: document_type, label: Document type, description: "SAP document type, e.g. RE invoice, KZ payment, SA general"}
+  - {name: vendor, label: Vendor}
+  - {name: vendor_name, label: Vendor name}
+  - {name: invoice_status, label: Invoice status, description: "parked, on_hold, posted, rejected"}
+
+metrics:
+  - name: revenue
+    label: Revenue
+    description: Net sales recognized in the general ledger (credits to revenue accounts, net of reversals).
+    synonyms: [sales, net sales, turnover, income]
+    type: money
+    source: gl_lines
+    aggregate: sum
+    sign: -1
+    filter: {account_type: [revenue]}
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type]
+
+  - name: expenses
+    label: Operating expenses
+    description: Debits to expense accounts in the general ledger.
+    synonyms: [costs, opex, expenditure]
+    type: money
+    source: gl_lines
+    aggregate: sum
+    sign: 1
+    filter: {account_type: [expense]}
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type]
+
+  - name: operating_profit
+    label: Operating profit
+    description: Revenue minus operating expenses.
+    synonyms: [profit, operating income]
+    type: money
+    derived: {op: subtract, left: revenue, right: expenses}
+
+  - name: operating_margin
+    label: Operating margin
+    description: Operating profit as a share of revenue.
+    synonyms: [margin, profit margin]
+    type: ratio
+    derived: {op: divide, left: operating_profit, right: revenue}
+
+  - name: purchase_order_value
+    label: Purchase order value
+    description: Net value of purchase order lines by order date.
+    synonyms: [spend, purchasing, procurement spend, PO value]
+    type: money
+    source: po_lines
+    aggregate: sum
+    sign: 1
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, vendor, vendor_name, account, account_name]
+
+  - name: purchase_order_count
+    label: Purchase orders
+    description: Number of purchase orders by order date.
+    type: count
+    source: po_lines
+    aggregate: count_distinct
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, vendor, vendor_name]
+
+  - name: invoice_value
+    label: Supplier invoice value
+    description: Gross amount of supplier invoices by invoice date, any status.
+    synonyms: [invoiced, AP invoices, supplier invoices]
+    type: money
+    source: ap_invoices
+    aggregate: sum
+    sign: 1
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, vendor, vendor_name, invoice_status]
+
+  - name: invoice_count
+    label: Supplier invoices
+    description: Number of supplier invoices by invoice date, any status.
+    type: count
+    source: ap_invoices
+    aggregate: count_distinct
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, vendor, vendor_name, invoice_status]
+
+  - name: open_payables
+    label: Open payables
+    description: Uncleared items on vendor reconciliation accounts (what is owed to suppliers).
+    synonyms: [payables, AP balance, owed to suppliers]
+    type: money
+    source: gl_lines
+    aggregate: sum
+    sign: -1
+    filter: {vendor_recon: ["true"], cleared: ["false"]}
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, vendor, vendor_name]

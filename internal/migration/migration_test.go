@@ -142,7 +142,7 @@ func TestMappingDefaults(t *testing.T) {
 	if d, _ := m.paymentDays("NT45"); d != 45 {
 		t.Errorf("NT45 -> %d", d)
 	}
-	if typ, _ := m.accountType("211000"); typ != core.Liability {
+	if typ, _ := m.AccountType("211000"); typ != core.Liability {
 		t.Errorf("211000 -> %s", typ)
 	}
 	if alpha("0000100001") != "100001" || alpha("0000") != "0" {

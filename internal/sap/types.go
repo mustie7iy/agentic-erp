@@ -8,6 +8,7 @@ type T001 struct {
 	BUKRS string `json:"BUKRS"`
 	BUTXT string `json:"BUTXT"`
 	WAERS string `json:"WAERS"`
+	LAND1 string `json:"LAND1,omitempty"`
 }
 
 // SKB1 - G/L account master per company code, flattened with SKA1/SKAT.
@@ -121,6 +122,66 @@ type ACDOCA struct {
 	AUGBL  string `json:"AUGBL"` // clearing document, empty if open
 }
 
+// --- Customizing (configuration) tables, read by the configuration agent ---
+
+// T052 - payment terms.
+type T052 struct {
+	ZTERM string `json:"ZTERM"`
+	ZTAG1 string `json:"ZTAG1"` // days net
+	TEXT1 string `json:"TEXT1"`
+}
+
+// T007A - tax codes (flattened with the condition rate and G/L account).
+type T007A struct {
+	BUKRS string `json:"BUKRS"`
+	MWSKZ string `json:"MWSKZ"`
+	TEXT1 string `json:"TEXT1"`
+	KBETR string `json:"KBETR"` // rate in percent
+	KONTS string `json:"KONTS"` // tax account
+}
+
+// T030 - automatic account determination (KTOSL transaction key, e.g. VST input tax).
+type T030 struct {
+	BUKRS string `json:"BUKRS"`
+	KTOSL string `json:"KTOSL"`
+	KONTS string `json:"KONTS"`
+}
+
+// T169G - invoice verification tolerance limits (TOLSL PP = price variance).
+type T169G struct {
+	BUKRS string `json:"BUKRS"`
+	TOLSL string `json:"TOLSL"`
+	PROZ  string `json:"PROZ"`  // percent
+	WERTO string `json:"WERTO"` // absolute upper limit, company currency
+}
+
+// T012K - house bank accounts.
+type T012K struct {
+	BUKRS string `json:"BUKRS"`
+	HBKID string `json:"HBKID"`
+	HKONT string `json:"HKONT"` // G/L account of the bank
+	IBAN  string `json:"IBAN"`
+	SWIFT string `json:"SWIFT"`
+}
+
+// AGR_DEFINE - roles.
+type AGRDefine struct {
+	AGR_NAME string `json:"AGR_NAME"`
+	TEXT     string `json:"TEXT"`
+}
+
+// AGR_TCODES - transactions in a role.
+type AGRTcode struct {
+	AGR_NAME string `json:"AGR_NAME"`
+	TCODE    string `json:"TCODE"`
+}
+
+// AGR_USERS - role assignments.
+type AGRUser struct {
+	AGR_NAME string `json:"AGR_NAME"`
+	UNAME    string `json:"UNAME"`
+}
+
 // Extract is one consistent snapshot of the tables needed for migration.
 type Extract struct {
 	T001   []T001   `json:"T001"`
@@ -134,6 +195,15 @@ type Extract struct {
 	RBKP   []RBKP   `json:"RBKP"`
 	RSEG   []RSEG   `json:"RSEG"`
 	ACDOCA []ACDOCA `json:"ACDOCA"`
+
+	T052       []T052      `json:"T052,omitempty"`
+	T007A      []T007A     `json:"T007A,omitempty"`
+	T030       []T030      `json:"T030,omitempty"`
+	T169G      []T169G     `json:"T169G,omitempty"`
+	T012K      []T012K     `json:"T012K,omitempty"`
+	AGR_DEFINE []AGRDefine `json:"AGR_DEFINE,omitempty"`
+	AGR_TCODES []AGRTcode  `json:"AGR_TCODES,omitempty"`
+	AGR_USERS  []AGRUser   `json:"AGR_USERS,omitempty"`
 }
 
 // Counts returns row counts per table, for logs and reconciliation.
@@ -142,5 +212,7 @@ func (e *Extract) Counts() map[string]int {
 		"T001": len(e.T001), "SKB1": len(e.SKB1), "LFA1": len(e.LFA1), "LFB1": len(e.LFB1),
 		"LFBK": len(e.LFBK), "EKKO": len(e.EKKO), "EKPO": len(e.EKPO), "MSEG": len(e.MSEG),
 		"RBKP": len(e.RBKP), "RSEG": len(e.RSEG), "ACDOCA": len(e.ACDOCA),
+		"T052": len(e.T052), "T007A": len(e.T007A), "T030": len(e.T030), "T169G": len(e.T169G),
+		"T012K": len(e.T012K), "AGR_DEFINE": len(e.AGR_DEFINE), "AGR_TCODES": len(e.AGR_TCODES), "AGR_USERS": len(e.AGR_USERS),
 	}
 }

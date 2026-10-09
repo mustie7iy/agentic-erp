@@ -30,12 +30,39 @@ func Load(s *core.Store, ds *Dataset) []Issue {
 		s.GoodsReceipts[g.ID] = g
 	}
 	for _, inv := range ds.Invoices {
+		// An invoice the platform has already processed (posted, held,
+		// rejected) keeps its state; SAP only knows it as parked.
+		if existing := s.Invoices[inv.ID]; existing != nil && existing.Status != inv.Status {
+			continue
+		}
 		s.Invoices[inv.ID] = inv
 	}
 	for _, je := range ds.Entries {
+		if existing := s.Journal[je.ID]; existing != nil {
+			if !sameEntry(existing, je) {
+				issues = append(issues, Issue{Severity: SevError, Table: "JOURNAL", Key: je.ID,
+					Message: "already loaded with different content; SAP changed the document after the last load"})
+			}
+			continue // rerunning a load is safe
+		}
 		if err := s.Post(je); err != nil {
 			issues = append(issues, Issue{Severity: SevError, Table: "JOURNAL", Key: je.ID, Message: err.Error()})
 		}
 	}
 	return issues
+}
+
+// sameEntry compares what was posted. Clearing is ignored: the platform may
+// have paid a migrated item since it was loaded.
+func sameEntry(a, b *core.JournalEntry) bool {
+	if a.CompanyCode != b.CompanyCode || a.PostingDate != b.PostingDate || len(a.Lines) != len(b.Lines) {
+		return false
+	}
+	for i := range a.Lines {
+		x, y := a.Lines[i], b.Lines[i]
+		if x.Account != y.Account || x.Amount != y.Amount || x.VendorID != y.VendorID {
+			return false
+		}
+	}
+	return true
 }

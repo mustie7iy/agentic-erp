@@ -1,0 +1,40 @@
+{
+  "question": "Provide me monthly sales reports and analytics vs last year this time",
+  "queries": {
+    "monthly": {
+      "measures": ["revenue"],
+      "by": ["fiscal_year", "fiscal_month"],
+      "where": [{"dim": "fiscal_month", "op": "<=", "values": ["9"]}]
+    },
+    "margin": {
+      "measures": ["operating_margin"],
+      "by": ["fiscal_year"],
+      "where": [{"dim": "fiscal_month", "op": "<=", "values": ["9"]}]
+    }
+  },
+  "spec": {
+    "title": "Revenue: Jan–Sep 2026 vs Jan–Sep 2025",
+    "question": "Provide me monthly sales reports and analytics vs last year this time",
+    "assumptions": [
+      "Sales means revenue, the governed default",
+      "January to September in both years; September is the last closed month",
+      "Company code 1000, USD"
+    ],
+    "tiles": [
+      {"label": "Revenue, year to date", "query_id": "monthly", "measure": "revenue",
+       "where": {"fiscal_year": "2026"}, "compare_where": {"fiscal_year": "2025"}, "compare_label": "2025"},
+      {"label": "September", "query_id": "monthly", "measure": "revenue",
+       "where": {"fiscal_year": "2026", "fiscal_month": "9"}, "compare_where": {"fiscal_year": "2025", "fiscal_month": "9"}, "compare_label": "Sep 2025"},
+      {"label": "Operating margin, year to date", "query_id": "margin", "measure": "operating_margin",
+       "where": {"fiscal_year": "2026"}, "compare_where": {"fiscal_year": "2025"}, "compare_label": "2025"}
+    ],
+    "charts": [
+      {"title": "Revenue by month", "type": "bar", "query_id": "monthly", "x": "fiscal_month", "series": "fiscal_year", "measure": "revenue"}
+    ],
+    "tables": [
+      {"title": "Monthly comparison", "query_id": "monthly",
+       "compare": {"dim": "fiscal_year", "baseline": "2025", "current": "2026", "measure": "revenue"}}
+    ],
+    "follow_ups": ["Which months drove the change?", "Show operating expenses the same way", "Compare company 2000"]
+  }
+}

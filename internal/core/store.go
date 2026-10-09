@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"github.com/mustie7iy/agentic-erp/internal/workflow"
 )
 
 // Store is an in-memory system of record persisted as a JSON snapshot.
@@ -15,15 +17,23 @@ import (
 type Store struct {
 	Mu sync.Mutex `json:"-"`
 
-	Seq            int64                       `json:"seq"`
-	Companies      map[string]*Company         `json:"companies"`
-	Accounts       map[string]*GLAccount       `json:"accounts"` // key: company/number
-	Vendors        map[string]*Vendor          `json:"vendors"`
-	PurchaseOrders map[string]*PurchaseOrder   `json:"purchaseOrders"`
-	GoodsReceipts  map[string]*GoodsReceipt    `json:"goodsReceipts"`
-	Invoices       map[string]*SupplierInvoice `json:"invoices"`
-	Journal        map[string]*JournalEntry    `json:"journal"`
-	Tasks          map[string]*ReviewTask      `json:"tasks"`
+	Seq            int64                        `json:"seq"`
+	Companies      map[string]*Company          `json:"companies"`
+	Accounts       map[string]*GLAccount        `json:"accounts"` // key: company/number
+	Vendors        map[string]*Vendor           `json:"vendors"`
+	PurchaseOrders map[string]*PurchaseOrder    `json:"purchaseOrders"`
+	GoodsReceipts  map[string]*GoodsReceipt     `json:"goodsReceipts"`
+	Invoices       map[string]*SupplierInvoice  `json:"invoices"`
+	Journal        map[string]*JournalEntry     `json:"journal"`
+	Tasks          map[string]*ReviewTask       `json:"tasks"`
+	Requisitions   map[string]*Requisition      `json:"requisitions"`
+	Contracts      map[string]*Contract         `json:"contracts"`
+	MDChanges      map[string]*MasterDataChange `json:"masterDataChanges"`
+	PaymentRuns    map[string]*PaymentRun       `json:"paymentRuns"`
+	Workflows      map[string]*workflow.Request `json:"workflows"`
+	Outputs        map[string]*OutputDocument   `json:"outputs"`
+
+	index *index // derived lookups, never persisted
 }
 
 func NewStore() *Store {
@@ -36,6 +46,12 @@ func NewStore() *Store {
 		Invoices:       map[string]*SupplierInvoice{},
 		Journal:        map[string]*JournalEntry{},
 		Tasks:          map[string]*ReviewTask{},
+		Requisitions:   map[string]*Requisition{},
+		Contracts:      map[string]*Contract{},
+		MDChanges:      map[string]*MasterDataChange{},
+		PaymentRuns:    map[string]*PaymentRun{},
+		Workflows:      map[string]*workflow.Request{},
+		Outputs:        map[string]*OutputDocument{},
 	}
 }
 
@@ -54,8 +70,8 @@ func (s *Store) NextID(prefix string) string {
 
 func (s *Store) ReceiptsFor(poID string) []*GoodsReceipt {
 	var out []*GoodsReceipt
-	for _, id := range SortedKeys(s.GoodsReceipts) {
-		if g := s.GoodsReceipts[id]; g.POID == poID {
+	for _, id := range s.idx().grByPO[poID] {
+		if g := s.GoodsReceipts[id]; g != nil && g.POID == poID {
 			out = append(out, g)
 		}
 	}
@@ -76,10 +92,7 @@ func (s *Store) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
+	data, _ := json.MarshalIndent(s, "", "  ") // plain data: cannot fail
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err

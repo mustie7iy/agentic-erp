@@ -45,7 +45,7 @@ func DefaultMapping() Mapping {
 	}
 }
 
-func (m Mapping) accountType(number string) (core.AccountType, error) {
+func (m Mapping) AccountType(number string) (core.AccountType, error) {
 	n, err := strconv.ParseInt(number, 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("account %q is not numeric; add an explicit mapping rule", number)

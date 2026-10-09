@@ -3,6 +3,7 @@ package sap
 import (
 	"fmt"
 	"math/rand/v2"
+	"strconv"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
@@ -18,17 +19,28 @@ import (
 // Parked invoices in company 1000 exercise each invoice-matching outcome:
 // clean, price variance, quantity over goods receipt, duplicate reference,
 // above the auto-post limit, and a gross/tax mismatch.
+//
+// Revenue follows a monthly trend that grows about 7% a year, so extracts
+// for consecutive years support year-over-year analytics.
 func GenerateMock(seed uint64, fiscalYear string) *Extract {
+	return GenerateMockThrough(seed, fiscalYear, 12)
+}
+
+// GenerateMockThrough is GenerateMock with revenue postings only up to and
+// including throughMonth, for a fiscal year that is still in progress.
+func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extract {
 	g := &mockGen{
-		r:   rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)),
-		e:   &Extract{},
-		gj:  fiscalYear,
-		fi:  map[string]int{},
-		ref: map[string]string{},
+		through: throughMonth,
+		r:       rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)),
+		e:       &Extract{},
+		gj:      fiscalYear,
+		fi:      map[string]int{},
+		ref:     map[string]string{},
 	}
 	g.masterData()
 	g.company("1000", 8, g.vendorsFor("1000"), true)
 	g.company("2000", 19, g.vendorsFor("2000"), false)
+	g.customizing()
 	return g.e
 }
 
@@ -41,11 +53,13 @@ type mockGen struct {
 	ivSeq int
 	grSeq int
 	ref   map[string]string // PO -> vendor reference of its posted invoice
+
+	through int // last month with revenue postings
 }
 
 var mockCompanies = []T001{
-	{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD"},
-	{BUKRS: "2000", BUTXT: "Acme GmbH", WAERS: "EUR"},
+	{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US"},
+	{BUKRS: "2000", BUTXT: "Acme GmbH", WAERS: "EUR", LAND1: "DE"},
 }
 
 var mockAccounts = []SKB1{
@@ -58,6 +72,7 @@ var mockAccounts = []SKB1{
 	{SAKNR: "0000520000", TXT50: "Office Supplies"},
 	{SAKNR: "0000530000", TXT50: "IT Services"},
 	{SAKNR: "0000540000", TXT50: "Freight Inbound"},
+	{SAKNR: "0000610000", TXT50: "Salaries and Wages"},
 }
 
 var expenseAccounts = []string{"0000510000", "0000520000", "0000530000", "0000540000"}
@@ -173,12 +188,8 @@ func (g *mockGen) company(cc string, taxPct int64, vendors []string, scenarios b
 		{acct: "0000100000", amount: 500000000},
 		{acct: "0000300000", amount: -500000000},
 	})
-	for m := 1; m <= 6; m++ {
-		amt := g.money(20000000, 60000000)
-		g.fiDoc(cc, g.date(m, 28), "SA", fmt.Sprintf("SALES-%02d", m), []fiLine{
-			{acct: "0000100000", amount: amt},
-			{acct: "0000400000", amount: -amt},
-		})
+	for m := 1; m <= min(6, g.through); m++ {
+		g.revenue(cc, m)
 	}
 
 	const numPOs = 20
@@ -191,7 +202,7 @@ func (g *mockGen) company(cc string, taxPct int64, vendors []string, scenarios b
 			vendor = g.e.EKKO[len(g.e.EKKO)-16].LIFNR // same vendor as this company's PO 0
 		}
 		g.poSeq++
-		ebeln := fmt.Sprintf("45%08d", g.poSeq)
+		ebeln := fmt.Sprintf("45%02d%06d", g.year()%100, g.poSeq)
 		month := 1 + i%6
 		g.e.EKKO = append(g.e.EKKO, EKKO{EBELN: ebeln, BUKRS: cc, LIFNR: vendor, WAERS: mockCurrency(cc), BEDAT: g.date(month, 3)})
 
@@ -240,6 +251,37 @@ func (g *mockGen) company(cc string, taxPct int64, vendors []string, scenarios b
 		posted := i < 12
 		g.invoice(cc, ebeln, vendor, month, i, lines, taxPct, posted, scenarios)
 	}
+
+	// Second-half revenue is generated after purchasing so the random stream
+	// for the scenarios above stays stable.
+	for m := 7; m <= g.through; m++ {
+		g.revenue(cc, m)
+	}
+}
+
+// revenue posts one month's sales (a trend growing ~7% a year, with +/-5%
+// noise) and that month's payroll, so margins look like a real business.
+func (g *mockGen) revenue(cc string, m int) {
+	base := int64(30_000_000 + m*1_500_000) // 300,000.00 + 15,000.00 per month
+	if cc == "2000" {
+		base = base * 6 / 10
+	}
+	base = base * int64(100+7*(g.year()-2025)) / 100
+	amt := money.Minor(base * (95 + g.r.Int64N(11)) / 100)
+	g.fiDoc(cc, g.date(m, 28), "SA", fmt.Sprintf("SALES-%02d", m), []fiLine{
+		{acct: "0000100000", amount: amt},
+		{acct: "0000400000", amount: -amt},
+	})
+	payroll := money.Minor(base * 55 / 100)
+	g.fiDoc(cc, g.date(m, 27), "SA", fmt.Sprintf("PAYROLL-%02d", m), []fiLine{
+		{acct: "0000610000", amount: payroll},
+		{acct: "0000100000", amount: -payroll},
+	})
+}
+
+func (g *mockGen) year() int {
+	y, _ := strconv.Atoi(g.gj)
+	return y
 }
 
 func mockCurrency(cc string) string {
@@ -303,5 +345,61 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 		})
 		g.clear(cc, fiInv, vendor, pay)
 		g.clear(cc, pay, vendor, pay)
+	}
+}
+
+// customizing adds the configuration tables a real system carries, including
+// one deliberate segregation-of-duties conflict: user SUPER1 holds both
+// invoice posting (MIRO) and payment release (BNK_APP).
+func (g *mockGen) customizing() {
+	g.e.T052 = []T052{
+		{ZTERM: "NT14", ZTAG1: "14", TEXT1: "Net 14 days"},
+		{ZTERM: "NT30", ZTAG1: "30", TEXT1: "Net 30 days"},
+		{ZTERM: "NT45", ZTAG1: "45", TEXT1: "Net 45 days"},
+		{ZTERM: "NT60", ZTAG1: "60", TEXT1: "Net 60 days"},
+	}
+	banks := map[string][2]string{
+		"1000": {"GB33BUKB20201555555555", "BUKBGB22"},
+		"2000": {"DE89370400440532013000", "COBADEFFXXX"},
+	}
+	for _, c := range mockCompanies {
+		rate := "8"
+		if c.BUKRS == "2000" {
+			rate = "19"
+		}
+		g.e.T007A = append(g.e.T007A,
+			T007A{BUKRS: c.BUKRS, MWSKZ: "V1", TEXT1: "Input tax, standard rate", KBETR: rate, KONTS: "0000140000"},
+			T007A{BUKRS: c.BUKRS, MWSKZ: "V0", TEXT1: "Input tax exempt", KBETR: "0", KONTS: "0000140000"})
+		g.e.T030 = append(g.e.T030,
+			T030{BUKRS: c.BUKRS, KTOSL: "VST", KONTS: "0000140000"},
+			T030{BUKRS: c.BUKRS, KTOSL: "BNK", KONTS: "0000100000"})
+		g.e.T169G = append(g.e.T169G, T169G{BUKRS: c.BUKRS, TOLSL: "PP", PROZ: "2", WERTO: "5.00"})
+		g.e.T012K = append(g.e.T012K, T012K{BUKRS: c.BUKRS, HBKID: "MAIN", HKONT: "0000100000", IBAN: banks[c.BUKRS][0], SWIFT: banks[c.BUKRS][1]})
+	}
+	roles := []struct {
+		name, text string
+		tcodes     []string
+		users      []string
+	}{
+		{"Z_AP_CLERK", "Accounts payable clerk", []string{"MIRO", "MIR7", "FBL1N"}, []string{"APCLERK1", "SUPER1"}},
+		{"Z_BUYER", "Buyer", []string{"ME51N", "ME21N", "ME31K"}, []string{"BUYER1"}},
+		{"Z_PURCH_MGR", "Purchasing manager", []string{"ME54N"}, []string{"PURCHMGR1"}},
+		{"Z_WAREHOUSE", "Warehouse clerk", []string{"MIGO"}, []string{"WHCLERK1"}},
+		{"Z_VENDOR_MAINT", "Vendor master maintenance", []string{"XK01", "XK02"}, []string{"MDCLERK1"}},
+		{"Z_TREASURY", "Treasury clerk", []string{"F110"}, []string{"TREAS1"}},
+		{"Z_TREASURY_MGR", "Treasury manager", []string{"BNK_APP"}, []string{"TREASMGR1", "SUPER1"}},
+		{"Z_PROCESS_OWNER", "Process owner P2P", nil, []string{"OWNER1"}},
+		{"Z_CONTROLLER", "Financial controller", []string{"FBL3N"}, []string{"CONTROLLER1"}},
+		{"Z_SOLUTION_ARCHITECT", "Solution architect", []string{"STMS"}, []string{"ARCHITECT1"}},
+		{"Z_MDG_APPROVER", "Master data approver", nil, []string{"MDMGR1"}},
+	}
+	for _, r := range roles {
+		g.e.AGR_DEFINE = append(g.e.AGR_DEFINE, AGRDefine{AGR_NAME: r.name, TEXT: r.text})
+		for _, t := range r.tcodes {
+			g.e.AGR_TCODES = append(g.e.AGR_TCODES, AGRTcode{AGR_NAME: r.name, TCODE: t})
+		}
+		for _, u := range r.users {
+			g.e.AGR_USERS = append(g.e.AGR_USERS, AGRUser{AGR_NAME: r.name, UNAME: u})
+		}
 	}
 }

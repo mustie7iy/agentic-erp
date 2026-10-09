@@ -145,3 +145,40 @@ func TestStoreRoundTrip(t *testing.T) {
 
 func moneyQty(v int64) money.Qty     { return money.Qty(v) }
 func moneyMinor(v int64) money.Minor { return money.Minor(v) }
+
+func TestIndexFollowsNewRecords(t *testing.T) {
+	s := fixture()
+	first := invoice("I1", "DUP-9", 1_000, 10_000, 0)
+	first.Status = InvoicePosted
+	s.Invoices["I1"] = first
+	second := invoice("I2", "dup 9", 1_000, 10_000, 0)
+	if m := s.ThreeWayMatch(second, DefaultTolerance); !hasKind(m, IssueDuplicate) {
+		t.Fatal("index must include invoices added before the first lookup")
+	}
+	// A receipt and an invoice added after the index was built are seen.
+	s.GoodsReceipts["GR2"] = &GoodsReceipt{ID: "GR2", POID: "PO1", POLineNo: 10, Quantity: 5_000}
+	if got := len(s.ReceiptsFor("PO1")); got != 2 {
+		t.Fatalf("receipts after add: %d", got)
+	}
+	third := invoice("I3", "NEW-1", 1_000, 10_000, 0)
+	third.Status = InvoicePosted
+	s.Invoices["I3"] = third
+	fourth := invoice("I4", "new 1", 1_000, 10_000, 0)
+	if m := s.ThreeWayMatch(fourth, DefaultTolerance); !hasKind(m, IssueDuplicate) {
+		t.Fatal("index must refresh when invoices are added")
+	}
+	// Status changes are read live.
+	third.Status = InvoiceRejected
+	if m := s.ThreeWayMatch(fourth, DefaultTolerance); hasKind(m, IssueDuplicate) {
+		t.Fatal("rejected invoices are not duplicates")
+	}
+}
+
+func hasKind(m MatchResult, k IssueKind) bool {
+	for _, is := range m.Issues {
+		if is.Kind == k {
+			return true
+		}
+	}
+	return false
+}

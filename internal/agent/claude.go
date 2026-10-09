@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/toolrunner"
 
 	"github.com/mustie7iy/agentic-erp/internal/core"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 )
 
 const defaultModel = "claude-opus-5-5"
@@ -64,54 +64,31 @@ type escalateArg struct {
 	VendorMessage  string `json:"vendor_message,omitempty" jsonschema:"description=Optional message for the reviewer to send to the vendor"`
 }
 
-func textResult(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
-	var text string
-	if s, ok := v.(string); ok {
-		text = s
-	} else {
-		b, err := json.MarshalIndent(v, "", "  ")
-		if err != nil {
-			return anthropic.BetaToolResultBlockParamContentUnion{}, err
-		}
-		text = string(b)
-	}
-	return anthropic.BetaToolResultBlockParamContentUnion{OfText: &anthropic.BetaTextBlockParam{Text: text}}, nil
-}
-
-func (c *ClaudeResolver) tools(svc *Service) ([]anthropic.BetaTool, error) {
-	getInvoice, err := toolrunner.NewBetaToolFromJSONSchema("get_invoice",
+func (c *ClaudeResolver) tools(svc *Service) []anthropic.BetaTool {
+	getInvoice := llm.Must(toolrunner.NewBetaToolFromJSONSchema("get_invoice",
 		"Get a supplier invoice with its vendor, purchase order and goods receipts.",
 		func(_ context.Context, in invoiceArg) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 			ctx, err := invoiceContext(svc, in.InvoiceID)
 			if err != nil {
-				return textResult("error: " + err.Error())
+				return llm.Error(err)
 			}
-			return textResult(ctx)
-		})
-	if err != nil {
-		return nil, err
-	}
-	getMatch, err := toolrunner.NewBetaToolFromJSONSchema("get_match_result",
+			return llm.Result(ctx)
+		}))
+	getMatch := llm.Must(toolrunner.NewBetaToolFromJSONSchema("get_match_result",
 		"Run the deterministic three-way match for an invoice and return every issue found.",
 		func(_ context.Context, in invoiceArg) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 			m, err := svc.Match(in.InvoiceID)
 			if err != nil {
-				return textResult("error: " + err.Error())
+				return llm.Error(err)
 			}
-			return textResult(m)
-		})
-	if err != nil {
-		return nil, err
-	}
-	listVendor, err := toolrunner.NewBetaToolFromJSONSchema("list_vendor_invoices",
+			return llm.Result(m)
+		}))
+	listVendor := llm.Must(toolrunner.NewBetaToolFromJSONSchema("list_vendor_invoices",
 		"List all invoices from a vendor with status and reference.",
 		func(_ context.Context, in vendorArg) (anthropic.BetaToolResultBlockParamContentUnion, error) {
-			return textResult(vendorInvoices(svc, in.VendorID))
-		})
-	if err != nil {
-		return nil, err
-	}
-	escalate, err := toolrunner.NewBetaToolFromJSONSchema("escalate_to_human",
+			return llm.Result(vendorInvoices(svc, in.VendorID))
+		}))
+	escalate := llm.Must(toolrunner.NewBetaToolFromJSONSchema("escalate_to_human",
 		"Put the invoice on hold and open a review task for a human with your recommendation. Call exactly once per invoice.",
 		func(_ context.Context, in escalateArg) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 			rec := fmt.Sprintf("[%s] %s", in.ProposedAction, in.Recommendation)
@@ -120,21 +97,15 @@ func (c *ClaudeResolver) tools(svc *Service) ([]anthropic.BetaTool, error) {
 			}
 			taskID, err := svc.Escalate(ExceptionAgent, in.InvoiceID, in.Reason, rec)
 			if err != nil {
-				return textResult("error: " + err.Error())
+				return llm.Error(err)
 			}
-			return textResult("Review task " + taskID + " opened. You are done with this invoice.")
-		})
-	if err != nil {
-		return nil, err
-	}
-	return []anthropic.BetaTool{getInvoice, getMatch, listVendor, escalate}, nil
+			return llm.Result("Review task " + taskID + " opened. You are done with this invoice.")
+		}))
+	return []anthropic.BetaTool{getInvoice, getMatch, listVendor, escalate}
 }
 
 func (c *ClaudeResolver) Resolve(ctx context.Context, svc *Service, invoiceID string, match core.MatchResult) error {
-	tools, err := c.tools(svc)
-	if err != nil {
-		return err
-	}
+	tools := c.tools(svc)
 	runner := c.Client.Beta.Messages.NewToolRunner(tools, anthropic.BetaToolRunnerParams{
 		BetaMessageNewParams: anthropic.BetaMessageNewParams{
 			Model:     anthropic.Model(c.Model),

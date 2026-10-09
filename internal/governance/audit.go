@@ -5,6 +5,7 @@ package governance
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -57,7 +58,9 @@ func NewAuditLog(path string) (*AuditLog, error) {
 	sc.Buffer(make([]byte, 1<<20), 1<<24)
 	for sc.Scan() {
 		var e Event
-		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(sc.Bytes()))
+		dec.UseNumber()
+		if err := dec.Decode(&e); err != nil {
 			return nil, fmt.Errorf("audit log %s: %w", path, err)
 		}
 		l.events = append(l.events, e)
@@ -72,20 +75,20 @@ func NewAuditLog(path string) (*AuditLog, error) {
 }
 
 func (l *AuditLog) Append(actor, action, subject, outcome string, detail map[string]any) (Event, error) {
+	norm, err := normalize(detail)
+	if err != nil {
+		return Event{}, fmt.Errorf("audit detail: %w", err)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e := Event{
 		Seq: int64(len(l.events)) + 1, Time: l.now().UTC(), Actor: actor, Action: action,
-		Subject: subject, Outcome: outcome, Detail: detail,
+		Subject: subject, Outcome: outcome, Detail: norm,
 	}
 	if n := len(l.events); n > 0 {
 		e.PrevHash = l.events[n-1].Hash
 	}
-	h, err := hashEvent(e)
-	if err != nil {
-		return Event{}, err
-	}
-	e.Hash = h
+	e.Hash = hashEvent(e)
 	if l.path != "" {
 		if err := appendLine(l.path, e); err != nil {
 			return Event{}, err
@@ -108,11 +111,7 @@ func (l *AuditLog) Verify() error {
 		if e.PrevHash != prev {
 			return fmt.Errorf("audit chain broken at seq %d: previous hash mismatch", e.Seq)
 		}
-		h, err := hashEvent(e)
-		if err != nil {
-			return err
-		}
-		if h != e.Hash {
+		if hashEvent(e) != e.Hash {
 			return fmt.Errorf("audit chain broken at seq %d: event was modified", e.Seq)
 		}
 		if e.Seq != int64(i)+1 {
@@ -123,14 +122,32 @@ func (l *AuditLog) Verify() error {
 	return nil
 }
 
-func hashEvent(e Event) (string, error) {
-	e.Hash = ""
-	b, err := json.Marshal(e) // struct field order and sorted map keys make this canonical
-	if err != nil {
-		return "", err
+// normalize converts detail to the generic form it has after a JSON round
+// trip (maps with sorted keys, exact numbers), so an event hashes the same
+// when written and when reloaded from disk.
+func normalize(detail map[string]any) (map[string]any, error) {
+	if detail == nil {
+		return nil, nil
 	}
+	b, err := json.Marshal(detail)
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var out map[string]any
+	_ = dec.Decode(&out) // decoding JSON we just encoded cannot fail
+	return out, nil
+}
+
+// hashEvent hashes an event's canonical JSON (struct field order and
+// sorted map keys). Details are normalized to JSON values before an event
+// is created, so marshaling cannot fail.
+func hashEvent(e Event) string {
+	e.Hash = ""
+	b, _ := json.Marshal(e)
 	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum[:])
 }
 
 func appendLine(path string, e Event) error {
@@ -142,10 +159,7 @@ func appendLine(path string, e Event) error {
 		return err
 	}
 	defer f.Close()
-	b, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
+	b, _ := json.Marshal(e) // normalized event: cannot fail
 	_, err = f.Write(append(b, '\n'))
 	return err
 }

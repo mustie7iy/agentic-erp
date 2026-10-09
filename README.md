@@ -45,12 +45,14 @@ support work that consultants do today.
 | [docs/analytics.md](docs/analytics.md) | On-demand reports and dashboards: how requests are answered, guardrails, components |
 | [docs/architecture.md](docs/architecture.md) | Platform layers and full tech stack |
 | [docs/migration.md](docs/migration.md) | Cutover protocol, migration modes, reconciliation controls |
+| [docs/testing.md](docs/testing.md) | Functional and non-functional test suites, fuzzing, coverage gate |
 
 ## Quick start
 
 ```sh
-make test     # vet + all tests with the race detector
-make demo     # mock SAP -> migrate company 1000 -> invoice flow
+make test       # functional, end-to-end and non-functional suites, race detector on
+make coverage   # whole-suite statement coverage gate
+make demo       # mock SAP -> migrate company 1000 -> invoice flow
 ```
 
 Or step by step:
@@ -66,6 +68,55 @@ go build -o bin/erp ./cmd/erp
 ./bin/erp approve -task TASK-00000003 -as controller -comment "surcharge agreed"
 ./bin/erp tb -company 1000                   # trial balance
 ./bin/erp audit-verify                       # check the tamper-evident audit chain
+```
+
+On-demand analytics (see [docs/analytics.md](docs/analytics.md) for the two-year setup):
+
+```sh
+./bin/erp metrics                            # governed metrics
+./bin/erp query -measures revenue -by fiscal_year,fiscal_month -where "fiscal_month <= 9" -companies 1000
+./bin/erp report -file examples/monthly-sales.json -companies 1000   # example dashboard, no API key needed
+./bin/erp ask -as sales.director -companies 1000 "monthly sales vs last year this time"
+```
+
+`make demo-analytics` runs the whole analytics walkthrough on mock data.
+
+### Phase 1: configuration as code and procure-to-pay
+
+Users come from the active configuration (`-as <user id>`); the mock SAP role
+design provides `buyer1`, `purchmgr1`, `whclerk1`, `mdclerk1`, `mdmgr1`,
+`treas1`, `treasmgr1`, `owner1`, `controller1` and `architect1`.
+
+```sh
+# Configuration migrated from SAP customizing. The mock's role design has an
+# SoD conflict (super1: invoice posting + payment release) that must be fixed
+# in the draft before bootstrap.
+./bin/erp config generate -company 1000,2000 -out draft.yaml
+./bin/erp config bootstrap -file fixed.yaml -as architect1
+
+# A change: proposed, simulated, regression-tested, approved by tier, activated.
+./bin/erp regress capture
+./bin/erp config propose -file change.yaml -title "Raise auto-post limit" -as analyst1
+./bin/erp config approve -cr CR-0001 -as owner1
+./bin/erp config approve -cr CR-0001 -as controller1
+./bin/erp config activate -cr CR-0001 -as architect1
+./bin/erp config rollback -to 1 -as architect1 -reason "..."
+
+# Procure-to-pay.
+./bin/erp req create -as buyer1 -vendor 100001 -line "Paper;10;25.00;520000;MAT-P"
+./bin/erp req approve -id PR-... -as purchmgr1
+./bin/erp po create -req PR-... -as buyer1            # PO output in data/outbox
+./bin/erp gr post -po PO-... -line 10 -qty 10 -as whclerk1
+./bin/erp vendor bank -as mdclerk1 -id 100001 -bank GB82WEST12345698765432 -reason "letter"
+./bin/erp vendor approve -change MDC-... -as mdmgr1
+./bin/erp pay propose -as treas1 -company 1000 -date 2027-06-30
+./bin/erp pay release -run PAY-... -as treasmgr1      # pain.001 in data/bankfiles
+./bin/erp capture -file invoice.pdf                   # Claude reads the PDF
+
+# Delivery agents (need Anthropic credentials).
+./bin/erp agent config "raise the price tolerance in company 1000 to 3%"
+./bin/erp agent migration -company 1000 -year 2026
+./bin/erp agent test -cr CR-0001
 ```
 
 Against a real S/4HANA system:
@@ -86,7 +137,16 @@ profile). The default model is `claude-opus-5-5`; override it with `ERP_AGENT_MO
 | `internal/migration` | Data-quality gate, SAP→core mapping, load, independent reconciliation. Two modes: `documents` (replay every journal entry) and `balances` (opening balances plus open items) |
 | `internal/core` | Native system of record: double-entry ledger, vendors, POs, goods receipts, supplier invoices, deterministic three-way match. *System of Record* |
 | `internal/governance` | Named identities, autonomy levels L0–L3, segregation of duties, approval thresholds, hash-chained audit log. *Governance & Security* |
+| `internal/analytics` | On-demand analytics: governed semantic layer, fact tables, query engine with row-level security, analytics agent, narrative check, dashboard renderer, saved reports |
 | `internal/agent` | Composite AI: a rule posts clean invoices within limits; the Claude exception agent investigates the rest and writes a recommendation for a human. *AI Agent + Orchestration* |
+| `internal/config` | Configuration as code: typed YAML, validators, change tiers, versioned repository with change requests, approvals, activation and rollback. *Configuration plane* |
+| `internal/workflow` | Approval engine shared by requisitions, supplier changes, payment runs and configuration changes |
+| `internal/p2p` | Procure-to-pay service: requisitions, contracts, POs and output, goods receipts, governed supplier master changes, payment runs |
+| `internal/bankfile` | ISO 20022 pain.001 credit transfer files |
+| `internal/capture` | Invoice capture: Claude structured extraction from PDF, deterministic validation |
+| `internal/delivery/*` | Delivery track: configuration generated from SAP customizing, sandbox simulation, regression suites, evidence for change requests, and the configuration, migration and test agents |
+| `internal/llm` | Shared Claude agent plumbing; `llmtest` is a scripted Messages API for tests |
+| `internal/nfr` | Non-functional suites: performance, concurrency, security, reliability |
 | `cmd/erp` | CLI |
 
 ## Guardrails built in
@@ -101,15 +161,21 @@ profile). The default model is `claude-opus-5-5`; override it with `ERP_AGENT_MO
 
 ## Status
 
-Phase 0 is complete and Phase 1 is partly built: a working vertical slice for
-accounts payable and the general ledger, with deterministic migration and
-reconciliation. None of the delivery agents (configuration, migration,
-discovery, test and the rest) exist yet; the first of them are next in Phase 1.
-The analytics agent follows in Phase 2. See [docs/plan.md](docs/plan.md).
+Phases 0 and 1 are built. Phase 1 delivers configuration as code with the
+configuration, migration and test agents, sandbox simulation and regression
+suites, and procure-to-pay (requisitions with configured approvals,
+contracts, POs with output, goods receipts, governed supplier changes,
+payment runs with ISO 20022 files, invoice capture). On-demand analytics is
+built ahead of its Phase 2 slot. The Phase 1 exit criteria that need a client
+(a pilot company code cut over, measured consultant hours) cannot be met on
+mock data. See [docs/plan.md](docs/plan.md) and [docs/testing.md](docs/testing.md).
 Known gaps:
 
 - Storage is an in-memory store with JSON snapshots. Postgres comes next.
 - Single currency per company code. No FX revaluation yet.
 - The OData entity and field mappings follow SAP API Business Hub names but have
   not yet been validated against a live system. Check them against your `$metadata`.
-- No payment run, AR, inventory valuation, tax engine or payroll yet.
+- Agents are tested against a scripted model; their behavior with the live API
+  needs evals before any agent gets autonomy above L0.
+- The CLI keeps state in files; two CLI processes writing at once are not coordinated.
+- No AR, inventory valuation, tax engine or payroll yet (later phases).

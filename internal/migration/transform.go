@@ -57,7 +57,7 @@ func Transform(e *sap.Extract, m Mapping, mode Mode) (*Dataset, []Issue) {
 	recon := map[string]bool{}
 	for _, a := range e.SKB1 {
 		num := alpha(a.SAKNR)
-		typ, err := m.accountType(num)
+		typ, err := m.AccountType(num)
 		if err != nil {
 			fail("SKB1", a.BUKRS+"/"+a.SAKNR, err)
 			continue

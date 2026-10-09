@@ -1,4 +1,6 @@
-// Command erp drives the migration off SAP and the agentic invoice flow.
+// Command erp drives the migration off SAP, configuration as code with its
+// delivery agents, procure-to-pay, the agentic invoice flow and on-demand
+// analytics. Run "erp" for the command list.
 //
 //	erp gen-mock-sap                     write a mock SAP extract
 //	erp migrate                          extract, check, load and reconcile a scope
@@ -7,6 +9,10 @@
 //	erp approve|reject -task ID -as USER close a review task
 //	erp tb -company 1000                 print a trial balance
 //	erp audit-verify                     verify the audit hash chain
+//	erp metrics                          list governed metrics
+//	erp query -measures ... -by ...      run a semantic query directly
+//	erp ask "question"                   answer with an on-demand dashboard
+//	erp report -id ID                    rerun a saved report on current data
 package main
 
 import (
@@ -15,12 +21,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/mustie7iy/agentic-erp/internal/agent"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/core"
 	"github.com/mustie7iy/agentic-erp/internal/governance"
 	"github.com/mustie7iy/agentic-erp/internal/migration"
@@ -33,42 +42,72 @@ const (
 	defaultAudit   = "data/audit.jsonl"
 )
 
-func main() {
-	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+// out and errOut are where commands write; tests replace them.
+var (
+	out    io.Writer = os.Stdout
+	errOut io.Writer = os.Stderr
+)
 
-	var err error
-	switch cmd, args := os.Args[1], os.Args[2:]; cmd {
-	case "gen-mock-sap":
-		err = genMock(args)
-	case "migrate":
-		err = migrate(ctx, args)
-	case "invoices":
-		err = invoices(ctx, args)
-	case "tasks":
-		err = tasks(args)
-	case "approve", "reject":
-		err = decide(args, cmd == "approve")
-	case "tb":
-		err = trialBalance(args)
-	case "audit-verify":
-		err = auditVerify(args)
-	default:
+// exit ends the process; tests replace it to observe the exit code.
+var exit = os.Exit
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	code := run(ctx, os.Args[1:])
+	stop()
+	exit(code)
+}
+
+// run executes one command and returns the process exit code.
+func run(ctx context.Context, args []string) int {
+	if len(args) < 1 {
 		usage()
-		os.Exit(2)
+		return 2
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	cmd, args := args[0], args[1:]
+	handler, ok := commands[cmd]
+	if !ok {
+		usage()
+		return 2
+	}
+	if err := handler(ctx, args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		fmt.Fprintln(errOut, "error:", err)
+		return 1
+	}
+	return 0
+}
+
+type command func(ctx context.Context, args []string) error
+
+// commands maps each command name to its handler.
+var commands map[string]command
+
+func init() {
+	plain := func(f func([]string) error) command { return func(_ context.Context, a []string) error { return f(a) } }
+	commands = map[string]command{
+		"gen-mock-sap": plain(genMock),
+		"migrate":      migrate,
+		"invoices":     invoices,
+		"tasks":        plain(tasks),
+		"approve":      plain(func(a []string) error { return decide(a, true) }),
+		"reject":       plain(func(a []string) error { return decide(a, false) }),
+		"tb":           plain(trialBalance),
+		"audit-verify": plain(auditVerify),
+		"metrics":      plain(metricsCmd),
+		"query":        plain(queryCmd),
+		"ask":          askCmd,
+		"report":       plain(reportCmd),
+	}
+	for name, c := range platformCommands() {
+		commands[name] = c
 	}
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `usage: erp <command> [flags]
+	fmt.Fprintln(errOut, `usage: erp <command> [flags]
 
 commands:
   gen-mock-sap   write a deterministic mock SAP extract
@@ -79,27 +118,57 @@ commands:
   reject         reject a review task as a human
   tb             print a trial balance
   audit-verify   verify the tamper-evident audit log
+  metrics        list the governed metrics and dimensions
+  query          run a semantic query directly (no agent)
+  ask            ask a question; the analytics agent builds a dashboard on demand
+  report         rerun a saved report on current data
+
+configuration as code (Phase 1 delivery track):
+  config generate|validate|bootstrap|show|propose|evidence|approve|reject|activate|rollback|list|history|diff
+  regress capture|run       regression suites from real transactions
+  agent config|migration|test   delivery agents (need Anthropic credentials)
+
+procure-to-pay (Phase 1 business track):
+  req create|approve|reject     purchase requisitions with configured approval routes
+  po create                     order an approved requisition (sends PO output)
+  contract create               outline agreements with agreed prices
+  gr post                       goods receipts and reversals
+  vendor create|bank|block|unblock|approve|reject   governed supplier master changes
+  pay propose|release|reject    payment runs with ISO 20022 bank files
+  capture                       read a supplier invoice PDF (Claude) and park it
 
 run "erp <command> -h" for flags`)
 }
 
 func genMock(args []string) error {
-	fs := flag.NewFlagSet("gen-mock-sap", flag.ExitOnError)
-	out := fs.String("out", defaultExtract, "output file")
+	fs := flag.NewFlagSet("gen-mock-sap", flag.ContinueOnError)
+	outFile := fs.String("out", defaultExtract, "output file")
 	seed := fs.Uint64("seed", 42, "random seed")
 	year := fs.String("year", "2026", "fiscal year")
-	fs.Parse(args)
-	e := sap.GenerateMock(*seed, *year)
-	if err := sap.WriteExtract(*out, e); err != nil {
+	through := fs.Int("through", 12, "last month with revenue postings, for a year in progress")
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s\n", *out)
+	// Without an explicit seed, vary the random stream by year so that two
+	// years of mock data differ realistically (2026 keeps seed 42).
+	seedSet := false
+	fs.Visit(func(f *flag.Flag) { seedSet = seedSet || f.Name == "seed" })
+	if !seedSet {
+		if y, err := strconv.Atoi(*year); err == nil {
+			*seed = uint64(int64(42) + int64(y) - 2026)
+		}
+	}
+	e := sap.GenerateMockThrough(*seed, *year, *through)
+	if err := sap.WriteExtract(*outFile, e); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "wrote %s\n", *outFile)
 	printCounts(e.Counts())
 	return nil
 }
 
 func migrate(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
+	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	source := fs.String("source", "file:"+defaultExtract, `"file:PATH" or "odata:https://host" (credentials from SAP_USER, SAP_PASSWORD, SAP_CLIENT)`)
 	companies := fs.String("company", "1000", "comma-separated company codes")
 	year := fs.String("year", "2026", "fiscal year")
@@ -107,7 +176,9 @@ func migrate(ctx context.Context, args []string) error {
 	storePath := fs.String("store", defaultStore, "core store snapshot")
 	force := fs.Bool("force", false, "load despite data-quality errors (rehearsals only)")
 	jsonOut := fs.String("json", "", "also write the full result as JSON to this file")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	src, err := parseSource(*source)
 	if err != nil {
@@ -120,7 +191,7 @@ func migrate(ctx context.Context, args []string) error {
 	scope := sap.Scope{CompanyCodes: strings.Split(*companies, ","), FiscalYear: *year}
 	res, runErr := migration.Run(ctx, src, scope, migration.Options{Mode: migration.Mode(*mode), Force: *force}, store)
 
-	fmt.Printf("Source: %s   Scope: company %s, fiscal year %s   Mode: %s\n\n",
+	fmt.Fprintf(out, "Source: %s   Scope: company %s, fiscal year %s   Mode: %s\n\n",
 		res.Source, strings.Join(scope.CompanyCodes, ","), scope.FiscalYear, res.Mode)
 	if res.ExtractCount != nil {
 		printCounts(res.ExtractCount)
@@ -129,22 +200,23 @@ func migrate(ctx context.Context, args []string) error {
 	printIssues("Transform issues", res.Transform)
 	printIssues("Load rejections", res.Load)
 	if *jsonOut != "" {
-		if b, err := json.MarshalIndent(res, "", "  "); err == nil {
-			_ = os.WriteFile(*jsonOut, b, 0o644)
+		b, _ := json.MarshalIndent(res, "", "  ") // the result is plain data
+		if err := os.WriteFile(*jsonOut, b, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", *jsonOut, err)
 		}
 	}
 	if runErr != nil {
 		if errors.Is(runErr, migration.ErrQualityGate) {
-			fmt.Println("\nNothing was loaded.")
+			fmt.Fprintln(out, "\nNothing was loaded.")
 		}
 		return runErr
 	}
-	fmt.Println()
-	res.Report.Print(os.Stdout)
+	fmt.Fprintln(out)
+	res.Report.Print(out)
 	if err := store.Save(*storePath); err != nil {
 		return err
 	}
-	fmt.Printf("\nStore saved to %s\n", *storePath)
+	fmt.Fprintf(out, "\nStore saved to %s\n", *storePath)
 	if !res.Report.Passed || len(res.Load) > 0 {
 		return fmt.Errorf("reconciliation did not pass")
 	}
@@ -168,11 +240,13 @@ func parseSource(s string) (sap.Source, error) {
 }
 
 func invoices(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("invoices", flag.ExitOnError)
+	fs := flag.NewFlagSet("invoices", flag.ContinueOnError)
 	storePath := fs.String("store", defaultStore, "core store snapshot")
 	auditPath := fs.String("audit", defaultAudit, "audit log")
 	useAgent := fs.Bool("agent", false, "let the Claude exception agent investigate failed matches")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	svc, err := openService(*storePath, *auditPath)
 	if err != nil {
@@ -182,19 +256,21 @@ func invoices(ctx context.Context, args []string) error {
 	if *useAgent {
 		resolver = agent.NewClaudeResolver()
 	}
-	sum := agent.ProcessInvoices(ctx, svc, resolver, os.Stdout)
-	fmt.Printf("\nprocessed %d: %d posted, %d sent to human review (%d with agent recommendation)\n",
+	sum := agent.ProcessInvoices(ctx, svc, resolver, out)
+	fmt.Fprintf(out, "\nprocessed %d: %d posted, %d sent to human review (%d with agent recommendation)\n",
 		sum.Processed, len(sum.Posted), len(sum.Escalated), len(sum.AgentNotes))
 	for _, e := range sum.Errors {
-		fmt.Fprintln(os.Stderr, "error:", e)
+		fmt.Fprintln(errOut, "error:", e)
 	}
 	return svc.Store.Save(*storePath)
 }
 
 func tasks(args []string) error {
-	fs := flag.NewFlagSet("tasks", flag.ExitOnError)
+	fs := flag.NewFlagSet("tasks", flag.ContinueOnError)
 	storePath := fs.String("store", defaultStore, "core store snapshot")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	s, err := core.LoadStore(*storePath)
 	if err != nil {
 		return err
@@ -207,24 +283,26 @@ func tasks(args []string) error {
 		}
 		n++
 		inv := s.Invoices[t.InvoiceID]
-		fmt.Printf("%s  invoice %s  vendor %s  gross %s %s\n  reason: %s\n", t.ID, t.InvoiceID, inv.VendorID, inv.GrossAmount, inv.Currency, t.Reason)
+		fmt.Fprintf(out, "%s  invoice %s  vendor %s  gross %s %s\n  reason: %s\n", t.ID, t.InvoiceID, inv.VendorID, inv.GrossAmount, inv.Currency, t.Reason)
 		if t.Recommendation != "" {
-			fmt.Printf("  recommendation (%s):\n    %s\n", t.CreatedBy, strings.ReplaceAll(t.Recommendation, "\n", "\n    "))
+			fmt.Fprintf(out, "  recommendation (%s):\n    %s\n", t.CreatedBy, strings.ReplaceAll(t.Recommendation, "\n", "\n    "))
 		}
-		fmt.Println()
+		fmt.Fprintln(out)
 	}
-	fmt.Printf("%d open review tasks\n", n)
+	fmt.Fprintf(out, "%d open review tasks\n", n)
 	return nil
 }
 
 func decide(args []string, approve bool) error {
-	fs := flag.NewFlagSet("approve", flag.ExitOnError)
+	fs := flag.NewFlagSet("approve", flag.ContinueOnError)
 	storePath := fs.String("store", defaultStore, "core store snapshot")
 	auditPath := fs.String("audit", defaultAudit, "audit log")
 	taskID := fs.String("task", "", "review task id")
 	user := fs.String("as", "", "approver user id (recorded in the audit log)")
 	comment := fs.String("comment", "", "decision comment")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	if *taskID == "" || *user == "" {
 		return fmt.Errorf("-task and -as are required")
 	}
@@ -232,30 +310,39 @@ func decide(args []string, approve bool) error {
 	if err != nil {
 		return err
 	}
+	// With an active configuration the approver is a configured user with
+	// their configured permissions; without one, any named person may decide.
 	human := governance.Identity{
 		ID: "user:" + *user, Kind: "human", Autonomy: governance.FullyAutonomous,
 		Permissions: []string{governance.ActInvoicePost, governance.ActInvoiceReview},
+	}
+	if svc.Config != nil {
+		if human, err = svc.Config.Identity(*user); err != nil {
+			return err
+		}
 	}
 	res, err := svc.Decide(human, *taskID, approve, *comment)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s: %s %s\n", res.Outcome, res.Reason, res.JournalEntryID)
+	fmt.Fprintf(out, "%s: %s %s\n", res.Outcome, res.Reason, res.JournalEntryID)
 	return svc.Store.Save(*storePath)
 }
 
 func trialBalance(args []string) error {
-	fs := flag.NewFlagSet("tb", flag.ExitOnError)
+	fs := flag.NewFlagSet("tb", flag.ContinueOnError)
 	storePath := fs.String("store", defaultStore, "core store snapshot")
 	company := fs.String("company", "1000", "company code")
 	asOf := fs.String("as-of", "", "posting date YYYY-MM-DD (default: all)")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	s, err := core.LoadStore(*storePath)
 	if err != nil {
 		return err
 	}
 	tb := s.TrialBalance(*company, *asOf)
-	tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', tabwriter.AlignRight)
+	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', tabwriter.AlignRight)
 	fmt.Fprintln(tw, "ACCOUNT\tNAME\tBALANCE\t")
 	var total int64
 	for _, acct := range core.SortedKeys(tb) {
@@ -271,14 +358,16 @@ func trialBalance(args []string) error {
 }
 
 func auditVerify(args []string) error {
-	fs := flag.NewFlagSet("audit-verify", flag.ExitOnError)
+	fs := flag.NewFlagSet("audit-verify", flag.ContinueOnError)
 	auditPath := fs.String("audit", defaultAudit, "audit log")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	log, err := governance.NewAuditLog(*auditPath) // loading verifies the chain
 	if err != nil {
 		return err
 	}
-	fmt.Printf("audit log OK: %d events, chain intact\n", len(log.Events()))
+	fmt.Fprintf(out, "audit log OK: %d events, chain intact\n", len(log.Events()))
 	return nil
 }
 
@@ -299,7 +388,14 @@ func openService(storePath, auditPath string) (*agent.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return agent.NewService(s, audit), nil
+	svc := agent.NewService(s, audit)
+	// Use the active configuration's tolerances, tax accounts and limits when there is one.
+	if repo, err := config.OpenRepo(defaultConfigDir, nil); err == nil {
+		if cfg, _, err := repo.Active(); err == nil {
+			svc.Config = cfg
+		}
+	}
+	return svc, nil
 }
 
 func printCounts(c map[string]int) {
@@ -311,15 +407,15 @@ func printCounts(c map[string]int) {
 	for _, k := range core.SortedKeys(c) {
 		parts = append(parts, fmt.Sprintf("%s=%d", k, c[k]))
 	}
-	fmt.Println("Extracted rows:", strings.Join(parts, " "))
+	fmt.Fprintln(out, "Extracted rows:", strings.Join(parts, " "))
 }
 
 func printIssues(title string, issues []migration.Issue) {
 	if len(issues) == 0 {
 		return
 	}
-	fmt.Printf("\n%s (%d):\n", title, len(issues))
+	fmt.Fprintf(out, "\n%s (%d):\n", title, len(issues))
 	for _, i := range issues {
-		fmt.Println("  " + i.String())
+		fmt.Fprintln(out, "  "+i.String())
 	}
 }

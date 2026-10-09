@@ -262,3 +262,39 @@ func hasIssue(m core.MatchResult, kind core.IssueKind) bool {
 	}
 	return false
 }
+
+func TestOnlyReviewersCloseTasks(t *testing.T) {
+	svc := migrated(t)
+	ProcessInvoices(context.Background(), svc, nil, io.Discard)
+	tid := core.SortedKeys(svc.Store.Tasks)[0]
+	outsider := governance.Identity{ID: "user:buyer", Kind: "human", Autonomy: governance.FullyAutonomous, Permissions: []string{governance.ActPOCreate}}
+	if _, err := svc.Decide(outsider, tid, false, "x"); err == nil {
+		t.Fatal("a person without invoice.review must not reject")
+	}
+	if _, err := svc.Decide(outsider, tid, true, "x"); err == nil {
+		t.Fatal("a person without invoice.review must not approve")
+	}
+}
+
+// Invoices that already have a decision cannot be escalated or posted again.
+func TestDecidedInvoicesAreClosed(t *testing.T) {
+	svc := migrated(t)
+	for _, id := range core.SortedKeys(svc.Store.Invoices) {
+		inv := svc.Store.Invoices[id]
+		if inv.Status != core.InvoicePosted {
+			continue
+		}
+		tasks := len(svc.Store.Tasks)
+		if _, err := svc.Escalate(MatchRule, id, "x", ""); err == nil {
+			t.Fatal("a posted invoice must not be escalated")
+		}
+		if _, err := svc.PostInvoice(humanApprover, id, ""); err == nil {
+			t.Fatal("a posted invoice must not be posted again")
+		}
+		if len(svc.Store.Tasks) != tasks {
+			t.Fatal("no review task for a decided invoice")
+		}
+		return
+	}
+	t.Fatal("no posted invoice in the fixture")
+}

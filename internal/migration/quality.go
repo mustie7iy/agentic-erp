@@ -50,7 +50,7 @@ func CheckQuality(e *sap.Extract, m Mapping) []Issue {
 	accounts := map[string]sap.SKB1{}
 	for _, a := range e.SKB1 {
 		accounts[a.BUKRS+"/"+a.SAKNR] = a
-		if _, err := m.accountType(alpha(a.SAKNR)); err != nil {
+		if _, err := m.AccountType(alpha(a.SAKNR)); err != nil {
 			add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "%v", err)
 		}
 	}

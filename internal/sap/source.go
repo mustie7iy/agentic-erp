@@ -45,10 +45,7 @@ func WriteExtract(path string, e *Extract) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(e, "", "  ")
-	if err != nil {
-		return err
-	}
+	data, _ := json.MarshalIndent(e, "", "  ") // plain data: cannot fail
 	return os.WriteFile(path, data, 0o644)
 }
 
@@ -116,5 +113,29 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 			out.ACDOCA = append(out.ACDOCA, r)
 		}
 	}
+	// Customizing: company-specific tables by company code; client-wide
+	// tables (payment terms, roles) unchanged.
+	out.T052 = all.T052
+	for _, r := range all.T007A {
+		if inCC(r.BUKRS) {
+			out.T007A = append(out.T007A, r)
+		}
+	}
+	for _, r := range all.T030 {
+		if inCC(r.BUKRS) {
+			out.T030 = append(out.T030, r)
+		}
+	}
+	for _, r := range all.T169G {
+		if inCC(r.BUKRS) {
+			out.T169G = append(out.T169G, r)
+		}
+	}
+	for _, r := range all.T012K {
+		if inCC(r.BUKRS) {
+			out.T012K = append(out.T012K, r)
+		}
+	}
+	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
 	return out
 }

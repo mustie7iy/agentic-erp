@@ -40,6 +40,10 @@ type Report struct {
 // Reconcile proves the migration. The SAP side is recomputed straight from
 // the raw extract (not from the transformed dataset), so a transform bug
 // shows up as a difference instead of being reproduced on both sides.
+//
+// The core side is limited to the scope's fiscal year, so earlier years
+// already in the store do not count against this one. Fiscal years are
+// assumed to be calendar years.
 func Reconcile(e *sap.Extract, s *core.Store, scope sap.Scope, m Mapping, mode Mode) *Report {
 	r := &Report{Scope: scope}
 	currency := map[string]string{}
@@ -51,6 +55,10 @@ func Reconcile(e *sap.Extract, s *core.Store, scope sap.Scope, m Mapping, mode M
 		if a.MITKZ == "K" {
 			recon[a.BUKRS+"/"+a.SAKNR] = true
 		}
+	}
+
+	inYear := func(date string) bool {
+		return scope.FiscalYear == "" || strings.HasPrefix(date, scope.FiscalYear+"-")
 	}
 
 	for _, cc := range scope.CompanyCodes {
@@ -78,24 +86,25 @@ func Reconcile(e *sap.Extract, s *core.Store, scope sap.Scope, m Mapping, mode M
 				sapOpen[alpha(l.LIFNR)] += amt
 			}
 		}
-		coreTB := s.TrialBalance(cc, "")
+		coreTB := map[string]money.Minor{}
+		var coreDebits money.Minor
+		for _, je := range s.Journal {
+			if je.CompanyCode != cc || !inYear(je.PostingDate) {
+				continue
+			}
+			for _, l := range je.Lines {
+				coreTB[l.Account] += l.Amount
+				if l.Amount > 0 {
+					coreDebits += l.Amount
+				}
+			}
+		}
 		tbDiffs := diffMaps(cc, sapTB, coreTB)
 		r.Diffs = append(r.Diffs, tbDiffs...)
 		r.add(cc, "Trial balance: accounts with differences", "0", strconv.Itoa(len(tbDiffs)), len(tbDiffs) == 0)
 
 		// Total debits only match when every document is replayed.
 		if mode == ModeDocuments {
-			var coreDebits money.Minor
-			for _, je := range s.Journal {
-				if je.CompanyCode != cc {
-					continue
-				}
-				for _, l := range je.Lines {
-					if l.Amount > 0 {
-						coreDebits += l.Amount
-					}
-				}
-			}
 			r.add(cc, "Total debits posted", fmtAmt(sapDebits), fmtAmt(coreDebits), sapDebits == coreDebits)
 		}
 
@@ -103,7 +112,9 @@ func Reconcile(e *sap.Extract, s *core.Store, scope sap.Scope, m Mapping, mode M
 		coreOpen := map[string]money.Minor{}
 		for vendor, items := range s.VendorOpenItems(cc) {
 			for _, it := range items {
-				coreOpen[vendor] += it.Amount
+				if inYear(it.PostingDate) {
+					coreOpen[vendor] += it.Amount
+				}
 			}
 		}
 		apDiffs := diffMaps(cc, sapOpen, coreOpen)
@@ -149,7 +160,7 @@ func Reconcile(e *sap.Extract, s *core.Store, scope sap.Scope, m Mapping, mode M
 		}
 		corePOs, corePOValue := 0, money.Minor(0)
 		for _, po := range s.PurchaseOrders {
-			if po.CompanyCode != cc {
+			if po.CompanyCode != cc || !inYear(po.OrderDate) {
 				continue
 			}
 			corePOs++
@@ -160,24 +171,31 @@ func Reconcile(e *sap.Extract, s *core.Store, scope sap.Scope, m Mapping, mode M
 		r.add(cc, "Purchase orders", strconv.Itoa(sapPOs), strconv.Itoa(corePOs), sapPOs == corePOs)
 		r.add(cc, "Purchase order value", fmtAmt(sapPOValue), fmtAmt(corePOValue), sapPOValue == corePOValue)
 
-		// 5. Supplier invoices by status.
-		for _, st := range []struct {
-			rbstat string
-			status core.InvoiceStatus
-		}{{"A", core.InvoiceParked}, {"5", core.InvoicePosted}} {
-			sapN, coreN := 0, 0
-			for _, h := range e.RBKP {
-				if h.BUKRS == cc && h.RBSTAT == st.rbstat {
-					sapN++
+		// 5. Supplier invoices: everything migrated, and what SAP itself posted.
+		// Status is not compared beyond that: after go-live the platform may
+		// have processed invoices SAP still shows as parked. Invoices SAP
+		// posted carry no platform journal entry, which tells them apart.
+		sapAll, sapPosted, coreAll, corePosted := 0, 0, 0, 0
+		for _, h := range e.RBKP {
+			if h.BUKRS == cc && (h.RBSTAT == "A" || h.RBSTAT == "5") {
+				sapAll++
+				if h.RBSTAT == "5" {
+					sapPosted++
 				}
 			}
-			for _, inv := range s.Invoices {
-				if inv.CompanyCode == cc && inv.Status == st.status && strings.HasPrefix(inv.Source, "sap:") {
-					coreN++
-				}
-			}
-			r.add(cc, fmt.Sprintf("Supplier invoices %s", st.status), strconv.Itoa(sapN), strconv.Itoa(coreN), sapN == coreN)
 		}
+		for _, inv := range s.Invoices {
+			if inv.CompanyCode != cc || !strings.HasPrefix(inv.Source, "sap:") ||
+				(scope.FiscalYear != "" && !strings.HasSuffix(inv.Source, "/"+scope.FiscalYear)) {
+				continue
+			}
+			coreAll++
+			if inv.Status == core.InvoicePosted && inv.JournalEntryID == "" {
+				corePosted++
+			}
+		}
+		r.add(cc, "Supplier invoices migrated", strconv.Itoa(sapAll), strconv.Itoa(coreAll), sapAll == coreAll)
+		r.add(cc, "Supplier invoices posted in SAP", strconv.Itoa(sapPosted), strconv.Itoa(corePosted), sapPosted == corePosted)
 	}
 	r.Passed = !slices.ContainsFunc(r.Checks, func(c Check) bool { return !c.Pass })
 	return r
