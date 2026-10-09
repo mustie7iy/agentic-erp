@@ -17,7 +17,7 @@ Phases are defined in [plan.md](plan.md).
 The list was compiled from SAP's published portfolio and should be checked
 against the client's licensed and activated scope during discovery.
 
-115 capabilities: 62 native core, 34 agent-native, 18 integrate, 1 industry pack.
+120 capabilities: 64 native core, 38 agent-native, 17 integrate, 1 industry pack.
 
 ### Finance (20)
 
@@ -174,13 +174,18 @@ against the client's licensed and activated scope during discovery.
 | Risk management | GRC Risk Management | Agent-native | 9 | Planned |
 | Data privacy (blocking, deletion) | ILM · DPP | Native core | 9 | Planned |
 
-### Analytics and planning (4)
+### Analytics and planning (9)
 
 | Capability | SAP equivalent | Approach | Phase | Status |
 |---|---|---|---|---|
-| Operational reporting | Embedded analytics · CDS | Native core | 2 | Planned |
-| Dashboards and plain-language analytics | Analytics Cloud · Joule | Agent-native | 9 | Planned |
-| Data warehouse | BW/4HANA · Datasphere | Integrate | 9 | Planned |
+| On-demand reports and dashboards | Embedded analytics · Analytics Cloud stories · ALV reports | Agent-native | 2 | Planned |
+| Semantic layer and governed metrics | CDS analytical views · BW InfoObjects | Native core | 2 | Planned |
+| Analytical store | BW/4HANA · Datasphere | Native core | 2 | Planned |
+| Drill-down and ad-hoc analysis | Analysis for Office · BEx | Agent-native | 2 | Planned |
+| Saved, scheduled and shared reports | SAC scheduling · report distribution | Agent-native | 2 | Planned |
+| Export to Excel and PDF | Analysis for Office · broadcasting | Native core | 2 | Planned |
+| Proactive insights and anomaly alerts | Smart Insights · SAC alerts | Agent-native | 3 | Planned |
+| Forecasting and what-if analysis | SAC Predictive · Smart Predict | Agent-native | 9 | Planned |
 | Process mining | Signavio | Agent-native | 2 | Planned |
 
 ### Platform (11)

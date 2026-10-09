@@ -22,7 +22,7 @@ deterministic check and a human approval before anything goes live.
 | AMS support (L1–L3) | Support agent | Answers how-to questions, finds root cause from the audit trail and logs, proposes the fix as a configuration change request | Approves the change request |
 | Localization consultant | Regulatory agent | Monitors legal and tax changes per country, drafts configuration updates and statutory report changes | Tax and legal experts sign off |
 | Trainer / change manager | Enablement agent | Writes process docs and training directly from live configuration; answers user questions in context | Change lead owns communication |
-| Reporting consultant | Reporting agent | Answers questions in plain language through a governed semantic layer and saves the good ones as reports | Finance owns metric definitions |
+| Reporting consultant / BI developer | Analytics agent | Builds any report or dashboard on request from the governed semantic layer, explains the numbers, and saves or schedules it. See [analytics.md](analytics.md) | Finance and business owners define the metrics |
 
 ## Configuration as code
 

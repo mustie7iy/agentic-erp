@@ -7,12 +7,15 @@ SAP screens.
 Two objectives drive the design:
 
 1. **Replace SAP's capabilities.** The [capability map](docs/capability-map.md)
-   covers 115 capabilities across S/4HANA and SAP's cloud products, each built
+   covers 120 capabilities across S/4HANA and SAP's cloud products, each built
    in the native core, rebuilt with agents, or integrated with a specialist product.
 2. **Cut consultant and engineering cost.** Agents configure the system,
    migrate it (configuration as well as data) and run it day to day, working on
    configuration as code with validation, simulation and human approval. See
    [docs/agentic-delivery.md](docs/agentic-delivery.md).
+3. **Answer any question on demand.** No catalogue of static reports: people
+   ask in plain language and an agent builds the report or dashboard on the
+   spot from governed data. See [docs/analytics.md](docs/analytics.md).
 
 Written in Go. The only dependency is the Anthropic Go SDK.
 
@@ -39,6 +42,7 @@ support work that consultants do today.
 | [docs/plan.md](docs/plan.md) | Two-track roadmap (business modules and delivery agents), exit criteria, risks |
 | [docs/capability-map.md](docs/capability-map.md) | Every SAP capability, its approach, phase and status |
 | [docs/agentic-delivery.md](docs/agentic-delivery.md) | Consultant roles mapped to agents, configuration as code, change tiers |
+| [docs/analytics.md](docs/analytics.md) | On-demand reports and dashboards: how requests are answered, guardrails, components |
 | [docs/architecture.md](docs/architecture.md) | Platform layers and full tech stack |
 | [docs/migration.md](docs/migration.md) | Cutover protocol, migration modes, reconciliation controls |
 
@@ -100,8 +104,9 @@ profile). The default model is `claude-opus-5-5`; override it with `ERP_AGENT_MO
 Phase 0 is complete and Phase 1 is partly built: a working vertical slice for
 accounts payable and the general ledger, with deterministic migration and
 reconciliation. None of the delivery agents (configuration, migration,
-discovery, test and the rest) exist yet; they are next in Phase 1. See
-[docs/plan.md](docs/plan.md). Known gaps:
+discovery, test and the rest) exist yet; the first of them are next in Phase 1.
+The analytics agent follows in Phase 2. See [docs/plan.md](docs/plan.md).
+Known gaps:
 
 - Storage is an in-memory store with JSON snapshots. Postgres comes next.
 - Single currency per company code. No FX revaluation yet.
