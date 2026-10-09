@@ -1,0 +1,228 @@
+package sap
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ODataSource extracts from a live S/4HANA system through its standard
+// OData V2 APIs (SAP API Business Hub). Entity sets and field names below
+// follow the published APIs; verify them against your system's $metadata
+// and adjust Entities, since releases and activated APIs differ.
+//
+// Every request is a read. Agents never write to SAP through this source.
+type ODataSource struct {
+	BaseURL  string // e.g. https://my-s4.example.com
+	User     string
+	Password string
+	Client   string // sap-client, optional
+	PageSize int
+	HTTP     *http.Client
+	Entities []EntityMapping
+}
+
+// EntityMapping maps one OData entity set onto one SAP table struct.
+type EntityMapping struct {
+	Table   string // target table, e.g. "LFA1"
+	Service string // e.g. "API_BUSINESS_PARTNER"
+	Entity  string // e.g. "A_Supplier"
+	// Fields maps SAP table field -> OData property.
+	Fields map[string]string
+	// CompanyField / YearField are OData properties used for scope filters.
+	CompanyField string
+	YearField    string
+	// Static sets constant SAP fields (e.g. RLDNR) not exposed by the API.
+	Static map[string]string
+}
+
+// DefaultEntities covers the tables in Extract with standard S/4HANA APIs.
+var DefaultEntities = []EntityMapping{
+	{Table: "T001", Service: "API_COMPANYCODE_SRV", Entity: "A_CompanyCode", CompanyField: "CompanyCode",
+		Fields: map[string]string{"BUKRS": "CompanyCode", "BUTXT": "CompanyCodeName", "WAERS": "Currency"}},
+	{Table: "SKB1", Service: "API_GLACCOUNTINCOMPANYCODE_SRV", Entity: "A_GLAccountInCompanyCode", CompanyField: "CompanyCode",
+		Fields: map[string]string{"BUKRS": "CompanyCode", "SAKNR": "GLAccount", "TXT50": "GLAccountLongName",
+			"XBILK": "IsBalanceSheetAccount", "MITKZ": "ReconciliationAccountType"}},
+	{Table: "LFA1", Service: "API_BUSINESS_PARTNER", Entity: "A_Supplier",
+		Fields: map[string]string{"LIFNR": "Supplier", "NAME1": "SupplierName", "LAND1": "Country",
+			"STCD1": "TaxNumber1", "SPERR": "PostingIsBlocked"}},
+	{Table: "LFB1", Service: "API_BUSINESS_PARTNER", Entity: "A_SupplierCompany", CompanyField: "CompanyCode",
+		Fields: map[string]string{"LIFNR": "Supplier", "BUKRS": "CompanyCode", "AKONT": "ReconciliationAccount",
+			"ZTERM": "PaymentTerms"}},
+	{Table: "LFBK", Service: "API_BUSINESS_PARTNER", Entity: "A_BusinessPartnerBank",
+		Fields: map[string]string{"LIFNR": "BusinessPartner", "BANKS": "BankCountryKey", "BANKN": "BankAccount"}},
+	{Table: "EKKO", Service: "API_PURCHASEORDER_PROCESS_SRV", Entity: "A_PurchaseOrder", CompanyField: "CompanyCode",
+		Fields: map[string]string{"EBELN": "PurchaseOrder", "BUKRS": "CompanyCode", "LIFNR": "Supplier",
+			"WAERS": "DocumentCurrency", "BEDAT": "PurchaseOrderDate"}},
+	{Table: "EKPO", Service: "API_PURCHASEORDER_PROCESS_SRV", Entity: "A_PurchaseOrderItem", CompanyField: "CompanyCode",
+		Fields: map[string]string{"EBELN": "PurchaseOrder", "EBELP": "PurchaseOrderItem", "MATNR": "Material",
+			"TXZ01": "PurchaseOrderItemText", "MENGE": "OrderQuantity", "NETPR": "NetPriceAmount",
+			"PEINH": "NetPriceQuantity", "SAKTO": "GLAccount"}},
+	{Table: "MSEG", Service: "API_MATERIAL_DOCUMENT_SRV", Entity: "A_MaterialDocumentItem", YearField: "MaterialDocumentYear",
+		Fields: map[string]string{"MBLNR": "MaterialDocument", "MJAHR": "MaterialDocumentYear", "ZEILE": "MaterialDocumentItem",
+			"BWART": "GoodsMovementType", "EBELN": "PurchaseOrder", "EBELP": "PurchaseOrderItem",
+			"MENGE": "QuantityInEntryUnit", "BUDAT": "PostingDate"}},
+	{Table: "RBKP", Service: "API_SUPPLIERINVOICE_PROCESS_SRV", Entity: "A_SupplierInvoice", CompanyField: "CompanyCode", YearField: "FiscalYear",
+		Fields: map[string]string{"BELNR": "SupplierInvoice", "GJAHR": "FiscalYear", "BUKRS": "CompanyCode",
+			"LIFNR": "InvoicingParty", "XBLNR": "SupplierInvoiceIDByInvcgParty", "BLDAT": "DocumentDate",
+			"WAERS": "DocumentCurrency", "RMWWR": "InvoiceGrossAmount", "WMWST1": "TaxAmount", "RBSTAT": "SupplierInvoiceStatus"}},
+	{Table: "RSEG", Service: "API_SUPPLIERINVOICE_PROCESS_SRV", Entity: "A_SuplrInvcItemPurOrdRef", YearField: "FiscalYear",
+		Fields: map[string]string{"BELNR": "SupplierInvoice", "GJAHR": "FiscalYear", "BUZEI": "SupplierInvoiceItem",
+			"EBELN": "PurchaseOrder", "EBELP": "PurchaseOrderItem", "MENGE": "QuantityInPurchaseOrderUnit",
+			"WRBTR": "SupplierInvoiceItemAmount"}},
+	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
+		Static: map[string]string{"RLDNR": "0L"},
+		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",
+			"DOCLN": "LedgerGLLineItem", "RACCT": "GLAccount", "HSL": "AmountInCompanyCodeCurrency",
+			"BUDAT": "PostingDate", "BLART": "AccountingDocumentType", "LIFNR": "Supplier",
+			"XBLNR": "DocumentReferenceID", "AUGBL": "ClearingAccountingDocument"}},
+}
+
+func (o *ODataSource) Name() string { return "odata:" + o.BaseURL }
+
+func (o *ODataSource) Extract(ctx context.Context, scope Scope) (*Extract, error) {
+	entities := o.Entities
+	if entities == nil {
+		entities = DefaultEntities
+	}
+	tables := map[string][]map[string]string{}
+	for _, em := range entities {
+		for _, cc := range companyFilter(em, scope) {
+			rows, err := o.fetch(ctx, em, cc, scope.FiscalYear)
+			if err != nil {
+				return nil, fmt.Errorf("%s (%s/%s): %w", em.Table, em.Service, em.Entity, err)
+			}
+			tables[em.Table] = append(tables[em.Table], rows...)
+		}
+	}
+	// Assemble via JSON so each SAP field lands in its struct field by tag.
+	data, err := json.Marshal(tables)
+	if err != nil {
+		return nil, err
+	}
+	var e Extract
+	if err := json.Unmarshal(data, &e); err != nil {
+		return nil, err
+	}
+	// Supplier-level tables are fetched unfiltered; narrow them to the scope.
+	return FilterScope(&e, scope), nil
+}
+
+func companyFilter(em EntityMapping, scope Scope) []string {
+	if em.CompanyField == "" {
+		return []string{""}
+	}
+	return scope.CompanyCodes
+}
+
+func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, year string) ([]map[string]string, error) {
+	pageSize := o.PageSize
+	if pageSize <= 0 {
+		pageSize = 1000
+	}
+	httpc := o.HTTP
+	if httpc == nil {
+		httpc = &http.Client{Timeout: 2 * time.Minute}
+	}
+	var filters []string
+	if companyCode != "" {
+		filters = append(filters, fmt.Sprintf("%s eq '%s'", em.CompanyField, companyCode))
+	}
+	if em.YearField != "" && year != "" {
+		filters = append(filters, fmt.Sprintf("%s eq '%s'", em.YearField, year))
+	}
+	selectFields := make([]string, 0, len(em.Fields))
+	for _, prop := range em.Fields {
+		selectFields = append(selectFields, prop)
+	}
+
+	var out []map[string]string
+	for skip := 0; ; skip += pageSize {
+		q := url.Values{}
+		q.Set("$format", "json")
+		q.Set("$top", strconv.Itoa(pageSize))
+		q.Set("$skip", strconv.Itoa(skip))
+		q.Set("$select", strings.Join(selectFields, ","))
+		if len(filters) > 0 {
+			q.Set("$filter", strings.Join(filters, " and "))
+		}
+		if o.Client != "" {
+			q.Set("sap-client", o.Client)
+		}
+		u := fmt.Sprintf("%s/sap/opu/odata/sap/%s/%s?%s", strings.TrimRight(o.BaseURL, "/"), em.Service, em.Entity, q.Encode())
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.SetBasicAuth(o.User, o.Password)
+		req.Header.Set("Accept", "application/json")
+		resp, err := httpc.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("HTTP %d: %.300s", resp.StatusCode, body)
+		}
+		var page struct {
+			D struct {
+				Results []map[string]any `json:"results"`
+			} `json:"d"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("decode page: %w", err)
+		}
+		for _, rec := range page.D.Results {
+			row := map[string]string{}
+			for k, v := range em.Static {
+				row[k] = v
+			}
+			for sapField, prop := range em.Fields {
+				row[sapField] = odataValue(rec[prop])
+			}
+			out = append(out, row)
+		}
+		if len(page.D.Results) < pageSize {
+			return out, nil
+		}
+	}
+}
+
+// odataValue normalizes OData V2 JSON values to SAP table conventions:
+// booleans become "X"/"", /Date(ms)/ becomes YYYYMMDD, numbers stay decimal strings.
+func odataValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case bool:
+		if t {
+			return "X"
+		}
+		return ""
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case string:
+		if strings.HasPrefix(t, "/Date(") && strings.HasSuffix(t, ")/") {
+			msStr := strings.TrimSuffix(strings.TrimPrefix(t, "/Date("), ")/")
+			if i := strings.IndexAny(msStr, "+-"); i > 0 {
+				msStr = msStr[:i]
+			}
+			if ms, err := strconv.ParseInt(msStr, 10, 64); err == nil {
+				return time.UnixMilli(ms).UTC().Format("20060102")
+			}
+		}
+		return t
+	default:
+		return fmt.Sprint(t)
+	}
+}
