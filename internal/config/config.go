@@ -25,6 +25,25 @@ type Config struct {
 	Agents       []Agent       `yaml:"agents" json:"agents"`
 	SoDConflicts [][2]string   `yaml:"sod_conflicts" json:"sod_conflicts"`
 	Output       Output        `yaml:"output" json:"output"`
+	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
+}
+
+// NumberRange is a document number interval for one company, document type
+// and fiscal year (SAP FBN1/SNRO). Once activated only Last may change, and
+// only upward: issued numbers must stay valid.
+type NumberRange struct {
+	Company      string `yaml:"company" json:"company"`
+	DocumentType string `yaml:"document_type" json:"document_type"`
+	FiscalYear   int    `yaml:"fiscal_year" json:"fiscal_year"`
+	Prefix       string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	First        int64  `yaml:"first" json:"first"`
+	Last         int64  `yaml:"last" json:"last"`
+	Gapless      bool   `yaml:"gapless,omitempty" json:"gapless,omitempty"`
+}
+
+// Key identifies a number range in the document: company/type/year.
+func (n NumberRange) Key() string {
+	return fmt.Sprintf("%s/%s/%d", n.Company, n.DocumentType, n.FiscalYear)
 }
 
 type Company struct {

@@ -1,4 +1,4 @@
-.PHONY: build test test-short db-up test-db coverage fuzz perf demo demo-analytics clean
+.PHONY: generate run-server build test test-short db-up test-db coverage fuzz perf demo demo-analytics clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -22,8 +22,16 @@ db-up:
 test-db:
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./db
 
+# Regenerate the server and client from the API contract (ADR-0014).
+generate:
+	cd api && go generate ./...
+
+# Run the API server against the local database (see internal/platform/config).
+run-server:
+	DATABASE_URL="$(DATABASE_URL)" ERP_MIGRATE_ON_START=true go run ./cmd/erp-server
+
 coverage:
-	./scripts/coverage.sh
+	DATABASE_URL="$(DATABASE_URL)" ./scripts/coverage.sh
 
 FUZZTIME ?= 15s
 FUZZ_TARGETS = money:FuzzParseDecimal config:FuzzParseValidateDiff analytics:FuzzNarrative \
@@ -39,6 +47,7 @@ fuzz:
 # Performance budgets and benchmarks.
 perf:
 	go test ./internal/nfr -run Perf -v
+	DATABASE_URL="$(DATABASE_URL)" go test -count=1 ./internal/ledger -run Budget -v
 	go test ./internal/nfr -run '^$$' -bench . -benchmem
 
 # Full walkthrough on mock SAP data: migrate company 1000, run the invoice flow.

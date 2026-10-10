@@ -1,0 +1,158 @@
+// Package authz authorizes every operation against the contract: the
+// operation's x-permission must be among the principal's current
+// permissions, operations marked x-agent: false refuse agents and services,
+// and a principal whose permissions break a segregation-of-duties rule may
+// not use either permission of the rule (ADR-0010). Company access depends
+// on the resource and is checked by the handler with Companies.
+package authz
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/api"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+// Authorizer checks operations from the contract.
+type Authorizer struct {
+	ops map[string]api.Operation
+}
+
+// New uses the operations of the API contract.
+func New(ops map[string]api.Operation) *Authorizer { return &Authorizer{ops: ops} }
+
+var errOutsideRequest = errors.New("authz: no transaction and principal in context")
+
+// Permissions returns the principal's permissions today: through active roles
+// and grants whose validity includes the current date.
+func Permissions(ctx context.Context) (map[string]bool, error) {
+	tx, ok := reqctx.TxFrom(ctx)
+	p, ok2 := reqctx.PrincipalFrom(ctx)
+	if !ok || !ok2 {
+		return nil, errOutsideRequest
+	}
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT rp.permission_code
+		FROM identity.principal_role pr
+		JOIN identity.role r ON r.tenant_id = pr.tenant_id AND r.id = pr.role_id AND r.status = 'active'
+		JOIN identity.role_permission rp ON rp.tenant_id = pr.tenant_id AND rp.role_id = pr.role_id
+		WHERE pr.principal_id = $1
+		  AND current_date >= pr.valid_from AND (pr.valid_to IS NULL OR current_date < pr.valid_to)
+		  AND current_date >= rp.valid_from AND (rp.valid_to IS NULL OR current_date < rp.valid_to)`, p.ID)
+	codes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("authz: permissions: %w", err)
+	}
+	set := make(map[string]bool, len(codes))
+	for _, c := range codes {
+		set[c] = true
+	}
+	return set, nil
+}
+
+// Require checks one permission, for checks beyond the operation's own (for
+// example the approval permission of an object type).
+func Require(ctx context.Context, permission string) error {
+	set, err := Permissions(ctx)
+	if err != nil {
+		return err
+	}
+	if !set[permission] {
+		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+permission+".")
+	}
+	return nil
+}
+
+// Authorize checks the operation's agent rule, permission and the
+// segregation-of-duties rules that involve the permission.
+func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
+	op, ok := a.ops[operationID]
+	if !ok {
+		return fmt.Errorf("authz: operation %q is not in the contract", operationID)
+	}
+	p, ok := reqctx.PrincipalFrom(ctx)
+	if !ok {
+		return errOutsideRequest
+	}
+	if !op.AgentAllowed && p.Kind != reqctx.KindHuman {
+		return problem.Forbidden("identity.agent_not_allowed", "Only a person may perform this operation.")
+	}
+	set, err := Permissions(ctx)
+	if err != nil {
+		return err
+	}
+	if !set[op.Permission] {
+		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+op.Permission+".")
+	}
+	return checkSoD(ctx, op.Permission, set)
+}
+
+// checkSoD refuses a permission while the principal also holds the other
+// permission of a rule in force today. The identity context refuses grants
+// that would create such a conflict; this check covers conflicts that exist
+// anyway (rules introduced while grants were already in place, or grants
+// made outside the API).
+func checkSoD(ctx context.Context, permission string, held map[string]bool) error {
+	tx, _ := reqctx.TxFrom(ctx) // Permissions already required it
+	rows, _ := tx.Query(ctx, `SELECT CASE WHEN permission_a = $1 THEN permission_b ELSE permission_a END
+		FROM identity.sod_rule
+		WHERE (permission_a = $1 OR permission_b = $1)
+		  AND current_date >= valid_from AND (valid_to IS NULL OR current_date < valid_to)`, permission)
+	others, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("authz: sod rules: %w", err)
+	}
+	for _, other := range others {
+		if held[other] {
+			return problem.Forbidden("identity.sod_conflict",
+				"Segregation of duties: you hold both "+permission+" and "+other+", so you may use neither until one is removed.")
+		}
+	}
+	return nil
+}
+
+// Access is the set of legal entities a principal may act in today.
+type Access struct {
+	All bool        // all_companies: every legal entity, present and future
+	IDs []uuid.UUID // otherwise, the legal entities of current company access grants
+}
+
+// Allows reports whether the legal entity is accessible.
+func (a Access) Allows(legalEntity uuid.UUID) bool {
+	if a.All {
+		return true
+	}
+	for _, id := range a.IDs {
+		if id == legalEntity {
+			return true
+		}
+	}
+	return false
+}
+
+// Companies returns the principal's legal entity access. Contexts filter
+// every read and write of company-scoped resources with it, and answer 404
+// for resources outside it, so ids cannot be probed (04-api-design §4.9).
+func Companies(ctx context.Context) (Access, error) {
+	tx, ok := reqctx.TxFrom(ctx)
+	p, ok2 := reqctx.PrincipalFrom(ctx)
+	if !ok || !ok2 {
+		return Access{}, errOutsideRequest
+	}
+	var a Access
+	err := tx.QueryRow(ctx, `SELECT p.all_companies, coalesce(array_agg(ca.legal_entity_id) FILTER (WHERE ca.id IS NOT NULL), '{}')
+		FROM identity.principal p
+		LEFT JOIN identity.company_access ca ON ca.tenant_id = p.tenant_id AND ca.principal_id = p.id
+		  AND current_date >= ca.valid_from AND (ca.valid_to IS NULL OR current_date < ca.valid_to)
+		WHERE p.id = $1
+		GROUP BY p.all_companies`, p.ID).Scan(&a.All, &a.IDs)
+	if err != nil {
+		return Access{}, fmt.Errorf("authz: company access: %w", err)
+	}
+	return a, nil
+}

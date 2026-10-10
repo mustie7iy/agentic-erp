@@ -1,0 +1,126 @@
+package authn_test
+
+import (
+	"context"
+	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+func verifier(t *testing.T, issuers ...*authntest.Issuer) *authn.Verifier {
+	t.Helper()
+	var cfg []authn.Issuer
+	for _, is := range issuers {
+		cfg = append(cfg, is.Config())
+	}
+	v, err := authn.New(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestVerifyAcceptsValidTokens(t *testing.T) {
+	is := authntest.New(t)
+	v := verifier(t, is)
+	tenant := uuid.New()
+	c, err := v.Verify(context.Background(), is.Token(t, tenant, "human|1", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.TenantID != tenant || c.Subject != "human|1" || c.Issuer != is.URL {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestVerifyRejectsBadTokens(t *testing.T) {
+	is, untrusted := authntest.New(t), authntest.New(t)
+	v := verifier(t, is)
+	tenant := uuid.New()
+	valid := is.Token(t, tenant, "s", nil)
+	parts := strings.Split(valid, ".")
+	cases := map[string]string{
+		"not a jwt":         "abc",
+		"bad base64":        parts[0] + ".!!!." + parts[2],
+		"bad json":          parts[0] + "." + base64.RawURLEncoding.EncodeToString([]byte("{")) + "." + parts[2],
+		"untrusted issuer":  untrusted.Token(t, tenant, "s", nil),
+		"expired":           is.Token(t, tenant, "s", map[string]any{"exp": time.Now().Add(-time.Hour).Unix()}),
+		"wrong audience":    is.Token(t, tenant, "s", map[string]any{"aud": "someone-else"}),
+		"tampered":          parts[0] + "." + base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"`+is.URL+`","sub":"admin"}`)) + "." + parts[2],
+		"no tenant":         is.Token(t, tenant, "s", map[string]any{"tenant_id": nil}),
+		"tenant not a uuid": is.Token(t, tenant, "s", map[string]any{"tenant_id": "acme"}),
+	}
+	for name, raw := range cases {
+		_, err := v.Verify(context.Background(), raw)
+		if p := problem.From(err); err == nil || p.Status != http.StatusUnauthorized {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestNewValidatesConfiguration(t *testing.T) {
+	ctx := context.Background()
+	if _, err := authn.New(ctx, nil); err == nil {
+		t.Fatal("no issuers accepted")
+	}
+	is := authntest.New(t)
+	if _, err := authn.New(ctx, []authn.Issuer{{URL: is.URL}}); err == nil {
+		t.Fatal("missing audience accepted")
+	}
+	if _, err := authn.New(ctx, []authn.Issuer{{URL: "http://127.0.0.1:1", Audience: "a"}}); err == nil {
+		t.Fatal("unreachable issuer accepted")
+	}
+	custom, err := authn.New(ctx, []authn.Issuer{{URL: is.URL, Audience: authntest.Audience, TenantClaim: "https://erp/tenant"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := uuid.New()
+	c, err := custom.Verify(ctx, is.Token(t, uuid.New(), "s", map[string]any{"https://erp/tenant": tenant.String()}))
+	if err != nil || c.TenantID != tenant {
+		t.Fatal(c, err)
+	}
+}
+
+func TestMiddleware(t *testing.T) {
+	is := authntest.New(t)
+	v := verifier(t, is)
+	tenant := uuid.New()
+	var got reqctx.Claims
+	h := v.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = reqctx.ClaimsFrom(r.Context())
+		w.WriteHeader(204)
+	}))
+	for header, want := range map[string]int{
+		"":               401,
+		"Basic abc":      401,
+		"Bearer ":        401,
+		"Bearer garbage": 401,
+		"bearer " + is.Token(t, tenant, "s", nil): 204,
+	} {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/v1/operations", nil)
+		if header != "" {
+			r.Header.Set("Authorization", header)
+		}
+		h.ServeHTTP(rec, r)
+		if rec.Code != want {
+			t.Errorf("%q: %d", header, rec.Code)
+		}
+		if want == 401 && rec.Header().Get("Content-Type") != "application/problem+json" {
+			t.Errorf("%q: not a problem response", header)
+		}
+	}
+	if got.TenantID != tenant {
+		t.Fatal("claims not passed on")
+	}
+}

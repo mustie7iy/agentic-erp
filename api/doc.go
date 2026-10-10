@@ -5,3 +5,5 @@
 // contracts and check every x-permission against the ref.permission seed in
 // db/migrations.
 package api
+
+//go:generate go tool ogen --target gen --package gen --clean openapi.yaml

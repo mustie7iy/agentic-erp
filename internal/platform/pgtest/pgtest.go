@@ -1,0 +1,180 @@
+// Package pgtest gives platform tests a real, migrated PostgreSQL database
+// (06-engineering-process §6.6: no mocks for PostgreSQL) and tenant fixtures.
+// It is test support and is excluded from the coverage figure.
+//
+// Use it from TestMain:
+//
+//	func TestMain(m *testing.M) { pgtest.Main(m) }
+//
+// Tests that need the database call URL, Pool or NewTenant; without
+// DATABASE_URL they are skipped.
+package pgtest
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/db"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+)
+
+var packageURL string
+
+// Main creates one migrated database for the test binary and drops it after.
+func Main(m *testing.M) {
+	admin := os.Getenv("DATABASE_URL")
+	if admin == "" {
+		os.Exit(m.Run())
+	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, admin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "pgtest: connect:", err)
+		os.Exit(1)
+	}
+	name := fmt.Sprintf("erp_pkg_%d", time.Now().UnixNano())
+	if _, err := conn.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		fmt.Fprintln(os.Stderr, "pgtest: create:", err)
+		os.Exit(1)
+	}
+	u, _ := url.Parse(admin)
+	u.Path = "/" + name
+	packageURL = u.String()
+	if err := migrate(ctx, packageURL); err != nil {
+		fmt.Fprintln(os.Stderr, "pgtest: migrate:", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
+	conn.Close(ctx)
+	os.Exit(code)
+}
+
+func migrate(ctx context.Context, u string) error {
+	c, err := pgx.Connect(ctx, u)
+	if err != nil {
+		return err
+	}
+	defer c.Close(ctx)
+	_, err = db.Migrate(ctx, c)
+	return err
+}
+
+// URL is the package database's URL; the test is skipped without one.
+func URL(t testing.TB) string {
+	t.Helper()
+	if packageURL == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	return packageURL
+}
+
+// Pool opens a pool on the package database, closed when the test ends.
+func Pool(t testing.TB) *database.Pool {
+	t.Helper()
+	p, err := database.Open(context.Background(), URL(t), database.DefaultSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
+// Admin is a superuser connection (bypasses row-level security) for fixtures
+// and assertions.
+func Admin(t testing.TB) *pgx.Conn {
+	t.Helper()
+	c, err := pgx.Connect(context.Background(), URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close(context.Background()) })
+	return c
+}
+
+// Exec runs fixture SQL as superuser on a connection of its own, closed
+// right after, and fails the test on error.
+func Exec(t testing.TB, sql string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(ctx)
+	if _, err := c.Exec(ctx, sql, args...); err != nil {
+		t.Fatalf("pgtest: %v\n%s", err, sql)
+	}
+}
+
+// Actor is a principal with the token subject that authenticates as it.
+type Actor struct {
+	ID      uuid.UUID
+	Subject string
+	Kind    string
+}
+
+// Tenant is an active tenant with a human, an agent and a service principal.
+// The human holds Permissions; the agent and service hold the ones that are
+// not approval permissions.
+type Tenant struct {
+	ID          uuid.UUID
+	Human       Actor
+	Agent       Actor
+	Service     Actor
+	Permissions []string
+}
+
+// NewTenant creates a tenant whose principals hold the given permissions.
+func NewTenant(t testing.TB, permissions ...string) Tenant {
+	t.Helper()
+	ctx := context.Background()
+	c := Admin(t)
+	ten := Tenant{ID: uuid.Must(uuid.NewV7()), Permissions: permissions}
+	ten.Human = Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
+	ten.Agent = Actor{ID: uuid.Must(uuid.NewV7()), Kind: "agent"}
+	ten.Service = Actor{ID: uuid.Must(uuid.NewV7()), Kind: "service"}
+	for _, a := range []*Actor{&ten.Human, &ten.Agent, &ten.Service} {
+		a.Subject = a.Kind + "|" + a.ID.String()
+	}
+	must := func(sql string, args ...any) {
+		if _, err := c.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("pgtest: %v\n%s", err, sql)
+		}
+	}
+	must(`INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Tenant', 'eu-west', 'EUR', 'active')`, ten.ID)
+	for _, a := range []Actor{ten.Human, ten.Agent, ten.Service} {
+		must(`INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $3, 'active', $2, $2)`, ten.ID, a.ID, a.Kind, a.Subject)
+	}
+	human, machine := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	must(`INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, 'all', 'All', 'active', $3, $3), ($1, $4, 'machine', 'Machine', 'active', $3, $3)`,
+		ten.ID, human, ten.Human.ID, machine)
+	for _, p := range permissions {
+		must(`INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by) VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $4)`,
+			ten.ID, human, p, ten.Human.ID)
+		must(`INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+			SELECT $1, gen_random_uuid(), $2, code, current_date - 1, $4 FROM ref.permission WHERE code = $3 AND NOT is_approval`,
+			ten.ID, machine, p, ten.Human.ID)
+	}
+	must(`INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`,
+		ten.ID, ten.Human.ID, human)
+	for _, a := range []Actor{ten.Agent, ten.Service} {
+		must(`INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $4)`,
+			ten.ID, a.ID, machine, ten.Human.ID)
+	}
+	return ten
+}
+
+// AllCompanies lets the actor act in every legal entity.
+func (ten Tenant) AllCompanies(t testing.TB, a Actor) {
+	t.Helper()
+	Exec(t, `UPDATE identity.principal SET all_companies = true, version = version + 1 WHERE tenant_id = $1 AND id = $2`, ten.ID, a.ID)
+}

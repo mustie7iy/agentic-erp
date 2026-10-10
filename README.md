@@ -149,6 +149,16 @@ profile). The default model is `claude-opus-5-5`; override it with `ERP_AGENT_MO
 | `internal/nfr` | Non-functional suites: performance, concurrency, security, reliability |
 | `cmd/erp` | CLI |
 
+**Platform foundation** (API-first; design in [docs/design](docs/design/), ADR-0014 for the request pipeline):
+
+| Package | Role |
+|---|---|
+| `api/openapi.yaml`, `api/asyncapi.yaml` | The API and event contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
+| `db/migrations` | The data model as versioned PostgreSQL migrations, applied by the embedded runner (`db.Migrate`) |
+| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `pagination`, `etag`, `config`, `httpapi` (wiring) |
+| `internal/operations` | Long-running operations: the first context on the foundation (`/v1/operations`) |
+| `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`), outbox relay |
+
 ## Guardrails built in
 
 - **Money is never a float.** Amounts are integer minor units; quantities are integer milli-units.
@@ -158,6 +168,23 @@ profile). The default model is `claude-opus-5-5`; override it with `ERP_AGENT_MO
 - **Segregation of duties** applies to agents: no identity can both post invoices and release payments.
 - **Every decision is audited** in an append-only, SHA-256-chained log. `audit-verify` detects edits and deletions.
 - **Reconciliation recomputes the SAP side from the raw extract**, so a transform bug shows up as a difference instead of being copied into both sides.
+
+## Running the API server
+
+```sh
+make db-up                      # PostgreSQL 17 in Docker on :55432
+export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"erp-api"}]'
+export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
+export ERP_NATS_URL=nats://localhost:4222   # optional; without it events wait in the outbox
+make run-server                 # migrates, then serves :8080 (API) and :9090 (admin)
+```
+
+All settings are environment variables, documented in
+[`internal/platform/config`](internal/platform/config/config.go). Tokens must
+carry the tenant id in the `tenant_id` claim, and the subject must be a
+provisioned principal of that tenant. Every operation in the contract is
+served: implemented ones run, the rest answer `501` until their context moves
+onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md)).
 
 ## Status
 
@@ -171,7 +198,9 @@ built ahead of its Phase 2 slot. The Phase 1 exit criteria that need a client
 mock data. See [docs/plan.md](docs/plan.md) and [docs/testing.md](docs/testing.md).
 Known gaps:
 
-- Storage is an in-memory store with JSON snapshots. Postgres comes next.
+- The Phase 1 prototype still stores data in memory with JSON snapshots. The
+  PostgreSQL foundation and the API server (T1) are built; contexts move onto
+  them one at a time (T2 onwards).
 - Single currency per company code. No FX revaluation yet.
 - The OData entity and field mappings follow SAP API Business Hub names but have
   not yet been validated against a live system. Check them against your `$metadata`.

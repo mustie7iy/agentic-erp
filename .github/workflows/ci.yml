@@ -31,6 +31,10 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: Vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Generated server matches the contract
+        run: |
+          make generate
+          git diff --exit-code -- api/gen || (echo "api/gen is stale: run make generate" && exit 1)
       - name: API contract lint
         run: go run github.com/daveshanley/vacuum@v0.32.0 lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml
       - name: API breaking-change check against main
@@ -45,6 +49,8 @@ jobs:
         run: go test -count=1 -v ./db
       - name: Functional and non-functional tests (race detector)
         run: go test -race -count=1 ./...
+      - name: Performance budgets (without the race detector)
+        run: go test -count=1 -run Budget -v ./internal/ledger
       - name: Coverage gate
         run: ./scripts/coverage.sh
       - name: Fuzz (30s per target)

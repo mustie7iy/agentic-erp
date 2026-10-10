@@ -70,12 +70,50 @@ func Validate(c *Config) []Finding {
 	v.purchasing(c)
 	v.payments(c)
 	v.sod(c)
+	v.numberRanges(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
 		v.err("output.purchase_order_channel", "must be email, edi or print")
 	}
 	return v.out
+}
+
+var (
+	documentTypeRe = regexp.MustCompile(`^[a-z_]+$`)
+	prefixRe       = regexp.MustCompile(`^[A-Z0-9-]{0,10}$`)
+)
+
+// numberRanges checks each interval on its own; that a range belongs to an
+// existing legal entity and only grows is checked against the tenant's data
+// when a change is submitted.
+func (v *validator) numberRanges(c *Config) {
+	seen := map[string]bool{}
+	for _, n := range c.NumberRanges {
+		p := "number_ranges[" + n.Key() + "]"
+		if seen[n.Key()] {
+			v.err(p, "duplicate number range")
+		}
+		seen[n.Key()] = true
+		if strings.TrimSpace(n.Company) == "" {
+			v.err(p+".company", "company is required")
+		}
+		if !documentTypeRe.MatchString(n.DocumentType) {
+			v.err(p+".document_type", "document type %q must be lower-case letters and underscores", n.DocumentType)
+		}
+		if n.FiscalYear < 1900 || n.FiscalYear > 2999 {
+			v.err(p+".fiscal_year", "fiscal year %d is out of range", n.FiscalYear)
+		}
+		if !prefixRe.MatchString(n.Prefix) {
+			v.err(p+".prefix", "prefix %q must be up to 10 upper-case letters, digits or dashes", n.Prefix)
+		}
+		if n.First < 1 {
+			v.err(p+".first", "the first number must be positive")
+		}
+		if n.Last < n.First {
+			v.err(p+".last", "the last number must not be below the first")
+		}
+	}
 }
 
 type validator struct{ out []Finding }

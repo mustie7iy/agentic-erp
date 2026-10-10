@@ -195,8 +195,15 @@ func TestServiceErrorPaths(t *testing.T) {
 	if _, err := svc2.Match(other); err == nil {
 		t.Fatal("unconfigured company in Match")
 	}
-	if _, err := svc2.PostInvoice(MatchRule, other, ""); err == nil {
-		t.Fatal("unconfigured company in PostInvoice")
+	var parked string // an open invoice, so PostInvoice reaches the configuration
+	for _, id := range core.SortedKeys(svc2.Store.Invoices) {
+		if inv := svc2.Store.Invoices[id]; inv.CompanyCode == "1000" && inv.Status == core.InvoiceParked {
+			parked = id
+			break
+		}
+	}
+	if _, err := svc2.PostInvoice(MatchRule, parked, ""); err == nil || !strings.Contains(err.Error(), "1000") {
+		t.Fatalf("unconfigured company in PostInvoice: %v", err)
 	}
 	var _ *config.Config
 }

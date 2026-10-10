@@ -1,0 +1,298 @@
+// Package uow runs every authenticated request as one unit of work
+// (ADR-0014): one database transaction scoped to the tenant and actor, the
+// principal resolved and required active, idempotency for unsafe methods in
+// the same transaction (ADR-0008), audit entries written last (ADR-0011) and
+// the response sent only after commit.
+package uow
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+// MaxBody is the largest request body accepted (04-api-design §4.11).
+const MaxBody = 5 << 20
+
+// Retention is how long idempotency keys are kept (ADR-0008).
+const Retention = 7 * 24 * time.Hour
+
+// replayed headers: what a client needs to use a replayed response.
+var replayed = []string{"Content-Type", "Etag", "Location"}
+
+// Middleware is the unit of work.
+type Middleware struct {
+	Pool *database.Pool
+	Role string // erp_app
+	Log  *slog.Logger
+	Now  func() time.Time
+	// Begin starts the request transaction; nil means Pool.Begin. Tests
+	// replace it to inject database failures.
+	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+}
+
+func (m *Middleware) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+	if m.Begin != nil {
+		return m.Begin(ctx, s)
+	}
+	return m.Pool.Begin(ctx, s)
+}
+
+func unsafe(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	}
+	return true
+}
+
+// Wrap runs next inside the unit of work. It needs authenticated claims in
+// the request context (authn.Middleware).
+func (m *Middleware) Wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := m.serve(w, r, next); err != nil {
+			p := problem.From(err)
+			if p.Status >= 500 {
+				m.Log.ErrorContext(r.Context(), "request failed", "error", err)
+			}
+			problem.Write(w, r, p)
+		}
+	})
+}
+
+type request struct {
+	key  string
+	hash []byte
+}
+
+// readRequest validates the idempotency key and hashes the request.
+func readRequest(r *http.Request, w http.ResponseWriter) (*request, error) {
+	if !unsafe(r.Method) {
+		return nil, nil
+	}
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" {
+		return nil, problem.PreconditionRequired("Idempotency-Key")
+	}
+	if len(key) < 8 || len(key) > 255 {
+		return nil, problem.BadRequest("request.invalid_idempotency_key", "Idempotency-Key must be 8 to 255 characters.",
+			problem.FieldError{Field: "Idempotency-Key", Code: "invalid_length", Message: "8 to 255 characters"})
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBody))
+	if err != nil {
+		return nil, problem.New(http.StatusRequestEntityTooLarge, "request.body_too_large", "Request body too large",
+			"The request body exceeds 5 MB; large documents go to upload URLs.").WithCause(err)
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	h := sha256.New()
+	h.Write([]byte(r.Method + "\n" + r.URL.RequestURI() + "\n"))
+	h.Write(body)
+	return &request{key: key, hash: h.Sum(nil)}, nil
+}
+
+func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Handler) error {
+	claims, ok := reqctx.ClaimsFrom(r.Context())
+	if !ok {
+		return problem.Unauthorized("A bearer token is required.")
+	}
+	req, err := readRequest(r, w)
+	if err != nil {
+		return err
+	}
+	ctx := r.Context()
+	tx, err := m.begin(ctx, database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: req == nil})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx)) // no-op after commit
+
+	principal, err := resolve(ctx, tx, claims)
+	if err != nil {
+		return err
+	}
+	info := reqctx.InfoFrom(ctx)
+	info.TenantID, info.PrincipalID = principal.TenantID, principal.ID
+	if err := database.SetActor(ctx, tx, principal.ID); err != nil {
+		return err
+	}
+	if req != nil {
+		done, err := m.claimKey(ctx, tx, principal, req, w)
+		if err != nil || done {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "SAVEPOINT uow"); err != nil {
+			return err
+		}
+	}
+
+	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal)
+	ctx, buf := audit.WithBuffer(ctx)
+	rec := &recorder{header: http.Header{}, status: http.StatusOK}
+	next.ServeHTTP(rec, r.WithContext(ctx))
+
+	if err := m.finish(ctx, tx, principal, req, rec, buf); err != nil {
+		return err
+	}
+	rec.send(w)
+	return nil
+}
+
+// businessOutcome lists the 4xx answers that are the result of running the
+// request against the current state. They are stored with the key, so a
+// retry gets the same answer. Other 4xx answers reject the request itself
+// (400, 401, 403, 405, 412, 413, 428, 429): nothing is stored, and a
+// corrected retry with the same key runs.
+var businessOutcome = map[int]bool{
+	http.StatusNotFound: true, http.StatusConflict: true, http.StatusGone: true, http.StatusUnprocessableEntity: true,
+}
+
+// finish decides what the transaction keeps:
+//   - 2xx/3xx: everything, plus the audit entries and the stored response;
+//   - a business outcome on an unsafe request: only the key and the answer;
+//   - anything else: nothing (the deferred rollback).
+func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, req *request, rec *recorder, buf *audit.Buffer) error {
+	failed := rec.status >= 400
+	if failed && (req == nil || !businessOutcome[rec.status]) {
+		return nil
+	}
+	if failed {
+		if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT uow"); err != nil {
+			return err
+		}
+	} else if err := buf.Flush(ctx, tx, p, reqctx.TraceID(ctx), m.Now()); err != nil {
+		// The audit trail rejecting an entry is never the client's fault.
+		return problem.Internal(err)
+	}
+	if req != nil {
+		if err := m.storeResponse(ctx, tx, p, req, rec); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// resolve finds the active principal for the token in an active tenant.
+func resolve(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal, error) {
+	var tenantStatus string
+	var id *uuid.UUID
+	var kind, status *string
+	err := tx.QueryRow(ctx, `SELECT t.status, p.id, p.kind, p.status FROM tenancy.tenant t
+		LEFT JOIN identity.principal p ON p.tenant_id = t.id AND p.external_subject = $2
+		WHERE t.id = $1`, c.TenantID, c.Subject).Scan(&tenantStatus, &id, &kind, &status)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return reqctx.Principal{}, problem.Unauthorized("The token's tenant is not known here.")
+	case err != nil:
+		return reqctx.Principal{}, err
+	case tenantStatus != "active":
+		return reqctx.Principal{}, problem.Forbidden("tenancy.tenant_inactive", "The tenant is "+tenantStatus+".")
+	case id == nil:
+		return reqctx.Principal{}, problem.Forbidden("identity.principal_unknown", "The token's subject is not provisioned in this tenant.")
+	case *status != "active":
+		return reqctx.Principal{}, problem.Forbidden("identity.principal_blocked", "The principal is "+*status+".")
+	}
+	return reqctx.Principal{ID: *id, Kind: *kind, TenantID: c.TenantID}, nil
+}
+
+// claimKey inserts the idempotency key, or answers from an earlier request
+// with the same key: the stored response (done = true), 422 when the key was
+// used for a different request, or 409 while that request is still running.
+func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal, req *request, w http.ResponseWriter) (bool, error) {
+	var fresh bool
+	err := tx.QueryRow(ctx, `INSERT INTO platform.idempotency_key AS k (tenant_id, key, principal_id, request_hash, status, expires_at)
+		VALUES ($1, $2, $3, $4, 'in_progress', $5)
+		ON CONFLICT (tenant_id, key) DO UPDATE SET principal_id = EXCLUDED.principal_id, request_hash = EXCLUDED.request_hash,
+			status = 'in_progress', response_code = NULL, response_body = NULL, response_headers = '{}',
+			created_at = now(), expires_at = EXCLUDED.expires_at
+		WHERE k.expires_at < now()
+		RETURNING true`, p.TenantID, req.key, p.ID, req.hash, m.Now().Add(Retention)).Scan(&fresh)
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return false, err // includes 55P03: the first request still holds the key → 409 Retry-After
+	}
+	var owner uuid.UUID
+	var hash []byte
+	var code int
+	var body []byte
+	var headers map[string]string
+	if err := tx.QueryRow(ctx, `SELECT principal_id, request_hash, coalesce(response_code, 0), coalesce(response_body::text, ''), response_headers
+		FROM platform.idempotency_key WHERE tenant_id = $1 AND key = $2`, p.TenantID, req.key).Scan(&owner, &hash, &code, &body, &headers); err != nil {
+		return false, err
+	}
+	if owner != p.ID || !bytes.Equal(hash, req.hash) {
+		return false, problem.Unprocessable("request.idempotency_key_reused",
+			"This Idempotency-Key was already used for a different request.")
+	}
+	for k, v := range headers {
+		w.Header().Set(k, v)
+	}
+	w.Header().Set("Idempotent-Replayed", "true")
+	w.WriteHeader(code)
+	w.Write(body)
+	return true, nil
+}
+
+func (m *Middleware) storeResponse(ctx context.Context, tx pgx.Tx, p reqctx.Principal, req *request, rec *recorder) error {
+	headers := map[string]string{}
+	for _, h := range replayed {
+		if v := rec.header.Get(h); v != "" {
+			headers[h] = v
+		}
+	}
+	var body any // NULL for an empty body
+	if rec.body.Len() > 0 {
+		if !json.Valid(rec.body.Bytes()) {
+			return errors.New("uow: response body is not JSON")
+		}
+		body = rec.body.String()
+	}
+	_, err := tx.Exec(ctx, `UPDATE platform.idempotency_key SET status = 'completed', response_code = $3,
+		response_body = $4::jsonb, response_headers = $5 WHERE tenant_id = $1 AND key = $2`,
+		p.TenantID, req.key, rec.status, body, headers)
+	return err
+}
+
+// recorder buffers the response until the transaction has committed.
+type recorder struct {
+	header http.Header
+	status int
+	wrote  bool
+	body   bytes.Buffer
+}
+
+func (r *recorder) Header() http.Header { return r.header }
+
+func (r *recorder) WriteHeader(status int) {
+	if !r.wrote {
+		r.status, r.wrote = status, true
+	}
+}
+
+func (r *recorder) Write(b []byte) (int, error) {
+	r.WriteHeader(http.StatusOK)
+	return r.body.Write(b)
+}
+
+func (r *recorder) send(w http.ResponseWriter) {
+	for k, vs := range r.header {
+		w.Header()[k] = vs
+	}
+	w.WriteHeader(r.status)
+	w.Write(r.body.Bytes())
+}

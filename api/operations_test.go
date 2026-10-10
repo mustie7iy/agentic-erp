@@ -1,0 +1,49 @@
+package api
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestOperationsFromTheContract(t *testing.T) {
+	ops, err := Operations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel, ok := ops["cancelOperation"]
+	if !ok || cancel.Method != "POST" || cancel.Path != "/v1/operations/{id}:cancel" ||
+		cancel.Permission != "platform.operation.cancel" || !cancel.AgentAllowed {
+		t.Fatalf("cancelOperation: %+v", cancel)
+	}
+	if approve := ops["approveApprovalRequest"]; approve.AgentAllowed {
+		t.Fatal("approval decisions must be refused to agents")
+	}
+}
+
+func TestOperationsRejectsBadContracts(t *testing.T) {
+	for name, src := range map[string]string{
+		"not yaml":      "paths: [",
+		"no permission": "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
+		"bad operation": "paths:\n  /v1/x:\n    get: [1]\n",
+	} {
+		if _, err := parseOperations([]byte(src)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	ops, err := parseOperations([]byte("paths:\n  /v1/x:\n    parameters: []\n    get:\n      operationId: getX\n      x-permission: a.b.c\n      x-agent: false\n"))
+	if err != nil || len(ops) != 1 || ops["getX"].AgentAllowed || !strings.HasPrefix(ops["getX"].Path, "/v1/") {
+		t.Fatal(ops, err)
+	}
+}
+
+func TestMustOperations(t *testing.T) {
+	if len(MustOperations()) == 0 {
+		t.Fatal("no operations")
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("invalid contract did not panic")
+		}
+	}()
+	mustParse([]byte("paths: ["))
+}

@@ -20,7 +20,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-var testDB *pgx.Conn
+var (
+	testDB   *pgx.Conn
+	adminURL string // admin connection; tests may create further databases
+)
 
 func TestMain(m *testing.M) {
 	admin := os.Getenv("DATABASE_URL")
@@ -28,6 +31,7 @@ func TestMain(m *testing.M) {
 		fmt.Println("DATABASE_URL not set; schema tests skipped")
 		os.Exit(m.Run())
 	}
+	adminURL = admin
 	ctx := context.Background()
 	name := fmt.Sprintf("erp_test_%d", time.Now().UnixNano())
 	conn, err := pgx.Connect(ctx, admin)
@@ -46,7 +50,7 @@ func TestMain(m *testing.M) {
 		fmt.Println("connect test database:", err)
 		os.Exit(1)
 	}
-	if err := apply(ctx, testDB, true); err != nil {
+	if err := applyAll(ctx, testDB, true); err != nil {
 		fmt.Println("migrate:", err)
 		os.Exit(1)
 	}
@@ -57,7 +61,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func apply(ctx context.Context, c *pgx.Conn, up bool) error {
+func applyAll(ctx context.Context, c *pgx.Conn, up bool) error {
 	ms := Migrations()
 	if !up {
 		for i, j := 0, len(ms)-1; i < j; i, j = i+1, j-1 {
@@ -309,7 +313,7 @@ func TestDesignRules(t *testing.T) {
 func TestMigrationsRevertCleanly(t *testing.T) {
 	need(t)
 	ctx := context.Background()
-	if err := apply(ctx, testDB, false); err != nil {
+	if err := applyAll(ctx, testDB, false); err != nil {
 		t.Fatalf("down: %v", err)
 	}
 	var schemas int
@@ -317,7 +321,7 @@ func TestMigrationsRevertCleanly(t *testing.T) {
 	if schemas != 0 {
 		t.Fatal("down migrations left schemas behind")
 	}
-	if err := apply(ctx, testDB, true); err != nil {
+	if err := applyAll(ctx, testDB, true); err != nil {
 		t.Fatalf("up again: %v", err)
 	}
 }

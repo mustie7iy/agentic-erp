@@ -74,6 +74,11 @@ var tierRules = []struct {
 	{rx(`^(roles|users|agents)\[\*\]\.(description|name)$`), TierCosmetic},
 	{rx(`^(roles|users|agents|sod_conflicts)`), TierPostingRelated},
 	{rx(`^output\.`), TierOperational},
+	// Number ranges need no approval: like SAP, which treats number range
+	// intervals as current settings maintained directly in production.
+	// Submission only lets new ranges and raised upper limits through, so
+	// issued numbers stay valid.
+	{rx(`^number_ranges`), TierCosmetic},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -95,6 +100,7 @@ func classify(path string) Tier {
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code",
 	"payment_terms": "key", "roles": "name", "users": "id", "agents": "id",
+	"number_ranges": "company,document_type,fiscal_year",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.
@@ -222,7 +228,11 @@ func walk(path, field string, v any, out map[string]string) {
 		for i, item := range x {
 			id := fmt.Sprint(i)
 			if m, ok := item.(map[string]any); ok && key != "" {
-				id = fmt.Sprint(m[key])
+				var parts []string
+				for _, k := range strings.Split(key, ",") {
+					parts = append(parts, fmt.Sprint(m[k]))
+				}
+				id = strings.Join(parts, "/")
 			}
 			if _, scalar := item.(map[string]any); !scalar {
 				if _, list := item.([]any); !list {

@@ -1,0 +1,186 @@
+package db
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// emptyDatabase creates a database for one test and drops it afterwards.
+func emptyDatabase(t *testing.T) *pgx.Conn {
+	t.Helper()
+	need(t)
+	ctx := context.Background()
+	admin, err := pgx.Connect(ctx, adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := fmt.Sprintf("erp_migrate_%d", time.Now().UnixNano())
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(adminURL)
+	u.Path = "/" + name
+	conn, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		conn.Close(ctx)
+		admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
+		admin.Close(ctx)
+	})
+	return conn
+}
+
+func TestMigrateAppliesEverythingOnce(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	if v, err := CurrentVersion(ctx, conn); err == nil || v != 0 {
+		// The version table does not exist before the first run.
+		t.Fatalf("version before migrating: %d, %v", v, err)
+	}
+	applied, err := Migrate(ctx, conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied) != len(Migrations()) {
+		t.Fatalf("applied %d of %d", len(applied), len(Migrations()))
+	}
+	if v, err := CurrentVersion(ctx, conn); err != nil || v != LatestVersion() {
+		t.Fatalf("current version %d, %v; want %d", v, err, LatestVersion())
+	}
+	again, err := Migrate(ctx, conn)
+	if err != nil || len(again) != 0 {
+		t.Fatalf("second run applied %v, %v", again, err)
+	}
+}
+
+func TestMigrateIsSafeForConcurrentReplicas(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	other, err := pgx.Connect(ctx, conn.Config().ConnString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close(ctx)
+	var wg sync.WaitGroup
+	results := make([][]string, 2)
+	errs := make([]error, 2)
+	for i, c := range []*pgx.Conn{conn, other} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i], errs[i] = Migrate(ctx, c)
+		}()
+	}
+	wg.Wait()
+	if errs[0] != nil || errs[1] != nil {
+		t.Fatal(errs)
+	}
+	if total := len(results[0]) + len(results[1]); total != len(Migrations()) {
+		t.Fatalf("migrations applied %d times in total, want %d", total, len(Migrations()))
+	}
+}
+
+func TestMigrateRunsNoTransactionMigrationsAlone(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	ms := []Migration{
+		{Name: "000001_table", Up: "CREATE TABLE t (id int); CREATE TABLE u (id int);"},
+		{Name: "000002_index", Up: NoTransaction + "\nCREATE INDEX CONCURRENTLY t_id ON t (id)"},
+	}
+	if _, err := migrate(ctx, conn, ms); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	conn.QueryRow(ctx, "SELECT count(*) FROM pg_indexes WHERE indexname = 't_id'").Scan(&n)
+	if n != 1 {
+		t.Fatal("concurrent index not created")
+	}
+	// A newer version applied by a later release is left alone.
+	conn.Exec(ctx, "INSERT INTO public.erp_schema_migration VALUES (99, '000099_future', now())")
+	if applied, err := migrate(ctx, conn, ms); err != nil || len(applied) != 0 {
+		t.Fatalf("applied %v, %v", applied, err)
+	}
+}
+
+func TestMigrateStopsAtTheFirstFailure(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	ms := []Migration{
+		{Name: "000001_ok", Up: "CREATE TABLE ok (id int)"},
+		{Name: "000002_bad", Up: "CREATE TABLE ok (id int)"},
+		{Name: "000003_never", Up: "CREATE TABLE never (id int)"},
+	}
+	applied, err := migrate(ctx, conn, ms)
+	if err == nil || !strings.Contains(err.Error(), "000002_bad") {
+		t.Fatalf("want failure naming 000002_bad, got %v", err)
+	}
+	if len(applied) != 1 {
+		t.Fatalf("applied %v", applied)
+	}
+	if v, _ := CurrentVersion(ctx, conn); v != 1 {
+		t.Fatalf("failed migration recorded: version %d", v)
+	}
+	// Failures in the no-transaction path and in recording are reported too.
+	_, err = migrate(ctx, conn, []Migration{{Name: "000004_bad", Up: NoTransaction + "\nCREATE INDEX CONCURRENTLY x ON missing (id)"}})
+	if err == nil {
+		t.Fatal("no-transaction failure not reported")
+	}
+	if _, err := migrate(ctx, conn, []Migration{{Name: "bad", Up: "SELECT 1"}}); err == nil {
+		t.Fatal("bad name accepted")
+	}
+}
+
+func TestMigrateWithoutPrivileges(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	// A role that may not create tables cannot create the version table.
+	conn.Exec(ctx, "SET ROLE erp_readonly")
+	if _, err := Migrate(ctx, conn); err == nil || !strings.Contains(err.Error(), "version table") {
+		t.Fatalf("want version table error, got %v", err)
+	}
+	// Nor read it once it exists.
+	conn.Exec(ctx, "RESET ROLE")
+	conn.Exec(ctx, "CREATE TABLE public.erp_schema_migration (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())")
+	conn.Exec(ctx, "GRANT CREATE ON SCHEMA public TO erp_readonly") // this test database only
+	conn.Exec(ctx, "SET ROLE erp_readonly")
+	if _, err := Migrate(ctx, conn); err == nil || !strings.Contains(err.Error(), "read versions") {
+		t.Fatalf("want read error, got %v", err)
+	}
+}
+
+func TestMigrationVersions(t *testing.T) {
+	for _, name := range []string{"x", "abc_def", "000000_zero"} {
+		if _, err := (Migration{Name: name}).Version(); err == nil {
+			t.Errorf("%q accepted", name)
+		}
+	}
+	if v, err := (Migration{Name: "000012_platform_runtime"}).Version(); err != nil || v != 12 {
+		t.Fatal(v, err)
+	}
+}
+
+func TestMigrateReportsDatabaseErrors(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := Migrate(cancelled, conn); err == nil {
+		t.Fatal("cancelled context accepted")
+	}
+	conn.Close(ctx)
+	if _, err := Migrate(ctx, conn); err == nil {
+		t.Fatal("closed connection accepted")
+	}
+	if _, err := CurrentVersion(ctx, conn); err == nil {
+		t.Fatal("closed connection accepted")
+	}
+}

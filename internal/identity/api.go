@@ -1,0 +1,571 @@
+package identity
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+// Endpoints implements the identity part of the generated API.
+type Endpoints struct {
+	Pages         *pagination.Codec
+	LegalEntities LegalEntities
+}
+
+func ifMatch(header string) func(int32) error {
+	return func(v int32) error { return etag.Check(header, v) }
+}
+
+func optDate(d gen.OptDate) *time.Time {
+	if !d.Set {
+		return nil
+	}
+	return &d.Value
+}
+
+func optString(s gen.OptString) *string {
+	if !s.Set {
+		return nil
+	}
+	return &s.Value
+}
+
+// optNilString maps a merge-patch field: absent → nil, null → pointer to nil.
+func optNilString(s gen.OptNilString) **string {
+	if !s.Set {
+		return nil
+	}
+	var v *string
+	if !s.Null {
+		v = &s.Value
+	}
+	return &v
+}
+
+func toOptString(s *string) gen.OptString {
+	if s == nil {
+		return gen.OptString{}
+	}
+	return gen.NewOptString(*s)
+}
+
+func profileInput(p gen.AgentProfile) *ProfileInput {
+	in := &ProfileInput{AutonomyLevel: int16(p.AutonomyLevel), Model: p.Model, Description: p.Description}
+	if p.MonthlyBudget.Set {
+		in.Budget = &Budget{Amount: p.MonthlyBudget.Value.Amount, Currency: p.MonthlyBudget.Value.Currency}
+	}
+	return in
+}
+
+func principalToAPI(p Principal) gen.Principal {
+	out := gen.Principal{
+		ID: p.ID, Version: p.Version, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.UpdatedAt, UpdatedBy: gen.NewOptUUID(p.UpdatedBy),
+		Kind: p.Kind, ExternalSubject: toOptString(p.ExternalSubject), DisplayName: p.DisplayName, Email: toOptString(p.Email),
+		AllCompanies: p.AllCompanies, Status: p.Status,
+	}
+	if p.Profile != nil {
+		ap := gen.AgentProfile{AutonomyLevel: int32(p.Profile.AutonomyLevel), Model: p.Profile.Model, Description: p.Profile.Description}
+		if p.BudgetDecimal != nil {
+			ap.MonthlyBudget.SetTo(gen.Money{Amount: p.BudgetDecimal.Amount, Currency: p.BudgetDecimal.Currency})
+		}
+		out.AgentProfile.SetTo(ap)
+	}
+	return out
+}
+
+func roleToAPI(r Role) gen.Role {
+	return gen.Role{
+		ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt, UpdatedBy: gen.NewOptUUID(r.UpdatedBy),
+		Code: r.Code, Name: r.Name, Description: toOptString(r.Description), Status: r.Status, PermissionCodes: r.Permissions,
+	}
+}
+
+// grantFields are the effective-dated fields in their generated form.
+type grantFields struct {
+	validTo gen.OptDate
+	endedAt gen.OptDateTime
+	endedBy gen.OptUUID
+}
+
+func toGrantFields(g Grant) grantFields {
+	var f grantFields
+	if g.ValidTo != nil {
+		f.validTo.SetTo(*g.ValidTo)
+	}
+	if g.EndedAt != nil {
+		f.endedAt.SetTo(*g.EndedAt)
+	}
+	if g.EndedBy != nil {
+		f.endedBy.SetTo(*g.EndedBy)
+	}
+	return f
+}
+
+func rolePermissionToAPI(g RolePermission) gen.RolePermission {
+	f := toGrantFields(g.Grant)
+	return gen.RolePermission{ID: g.ID, ValidFrom: g.ValidFrom, ValidTo: f.validTo, EndedAt: f.endedAt, EndedBy: f.endedBy,
+		CreatedAt: g.CreatedAt, CreatedBy: g.CreatedBy, RoleID: g.RoleID, PermissionCode: g.PermissionCode}
+}
+
+func assignmentToAPI(g RoleAssignment) gen.RoleAssignment {
+	f := toGrantFields(g.Grant)
+	return gen.RoleAssignment{ID: g.ID, ValidFrom: g.ValidFrom, ValidTo: f.validTo, EndedAt: f.endedAt, EndedBy: f.endedBy,
+		CreatedAt: g.CreatedAt, CreatedBy: g.CreatedBy, PrincipalID: g.PrincipalID, RoleID: g.RoleID}
+}
+
+func accessToAPI(g CompanyAccess) gen.CompanyAccess {
+	f := toGrantFields(g.Grant)
+	return gen.CompanyAccess{ID: g.ID, ValidFrom: g.ValidFrom, ValidTo: f.validTo, EndedAt: f.endedAt, EndedBy: f.endedBy,
+		CreatedAt: g.CreatedAt, CreatedBy: g.CreatedBy, PrincipalID: g.PrincipalID, LegalEntityID: g.LegalEntityID}
+}
+
+func sodToAPI(r SodRule) gen.SodRule {
+	f := toGrantFields(r.Grant)
+	return gen.SodRule{ID: r.ID, ValidFrom: r.ValidFrom, ValidTo: f.validTo, EndedAt: f.endedAt, EndedBy: f.endedBy,
+		CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, PermissionA: r.PermissionA, PermissionB: r.PermissionB, Description: r.Description}
+}
+
+// Grants have no version; their entity tag is derived from the
+// representation (04-api-design §4.7).
+func tag[T any](v T) gen.OptString { return gen.NewOptString(etag.Of(&v)) }
+
+func matchGrant[G, A any](header string, toAPI func(G) A) func(G) error {
+	return func(g G) error { return etag.Match(header, etag.Of(ptr(toAPI(g)))) }
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func pageRequest(orderBy gen.OptString, size gen.OptInt32, token gen.OptString) pagination.Request {
+	return pagination.Request{OrderBy: orderBy.Value, PageSize: size.Value, PageSizeSet: size.Set, PageToken: token.Value, PageTokenSet: token.Set}
+}
+
+// list runs a keyset-paged query and converts its rows.
+func list[R, A any](ctx context.Context, ks *pagination.Keyset, query string, args []any, scan func(pgx.Row) (R, error),
+	key func(R) (string, uuid.UUID), toAPI func(R) A) ([]A, gen.OptString, error) {
+	tx, _, _ := reqctx.Request(ctx) // handlers check the request first
+	q, args := ks.SQL(query, args)
+	rows, _ := tx.Query(ctx, q, args...)
+	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (R, error) { return scan(r) })
+	if err != nil {
+		return nil, gen.OptString{}, err
+	}
+	items, next := pagination.Page(ks, items, key)
+	out := make([]A, 0, len(items))
+	for _, it := range items {
+		out = append(out, toAPI(it))
+	}
+	var tok gen.OptString
+	if next != "" {
+		tok.SetTo(next)
+	}
+	return out, tok, nil
+}
+
+func dateKey(g Grant) (string, uuid.UUID) { return date(g.ValidFrom), g.ID }
+
+// validOn filters grants valid on a date (or all of them).
+const validOn = `($%d::date IS NULL OR (valid_from <= $%[1]d AND (valid_to IS NULL OR valid_to > $%[1]d)))`
+
+// --- principals
+
+// CreatePrincipal implements POST /v1/principals.
+func (e *Endpoints) CreatePrincipal(ctx context.Context, req *gen.PrincipalCreate, _ gen.CreatePrincipalParams) (gen.CreatePrincipalRes, error) {
+	in := NewPrincipal{Kind: req.Kind, ExternalSubject: optString(req.ExternalSubject), DisplayName: req.DisplayName,
+		Email: optString(req.Email), AllCompanies: req.AllCompanies.Value}
+	if req.AgentProfile.Set {
+		in.Profile = profileInput(req.AgentProfile.Value)
+	}
+	p, err := CreatePrincipal(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PrincipalHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Location: gen.NewOptString("/v1/principals/" + p.ID.String()),
+		Response: principalToAPI(p)}, nil
+}
+
+// GetPrincipal implements GET /v1/principals/{id}.
+func (e *Endpoints) GetPrincipal(ctx context.Context, params gen.GetPrincipalParams) (gen.GetPrincipalRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p, err := getPrincipal(ctx, tx, params.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetPrincipalOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: principalToAPI(p)}, nil
+}
+
+var principalSort = pagination.Sort{Default: "display_name", Fields: []pagination.Field{
+	{Name: "display_name", Column: "p.display_name", Type: "text"}, {Name: "created_at", Column: "p.created_at", Type: "timestamptz"},
+}}
+
+// ListPrincipals implements GET /v1/principals.
+func (e *Endpoints) ListPrincipals(ctx context.Context, params gen.ListPrincipalsParams) (gen.ListPrincipalsRes, error) {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return nil, err
+	}
+	ks, err := e.Pages.Keyset(principalSort, "listPrincipals|"+params.Kind.Value+"|"+params.Status.Value,
+		pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	byName := ks.Field() == "display_name"
+	items, next, err := list(ctx, ks, principalSelect+` WHERE ($1 = '' OR p.kind = $1) AND ($2 = '' OR p.status = $2)`,
+		[]any{params.Kind.Value, params.Status.Value}, scanPrincipal,
+		func(p Principal) (string, uuid.UUID) {
+			if byName {
+				return p.DisplayName, p.ID
+			}
+			return p.CreatedAt.UTC().Format(time.RFC3339Nano), p.ID
+		}, principalToAPI)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PrincipalPageHeaders{Response: gen.PrincipalPage{Items: items, NextPageToken: next}}, nil
+}
+
+// UpdatePrincipal implements PATCH /v1/principals/{id}.
+func (e *Endpoints) UpdatePrincipal(ctx context.Context, req *gen.PrincipalUpdate, params gen.UpdatePrincipalParams) (gen.UpdatePrincipalRes, error) {
+	ch := PrincipalChange{DisplayName: optString(req.DisplayName), Email: optNilString(req.Email)}
+	if req.AllCompanies.Set {
+		ch.AllCompanies = &req.AllCompanies.Value
+	}
+	if req.AgentProfile.Set {
+		ch.Profile = profileInput(req.AgentProfile.Value)
+	}
+	p, err := UpdatePrincipal(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdatePrincipalOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: principalToAPI(p)}, nil
+}
+
+// BlockPrincipal implements POST /v1/principals/{id}:block.
+func (e *Endpoints) BlockPrincipal(ctx context.Context, req *gen.ReasonInput, params gen.BlockPrincipalParams) (gen.BlockPrincipalRes, error) {
+	p, err := BlockPrincipal(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdatePrincipalOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: principalToAPI(p)}, nil
+}
+
+// --- roles
+
+// CreateRole implements POST /v1/roles.
+func (e *Endpoints) CreateRole(ctx context.Context, req *gen.RoleCreate, _ gen.CreateRoleParams) (gen.CreateRoleRes, error) {
+	r, err := CreateRole(ctx, req.Code, req.Name, optString(req.Description))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.RoleHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Location: gen.NewOptString("/v1/roles/" + r.ID.String()),
+		Response: roleToAPI(r)}, nil
+}
+
+// GetRole implements GET /v1/roles/{id}.
+func (e *Endpoints) GetRole(ctx context.Context, params gen.GetRoleParams) (gen.GetRoleRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := getRole(ctx, tx, params.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetRoleOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: roleToAPI(r)}, nil
+}
+
+var roleSort = pagination.Sort{Default: "code", Fields: []pagination.Field{
+	{Name: "code", Column: "r.code", Type: "text"}, {Name: "name", Column: "r.name", Type: "text"},
+}}
+
+// ListRoles implements GET /v1/roles.
+func (e *Endpoints) ListRoles(ctx context.Context, params gen.ListRolesParams) (gen.ListRolesRes, error) {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return nil, err
+	}
+	ks, err := e.Pages.Keyset(roleSort, "listRoles|"+params.Status.Value, pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	byName := ks.Field() == "name"
+	items, next, err := list(ctx, ks, roleSelect+` WHERE ($1 = '' OR r.status = $1)`, []any{params.Status.Value}, scanRole,
+		func(r Role) (string, uuid.UUID) {
+			if byName {
+				return r.Name, r.ID
+			}
+			return r.Code, r.ID
+		}, roleToAPI)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.RolePageHeaders{Response: gen.RolePage{Items: items, NextPageToken: next}}, nil
+}
+
+// UpdateRole implements PATCH /v1/roles/{id}.
+func (e *Endpoints) UpdateRole(ctx context.Context, req *gen.RoleUpdate, params gen.UpdateRoleParams) (gen.UpdateRoleRes, error) {
+	r, err := UpdateRole(ctx, params.ID, ifMatch(params.IfMatch), optString(req.Name), optNilString(req.Description))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateRoleOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: roleToAPI(r)}, nil
+}
+
+// --- role permissions
+
+// GrantRolePermission implements POST /v1/roles/{id}/permissions.
+func (e *Endpoints) GrantRolePermission(ctx context.Context, req *gen.RolePermissionCreate, params gen.GrantRolePermissionParams) (gen.GrantRolePermissionRes, error) {
+	g, err := GrantPermission(ctx, params.ID, req.PermissionCode, optDate(req.ValidFrom), optDate(req.ValidTo))
+	if err != nil {
+		return nil, err
+	}
+	out := rolePermissionToAPI(g)
+	return &gen.RolePermissionHeaders{ETag: tag(out), Location: gen.NewOptString("/v1/roles/" + g.RoleID.String() + "/permissions/" + g.ID.String()),
+		Response: out}, nil
+}
+
+// GetRolePermission implements GET /v1/roles/{id}/permissions/{permission_id}.
+func (e *Endpoints) GetRolePermission(ctx context.Context, params gen.GetRolePermissionParams) (gen.GetRolePermissionRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	g, err := getRolePermission(ctx, tx, params.ID, params.PermissionID, false)
+	if err != nil {
+		return nil, err
+	}
+	out := rolePermissionToAPI(g)
+	return &gen.GetRolePermissionOKHeaders{ETag: tag(out), Response: out}, nil
+}
+
+var validFromSort = pagination.Sort{Default: "valid_from", Fields: []pagination.Field{{Name: "valid_from", Column: "valid_from", Type: "date"}}}
+
+// ListRolePermissions implements GET /v1/roles/{id}/permissions.
+func (e *Endpoints) ListRolePermissions(ctx context.Context, params gen.ListRolePermissionsParams) (gen.ListRolePermissionsRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := getRole(ctx, tx, params.ID, false); err != nil {
+		return nil, err
+	}
+	on := optDate(params.ValidOn)
+	ks, err := e.Pages.Keyset(validFromSort, "listRolePermissions|"+params.ID.String()+"|"+dateParam(on),
+		pageRequest(gen.OptString{}, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	items, next, err := list(ctx, ks, `SELECT `+rolePermissionColumns+` FROM identity.role_permission WHERE role_id = $1 AND `+fmt.Sprintf(validOn, 2),
+		[]any{params.ID, on}, scanRolePermission, func(g RolePermission) (string, uuid.UUID) { return dateKey(g.Grant) }, rolePermissionToAPI)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.RolePermissionPageHeaders{Response: gen.RolePermissionPage{Items: items, NextPageToken: next}}, nil
+}
+
+// EndRolePermission implements POST /v1/roles/{id}/permissions/{permission_id}:end.
+func (e *Endpoints) EndRolePermission(ctx context.Context, req *gen.EndInput, params gen.EndRolePermissionParams) (gen.EndRolePermissionRes, error) {
+	g, err := EndPermission(ctx, params.ID, params.PermissionID, matchGrant(params.IfMatch, rolePermissionToAPI), req.ValidTo)
+	if err != nil {
+		return nil, err
+	}
+	out := rolePermissionToAPI(g)
+	return &gen.EndRolePermissionOKHeaders{ETag: tag(out), Response: out}, nil
+}
+
+// --- role assignments
+
+// CreateRoleAssignment implements POST /v1/role-assignments.
+func (e *Endpoints) CreateRoleAssignment(ctx context.Context, req *gen.RoleAssignmentCreate, _ gen.CreateRoleAssignmentParams) (gen.CreateRoleAssignmentRes, error) {
+	g, err := AssignRole(ctx, req.PrincipalID, req.RoleID, optDate(req.ValidFrom), optDate(req.ValidTo))
+	if err != nil {
+		return nil, err
+	}
+	out := assignmentToAPI(g)
+	return &gen.RoleAssignmentHeaders{ETag: tag(out), Location: gen.NewOptString("/v1/role-assignments/" + g.ID.String()), Response: out}, nil
+}
+
+// GetRoleAssignment implements GET /v1/role-assignments/{id}.
+func (e *Endpoints) GetRoleAssignment(ctx context.Context, params gen.GetRoleAssignmentParams) (gen.GetRoleAssignmentRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	g, err := getAssignment(ctx, tx, params.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	out := assignmentToAPI(g)
+	return &gen.GetRoleAssignmentOKHeaders{ETag: tag(out), Response: out}, nil
+}
+
+// ListRoleAssignments implements GET /v1/role-assignments.
+func (e *Endpoints) ListRoleAssignments(ctx context.Context, params gen.ListRoleAssignmentsParams) (gen.ListRoleAssignmentsRes, error) {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return nil, err
+	}
+	principal, role, on := optUUID(params.PrincipalID), optUUID(params.RoleID), optDate(params.ValidOn)
+	ks, err := e.Pages.Keyset(validFromSort, "listRoleAssignments|"+uuidParam(principal)+"|"+uuidParam(role)+"|"+dateParam(on),
+		pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	items, next, err := list(ctx, ks, `SELECT `+assignmentColumns+` FROM identity.principal_role
+		WHERE ($1::uuid IS NULL OR principal_id = $1) AND ($2::uuid IS NULL OR role_id = $2) AND `+fmt.Sprintf(validOn, 3),
+		[]any{principal, role, on}, scanAssignment, func(g RoleAssignment) (string, uuid.UUID) { return dateKey(g.Grant) }, assignmentToAPI)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.RoleAssignmentPageHeaders{Response: gen.RoleAssignmentPage{Items: items, NextPageToken: next}}, nil
+}
+
+// EndRoleAssignment implements POST /v1/role-assignments/{id}:end.
+func (e *Endpoints) EndRoleAssignment(ctx context.Context, req *gen.EndInput, params gen.EndRoleAssignmentParams) (gen.EndRoleAssignmentRes, error) {
+	g, err := EndAssignment(ctx, params.ID, matchGrant(params.IfMatch, assignmentToAPI), req.ValidTo)
+	if err != nil {
+		return nil, err
+	}
+	out := assignmentToAPI(g)
+	return &gen.EndRoleAssignmentOKHeaders{ETag: tag(out), Response: out}, nil
+}
+
+// --- company access
+
+// CreateCompanyAccess implements POST /v1/company-access.
+func (e *Endpoints) CreateCompanyAccess(ctx context.Context, req *gen.CompanyAccessCreate, _ gen.CreateCompanyAccessParams) (gen.CreateCompanyAccessRes, error) {
+	g, err := GrantAccess(ctx, e.LegalEntities, req.PrincipalID, req.LegalEntityID, optDate(req.ValidFrom), optDate(req.ValidTo))
+	if err != nil {
+		return nil, err
+	}
+	out := accessToAPI(g)
+	return &gen.CompanyAccessHeaders{ETag: tag(out), Location: gen.NewOptString("/v1/company-access/" + g.ID.String()), Response: out}, nil
+}
+
+// GetCompanyAccess implements GET /v1/company-access/{id}.
+func (e *Endpoints) GetCompanyAccess(ctx context.Context, params gen.GetCompanyAccessParams) (gen.GetCompanyAccessRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	g, err := getAccess(ctx, tx, params.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	out := accessToAPI(g)
+	return &gen.GetCompanyAccessOKHeaders{ETag: tag(out), Response: out}, nil
+}
+
+// ListCompanyAccess implements GET /v1/company-access.
+func (e *Endpoints) ListCompanyAccess(ctx context.Context, params gen.ListCompanyAccessParams) (gen.ListCompanyAccessRes, error) {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return nil, err
+	}
+	principal, le, on := optUUID(params.PrincipalID), optUUID(params.LegalEntityID), optDate(params.ValidOn)
+	ks, err := e.Pages.Keyset(validFromSort, "listCompanyAccess|"+uuidParam(principal)+"|"+uuidParam(le)+"|"+dateParam(on),
+		pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	items, next, err := list(ctx, ks, `SELECT `+accessColumns+` FROM identity.company_access
+		WHERE ($1::uuid IS NULL OR principal_id = $1) AND ($2::uuid IS NULL OR legal_entity_id = $2) AND `+fmt.Sprintf(validOn, 3),
+		[]any{principal, le, on}, scanAccess, func(g CompanyAccess) (string, uuid.UUID) { return dateKey(g.Grant) }, accessToAPI)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CompanyAccessPageHeaders{Response: gen.CompanyAccessPage{Items: items, NextPageToken: next}}, nil
+}
+
+// EndCompanyAccess implements POST /v1/company-access/{id}:end.
+func (e *Endpoints) EndCompanyAccess(ctx context.Context, req *gen.EndInput, params gen.EndCompanyAccessParams) (gen.EndCompanyAccessRes, error) {
+	g, err := EndAccess(ctx, params.ID, matchGrant(params.IfMatch, accessToAPI), req.ValidTo)
+	if err != nil {
+		return nil, err
+	}
+	out := accessToAPI(g)
+	return &gen.EndCompanyAccessOKHeaders{ETag: tag(out), Response: out}, nil
+}
+
+// --- segregation-of-duties rules
+
+// CreateSodRule implements POST /v1/sod-rules.
+func (e *Endpoints) CreateSodRule(ctx context.Context, req *gen.SodRuleCreate, _ gen.CreateSodRuleParams) (gen.CreateSodRuleRes, error) {
+	r, err := CreateSodRule(ctx, req.PermissionA, req.PermissionB, req.Description, optDate(req.ValidFrom), optDate(req.ValidTo))
+	if err != nil {
+		return nil, err
+	}
+	out := sodToAPI(r)
+	return &gen.SodRuleHeaders{ETag: tag(out), Location: gen.NewOptString("/v1/sod-rules/" + r.ID.String()), Response: out}, nil
+}
+
+// GetSodRule implements GET /v1/sod-rules/{id}.
+func (e *Endpoints) GetSodRule(ctx context.Context, params gen.GetSodRuleParams) (gen.GetSodRuleRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := getSod(ctx, tx, params.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	out := sodToAPI(r)
+	return &gen.GetSodRuleOKHeaders{ETag: tag(out), Response: out}, nil
+}
+
+var createdSort = pagination.Sort{Default: "created_at", Fields: []pagination.Field{{Name: "created_at", Column: "created_at", Type: "timestamptz"}}}
+
+// ListSodRules implements GET /v1/sod-rules.
+func (e *Endpoints) ListSodRules(ctx context.Context, params gen.ListSodRulesParams) (gen.ListSodRulesRes, error) {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return nil, err
+	}
+	on := optDate(params.ValidOn)
+	ks, err := e.Pages.Keyset(createdSort, "listSodRules|"+dateParam(on), pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	items, next, err := list(ctx, ks, `SELECT `+sodColumns+` FROM identity.sod_rule WHERE `+fmt.Sprintf(validOn, 1), []any{on}, scanSod,
+		func(r SodRule) (string, uuid.UUID) { return r.CreatedAt.UTC().Format(time.RFC3339Nano), r.ID }, sodToAPI)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.SodRulePageHeaders{Response: gen.SodRulePage{Items: items, NextPageToken: next}}, nil
+}
+
+// EndSodRule implements POST /v1/sod-rules/{id}:end.
+func (e *Endpoints) EndSodRule(ctx context.Context, req *gen.EndInput, params gen.EndSodRuleParams) (gen.EndSodRuleRes, error) {
+	r, err := EndSodRule(ctx, params.ID, matchGrant(params.IfMatch, sodToAPI), req.ValidTo)
+	if err != nil {
+		return nil, err
+	}
+	out := sodToAPI(r)
+	return &gen.EndSodRuleOKHeaders{ETag: tag(out), Response: out}, nil
+}
+
+func optUUID(o gen.OptUUID) *uuid.UUID {
+	if !o.Set {
+		return nil
+	}
+	return &o.Value
+}
+
+func uuidParam(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
+}
+
+func dateParam(d *time.Time) string {
+	if d == nil {
+		return ""
+	}
+	return date(*d)
+}

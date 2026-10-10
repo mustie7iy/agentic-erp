@@ -24,6 +24,17 @@ func ParseDecimal(s string, decimals int) (Minor, error) {
 }
 
 // ParseQty parses a decimal quantity string into milli-units.
+// ParseAmount parses an API amount (ADR-0005): a decimal string with
+// exactly the currency's minor-unit digits, "1080.00" for EUR and "100" for
+// JPY. Fewer or more digits are an error, even if they are zeros.
+func ParseAmount(s string, decimals int) (Minor, error) {
+	intPart, frac, hasFrac := strings.Cut(strings.TrimPrefix(s, "-"), ".")
+	if intPart == "" || hasFrac == (decimals == 0) || len(frac) != decimals {
+		return 0, fmt.Errorf("amount %q must have exactly %d decimals", s, decimals)
+	}
+	return ParseDecimal(s, decimals)
+}
+
 func ParseQty(s string) (Qty, error) {
 	v, err := parseScaled(s, 3)
 	return Qty(v), err
@@ -106,6 +117,10 @@ func (m Minor) Format(decimals int) string {
 }
 
 func (m Minor) String() string { return m.Format(2) }
+
+// Plain renders minor units with the currency's minor-unit digits and no
+// separators, "-1234.56" or "100": the API format (ADR-0005).
+func (m Minor) Plain(decimals int) string { return strings.ReplaceAll(m.Format(decimals), ",", "") }
 
 // Decimal renders minor units as a plain decimal string ("-1234.56"), the
 // format SAP extracts and OData use.

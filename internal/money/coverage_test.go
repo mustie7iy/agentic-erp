@@ -24,4 +24,23 @@ func TestMoneyEdges(t *testing.T) {
 	if Minor(-5).Abs() != 5 || Minor(5).Abs() != 5 {
 		t.Fatal("abs")
 	}
+	for in, want := range map[string]Minor{"1080.00": 108000, "-0.05": -5, "0.00": 0} {
+		if v, err := ParseAmount(in, 2); err != nil || v != want {
+			t.Errorf("ParseAmount(%q) = %d, %v", in, v, err)
+		}
+	}
+	if v, err := ParseAmount("100", 0); err != nil || v != 100 {
+		t.Errorf("JPY: %d %v", v, err)
+	}
+	for _, in := range []string{"1080.0", "1080", "1080.000", "-", "-.50", "1.0a", ""} {
+		if _, err := ParseAmount(in, 2); err == nil {
+			t.Errorf("ParseAmount(%q, 2) accepted", in)
+		}
+	}
+	if _, err := ParseAmount("100.0", 0); err == nil {
+		t.Error("decimals on a zero-digit currency accepted")
+	}
+	if Minor(-123456789).Plain(2) != "-1234567.89" || Minor(1000).Plain(0) != "1000" || Minor(5).Plain(3) != "0.005" {
+		t.Errorf("plain: %s %s %s", Minor(-123456789).Plain(2), Minor(1000).Plain(0), Minor(5).Plain(3))
+	}
 }
