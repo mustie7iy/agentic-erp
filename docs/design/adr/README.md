@@ -21,3 +21,4 @@ new record. Status values: proposed, accepted, superseded.
 | [0014](0014-request-pipeline-and-code-generation.md) | Request pipeline, unit of work and server code generation (ogen) | proposed |
 | [0015](0015-control-plane.md) | Control plane for tenants on the admin listener with operator tokens | proposed |
 | [0016](0016-object-storage.md) | Write-once object storage behind one port; tenant-prefixed keys; anchors locked | proposed |
+| [0017](0017-secrets.md) | Secrets by reference (environment, mounted file, Vault), resolved per replica | proposed |

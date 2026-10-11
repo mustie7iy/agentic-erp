@@ -84,7 +84,7 @@ Every pull request runs, and must pass:
 | Step | Tool |
 |---|---|
 | Format, vet, static analysis | `gofmt`, `go vet`, `staticcheck` |
-| Security | `govulncheck`, `gosec`, secret scanning |
+| Security | `govulncheck`, secret scanning (`gitleaks`); `gosec` to come |
 | Contract lint and breaking-change check | `vacuum` (Go), `oasdiff` (Go) |
 | Schema tests on PostgreSQL 17 | `go test ./db` against a CI service container |
 | Unit, functional and non-functional tests with the race detector | `go test -race ./...` |

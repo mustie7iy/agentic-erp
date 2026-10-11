@@ -1,13 +1,17 @@
 package config
 
 import (
+	"context"
 	"encoding/base64"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -111,5 +115,73 @@ func TestEveryProblemIsReported(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s not reported: %v", want, err)
 		}
+	}
+}
+
+// TestSecretReferences: settings that carry secrets may name where the
+// secret lives (env:, file:, vault:) instead of carrying it.
+func TestSecretReferences(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "field-key"), []byte(key+"\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, "jwt"), []byte(vaulttest.K8sJWT), 0o600)
+	vault := vaulttest.New(t)
+	vault.Secrets["secret/erp/db"] = map[string]any{"url": "postgres://erp:pw@db/erp"}
+	vault.Secrets["secret/erp/s3"] = map[string]any{"access": "AK", "secret": "SK"}
+	m := valid()
+	m["DATABASE_URL"] = "vault:secret/erp/db#url"
+	m["ERP_FIELD_KEY"] = "file:" + filepath.Join(dir, "field-key")
+	m["ERP_PAGE_TOKEN_KEY"] = "env:PAGE_KEY"
+	m["PAGE_KEY"] = key
+	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"] = "http://localhost:9000", "erp"
+	m["ERP_OBJECT_S3_ACCESS_KEY"], m["ERP_OBJECT_S3_SECRET_KEY"] = "vault:secret/erp/s3#access", "vault:secret/erp/s3#secret"
+	m["ERP_VAULT_ADDR"], m["ERP_VAULT_TOKEN"] = vault.URL, "env:VAULT_TOKEN"
+	m["VAULT_TOKEN"] = vaulttest.Token
+	c, err := Load(env(m))
+	if err != nil || c.DatabaseURL != "postgres://erp:pw@db/erp" || len(c.FieldKey) != 32 || len(c.PageTokenKey) != 32 || c.Objects.AccessKey != "AK" ||
+		c.Objects.SecretKey != "SK" || c.Vault.Token != vaulttest.Token || c.Secrets == nil {
+		t.Fatalf("%+v %v", c, err)
+	}
+	// The resolver serves connectors too.
+	if got, err := c.Secrets.Resolve(context.Background(), "vault:secret/erp/s3#access"); err != nil || got != "AK" {
+		t.Fatalf("%q %v", got, err)
+	}
+	// Kubernetes login with the service account token from a file.
+	delete(m, "ERP_VAULT_TOKEN")
+	m["ERP_VAULT_K8S_ROLE"], m["ERP_VAULT_K8S_JWT_FILE"] = vaulttest.K8sRole, filepath.Join(dir, "jwt")
+	if c, err := Load(env(m)); err != nil || c.Vault.K8sJWT != vaulttest.K8sJWT || c.DatabaseURL != "postgres://erp:pw@db/erp" {
+		t.Fatalf("kubernetes: %+v %v", c, err)
+	}
+	for name, change := range map[string]func(){
+		"missing env":        func() { m["ERP_PAGE_TOKEN_KEY"] = "env:NOPE" },
+		"missing field":      func() { m["DATABASE_URL"] = "vault:secret/erp/db#nope" },
+		"vault without auth": func() { delete(m, "ERP_VAULT_K8S_ROLE") },
+		"no jwt file":        func() { m["ERP_VAULT_K8S_JWT_FILE"] = filepath.Join(dir, "none") },
+		"bad token ref":      func() { m["ERP_VAULT_TOKEN"] = "env:NOPE" },
+		"vault unreachable":  func() { m["ERP_VAULT_ADDR"] = "http://127.0.0.1:1" },
+	} {
+		saved := map[string]string{}
+		for k, v := range m {
+			saved[k] = v
+		}
+		change()
+		if _, err := Load(env(m)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+		m = saved
+	}
+	// Without a vault, vault: references cannot be resolved and say so.
+	m = valid()
+	m["DATABASE_URL"] = "vault:secret/erp/db#url"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "DATABASE_URL") || !strings.Contains(err.Error(), "no resolver") {
+		t.Fatalf("vault reference without a vault: %v", err)
+	}
+	// The default service account token path is used when none is given.
+	if DefaultK8sJWTFile != "/var/run/secrets/kubernetes.io/serviceaccount/token" {
+		t.Fatal(DefaultK8sJWTFile)
+	}
+	m = valid()
+	m["ERP_VAULT_ADDR"], m["ERP_VAULT_K8S_ROLE"] = vault.URL, vaulttest.K8sRole
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_VAULT_K8S_JWT_FILE") {
+		t.Fatalf("default jwt path on this machine: %v", err)
 	}
 }

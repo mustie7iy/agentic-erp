@@ -15,6 +15,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
@@ -372,6 +374,19 @@ func TestConnectorsAndRunRules(t *testing.T) {
 	if got, _ := e.Must(200, "GET", runPath, "", ""); got["status"] != "queued" {
 		t.Fatalf("after a failed extraction: %v", got)
 	}
+	// Credentials in a vault: the server's resolver reads them; a reference to nothing is 422.
+	vault := vaulttest.New(t)
+	vault.Secrets["secret/erp/sap"] = map[string]any{"credentials": "user:secret"}
+	local := secrets.Local{}
+	withVault := apitest.NewWith(t, func(cfg *httpapi.Config) {
+		cfg.Secrets = secrets.Multi{secrets.SchemeEnv: local, secrets.SchemeVault: &secrets.Vault{Address: vault.URL, Token: vaulttest.Token}}
+	})
+	vaulted := apitest.Client{T: t, API: withVault, Tenant: e.Tenant, As: e.Tenant.Human}
+	_, tag = vaulted.Must(200, "PATCH", path, `{"secret_ref": "vault:secret/erp/sap#credentials"}`, `"6"`)
+	vaulted.Problem(503, "platform.unavailable", "POST", runPath+":start", "", `"1"`) // resolved; SAP answers 503
+	_, tag = vaulted.Must(200, "PATCH", path, `{"secret_ref": "vault:secret/erp/sap#missing"}`, tag)
+	vaulted.Problem(422, "integration.secret_unavailable", "POST", runPath+":start", "", `"1"`)
+	e.Must(200, "PATCH", path, `{"secret_ref": "env:ERP_TEST_SAP"}`, tag)
 
 	// Runs need a source connector, a known mode and active legal entities the caller may act in.
 	mail := ""

@@ -4,6 +4,7 @@
 package config
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 )
 
 // Config is the server configuration.
@@ -47,7 +49,24 @@ type Config struct {
 	PrincipalQuota  ratelimit.Quota // ERP_RATE_LIMIT_PRINCIPAL, the same per principal (default 50/100)
 	DevIssuer       bool            // ERP_DEV_ISSUER: mint tokens on the admin listener for local development; makes ERP_OIDC_ISSUERS optional
 	Objects         Objects         // ERP_OBJECT_DIR or ERP_OBJECT_S3_*: object storage for documents, bank files and audit anchors; neither leaves it off
+	Vault           Vault           // ERP_VAULT_*: where vault: references are resolved
+	// Secrets resolves references (env:, file:, vault:) for the settings that
+	// carry secrets and for connectors' secret_ref.
+	Secrets secrets.Resolver
 }
+
+// Vault is the HashiCorp Vault connection for vault: references.
+type Vault struct {
+	Address   string // ERP_VAULT_ADDR; empty: vault: references are not resolvable
+	Token     string // ERP_VAULT_TOKEN (a value or an env:/file: reference)
+	Namespace string // ERP_VAULT_NAMESPACE
+	K8sRole   string // ERP_VAULT_K8S_ROLE: log in with the Kubernetes method as this role
+	K8sJWT    string // ERP_VAULT_K8S_JWT_FILE (default /var/run/secrets/kubernetes.io/serviceaccount/token): the service account token, read at start
+}
+
+// SecretSettings are the settings that may carry a secret reference
+// instead of a value.
+var SecretSettings = []string{"DATABASE_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
 
 // Objects is the object storage configuration: a directory (development) or
 // an S3-compatible service, never both.
@@ -66,8 +85,32 @@ func (o Objects) Enabled() bool { return o.Dir != "" || o.Endpoint != "" }
 
 var cellPattern = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
 
-// Load reads and validates the configuration.
+// Load reads and validates the configuration. The settings in
+// SecretSettings may be references (env:, file:, vault:), resolved here, so
+// that credentials live in the vault or in mounted files rather than in
+// the environment of every replica.
 func Load(getenv func(string) string) (Config, error) {
+	var errs []error
+	resolver, vault, err := resolver(getenv)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	raw := getenv
+	resolved := map[string]string{}
+	for _, name := range SecretSettings {
+		v, err := secrets.Value(context.Background(), resolver, raw(name))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			v = ""
+		}
+		resolved[name] = v
+	}
+	getenv = func(key string) string {
+		if v, ok := resolved[key]; ok {
+			return v
+		}
+		return raw(key)
+	}
 	get := func(key, def string) string {
 		if v := getenv(key); v != "" {
 			return v
@@ -75,6 +118,8 @@ func Load(getenv func(string) string) (Config, error) {
 		return def
 	}
 	c := Config{
+		Vault:         vault,
+		Secrets:       resolver,
 		HTTPAddr:      get("ERP_HTTP_ADDR", ":8080"),
 		AdminAddr:     get("ERP_ADMIN_ADDR", ":9090"),
 		DatabaseURL:   getenv("DATABASE_URL"),
@@ -90,7 +135,6 @@ func Load(getenv func(string) string) (Config, error) {
 		BankOutboxDir: getenv("ERP_BANK_OUTBOX_DIR"),
 		ExtractDir:    getenv("ERP_EXTRACT_DIR"),
 	}
-	var errs []error
 	if c.DatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL is required"))
 	}
@@ -160,4 +204,39 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, fmt.Errorf("ERP_RATE_LIMIT_PRINCIPAL: %w", err))
 	}
 	return c, errors.Join(errs...)
+}
+
+// DefaultK8sJWTFile is where Kubernetes mounts the service account token.
+const DefaultK8sJWTFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+// resolver builds the secret resolver the configuration names: env: and
+// file: always, vault: when ERP_VAULT_ADDR is set.
+func resolver(getenv func(string) string) (secrets.Resolver, Vault, error) {
+	local := secrets.Local{Getenv: getenv}
+	m := secrets.Multi{secrets.SchemeEnv: local, secrets.SchemeFile: local}
+	v := Vault{Address: getenv("ERP_VAULT_ADDR"), Namespace: getenv("ERP_VAULT_NAMESPACE"), K8sRole: getenv("ERP_VAULT_K8S_ROLE")}
+	if v.Address == "" {
+		return m, v, nil
+	}
+	token, err := secrets.Value(context.Background(), local, getenv("ERP_VAULT_TOKEN"))
+	if err != nil {
+		return m, v, fmt.Errorf("ERP_VAULT_TOKEN: %w", err)
+	}
+	v.Token = token
+	if v.Token == "" {
+		if v.K8sRole == "" {
+			return m, v, errors.New("ERP_VAULT_ADDR needs ERP_VAULT_TOKEN or ERP_VAULT_K8S_ROLE")
+		}
+		file := getenv("ERP_VAULT_K8S_JWT_FILE")
+		if file == "" {
+			file = DefaultK8sJWTFile
+		}
+		jwt, err := local.Resolve(context.Background(), "file:"+file)
+		if err != nil {
+			return m, v, fmt.Errorf("ERP_VAULT_K8S_JWT_FILE: %w", err)
+		}
+		v.K8sJWT = jwt
+	}
+	m[secrets.SchemeVault] = &secrets.Vault{Address: v.Address, Token: v.Token, Namespace: v.Namespace, K8sRole: v.K8sRole, K8sJWT: v.K8sJWT}
+	return m, v, nil
 }

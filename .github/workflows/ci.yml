@@ -31,6 +31,10 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: Vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Secret scanning
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Generated server matches the contract
         run: |
           make generate

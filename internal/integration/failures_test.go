@@ -191,7 +191,4 @@ func TestDatabaseFailures(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if s, ok := (integration.EnvSecrets{Getenv: func(string) string { return "" }}).Secret("vault:x"); ok || s != "" {
-		t.Error("resolved a reference that is not env:")
-	}
 }

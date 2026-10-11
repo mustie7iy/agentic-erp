@@ -100,9 +100,10 @@ type Reports interface {
 	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]int64, error)
 }
 
-// Secrets resolves a connector's secret reference.
+// Secrets resolves a connector's secret reference (env:, file: or vault:;
+// internal/platform/secrets).
 type Secrets interface {
-	Secret(ref string) (string, bool)
+	Resolve(ctx context.Context, ref string) (string, error)
 }
 
 // Endpoints implements the integration part of the generated API.
@@ -122,22 +123,6 @@ type Endpoints struct {
 	Secrets       Secrets
 	ExtractDir    string       // sap_file connectors read extracts below it; empty: they cannot be used
 	HTTP          *http.Client // for sap_odata connectors; nil: the reader's default
-}
-
-// EnvSecrets resolves references of the form env:NAME from the process
-// environment, until a vault is wired.
-type EnvSecrets struct {
-	Getenv func(string) string
-}
-
-// Secret returns the value a reference names.
-func (s EnvSecrets) Secret(ref string) (string, bool) {
-	name, ok := strings.CutPrefix(ref, "env:")
-	if !ok || name == "" {
-		return "", false
-	}
-	v := s.Getenv(name)
-	return v, v != ""
 }
 
 // record publishes the events and adds the audit entry of a change; the

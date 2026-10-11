@@ -146,7 +146,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	metrics := telemetry.NewMetrics()
 	backlogs(pool, cfg, metrics)
 	apiCfg := httpapi.Config{
-		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, ExtractDir: cfg.ExtractDir, Objects: store, Log: log,
+		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, ExtractDir: cfg.ExtractDir, Objects: store, Secrets: cfg.Secrets, Log: log,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: metrics, Tracer: tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 	}

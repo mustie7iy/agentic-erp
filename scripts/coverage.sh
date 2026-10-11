@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Whole-suite statement coverage of production code, with a minimum.
 # Excluded from the figure: test-only packages (nfr, testkit, llmtest, and the
-# platform's pgtest, authntest, natstest, apitest, blobstoretest, fixture) and code generated from the
+# platform's pgtest, authntest, natstest, apitest, blobstoretest, vaulttest, fixture) and code generated from the
 # API contract (api/gen). Database-backed packages need DATABASE_URL; without
 # it their tests skip and the gate fails, so run `make db-up` first.
 set -euo pipefail
@@ -12,7 +12,7 @@ fi
 MIN="${COVERAGE_MIN:-100.0}"
 profile="$(mktemp)"
 go test -short -count=1 -coverpkg=./... -coverprofile="$profile" ./... >/dev/null
-grep -v -E '/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|fixture)/|/api/gen/' "$profile" > "$profile.prod"
+grep -v -E '/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fixture)/|/api/gen/' "$profile" > "$profile.prod"
 total="$(go tool cover -func="$profile.prod" | awk '/^total:/ {print $NF}' | tr -d '%')"
 echo "statement coverage: ${total}% (minimum ${MIN}%)"
 if awk -v t="$total" -v m="$MIN" 'BEGIN { exit !(t+0 < m+0) }'; then

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	ht "github.com/ogen-go/ogen/http"
@@ -44,6 +43,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -101,6 +101,7 @@ type Config struct {
 	Connector  payments.Connector // transmits bank files; nil: transmission answers 503
 	ExtractDir string             // sap_file connectors read extracts below it; empty: they answer 503
 	Objects    blobstore.Store    // documents, bank files and audit anchors; nil: documents and files are not kept
+	Secrets    secrets.Resolver   // resolves connectors' secret_ref; nil: env: and file: references on this replica
 	// Limits enforces the request quotas of 04 §4.11; nil applies none.
 	Limits *ratelimit.Limiter
 	// RequestTimeout is the deadline of one request, so that a saturated
@@ -219,8 +220,18 @@ func Integration(cfg Config) *integration.Endpoints {
 		Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Payments: payments.Reservations{}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: orders, OrderValues: procurement.Orders{},
-		Invoices: invoices, InvoiceCounts: payables.Invoices{}, Postings: postings, Reports: ledger.Reports{}, Secrets: integration.EnvSecrets{Getenv: os.Getenv},
+		Invoices: invoices, InvoiceCounts: payables.Invoices{}, Postings: postings, Reports: ledger.Reports{}, Secrets: resolver(cfg.Secrets),
 		ExtractDir: cfg.ExtractDir}
+}
+
+// resolver is the configured secret resolver, or the replica's own
+// environment and files.
+func resolver(r secrets.Resolver) secrets.Resolver {
+	if r != nil {
+		return r
+	}
+	local := secrets.Local{}
+	return secrets.Multi{secrets.SchemeEnv: local, secrets.SchemeFile: local}
 }
 
 // security confirms the pipeline authenticated the request; the token itself

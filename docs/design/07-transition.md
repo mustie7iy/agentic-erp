@@ -64,6 +64,7 @@ prototype store for that context.
 | T10 (done) | **Regression suites** | Suites captured from real invoices through the API; the simulation replays the base version's latest suite under the proposal and records regression evidence |
 | T11 (done) | **Control plane** | Operators list, provision, suspend, resume and offboard tenants through a contract on the admin listener, with operator tokens; every change recorded in the tenant's audit trail and published |
 | T12 (done) | **Object storage** | Captured documents and bank files kept in write-once object storage and served through the API; the audit chain anchored to locked objects and verified against them |
+| T13 (done) | **Secrets** | Settings and connectors name their secrets by reference (environment, mounted file, Vault) and the server resolves them at start and on use; the repository is scanned for leaked secrets |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -873,6 +874,54 @@ Open points for the contract and design review:
   prefix) is now possible and still to be designed.
 - Anchors are checked on request (`verifyAuditChain`); a scheduled
   verification per tenant would turn tampering into an alert.
+
+### T13 decisions and open points
+
+What T13 built: secret references (`internal/platform/secrets`, ADR-0017).
+A reference names where a secret lives: `env:NAME`, `file:/path` (a
+mounted secret) or `vault:<mount>/<path>#<field>` (HashiCorp Vault KV v2,
+reached with a token or by the Kubernetes login method, the login renewed
+once when it expires). The settings that carry secrets (`DATABASE_URL`,
+`ERP_PAGE_TOKEN_KEY`, `ERP_FIELD_KEY`, `ERP_OBJECT_S3_ACCESS_KEY`,
+`ERP_OBJECT_S3_SECRET_KEY`, `ERP_NATS_URL`) accept a reference in place of
+the value and are resolved when the configuration loads
+(`ERP_VAULT_ADDR`, `ERP_VAULT_TOKEN`, `ERP_VAULT_NAMESPACE`,
+`ERP_VAULT_K8S_ROLE`, `ERP_VAULT_K8S_JWT_FILE`). Connectors' `secret_ref`
+goes through the same resolver, replacing the `env:`-only stand-in of T6.
+CI scans the repository for leaked secrets (gitleaks). The exit criteria
+are `TestSecretReferences` (config: settings from the environment, files
+and a Vault double, with the Kubernetes login) and the vault-backed
+connector in `TestConnectorsAndRuns` (integration).
+
+Decisions taken while building it:
+
+- **References, not a secrets store of our own.** The platform stores no
+  secret: configuration carries references, connectors carry references,
+  and the replica resolves them at start (settings) or on use
+  (connectors). Which store holds them is the deployment's choice; the
+  three schemes cover the environment, Kubernetes secrets mounted as files,
+  and Vault.
+- **One resolver, built from the environment.** `config.Load` builds the
+  resolver from `ERP_VAULT_*` (the Vault token may itself be an `env:` or
+  `file:` reference) and keeps it in the configuration for the API; a
+  `vault:` reference without a vault configured is a start-up error that
+  names the setting.
+- **No Vault SDK.** KV v2 reads and the Kubernetes login are two HTTP
+  calls; a test double (`vaulttest`) serves them with token checks,
+  revocation and namespaces.
+- **Keys are resolved, not yet rotated.** The field-encryption and
+  page-token keys still come as one value each; rotation (the sealed
+  format is versioned) remains open.
+
+Open points for the contract and design review:
+
+- Key rotation for field encryption and page tokens, and per-tenant keys in
+  a KMS (T3's open point).
+- Other secret stores (AWS Secrets Manager, GCP Secret Manager, Azure Key
+  Vault) would be further schemes behind the same port.
+- The CLI's own credentials (`ERP_TOKEN`, `SAP_USER`/`SAP_PASSWORD` for
+  `config generate`) stay in the user's environment.
+- `gosec` is not in CI yet; secret scanning is.
 
 ## 7.4 Data from the prototype
 

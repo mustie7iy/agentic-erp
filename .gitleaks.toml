@@ -1,0 +1,13 @@
+# Secret scanning (gitleaks) runs in CI on every push. The contracts carry
+# documentation examples that look like credentials to a generic rule.
+title = "agentic-erp"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation examples and test-only credentials"
+regexTarget = "line"
+regexes = [
+  '''next_page_token: "[A-Za-z0-9._=-]+"''',
+]

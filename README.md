@@ -166,7 +166,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 |---|---|
 | `api/openapi.yaml`, `api/asyncapi.yaml`, `api/control.yaml` | The API, event and control-plane contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
 | `db/migrations` | The data model as versioned PostgreSQL migrations, applied by the embedded runner (`db.Migrate`) |
-| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `blobstore` (write-once object storage: directory or S3), `pagination`, `etag`, `config`, `httpapi` (wiring) |
+| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `blobstore` (write-once object storage: directory or S3), `secrets` (references to the environment, mounted files or Vault), `pagination`, `etag`, `config`, `httpapi` (wiring) |
 | `internal/operations` | Long-running operations: the first context on the foundation (`/v1/operations`) |
 | `internal/provisioning`, `internal/controlplane` | Tenant provisioning in one transaction, and the operators' control plane (`/control/v1/tenants`: list, create, suspend, resume, offboard) on the admin listener |
 | `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`, `/control/v1`), outbox relay and workers (balance projector, payment proposer, configuration simulator, audit anchorer) |
@@ -198,7 +198,12 @@ the request quotas per tenant and principal (`ERP_RATE_LIMIT_TENANT`,
 `ERP_RATE_LIMIT_PRINCIPAL`), the request deadline (`ERP_REQUEST_TIMEOUT`)
 the pool size (`ERP_DB_MAX_CONNS`) and object storage (`ERP_OBJECT_DIR` or
 `ERP_OBJECT_S3_*`: captured documents, bank files and the audit anchors the
-server writes, locked for `ERP_OBJECT_RETENTION`). The admin listener serves
+server writes, locked for `ERP_OBJECT_RETENTION`). Settings that carry
+secrets (`DATABASE_URL`, the keys, the S3 credentials) may name where the
+secret lives instead: `env:NAME`, `file:/run/secrets/name` or
+`vault:secret/erp/db#url` with `ERP_VAULT_ADDR` and a token or a Kubernetes
+role ([ADR-0017](docs/design/adr/0017-secrets.md)); connectors' `secret_ref`
+uses the same references. The admin listener serves
 `/livez`, `/readyz` (schema version and partition horizon), `/metrics`
 (request latency per operation, worker backlogs) and, with
 `ERP_OPERATOR_ISSUERS` set, the operators' control plane under
@@ -212,7 +217,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T12 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T13 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier

@@ -176,7 +176,7 @@ func system(c Connector) string {
 
 // source is the SAP reader a connector describes. Its settings were
 // checked when they were saved.
-func (e *Endpoints) source(c Connector) (sap.Source, error) {
+func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error) {
 	if c.Kind == SAPFile {
 		if e.ExtractDir == "" {
 			return nil, problem.Unavailable("Extract files are not configured on this server (ERP_EXTRACT_DIR).", 0)
@@ -191,10 +191,10 @@ func (e *Endpoints) source(c Connector) (sap.Source, error) {
 		o.PageSize = int(v)
 	}
 	if c.SecretRef != nil {
-		credentials, ok := e.Secrets.Secret(*c.SecretRef)
+		credentials, err := e.Secrets.Resolve(ctx, *c.SecretRef)
 		user, password, found := strings.Cut(credentials, ":")
-		if !ok || !found {
-			return nil, problem.Unprocessable("integration.secret_unavailable", "The connector's credentials ("+*c.SecretRef+") cannot be resolved as user:password.")
+		if err != nil || !found {
+			return nil, problem.Unprocessable("integration.secret_unavailable", "The connector's credentials ("+*c.SecretRef+") cannot be resolved as user:password.").WithCause(err)
 		}
 		o.User, o.Password = user, password
 	}
@@ -240,7 +240,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	if _, err := pgx.ForEachRow(rows, []any{&code, &exp}, func() error { t.exponents[code] = exp; return nil }); err != nil {
 		return t, nil, c, err
 	}
-	src, err := e.source(c)
+	src, err := e.source(ctx, c)
 	if err != nil {
 		return t, nil, c, err
 	}
