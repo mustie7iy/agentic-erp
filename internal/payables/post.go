@@ -125,7 +125,7 @@ func (e *Endpoints) taxAccount(ctx context.Context, le uuid.UUID, code *string, 
 }
 
 // ReverseInvoice reverses a posted invoice's entry; an invoice whose open
-// item is cleared (paid) cannot be reversed.
+// item is cleared (paid) or in a live payment run cannot be reversed.
 func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string, postingDate *time.Time) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -147,6 +147,13 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	}
 	if cleared {
 		return Invoice{}, problem.Conflict("payables.invoice_cleared", "The invoice's open item is cleared; reverse the payment first.")
+	}
+	run, inRun, err := e.Payments.RunOf(ctx, *v.JournalEntryYear, *v.JournalEntryID)
+	if err != nil {
+		return Invoice{}, err
+	}
+	if inRun {
+		return Invoice{}, problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+"; reject the run first.")
 	}
 	if postingDate == nil {
 		d, err := today(ctx, tx)

@@ -553,6 +553,24 @@ func TestPaymentItemsAreReservedOnce(t *testing.T) {
 	if err := release(id()); err != nil {
 		t.Fatal(err)
 	}
+	// A credit memo is settled at a negative amount, never at zero.
+	item := func(amount int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
+				SELECT tenant_id, id, 2026, $2, 3, $3, '2026-07-31' FROM payments.payment WHERE tenant_id = $1 AND end_to_end_id = 'E2E-3'`, f.tenant, id(), amount)
+		}
+	}
+	mustApp(t, f.tenant, item(-50))
+	failsWith(t, asApp(t, f.tenant, item(0)), "payment_item_amount_check")
+	// A payment records its journal entry once.
+	post := func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE payments.payment SET journal_entry_year = 2026, journal_entry_id = $2 WHERE tenant_id = $1 AND end_to_end_id = 'E2E-3'`, f.tenant, id())
+	}
+	mustApp(t, f.tenant, post)
+	failsWith(t, asApp(t, f.tenant, post), "already posted")
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE payments.payment SET amount = 1 WHERE tenant_id = $1`, f.tenant)
+	}), "permission denied")
 }
 
 func TestBankAccountValidityCannotOverlap(t *testing.T) {

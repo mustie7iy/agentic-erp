@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -24,12 +25,14 @@ type Config struct {
 	AppRole         string         // ERP_DB_APP_ROLE (default erp_app)
 	RelayRole       string         // ERP_DB_RELAY_ROLE (default erp_relay)
 	ProjectorRole   string         // ERP_DB_PROJECTOR_ROLE (default erp_projector)
+	WorkerRole      string         // ERP_DB_WORKER_ROLE, finds queued payment proposals (default erp_worker)
 	Cell            string         // ERP_CELL, part of event subjects (default local)
 	NATSURL         string         // ERP_NATS_URL; empty disables the event relay
 	OTLPEndpoint    string         // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT; empty keeps traces local
 	Issuers         []authn.Issuer // ERP_OIDC_ISSUERS, JSON list of {issuer, audience, tenant_claim} (required)
 	PageTokenKey    []byte         // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required)
 	LLMEnabled      bool           // ANTHROPIC_API_KEY is set: invoice capture reads documents with Claude
+	BankOutboxDir   string         // ERP_BANK_OUTBOX_DIR, where transmitted bank files are dropped; empty disables transmission
 	FieldKey        []byte         // ERP_FIELD_KEY, base64, at least 32 bytes: encrypts bank accounts and tax identifiers (required)
 	MigrateOnStart  bool           // ERP_MIGRATE_ON_START
 	LogLevel        slog.Level     // ERP_LOG_LEVEL: debug, info, warn, error (default info)
@@ -53,10 +56,12 @@ func Load(getenv func(string) string) (Config, error) {
 		AppRole:       get("ERP_DB_APP_ROLE", "erp_app"),
 		RelayRole:     get("ERP_DB_RELAY_ROLE", "erp_relay"),
 		ProjectorRole: get("ERP_DB_PROJECTOR_ROLE", "erp_projector"),
+		WorkerRole:    get("ERP_DB_WORKER_ROLE", "erp_worker"),
 		Cell:          get("ERP_CELL", "local"),
 		NATSURL:       getenv("ERP_NATS_URL"),
 		OTLPEndpoint:  getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
 		LLMEnabled:    getenv("ANTHROPIC_API_KEY") != "",
+		BankOutboxDir: getenv("ERP_BANK_OUTBOX_DIR"),
 	}
 	var errs []error
 	if c.DatabaseURL == "" {
@@ -75,6 +80,11 @@ func Load(getenv func(string) string) (Config, error) {
 	c.PageTokenKey = key
 	if c.FieldKey, err = base64.StdEncoding.DecodeString(getenv("ERP_FIELD_KEY")); err != nil || len(c.FieldKey) < 32 {
 		errs = append(errs, errors.New("ERP_FIELD_KEY must be base64 of at least 32 random bytes, the same on every replica and kept secret"))
+	}
+	if c.BankOutboxDir != "" {
+		if fi, err := os.Stat(c.BankOutboxDir); err != nil || !fi.IsDir() {
+			errs = append(errs, fmt.Errorf("ERP_BANK_OUTBOX_DIR %q must be an existing directory", c.BankOutboxDir))
+		}
 	}
 	if c.MigrateOnStart, err = strconv.ParseBool(get("ERP_MIGRATE_ON_START", "false")); err != nil {
 		errs = append(errs, errors.New("ERP_MIGRATE_ON_START must be true or false"))

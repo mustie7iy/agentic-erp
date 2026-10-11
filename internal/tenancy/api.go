@@ -344,6 +344,7 @@ func (Directory) LegalEntityStatus(ctx context.Context, id uuid.UUID) (status st
 type Entity struct {
 	ID               uuid.UUID
 	Code             string
+	Name             string
 	Status           string
 	LocalCurrency    string
 	FiscalCalendarID uuid.UUID
@@ -366,8 +367,8 @@ func entity(ctx context.Context, where string, arg any) (Entity, bool, error) {
 		return Entity{}, false, err
 	}
 	var e Entity
-	err = tx.QueryRow(ctx, `SELECT id, code, status, local_currency, fiscal_calendar_id FROM tenancy.legal_entity WHERE `+where, arg).
-		Scan(&e.ID, &e.Code, &e.Status, &e.LocalCurrency, &e.FiscalCalendarID)
+	err = tx.QueryRow(ctx, `SELECT id, code, name, status, local_currency, fiscal_calendar_id FROM tenancy.legal_entity WHERE `+where, arg).
+		Scan(&e.ID, &e.Code, &e.Name, &e.Status, &e.LocalCurrency, &e.FiscalCalendarID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Entity{}, false, nil
 	}

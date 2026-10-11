@@ -53,6 +53,14 @@ func Add(ctx context.Context, e Entry) error {
 	return nil
 }
 
+// Discard drops the entries buffered so far, for work rolled back to a
+// savepoint.
+func Discard(ctx context.Context) {
+	if b, ok := ctx.Value(bufferKey{}).(*Buffer); ok {
+		b.entries = nil
+	}
+}
+
 // Len is the number of buffered entries.
 func (b *Buffer) Len() int { return len(b.entries) }
 

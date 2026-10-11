@@ -1,7 +1,8 @@
 // Command erp-server runs the platform's public API (ADR-0014): the server
 // generated from api/openapi.yaml behind telemetry, authentication and the
 // unit of work, an admin listener for liveness, readiness and metrics, the
-// outbox relay to NATS JetStream and the ledger's balance projector.
+// outbox relay to NATS JetStream, the ledger's balance projector and the
+// payment proposal worker.
 // Configuration comes from the environment (internal/platform/config).
 package main
 
@@ -22,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -91,11 +93,16 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if cfg.LLMEnabled {
 		extractor = &capture.ClaudeExtractor{LLM: llm.New()}
 	}
+	var connector payments.Connector
+	if cfg.BankOutboxDir != "" {
+		connector = payments.DirConnector{Dir: cfg.BankOutboxDir}
+	}
 	metrics := telemetry.NewMetrics()
-	apiHandler, err := httpapi.New(httpapi.Config{
-		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Log: log,
+	apiCfg := httpapi.Config{
+		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, Log: log,
 		Metrics: metrics, Tracer: tp, Meter: otel.GetMeterProvider(), Now: time.Now,
-	})
+	}
+	apiHandler, err := httpapi.New(apiCfg)
 	if err != nil {
 		return err
 	}
@@ -105,6 +112,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	projector := &ledger.Projector{Pool: pool, Role: cfg.ProjectorRole, Log: log}
 	projectorDone := make(chan struct{})
 	go func() { projector.Run(runCtx); close(projectorDone) }()
+	proposer := &payments.Proposer{Endpoints: httpapi.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
+	proposerDone := make(chan struct{})
+	go func() { proposer.Run(runCtx); close(proposerDone) }()
 	relayDone := make(chan struct{})
 	if cfg.NATSURL == "" {
 		log.Warn("ERP_NATS_URL not set: events stay in the outbox until a relay runs")
@@ -157,6 +167,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	cancel()
 	<-relayDone
 	<-projectorDone
+	<-proposerDone
 	log.Info("erp-server stopped")
 	return serveErr // nil after a requested shutdown; set when a listener failed
 }

@@ -56,6 +56,13 @@ func (s *syncBuffer) Write(p []byte) (int, error) {
 // New builds the API; it is skipped without DATABASE_URL.
 func New(t testing.TB) *API {
 	t.Helper()
+	return NewWith(t, nil)
+}
+
+// NewWith builds the API after configure, when not nil, adjusts its
+// configuration (for example to plug in a bank connector).
+func NewWith(t testing.TB, configure func(*httpapi.Config)) *API {
+	t.Helper()
 	pool := pgtest.Pool(t)
 	is := authntest.New(t)
 	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
@@ -64,11 +71,15 @@ func New(t testing.TB) *API {
 	}
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	a := &API{t: t, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &syncBuffer{}}
-	h, err := httpapi.New(httpapi.Config{
+	cfg := httpapi.Config{
 		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(),
 		Log: telemetry.NewLogger(a.logs, -4), Metrics: a.Metrics,
 		Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now,
-	})
+	}
+	if configure != nil {
+		configure(&cfg)
+	}
+	h, err := httpapi.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -47,7 +47,7 @@ fuzz:
 # Performance budgets and benchmarks.
 perf:
 	go test ./internal/nfr -run Perf -v
-	DATABASE_URL="$(DATABASE_URL)" go test -count=1 ./internal/ledger -run Budget -v
+	DATABASE_URL="$(DATABASE_URL)" go test -count=1 ./internal/ledger ./internal/payments -run Budget -v
 	go test ./internal/nfr -run '^$$' -bench . -benchmem
 
 # Full walkthrough on mock SAP data: migrate company 1000, run the invoice flow.

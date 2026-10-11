@@ -31,6 +31,7 @@ type Batch struct {
 	DebtorIBAN    string
 	DebtorBIC     string
 	Currency      string
+	Decimals      int    // minor-unit digits of Currency
 	ExecutionDate string // YYYY-MM-DD
 	Created       time.Time
 	Payments      []Payment
@@ -74,7 +75,7 @@ func Pain001(b Batch) ([]byte, error) {
 		}
 		txs = append(txs, cdtTrfTxInf{
 			PmtID:    pmtID{EndToEndID: clip(p.EndToEndID, 35)},
-			Amt:      amt{InstdAmt: instdAmt{Ccy: b.Currency, Value: p.Amount.Decimal()}},
+			Amt:      amt{InstdAmt: instdAmt{Ccy: b.Currency, Value: p.Amount.Plain(b.Decimals)}},
 			Cdtr:     party{Nm: clip(p.CreditorName, 70)},
 			CdtrAcct: cashAccount{ID: acct},
 			RmtInf:   &rmtInf{Ustrd: clip(p.Remittance, 140)},
@@ -85,10 +86,10 @@ func Pain001(b Batch) ([]byte, error) {
 		CstmrCdtTrfInitn: cstmrCdtTrfInitn{
 			GrpHdr: grpHdr{
 				MsgID: clip(b.MessageID, 35), CreDtTm: b.Created.UTC().Format("2006-01-02T15:04:05"),
-				NbOfTxs: len(txs), CtrlSum: total.Decimal(), InitgPty: party{Nm: clip(b.InitiatorName, 70)},
+				NbOfTxs: len(txs), CtrlSum: total.Plain(b.Decimals), InitgPty: party{Nm: clip(b.InitiatorName, 70)},
 			},
 			PmtInf: pmtInf{
-				PmtInfID: clip(b.MessageID+"-1", 35), PmtMtd: "TRF", NbOfTxs: len(txs), CtrlSum: total.Decimal(),
+				PmtInfID: clip(b.MessageID+"-1", 35), PmtMtd: "TRF", NbOfTxs: len(txs), CtrlSum: total.Plain(b.Decimals),
 				ReqdExctnDt: b.ExecutionDate, Dbtr: party{Nm: clip(b.DebtorName, 70)},
 				DbtrAcct: cashAccount{ID: account{IBAN: strings.ReplaceAll(b.DebtorIBAN, " ", "")}},
 				DbtrAgt:  agent{FinInstnID: finInstnID{BIC: b.DebtorBIC}},

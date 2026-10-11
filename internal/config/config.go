@@ -73,6 +73,10 @@ type AccountDetermination struct {
 	APReconciliation string `yaml:"ap_reconciliation" json:"ap_reconciliation"`
 	InputTax         string `yaml:"input_tax" json:"input_tax"`
 	Bank             string `yaml:"bank" json:"bank"`
+	// FXGain and FXLoss take the exchange differences payments realize in
+	// local or group currency; a payment that has one needs them.
+	FXGain string `yaml:"fx_gain,omitempty" json:"fx_gain,omitempty"`
+	FXLoss string `yaml:"fx_loss,omitempty" json:"fx_loss,omitempty"`
 }
 
 type TaxCode struct {

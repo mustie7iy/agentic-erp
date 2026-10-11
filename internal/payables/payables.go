@@ -128,6 +128,12 @@ type Opener interface {
 	Withdraw(ctx context.Context, objectType string, objectID uuid.UUID, comment string) error
 }
 
+// Payments says whether an entry's open item is in a live payment run
+// (payments context).
+type Payments interface {
+	RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (string, bool, error)
+}
+
 // Endpoints implements the payables part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -140,6 +146,7 @@ type Endpoints struct {
 	Calendar      Calendar
 	Settings      Settings
 	Approvals     Opener
+	Payments      Payments
 	OrderNumbers  OrderNumbers      // resolves the order number a captured document prints
 	Extractor     capture.Extractor // reads captured documents; nil: capture is not available
 }

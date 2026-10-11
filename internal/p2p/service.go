@@ -521,7 +521,7 @@ func (s *Service) DecidePaymentRun(userID, runID string, approve bool, comment s
 func (s *Service) bankFile(run *core.PaymentRun, set config.Settings, companyName, executionDate string) ([]byte, error) {
 	b := bankfile.Batch{
 		MessageID: run.ID, InitiatorName: companyName, DebtorName: companyName,
-		DebtorIBAN: set.HouseBank.IBAN, DebtorBIC: set.HouseBank.BIC, Currency: set.Currency,
+		DebtorIBAN: set.HouseBank.IBAN, DebtorBIC: set.HouseBank.BIC, Currency: set.Currency, Decimals: 2,
 		ExecutionDate: executionDate, Created: s.now(),
 	}
 	for _, p := range run.Payments {

@@ -11,9 +11,9 @@ import (
 
 func TestTheWholeContractIsServed(t *testing.T) {
 	api := apitest.New(t)
-	ten := pgtest.NewTenant(t, "payments.run.read", "tenancy.org.manage", "workflow.request.decide")
+	ten := pgtest.NewTenant(t, "integration.migration.read", "tenancy.org.manage", "workflow.request.decide")
 	// An operation of a context not built yet answers 501, after authorization.
-	r := api.Do(apitest.Req{Method: "GET", Path: "/v1/payment-runs", Tenant: ten.ID, As: ten.Human})
+	r := api.Do(apitest.Req{Method: "GET", Path: "/v1/migration-runs", Tenant: ten.ID, As: ten.Human})
 	if r.Code != 501 || apitest.JSON(t, r)["code"] != "platform.not_implemented" {
 		t.Fatalf("unimplemented: %d %s", r.Code, r.Body)
 	}
@@ -37,12 +37,12 @@ func TestTheWholeContractIsServed(t *testing.T) {
 		t.Fatalf("wrong method: %d %v %s", r.Code, r.Header(), r.Body)
 	}
 	// Every request is logged and measured with its operation.
-	if !strings.Contains(api.Logs(), `"operation":"listPaymentRuns"`) {
+	if !strings.Contains(api.Logs(), `"operation":"listMigrationRuns"`) {
 		t.Fatal("operation not logged")
 	}
 	m := httptest.NewRecorder()
 	api.Metrics.Handler().ServeHTTP(m, httptest.NewRequest("GET", "/metrics", nil))
-	if !strings.Contains(m.Body.String(), `operation="listPaymentRuns"`) {
+	if !strings.Contains(m.Body.String(), `operation="listMigrationRuns"`) {
 		t.Fatal("operation not measured")
 	}
 }

@@ -93,6 +93,8 @@ func TestValidationRules(t *testing.T) {
 		{"ap missing", func(c *Config) { c.Companies[0].AccountDetermination.APReconciliation = "" }, "companies[1000].account_determination.ap_reconciliation"},
 		{"ap unknown", func(c *Config) { c.Companies[0].AccountDetermination.APReconciliation = "999999" }, "companies[1000].account_determination.ap_reconciliation"},
 		{"input tax wrong type", func(c *Config) { c.Companies[0].AccountDetermination.InputTax = "400000" }, "companies[1000].account_determination.input_tax"},
+		{"fx gain unknown", func(c *Config) { c.Companies[0].AccountDetermination.FXGain = "999999" }, "companies[1000].account_determination.fx_gain"},
+		{"fx loss wrong type", func(c *Config) { c.Companies[0].AccountDetermination.FXLoss = "400000" }, "companies[1000].account_determination.fx_loss"},
 		{"ap not recon", func(c *Config) {
 			c.Companies[0].ChartOfAccounts = append(c.Companies[0].ChartOfAccounts, Account{Number: "212000", Name: "Other", Type: core.Liability})
 			c.Companies[0].AccountDetermination.APReconciliation = "212000"

@@ -12,7 +12,7 @@ func FuzzPain001Text(f *testing.F) {
 	f.Add("Initech", "INV-1", "E2E-1")
 	f.Add("<script>&\"'", "]]>", "\x00\xff")
 	f.Fuzz(func(t *testing.T, name, remittance, e2e string) {
-		b := Batch{MessageID: "M1", InitiatorName: name, DebtorName: name, DebtorIBAN: "GB33BUKB20201555555555", DebtorBIC: "BUKBGB22",
+		b := Batch{MessageID: "M1", InitiatorName: name, DebtorName: name, DebtorIBAN: "GB33BUKB20201555555555", DebtorBIC: "BUKBGB22", Decimals: 2,
 			Currency: "EUR", ExecutionDate: "2026-10-09", Created: time.Unix(0, 0),
 			Payments: []Payment{{EndToEndID: e2e, CreditorName: name + "x", CreditorAccount: "DE89370400440532013000", Amount: 4242, Remittance: remittance}}}
 		out, err := Pain001(b)

@@ -56,7 +56,7 @@ prototype store for that context.
 | T2 (done) | **Tenancy, identity, configuration** contexts behind the API | Tenants, legal entities, principals, roles, number ranges managed only through the API; authz and SoD enforced |
 | T3 (done) | **Partner and ledger** | Journal entries posted and reversed through the API; projector maintains balances; trial balance meets its budget |
 | T4 (done) | **Procurement, payables, workflow** | Requisition → PO → receipt → invoice → match → post through the API, with approvals |
-| T5 | **Payments** | Proposal as an operation, release with SoD, bank file, clearing |
+| T5 (done) | **Payments** | Proposal as an operation, release with SoD, bank file, clearing |
 | T6 | **Agents and integration** onto the API | Delivery agents and SAP migration use generated API tools only; prototype store deleted |
 | T7 | **Hardening** | Load, soak and resilience suites pass at the targets in 01 §1.3 |
 
@@ -279,11 +279,120 @@ Open points for the contract and design review:
   contracts past `valid_to`).
 - Captured documents are not stored: `capture_object_ref` is
   `sha256:<hex>` until object storage exists.
-- Reversing a posted invoice does not yet check live payment runs (T5).
 - `SupplierInvoiceCaptured` carries `on_hold` for low-confidence captures;
   the contract says `parked` in v1.
 - Tier 3 and 4 configuration changes still wait for simulation evidence
   before their approval request is opened.
+
+### T5 decisions and open points
+
+What T5 built: `internal/payments` (10 operations) on the pipeline; house
+banks applied from the configuration document (`payments.HouseBanks`); the
+proposal worker `payments.Proposer`, run by `erp-server`; payment posting and
+clearing in the ledger (`ledger.Postings.Settle`, `ledger.OpenItems`); the
+partner context's payee port (`partner.Payees`); migration 000016. The exit
+criterion is `TestProposeReleaseTransmit` (internal/payments): invoices and a
+credit memo posted through payables and the ledger, a proposal built by the
+worker, release by a person other than the proposer, the payment entry
+clearing the items, and the bank file transmitted.
+
+Decisions taken while building it:
+
+- **Proposals run in a worker until Temporal arrives** (ADR-0012).
+  `:propose` creates the run in `proposing` with its `payments.propose`
+  operation (whose `resource` is the run from the start) and answers 202.
+  `payments.Proposer` finds queued proposals across tenants as role
+  `erp_worker` (it may read only the operation and run columns it needs)
+  and builds each one in one transaction of its tenant as `erp_app`, acting
+  as the proposer. Proposals of one legal entity are serialized with an
+  advisory lock. A problem while building (for example no active
+  configuration) fails the run and its operation; other errors leave the
+  job queued for the next round. A cancelled operation fails its run in the
+  next round. 100,000 items are proposed in about 1.3 s against the 60 s
+  budget (`TestProposalBudget`, `make perf`).
+- **House banks come from the configuration document.** Each company's
+  `house_bank` becomes `payments.house_bank`: its name is its code, its
+  currency the company's, its ledger account the account determination's
+  `bank` account, its IBAN sealed like partner bank accounts. IBAN and BIC
+  never change under the same name, so released files stay reproducible; a
+  new bank account gets a new name and the house bank it replaces becomes
+  inactive. The run currency is the house bank's, so runs pay in local
+  currency.
+- **Selection.** A run takes the legal entity's open items on supplier
+  reconciliation accounts of the leading ledger in the run currency, due on
+  or before `due_by` and not held by an active item of another run. The due
+  date is the document date plus the net days of the supplier's payment
+  terms in the legal entity (SAP's default baseline date); terms have no
+  cash discount yet.
+- **Suppliers are paid net.** Credit memos and other debit items due are
+  settled with the invoices at a negative amount (migration 000016 allows
+  non-zero item amounts; the payment stays positive). A supplier whose due
+  items net to zero or a debit is excluded with `debit_balance`. The other
+  exclusions, in order: `supplier_blocked` (partner not active, or blocked
+  for posting), `payment_blocked`, `no_bank_account` (none valid on the run
+  date), `bank_change_pending`, and `bank_change_hold`: an account that came
+  from a change after the partner's creation pays only
+  `payments.bank_change_hold_days` after its `valid_from`.
+- **Release** is the human-only F110 step of the contract, not an approval
+  request (`workflow_request_id` stays null on the events). The proposer is
+  refused with 403 `identity.sod_conflict` before the database's
+  `payment_run_sod` constraint would. Every supplier is checked again on the
+  run date, including that its bank account is still the proposed one; a
+  supplier that can no longer be paid refuses the whole release with 409
+  `payments.proposal_outdated` (reject and propose again), and a run without
+  payments is 409 `payments.nothing_to_pay`. A run is posted completely or
+  not at all.
+- **The payment entry is the clearing document.** Each payment posts one
+  entry (document type ZP, range `journal_zp`, on the run date, reference
+  the end-to-end id) that offsets each item at its original amounts in all
+  three currencies, credits the house bank's account at the run date's
+  rates, and books what that leaves in local or group currency on the new
+  optional account determination keys `fx_gain` / `fx_loss` (the schema had
+  them; a difference without the account is 422 `ledger.no_fx_account`).
+  The items and the entry's partner lines are cleared with it.
+- **Numbers and ids.** Runs are numbered from the `payment_run` range of the
+  run date's fiscal year; end-to-end ids are `<company code>-<run
+  number>-<sequence>`.
+- **Bank files** are pain.001.001.03 (the writer now takes the currency's
+  minor-unit digits), one per run, message id `<company code>-<run
+  number>`, each payment telling the supplier the references (else document
+  numbers) of the items it settles. Until object storage exists the file is
+  not stored: `object_ref` is `sha256:<hex>`, the file is stamped with the
+  release transaction's time (its creation time) and is rendered again on
+  `:transmit`, which refuses it with 409 `payments.bank_file_changed` when
+  the hash no longer matches.
+- **Transmission** is an operation that completes within the request,
+  through a `payments.Connector`. `erp-server` drops files into
+  `ERP_BANK_OUTBOX_DIR` for a transfer agent (written under a hidden name,
+  then renamed); without it `:transmit` answers 503. A connector failure is
+  503 with `Retry-After` and leaves the file `created`.
+- **Invoices in a live run cannot be reversed** (409
+  `payables.invoice_in_payment_run`), which closes T4's open point.
+- `erp-server` runs the worker with `ERP_DB_WORKER_ROLE` (default
+  `erp_worker`), which the login role must be granted like `erp_relay` and
+  `erp_projector`.
+
+Open points for the contract and design review:
+
+- `:release` answers synchronously (200 in the contract), and releasing
+  2,000 payments over 100,000 items takes about 26 s locally (one entry and
+  clearing per payment). Large releases should become an operation, or
+  postings be batched, before tenants reach that size.
+- There is no operation for bank status reports (pain.002, camt.054), so
+  `acknowledged` and `rejected` bank files, `BankFileAcknowledged`,
+  `BankFileRejected` and `PaymentRunFailed` for released runs are not
+  produced yet.
+- A proposal reports its progress only when it completes (one
+  transaction); chunked, resumable proposals wait for Temporal.
+- The configuration document has one house bank per company and no payment
+  methods; cash discount and partial payments are not modelled.
+- Payments cannot be reversed (resetting a clearing is not in the
+  contract); a paid item keeps its active payment item.
+- If the transaction fails after the connector took a file, retrying sends
+  it again; banks refuse a message id they already processed, but a
+  connector should confirm before commit once integration messages exist
+  (`integration_message_id` is null).
+- Bank files and captured documents still wait for object storage.
 
 ## 7.4 Data from the prototype
 

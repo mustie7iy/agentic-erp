@@ -10,7 +10,7 @@ import (
 func batch() Batch {
 	return Batch{
 		MessageID: "PAY-00000042", InitiatorName: "Acme Corp US", DebtorName: "Acme Corp US",
-		DebtorIBAN: "GB33 BUKB 2020 1555 5555 55", DebtorBIC: "BUKBGB22", Currency: "USD", ExecutionDate: "2026-10-09",
+		DebtorIBAN: "GB33 BUKB 2020 1555 5555 55", DebtorBIC: "BUKBGB22", Decimals: 2, Currency: "USD", ExecutionDate: "2026-10-09",
 		Created: time.Date(2026, 10, 9, 9, 30, 0, 0, time.UTC),
 		Payments: []Payment{
 			{EndToEndID: "E2E-1", CreditorName: "Initech & Sons <Ltd>", CreditorAccount: "DE89370400440532013000", Amount: 123456, Remittance: "INV-1 INV-2"},

@@ -72,6 +72,17 @@ func request(ctx context.Context) (pgx.Tx, reqctx.Principal, error) {
 
 // Start records a new queued operation in the request's transaction.
 func Start(ctx context.Context, kind string, req any) (Operation, error) {
+	return start(ctx, kind, req, nil)
+}
+
+// StartFor records a new queued operation for a resource the request
+// created in an in-progress status (a path such as /v1/payment-runs/{id}),
+// so clients can follow it from the start (04-api-design §4.8).
+func StartFor(ctx context.Context, kind string, req any, resource string) (Operation, error) {
+	return start(ctx, kind, req, &resource)
+}
+
+func start(ctx context.Context, kind string, req any, resource *string) (Operation, error) {
 	tx, p, err := request(ctx)
 	if err != nil {
 		return Operation{}, err
@@ -80,8 +91,8 @@ func Start(ctx context.Context, kind string, req any) (Operation, error) {
 	if err != nil {
 		return Operation{}, fmt.Errorf("operations: request: %w", err)
 	}
-	return scan(tx.QueryRow(ctx, `INSERT INTO platform.operation (tenant_id, id, kind, status, request, created_by, updated_by)
-		VALUES ($1, $2, $3, 'queued', $4, $5, $5) RETURNING `+columns, p.TenantID, uuid.Must(uuid.NewV7()), kind, body, p.ID))
+	return scan(tx.QueryRow(ctx, `INSERT INTO platform.operation (tenant_id, id, kind, status, request, resource, created_by, updated_by)
+		VALUES ($1, $2, $3, 'queued', $4, $5, $6, $6) RETURNING `+columns, p.TenantID, uuid.Must(uuid.NewV7()), kind, body, resource, p.ID))
 }
 
 // get loads an operation; lock takes the row lock for a change.
@@ -165,16 +176,29 @@ func completedEvent(o Operation) outbox.Event {
 // that started it: status succeeded, the resource it produced (a path such
 // as /v1/supplier-invoices/{id}) and its result.
 func Succeed(ctx context.Context, id uuid.UUID, resource string, result any) (Operation, error) {
-	tx, p, err := request(ctx)
-	if err != nil {
-		return Operation{}, err
-	}
 	body, err := json.Marshal(result)
 	if err != nil {
 		return Operation{}, fmt.Errorf("operations: result: %w", err)
 	}
-	o, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET status = 'succeeded', resource = $2, result = $3, version = version + 1,
-		updated_by = $4 WHERE id = $1 RETURNING `+columns, id, resource, body, p.ID))
+	return finish(ctx, `status = 'succeeded', resource = $2, result = $3`, id, resource, body)
+}
+
+// Fail completes an operation whose work could not be done, with the
+// problem that stopped it.
+func Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) (Operation, error) {
+	body, _ := json.Marshal(p) // a problem is strings, ints and field errors
+	return finish(ctx, `status = 'failed', error = $2`, id, body)
+}
+
+// finish sets a final status and publishes OperationCompleted; args follow
+// the operation id from $2.
+func finish(ctx context.Context, set string, id uuid.UUID, args ...any) (Operation, error) {
+	tx, p, err := request(ctx)
+	if err != nil {
+		return Operation{}, err
+	}
+	o, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET `+set+fmt.Sprintf(`, version = version + 1, updated_by = $%d WHERE id = $1 RETURNING `, len(args)+2)+columns,
+		append(append([]any{id}, args...), p.ID)...))
 	if err != nil {
 		return Operation{}, err
 	}
@@ -182,4 +206,15 @@ func Succeed(ctx context.Context, id uuid.UUID, resource string, result any) (Op
 		return Operation{}, err
 	}
 	return o, nil
+}
+
+// Report records the progress of a running operation.
+func Report(ctx context.Context, id uuid.UUID, done, total int64) error {
+	tx, p, err := request(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE platform.operation SET status = 'running', progress_done = $2, progress_total = $3, version = version + 1,
+		updated_by = $4 WHERE id = $1`, id, done, total, p.ID)
+	return err
 }

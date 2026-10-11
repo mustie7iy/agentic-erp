@@ -30,6 +30,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -59,6 +60,7 @@ type (
 	workflowAPI    = approvals.Endpoints
 	procurementAPI = procurement.Endpoints
 	payablesAPI    = payables.Endpoints
+	paymentsAPI    = payments.Endpoints
 )
 
 // handler is the generated Handler: one embedded endpoint set per context.
@@ -73,6 +75,7 @@ type handler struct {
 	*workflowAPI
 	*procurementAPI
 	*payablesAPI
+	*paymentsAPI
 }
 
 // Config is what the API needs.
@@ -81,8 +84,9 @@ type Config struct {
 	AppRole   string
 	Verifier  *authn.Verifier
 	Pages     *pagination.Codec
-	FieldKeys *fieldcrypt.Keys  // seals bank accounts and tax identifiers
-	Extractor capture.Extractor // reads captured invoices; nil: capture answers 503
+	FieldKeys *fieldcrypt.Keys   // seals bank accounts and tax identifiers
+	Extractor capture.Extractor  // reads captured invoices; nil: capture answers 503
+	Connector payments.Connector // transmits bank files; nil: transmission answers 503
 	Log       *slog.Logger
 	Metrics   *telemetry.Metrics
 	Tracer    trace.TracerProvider
@@ -99,8 +103,9 @@ func New(cfg Config) (http.Handler, error) {
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}},
 		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Dependencies: configuration.Dependencies{
 			LegalEntities: tenancy.Directory{},
-			Sections:      []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}},
-			Approvals:     opener,
+			Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
+				payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
+			Approvals: opener,
 		}},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys,
 			Approvals: opener},
@@ -119,7 +124,8 @@ func New(cfg Config) (http.Handler, error) {
 			Orders: procurement.Orders{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 				Numbers: configuration.Numbers{}}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
 			Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Approvals: opener,
-			OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor},
+			Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor},
+		paymentsAPI: Payments(cfg),
 	}
 	srv, err := gen.NewServer(h, security{},
 		gen.WithErrorHandler(errorHandler(cfg.Log)),
@@ -140,6 +146,15 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	unit := &uow.Middleware{Pool: cfg.Pool, Role: cfg.AppRole, Log: cfg.Log, Now: cfg.Now}
 	return telemetry.Middleware(cfg.Log, cfg.Metrics, cfg.Tracer)(cfg.Verifier.Middleware(unit.Wrap(srv))), nil
+}
+
+// Payments is the payments context as the API wires it, for the proposal
+// worker to build runs with the same ports.
+func Payments(cfg Config) *payments.Endpoints {
+	return &payments.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{},
+		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
+		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
+		Settings: configuration.Settings{}, Keys: cfg.FieldKeys, Connector: cfg.Connector}
 }
 
 // security confirms the pipeline authenticated the request; the token itself

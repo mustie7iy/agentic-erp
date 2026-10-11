@@ -22,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -42,7 +43,7 @@ func Years() []int {
 
 // DocumentTypes get a number range per company and year.
 var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "requisition": "PR", "purchase_order": "PO",
-	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": ""}
+	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": "", "payment_run": "PR", "journal_zp": ""}
 
 // Document is the prototype's configuration (companies 1000 in USD and
 // 2000 in EUR) with number ranges for every document type in Years.
@@ -76,7 +77,8 @@ func Approvals() approvals.Approvals {
 // Deps is what the API wires into the configuration context.
 func Deps() configuration.Dependencies {
 	return configuration.Dependencies{LegalEntities: tenancy.Directory{}, Approvals: Approvals(),
-		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}}}
+		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
+			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys()}}}
 }
 
 // Env is a configured tenant.

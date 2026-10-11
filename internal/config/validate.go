@@ -196,6 +196,12 @@ func (v *validator) company(p string, co *Company) {
 	check("ap_reconciliation", ad.APReconciliation, core.Liability, true)
 	check("input_tax", ad.InputTax, core.Asset, false)
 	check("bank", ad.Bank, core.Asset, false)
+	if ad.FXGain != "" {
+		check("fx_gain", ad.FXGain, core.Revenue, false)
+	}
+	if ad.FXLoss != "" {
+		check("fx_loss", ad.FXLoss, core.Expense, false)
+	}
 
 	codes := map[string]bool{}
 	for _, t := range co.TaxCodes {

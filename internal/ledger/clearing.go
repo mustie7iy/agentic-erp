@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -107,7 +108,6 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 	if err != nil {
 		return Clearing{}, err
 	}
-	years, entries, nos := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
 	seen := map[ItemRef]bool{}
 	for i, r := range refs {
 		if seen[r] {
@@ -115,28 +115,9 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 				problem.FieldError{Field: fmt.Sprintf("items[%d]", i), Code: "duplicate", Message: "each item once"})
 		}
 		seen[r] = true
-		years[i], entries[i], nos[i] = r.FiscalYear, r.EntryID, r.LineNo
 	}
-	rows, _ := tx.Query(ctx, `SELECT x.ord, l.journal_entry_id IS NOT NULL, ci.line_no IS NULL, coalesce(a.reconciliation_kind IN ('supplier', 'customer'), false),
-			coalesce(l.legal_entity_id, $4), coalesce(l.ledger_id, $4), coalesce(l.account_id, $4), l.partner_id,
-			coalesce(l.amount_tc, 0), coalesce(l.amount_lc, 0), coalesce(l.amount_gc, 0), coalesce(e.currency_tc, ''),
-			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, '')
-		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
-		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
-		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
-		LEFT JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
-		LEFT JOIN ledger.clearing_item ci ON ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year
-			AND ci.journal_entry_id = l.journal_entry_id AND ci.line_no = l.line_no
-		ORDER BY x.ord`, years, entries, nos, uuid.Nil)
-	items := make([]item, 0, len(refs))
-	var it item
-	var ord int64
-	if _, err := pgx.ForEachRow(rows, []any{&ord, &it.found, &it.open, &it.recon, &it.legalEntity, &it.ledger, &it.account, &it.partner,
-		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC}, func() error {
-		it.ref = refs[ord-1]
-		items = append(items, it)
-		return nil
-	}); err != nil {
+	items, err := loadItems(ctx, tx, refs)
+	if err != nil {
 		return Clearing{}, err
 	}
 	type sums struct{ tc, lc, gc int64 }
@@ -185,27 +166,70 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, p.TenantID, id, le.ID, date, entry.FiscalYear, entry.ID, p.ID); err != nil {
 		return Clearing{}, err
 	}
+	cleared := slices.Clone(refs)
 	for _, l := range entry.Lines {
-		years, entries, nos = append(years, entry.FiscalYear), append(entries, entry.ID), append(nos, l.LineNo)
+		cleared = append(cleared, ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: l.LineNo})
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing_item (tenant_id, fiscal_year, journal_entry_id, line_no, clearing_id)
-		SELECT $1, y, je, n, $2 FROM unnest($3::smallint[], $4::uuid[], $5::int[]) AS x(y, je, n)`, p.TenantID, id, years, entries, nos); err != nil {
+	if err := markCleared(ctx, tx, p.TenantID, id, cleared); err != nil {
 		return Clearing{}, err
 	}
 	c, err := getClearing(ctx, tx, id)
 	if err != nil {
 		return Clearing{}, err
 	}
-	cleared := make([]map[string]any, len(items))
+	payload := make([]map[string]any, len(items))
 	for i, it := range items {
-		cleared[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
+		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
 			"account_id": it.account, "partner_id": it.partner, "amount_tc": amount(it.tc, entry.CurrencyTC, entry.ExpTC)}
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
 		Payload: map[string]any{"clearing_id": id, "legal_entity_id": le.ID, "clearing_date": date.Format(time.DateOnly),
-			"clearing_entry_id": entry.ID, "clearing_entry_year": entry.FiscalYear, "items": cleared}}); err != nil {
+			"clearing_entry_id": entry.ID, "clearing_entry_year": entry.FiscalYear, "items": payload}}); err != nil {
 		return Clearing{}, err
 	}
 	return c, audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",
 		Detail: map[string]any{"items": len(items), "clearing_entry_id": entry.ID, "document_number": entry.DocumentNumber}})
+}
+
+// loadItems reads the journal lines to clear, in the order of refs; lines
+// that do not exist come back with found false.
+func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
+	years, entries, nos := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
+	for i, r := range refs {
+		years[i], entries[i], nos[i] = r.FiscalYear, r.EntryID, r.LineNo
+	}
+	rows, _ := tx.Query(ctx, `SELECT x.ord, l.journal_entry_id IS NOT NULL, ci.line_no IS NULL, coalesce(a.reconciliation_kind IN ('supplier', 'customer'), false),
+			coalesce(l.legal_entity_id, $4), coalesce(l.ledger_id, $4), coalesce(l.account_id, $4), l.partner_id,
+			coalesce(l.amount_tc, 0), coalesce(l.amount_lc, 0), coalesce(l.amount_gc, 0), coalesce(e.currency_tc, ''),
+			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, '')
+		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
+		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
+		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+		LEFT JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+		LEFT JOIN ledger.clearing_item ci ON ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year
+			AND ci.journal_entry_id = l.journal_entry_id AND ci.line_no = l.line_no
+		ORDER BY x.ord`, years, entries, nos, uuid.Nil)
+	items := make([]item, 0, len(refs))
+	var it item
+	var ord int64
+	if _, err := pgx.ForEachRow(rows, []any{&ord, &it.found, &it.open, &it.recon, &it.legalEntity, &it.ledger, &it.account, &it.partner,
+		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC}, func() error {
+		it.ref = refs[ord-1]
+		items = append(items, it)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// markCleared records the lines as cleared by the clearing.
+func markCleared(ctx context.Context, tx pgx.Tx, tenant, clearing uuid.UUID, refs []ItemRef) error {
+	years, entries, nos := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
+	for i, r := range refs {
+		years[i], entries[i], nos[i] = r.FiscalYear, r.EntryID, r.LineNo
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO ledger.clearing_item (tenant_id, fiscal_year, journal_entry_id, line_no, clearing_id)
+		SELECT $1, y, je, n, $2 FROM unnest($3::smallint[], $4::uuid[], $5::int[]) AS x(y, je, n)`, tenant, clearing, years, entries, nos)
+	return err
 }

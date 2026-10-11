@@ -67,6 +67,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	natsURL := natstest.Server(t)
 	env := environment(t, is, natsURL)
 	env["ANTHROPIC_API_KEY"] = "test" // invoice capture is wired; nothing calls the model here
+	env["ERP_BANK_OUTBOX_DIR"] = t.TempDir()
 	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel")
 	pgtest.Exec(t, `INSERT INTO platform.operation (tenant_id, id, kind, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), 'payments.propose', 'running', $2, $2)`,
 		ten.ID, ten.Human.ID)

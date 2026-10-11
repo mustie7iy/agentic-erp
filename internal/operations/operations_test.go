@@ -291,6 +291,9 @@ func TestSucceed(t *testing.T) {
 	if _, err := operations.Succeed(context.Background(), uuid.New(), "/v1/x", nil); err == nil {
 		t.Error("Succeed outside a request")
 	}
+	if err := operations.Report(context.Background(), uuid.New(), 1, 2); err == nil {
+		t.Error("Report outside a request")
+	}
 	if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error {
 		o, err := operations.Start(ctx, "payables.capture", nil)
 		if err != nil {

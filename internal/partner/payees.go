@@ -1,0 +1,96 @@
+package partner
+
+import (
+	"context"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+// Payees answers the payments context's questions about the suppliers it
+// pays, in the request's transaction. Bank details are opened only to
+// write them into a bank file.
+type Payees struct {
+	Keys *fieldcrypt.Keys
+}
+
+// Payee is what a payment run needs to know about a supplier of a legal
+// entity on the run date.
+type Payee struct {
+	Status         string // business partner status
+	PostingBlocked bool
+	PaymentBlocked bool
+	NetDays        int // of the supplier's payment terms in the legal entity
+	// BankAccountID is the payments bank account valid on the date, or nil.
+	BankAccountID *uuid.UUID
+	BankValidFrom time.Time
+	// BankChanged is true when that account came from a bank change after
+	// the partner was created, which starts the payment hold.
+	BankChanged       bool
+	BankChangePending bool
+}
+
+// Payees returns the partners that are suppliers set up in the legal
+// entity, keyed by id; others are left out.
+func (Payees) Payees(ctx context.Context, legalEntity uuid.UUID, partners []uuid.UUID, on time.Time) (map[uuid.UUID]Payee, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT p.id, p.status, sc.is_posting_blocked, sc.is_payment_blocked, t.net_days, b.id, b.valid_from,
+			coalesce(c.kind <> 'create', false),
+			EXISTS (SELECT FROM partner.partner_change pc WHERE pc.tenant_id = p.tenant_id AND pc.partner_id = p.id AND pc.kind = 'bank_change' AND pc.status = 'pending')
+		FROM partner.business_partner p
+		JOIN partner.supplier_company sc ON sc.tenant_id = p.tenant_id AND sc.partner_id = p.id AND sc.legal_entity_id = $2
+		JOIN partner.payment_term t ON t.tenant_id = sc.tenant_id AND t.code = sc.payment_term_code
+		LEFT JOIN partner.bank_account b ON b.tenant_id = p.tenant_id AND b.partner_id = p.id AND b.purpose = 'payments'
+			AND b.valid_from <= $3 AND (b.valid_to IS NULL OR b.valid_to > $3)
+		LEFT JOIN partner.partner_change c ON c.tenant_id = b.tenant_id AND c.id = b.partner_change_id
+		WHERE p.id = ANY($1)`, partners, legalEntity, on)
+	out := map[uuid.UUID]Payee{}
+	var id uuid.UUID
+	var p Payee
+	var validFrom *time.Time
+	_, err = pgx.ForEachRow(rows, []any{&id, &p.Status, &p.PostingBlocked, &p.PaymentBlocked, &p.NetDays, &p.BankAccountID, &validFrom,
+		&p.BankChanged, &p.BankChangePending}, func() error {
+		if validFrom != nil {
+			p.BankValidFrom = *validFrom
+		}
+		out[id] = p
+		return nil
+	})
+	return out, err
+}
+
+// BankDetail is a bank account opened for a payment instruction.
+type BankDetail struct {
+	Holder  string
+	Account string // IBAN, or the domestic account number
+	BIC     string
+}
+
+// BankDetails opens the bank accounts, keyed by id.
+func (y Payees) BankDetails(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]BankDetail, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, holder_name, account_cipher, coalesce(bic, '') FROM partner.bank_account WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]BankDetail{}
+	var id uuid.UUID
+	var d BankDetail
+	var sealed []byte
+	_, err = pgx.ForEachRow(rows, []any{&id, &d.Holder, &sealed, &d.BIC}, func() error {
+		var err error
+		if d.Account, err = y.Keys.Open(p.TenantID, sealed); err != nil {
+			return err
+		}
+		out[id] = d
+		return nil
+	})
+	return out, err
+}
