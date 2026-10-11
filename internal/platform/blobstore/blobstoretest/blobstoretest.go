@@ -36,7 +36,8 @@ type Object struct {
 type Server struct {
 	URL string
 	mu  sync.Mutex
-	// Objects by key.
+	// Objects by key; read it through Object or Keys while the server
+	// serves, since handlers write it concurrently.
 	Objects map[string]Object
 	// Fail makes every call answer this status with an S3 error document
 	// (0: serve normally); FailPlain answers it with a non-XML body.
@@ -52,6 +53,25 @@ func New(t testing.TB) *Server {
 	t.Cleanup(srv.Close)
 	s.URL = srv.URL
 	return s
+}
+
+// Object returns a stored object.
+func (s *Server) Object(key string) (Object, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o, ok := s.Objects[key]
+	return o, ok
+}
+
+// Keys lists the stored keys.
+func (s *Server) Keys() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	keys := make([]string, 0, len(s.Objects))
+	for k := range s.Objects {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // Store is an S3 store pointed at the server.

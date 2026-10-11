@@ -563,7 +563,7 @@ func TestObjectStores(t *testing.T) {
 	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
 	key := "tenants/" + ten.ID.String() + "/audit/anchors/000000000001.json"
 	for deadline := time.Now().Add(10 * time.Second); ; {
-		if _, ok := s3.Objects[key]; ok || time.Now().After(deadline) {
+		if _, ok := s3.Object(key); ok || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -572,7 +572,7 @@ func TestObjectStores(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if o, ok := s3.Objects[key]; !ok || o.LockMode != "COMPLIANCE" || o.ContentType != "application/json" {
-		t.Fatalf("anchor in S3: %+v (%d objects)", o, len(s3.Objects))
+	if o, ok := s3.Object(key); !ok || o.LockMode != "COMPLIANCE" || o.ContentType != "application/json" {
+		t.Fatalf("anchor in S3: %+v (%v)", o, s3.Keys())
 	}
 }

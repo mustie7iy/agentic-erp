@@ -277,10 +277,10 @@ func TestAnchoringFailures(t *testing.T) {
 		t.Fatalf("raced anchors: %v", got)
 	}
 	// Run loops, logs failures and stops with its context.
-	var logs strings.Builder
+	logs := &lockedWriter{}
 	broken := anchorer(t, failingStore{err: errors.New("store down")})
-	broken.Log = slog.New(slog.NewTextHandler(&lockedWriter{w: &logs}, nil)) // the default interval: the first round runs at once
-	setup(t)                                                                 // a tenant to fail on
+	broken.Log = slog.New(slog.NewTextHandler(logs, nil)) // the default interval: the first round runs at once
+	setup(t)                                              // a tenant to fail on
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { broken.Run(runCtx); close(done) }()
@@ -325,11 +325,17 @@ func TestAnchoringFailures(t *testing.T) {
 // lockedWriter is a log sink the test may read while the worker writes.
 type lockedWriter struct {
 	mu sync.Mutex
-	w  *strings.Builder
+	b  strings.Builder
 }
 
 func (l *lockedWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.w.Write(p)
+	return l.b.Write(p)
+}
+
+func (l *lockedWriter) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

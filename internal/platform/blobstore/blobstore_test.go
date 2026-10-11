@@ -101,9 +101,9 @@ func TestS3(t *testing.T) {
 	ctx := context.Background()
 	// The lock headers reached the service.
 	var locked blobstoretest.Object
-	for k, o := range srv.Objects {
+	for _, k := range srv.Keys() {
 		if strings.Contains(k, "/audit/anchors/") {
-			locked = o
+			locked, _ = srv.Object(k)
 		}
 	}
 	if locked.LockMode != "COMPLIANCE" || locked.RetainUntil != "2036-01-01T00:00:00Z" {
@@ -148,8 +148,8 @@ func TestS3(t *testing.T) {
 	if err := s.Put(ctx, odd, []byte("1"), blobstore.PutOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := srv.Objects[odd]; !ok {
-		t.Fatalf("stored under %v", srv.Objects)
+	if _, ok := srv.Object(odd); !ok {
+		t.Fatalf("stored under %v", srv.Keys())
 	}
 }
 
