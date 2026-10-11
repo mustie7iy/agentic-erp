@@ -1,6 +1,7 @@
 package payments
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -276,6 +277,15 @@ func (e *Endpoints) ListBankFiles(ctx context.Context, params gen.ListBankFilesP
 		page.NextPageToken.SetTo(next)
 	}
 	return &gen.BankFilePageHeaders{Response: page}, nil
+}
+
+// GetBankFileContent implements GET /v1/bank-files/{id}/content.
+func (e *Endpoints) GetBankFileContent(ctx context.Context, params gen.GetBankFileContentParams) (gen.GetBankFileContentRes, error) {
+	content, err := e.FileContent(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetBankFileContentOKHeaders{Response: gen.GetBankFileContentOK{Data: bytes.NewReader(content)}}, nil
 }
 
 // TransmitBankFile implements POST /v1/bank-files/{id}:transmit.

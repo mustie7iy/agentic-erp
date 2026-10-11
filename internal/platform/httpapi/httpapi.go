@@ -37,6 +37,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -99,6 +100,7 @@ type Config struct {
 	Extractor  capture.Extractor  // reads captured invoices; nil: capture answers 503
 	Connector  payments.Connector // transmits bank files; nil: transmission answers 503
 	ExtractDir string             // sap_file connectors read extracts below it; empty: they answer 503
+	Objects    blobstore.Store    // documents, bank files and audit anchors; nil: documents and files are not kept
 	// Limits enforces the request quotas of 04 §4.11; nil applies none.
 	Limits *ratelimit.Limiter
 	// RequestTimeout is the deadline of one request, so that a saturated
@@ -136,9 +138,9 @@ func New(cfg Config) (http.Handler, error) {
 			Orders: procurement.Orders{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 				Numbers: configuration.Numbers{}}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
 			Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Approvals: opener,
-			Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor},
+			Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor, Objects: cfg.Objects},
 		paymentsAPI:    Payments(cfg),
-		auditAPI:       &audit.Endpoints{Pages: cfg.Pages},
+		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages},
 	}
@@ -201,7 +203,7 @@ func Payments(cfg Config) *payments.Endpoints {
 	return &payments.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{},
 		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
-		Settings: configuration.Settings{}, Keys: cfg.FieldKeys, Connector: cfg.Connector}
+		Settings: configuration.Settings{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects}
 }
 
 // Integration is the integration context as the API wires it: migration
@@ -298,12 +300,16 @@ func missing(err error) bool {
 }
 
 // Admin serves the operational endpoints on the internal port: liveness,
-// readiness and metrics, and the development issuer's token endpoint when
-// dev is not nil.
-func Admin(ready func(context.Context) error, m *telemetry.Metrics, dev http.Handler) http.Handler {
+// readiness and metrics, the development issuer's token endpoint when dev is
+// not nil, and the operators' control plane under /control/ when control is
+// not nil.
+func Admin(ready func(context.Context) error, m *telemetry.Metrics, dev, control http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	if dev != nil {
 		mux.Handle("POST /dev/token", dev)
+	}
+	if control != nil {
+		mux.Handle("/control/", control)
 	}
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

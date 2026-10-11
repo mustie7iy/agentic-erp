@@ -77,29 +77,55 @@ func New(ctx context.Context, issuers []Issuer, static ...Static) (*Verifier, er
 	return v, nil
 }
 
-// Verify checks a raw token and returns its claims. Failures are 401 problems
-// that do not say which check failed beyond a short reason.
+// Verify checks a raw token of a tenant's principal and returns its claims.
+// Failures are 401 problems that do not say which check failed beyond a
+// short reason.
 func (v *Verifier) Verify(ctx context.Context, raw string) (reqctx.Claims, error) {
-	iss, err := unverifiedIssuer(raw)
+	claims, s, err := v.verify(ctx, raw)
 	if err != nil {
-		return reqctx.Claims{}, problem.Unauthorized("The bearer token is malformed.").WithCause(err)
+		return reqctx.Claims{}, err
 	}
-	is, ok := v.issuers[iss]
-	if !ok {
-		return reqctx.Claims{}, problem.Unauthorized("The token's issuer is not trusted.")
-	}
-	tok, err := is.verifier.Verify(ctx, raw)
-	if err != nil {
-		return reqctx.Claims{}, problem.Unauthorized("The bearer token is invalid or expired.").WithCause(err)
-	}
-	var claims map[string]any
-	_ = tok.Claims(&claims) // the payload was decoded during verification
-	s, _ := claims[is.tenantClaim].(string)
 	tenant, err := uuid.Parse(s)
 	if err != nil {
 		return reqctx.Claims{}, problem.Unauthorized("The token does not name a tenant.").WithCause(err)
 	}
-	return reqctx.Claims{Issuer: iss, Subject: tok.Subject, TenantID: tenant}, nil
+	claims.TenantID = tenant
+	return claims, nil
+}
+
+// VerifyOperator checks a raw token of a platform operator: the same checks
+// as Verify, from a verifier built on the operator issuers, but the token
+// must name no tenant, so a tenant's token is never an operator's.
+func (v *Verifier) VerifyOperator(ctx context.Context, raw string) (reqctx.Claims, error) {
+	claims, s, err := v.verify(ctx, raw)
+	if err != nil {
+		return reqctx.Claims{}, err
+	}
+	if s != "" {
+		return reqctx.Claims{}, problem.Unauthorized("An operator token must not name a tenant.")
+	}
+	return claims, nil
+}
+
+// verify checks signature, issuer, audience and expiry, and returns the
+// claims without a tenant and the tenant claim as the token carries it.
+func (v *Verifier) verify(ctx context.Context, raw string) (reqctx.Claims, string, error) {
+	iss, err := unverifiedIssuer(raw)
+	if err != nil {
+		return reqctx.Claims{}, "", problem.Unauthorized("The bearer token is malformed.").WithCause(err)
+	}
+	is, ok := v.issuers[iss]
+	if !ok {
+		return reqctx.Claims{}, "", problem.Unauthorized("The token's issuer is not trusted.")
+	}
+	tok, err := is.verifier.Verify(ctx, raw)
+	if err != nil {
+		return reqctx.Claims{}, "", problem.Unauthorized("The bearer token is invalid or expired.").WithCause(err)
+	}
+	var claims map[string]any
+	_ = tok.Claims(&claims) // the payload was decoded during verification
+	s, _ := claims[is.tenantClaim].(string)
+	return reqctx.Claims{Issuer: iss, Subject: tok.Subject}, s, nil
 }
 
 // unverifiedIssuer reads `iss` to choose the verifier; nothing else is
@@ -122,16 +148,26 @@ func unverifiedIssuer(raw string) (string, error) {
 	return c.Iss, nil
 }
 
-// Middleware authenticates every request and puts the claims in its
-// context. Requests without a valid bearer token get 401.
+// Middleware authenticates every request as a tenant's principal and puts
+// the claims in its context. Requests without a valid bearer token get 401.
 func (v *Verifier) Middleware(next http.Handler) http.Handler {
+	return middleware(v.Verify, next)
+}
+
+// OperatorMiddleware authenticates every request as a platform operator
+// (VerifyOperator) and puts the claims in its context.
+func (v *Verifier) OperatorMiddleware(next http.Handler) http.Handler {
+	return middleware(v.VerifyOperator, next)
+}
+
+func middleware(verify func(context.Context, string) (reqctx.Claims, error), next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		scheme, raw, ok := strings.Cut(r.Header.Get("Authorization"), " ")
 		if !ok || !strings.EqualFold(scheme, "Bearer") || raw == "" {
 			problem.Write(w, r, problem.Unauthorized("A bearer token is required."))
 			return
 		}
-		claims, err := v.Verify(r.Context(), raw)
+		claims, err := verify(r.Context(), raw)
 		if err != nil {
 			problem.Write(w, r, problem.From(err))
 			return

@@ -72,9 +72,9 @@ the API. Locally, the server can mint tokens for any subject
 make db-up
 export DATABASE_URL=postgres://postgres:dev@localhost:55432/postgres?sslmode=disable
 export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64) ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
-export ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true ERP_EXTRACT_DIR=$PWD/data
+export ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true ERP_EXTRACT_DIR=$PWD/data ERP_OBJECT_DIR=$PWD/data/objects
 go build -o bin/erp ./cmd/erp && go build -o bin/erp-server ./cmd/erp-server
-mkdir -p data && ./bin/erp gen-mock-sap -out data/extract.json
+mkdir -p data/objects && ./bin/erp gen-mock-sap -out data/extract.json
 ./bin/erp config generate -source file:data/extract.json -company 1000,2000 -out data/config.yaml
 ./bin/erp-server &                                   # migrates, then serves :8080 (API) and :9090 (admin)
 ./bin/erp-server provision -name Acme -region eu-west -currency EUR \
@@ -87,13 +87,26 @@ export ERP_TOKEN=$(./bin/erp token -tenant <tenant_id> -subject ada)
 ./bin/erp invoices                     # the rule: match parked invoices, post clean ones within the auto-post limit
 ./bin/erp call listRecommendations -p outcome=open
 ./bin/erp call listBalances -p legal_entity_id=<id> -p fiscal_year=2026
-./bin/erp call verifyAuditChain -body '{}'
+./bin/erp call verifyAuditChain -body '{}'   # from the last anchor the server wrote to object storage
 ```
 
 The administrator holds the `tenant_admin` role (every permission) and
 provisions colleagues and agents through the API (`erp call createPrincipal`,
 `createRole`, `assignRole`); an agent's token (`ERP_AGENT_TOKEN`) is minted
 for the agent principal's subject the same way.
+
+Operators work through the control plane ([`api/control.yaml`](api/control.yaml))
+on the admin listener instead of the server command: an operator token
+(`erp token -subject ops`, no tenant) and `erp tenants`:
+
+```sh
+export ERP_OPERATOR_TOKEN=$(./bin/erp token -subject ops)
+./bin/erp tenants create -name Beta -region eu-west -currency EUR \
+  -admin-subject bea -admin-name "Bea" -config data/config.yaml   # same result as erp-server provision, with an Idempotency-Key
+./bin/erp tenants list -status active
+./bin/erp tenants suspend -id <tenant_id>     # the tenant's requests answer 403 tenancy.tenant_inactive until resume
+./bin/erp tenants resume -id <tenant_id>
+```
 
 `erp call OPERATION` calls any operation of [the contract](api/openapi.yaml)
 by its operationId: `-p name=value` for parameters, `-body` JSON or `@file`,
@@ -145,17 +158,18 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 | `internal/capture` | Invoice capture: Claude structured extraction from PDF |
 | `internal/llm` | Shared Claude agent plumbing; `llmtest` is a scripted Messages API for tests |
 | `internal/nfr` | Load, soak and resilience suites over the whole stack; performance budgets of the client-side engines |
-| `cmd/erp` | The CLI, a thin API client |
+| `cmd/erp` | The CLI, a thin API client; `erp tenants` drives the control plane |
 
 **Platform foundation** (API-first; design in [docs/design](docs/design/), ADR-0014 for the request pipeline):
 
 | Package | Role |
 |---|---|
-| `api/openapi.yaml`, `api/asyncapi.yaml` | The API and event contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
+| `api/openapi.yaml`, `api/asyncapi.yaml`, `api/control.yaml` | The API, event and control-plane contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
 | `db/migrations` | The data model as versioned PostgreSQL migrations, applied by the embedded runner (`db.Migrate`) |
-| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `pagination`, `etag`, `config`, `httpapi` (wiring) |
+| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `blobstore` (write-once object storage: directory or S3), `pagination`, `etag`, `config`, `httpapi` (wiring) |
 | `internal/operations` | Long-running operations: the first context on the foundation (`/v1/operations`) |
-| `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`), outbox relay |
+| `internal/provisioning`, `internal/controlplane` | Tenant provisioning in one transaction, and the operators' control plane (`/control/v1/tenants`: list, create, suspend, resume, offboard) on the admin listener |
+| `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`, `/control/v1`), outbox relay and workers (balance projector, payment proposer, configuration simulator, audit anchorer) |
 
 ## Guardrails built in
 
@@ -174,6 +188,7 @@ make db-up                      # PostgreSQL 17 in Docker on :55432
 export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"erp-api"}]'
 export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
 export ERP_NATS_URL=nats://localhost:4222   # optional; without it events wait in the outbox
+export ERP_OBJECT_DIR=$PWD/data/objects      # or ERP_OBJECT_S3_ENDPOINT, _BUCKET, _ACCESS_KEY, _SECRET_KEY for an S3-compatible store
 make run-server                 # migrates, then serves :8080 (API) and :9090 (admin)
 ```
 
@@ -181,18 +196,23 @@ All settings are environment variables, documented in
 [`internal/platform/config`](internal/platform/config/config.go): among them
 the request quotas per tenant and principal (`ERP_RATE_LIMIT_TENANT`,
 `ERP_RATE_LIMIT_PRINCIPAL`), the request deadline (`ERP_REQUEST_TIMEOUT`)
-and the pool size (`ERP_DB_MAX_CONNS`). The admin listener serves
-`/livez`, `/readyz` (schema version and partition horizon) and `/metrics`
-(request latency per operation, worker backlogs). Tokens must
+the pool size (`ERP_DB_MAX_CONNS`) and object storage (`ERP_OBJECT_DIR` or
+`ERP_OBJECT_S3_*`: captured documents, bank files and the audit anchors the
+server writes, locked for `ERP_OBJECT_RETENTION`). The admin listener serves
+`/livez`, `/readyz` (schema version and partition horizon), `/metrics`
+(request latency per operation, worker backlogs) and, with
+`ERP_OPERATOR_ISSUERS` set, the operators' control plane under
+`/control/v1` ([ADR-0015](docs/design/adr/0015-control-plane.md)). Tokens must
 carry the tenant id in the `tenant_id` claim, and the subject must be a
-provisioned principal of that tenant. Every operation in the contract is
+provisioned principal of that tenant; operator tokens name no tenant and
+work only on the control plane. Every operation in the contract is
 served: implemented ones run, the rest answer `501` until their context moves
 onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md)).
 
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T7 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T12 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier
@@ -203,9 +223,14 @@ built ahead of its Phase 2 slot. The Phase 1 exit criteria that need a client
 mock data. See [docs/plan.md](docs/plan.md) and [docs/testing.md](docs/testing.md).
 Known gaps:
 
-- Tenants are provisioned by an operator on the server (`erp-server
-  provision`); there is no self-service signup, and the development issuer
-  is for local use only.
+- Tenants are provisioned, suspended and offboarded by operators through
+  the control plane on the admin listener (or `erp-server provision` to
+  bootstrap); there is no self-service signup, offboarding is a status
+  without data retention or export yet, and the development issuer is for
+  local use only.
+- Documents are limited to 5 MB in the request; presigned uploads to
+  object storage are not built. Without object storage configured the
+  server keeps only hashes and does not anchor the audit chain.
 - Single currency per company code. No FX revaluation yet.
 - The OData entity and field mappings follow SAP API Business Hub names but have
   not yet been validated against a live system. Check them against your `$metadata`.

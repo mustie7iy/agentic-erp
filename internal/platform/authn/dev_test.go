@@ -55,9 +55,24 @@ func TestDevelopmentIssuer(t *testing.T) {
 	if claims, err := v.Verify(context.Background(), answer.Token); err != nil || claims.Subject != "bob" {
 		t.Fatalf("%+v %v", claims, err)
 	}
-	for _, body := range []string{`{`, `{"tenant_id": "x", "subject": "bob"}`, `{"tenant_id": "` + ten.String() + `"}`} {
+	for _, body := range []string{`{`, `{"tenant_id": "x", "subject": "bob"}`, `{"tenant_id": "` + ten.String() + `"}`, `{"subject": ""}`} {
 		if rec := post(body); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d", body, rec.Code)
 		}
+	}
+	// Without a tenant the token is an operator's.
+	rec = post(`{"subject": "ops"}`)
+	json.Unmarshal(rec.Body.Bytes(), &answer)
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if c, err := v.VerifyOperator(context.Background(), answer.Token); err != nil || c.Subject != "ops" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if _, err := v.Verify(context.Background(), answer.Token); err == nil {
+		t.Fatal("operator token accepted as a tenant's")
+	}
+	if _, err := v.VerifyOperator(context.Background(), dev.Token(ten, "alice")); err == nil {
+		t.Fatal("tenant token accepted as an operator's")
 	}
 }

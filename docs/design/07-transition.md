@@ -62,6 +62,8 @@ prototype store for that context.
 | T8 (done) | **Operations**: provisioning and local login | A tenant is provisioned by an operator and run through the API from the command line, with a development issuer locally |
 | T9 (done) | **Simulation** | Tier 3 and 4 configuration changes get simulation evidence from a worker that replays recent invoices under the proposal, and move on to approval |
 | T10 (done) | **Regression suites** | Suites captured from real invoices through the API; the simulation replays the base version's latest suite under the proposal and records regression evidence |
+| T11 (done) | **Control plane** | Operators list, provision, suspend, resume and offboard tenants through a contract on the admin listener, with operator tokens; every change recorded in the tenant's audit trail and published |
+| T12 (done) | **Object storage** | Captured documents and bank files kept in write-once object storage and served through the API; the audit chain anchored to locked objects and verified against them |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -739,6 +741,138 @@ Open points for the contract and design review:
   legitimately alter decisions in another company (shared payment terms)
   and would need a new suite to approve. An explicit "accepted changes"
   step on the change request would be more precise.
+
+### T11 decisions and open points
+
+What T11 built: the control plane (`api/control.yaml`, 04 §4.15, ADR-0015),
+the operators' API for tenants, served by `erp-server` on the admin listener
+under `/control/v1` by hand-written handlers (`internal/controlplane`):
+list (status filter, cursor pages), provision (`createTenant`, through the
+T8 provisioner with an `Idempotency-Key`), get, `:suspend`, `:resume` and
+`:offboard`. Operators authenticate with tokens from the operator identity
+providers (`ERP_OPERATOR_ISSUERS`; `authn.VerifyOperator`) that name no
+tenant; the development issuer mints them without a `tenant_id`
+(`erp token -subject NAME`). Migration 000019 adds the read-only
+`erp_control` role and the unique index for control-plane idempotency keys.
+`erp tenants list|get|create|suspend|resume|offboard` drives it from the
+command line. The exit criterion is
+`TestTenantsLifecycleThroughTheControlPlane` (internal/controlplane): a
+tenant provisioned and replayed through the control plane, suspended and
+refused at the public API's door, resumed, offboarded, with the events and
+the tenant's audit chain checked; and `TestProvisionAndDevelopmentLogin`
+(cmd/erp-server) doing it on the running server with development tokens.
+
+Decisions taken while building it:
+
+- **A second contract on the admin listener, not operations on `/v1`.**
+  Tenants cannot be resources of the public API: the tenant comes from the
+  token (04 §4.2), so no principal can address another tenant. The admin
+  listener is already the internal surface (readiness, metrics, the
+  development issuer), so the control plane lives there, reachable only
+  inside the platform. The contract is hand-written OpenAPI linted with
+  the same ruleset (the kebab-case rule now allows `/control/v1`), and
+  `TestContractIsServed` checks every operation of it is routed; the
+  handlers are plain `net/http` because `ServeMux` cannot pattern
+  `{id}:verb` (ADR-0014), so the item handler splits the last segment.
+- **Operators are not principals.** They have no row in any tenant, so
+  authorization is the operator identity provider's: any accepted operator
+  token may do anything the contract offers. Their actions are still
+  attributable: the audit entry in the tenant's chain carries actor kind
+  `system` and an id derived (UUIDv5) from issuer and subject, with both in
+  the detail. A tenant's token is refused by the control plane, and an
+  operator token by the public API (`VerifyOperator` requires the tenant
+  claim to be absent; `Verify` requires it present).
+- **A read-only cross-tenant role.** `erp_control` (`BYPASSRLS`) may
+  `SELECT` `tenancy.tenant` and `platform.idempotency_key` and nothing
+  else (`TestControlRoleIsReadOnly`); status changes run in the tenant's
+  scope as `erp_app`, so RLS confines the write to one tenant and the
+  tenant's outbox and chain record it. This is the "separate, audited
+  maintenance role" ADR-0003 asked for.
+- **Idempotent provisioning without a tenant to key on.** The provisioner
+  stores the key with the tenant it creates, in the same transaction, under
+  the `control|` prefix; a unique partial index on prefixed keys makes two
+  concurrent requests with one key create one tenant (the loser gets 409
+  `request.idempotency_key_in_use`), and the control plane looks the key up
+  as `erp_control` before provisioning to replay (the same operator and
+  body; anything else is 422 `request.idempotency_key_reused`).
+- **Suspension is enforced where requests enter.** The unit of work already
+  refused inactive tenants (403 `tenancy.tenant_inactive`); the control
+  plane only changes the status. Workers leave a suspended tenant's queued
+  work where it is.
+
+Open points for the contract and design review:
+
+- The global tenant directory of 05 §5.4 (tenant → region → cell) is still
+  to be built; the control plane manages the tenants of one cell. A global
+  control plane would front the cells' control planes and the directory.
+- Offboarding is a status, not a data lifecycle: retention, export and
+  erasure of an offboarded tenant's data need their own design (and the
+  object storage that is still open).
+- Operator authorization is all-or-nothing by issuer; roles for operators
+  (read-only operators, provisioning operators) would be a claim the
+  verifier checks.
+- `erp-server provision` and `createTenant` share the provisioner; the
+  command stays for bootstrapping a cell with no operator identity
+  provider yet, and could go once every environment has one.
+
+### T12 decisions and open points
+
+What T12 built: object storage behind one small port
+(`internal/platform/blobstore`: `Put` once, `Get`), with a directory store
+for development and an S3-compatible store (path-style, Signature Version
+4 written in the package and checked against the AWS test vectors,
+`If-None-Match: *` and Object Lock headers), configured by `ERP_OBJECT_DIR`
+or `ERP_OBJECT_S3_*` (ADR-0016). Three consumers: captured supplier invoice
+documents are stored under their hash before extraction and downloaded
+through `GET /v1/supplier-invoices/{id}/document`; bank files are stored at
+release and read back for `:transmit` and
+`GET /v1/bank-files/{id}/content`, always against the hash recorded with the
+file; and an anchoring worker (`audit.Anchorer`, run by `erp-server`)
+writes every tenant's moved chain head to a locked object and to
+`audit.anchor`, which `verifyAuditChain` now starts from and checks
+(migration 000020 grants the worker role its reads). The exit criteria are
+`TestCapturedDocumentsAreKept` (payables), `TestBankFilesAreKept`
+(payments) and `TestAnchoring` (audit), and the server test shows the
+anchor appearing on a running server.
+
+Decisions taken while building it:
+
+- **Write-once by the store, not by convention.** `Put` refuses an
+  existing key (`O_EXCL` on disk, `If-None-Match: *` on S3), so nothing in
+  the platform can replace a stored document, file or anchor; a document
+  captured twice is the same object under the same hash, which is how a
+  retried capture finds it already there. Anchors add a compliance-mode
+  retention lock (`ERP_OBJECT_RETENTION`, default ten years, 01 §1.3).
+- **Keys lead with the tenant** (`tenants/<id>/<kind>/<name>`), so one
+  tenant's objects can be listed, exported or erased together when
+  offboarding gets its data lifecycle.
+- **The hash in the database is the truth about the content.** Downloads
+  and transmissions compare what the store returns with the hash recorded
+  in the row (409 `payments.bank_file_changed`, `payables.document_changed`),
+  so a store that lost or altered an object cannot hand out a different
+  file. Anchors go the other way: the locked object is the truth about the
+  chain head, and verification compares the chain and the `audit.anchor`
+  row with it.
+- **Without object storage the platform still runs**: capture records the
+  hash only (as before), bank files are rendered again from the run, the
+  chain is not anchored, and the downloads answer 503; the server warns at
+  start. Files stored before object storage keep their `sha256:` references
+  and are rendered again.
+- **No SDK.** The S3 client is a few hundred lines with the signing
+  algorithm; a test double of the service (`blobstoretest`) checks
+  signatures, conditional writes and lock headers. The secret key comes
+  from the environment until the vault exists.
+
+Open points for the contract and design review:
+
+- Documents above 5 MB still have no path (04 §4.11's `:upload` URLs would
+  be presigned writes to the store).
+- Exports to object storage (04 §4.5) and SAP extracts (`ERP_EXTRACT_DIR`)
+  are still files on disk.
+- Offboarding's data lifecycle (export, retention, erasure of a tenant's
+  prefix) is now possible and still to be designed.
+- Anchors are checked on request (`verifyAuditChain`); a scheduled
+  verification per tenant would turn tampering into an alert.
 
 ## 7.4 Data from the prototype
 

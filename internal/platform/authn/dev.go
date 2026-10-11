@@ -15,9 +15,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
-// The development issuer stands in for a tenant's identity provider on a
-// developer's machine: the server mints tokens for any subject of any
-// tenant on its admin listener. It is enabled explicitly (ERP_DEV_ISSUER)
+// The development issuer stands in for a tenant's identity provider and for
+// the operators' on a developer's machine: the server mints tokens for any
+// subject of any tenant, and operator tokens, on its admin listener. It is enabled explicitly (ERP_DEV_ISSUER)
 // and the server logs a warning while it runs; nothing about it belongs in
 // production, where tokens come from the tenant's identity provider.
 
@@ -59,11 +59,15 @@ func (d *DevIssuer) now() time.Time {
 	return time.Now()
 }
 
-// Token mints a token for the subject in the tenant.
+// Token mints a token for the subject in the tenant; with no tenant
+// (uuid.Nil) it mints an operator token, which names none.
 func (d *DevIssuer) Token(tenant uuid.UUID, subject string) string {
 	now := d.now()
-	payload, _ := json.Marshal(map[string]any{"iss": DevIssuerURL, "aud": DevAudience, "sub": subject, DefaultTenantClaim: tenant.String(),
-		"iat": now.Unix(), "exp": now.Add(DevTokenTTL).Unix()})
+	claims := map[string]any{"iss": DevIssuerURL, "aud": DevAudience, "sub": subject, "iat": now.Unix(), "exp": now.Add(DevTokenTTL).Unix()}
+	if tenant != uuid.Nil {
+		claims[DefaultTenantClaim] = tenant.String()
+	}
+	payload, _ := json.Marshal(claims)
 	// Signing a JSON payload with a valid RSA key cannot fail.
 	sig, _ := d.signer.Sign(payload)
 	tok, _ := sig.CompactSerialize()
@@ -71,7 +75,8 @@ func (d *DevIssuer) Token(tenant uuid.UUID, subject string) string {
 }
 
 // Handler mints tokens: POST {"tenant_id": ..., "subject": ...} answers
-// {"token": ..., "expires_in": seconds}. It belongs on the admin listener.
+// {"token": ..., "expires_in": seconds}; without tenant_id the token is an
+// operator's. It belongs on the admin listener.
 func (d *DevIssuer) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -82,9 +87,13 @@ func (d *DevIssuer) Handler() http.Handler {
 			problem.Write(w, r, problem.BadRequest("request.invalid_body", "The body must be JSON with tenant_id and subject."))
 			return
 		}
-		tenant, err := uuid.Parse(in.TenantID)
+		var tenant uuid.UUID
+		var err error
+		if in.TenantID != "" {
+			tenant, err = uuid.Parse(in.TenantID)
+		}
 		if err != nil || in.Subject == "" {
-			problem.Write(w, r, problem.BadRequest("request.invalid_body", "tenant_id must be a UUID and subject must not be empty."))
+			problem.Write(w, r, problem.BadRequest("request.invalid_body", "tenant_id must be a UUID when given and subject must not be empty."))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

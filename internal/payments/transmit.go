@@ -1,9 +1,7 @@
 package payments
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -74,10 +72,11 @@ func GetFile(ctx context.Context, id uuid.UUID) (BankFile, error) {
 }
 
 // TransmitFile sends a created bank file through the connector, as an
-// operation that completes within the request. The file is rendered again
-// from the run and must match the hash recorded at release; a connector
-// failure leaves the file created, to be transmitted again (banks refuse
-// a message id they have already processed).
+// operation that completes within the request. The file comes from object
+// storage (or is rendered again from the run) and must match the hash
+// recorded at release; a connector failure leaves the file created, to be
+// transmitted again (banks refuse a message id they have already
+// processed).
 func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -104,10 +103,6 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	if sum := sha256.Sum256(content); !bytes.Equal(sum[:], f.SHA256) {
-		return operations.Operation{}, problem.Conflict("payments.bank_file_changed",
-			"The run's data no longer produces the file recorded at release; it is not transmitted.")
-	}
 	r, err := load(ctx, tx, f.RunID, false)
 	if err != nil {
 		return operations.Operation{}, err
@@ -128,4 +123,17 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 		return operations.Operation{}, err
 	}
 	return operations.Succeed(ctx, op.ID, "/v1/bank-files/"+f.ID.String(), map[string]any{"bank_file_id": f.ID, "status": FileTransmitted})
+}
+
+// FileContent returns a bank file's content, checked against its hash.
+func (e *Endpoints) FileContent(ctx context.Context, id uuid.UUID) ([]byte, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	f, err := getFile(ctx, tx, id, false)
+	if err != nil {
+		return nil, err
+	}
+	return e.fileOf(ctx, tx, f)
 }

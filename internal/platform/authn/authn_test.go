@@ -91,6 +91,44 @@ func TestNewValidatesConfiguration(t *testing.T) {
 	}
 }
 
+func TestOperatorTokens(t *testing.T) {
+	is, other := authntest.New(t), authntest.New(t)
+	v := verifier(t, is)
+	ctx := context.Background()
+	// An operator token names no tenant; a tenant's token is not an operator's and the reverse.
+	operator := is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil})
+	c, err := v.VerifyOperator(ctx, operator)
+	if err != nil || c.Subject != "ops|alice" || c.Issuer != is.URL || c.TenantID != uuid.Nil {
+		t.Fatalf("%+v %v", c, err)
+	}
+	for name, raw := range map[string]string{
+		"names a tenant": is.Token(t, uuid.New(), "ops|alice", nil),
+		"untrusted":      other.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil}),
+		"malformed":      "abc",
+	} {
+		if _, err := v.VerifyOperator(ctx, raw); problem.From(err).Status != http.StatusUnauthorized {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := v.Verify(ctx, operator); problem.From(err).Status != http.StatusUnauthorized {
+		t.Fatalf("operator token as a tenant's: %v", err)
+	}
+	h := v.OperatorMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, _ := reqctx.ClaimsFrom(r.Context())
+		w.Header().Set("Subject", c.Subject)
+		w.WriteHeader(204)
+	}))
+	for raw, want := range map[string]int{operator: 204, is.Token(t, uuid.New(), "s", nil): 401} {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/control/v1/tenants", nil)
+		r.Header.Set("Authorization", "Bearer "+raw)
+		h.ServeHTTP(rec, r)
+		if rec.Code != want || (want == 204 && rec.Header().Get("Subject") != "ops|alice") {
+			t.Errorf("%d: %d", want, rec.Code)
+		}
+	}
+}
+
 func TestMiddleware(t *testing.T) {
 	is := authntest.New(t)
 	v := verifier(t, is)

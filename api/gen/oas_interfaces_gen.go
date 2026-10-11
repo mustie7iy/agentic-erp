@@ -193,6 +193,10 @@ type GetBankAccountRes interface {
 	getBankAccountRes()
 }
 
+type GetBankFileContentRes interface {
+	getBankFileContentRes()
+}
+
 type GetBankFileRes interface {
 	getBankFileRes()
 }
@@ -307,6 +311,10 @@ type GetRoleRes interface {
 
 type GetSodRuleRes interface {
 	getSodRuleRes()
+}
+
+type GetSupplierInvoiceDocumentRes interface {
+	getSupplierInvoiceDocumentRes()
 }
 
 type GetSupplierInvoiceRes interface {

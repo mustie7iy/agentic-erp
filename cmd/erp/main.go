@@ -11,9 +11,12 @@
 //	erp agent invoices|config|migration|test
 //	erp metrics | query | ask | report
 //	erp gen-mock-sap | config generate | config validate
+//	erp tenants list|get|create|suspend|resume|offboard   (operators: the control plane)
 //
 // The API is ERP_API_URL (default http://localhost:8080); ERP_TOKEN is the
-// person's bearer token and ERP_AGENT_TOKEN the agents' token.
+// person's bearer token and ERP_AGENT_TOKEN the agents' token. The control
+// plane is ERP_CONTROL_URL (default http://localhost:9090) with
+// ERP_OPERATOR_TOKEN.
 package main
 
 import (
@@ -100,6 +103,7 @@ func init() {
 		"gen-mock-sap": genMock,
 		"config":       configCmd,
 		"token":        token,
+		"tenants":      tenantsCmd,
 	}
 }
 
@@ -118,10 +122,14 @@ the API (ERP_API_URL, ERP_TOKEN):
 agents (ERP_AGENT_TOKEN, Anthropic credentials):
   agent invoices | config | migration | test
 
+operators (ERP_CONTROL_URL, default localhost:9090; ERP_OPERATOR_TOKEN):
+  tenants list | get | create | suspend | resume | offboard   the control plane: the tenants of the cell
+
 local preparation:
   gen-mock-sap   write a deterministic mock SAP extract
   config generate | validate   draft a configuration from SAP customizing, or check one
-  token          mint a token from a server running with ERP_DEV_ISSUER (ERP_ADMIN_URL, default localhost:9090)
+  token          mint a token from a server running with ERP_DEV_ISSUER (ERP_ADMIN_URL, default localhost:9090);
+                 without -tenant it is an operator token
 
 run "erp <command> -h" for flags`)
 }
@@ -216,13 +224,13 @@ func call(ctx context.Context, args []string) error {
 // -subject SUBJECT prints it, for ERP_TOKEN or ERP_AGENT_TOKEN.
 func token(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("token", flag.ContinueOnError)
-	tenant := fs.String("tenant", "", "tenant id")
-	subject := fs.String("subject", "", "the principal's subject at the identity provider")
+	tenant := fs.String("tenant", "", "tenant id; without it the token is an operator's")
+	subject := fs.String("subject", "", "the principal's (or operator's) subject at the identity provider")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *tenant == "" || *subject == "" {
-		return errors.New("-tenant and -subject are required")
+	if *subject == "" {
+		return errors.New("-subject is required")
 	}
 	admin := getenv("ERP_ADMIN_URL")
 	if admin == "" {

@@ -24,8 +24,8 @@ deletion is commented in the code. Coverage measures that every statement
 runs under test; the assertions in the suites below are what show the
 results are right.
 
-At the time of writing the suites contain 324 test functions (many with
-subtests) across 49 packages, all passing under the race detector.
+At the time of writing the suites contain 377 test functions (many with
+subtests) across 58 packages, all passing under the race detector.
 Database-backed suites run against PostgreSQL (`make db-up`), each package
 in its own database (`internal/platform/pgtest`), and
 `apitest.EveryFailure` fails each database statement of an operation in
@@ -36,6 +36,8 @@ turn to prove nothing is left half done.
 | Area | Where | What is proven |
 |---|---|---|
 | Provisioning | `internal/provisioning`, `cmd/erp-server` | A tenant provisioned with its administrator, roles, active legal entities and configuration v1 in one transaction; the administrator sets the tenant up through the API; every statement failing in turn leaves nothing; the development issuer mints tokens the API accepts |
+| Object storage | `internal/platform/blobstore`, `payables`, `payments`, `audit` | Directory and S3 stores write once (an existing key is refused), serve content and type, report every failure; the S3 signer matches the AWS Signature Version 4 test vectors and a test double of the service checks signatures, conditional writes and lock headers; captured documents stored under their hash and downloaded byte for byte, refused when tampered; bank files stored at release, transmitted and downloaded from the store against the recorded hash, never to agents; the anchoring worker writes locked anchors, recovers from a round that did not commit, refuses one that disagrees with the chain; verification starts from the last anchor and detects a tampered anchor object, event or row |
+| Control plane | `internal/controlplane`, `cmd/erp-server`, `cmd/erp` | Operators list, provision (idempotently, one tenant for racing requests with one key), suspend, resume and offboard tenants through `api/control.yaml` on the admin listener; tenant tokens refused there and operator tokens on the public API; a suspended tenant refused at the door; every change in the tenant's outbox and hash chain as the operator; the read-only control role; every operation of the contract routed; every database statement failing in turn reported |
 | Tenancy, identity, configuration | `internal/tenancy`, `identity`, `configuration` | Legal entities and org units, principals, effective-dated role and permission grants, company access, SoD refused at grant time and enforced per operation, configuration versions and change requests by tier; the simulation worker records simulation and regression evidence and routes tier 3 changes to approval, failing or retrying operations honestly; regression suites captured, listed and read |
 | Configuration as code | `internal/config` | Every validation rule (one test per rule), change tiers, diffs |
 | Configuration from SAP | `internal/delivery/sapconfig` | T001/SKB1/T030/T007A/T169G/T012K/T052/AGR_* mapped; number ranges per fiscal year; gaps, defaults and role notes |

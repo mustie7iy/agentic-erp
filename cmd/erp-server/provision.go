@@ -42,7 +42,7 @@ func provisionCmd(ctx context.Context, args []string, cfg platformconfig.Config,
 		return 2
 	}
 	res, err := provision(ctx, cfg, provisioning.Request{Name: *name, Region: *region, GroupCurrency: *currency,
-		Administrator: provisioning.Administrator{Subject: *subject, DisplayName: *adminName, Email: optional(*email)}}, *file)
+		Administrator: provisioning.Administrator{Subject: *subject, DisplayName: *adminName, Email: optional(*email)}, Operator: "erp-server provision"}, *file)
 	if err != nil {
 		fmt.Fprintln(stderr, "erp-server provision:", err)
 		return 1

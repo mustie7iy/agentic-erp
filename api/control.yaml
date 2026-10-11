@@ -1,0 +1,727 @@
+# Agentic ERP control-plane contract (OpenAPI 3.1): the operators' API for tenants (T11; docs/design/04-api-design.md §4.15).
+# Served by erp-server on the admin listener under /control/v1, never on the public API. Hand-written handlers in
+# internal/controlplane implement it; internal/controlplane/contract_test.go checks every operation here is served.
+# Lint with vacuum (api/vacuum-ruleset.yaml).
+openapi: "3.1.0"
+info:
+  title: Agentic ERP control plane
+  version: "1.0.0"
+  summary: Operators' API for the tenants of a cell.
+  description: |-
+    The control plane lets platform operators list the tenants of a cell, provision a tenant with its first administrator and configuration, and suspend, resume or offboard one. It is served on the admin listener (`ERP_ADMIN_ADDR`, default `:9090`), which is reachable only inside the platform, and follows the rules of the public API ([04-api-design.md](../docs/design/04-api-design.md)): RFC 9457 problems, cursor pagination, `Idempotency-Key` on creation, `If-Match` on transitions.
+
+    Operators are not principals of any tenant. They authenticate with bearer tokens from the operator identity providers (`ERP_OPERATOR_ISSUERS`); an operator token names no tenant, and a tenant's token is refused here. What an operator does to a tenant is recorded in that tenant's audit trail with actor kind `system` and an id derived from the operator's issuer and subject, and published as `TenantStatusChanged`.
+
+    Tenants are provisioned active in one transaction. `:suspend` stops every request of the tenant at the door (`403 tenancy.tenant_inactive`) until `:resume`; `:offboard` is final. Data is never deleted by the control plane.
+  contact:
+    name: Platform API team
+    url: "https://github.com/mustie7iy/agentic-erp"
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: "http://{admin}"
+    description: "The admin listener of an erp-server replica of the cell (not exposed outside the platform)."
+    variables:
+      admin:
+        default: "localhost:9090"
+        description: "Host and port of the admin listener (`ERP_ADMIN_ADDR`)."
+security:
+  - operator: []
+tags:
+  - name: tenants
+    description: The tenants of the cell and their lifecycle.
+paths:
+  /control/v1/tenants:
+    get:
+      operationId: listTenants
+      tags:
+        - tenants
+      summary: List tenants
+      description: "The tenants of the cell, newest first. Sortable by: `created_at`, `name`."
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: "Only tenants in this status: `provisioning`, `active`, `suspended` or `offboarded`."
+          schema:
+            type: string
+            maxLength: 20
+          example: active
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of tenants.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createTenant
+      tags:
+        - tenants
+      summary: Provision a tenant
+      description: "Creates a tenant with its first administrator (every permission, through the `tenant_admin` role), the roles its configuration names, an active legal entity per company of the configuration and the configuration as version 1, all in one transaction; the tenant is active when the response arrives. A retry with the same `Idempotency-Key` answers the tenant the first request created with `Idempotent-Replayed: true`; two concurrent requests with the same key create one tenant (409 for the loser, retry to get it)."
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The tenant to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantCreate"
+      responses:
+        "201":
+          description: "Created; the tenant with what provisioning made for it."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}":
+    get:
+      operationId: getTenant
+      tags:
+        - tenants
+      summary: Get a tenant
+      description: One tenant of the cell by id.
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The tenant.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  "/control/v1/tenants/{id}:suspend":
+    post:
+      operationId: suspendTenant
+      tags:
+        - tenants
+      summary: Suspend a tenant
+      description: "Moves an active tenant to `suspended`: every request of its principals is refused with `403 tenancy.tenant_inactive` until it is resumed. Workers leave its queued work where it is. Recorded in the tenant's audit trail and published as `TenantStatusChanged`."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The suspended tenant.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}:resume":
+    post:
+      operationId: resumeTenant
+      tags:
+        - tenants
+      summary: Resume a tenant
+      description: "Moves a suspended tenant back to `active`; its principals' requests are served again. Recorded and published like a suspension."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The active tenant.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}:offboard":
+    post:
+      operationId: offboardTenant
+      tags:
+        - tenants
+      summary: Offboard a tenant
+      description: "Moves an active or suspended tenant to `offboarded`, the final status: its requests are refused for good, and nothing is deleted (retention and export are operations outside this API). An offboarded tenant cannot be resumed."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The offboarded tenant.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+components:
+  securitySchemes:
+    operator:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Bearer token issued by an operator identity provider (`ERP_OPERATOR_ISSUERS`): signature, issuer, audience and expiry are verified, and the token must not name a tenant. Locally, `POST /dev/token` without `tenant_id` mints one (`ERP_DEV_ISSUER=true`, never in production)."
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: Tenant identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: "The ETag (version) the operator last read. A mismatch returns 412 and changes nothing; a missing header returns 428."
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+      example: "\"1\""
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: "Operator-chosen key, unique per logical request (a UUID is recommended), kept for 7 days with the tenant it created. A repeat with the same body returns the tenant with `Idempotent-Replayed: true`; a different body or another operator returns 422. Missing returns 428."
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 255
+      example: "4f1c2a7e-8d55-4c3b-9a0e-6b2d1e3f4a5b"
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      description: Maximum number of tenants to return. Defaults to 50, maximum 500.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 500
+        default: 50
+    PageToken:
+      name: page_token
+      in: query
+      required: false
+      description: "Opaque cursor from `next_page_token` of the previous page; valid only with the same `status` filter and `order_by`."
+      schema:
+        type: string
+        maxLength: 2048
+    OrderBy:
+      name: order_by
+      in: query
+      required: false
+      description: "Sort order as `field [asc|desc]`: `created_at` (default, descending) or `name`."
+      schema:
+        type: string
+        maxLength: 40
+      example: name asc
+  headers:
+    ETag:
+      description: "Strong entity tag of the tenant; equals `version`. Send it back in `If-Match`."
+      schema:
+        type: string
+      example: "\"1\""
+    Location:
+      description: URL of the created tenant.
+      schema:
+        type: string
+        format: uri-reference
+    IdempotentReplayed:
+      description: "`true` when this response answers an earlier request with the same `Idempotency-Key`."
+      schema:
+        type: boolean
+  schemas:
+    Tenant:
+      type: object
+      description: "A tenant of the cell: the row of `tenancy.tenant`, the only table without a `tenant_id` (it is the tenant)."
+      required:
+        - id
+        - name
+        - region
+        - group_currency
+        - status
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7); the `tenant_id` claim of the tenant's tokens.
+          readOnly: true
+          example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+        name:
+          type: string
+          description: Display name.
+          readOnly: true
+        region:
+          type: string
+          description: "Region the tenant's data stays in, for example `eu-west`."
+          readOnly: true
+        group_currency:
+          type: string
+          description: Group currency (ISO 4217).
+          readOnly: true
+        status:
+          type: string
+          description: "Lifecycle status: `provisioning`, `active`, `suspended` or `offboarded` (open enumeration)."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+          minimum: 1
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the tenant was provisioned (UTC).
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Time of the last status change (UTC).
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          name: Acme
+          region: eu-west
+          group_currency: EUR
+          status: active
+          version: 1
+          created_at: "2026-10-11T09:00:00Z"
+          updated_at: "2026-10-11T09:00:00Z"
+    Administrator:
+      type: object
+      description: The tenant's first person, who holds every permission and sets the tenant up through the public API.
+      required:
+        - subject
+        - display_name
+      properties:
+        subject:
+          type: string
+          description: The administrator's subject at the tenant's identity provider.
+          minLength: 1
+          maxLength: 255
+        display_name:
+          type: string
+          description: Display name.
+          minLength: 1
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          description: Email (optional).
+      examples:
+        - subject: "auth0|ada"
+          display_name: Ada Lovelace
+          email: ada@acme.example
+    TenantCreate:
+      type: object
+      description: What provisioning needs.
+      required:
+        - name
+        - region
+        - group_currency
+        - administrator
+        - configuration
+      properties:
+        name:
+          type: string
+          description: Display name.
+          minLength: 1
+          maxLength: 200
+        region:
+          type: string
+          description: "Region the tenant's data stays in, for example `eu-west`."
+          pattern: "^[a-z]{2}(-[a-z0-9]+)*$"
+        group_currency:
+          type: string
+          description: Group currency (ISO 4217).
+          pattern: "^[A-Za-z]{3}$"
+        administrator:
+          $ref: "#/components/schemas/Administrator"
+        configuration:
+          type: object
+          description: "The first configuration as a JSON object: the configuration-as-code document (`erp config generate` writes one as YAML; JSON is the same document). Activated as version 1; its companies become active legal entities and the roles its approval policies name are created empty."
+          additionalProperties: true
+      examples:
+        - name: Acme
+          region: eu-west
+          group_currency: EUR
+          administrator:
+            subject: "auth0|ada"
+            display_name: Ada Lovelace
+          configuration:
+            group_currency: EUR
+            companies: []
+    Provisioned:
+      type: object
+      description: What provisioning created besides the tenant row.
+      required:
+        - tenant_id
+        - administrator_id
+        - administrator_role_id
+        - roles
+        - legal_entities
+        - configuration_version
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant.
+          readOnly: true
+        administrator_id:
+          type: string
+          format: uuid
+          description: The administrator principal.
+          readOnly: true
+        administrator_role_id:
+          type: string
+          format: uuid
+          description: "The `tenant_admin` role holding every permission."
+          readOnly: true
+        roles:
+          type: array
+          items:
+            type: string
+          description: Roles the configuration's approval policies name, created empty.
+          readOnly: true
+        legal_entities:
+          type: object
+          additionalProperties:
+            type: string
+            format: uuid
+          description: The configuration's companies as active legal entities, by company code.
+          readOnly: true
+        configuration_version:
+          type: integer
+          format: int32
+          description: The number of the activated configuration version (1).
+          minimum: 1
+          readOnly: true
+      examples:
+        - tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          administrator_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d02"
+          administrator_role_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d03"
+          roles: [process_owner, controller]
+          legal_entities:
+            "1000": "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d04"
+          configuration_version: 1
+    TenantCreated:
+      description: The provisioned tenant with what was made for it.
+      allOf:
+        - $ref: "#/components/schemas/Tenant"
+        - type: object
+          required:
+            - provisioned
+          properties:
+            provisioned:
+              $ref: "#/components/schemas/Provisioned"
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          name: Acme
+          region: eu-west
+          group_currency: EUR
+          status: active
+          version: 1
+          created_at: "2026-10-11T09:00:00Z"
+          updated_at: "2026-10-11T09:00:00Z"
+          provisioned:
+            tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+            administrator_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d02"
+            administrator_role_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d03"
+            roles: [process_owner]
+            legal_entities:
+              "1000": "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d04"
+            configuration_version: 1
+    TenantPage:
+      type: object
+      description: One page of tenants.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tenant"
+          description: The tenants of this page.
+        next_page_token:
+          type: string
+          description: Cursor of the next page; absent on the last page.
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              name: Acme
+              region: eu-west
+              group_currency: EUR
+              status: active
+              version: 1
+              created_at: "2026-10-11T09:00:00Z"
+              updated_at: "2026-10-11T09:00:00Z"
+          next_page_token: "eyJ2IjoiMjAyNi0xMC0xMVQwOTowMDowMFoiLCJpIjoiMDE5MjlhMWUtNGMyYi03YTEwLTliM2UtMWYyYTNiNGM1ZDAxIn0.sig"
+    FieldError:
+      type: object
+      description: One invalid input field.
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          description: JSON pointer-like path of the field.
+        code:
+          type: string
+          description: Stable error code for the field.
+        message:
+          type: string
+          description: What is wrong with the field.
+      examples:
+        - field: region
+          code: invalid
+          message: required, e.g. eu-west
+    Problem:
+      type: object
+      description: "RFC 9457 problem details, returned as `application/problem+json` for every error."
+      required:
+        - type
+        - title
+        - status
+        - code
+      properties:
+        type:
+          type: string
+          description: URI identifying the problem type.
+          format: uri-reference
+        title:
+          type: string
+          description: Short summary of the problem type.
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code.
+          minimum: 400
+          maximum: 599
+        code:
+          type: string
+          description: "Stable error code; clients branch on this, never on `detail`."
+          pattern: "^[a-z_]+(\\.[a-z_]+)+$"
+        detail:
+          type: string
+          description: Explanation of this occurrence.
+        instance:
+          type: string
+          description: URI reference of the request that failed.
+          format: uri-reference
+        trace_id:
+          type: string
+          description: W3C trace id of the request.
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+          description: Field-level errors (422 and some 400).
+      examples:
+        - type: "https://errors.example.com/tenancy/invalid-transition"
+          title: Conflict
+          status: 409
+          code: tenancy.invalid_transition
+          detail: "The tenant is offboarded; resume applies to suspended tenants."
+          instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:resume"
+          trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+  responses:
+    BadRequest:
+      description: "Malformed request: invalid JSON, unknown field, invalid parameter, bad page token or order."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/invalid-parameter"
+            title: Bad request
+            status: 400
+            code: request.invalid_parameter
+            detail: Parameter status is invalid.
+            instance: /control/v1/tenants
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+            errors:
+              - field: status
+                code: invalid
+                message: "one of provisioning, active, suspended, offboarded"
+    Unauthorized:
+      description: "Missing, expired or invalid bearer token, or a token that names a tenant."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/authn/invalid-token"
+            title: Unauthorized
+            status: 401
+            code: authn.invalid_token
+            detail: An operator token must not name a tenant.
+            instance: /control/v1/tenants
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    NotFound:
+      description: No tenant with this id in the cell, or no such method.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/not-found"
+            title: Not found
+            status: 404
+            code: request.not_found
+            detail: No tenant with this id.
+            instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    Conflict:
+      description: "The tenant is not in a status the transition applies to (`tenancy.invalid_transition`), or a provisioning request with the same `Idempotency-Key` is running (`request.idempotency_key_in_use`, with `Retry-After`)."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/tenancy/invalid-transition"
+            title: Conflict
+            status: 409
+            code: tenancy.invalid_transition
+            detail: "The tenant is suspended; suspend applies to active tenants."
+            instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:suspend"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    PreconditionFailed:
+      description: "`If-Match` does not match the tenant's current version; nothing changed."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/version-mismatch"
+            title: Precondition failed
+            status: 412
+            code: request.version_mismatch
+            detail: "The resource has changed (current ETag \"2\"); read it again and retry."
+            instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:suspend"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    PayloadTooLarge:
+      description: The request body exceeds 5 MB.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/body-too-large"
+            title: Request body too large
+            status: 413
+            code: request.body_too_large
+            detail: The request body exceeds 5 MB.
+            instance: /control/v1/tenants
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    Unprocessable:
+      description: "The request is well-formed but invalid: a tenant field (`tenancy.invalid_tenant`, with `errors`), an invalid configuration document, or an `Idempotency-Key` reused for a different request (`request.idempotency_key_reused`)."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/tenancy/invalid-tenant"
+            title: Unprocessable request
+            status: 422
+            code: tenancy.invalid_tenant
+            detail: The tenant request is invalid.
+            instance: /control/v1/tenants
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+            errors:
+              - field: group_currency
+                code: invalid
+                message: an ISO 4217 code
+    PreconditionRequired:
+      description: "A required header is missing: `Idempotency-Key` on creation, `If-Match` on a transition."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/precondition-required"
+            title: Precondition required
+            status: 428
+            code: request.precondition_required
+            detail: If-Match header is required for this operation.
+            instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:suspend"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"

@@ -1,15 +1,19 @@
 package payables
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -30,9 +34,11 @@ func unreadable(detail string) error {
 // operation). The document must print the number of a purchase order of the
 // legal entity: supplier, currency and items come from the order; documents
 // without one are entered by hand. Low-confidence extractions are put on
-// hold.
+// hold. With object storage the document is kept under its hash before the
+// extraction, so the invoice refers to what was read; the same bytes
+// captured twice (also by a retried request) find the object there already.
 func (e *Endpoints) CaptureInvoice(ctx context.Context, legalEntity uuid.UUID, document []byte) (operations.Operation, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -53,6 +59,14 @@ func (e *Endpoints) CaptureInvoice(ctx context.Context, legalEntity uuid.UUID, d
 	op, err := operations.Start(ctx, "payables.capture", map[string]any{"legal_entity_id": legalEntity, "sha256": hex.EncodeToString(sum[:])})
 	if err != nil {
 		return operations.Operation{}, err
+	}
+	objectRef := ""
+	if e.Objects != nil {
+		objectRef = blobstore.Key(p.TenantID, blobstore.KindDocuments, hex.EncodeToString(sum[:]))
+		err := e.Objects.Put(ctx, objectRef, document, blobstore.PutOptions{ContentType: http.DetectContentType(document)})
+		if err != nil && !errors.Is(err, blobstore.ErrExists) { // the same bytes are the same object
+			return operations.Operation{}, problem.Unavailable("The document store did not take the document; capture it again.", 30).WithCause(err)
+		}
 	}
 	ext, err := e.Extractor.Extract(ctx, document)
 	if err != nil {
@@ -134,10 +148,36 @@ func (e *Endpoints) CaptureInvoice(ctx context.Context, legalEntity uuid.UUID, d
 		r := lowConfidence
 		status, reason = OnHold, &r
 	}
-	v, err := e.insert(ctx, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:]})
+	v, err := e.insert(ctx, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
 	if err != nil {
 		return operations.Operation{}, err
 	}
 	return operations.Succeed(ctx, op.ID, "/v1/supplier-invoices/"+v.ID.String(),
 		map[string]any{"supplier_invoice_id": v.ID, "status": v.Status, "warnings": warnings})
+}
+
+// Document returns the document an invoice was captured from, with its
+// content type, from object storage.
+func (e *Endpoints) Document(ctx context.Context, id uuid.UUID) ([]byte, string, error) {
+	v, err := GetInvoice(ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+	if v.CaptureObjectRef == nil || !blobstore.IsKey(*v.CaptureObjectRef) {
+		return nil, "", problem.NotFound("The invoice has no stored document.")
+	}
+	if e.Objects == nil {
+		return nil, "", problem.Unavailable("Object storage is not configured on this server.", 0)
+	}
+	content, ct, err := e.Objects.Get(ctx, *v.CaptureObjectRef)
+	if errors.Is(err, blobstore.ErrNotFound) {
+		return nil, "", problem.NotFound("The invoice's document is not in the store.")
+	}
+	if err != nil {
+		return nil, "", problem.Unavailable("The document store did not answer; try again.", 30).WithCause(err)
+	}
+	if sum := sha256.Sum256(content); v.CaptureSHA256 == nil || !bytes.Equal(sum[:], v.CaptureSHA256) {
+		return nil, "", problem.Conflict("payables.document_changed", "The stored document does not match the hash recorded at capture.")
+	}
+	return content, ct, nil
 }

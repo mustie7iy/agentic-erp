@@ -18,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -26,6 +27,9 @@ import (
 // Endpoints implements the audit part of the generated API.
 type Endpoints struct {
 	Pages *pagination.Codec
+	// Anchors is the object storage the anchors were written to; nil checks
+	// anchors against the chain only.
+	Anchors blobstore.Store
 }
 
 // Event is a row of audit.audit_event without its hashes.
@@ -125,9 +129,11 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 }
 
 // VerifyChain recomputes the tenant's hash chain from from (default the
-// first event, while no anchors are written) to to (default the head), as
-// an operation that completes within the request.
-func VerifyChain(ctx context.Context, from, to *int64) (operations.Operation, error) {
+// last anchored head, or the first event while no anchor exists) to to
+// (default the head), as an operation that completes within the request,
+// and compares the anchors in the range with the chain and, with a store,
+// with the anchor objects.
+func VerifyChain(ctx context.Context, store blobstore.Store, from, to *int64) (operations.Operation, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return operations.Operation{}, err
@@ -139,6 +145,10 @@ func VerifyChain(ctx context.Context, from, to *int64) (operations.Operation, er
 	first, last := int64(1), int64(0)
 	if from != nil {
 		first = *from
+	} else if anchored, err := lastAnchor(ctx, tx, p.TenantID); err != nil {
+		return operations.Operation{}, err
+	} else if anchored > 0 {
+		first = anchored
 	}
 	if to != nil {
 		last = *to
@@ -156,7 +166,14 @@ func VerifyChain(ctx context.Context, from, to *int64) (operations.Operation, er
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	result := map[string]any{"verified": res.BrokenAt == 0, "last_seq": res.LastSeq, "checked": res.Checked}
+	anchors, brokenAnchor, err := checkAnchors(ctx, tx, store, p.TenantID, first, last)
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	if brokenAnchor != 0 && (res.BrokenAt == 0 || brokenAnchor < res.BrokenAt) {
+		res.BrokenAt = brokenAnchor
+	}
+	result := map[string]any{"verified": res.BrokenAt == 0, "last_seq": res.LastSeq, "checked": res.Checked, "anchors_checked": anchors}
 	if res.BrokenAt != 0 {
 		result["first_broken_seq"] = res.BrokenAt
 	}
@@ -182,7 +199,7 @@ func (e *Endpoints) VerifyAuditChain(ctx context.Context, req *gen.AuditVerify, 
 	if v, ok := req.ToSeq.Get(); ok {
 		to = &v
 	}
-	op, err := VerifyChain(ctx, from, to)
+	op, err := VerifyChain(ctx, e.Anchors, from, to)
 	if err != nil {
 		return nil, err
 	}

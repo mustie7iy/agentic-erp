@@ -214,7 +214,7 @@ check in CI enforces this.
 |---|---|
 | Requests per tenant | 2,000/s sustained, burst 10,000 |
 | Requests per principal | 50/s (agents configurable per profile) |
-| Request body | 5 MB (documents go to `:upload` URLs in object storage) |
+| Request body | 5 MB (documents are stored in object storage and read back through `GET .../document` and `.../content`; larger ones will go to `:upload` URLs) |
 | Lines per document | 10,000 (larger loads use import operations) |
 | `page_size` | 500 |
 
@@ -267,3 +267,46 @@ and role administration) are never exposed as agent tools.
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |
 | platform | `operations` | `:cancel` |
+
+## 4.15 Control plane
+
+Tenants are not resources of the public API: the tenant comes from the
+token, so no principal can see or create another tenant. The operators'
+work on tenants (list the cell's tenants, provision one, suspend, resume,
+offboard) is a second, small contract, [`api/control.yaml`](../../api/control.yaml),
+served by `erp-server` on the **admin listener** under `/control/v1`,
+which is reachable only inside the platform (ADR-0015).
+
+| Operation | Method | Notes |
+|---|---|---|
+| `listTenants` | `GET /control/v1/tenants` | `status` filter; `order_by` `created_at` (default, newest first) or `name`; cursor pages |
+| `createTenant` | `POST /control/v1/tenants` | `Idempotency-Key` required; the tenant, its administrator, roles, legal entities and configuration v1 in one transaction; 201 with the tenant and what was provisioned |
+| `getTenant` | `GET /control/v1/tenants/{id}` | `ETag` = version |
+| `suspendTenant`, `resumeTenant`, `offboardTenant` | `POST /control/v1/tenants/{id}:verb` | `If-Match` required; 409 `tenancy.invalid_transition` outside active → suspended → active, active or suspended → offboarded (final) |
+
+The control plane follows this document's rules (problems, pagination,
+idempotency, concurrency) with these differences:
+
+- **Callers are operators, not principals.** Tokens come from the operator
+  identity providers (`ERP_OPERATOR_ISSUERS`) and must name no tenant; a
+  tenant's token is refused, and an operator token is refused by the public
+  API. There is no permission model: any operator the verifier accepts may
+  call any operation, so the operator identity provider decides who operates.
+- **Every change is recorded in the tenant it changes.** A suspension is an
+  audit event in that tenant's hash chain with actor kind `system` and an
+  id derived from the operator's issuer and subject, and a
+  `TenantStatusChanged` event through the tenant's outbox. Provisioning's
+  audit entry names the operator in its detail.
+- **Reads cross tenants on a read-only role.** Listing runs as `erp_control`
+  (`BYPASSRLS`, `SELECT` on `tenancy.tenant` and the idempotency keys only);
+  a status change runs in the tenant's scope as `erp_app`, like any
+  request of that tenant.
+- **The provisioning key lives with the tenant it created.** There is no
+  tenant to store an `Idempotency-Key` under before the request runs, so the
+  provisioner stores it with the new tenant in the same transaction, under
+  a `control|` prefix that is unique across tenants: a retry answers the
+  tenant the first request created (`Idempotent-Replayed: true`), and two
+  concurrent requests with one key create one tenant (409 for the loser).
+- **Nothing is deleted.** Offboarding is a final status; retention and
+  export are operations outside this API.
+

@@ -23,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -44,16 +45,42 @@ type Request struct {
 	GroupCurrency string // ISO 4217
 	Administrator Administrator
 	Document      *config.Config // the first configuration, activated as version 1
+	Operator      string         // who asked (the command's user, an operator token's subject), for the audit entry
+	Idempotency   *Idempotency   // the request's Idempotency-Key, when it came through the control plane
 }
 
-// Result is what was created.
+// Idempotency is the Idempotency-Key of a provisioning request (04 §4.3).
+// There is no tenant to store it under before the request runs, so the
+// provisioner stores it with the tenant it creates, in the same
+// transaction, under the control-plane prefix: a retry finds the tenant
+// instead of creating a second one, and two concurrent requests with the
+// same key create one.
+type Idempotency struct {
+	Key         string    // the client's key, without the prefix
+	RequestHash []byte    // sha256 of method, URL and body, as the unit of work hashes them
+	ActorID     uuid.UUID // the operator
+}
+
+// KeyPrefix marks control-plane idempotency keys in platform.idempotency_key.
+const KeyPrefix = "control|"
+
+// Result is what was created. It is the stored response of an idempotent
+// provisioning request, so its fields are named for JSON.
 type Result struct {
-	TenantID             uuid.UUID
-	AdministratorID      uuid.UUID
-	AdministratorRoleID  uuid.UUID
-	Roles                []string             // roles the configuration's approval policies name, created empty
-	LegalEntities        map[string]uuid.UUID // the configuration's companies, by code, created active
-	ConfigurationVersion int32
+	TenantID             uuid.UUID            `json:"tenant_id"`
+	AdministratorID      uuid.UUID            `json:"administrator_id"`
+	AdministratorRoleID  uuid.UUID            `json:"administrator_role_id"`
+	Roles                []string             `json:"roles"`          // roles the configuration's approval policies name, created empty
+	LegalEntities        map[string]uuid.UUID `json:"legal_entities"` // the configuration's companies, by code, created active
+	ConfigurationVersion int32                `json:"configuration_version"`
+}
+
+func init() {
+	problem.RegisterConstraint("idempotency_key_control", func() *problem.Problem {
+		p := problem.Conflict("request.idempotency_key_in_use", "A request with this Idempotency-Key is running or just completed; retry to get its result.")
+		p.RetryAfter = 1
+		return p
+	})
 }
 
 // Provisioner provisions tenants in one database.
@@ -184,9 +211,17 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 		return Result{}, err
 	}
 	_ = audit.Add(ctx, audit.Entry{Action: "tenancy.tenant.provision", ObjectType: "tenancy.tenant", ObjectID: res.TenantID, Outcome: "succeeded",
-		Detail: map[string]any{"name": req.Name, "region": req.Region, "group_currency": req.GroupCurrency, "administrator_id": res.AdministratorID}})
-	if err := buf.Flush(ctx, tx, principal, "", p.now()); err != nil {
+		Detail: map[string]any{"name": req.Name, "region": req.Region, "group_currency": req.GroupCurrency, "administrator_id": res.AdministratorID,
+			"operator": req.Operator}})
+	if err := buf.Flush(ctx, tx, principal, reqctx.TraceID(ctx), p.now()); err != nil {
 		return Result{}, err
+	}
+	if k := req.Idempotency; k != nil {
+		body, _ := json.Marshal(res) // ids, strings and a map of ids
+		if _, err := tx.Exec(ctx, `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, response_code, response_body, expires_at)
+			VALUES ($1, $2, $3, $4, 'completed', 201, $5, $6)`, res.TenantID, KeyPrefix+k.Key, k.ActorID, k.RequestHash, body, p.now().Add(uow.Retention)); err != nil {
+			return Result{}, problem.From(err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Result{}, fmt.Errorf("provisioning: commit: %w", err)

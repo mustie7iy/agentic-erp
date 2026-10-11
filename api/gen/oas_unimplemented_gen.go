@@ -484,6 +484,18 @@ func (UnimplementedHandler) GetBankFile(ctx context.Context, params GetBankFileP
 	return r, ht.ErrNotImplemented
 }
 
+// GetBankFileContent implements getBankFileContent operation.
+//
+// The pain.001 file as written at release, read from object storage and checked against the hash
+// recorded with the file (409 `payments.bank_file_changed` if it differs). Files of runs released
+// before object storage existed are rendered again from the run. Bank details are inside, so agents
+// never read it.
+//
+// GET /v1/bank-files/{id}/content
+func (UnimplementedHandler) GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (r GetBankFileContentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetBusinessPartner implements getBusinessPartner operation.
 //
 // Returns one business partner.
@@ -742,6 +754,17 @@ func (UnimplementedHandler) GetSodRule(ctx context.Context, params GetSodRulePar
 //
 // GET /v1/supplier-invoices/{id}
 func (UnimplementedHandler) GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (r GetSupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetSupplierInvoiceDocument implements getSupplierInvoiceDocument operation.
+//
+// The document a supplier invoice was captured from, byte for byte as received (its content type is
+// the one detected at capture: PDF, PNG, JPEG or XML). Invoices entered by hand, EDI or migration have
+// no document (404); 503 while the server has no object storage.
+//
+// GET /v1/supplier-invoices/{id}/document
+func (UnimplementedHandler) GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (r GetSupplierInvoiceDocumentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

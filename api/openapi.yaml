@@ -5736,6 +5736,44 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/supplier-invoices/{id}/document":
+    get:
+      operationId: getSupplierInvoiceDocument
+      tags:
+        - payables
+      summary: Download a captured invoice document
+      description: "The document a supplier invoice was captured from, byte for byte as received (its content type is the one detected at capture: PDF, PNG, JPEG or XML). Invoices entered by hand, EDI or migration have no document (404); 503 while the server has no object storage."
+      x-permission: payables.invoice.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The document.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: The document bytes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/supplier-invoices/{id}":
     get:
       operationId: getSupplierInvoice
@@ -6731,6 +6769,45 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-files/{id}/content":
+    get:
+      operationId: getBankFileContent
+      tags:
+        - payments
+      summary: Download a bank file
+      description: "The pain.001 file as written at release, read from object storage and checked against the hash recorded with the file (409 `payments.bank_file_changed` if it differs). Files of runs released before object storage existed are rendered again from the run. Bank details are inside, so agents never read it."
+      x-permission: payments.run.read
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The bank file.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/xml:
+              schema:
+                type: string
+                format: binary
+                description: The ISO 20022 message.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/bank-files/{id}:transmit":
@@ -15749,12 +15826,12 @@ components:
               detail: {}
     AuditVerify:
       type: object
-      description: "Range of the hash chain to verify. The Operation result reports `verified`, `last_seq` and, if broken, `first_broken_seq`."
+      description: "Range of the hash chain to verify. The Operation result reports `verified`, `last_seq`, `checked`, `anchors_checked` (the write-once anchors in the range compared with the stored hashes and, when object storage is configured, with the anchor objects) and, if broken, `first_broken_seq`."
       properties:
         from_seq:
           type: integer
           format: int64
-          description: "First sequence number to verify; defaults to the last anchored head."
+          description: "First sequence number to verify; defaults to the last anchored head (1 while no anchor exists)."
           minimum: 1
         to_seq:
           type: integer

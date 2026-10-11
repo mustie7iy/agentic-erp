@@ -33,14 +33,15 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 func TestAdmin(t *testing.T) {
 	m := telemetry.NewMetrics()
-	healthy := Admin(func(context.Context) error { return nil }, m, nil)
-	sick := Admin(func(context.Context) error { return errors.New("db down") }, m, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(201) }))
+	healthy := Admin(func(context.Context) error { return nil }, m, nil, nil)
+	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(201) })
+	sick := Admin(func(context.Context) error { return errors.New("db down") }, m, stub, stub)
 	for _, c := range []struct {
 		h    http.Handler
 		path string
 		code int
 	}{{healthy, "/livez", 200}, {healthy, "/readyz", 200}, {sick, "/readyz", 503}, {sick, "/livez", 200}, {healthy, "/metrics", 200},
-		{healthy, "/dev/token", 404}, {sick, "/dev/token", 201}} {
+		{healthy, "/dev/token", 404}, {sick, "/dev/token", 201}, {healthy, "/control/v1/tenants", 404}, {sick, "/control/v1/tenants", 201}} {
 		rec := httptest.NewRecorder()
 		method := "GET"
 		if c.path == "/dev/token" {

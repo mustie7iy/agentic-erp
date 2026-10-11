@@ -1,6 +1,7 @@
 package payments
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -183,7 +185,9 @@ func scanFile(row pgx.Row) (BankFile, error) {
 
 // createFile renders the run's pain.001 file and records it with its hash.
 // The file is stamped with the transaction's time, which becomes the
-// record's creation time, so it can be rendered again byte for byte.
+// record's creation time, so it can be rendered again byte for byte. With
+// object storage the file is kept under the bank file's id, and the record
+// refers to it; without, the reference is the hash alone.
 func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, r Run, hb houseBank, pays []Payment) (BankFile, error) {
 	p, _ := reqctx.PrincipalFrom(ctx) // ReleaseRun runs in a request
 	var created time.Time
@@ -196,11 +200,18 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, r Run, hb houseBa
 	}
 	sum := sha256.Sum256(content)
 	id := uuid.Must(uuid.NewV7())
+	ref := "sha256:" + hex.EncodeToString(sum[:])
+	if e.Objects != nil {
+		ref = blobstore.Key(p.TenantID, blobstore.KindBankFiles, id.String()+".xml")
+		if err := e.Objects.Put(ctx, ref, content, blobstore.PutOptions{ContentType: "application/xml"}); err != nil {
+			return BankFile{}, problem.Unavailable("The file store did not take the bank file; release the run again.", 30).WithCause(err)
+		}
+	}
 	return scanFile(tx.QueryRow(ctx, `WITH f AS (
 			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by)
 			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8) RETURNING *
 		) SELECT f.id, f.payment_run_id, $9::uuid, f.format, f.object_ref, f.sha256, f.status, f.version, f.created_at, f.created_by, f.updated_at FROM f`,
-		p.TenantID, id, r.ID, Format, "sha256:"+hex.EncodeToString(sum[:]), sum[:], created, p.ID, r.LegalEntityID))
+		p.TenantID, id, r.ID, Format, ref, sum[:], created, p.ID, r.LegalEntityID))
 }
 
 // render writes the run's payments as a pain.001.001.03 credit transfer
@@ -249,8 +260,32 @@ func (e *Endpoints) render(ctx context.Context, r Run, hb houseBank, pays []Paym
 	return content, nil
 }
 
-// fileOf renders a bank file again from its run.
+// fileOf is the bank file's content: read from object storage when it was
+// kept there, else rendered again from its run. Either way it must match
+// the hash recorded at release (409 payments.bank_file_changed).
 func (e *Endpoints) fileOf(ctx context.Context, tx pgx.Tx, f BankFile) ([]byte, error) {
+	content, err := e.rendered(ctx, tx, f)
+	if err != nil {
+		return nil, err
+	}
+	if sum := sha256.Sum256(content); !bytes.Equal(sum[:], f.SHA256) {
+		return nil, problem.Conflict("payments.bank_file_changed",
+			"The bank file no longer matches the hash recorded at release; it is not handed out.")
+	}
+	return content, nil
+}
+
+func (e *Endpoints) rendered(ctx context.Context, tx pgx.Tx, f BankFile) ([]byte, error) {
+	if blobstore.IsKey(f.ObjectRef) {
+		if e.Objects == nil {
+			return nil, problem.Unavailable("Object storage is not configured on this server.", 0)
+		}
+		content, _, err := e.Objects.Get(ctx, f.ObjectRef)
+		if err != nil {
+			return nil, problem.Unavailable("The file store did not answer; try again.", 30).WithCause(err)
+		}
+		return content, nil
+	}
 	r, err := load(ctx, tx, f.RunID, false)
 	if err != nil {
 		return nil, err

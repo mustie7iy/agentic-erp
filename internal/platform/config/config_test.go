@@ -28,9 +28,9 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.HTTPAddr != ":8080" || c.AdminAddr != ":9090" || c.AppRole != "erp_app" || c.RelayRole != "erp_relay" || c.ProjectorRole != "erp_projector" || c.WorkerRole != "erp_worker" || c.BankOutboxDir != "" || len(c.FieldKey) != 32 || c.Cell != "local" ||
+	if c.HTTPAddr != ":8080" || c.AdminAddr != ":9090" || c.AppRole != "erp_app" || c.RelayRole != "erp_relay" || c.ProjectorRole != "erp_projector" || c.WorkerRole != "erp_worker" || c.ControlRole != "erp_control" || len(c.OperatorIssuers) != 0 || c.BankOutboxDir != "" || len(c.FieldKey) != 32 || c.Cell != "local" ||
 		c.MigrateOnStart || c.LogLevel != slog.LevelInfo || c.ShutdownTimeout != 20*time.Second || len(c.Issuers) != 1 || len(c.PageTokenKey) != 32 ||
-		c.RequestTimeout != 30*time.Second || c.DBMaxConns != 0 || c.DevIssuer || c.TenantQuota != (ratelimit.Quota{Rate: 2000, Burst: 10000}) || c.PrincipalQuota != (ratelimit.Quota{Rate: 50, Burst: 100}) {
+		c.RequestTimeout != 30*time.Second || c.DBMaxConns != 0 || c.DevIssuer || c.Objects.Enabled() || c.Objects.Region != "us-east-1" || c.Objects.Retention != 87600*time.Hour || c.TenantQuota != (ratelimit.Quota{Rate: 2000, Burst: 10000}) || c.PrincipalQuota != (ratelimit.Quota{Rate: 50, Burst: 100}) {
 		t.Fatalf("%+v", c)
 	}
 }
@@ -55,6 +55,48 @@ func TestOverrides(t *testing.T) {
 	m["ERP_OIDC_ISSUERS"] = "[]"
 	if _, err := Load(env(m)); err == nil {
 		t.Fatal("empty issuer list accepted")
+	}
+	// Operator issuers are optional and validated when given.
+	m = valid()
+	m["ERP_OPERATOR_ISSUERS"], m["ERP_DB_CONTROL_ROLE"] = `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "ops_role"
+	if c, err := Load(env(m)); err != nil || len(c.OperatorIssuers) != 1 || c.OperatorIssuers[0].Audience != "erp-control" || c.ControlRole != "ops_role" {
+		t.Fatal(c, err)
+	}
+	for _, bad := range []string{"[]", "nope"} {
+		m["ERP_OPERATOR_ISSUERS"] = bad
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OPERATOR_ISSUERS") {
+			t.Fatalf("%s: %v", bad, err)
+		}
+	}
+	// Object storage: a directory or an S3 service, complete, never both.
+	m = valid()
+	m["ERP_OBJECT_DIR"], m["ERP_OBJECT_RETENTION"] = t.TempDir(), "0"
+	if c, err := Load(env(m)); err != nil || !c.Objects.Enabled() || c.Objects.Dir != m["ERP_OBJECT_DIR"] || c.Objects.Retention != 0 {
+		t.Fatal(c, err)
+	}
+	m = valid()
+	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"], m["ERP_OBJECT_S3_REGION"] = "http://localhost:9000", "erp", "eu-west-1"
+	m["ERP_OBJECT_S3_ACCESS_KEY"], m["ERP_OBJECT_S3_SECRET_KEY"] = "ak", "sk"
+	if c, err := Load(env(m)); err != nil || !c.Objects.Enabled() || c.Objects.Bucket != "erp" || c.Objects.Region != "eu-west-1" || c.Objects.SecretKey != "sk" {
+		t.Fatal(c, err)
+	}
+	for name, change := range map[string]func(){
+		"both":         func() { m["ERP_OBJECT_DIR"] = t.TempDir() },
+		"no bucket":    func() { delete(m, "ERP_OBJECT_S3_BUCKET") },
+		"no secret":    func() { delete(m, "ERP_OBJECT_S3_SECRET_KEY") },
+		"retention":    func() { m["ERP_OBJECT_RETENTION"] = "soon" },
+		"negative":     func() { m["ERP_OBJECT_RETENTION"] = "-1h" },
+		"no directory": func() { delete(m, "ERP_OBJECT_S3_ENDPOINT"); m["ERP_OBJECT_DIR"] = "/no/such/dir" },
+	} {
+		saved := map[string]string{}
+		for k, v := range m {
+			saved[k] = v
+		}
+		change()
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OBJECT") {
+			t.Errorf("%s: %v", name, err)
+		}
+		m = saved
 	}
 }
 

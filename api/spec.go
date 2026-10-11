@@ -11,6 +11,9 @@ import (
 //go:embed openapi.yaml
 var openapiYAML []byte
 
+//go:embed control.yaml
+var controlYAML []byte
+
 // Operation is what the request pipeline needs to know about an operation
 // beyond what the generated server enforces.
 type Operation struct {
@@ -23,10 +26,12 @@ type Operation struct {
 
 // Operations returns every operation in the contract by operationId.
 func Operations() (map[string]Operation, error) {
-	return parseOperations(openapiYAML)
+	return parseOperations(openapiYAML, true)
 }
 
-func parseOperations(src []byte) (map[string]Operation, error) {
+// parseOperations reads the operations of a contract; permissioned says
+// whether each must declare x-permission.
+func parseOperations(src []byte, permissioned bool) (map[string]Operation, error) {
 	var doc struct {
 		Paths map[string]map[string]yaml.Node `yaml:"paths"`
 	}
@@ -49,7 +54,7 @@ func parseOperations(src []byte) (map[string]Operation, error) {
 			if err := node.Decode(&op); err != nil {
 				return nil, fmt.Errorf("api: %s %s: %w", method, path, err)
 			}
-			if op.ID == "" || op.Permission == "" {
+			if op.ID == "" || (permissioned && op.Permission == "") {
 				return nil, fmt.Errorf("api: %s %s: operationId and x-permission are required", method, path)
 			}
 			ops[op.ID] = Operation{
@@ -68,7 +73,7 @@ func MustOperations() map[string]Operation {
 }
 
 func mustParse(src []byte) map[string]Operation {
-	ops, err := parseOperations(src)
+	ops, err := parseOperations(src, true)
 	if err != nil {
 		panic(err)
 	}
@@ -78,3 +83,15 @@ func mustParse(src []byte) map[string]Operation {
 // Spec is the embedded contract, for clients that build on it (the agent
 // tools are generated from its operations).
 func Spec() []byte { return openapiYAML }
+
+// ControlSpec is the embedded control-plane contract (control.yaml): the
+// operators' API for tenants, served on the admin listener by hand-written
+// handlers (internal/controlplane), which its tests check against it.
+func ControlSpec() []byte { return controlYAML }
+
+// ControlOperations returns every operation of the control-plane contract
+// by operationId. Its operations declare no x-permission: operators are not
+// principals, and any operator the verifier accepts may call any of them.
+func ControlOperations() (map[string]Operation, error) {
+	return parseOperations(controlYAML, false)
+}

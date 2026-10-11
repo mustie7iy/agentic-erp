@@ -32,6 +32,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -149,6 +150,7 @@ type Endpoints struct {
 	Payments      Payments
 	OrderNumbers  OrderNumbers      // resolves the order number a captured document prints
 	Extractor     capture.Extractor // reads captured documents; nil: capture is not available
+	Objects       blobstore.Store   // keeps captured documents; nil: only their hash is recorded, and downloads answer 503
 }
 
 // Item is a live invoice item.
@@ -182,6 +184,7 @@ type Invoice struct {
 	HoldReason        *string
 	Source            string
 	CaptureSHA256     []byte
+	CaptureObjectRef  *string // where the captured document is kept, or sha256:<hex> for captures before object storage
 	JournalEntryYear  *int16
 	JournalEntryID    *uuid.UUID
 	ReversalEntryYear *int16
@@ -197,7 +200,7 @@ type Invoice struct {
 }
 
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
-		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256,
+		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256, i.capture_object_ref,
 		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'purchase_order_id', t.purchase_order_id, 'po_item_no', t.po_item_no,
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
@@ -209,7 +212,7 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supp
 func scanInvoice(row pgx.Row) (Invoice, error) {
 	var v Invoice
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.SupplierID, &v.SupplierReference, &v.InvoiceDate, &v.PostingDate,
-		&v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256,
+		&v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256, &v.CaptureObjectRef,
 		&v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
 		&v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
 	return v, err

@@ -36,15 +36,17 @@ jobs:
           make generate
           git diff --exit-code -- api/gen || (echo "api/gen is stale: run make generate" && exit 1)
       - name: API contract lint
-        run: go run github.com/daveshanley/vacuum@v0.32.0 lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml
+        run: go run github.com/daveshanley/vacuum@v0.32.0 lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml
       - name: API breaking-change check against main
         if: github.event_name == 'pull_request'
         run: |
           git fetch --depth=1 origin "${{ github.base_ref }}"
-          if git cat-file -e FETCH_HEAD:api/openapi.yaml 2>/dev/null; then
-            git show FETCH_HEAD:api/openapi.yaml > /tmp/base-openapi.yaml
-            go run github.com/oasdiff/oasdiff@latest breaking --fail-on ERR /tmp/base-openapi.yaml api/openapi.yaml
-          fi
+          for spec in openapi control; do
+            if git cat-file -e "FETCH_HEAD:api/$spec.yaml" 2>/dev/null; then
+              git show "FETCH_HEAD:api/$spec.yaml" > "/tmp/base-$spec.yaml"
+              go run github.com/oasdiff/oasdiff@latest breaking --fail-on ERR "/tmp/base-$spec.yaml" "api/$spec.yaml"
+            fi
+          done
       - name: Schema tests (migrations and database-enforced rules)
         run: go test -count=1 -v ./db
       - name: Functional and non-functional tests (race detector)

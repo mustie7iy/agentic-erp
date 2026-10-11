@@ -1,8 +1,8 @@
 // Command erp-server runs the platform's public API (ADR-0014): the server
 // generated from api/openapi.yaml behind telemetry, authentication and the
-// unit of work, an admin listener for liveness, readiness and metrics, the
-// outbox relay to NATS JetStream, the ledger's balance projector and the
-// payment proposal worker.
+// unit of work, an admin listener for liveness, readiness, metrics and the
+// operators' control plane (api/control.yaml), the outbox relay to NATS
+// JetStream, the ledger's balance projector and the workers.
 // Configuration comes from the environment (internal/platform/config).
 package main
 
@@ -21,12 +21,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/mustie7iy/agentic-erp/db"
+	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -36,7 +39,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 var exit = os.Exit
@@ -99,7 +104,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if cfg.DevIssuer {
 		dev = authn.NewDevIssuer()
 		static = append(static, dev.Static())
-		log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant (POST /dev/token); never in production")
+		log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant, and operator tokens (POST /dev/token); never in production")
 	}
 	verifier, err := authn.New(ctx, cfg.Issuers, static...)
 	if err != nil {
@@ -113,6 +118,19 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err != nil {
 		return err
 	}
+	// The control plane trusts the operator issuers, and the development
+	// issuer's operator tokens; without either it is not served.
+	var control http.Handler
+	if len(cfg.OperatorIssuers)+len(static) > 0 {
+		operators, err := authn.New(ctx, cfg.OperatorIssuers, static...)
+		if err != nil {
+			return err
+		}
+		service := &controlplane.Service{Pool: pool, AppRole: cfg.AppRole, ControlRole: cfg.ControlRole, Pages: pages,
+			Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})}}
+		control = controlplane.Handler(service, operators, log)
+		log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(cfg.OperatorIssuers), "dev_issuer", cfg.DevIssuer)
+	}
 	var extractor capture.Extractor
 	if cfg.LLMEnabled {
 		extractor = &capture.ClaudeExtractor{LLM: llm.New()}
@@ -121,10 +139,14 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if cfg.BankOutboxDir != "" {
 		connector = payments.DirConnector{Dir: cfg.BankOutboxDir}
 	}
+	store := objects(cfg.Objects)
+	if store == nil {
+		log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored")
+	}
 	metrics := telemetry.NewMetrics()
 	backlogs(pool, cfg, metrics)
 	apiCfg := httpapi.Config{
-		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, ExtractDir: cfg.ExtractDir, Log: log,
+		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, ExtractDir: cfg.ExtractDir, Objects: store, Log: log,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: metrics, Tracer: tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 	}
@@ -149,6 +171,13 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		maintain(runCtx, maintenanceInterval, func(ctx context.Context) error { return partitions(ctx, pool, log) }, log)
 		close(maintenanceDone)
 	}()
+	anchorDone := make(chan struct{})
+	if store == nil {
+		close(anchorDone)
+	} else {
+		anchorer := &audit.Anchorer{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: anchorInterval, Retention: cfg.Objects.Retention, Log: log}
+		go func() { anchorer.Run(runCtx); close(anchorDone) }()
+	}
 	relayDone := make(chan struct{})
 	if cfg.NATSURL == "" {
 		log.Warn("ERP_NATS_URL not set: events stay in the outbox until a relay runs")
@@ -177,7 +206,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	}
 	servers := []*http.Server{
 		{Handler: apiHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
-		{Handler: httpapi.Admin(ready(pool), metrics, devHandler(dev)), ReadHeaderTimeout: 5 * time.Second},
+		{Handler: httpapi.Admin(ready(pool), metrics, devHandler(dev), traced(control, log, metrics, tp)), ReadHeaderTimeout: 5 * time.Second},
 	}
 	errc := make(chan error, 2)
 	for i, ln := range []net.Listener{apiLn, adminLn} {
@@ -204,13 +233,28 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-proposerDone
 	<-simulatorDone
 	<-maintenanceDone
+	<-anchorDone
 	log.Info("erp-server stopped")
 	return serveErr // nil after a requested shutdown; set when a listener failed
 }
 
-// maintenanceInterval is how often a replica checks the partition horizon;
-// tests shorten it.
-var maintenanceInterval = 6 * time.Hour
+// maintenanceInterval is how often a replica checks the partition horizon,
+// anchorInterval how often it anchors moved chain heads; tests shorten them.
+var (
+	maintenanceInterval = 6 * time.Hour
+	anchorInterval      = time.Minute
+)
+
+// objects opens the configured object store, or nil without one.
+func objects(o config.Objects) blobstore.Store {
+	switch {
+	case o.Dir != "":
+		return blobstore.Dir{Root: o.Dir}
+	case o.Endpoint != "":
+		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, AccessKey: o.AccessKey, SecretKey: o.SecretKey}
+	}
+	return nil
+}
 
 // partitions creates the partitions the coming months and years need.
 func partitions(ctx context.Context, pool *database.Pool, log *slog.Logger) error {
@@ -267,6 +311,18 @@ func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
 			WHERE o.kind = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled')`, payments.ProposeKind))
 	m.Gauge("erp_simulations_queued", "Configuration simulations waiting for the worker.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM platform.operation WHERE kind = $1 AND status = 'queued'`, configuration.SimulateKind))
+	m.Gauge("erp_audit_chains_unanchored", "Tenants whose audit chain head moved since its last anchor.",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM audit.chain_head h
+			WHERE h.seq > coalesce((SELECT max(x.seq) FROM audit.anchor x WHERE x.tenant_id = h.tenant_id), 0)`))
+}
+
+// traced wraps the control plane in the request telemetry of the public
+// API (trace, log line, metrics per operation), or stays nil without one.
+func traced(control http.Handler, log *slog.Logger, m *telemetry.Metrics, tp *sdktrace.TracerProvider) http.Handler {
+	if control == nil {
+		return nil
+	}
+	return telemetry.Middleware(log, m, tp)(control)
 }
 
 // devHandler is the development issuer's token endpoint, or nil without one.

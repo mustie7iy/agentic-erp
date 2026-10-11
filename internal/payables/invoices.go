@@ -25,6 +25,7 @@ type newInvoice struct {
 	status     string
 	holdReason *string
 	sha        []byte
+	objectRef  string // where the captured document is kept; "" records sha256:<hex>
 }
 
 // insert numbers and inserts a validated invoice and publishes
@@ -49,6 +50,9 @@ func (e *Endpoints) insert(ctx context.Context, in newInvoice) (Invoice, error) 
 	var ref *string
 	if in.sha != nil {
 		r := "sha256:" + hex.EncodeToString(in.sha)
+		if in.objectRef != "" {
+			r = in.objectRef
+		}
 		ref = &r
 	}
 	id := uuid.Must(uuid.NewV7())

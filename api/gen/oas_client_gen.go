@@ -353,6 +353,15 @@ type Invoker interface {
 	//
 	// GET /v1/bank-files/{id}
 	GetBankFile(ctx context.Context, params GetBankFileParams) (GetBankFileRes, error)
+	// GetBankFileContent invokes getBankFileContent operation.
+	//
+	// The pain.001 file as written at release, read from object storage and checked against the hash
+	// recorded with the file (409 `payments.bank_file_changed` if it differs). Files of runs released
+	// before object storage existed are rendered again from the run. Bank details are inside, so agents
+	// never read it.
+	//
+	// GET /v1/bank-files/{id}/content
+	GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (GetBankFileContentRes, error)
 	// GetBusinessPartner invokes getBusinessPartner operation.
 	//
 	// Returns one business partner.
@@ -527,6 +536,14 @@ type Invoker interface {
 	//
 	// GET /v1/supplier-invoices/{id}
 	GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (GetSupplierInvoiceRes, error)
+	// GetSupplierInvoiceDocument invokes getSupplierInvoiceDocument operation.
+	//
+	// The document a supplier invoice was captured from, byte for byte as received (its content type is
+	// the one detected at capture: PDF, PNG, JPEG or XML). Invoices entered by hand, EDI or migration have
+	// no document (404); 503 while the server has no object storage.
+	//
+	// GET /v1/supplier-invoices/{id}/document
+	GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (GetSupplierInvoiceDocumentRes, error)
 	// GrantRolePermission invokes grantRolePermission operation.
 	//
 	// Adds an effective-dated permission grant to the role.
@@ -8226,6 +8243,141 @@ func (c *Client) sendGetBankFile(ctx context.Context, params GetBankFileParams) 
 	return result, nil
 }
 
+// GetBankFileContent invokes getBankFileContent operation.
+//
+// The pain.001 file as written at release, read from object storage and checked against the hash
+// recorded with the file (409 `payments.bank_file_changed` if it differs). Files of runs released
+// before object storage existed are rendered again from the run. Bank details are inside, so agents
+// never read it.
+//
+// GET /v1/bank-files/{id}/content
+func (c *Client) GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (GetBankFileContentRes, error) {
+	res, err := c.sendGetBankFileContent(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBankFileContent(ctx context.Context, params GetBankFileContentParams) (res GetBankFileContentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBankFileContent"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/bank-files/{id}/content"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBankFileContentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/bank-files/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/content"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBankFileContentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBankFileContentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetBusinessPartner invokes getBusinessPartner operation.
 //
 // Returns one business partner.
@@ -12127,6 +12279,140 @@ func (c *Client) sendGetSupplierInvoice(ctx context.Context, params GetSupplierI
 
 	stage = "DecodeResponse"
 	result, err := decodeGetSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetSupplierInvoiceDocument invokes getSupplierInvoiceDocument operation.
+//
+// The document a supplier invoice was captured from, byte for byte as received (its content type is
+// the one detected at capture: PDF, PNG, JPEG or XML). Invoices entered by hand, EDI or migration have
+// no document (404); 503 while the server has no object storage.
+//
+// GET /v1/supplier-invoices/{id}/document
+func (c *Client) GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (GetSupplierInvoiceDocumentRes, error) {
+	res, err := c.sendGetSupplierInvoiceDocument(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (res GetSupplierInvoiceDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSupplierInvoiceDocument"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/supplier-invoices/{id}/document"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetSupplierInvoiceDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/supplier-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/document"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetSupplierInvoiceDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetSupplierInvoiceDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

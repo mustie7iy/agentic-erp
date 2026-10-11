@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -122,8 +123,8 @@ func TestProjectorRuns(t *testing.T) {
 	for range 3 {
 		e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	}
-	var logs bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logs, nil))
+	logs := &lockedBuffer{}
+	log := slog.New(slog.NewTextHandler(logs, nil))
 	if _, err := (&ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role"}).RunOnce(context.Background()); err == nil {
 		t.Fatal("projected with an unknown role")
 	}
@@ -133,12 +134,18 @@ func TestProjectorRuns(t *testing.T) {
 		(&ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role", Interval: time.Millisecond, Log: log}).Run(ctx)
 		close(done)
 	}()
-	time.Sleep(20 * time.Millisecond)
+	// The failure is logged within an interval or two; under a loaded
+	// race-detector run that can take longer than a fixed sleep.
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logs.String(), "balance projection failed"); {
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatalf("logs: %s", logs.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	cancel()
 	<-done
-	if !strings.Contains(logs.String(), "balance projection failed") {
-		t.Fatalf("logs: %s", logs.String())
-	}
 	// Batches of one: full batches follow each other at once.
 	ctx, cancel = context.WithCancel(context.Background())
 	done = make(chan struct{})
@@ -240,4 +247,22 @@ func TestTrialBalanceBudget(t *testing.T) {
 	if p95 > time.Second {
 		t.Fatalf("trial balance p95 %v exceeds the 1 s budget", p95)
 	}
+}
+
+// lockedBuffer is a log sink the test may read while the projector writes.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

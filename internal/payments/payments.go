@@ -37,6 +37,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -121,6 +122,7 @@ type Endpoints struct {
 	Settings      Settings
 	Keys          *fieldcrypt.Keys // opens house bank IBANs
 	Connector     Connector        // transmits bank files; nil: transmission answers 503
+	Objects       blobstore.Store  // keeps bank files as written at release; nil: files are rendered again when needed
 }
 
 // Run is a row of payments.payment_run. Amounts are minor units of

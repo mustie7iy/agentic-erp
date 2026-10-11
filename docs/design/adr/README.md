@@ -19,3 +19,5 @@ new record. Status values: proposed, accepted, superseded.
 | [0012](0012-long-running-operations.md) | Long-running work as Temporal workflows behind API operations | proposed |
 | [0013](0013-api-style.md) | Resource-oriented REST with OpenAPI 3.1 as the source of truth | proposed |
 | [0014](0014-request-pipeline-and-code-generation.md) | Request pipeline, unit of work and server code generation (ogen) | proposed |
+| [0015](0015-control-plane.md) | Control plane for tenants on the admin listener with operator tokens | proposed |
+| [0016](0016-object-storage.md) | Write-once object storage behind one port; tenant-prefixed keys; anchors locked | proposed |

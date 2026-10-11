@@ -359,7 +359,10 @@ func TestTokenCommand(t *testing.T) {
 		t.Fatalf("token: %s", got)
 	}
 	fails(t, "flag provided", "token", "-x")
-	fails(t, "-tenant and -subject are required", "token", "-tenant", "x")
+	fails(t, "-subject is required", "token", "-tenant", "x")
+	if got := must(t, "token", "-subject", "ops"); !strings.Contains(got, "t-ops") {
+		t.Fatalf("operator token: %s", got)
+	}
 	fails(t, "ERP_DEV_ISSUER", "token", "-tenant", "x", "-subject", "nobody")
 	env["ERP_ADMIN_URL"] = "http://127.0.0.1:1"
 	fails(t, "connection refused", "token", "-tenant", "x", "-subject", "ada")
@@ -367,4 +370,107 @@ func TestTokenCommand(t *testing.T) {
 	fails(t, "missing protocol scheme", "token", "-tenant", "x", "-subject", "ada")
 	delete(env, "ERP_ADMIN_URL") // the default admin listener is not running here
 	fails(t, "connection refused", "token", "-tenant", "x", "-subject", "ada")
+}
+
+func TestTenantsCommand(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Method+" "+r.URL.RequestURI()+" key="+r.Header.Get("Idempotency-Key")+" if-match="+r.Header.Get("If-Match"))
+		mu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer op" {
+			w.WriteHeader(401)
+			w.Write([]byte(`{"code": "authn.invalid_token", "detail": "A bearer token is required."}`))
+			return
+		}
+		w.Header().Set("ETag", `"3"`)
+		switch {
+		case r.URL.Path == "/control/v1/tenants" && r.Method == "GET":
+			w.Write([]byte(`{"items": [{"id": "t1", "status": "active"}], "next_page_token": "n"}`))
+		case r.URL.Path == "/control/v1/tenants" && r.Method == "POST":
+			var in map[string]any
+			json.NewDecoder(r.Body).Decode(&in)
+			if r.Header.Get("Idempotency-Key") == "replayed-key" {
+				w.Header().Set("Idempotent-Replayed", "true")
+			}
+			if in["name"] == "" {
+				w.WriteHeader(422)
+				w.Write([]byte(`{"code": "tenancy.invalid_tenant", "detail": "The tenant request is invalid."}`))
+				return
+			}
+			w.WriteHeader(201)
+			w.Write([]byte(`{"id": "t2", "name": "` + in["name"].(string) + `", "status": "active", "provisioned": {"configuration_version": 1}}`))
+		case r.URL.Path == "/control/v1/tenants/t1":
+			w.Write([]byte(`{"id": "t1", "status": "active", "version": 3}`))
+		case r.URL.Path == "/control/v1/tenants/t1:suspend" && r.Header.Get("If-Match") == `"3"`:
+			w.Write([]byte(`{"id": "t1", "status": "suspended", "version": 4}`))
+		case r.URL.Path == "/control/v1/tenants/t1:resume" && r.Header.Get("If-Match") == `"3"`:
+			w.Write([]byte(`{"id": "t1", "status": "active", "version": 5}`))
+		case r.URL.Path == "/control/v1/tenants/t1:offboard":
+			w.WriteHeader(409)
+			w.Write([]byte(`{"code": "tenancy.invalid_transition", "detail": "The tenant is offboarded; offboard applies to active or suspended tenants."}`))
+		case r.URL.Path == "/control/v1/tenants/plain":
+			w.Write([]byte(`not json`))
+		default:
+			w.WriteHeader(404)
+			w.Write([]byte(`{"code": "request.not_found", "detail": "No tenant with this id."}`))
+		}
+	}))
+	defer control.Close()
+	env := map[string]string{"ERP_CONTROL_URL": control.URL, "ERP_OPERATOR_TOKEN": "op"}
+	getenv = func(k string) string { return env[k] }
+	t.Cleanup(func() { getenv = os.Getenv })
+
+	if got := must(t, "tenants", "list", "-status", "active", "-order-by", "name asc", "-page-size", "2", "-page-token", "p"); !strings.Contains(got, `"next_page_token": "n"`) {
+		t.Fatalf("list: %s", got)
+	}
+	if got := must(t, "tenants", "get", "-id", "t1"); !strings.Contains(got, `"etag": "\"3\""`) {
+		t.Fatalf("get: %s", got)
+	}
+	doc, _ := fixture.Document(t).Marshal()
+	file := t.TempDir() + "/config.yaml"
+	os.WriteFile(file, doc, 0o644)
+	if got := must(t, "tenants", "create", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada", "-admin-email", "ada@example.com", "-config", file); !strings.Contains(got, `"name": "Acme"`) {
+		t.Fatalf("create: %s", got)
+	}
+	if got := must(t, "tenants", "create", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada", "-config", file, "-idempotency-key", "replayed-key"); !strings.Contains(got, "replayed:") {
+		t.Fatalf("replay: %s", got)
+	}
+	if got := must(t, "tenants", "suspend", "-id", "t1"); !strings.Contains(got, `"suspended"`) {
+		t.Fatalf("suspend: %s", got)
+	}
+	if got := must(t, "tenants", "resume", "-id", "t1", "-if-match", `"3"`); got == "" {
+		t.Fatalf("resume: %s", got)
+	}
+	fails(t, "tenancy.invalid_transition", "tenants", "offboard", "-id", "t1")
+	fails(t, "tenancy.invalid_tenant", "tenants", "create", "-config", file)
+	fails(t, "request.not_found", "tenants", "get", "-id", "nope")
+	fails(t, "request.not_found", "tenants", "suspend", "-id", "nope")
+	fails(t, "not JSON", "tenants", "get", "-id", "plain")
+	fails(t, "usage", "tenants")
+	fails(t, "unknown command", "tenants", "destroy")
+	fails(t, "-id is required", "tenants", "get")
+	fails(t, "-id is required", "tenants", "suspend")
+	fails(t, "-config is required", "tenants", "create", "-name", "x")
+	fails(t, "no such file", "tenants", "create", "-config", "/no/such.yaml")
+	for _, sub := range []string{"list", "get", "create", "suspend"} {
+		fails(t, "flag provided", "tenants", sub, "-x")
+	}
+	env["ERP_OPERATOR_TOKEN"] = "wrong"
+	fails(t, "authn.invalid_token", "tenants", "list")
+	delete(env, "ERP_OPERATOR_TOKEN")
+	fails(t, "ERP_OPERATOR_TOKEN is not set", "tenants", "list")
+	env["ERP_OPERATOR_TOKEN"], env["ERP_CONTROL_URL"] = "op", "http://127.0.0.1:1"
+	fails(t, "connection refused", "tenants", "list")
+	env["ERP_CONTROL_URL"] = "://bad"
+	fails(t, "missing protocol scheme", "tenants", "list")
+	delete(env, "ERP_CONTROL_URL") // the default admin listener is not running here
+	fails(t, "connection refused", "tenants", "list")
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(strings.Join(seen, "\n"), "GET /control/v1/tenants?order_by=name+asc&page_size=2&page_token=p&status=active") ||
+		!strings.Contains(strings.Join(seen, "\n"), `POST /control/v1/tenants/t1:suspend key= if-match="3"`) {
+		t.Fatalf("calls:\n%s", strings.Join(seen, "\n"))
+	}
 }

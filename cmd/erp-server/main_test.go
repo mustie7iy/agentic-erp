@@ -25,7 +25,9 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -52,6 +54,7 @@ func environment(t *testing.T, is *authntest.Issuer, natsURL string) map[string]
 		"ERP_FIELD_KEY":        base64.StdEncoding.EncodeToString([]byte(strings.Repeat("f", 32))),
 		"ERP_MIGRATE_ON_START": "true",
 		"ERP_SHUTDOWN_TIMEOUT": "5s",
+		"ERP_OBJECT_DIR":       t.TempDir(),
 	}
 }
 
@@ -256,7 +259,10 @@ func TestStartupFailures(t *testing.T) {
 		"database": func(_ map[string]string, c *config.Config) {
 			c.DatabaseURL = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
 		},
-		"issuer":            func(_ map[string]string, c *config.Config) { c.Issuers[0].URL = "http://127.0.0.1:1" },
+		"issuer": func(_ map[string]string, c *config.Config) { c.Issuers[0].URL = "http://127.0.0.1:1" },
+		"operator issuer": func(_ map[string]string, c *config.Config) {
+			c.OperatorIssuers = []authn.Issuer{{URL: "http://127.0.0.1:1", Audience: "erp-api"}}
+		},
 		"page key":          func(_ map[string]string, c *config.Config) { c.PageTokenKey = []byte("short") },
 		"field key":         func(_ map[string]string, c *config.Config) { c.FieldKey = []byte("short") },
 		"nats":              func(_ map[string]string, c *config.Config) { c.NATSURL = "nats://127.0.0.1:1" },
@@ -361,6 +367,8 @@ func (failingProvider) Meter(string, ...metric.MeterOption) metric.Meter { retur
 // tenant: erp-server provision creates it, the development issuer mints its
 // administrator a token, and the administrator works through the API.
 func TestProvisionAndDevelopmentLogin(t *testing.T) {
+	anchorInterval = 50 * time.Millisecond
+	defer func() { anchorInterval = time.Minute }()
 	env := environment(t, authntest.New(t), "")
 	delete(env, "ERP_OIDC_ISSUERS")
 	env["ERP_DEV_ISSUER"] = "true"
@@ -446,8 +454,125 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if resp.StatusCode != 200 || len(page["items"].([]any)) != 1 {
 		t.Fatalf("as the administrator: %d %v", resp.StatusCode, page)
 	}
+	// An operator token (no tenant) works on the control plane and nowhere else: the tenant is
+	// suspended, refused at the API's door, and resumed.
+	mint, err = http.Post("http://"+a[1]+"/dev/token", "application/json", strings.NewReader(`{"subject": "ops|root"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var operator struct{ Token string }
+	json.NewDecoder(mint.Body).Decode(&operator)
+	mint.Body.Close()
+	control := func(method, path, ifMatch string) (int, map[string]any) {
+		req, _ := http.NewRequest(method, "http://"+a[1]+"/control/v1"+path, nil)
+		req.Header.Set("Authorization", "Bearer "+operator.Token)
+		if ifMatch != "" {
+			req.Header.Set("If-Match", ifMatch)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var m map[string]any
+		json.NewDecoder(resp.Body).Decode(&m)
+		return resp.StatusCode, m
+	}
+	if code, m := control("GET", "/tenants/"+created.TenantID, ""); code != 200 || m["status"] != "active" {
+		t.Fatalf("control get: %d %v", code, m)
+	}
+	req, _ = http.NewRequest("GET", "http://"+a[0]+"/v1/roles", nil)
+	req.Header.Set("Authorization", "Bearer "+operator.Token)
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 401 {
+		t.Fatalf("operator on the public API: %v %v", resp, err)
+	}
+	if code, m := control("POST", "/tenants/"+created.TenantID+":suspend", `"1"`); code != 200 || m["status"] != "suspended" {
+		t.Fatalf("suspend: %d %v", code, m)
+	}
+	req, _ = http.NewRequest("GET", "http://"+a[0]+"/v1/roles", nil)
+	req.Header.Set("Authorization", "Bearer "+minted.Token)
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 403 {
+		t.Fatalf("suspended tenant on the public API: %v %v", resp, err)
+	}
+	if code, m := control("POST", "/tenants/"+created.TenantID+":resume", `"2"`); code != 200 || m["status"] != "active" {
+		t.Fatalf("resume: %d %v", code, m)
+	}
+	// The anchoring worker wrote the tenant's chain head to the object store.
+	conn, err := pgx.Connect(ctx, env["DATABASE_URL"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(context.Background())
+	var anchored int
+	for deadline := time.Now().Add(10 * time.Second); anchored == 0 && time.Now().Before(deadline); {
+		conn.QueryRow(ctx, `SELECT count(*) FROM audit.anchor WHERE tenant_id = $1`, created.TenantID).Scan(&anchored)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if anchored == 0 {
+		t.Fatal("no anchor written")
+	}
+	if objects, _ := filepath.Glob(filepath.Join(env["ERP_OBJECT_DIR"], "tenants", created.TenantID, "audit", "anchors", "*.json")); len(objects) == 0 {
+		t.Fatal("no anchor object")
+	}
 	cancel()
-	if code := <-done; code != 0 || !strings.Contains(logs.String(), "ERP_DEV_ISSUER") {
+	if code := <-done; code != 0 || !strings.Contains(logs.String(), "ERP_DEV_ISSUER") || !strings.Contains(logs.String(), "control plane served") ||
+		!strings.Contains(logs.String(), "suspendTenant") {
 		t.Fatalf("exit %d\n%s", code, logs.String())
+	}
+}
+
+// TestObjectStores: without object storage the server warns and runs; with
+// an S3-compatible store it anchors chain heads there.
+func TestObjectStores(t *testing.T) {
+	is := authntest.New(t)
+	ctx := context.Background()
+	serve := func(env map[string]string) string {
+		cfg := load(t, env)
+		runCtx, cancel := context.WithCancel(ctx)
+		var logs bytes.Buffer
+		started := make(chan struct{})
+		done := make(chan error, 1)
+		go func() {
+			done <- run(runCtx, cfg, slog.New(slog.NewTextHandler(&syncWriter{w: &logs}, nil)), func(net.Listener, net.Listener) { close(started) })
+		}()
+		select {
+		case <-started:
+		case err := <-done:
+			t.Fatalf("stopped before serving: %v", err)
+		}
+		return func() string { cancel(); <-done; return logs.String() }()
+	}
+	env := environment(t, is, "")
+	delete(env, "ERP_OBJECT_DIR")
+	if logs := serve(env); !strings.Contains(logs, "no object storage configured") {
+		t.Fatalf("logs: %s", logs)
+	}
+	// A tenant with a chain head and no anchor yet.
+	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `INSERT INTO audit.chain_head (tenant_id, seq, hash) VALUES ($1, 1, decode(repeat('ab', 32), 'hex'))`, ten.ID)
+	s3 := blobstoretest.New(t)
+	env = environment(t, is, "")
+	delete(env, "ERP_OBJECT_DIR")
+	env["ERP_OBJECT_S3_ENDPOINT"], env["ERP_OBJECT_S3_BUCKET"], env["ERP_OBJECT_S3_REGION"] = s3.URL, blobstoretest.Bucket, blobstoretest.Region
+	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
+	anchorInterval = 20 * time.Millisecond
+	defer func() { anchorInterval = time.Minute }()
+	cfg := load(t, env)
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
+	key := "tenants/" + ten.ID.String() + "/audit/anchors/000000000001.json"
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		if _, ok := s3.Objects[key]; ok || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if o, ok := s3.Objects[key]; !ok || o.LockMode != "COMPLIANCE" || o.ContentType != "application/json" {
+		t.Fatalf("anchor in S3: %+v (%d objects)", o, len(s3.Objects))
 	}
 }

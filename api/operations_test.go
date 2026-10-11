@@ -26,11 +26,18 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 		"no permission": "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
 		"bad operation": "paths:\n  /v1/x:\n    get: [1]\n",
 	} {
-		if _, err := parseOperations([]byte(src)); err == nil {
+		if _, err := parseOperations([]byte(src), true); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	ops, err := parseOperations([]byte("paths:\n  /v1/x:\n    parameters: []\n    get:\n      operationId: getX\n      x-permission: a.b.c\n      x-agent: false\n"))
+	// A contract without permissions (the control plane) still needs operationIds.
+	if ops, err := parseOperations([]byte("paths:\n  /v1/x:\n    get:\n      operationId: getX\n"), false); err != nil || len(ops) != 1 {
+		t.Fatal(ops, err)
+	}
+	if _, err := parseOperations([]byte("paths:\n  /v1/x:\n    get:\n      summary: x\n"), false); err == nil {
+		t.Fatal("operation without operationId accepted")
+	}
+	ops, err := parseOperations([]byte("paths:\n  /v1/x:\n    parameters: []\n    get:\n      operationId: getX\n      x-permission: a.b.c\n      x-agent: false\n"), true)
 	if err != nil || len(ops) != 1 || ops["getX"].AgentAllowed || !strings.HasPrefix(ops["getX"].Path, "/v1/") {
 		t.Fatal(ops, err)
 	}
@@ -51,5 +58,25 @@ func TestMustOperations(t *testing.T) {
 func TestSpec(t *testing.T) {
 	if !strings.Contains(string(Spec()), "\nopenapi: \"3.1") {
 		t.Fatal("spec")
+	}
+}
+
+func TestControlOperations(t *testing.T) {
+	ops, err := ControlOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"listTenants": "GET /control/v1/tenants", "createTenant": "POST /control/v1/tenants", "getTenant": "GET /control/v1/tenants/{id}",
+		"suspendTenant": "POST /control/v1/tenants/{id}:suspend", "resumeTenant": "POST /control/v1/tenants/{id}:resume", "offboardTenant": "POST /control/v1/tenants/{id}:offboard"}
+	if len(ops) != len(want) {
+		t.Fatalf("%d operations", len(ops))
+	}
+	for id, route := range want {
+		if op := ops[id]; op.Method+" "+op.Path != route || op.Permission != "" || !op.AgentAllowed {
+			t.Errorf("%s: %+v", id, op)
+		}
+	}
+	if !strings.Contains(string(ControlSpec()), "\nopenapi: \"3.1") {
+		t.Fatal("control spec")
 	}
 }

@@ -1,0 +1,283 @@
+// Package controlplane is the operators' API for tenants (T11, 04-api-design
+// §4.15): list and read the cell's tenants, provision one, suspend, resume
+// and offboard. It is served on the admin listener, not the public API, and
+// its callers are platform operators, not principals of any tenant: they
+// authenticate with tokens from the operator issuers (ERP_OPERATOR_ISSUERS)
+// that name no tenant. Reads across tenants run as the control role
+// (erp_control: BYPASSRLS, read-only). A status change runs in the tenant's
+// own scope as the application role, so the tenant's audit trail records it
+// (actor kind system, an id derived from the operator) and the outbox
+// publishes TenantStatusChanged like any other change.
+package controlplane
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+)
+
+// Statuses of a tenant (03-data-model §3.3). Provisioning is never seen:
+// a tenant is created active in one transaction.
+const (
+	Provisioning = "provisioning"
+	Active       = "active"
+	Suspended    = "suspended"
+	Offboarded   = "offboarded"
+)
+
+// Statuses lists them, in lifecycle order.
+var Statuses = []string{Provisioning, Active, Suspended, Offboarded}
+
+// Tenant is a row of tenancy.tenant as the control plane shows it.
+type Tenant struct {
+	ID            uuid.UUID `json:"id"`
+	Name          string    `json:"name"`
+	Region        string    `json:"region"`
+	GroupCurrency string    `json:"group_currency"`
+	Status        string    `json:"status"`
+	Version       int32     `json:"version"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// Created is a provisioned tenant with what provisioning made for it.
+type Created struct {
+	Tenant
+	Provisioned provisioning.Result `json:"provisioned"`
+}
+
+// Operator is who calls the control plane: the subject of an operator
+// token, with a stable id for the audit trail.
+type Operator struct {
+	ID      uuid.UUID
+	Issuer  string
+	Subject string
+}
+
+// operatorNamespace derives operator ids from issuer and subject, so the
+// same operator has the same id in every tenant's audit trail.
+var operatorNamespace = uuid.MustParse("6f1d0a5e-3c2b-4a89-9e7d-0b1c2d3e4f50")
+
+// OperatorFrom identifies the operator behind verified claims.
+func OperatorFrom(c reqctx.Claims) Operator {
+	return Operator{ID: uuid.NewSHA1(operatorNamespace, []byte(c.Issuer+"\n"+c.Subject)), Issuer: c.Issuer, Subject: c.Subject}
+}
+
+// Service runs the control plane on one cell's database.
+type Service struct {
+	Pool        *database.Pool
+	AppRole     string // erp_app: status changes run in the tenant's scope
+	ControlRole string // erp_control: reads across tenants
+	Provisioner *provisioning.Provisioner
+	Pages       *pagination.Codec
+	Now         func() time.Time
+	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
+	// inject database failures.
+	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+}
+
+func (s *Service) begin(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+	if s.Begin != nil {
+		return s.Begin(ctx, scope)
+	}
+	return s.Pool.Begin(ctx, scope)
+}
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+const columns = `id, name, region, group_currency, status, version, created_at, updated_at`
+
+func scan(row pgx.Row) (Tenant, error) {
+	var t Tenant
+	err := row.Scan(&t.ID, &t.Name, &t.Region, &t.GroupCurrency, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt)
+	return t, err
+}
+
+// Sort is the order_by a tenant listing accepts.
+var Sort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
+	{Name: "created_at", Column: "created_at", Type: "timestamptz"},
+	{Name: "name", Column: "name", Type: "text"},
+}}
+
+// List returns one page of the cell's tenants, optionally those in one
+// status.
+func (s *Service) List(ctx context.Context, status string, page pagination.Request) ([]Tenant, string, error) {
+	if status != "" && !slices.Contains(Statuses, status) {
+		return nil, "", problem.BadRequest("request.invalid_parameter", "Parameter status is invalid.",
+			problem.FieldError{Field: "status", Code: "invalid", Message: "one of " + strings.Join(Statuses, ", ")})
+	}
+	ks, err := s.Pages.Keyset(Sort, "listTenants|"+status, page)
+	if err != nil {
+		return nil, "", err
+	}
+	tx, err := s.begin(ctx, database.Scope{Role: s.ControlRole, ReadOnly: true})
+	if err != nil {
+		return nil, "", err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	q, args := ks.SQL(`SELECT `+columns+` FROM tenancy.tenant WHERE ($1 = '' OR status = $1)`, []any{status})
+	rows, _ := tx.Query(ctx, q, args...)
+	tenants, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Tenant, error) { return scan(r) })
+	if err != nil {
+		return nil, "", err
+	}
+	tenants, next := pagination.Page(ks, tenants, func(t Tenant) (string, uuid.UUID) {
+		if ks.Field() == "name" {
+			return t.Name, t.ID
+		}
+		return t.CreatedAt.UTC().Format(time.RFC3339Nano), t.ID
+	})
+	return tenants, next, nil
+}
+
+// Get returns one tenant of the cell.
+func (s *Service) Get(ctx context.Context, id uuid.UUID) (Tenant, error) {
+	tx, err := s.begin(ctx, database.Scope{Role: s.ControlRole, ReadOnly: true})
+	if err != nil {
+		return Tenant{}, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Tenant{}, problem.NotFound("No tenant with this id.")
+	}
+	return t, err
+}
+
+// Create provisions a tenant for the operator. With req.Idempotency set, a
+// retry of an earlier request answers the tenant that request created
+// (replayed = true) instead of creating a second one.
+func (s *Service) Create(ctx context.Context, op Operator, req provisioning.Request) (Created, bool, error) {
+	req.Operator = op.Subject
+	if k := req.Idempotency; k != nil {
+		k.ActorID = op.ID
+		res, found, err := s.replay(ctx, k)
+		if err != nil {
+			return Created{}, false, err
+		}
+		if found {
+			t, err := s.Get(ctx, res.TenantID)
+			return Created{Tenant: t, Provisioned: res}, true, err
+		}
+	}
+	res, err := s.Provisioner.Provision(ctx, req)
+	if err != nil {
+		return Created{}, false, err
+	}
+	t, err := s.Get(ctx, res.TenantID)
+	return Created{Tenant: t, Provisioned: res}, false, err
+}
+
+// replay finds the result of an earlier provisioning request with the same
+// key: the same operator and request get it back, anyone else 422.
+func (s *Service) replay(ctx context.Context, k *provisioning.Idempotency) (provisioning.Result, bool, error) {
+	tx, err := s.begin(ctx, database.Scope{Role: s.ControlRole, ReadOnly: true})
+	if err != nil {
+		return provisioning.Result{}, false, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	var owner uuid.UUID
+	var hash, body []byte
+	// The predicate repeats the partial index's, so the lookup uses it.
+	err = tx.QueryRow(ctx, `SELECT principal_id, request_hash, response_body FROM platform.idempotency_key
+		WHERE key = $1 AND key LIKE 'control|%' AND expires_at > now()`, provisioning.KeyPrefix+k.Key).Scan(&owner, &hash, &body)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return provisioning.Result{}, false, nil
+	}
+	if err != nil {
+		return provisioning.Result{}, false, err
+	}
+	if owner != k.ActorID || !bytes.Equal(hash, k.RequestHash) {
+		return provisioning.Result{}, false, problem.Unprocessable("request.idempotency_key_reused", "This Idempotency-Key was already used for a different request.")
+	}
+	var res provisioning.Result
+	_ = json.Unmarshal(body, &res) // written by the provisioner from a Result
+	return res, true, nil
+}
+
+// transition is what a custom method does to the status.
+type transition struct {
+	from []string
+	to   string
+}
+
+// Transitions are the custom methods on a tenant: suspend (active →
+// suspended), resume (suspended → active) and offboard (active or suspended
+// → offboarded, final). A suspended or offboarded tenant's requests are
+// refused at the door (403 tenancy.tenant_inactive).
+var Transitions = map[string]transition{
+	"suspend":  {from: []string{Active}, to: Suspended},
+	"resume":   {from: []string{Suspended}, to: Active},
+	"offboard": {from: []string{Active, Suspended}, to: Offboarded},
+}
+
+// Transition applies the custom method verb to the tenant, guarded by
+// If-Match, and records it in the tenant's audit trail and outbox.
+func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, verb, ifMatch string) (Tenant, error) {
+	tr, ok := Transitions[verb]
+	if !ok {
+		return Tenant{}, problem.NotFound("No such method on tenants: " + verb + ".")
+	}
+	tx, err := s.begin(ctx, database.Scope{Role: s.AppRole, TenantID: id})
+	if err != nil {
+		return Tenant{}, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1 FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Tenant{}, problem.NotFound("No tenant with this id.")
+	}
+	if err != nil {
+		return Tenant{}, err
+	}
+	if err := etag.Check(ifMatch, t.Version); err != nil {
+		return Tenant{}, err
+	}
+	if !slices.Contains(tr.from, t.Status) {
+		return Tenant{}, problem.Conflict("tenancy.invalid_transition",
+			fmt.Sprintf("The tenant is %s; %s applies to %s tenants.", t.Status, verb, strings.Join(tr.from, " or ")))
+	}
+	previous := t.Status
+	if err := database.SetActor(ctx, tx, op.ID); err != nil {
+		return Tenant{}, err
+	}
+	if t, err = scan(tx.QueryRow(ctx, `UPDATE tenancy.tenant SET status = $2, version = version + 1 WHERE id = $1 RETURNING `+columns, id, tr.to)); err != nil {
+		return Tenant{}, err
+	}
+	trace := reqctx.TraceID(ctx)
+	if _, err := outbox.Write(ctx, tx, id, op.ID, trace, outbox.Event{Context: "tenancy", Name: "tenant_status_changed", AggregateType: "tenancy.tenant", AggregateID: id,
+		Payload: map[string]any{"tenant_id": id, "previous_status": previous, "status": t.Status}}); err != nil {
+		return Tenant{}, err
+	}
+	actor := reqctx.Principal{ID: op.ID, Kind: reqctx.KindSystem, TenantID: id}
+	if err := audit.Write(ctx, tx, actor, trace, s.now(), audit.Entry{Action: "tenancy.tenant." + verb, ObjectType: "tenancy.tenant", ObjectID: id, Outcome: "succeeded",
+		Detail: map[string]any{"previous_status": previous, "status": t.Status, "operator": op.Subject, "issuer": op.Issuer}}); err != nil {
+		return Tenant{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Tenant{}, err
+	}
+	return t, nil
+}

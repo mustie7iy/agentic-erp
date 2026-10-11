@@ -1,6 +1,7 @@
 package payables
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -159,6 +160,15 @@ func (e *Endpoints) CaptureSupplierInvoice(ctx context.Context, req *gen.Supplie
 		return nil, err
 	}
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: operations.ToAPI(op)}, nil
+}
+
+// GetSupplierInvoiceDocument implements GET /v1/supplier-invoices/{id}/document.
+func (e *Endpoints) GetSupplierInvoiceDocument(ctx context.Context, params gen.GetSupplierInvoiceDocumentParams) (gen.GetSupplierInvoiceDocumentRes, error) {
+	content, _, err := e.Document(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetSupplierInvoiceDocumentOKHeaders{Response: gen.GetSupplierInvoiceDocumentOK{Data: bytes.NewReader(content)}}, nil
 }
 
 // GetSupplierInvoice implements GET /v1/supplier-invoices/{id}.
