@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -295,5 +296,128 @@ func TestRotationResealsEveryColumn(t *testing.T) {
 		if !errors.Is(err, pgtest.ErrInjected) {
 			t.Fatalf("statement %d: %v", n, err)
 		}
+	}
+}
+
+func TestKMSMasterWrapsTenantKeys(t *testing.T) {
+	ctx := context.Background()
+	kms := kmstest.New(t)
+	r := ring(t, kms.Master(""), master(t, "k1", "a"))
+	ten := pgtest.NewTenant(t)
+	inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error { return r.Provision(ctx, tx, ten.ID) })
+	var masterID string
+	pgtest.Admin(t).QueryRow(ctx, `SELECT master_key_id FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&masterID)
+	if masterID != "kms" {
+		t.Fatalf("wrapped by %q", masterID)
+	}
+	sealed, err := r.Seal(ctx, ten.ID, "DE893704")
+	if err != nil || sealed[0] != 2 {
+		t.Fatalf("%v %v", sealed, err)
+	}
+	if e, d := kms.Calls(); e != 2 || d != 0 {
+		t.Fatalf("provisioning: %d encrypts, %d decrypts", e, d)
+	}
+	// Another replica unwraps the two keys once, then works from memory.
+	other := ring(t, kms.Master(""))
+	for i := 0; i < 3; i++ {
+		if v, err := other.Open(ctx, ten.ID, sealed); err != nil || v != "DE893704" {
+			t.Fatalf("%q %v", v, err)
+		}
+	}
+	if _, err := other.Fingerprint(ctx, ten.ID, "DE893704"); err != nil {
+		t.Fatal(err)
+	}
+	if e, d := kms.Calls(); e != 2 || d != 2 {
+		t.Fatalf("after reads: %d encrypts, %d decrypts", e, d)
+	}
+	// A ring whose KMS refuses cannot load the tenant's keys.
+	kms.Fail = 503
+	if _, err := ring(t, kms.Master("")).Open(ctx, ten.ID, sealed); err == nil || !strings.Contains(err.Error(), "503 KMSInternalException") {
+		t.Fatalf("kms down: %v", err)
+	}
+	kms.Fail = 0
+}
+
+func TestRewrap(t *testing.T) {
+	ctx := context.Background()
+	k1, k2 := master(t, "k1", "a"), master(t, "k2", "b")
+	r := ring(t, k1)
+	ten := pgtest.NewTenant(t)
+	// Two keys wrapped by k1: the retired one and the active one.
+	inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error { return r.Provision(ctx, tx, ten.ID) })
+	old, _ := r.Seal(ctx, ten.ID, "DE893704")
+	inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error { _, err := r.Rotate(ctx, tx, ten.ID); return err })
+	sealed, _ := r.Seal(ctx, ten.ID, "DE893704")
+	// A KMS master in front: both keys move onto it, unchanged.
+	kms := kmstest.New(t)
+	moved := ring(t, kms.Master(""), k1)
+	var done fieldcrypt.Rewrapped
+	inTenant(t, moved, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		done, err = moved.Rewrap(ctx, tx, ten.ID)
+		return err
+	})
+	if done.Keys != 2 || done.Master != "kms" {
+		t.Fatalf("%+v", done)
+	}
+	var n, bumped int
+	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FILTER (WHERE master_key_id = 'kms'), count(*) FILTER (WHERE version > 1) FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&n, &bumped)
+	if n != 2 || bumped != 2 {
+		t.Fatalf("%d keys on kms, %d versions bumped", n, bumped)
+	}
+	// A ring with the KMS alone opens both the retired key's value and the active one's.
+	alone := ring(t, kms.Master(""))
+	for _, s := range [][]byte{old, sealed} {
+		if v, err := alone.Open(ctx, ten.ID, s); err != nil || v != "DE893704" {
+			t.Fatalf("%q %v", v, err)
+		}
+	}
+	// Nothing left to move; without the master that wrapped the keys nothing can move.
+	inTenant(t, alone, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+		if done, err := alone.Rewrap(ctx, tx, ten.ID); err != nil || done.Keys != 0 {
+			t.Fatalf("%+v %v", done, err)
+		}
+		if _, err := ring(t, k2).Rewrap(ctx, tx, ten.ID); !errors.Is(err, fieldcrypt.ErrNoMaster) {
+			t.Fatalf("without the master: %v", err)
+		}
+		if _, err := (&fieldcrypt.Keyring{}).Rewrap(ctx, tx, ten.ID); err == nil {
+			t.Fatal("without any master")
+		}
+		// A master that cannot wrap, whichever of the two keys fails.
+		for fail := 1; fail <= 2; fail++ {
+			bad := &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{&failingMaster{failAt: fail}, kms.Master("")}}
+			if _, err := bad.Rewrap(ctx, tx, ten.ID); err == nil || !strings.Contains(err.Error(), "hsm down") {
+				t.Fatalf("wrap %d: %v", fail, err)
+			}
+		}
+		return nil
+	})
+	// Each database statement failing in turn is reported.
+	for n := 1; n < 10; n++ {
+		fresh := ring(t, k2, kms.Master(""))
+		err := fresh.Pool.InTx(ctx, database.Scope{Role: "erp_app", TenantID: ten.ID}, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := fresh.Rewrap(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}, ten.ID)
+			return err
+		})
+		if err == nil {
+			if n == 1 {
+				t.Fatal("re-wrapped without a statement to fail")
+			}
+			break
+		}
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("statement %d: %v", n, err)
+		}
+	}
+	// A key wrapped by a master that cannot unwrap stops the re-wrap.
+	pgtest.Exec(t, `INSERT INTO tenancy.tenant_key (tenant_id, id, master_key_id, wrapped_data_key, wrapped_mac_key, status, retired_at)
+		VALUES ($1, $2, 'hsm', 'x', 'y', 'retired', now())`, ten.ID, uuid.New())
+	stuck := &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{k2, kms.Master(""), &failingMaster{}}}
+	err := r.Pool.InTx(ctx, database.Scope{Role: "erp_app", TenantID: ten.ID}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := stuck.Rewrap(ctx, tx, ten.ID)
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "hsm down") {
+		t.Fatalf("unwrap: %v", err)
 	}
 }

@@ -465,3 +465,61 @@ func (r *Keyring) reseal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c Col
 	}
 	return len(all), nil
 }
+
+// Rewrapped is what a re-wrap did.
+type Rewrapped struct {
+	Keys   int    `json:"keys"` // tenant keys now wrapped by Master that another master wrapped before
+	Master string `json:"master_key_id"`
+}
+
+// Rewrap wraps every key of the tenant (active and retired) that another
+// master wrapped under the ring's first master, in tx (the tenant's scope).
+// The keys themselves do not change, so nothing is re-sealed: this is how
+// tenant keys move onto a new master (a KMS put in front of the ring) and
+// how the master it replaces leaves the ring.
+func (r *Keyring) Rewrap(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rewrapped, error) {
+	if len(r.Masters) == 0 {
+		return Rewrapped{}, errors.New("fieldcrypt: no master key to wrap tenant keys with (ERP_FIELD_KEYS or ERP_FIELD_KMS_KEY)")
+	}
+	primary := r.Masters[0]
+	out := Rewrapped{Master: primary.ID()}
+	rows, _ := tx.Query(ctx, `SELECT id, master_key_id, wrapped_data_key, wrapped_mac_key FROM tenancy.tenant_key WHERE tenant_id = $1 AND master_key_id <> $2 ORDER BY created_at FOR UPDATE`, tenant, primary.ID())
+	type wrapped struct {
+		id        uuid.UUID
+		master    string
+		data, mac []byte
+	}
+	var all []wrapped
+	var w wrapped
+	if _, err := pgx.ForEachRow(rows, []any{&w.id, &w.master, &w.data, &w.mac}, func() error {
+		all = append(all, wrapped{w.id, w.master, append([]byte(nil), w.data...), append([]byte(nil), w.mac...)})
+		return nil
+	}); err != nil {
+		return Rewrapped{}, err
+	}
+	for _, w := range all {
+		m, ok := r.master(w.master)
+		if !ok {
+			return Rewrapped{}, fmt.Errorf("%w (%s)", ErrNoMaster, w.master)
+		}
+		dk, err1 := m.Unwrap(tenant, w.data)
+		mk, err2 := m.Unwrap(tenant, w.mac)
+		if err := errors.Join(err1, err2); err != nil {
+			return Rewrapped{}, err
+		}
+		data, err := primary.Wrap(tenant, dk)
+		if err != nil {
+			return Rewrapped{}, err
+		}
+		mac, err := primary.Wrap(tenant, mk)
+		if err != nil {
+			return Rewrapped{}, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE tenancy.tenant_key SET master_key_id = $1, wrapped_data_key = $2, wrapped_mac_key = $3, version = version + 1 WHERE tenant_id = $4 AND id = $5`,
+			primary.ID(), data, mac, tenant, w.id); err != nil {
+			return Rewrapped{}, err
+		}
+		out.Keys++
+	}
+	return out, nil
+}

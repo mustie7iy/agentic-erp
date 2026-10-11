@@ -42,6 +42,7 @@ type Config struct {
 	ExtractDir      string          // ERP_EXTRACT_DIR, where sap_file connectors find SAP extracts; empty disables them
 	FieldKey        []byte          // ERP_FIELD_KEY, base64, at least 32 bytes: the legacy field encryption key (values sealed before tenant keys); required unless ERP_FIELD_KEYS is set
 	FieldKeys       []MasterKey     // ERP_FIELD_KEYS, "id=base64,id=base64,...": the master keys that wrap tenant keys, the first for new ones; default one master "v1" from ERP_FIELD_KEY
+	KMS             KMS             // ERP_FIELD_KMS_*: a KMS key in front of the ring, the master that wraps new tenant keys (ADR-0019)
 	MigrateOnStart  bool            // ERP_MIGRATE_ON_START
 	LogLevel        slog.Level      // ERP_LOG_LEVEL: debug, info, warn, error (default info)
 	ShutdownTimeout time.Duration   // ERP_SHUTDOWN_TIMEOUT (default 20s)
@@ -63,6 +64,20 @@ type MasterKey struct {
 	Secret []byte
 }
 
+// KMS is the AWS KMS key (or a service speaking its protocol) that wraps
+// tenant keys, in front of the ERP_FIELD_KEYS ring.
+type KMS struct {
+	Name      string // the master's id in tenancy.tenant_key: ERP_FIELD_KMS_KEY as "name=key" (default kms)
+	Key       string // ERP_FIELD_KMS_KEY: the key id, ARN or alias/name
+	Region    string // ERP_FIELD_KMS_REGION (default us-east-1)
+	Endpoint  string // ERP_FIELD_KMS_ENDPOINT (default https://kms.<region>.amazonaws.com)
+	AccessKey string // ERP_FIELD_KMS_ACCESS_KEY
+	SecretKey string // ERP_FIELD_KMS_SECRET_KEY
+}
+
+// Enabled reports whether a KMS master is configured.
+func (k KMS) Enabled() bool { return k.Key != "" }
+
 // Vault is the HashiCorp Vault connection for vault: references.
 type Vault struct {
 	Address   string // ERP_VAULT_ADDR; empty: vault: references are not resolvable
@@ -74,7 +89,8 @@ type Vault struct {
 
 // SecretSettings are the settings that may carry a secret reference
 // instead of a value.
-var SecretSettings = []string{"DATABASE_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
+var SecretSettings = []string{"DATABASE_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
+	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
 
 // Objects is the object storage configuration: a directory (development) or
 // an S3-compatible service, never both.
@@ -172,9 +188,9 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("ERP_PAGE_TOKEN_KEY must be base64 of at least 32 random bytes, the same on every replica"))
 	}
 	c.PageTokenKey = key
-	if raw := getenv("ERP_FIELD_KEY"); raw != "" || getenv("ERP_FIELD_KEYS") == "" {
+	if raw := getenv("ERP_FIELD_KEY"); raw != "" || (getenv("ERP_FIELD_KEYS") == "" && getenv("ERP_FIELD_KMS_KEY") == "") {
 		if c.FieldKey, err = base64.StdEncoding.DecodeString(raw); err != nil || len(c.FieldKey) < 32 {
-			errs = append(errs, errors.New("ERP_FIELD_KEY must be base64 of at least 32 random bytes, the same on every replica and kept secret (optional with ERP_FIELD_KEYS)"))
+			errs = append(errs, errors.New("ERP_FIELD_KEY must be base64 of at least 32 random bytes, the same on every replica and kept secret (optional with ERP_FIELD_KEYS or ERP_FIELD_KMS_KEY)"))
 		}
 	}
 	if raw := getenv("ERP_FIELD_KEYS"); raw != "" {
@@ -189,6 +205,22 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	} else if len(c.FieldKey) >= 32 {
 		c.FieldKeys = []MasterKey{{ID: "v1", Secret: c.FieldKey}}
+	}
+	c.KMS = KMS{Name: "kms", Key: getenv("ERP_FIELD_KMS_KEY"), Region: get("ERP_FIELD_KMS_REGION", "us-east-1"), Endpoint: getenv("ERP_FIELD_KMS_ENDPOINT"),
+		AccessKey: getenv("ERP_FIELD_KMS_ACCESS_KEY"), SecretKey: getenv("ERP_FIELD_KMS_SECRET_KEY")}
+	if c.KMS.Enabled() {
+		if name, key, ok := strings.Cut(c.KMS.Key, "="); ok {
+			c.KMS.Name, c.KMS.Key = name, key
+		}
+		if c.KMS.Key == "" || !masterIDPattern.MatchString(c.KMS.Name) {
+			errs = append(errs, errors.New(`ERP_FIELD_KMS_KEY must be a KMS key id, ARN or alias, or "name=key" with a name of 1-64 letters, digits, - or _`))
+		}
+		if c.KMS.AccessKey == "" || c.KMS.SecretKey == "" {
+			errs = append(errs, errors.New("ERP_FIELD_KMS_KEY needs ERP_FIELD_KMS_ACCESS_KEY and ERP_FIELD_KMS_SECRET_KEY"))
+		}
+		if c.KMS.Endpoint == "" {
+			c.KMS.Endpoint = "https://kms." + c.KMS.Region + ".amazonaws.com"
+		}
 	}
 	c.Objects = Objects{Dir: getenv("ERP_OBJECT_DIR"), Endpoint: getenv("ERP_OBJECT_S3_ENDPOINT"), Bucket: getenv("ERP_OBJECT_S3_BUCKET"),
 		Region: get("ERP_OBJECT_S3_REGION", "us-east-1"), AccessKey: getenv("ERP_OBJECT_S3_ACCESS_KEY"), SecretKey: getenv("ERP_OBJECT_S3_SECRET_KEY")}

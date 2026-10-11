@@ -204,3 +204,38 @@ func TestSecretReferences(t *testing.T) {
 		t.Fatalf("default jwt path on this machine: %v", err)
 	}
 }
+
+func TestKMSSettings(t *testing.T) {
+	m := valid()
+	if c, err := Load(env(m)); err != nil || c.KMS.Enabled() {
+		t.Fatal(c.KMS, err)
+	}
+	m["ERP_FIELD_KMS_KEY"], m["ERP_FIELD_KMS_ACCESS_KEY"], m["ERP_FIELD_KMS_SECRET_KEY"] = "alias/erp-master", "AKIDEXAMPLE", "secret"
+	c, err := Load(env(m))
+	if err != nil || c.KMS != (KMS{Name: "kms", Key: "alias/erp-master", Region: "us-east-1", Endpoint: "https://kms.us-east-1.amazonaws.com", AccessKey: "AKIDEXAMPLE", SecretKey: "secret"}) {
+		t.Fatalf("%+v %v", c.KMS, err)
+	}
+	// A name for the master, a region and an endpoint; the legacy key is optional with a KMS.
+	m["ERP_FIELD_KMS_KEY"], m["ERP_FIELD_KMS_REGION"], m["ERP_FIELD_KMS_ENDPOINT"] = "eu=arn:aws:kms:eu-west-1:111122223333:key/abc", "eu-west-1", "http://localhost:4566"
+	delete(m, "ERP_FIELD_KEY")
+	c, err = Load(env(m))
+	if err != nil || c.KMS.Name != "eu" || c.KMS.Key != "arn:aws:kms:eu-west-1:111122223333:key/abc" || c.KMS.Region != "eu-west-1" || c.KMS.Endpoint != "http://localhost:4566" || len(c.FieldKeys) != 0 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	for name, bad := range map[string]map[string]string{
+		"no credentials": {"ERP_FIELD_KMS_ACCESS_KEY": ""},
+		"bad name":       {"ERP_FIELD_KMS_KEY": "no name!=alias/x"},
+		"no key":         {"ERP_FIELD_KMS_KEY": "kms="},
+	} {
+		mm := map[string]string{}
+		for k, v := range m {
+			mm[k] = v
+		}
+		for k, v := range bad {
+			mm[k] = v
+		}
+		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KMS_KEY") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

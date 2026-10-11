@@ -53,10 +53,10 @@ func main() {
 	exit(code)
 }
 
-// cli runs the server, or with "provision" as the first argument the
-// provisioning command, and returns the process exit code: 2 for bad
+// cli runs the server, or with "provision" or "rewrap" as the first
+// argument that command, and returns the process exit code: 2 for bad
 // configuration or usage, 1 for a failure while running, 0 after a clean
-// shutdown or a provisioned tenant.
+// shutdown or a completed command.
 func cli(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer, started func(api, admin net.Listener)) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -64,11 +64,14 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return 2
 	}
 	log := telemetry.NewLogger(stderr, cfg.LogLevel)
-	if len(args) > 0 && args[0] == "provision" {
-		return provisionCmd(ctx, args[1:], cfg, stdout, stderr)
-	}
 	if len(args) > 0 {
-		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant)\n", args[0])
+		switch args[0] {
+		case "provision":
+			return provisionCmd(ctx, args[1:], cfg, stdout, stderr)
+		case "rewrap":
+			return rewrapCmd(ctx, args[1:], cfg, stdout, stderr)
+		}
+		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master)\n", args[0])
 		return 2
 	}
 	if err := run(ctx, cfg, log, started); err != nil {
@@ -245,10 +248,15 @@ var (
 	anchorInterval      = time.Minute
 )
 
-// keyring builds the field encryption ring: the configured masters, the
-// legacy key when there is one, and the pool for lookups outside requests.
+// keyring builds the field encryption ring: the KMS master first when there
+// is one, then the configured local masters, the legacy key when there is
+// one, and the pool for lookups outside requests.
 func keyring(cfg config.Config, pool *database.Pool) (*fieldcrypt.Keyring, error) {
 	ring := &fieldcrypt.Keyring{Pool: pool, AppRole: cfg.AppRole}
+	if cfg.KMS.Enabled() {
+		ring.Masters = append(ring.Masters, fieldcrypt.KMS{Name: cfg.KMS.Name, KeyID: cfg.KMS.Key, Endpoint: cfg.KMS.Endpoint, Region: cfg.KMS.Region,
+			AccessKey: cfg.KMS.AccessKey, SecretKey: cfg.KMS.SecretKey})
+	}
 	for _, mk := range cfg.FieldKeys {
 		m, err := fieldcrypt.NewLocalMaster(mk.ID, mk.Secret)
 		if err != nil {

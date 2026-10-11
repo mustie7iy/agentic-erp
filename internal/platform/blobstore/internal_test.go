@@ -3,8 +3,6 @@ package blobstore
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,20 +37,10 @@ func TestEncoding(t *testing.T) {
 	if got := encodePath("tenants/a b/é~x"); got != "tenants/a%20b/%C3%A9~x" {
 		t.Fatalf("encodePath: %s", got)
 	}
-	if got := canonicalQuery(url.Values{"b": {"2", "1"}, "a": {"x y"}}); got != "a=x%20y&b=1&b=2" {
-		t.Fatalf("canonicalQuery: %s", got)
-	}
 }
 
-// TestSignV4Defaults signs a request built by hand, without Host or path.
-func TestSignV4Defaults(t *testing.T) {
-	req := &http.Request{Method: "GET", URL: &url.URL{Scheme: "https", Host: "example.amazonaws.com"}, Header: http.Header{}}
-	SignV4(req, "AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "us-east-1", "service", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		time.Date(2015, 8, 30, 12, 36, 0, 0, time.UTC))
-	// The same signature as the test suite's get-vanilla: host from the URL, path "/".
-	if got := req.Header.Get("Authorization"); !strings.HasSuffix(got, "Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31") {
-		t.Fatalf("%s", got)
-	}
+// TestNow checks the injectable clock.
+func TestNow(t *testing.T) {
 	s := S3{Now: func() time.Time { return time.Date(2015, 8, 30, 12, 36, 0, 0, time.UTC) }}
 	if !s.now().Equal(time.Date(2015, 8, 30, 12, 36, 0, 0, time.UTC)) {
 		t.Fatal("Now not used")

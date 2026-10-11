@@ -66,6 +66,7 @@ prototype store for that context.
 | T12 (done) | **Object storage** | Captured documents and bank files kept in write-once object storage and served through the API; the audit chain anchored to locked objects and verified against them |
 | T13 (done) | **Secrets** | Settings and connectors name their secrets by reference (environment, mounted file, Vault) and the server resolves them at start and on use; the repository is scanned for leaked secrets |
 | T14 (done) | **Key management** | Every tenant's sensitive fields are sealed with the tenant's own key, wrapped by a ring of master keys; operators rotate a tenant's key and the fields are re-sealed in one transaction |
+| T15 (done) | **KMS master** | The master key that wraps tenant keys lives in a key management service; existing tenant keys move onto it without rewriting a sealed row, and the local masters it replaces leave the ring |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -973,6 +974,57 @@ Open points for the contract and design review:
   would schedule it, and a list of tenants by key age would show who is due.
 - The page-token key (`ERP_PAGE_TOKEN_KEY`) is not rotated; tokens are
   short-lived cursors, so a key change only invalidates open pages.
+
+### T15 decisions and open points
+
+What T15 built: a KMS master for the ring (ADR-0019). `fieldcrypt.KMS`
+implements `Master` with AWS KMS `Encrypt` and `Decrypt`, the tenant id as
+encryption context, the JSON protocol signed by the platform's own
+Signature Version 4 signer, now a package of its own
+(`internal/platform/sigv4`, shared with the S3 store and checked against
+the AWS test vectors). `ERP_FIELD_KMS_KEY` (a key id, ARN or alias,
+optionally `name=key`), `ERP_FIELD_KMS_REGION`, `ERP_FIELD_KMS_ENDPOINT`
+and the credentials `ERP_FIELD_KMS_ACCESS_KEY`/`_SECRET_KEY` (secret
+references allowed) put it first in the ring; `ERP_FIELD_KEY` and
+`ERP_FIELD_KEYS` become optional. `Keyring.Rewrap` moves a tenant's keys
+onto the first master without changing them, and `erp-server rewrap` does
+it for every tenant of the cell, so the masters a KMS replaces can leave
+`ERP_FIELD_KEYS`. A test double of KMS (`fieldcrypt/kmstest`) checks
+signatures and binds ciphertexts to their context. The exit criteria are
+`TestKMSMasterWrapsTenantKeys` (a tenant provisioned under the KMS master,
+unwrapped once per replica), `TestRewrap` (keys moved, retired ones too,
+every failure reported) and `TestRewrapCommand` (a cell moved from the
+legacy master to KMS from the command line, nothing left to move the
+second time).
+
+Decisions taken while building it:
+
+- **Encrypt, not GenerateDataKey.** The platform generates tenant keys and
+  asks the master to wrap them, so one `Master` interface serves local keys
+  and KMS alike and the fingerprint key is made the same way.
+- **Re-wrap is the migration.** Moving a cell to KMS rewrites `tenant_key`
+  only; rotation (which re-seals rows) stays an operator's per-tenant
+  action. The run stops at the first tenant that fails and resumes where it
+  stopped.
+- **A name for the master, separate from the key.** `tenant_key` records
+  `kms` (or the configured name), so the KMS key may be renamed, aliased or
+  rotated in place without touching stored rows; a second KMS key would be
+  a second name.
+- **No KMS call at start.** A misconfigured KMS shows at the first wrap or
+  unwrap (provisioning, rotation, a tenant's first request on a replica),
+  reported with the service's exception type; a probe at start would add a
+  billable call per replica start for a check the first request makes
+  anyway.
+
+Open points for the contract and design review:
+
+- Ambient AWS credentials (instance roles, IRSA) instead of access keys;
+  GCP KMS and Azure Key Vault as further masters.
+- Re-wrap is a command on the cell; the control plane could expose it per
+  tenant, and the tenant list could show which master wraps each tenant's
+  key and when it was rotated.
+- A KMS key policy that restricts `Decrypt` to the replicas' role is the
+  deployment's; the platform cannot check it.
 
 ## 7.4 Data from the prototype
 

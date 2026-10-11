@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
 // Credentials the server accepts.
@@ -135,7 +136,7 @@ func (s *Server) authentic(r *http.Request, body []byte) bool {
 	}
 	clone := r.Clone(r.Context())
 	clone.Header.Del("Authorization")
-	blobstore.SignV4(clone, AccessKey, SecretKey, Region, "s3", r.Header.Get("X-Amz-Content-Sha256"), when)
+	sigv4.Sign(clone, AccessKey, SecretKey, Region, "s3", r.Header.Get("X-Amz-Content-Sha256"), when)
 	_ = body
 	return clone.Header.Get("Authorization") == got
 }

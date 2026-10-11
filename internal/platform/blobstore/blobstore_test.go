@@ -164,23 +164,3 @@ type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
 func (failingReader) Close() error             { return nil }
-
-// TestSignV4KnownAnswer checks the signer against the AWS Signature Version
-// 4 test suite's get-vanilla-query case (region us-east-1, service
-// "service", 2015-08-30T12:36:00Z).
-func TestSignV4KnownAnswer(t *testing.T) {
-	req, _ := http.NewRequest("GET", "https://example.amazonaws.com/", nil)
-	blobstore.SignV4(req, "AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "us-east-1", "service", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		time.Date(2015, 8, 30, 12, 36, 0, 0, time.UTC))
-	want := "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31"
-	if got := req.Header.Get("Authorization"); got != want {
-		t.Fatalf("\n got %s\nwant %s", got, want)
-	}
-	// A query string is canonicalized: sorted, encoded (get-vanilla-query-order-key-case).
-	req, _ = http.NewRequest("GET", "https://example.amazonaws.com/?Param2=value2&Param1=value1", nil)
-	blobstore.SignV4(req, "AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "us-east-1", "service", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		time.Date(2015, 8, 30, 12, 36, 0, 0, time.UTC))
-	if got := req.Header.Get("Authorization"); !strings.HasSuffix(got, "Signature=b97d918cfa904a5beff61c982a1b6f458b799221646efd99d3219ec94cdf2500") {
-		t.Fatalf("query: %s", got)
-	}
-}

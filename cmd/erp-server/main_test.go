@@ -30,6 +30,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
@@ -575,4 +576,83 @@ func TestObjectStores(t *testing.T) {
 	if o, ok := s3.Object(key); !ok || o.LockMode != "COMPLIANCE" || o.ContentType != "application/json" {
 		t.Fatalf("anchor in S3: %+v (%v)", o, s3.Keys())
 	}
+}
+
+// TestRewrapCommand puts a KMS master in front of the ring and moves a
+// tenant's keys onto it.
+func TestRewrapCommand(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	getenv := func(k string) string { return env[k] }
+	doc, _ := fixture.Document(t).Marshal()
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(file, doc, 0o644)
+	var stdout, stderr bytes.Buffer
+	// A tenant provisioned on the legacy master v1.
+	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|ada", "-admin-name", "Ada", "-config", file}
+	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	before := countKeys(t, "v1")
+	if before == 0 {
+		t.Fatal("no key wrapped by v1")
+	}
+	// The KMS in front. Before anything moves: usage, a KMS that cannot be reached, no database, no control role.
+	kms := kmstest.New(t)
+	env["ERP_FIELD_KMS_KEY"], env["ERP_FIELD_KMS_ENDPOINT"], env["ERP_FIELD_KMS_REGION"] = kmstest.KeyID, kms.URL, kmstest.Region
+	env["ERP_FIELD_KMS_ACCESS_KEY"], env["ERP_FIELD_KMS_SECRET_KEY"] = kmstest.AccessKey, kmstest.SecretKey
+	failing := func(name string, args []string, mutate func(env map[string]string), code int, want string) {
+		t.Helper()
+		e := map[string]string{}
+		for k, v := range env {
+			e[k] = v
+		}
+		mutate(e)
+		stderr.Reset()
+		if got := cli(context.Background(), args, func(k string) string { return e[k] }, io.Discard, &stderr, nil); got != code || !strings.Contains(stderr.String(), want) {
+			t.Errorf("%s: %d %s", name, got, stderr.String())
+		}
+	}
+	none := func(map[string]string) {}
+	failing("help", []string{"rewrap", "-h"}, none, 0, "")
+	failing("bad flag", []string{"rewrap", "-x"}, none, 2, "flag provided")
+	failing("kms down", []string{"rewrap"}, func(e map[string]string) { e["ERP_FIELD_KMS_ENDPOINT"] = "http://127.0.0.1:1" }, 1, "kms Encrypt")
+	failing("database down", []string{"rewrap"}, func(e map[string]string) { e["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1" }, 1, "connect")
+	failing("control role", []string{"rewrap"}, func(e map[string]string) { e["ERP_DB_CONTROL_ROLE"] = "nobody_role" }, 1, "listing tenants")
+	if n := countKeys(t, "v1"); n != before {
+		t.Fatalf("%d keys on v1 after failed runs, had %d", n, before)
+	}
+	// Every key moves, and a second run finds nothing to move.
+	var res struct {
+		Master  string `json:"master_key_id"`
+		Tenants int    `json:"tenants"`
+		Keys    int    `json:"keys"`
+	}
+	for i, want := range []int{before, 0} {
+		stdout.Reset()
+		if code := cli(context.Background(), []string{"rewrap"}, getenv, &stdout, &stderr, nil); code != 0 {
+			t.Fatalf("rewrap %d: %d %s", i, code, stderr.String())
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &res); err != nil || res.Master != "kms" || res.Keys != want || res.Tenants == 0 {
+			t.Fatalf("rewrap %d: %+v %v %s", i, res, err, stdout.String())
+		}
+	}
+	if n := countKeys(t, "v1"); n != 0 {
+		t.Fatalf("%d keys still on v1", n)
+	}
+	// A ring without the master the keys are wrapped by cannot move them.
+	failing("missing master", []string{"rewrap"}, func(e map[string]string) {
+		delete(e, "ERP_FIELD_KMS_KEY")
+		e["ERP_FIELD_KEYS"] = "k9=" + e["ERP_FIELD_KEY"]
+		delete(e, "ERP_FIELD_KEY")
+	}, 1, "master key this server does not have (kms)")
+}
+
+// countKeys counts the tenant keys wrapped by a master, in the package database.
+func countKeys(t *testing.T, master string) int {
+	t.Helper()
+	var n int
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM tenancy.tenant_key WHERE master_key_id = $1`, master).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

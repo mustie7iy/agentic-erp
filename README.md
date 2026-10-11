@@ -200,10 +200,13 @@ the request quotas per tenant and principal (`ERP_RATE_LIMIT_TENANT`,
 the pool size (`ERP_DB_MAX_CONNS`) and object storage (`ERP_OBJECT_DIR` or
 `ERP_OBJECT_S3_*`: captured documents, bank files and the audit anchors the
 server writes, locked for `ERP_OBJECT_RETENTION`). Field encryption uses a key per tenant,
-wrapped by the master keys in `ERP_FIELD_KEYS` (`id=base64,...`, the first
-for new keys; `ERP_FIELD_KEY` alone is one master); operators rotate a
-tenant's key through the control plane. Settings that carry
-secrets (`DATABASE_URL`, the keys, the S3 credentials) may name where the
+wrapped by a master key: one in AWS KMS (`ERP_FIELD_KMS_KEY` with its
+region, endpoint and credentials, [ADR-0019](docs/design/adr/0019-kms-master.md))
+or the local masters in `ERP_FIELD_KEYS` (`id=base64,...`, the first for
+new keys; `ERP_FIELD_KEY` alone is one master); operators rotate a
+tenant's key through the control plane, and `erp-server rewrap` moves every
+tenant's keys onto the current master. Settings that carry
+secrets (`DATABASE_URL`, the keys, the S3 and KMS credentials) may name where the
 secret lives instead: `env:NAME`, `file:/run/secrets/name` or
 `vault:secret/erp/db#url` with `ERP_VAULT_ADDR` and a token or a Kubernetes
 role ([ADR-0017](docs/design/adr/0017-secrets.md)); connectors' `secret_ref`
@@ -221,7 +224,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T14 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T15 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier
