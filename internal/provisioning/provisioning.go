@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -86,7 +87,8 @@ func init() {
 // Provisioner provisions tenants in one database.
 type Provisioner struct {
 	Pool          *database.Pool
-	AppRole       string // erp_app: the role the tenant's own rows are written as
+	AppRole       string              // erp_app: the role the tenant's own rows are written as
+	Keys          *fieldcrypt.Keyring // gives the tenant its own data key; nil leaves it on the legacy key
 	Configuration configuration.Dependencies
 	Now           func() time.Time
 	// Begin starts the transaction; nil means Pool.Begin. Tests replace it
@@ -159,6 +161,11 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	principal := reqctx.Principal{ID: res.AdministratorID, Kind: identity.Human, TenantID: res.TenantID}
 	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal)
 	ctx, buf := audit.WithBuffer(ctx)
+	if p.Keys != nil {
+		if err := p.Keys.Provision(ctx, tx, res.TenantID); err != nil {
+			return Result{}, err
+		}
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, email, all_companies, status, created_by, updated_by)
 		VALUES ($1, $2, 'human', $3, $4, $5, true, 'active', $2, $2)`,
 		res.TenantID, res.AdministratorID, req.Administrator.Subject, strings.TrimSpace(req.Administrator.DisplayName), req.Administrator.Email); err != nil {

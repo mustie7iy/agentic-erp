@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
@@ -39,7 +40,8 @@ type Config struct {
 	LLMEnabled      bool            // ANTHROPIC_API_KEY is set: invoice capture reads documents with Claude
 	BankOutboxDir   string          // ERP_BANK_OUTBOX_DIR, where transmitted bank files are dropped; empty disables transmission
 	ExtractDir      string          // ERP_EXTRACT_DIR, where sap_file connectors find SAP extracts; empty disables them
-	FieldKey        []byte          // ERP_FIELD_KEY, base64, at least 32 bytes: encrypts bank accounts and tax identifiers (required)
+	FieldKey        []byte          // ERP_FIELD_KEY, base64, at least 32 bytes: the legacy field encryption key (values sealed before tenant keys); required unless ERP_FIELD_KEYS is set
+	FieldKeys       []MasterKey     // ERP_FIELD_KEYS, "id=base64,id=base64,...": the master keys that wrap tenant keys, the first for new ones; default one master "v1" from ERP_FIELD_KEY
 	MigrateOnStart  bool            // ERP_MIGRATE_ON_START
 	LogLevel        slog.Level      // ERP_LOG_LEVEL: debug, info, warn, error (default info)
 	ShutdownTimeout time.Duration   // ERP_SHUTDOWN_TIMEOUT (default 20s)
@@ -55,6 +57,12 @@ type Config struct {
 	Secrets secrets.Resolver
 }
 
+// MasterKey is a key of the ring that wraps tenant keys (ADR-0018).
+type MasterKey struct {
+	ID     string
+	Secret []byte
+}
+
 // Vault is the HashiCorp Vault connection for vault: references.
 type Vault struct {
 	Address   string // ERP_VAULT_ADDR; empty: vault: references are not resolvable
@@ -66,7 +74,7 @@ type Vault struct {
 
 // SecretSettings are the settings that may carry a secret reference
 // instead of a value.
-var SecretSettings = []string{"DATABASE_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
+var SecretSettings = []string{"DATABASE_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
 
 // Objects is the object storage configuration: a directory (development) or
 // an S3-compatible service, never both.
@@ -83,7 +91,10 @@ type Objects struct {
 // Enabled reports whether object storage is configured.
 func (o Objects) Enabled() bool { return o.Dir != "" || o.Endpoint != "" }
 
-var cellPattern = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
+var (
+	cellPattern     = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
+	masterIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+)
 
 // Load reads and validates the configuration. The settings in
 // SecretSettings may be references (env:, file:, vault:), resolved here, so
@@ -161,8 +172,23 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("ERP_PAGE_TOKEN_KEY must be base64 of at least 32 random bytes, the same on every replica"))
 	}
 	c.PageTokenKey = key
-	if c.FieldKey, err = base64.StdEncoding.DecodeString(getenv("ERP_FIELD_KEY")); err != nil || len(c.FieldKey) < 32 {
-		errs = append(errs, errors.New("ERP_FIELD_KEY must be base64 of at least 32 random bytes, the same on every replica and kept secret"))
+	if raw := getenv("ERP_FIELD_KEY"); raw != "" || getenv("ERP_FIELD_KEYS") == "" {
+		if c.FieldKey, err = base64.StdEncoding.DecodeString(raw); err != nil || len(c.FieldKey) < 32 {
+			errs = append(errs, errors.New("ERP_FIELD_KEY must be base64 of at least 32 random bytes, the same on every replica and kept secret (optional with ERP_FIELD_KEYS)"))
+		}
+	}
+	if raw := getenv("ERP_FIELD_KEYS"); raw != "" {
+		for _, part := range strings.Split(raw, ",") {
+			id, b64, ok := strings.Cut(strings.TrimSpace(part), "=")
+			secret, derr := base64.StdEncoding.DecodeString(b64)
+			if !ok || !masterIDPattern.MatchString(id) || derr != nil || len(secret) < 32 {
+				errs = append(errs, errors.New(`ERP_FIELD_KEYS must be "id=base64,..." with ids of 1-64 letters, digits, - or _ and secrets of at least 32 bytes`))
+				break
+			}
+			c.FieldKeys = append(c.FieldKeys, MasterKey{ID: id, Secret: secret})
+		}
+	} else if len(c.FieldKey) >= 32 {
+		c.FieldKeys = []MasterKey{{ID: "v1", Secret: c.FieldKey}}
 	}
 	c.Objects = Objects{Dir: getenv("ERP_OBJECT_DIR"), Endpoint: getenv("ERP_OBJECT_S3_ENDPOINT"), Bucket: getenv("ERP_OBJECT_S3_BUCKET"),
 		Region: get("ERP_OBJECT_S3_REGION", "us-east-1"), AccessKey: getenv("ERP_OBJECT_S3_ACCESS_KEY"), SecretKey: getenv("ERP_OBJECT_S3_SECRET_KEY")}

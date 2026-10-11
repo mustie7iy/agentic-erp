@@ -25,13 +25,13 @@ import (
 //	erp tenants list [-status active] [-order-by "name asc"] [-page-size N] [-page-token T]
 //	erp tenants get -id ID
 //	erp tenants create -name Acme -region eu-west -currency EUR -admin-subject S -admin-name N [-admin-email E] -config config.yaml
-//	erp tenants suspend|resume|offboard -id ID [-if-match ETAG]
+//	erp tenants suspend|resume|offboard|rotate-key -id ID [-if-match ETAG]
 //
 // Each command prints the answer as JSON; a transition without -if-match
 // reads the tenant first and uses its ETag.
 func tenantsCmd(ctx context.Context, args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: erp tenants list|get|create|suspend|resume|offboard [flags]")
+		return errors.New("usage: erp tenants list|get|create|suspend|resume|offboard|rotate-key [flags]")
 	}
 	switch args[0] {
 	case "list":
@@ -40,10 +40,10 @@ func tenantsCmd(ctx context.Context, args []string) error {
 		return tenantsGet(ctx, args[1:])
 	case "create":
 		return tenantsCreate(ctx, args[1:])
-	case "suspend", "resume", "offboard":
+	case "suspend", "resume", "offboard", "rotate-key":
 		return tenantsTransition(ctx, args[0], args[1:])
 	}
-	return fmt.Errorf("erp tenants %s: unknown command (list, get, create, suspend, resume, offboard)", args[0])
+	return fmt.Errorf("erp tenants %s: unknown command (list, get, create, suspend, resume, offboard, rotate-key)", args[0])
 }
 
 // control performs one call of the control plane and returns the status,
@@ -191,7 +191,11 @@ func tenantsTransition(ctx context.Context, verb string, args []string) error {
 		}
 		*ifMatch = h.Get("ETag")
 	}
-	t, _, err := control(ctx, http.MethodPost, "/tenants/"+*id+":"+verb, nil, map[string]string{"If-Match": *ifMatch})
+	method := verb
+	if verb == "rotate-key" {
+		method = "rotateKey" // custom methods are lowerCamelCase in the contract
+	}
+	t, _, err := control(ctx, http.MethodPost, "/tenants/"+*id+":"+method, nil, map[string]string{"If-Match": *ifMatch})
 	if err != nil {
 		return err
 	}

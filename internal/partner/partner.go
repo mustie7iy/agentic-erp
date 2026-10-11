@@ -54,6 +54,8 @@ const (
 )
 
 func init() {
+	fieldcrypt.Register(fieldcrypt.Column{Table: "partner.bank_account", Keys: []string{"id"}, Cipher: "account_cipher", Fingerprint: "account_fingerprint"})
+	fieldcrypt.Register(fieldcrypt.Column{Table: "partner.tax_identifier", Keys: []string{"partner_id", "scheme"}, Cipher: "value_cipher", Fingerprint: "value_fingerprint", Versioned: true})
 	problem.RegisterConstraint("partner_change_one_pending", func() *problem.Problem {
 		return problem.Conflict("partner.change_pending", "The partner already has a pending change of this kind; it must be decided first.")
 	})
@@ -83,7 +85,7 @@ type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
 	Accounts      Accounts
-	Keys          *fieldcrypt.Keys
+	Keys          *fieldcrypt.Keyring
 	Approvals     Opener
 }
 
@@ -91,7 +93,7 @@ type Endpoints struct {
 type Ports struct {
 	LegalEntities LegalEntities
 	Accounts      Accounts
-	Keys          *fieldcrypt.Keys
+	Keys          *fieldcrypt.Keyring
 }
 
 func (e *Endpoints) ports() Ports {

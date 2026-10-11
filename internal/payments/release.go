@@ -223,7 +223,7 @@ func (e *Endpoints) render(ctx context.Context, r Run, hb houseBank, pays []Paym
 	if err != nil {
 		return nil, err
 	}
-	iban, err := e.Keys.Open(p.TenantID, hb.IBANCipher)
+	iban, err := e.Keys.Open(ctx, p.TenantID, hb.IBANCipher)
 	if err != nil {
 		return nil, err
 	}

@@ -407,6 +407,8 @@ func TestTenantsCommand(t *testing.T) {
 			w.Write([]byte(`{"id": "t1", "status": "suspended", "version": 4}`))
 		case r.URL.Path == "/control/v1/tenants/t1:resume" && r.Header.Get("If-Match") == `"3"`:
 			w.Write([]byte(`{"id": "t1", "status": "active", "version": 5}`))
+		case r.URL.Path == "/control/v1/tenants/t1:rotateKey" && r.Header.Get("If-Match") == `"3"`:
+			w.Write([]byte(`{"id": "t1", "status": "active", "version": 6, "rotation": {"resealed": 2}}`))
 		case r.URL.Path == "/control/v1/tenants/t1:offboard":
 			w.WriteHeader(409)
 			w.Write([]byte(`{"code": "tenancy.invalid_transition", "detail": "The tenant is offboarded; offboard applies to active or suspended tenants."}`))
@@ -442,6 +444,9 @@ func TestTenantsCommand(t *testing.T) {
 	}
 	if got := must(t, "tenants", "resume", "-id", "t1", "-if-match", `"3"`); got == "" {
 		t.Fatalf("resume: %s", got)
+	}
+	if got := must(t, "tenants", "rotate-key", "-id", "t1"); !strings.Contains(got, `"resealed": 2`) {
+		t.Fatalf("rotate-key: %s", got)
 	}
 	fails(t, "tenancy.invalid_transition", "tenants", "offboard", "-id", "t1")
 	fails(t, "tenancy.invalid_tenant", "tenants", "create", "-config", file)

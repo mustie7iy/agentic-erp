@@ -29,7 +29,11 @@ type HouseBanks struct {
 	Accounts interface {
 		Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	}
-	Keys *fieldcrypt.Keys
+	Keys *fieldcrypt.Keyring
+}
+
+func init() {
+	fieldcrypt.Register(fieldcrypt.Column{Table: "payments.house_bank", Keys: []string{"id"}, Cipher: "iban_cipher", Versioned: true})
 }
 
 var houseBankCode = regexp.MustCompile(`^[A-Z0-9]{1,5}$`)
@@ -65,7 +69,7 @@ func (h HouseBanks) Check(ctx context.Context, _, proposed *config.Config) ([]co
 		if err != nil {
 			return nil, err
 		}
-		iban, err := h.Keys.Open(p.TenantID, sealed)
+		iban, err := h.Keys.Open(ctx, p.TenantID, sealed)
 		if err != nil {
 			return nil, err
 		}
@@ -101,13 +105,17 @@ func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 			return fmt.Errorf("payments: legal entity %s has no bank account", co.Code)
 		}
 		hb := co.HouseBank
+		sealed, err := h.Keys.Seal(ctx, p.TenantID, hb.IBAN)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO payments.house_bank AS h (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency,
 				gl_account_id, status, created_by, updated_by)
 			VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'active', $10, $10)
 			ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET gl_account_id = EXCLUDED.gl_account_id, status = 'active',
 				version = h.version + 1, updated_by = EXCLUDED.updated_by
 			WHERE (h.gl_account_id, h.status) IS DISTINCT FROM (EXCLUDED.gl_account_id, 'active')`,
-			p.TenantID, uuid.Must(uuid.NewV7()), le.ID, hb.Name, h.Keys.Seal(p.TenantID, hb.IBAN), fieldcrypt.Last4(hb.IBAN), hb.BIC,
+			p.TenantID, uuid.Must(uuid.NewV7()), le.ID, hb.Name, sealed, fieldcrypt.Last4(hb.IBAN), hb.BIC,
 			co.Currency, account, p.ID); err != nil {
 			return err
 		}

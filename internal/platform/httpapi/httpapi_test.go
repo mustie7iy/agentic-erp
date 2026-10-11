@@ -120,7 +120,8 @@ func TestQuotasAndDeadlines(t *testing.T) {
 	}
 	ten := pgtest.NewTenant(t, "platform.operation.read")
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	keys, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
+	legacy, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
+	keys := &fieldcrypt.Keyring{Legacy: legacy}
 	base := Config{Pool: pgtest.Pool(t), AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: keys, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now}
 	get := func(h http.Handler) *httptest.ResponseRecorder {

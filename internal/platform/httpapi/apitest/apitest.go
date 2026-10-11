@@ -87,10 +87,36 @@ func NewWith(t testing.TB, configure func(*httpapi.Config)) *API {
 	return a
 }
 
-// FieldKeys are the field encryption keys the test API uses.
-func FieldKeys() *fieldcrypt.Keys {
-	k, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
-	return k
+// Seal seals a value for a tenant with the test ring, outside a request
+// (the legacy key for tenants made by pgtest).
+func Seal(t testing.TB, tenant uuid.UUID, value string) []byte {
+	t.Helper()
+	sealed, err := FieldKeys().Seal(context.Background(), tenant, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sealed
+}
+
+// Fingerprint is the test ring's fingerprint of a value for a tenant.
+func Fingerprint(t testing.TB, tenant uuid.UUID, value string) string {
+	t.Helper()
+	print, err := FieldKeys().Fingerprint(context.Background(), tenant, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return print
+}
+
+// FieldKeys is the key ring the test API uses: one master ("test") and the
+// legacy key, both from the same test secret. Tenants made by pgtest have
+// no key of their own and seal with the legacy key; provisioned tenants get
+// one. Lookups use the request's transaction, so outside a request the ring
+// seals with the legacy key.
+func FieldKeys() *fieldcrypt.Keyring {
+	legacy, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
+	master, _ := fieldcrypt.NewLocalMaster("test", []byte(strings.Repeat("f", 32)))
+	return &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{master}, Legacy: legacy, AppRole: "erp_app"}
 }
 
 // Logs returns everything logged so far.

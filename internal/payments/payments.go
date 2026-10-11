@@ -120,9 +120,9 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
-	Keys          *fieldcrypt.Keys // opens house bank IBANs
-	Connector     Connector        // transmits bank files; nil: transmission answers 503
-	Objects       blobstore.Store  // keeps bank files as written at release; nil: files are rendered again when needed
+	Keys          *fieldcrypt.Keyring // opens house bank IBANs
+	Connector     Connector           // transmits bank files; nil: transmission answers 503
+	Objects       blobstore.Store     // keeps bank files as written at release; nil: files are rendered again when needed
 }
 
 // Run is a row of payments.payment_run. Amounts are minor units of

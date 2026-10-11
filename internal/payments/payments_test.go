@@ -89,7 +89,6 @@ func work(t *testing.T) int {
 func (e env) bankAccount(t *testing.T, supplier uuid.UUID, iban, holder, validFrom, validTo, kind string) uuid.UUID {
 	t.Helper()
 	change, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	k := apitest.FieldKeys()
 	pgtest.Exec(t, `INSERT INTO partner.partner_change (tenant_id, id, number, kind, partner_id, payload, reason, status, requested_by, applied_at,
 		created_by, updated_by) VALUES ($1, $2, $3, $4, $5, '{}', 'test', 'applied', $6, now(), $6, $6)`,
 		e.Tenant.ID, change, change.String(), kind, supplier, e.Tenant.Human.ID)
@@ -99,8 +98,8 @@ func (e env) bankAccount(t *testing.T, supplier uuid.UUID, iban, holder, validFr
 	}
 	pgtest.Exec(t, `INSERT INTO partner.bank_account (tenant_id, id, partner_id, account_cipher, account_fingerprint, account_last4, account_scheme, bic,
 		bank_country_code, holder_name, valid_from, valid_to, partner_change_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, 'iban', 'COBADEFFXXX', 'DE', $7, $8, $9, $10, $11)`, e.Tenant.ID, id, supplier, k.Seal(e.Tenant.ID, iban),
-		k.Fingerprint(e.Tenant.ID, iban), iban[len(iban)-4:], holder, validFrom, to, change, e.Tenant.Human.ID)
+		VALUES ($1, $2, $3, $4, $5, $6, 'iban', 'COBADEFFXXX', 'DE', $7, $8, $9, $10, $11)`, e.Tenant.ID, id, supplier, apitest.Seal(t, e.Tenant.ID, iban),
+		apitest.Fingerprint(t, e.Tenant.ID, iban), iban[len(iban)-4:], holder, validFrom, to, change, e.Tenant.Human.ID)
 	return id
 }
 

@@ -224,6 +224,40 @@ paths:
           $ref: "#/components/responses/PreconditionFailed"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}:rotateKey":
+    post:
+      operationId: rotateTenantKey
+      tags:
+        - tenants
+      summary: Rotate a tenant's encryption key
+      description: "Gives the tenant a new field-encryption key, wrapped by the deployment's current master key, and re-seals every sensitive field (bank accounts, tax identifiers, house bank IBANs) under it in one transaction; fingerprints move to the tenant's own fingerprint key. A tenant still on the deployment's legacy key gets its first key of its own. The tenant's version moves on. Recorded in the tenant's audit trail; 503 while the server has no master keys."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The tenant with what the rotation did.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantKeyRotated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 components:
   securitySchemes:
     operator:
@@ -328,34 +362,41 @@ components:
           type: string
           description: Display name.
           readOnly: true
+          example: Acme
         region:
           type: string
           description: "Region the tenant's data stays in, for example `eu-west`."
           readOnly: true
+          example: eu-west
         group_currency:
           type: string
           description: Group currency (ISO 4217).
           readOnly: true
+          example: EUR
         status:
           type: string
           description: "Lifecycle status: `provisioning`, `active`, `suspended` or `offboarded` (open enumeration)."
           readOnly: true
+          example: active
         version:
           type: integer
           format: int32
           description: "Optimistic-lock version; equals the ETag."
           minimum: 1
           readOnly: true
+          example: 1
         created_at:
           type: string
           format: date-time
           description: When the tenant was provisioned (UTC).
           readOnly: true
+          example: "2026-10-11T09:00:00Z"
         updated_at:
           type: string
           format: date-time
           description: Time of the last status change (UTC).
           readOnly: true
+          example: "2026-10-11T09:00:00Z"
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
           name: Acme
@@ -509,6 +550,72 @@ components:
             legal_entities:
               "1000": "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d04"
             configuration_version: 1
+    TenantKeyRotated:
+      description: The tenant after a key rotation, with what the rotation did.
+      allOf:
+        - $ref: "#/components/schemas/Tenant"
+        - type: object
+          required:
+            - rotation
+          properties:
+            rotation:
+              $ref: "#/components/schemas/KeyRotation"
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          name: Acme
+          region: eu-west
+          group_currency: EUR
+          status: active
+          version: 2
+          created_at: "2026-10-11T09:00:00Z"
+          updated_at: "2026-10-11T10:00:00Z"
+          rotation:
+            key_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d10"
+            previous_key_id: "00000000-0000-0000-0000-000000000000"
+            master_key_id: v2
+            resealed: 42
+            rotated_at: "2026-10-11T10:00:00Z"
+    KeyRotation:
+      type: object
+      description: What a key rotation did.
+      required:
+        - key_id
+        - previous_key_id
+        - master_key_id
+        - resealed
+        - rotated_at
+      properties:
+        key_id:
+          type: string
+          format: uuid
+          description: The tenant's new data key.
+          readOnly: true
+        previous_key_id:
+          type: string
+          format: uuid
+          description: "The key retired; the nil UUID when the tenant was on the deployment's legacy key."
+          readOnly: true
+        master_key_id:
+          type: string
+          description: The master key the new key is wrapped by.
+          readOnly: true
+        resealed:
+          type: integer
+          format: int32
+          description: Rows re-sealed under the new key.
+          minimum: 0
+          readOnly: true
+        rotated_at:
+          type: string
+          format: date-time
+          description: When (UTC).
+          readOnly: true
+      examples:
+        - key_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d10"
+          previous_key_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d0f"
+          master_key_id: v2
+          resealed: 42
+          rotated_at: "2026-10-11T10:00:00Z"
     TenantPage:
       type: object
       description: One page of tenants.
@@ -724,4 +831,18 @@ components:
             code: request.precondition_required
             detail: If-Match header is required for this operation.
             instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:suspend"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    ServiceUnavailable:
+      description: The server has no master keys configured, so keys cannot be rotated.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/platform/unavailable"
+            title: Service unavailable
+            status: 503
+            code: platform.unavailable
+            detail: Key rotation is not configured on this server.
+            instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:rotateKey"
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"

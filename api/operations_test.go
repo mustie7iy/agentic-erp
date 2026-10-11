@@ -67,7 +67,8 @@ func TestControlOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{"listTenants": "GET /control/v1/tenants", "createTenant": "POST /control/v1/tenants", "getTenant": "GET /control/v1/tenants/{id}",
-		"suspendTenant": "POST /control/v1/tenants/{id}:suspend", "resumeTenant": "POST /control/v1/tenants/{id}:resume", "offboardTenant": "POST /control/v1/tenants/{id}:offboard"}
+		"suspendTenant": "POST /control/v1/tenants/{id}:suspend", "resumeTenant": "POST /control/v1/tenants/{id}:resume", "offboardTenant": "POST /control/v1/tenants/{id}:offboard",
+		"rotateTenantKey": "POST /control/v1/tenants/{id}:rotateKey"}
 	if len(ops) != len(want) {
 		t.Fatalf("%d operations", len(ops))
 	}

@@ -65,6 +65,7 @@ prototype store for that context.
 | T11 (done) | **Control plane** | Operators list, provision, suspend, resume and offboard tenants through a contract on the admin listener, with operator tokens; every change recorded in the tenant's audit trail and published |
 | T12 (done) | **Object storage** | Captured documents and bank files kept in write-once object storage and served through the API; the audit chain anchored to locked objects and verified against them |
 | T13 (done) | **Secrets** | Settings and connectors name their secrets by reference (environment, mounted file, Vault) and the server resolves them at start and on use; the repository is scanned for leaked secrets |
+| T14 (done) | **Key management** | Every tenant's sensitive fields are sealed with the tenant's own key, wrapped by a ring of master keys; operators rotate a tenant's key and the fields are re-sealed in one transaction |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -922,6 +923,56 @@ Open points for the contract and design review:
 - The CLI's own credentials (`ERP_TOKEN`, `SAP_USER`/`SAP_PASSWORD` for
   `config generate`) stay in the user's environment.
 - `gosec` is not in CI yet; secret scanning is.
+
+### T14 decisions and open points
+
+What T14 built: per-tenant field-encryption keys and rotation (ADR-0018).
+`fieldcrypt.Keyring` seals each tenant's bank accounts, tax identifiers and
+house bank IBANs with the tenant's own data key and fingerprints them with
+the tenant's own fingerprint key; both are generated at provisioning,
+stored wrapped by a master key in `tenancy.tenant_key` (migration 000021),
+and unwrapped on first use per replica. Masters form a ring
+(`ERP_FIELD_KEYS`, `id=base64,...`, the first wraps new keys, all unwrap);
+without it the legacy `ERP_FIELD_KEY` is the one master. The sealed format
+gained a version that names its key, and the legacy format still opens.
+`POST /control/v1/tenants/{id}:rotateKey` (`erp tenants rotate-key`)
+retires the tenant's key, stores a new one and re-seals every registered
+sealed column (contexts declare theirs with `fieldcrypt.Register`) in one
+transaction, recorded in the tenant's chain; a tenant still on the legacy
+key gets its first key this way. The exit criteria are
+`TestRotationResealsEveryColumn` (fieldcrypt, on a configured tenant),
+`TestKeyRotationThroughTheControlPlane` and the provisioning test showing
+a new tenant sealed with its own key from the start.
+
+Decisions taken while building it:
+
+- **Envelope encryption, no KMS yet.** The tenant data key is the unit of
+  rotation and the thing a KMS would hold or wrap; the master ring is the
+  KMS stand-in (`Master` is an interface). Rotating a master is re-wrapping
+  tenant keys at the next rotation; a master may leave the ring once no
+  tenant key is wrapped by it (`ErrNoMaster` says so otherwise).
+- **Rotation re-seals in the request.** A tenant's sealed rows are few
+  (bank accounts, tax identifiers, house banks), so the rotation is one
+  transaction and the previous key is retired but kept, so nothing sealed
+  with it is unreadable. Contexts register their sealed columns; the
+  validity trigger of effective-dated bank accounts lets a re-seal through
+  when nothing but sealed columns changed.
+- **Fingerprints move with the tenant key.** The fingerprint key is the
+  tenant's too, so a tenant moving off the legacy key gets new fingerprints
+  for every row in the same rotation; equality lookups keep working because
+  new values are fingerprinted the same way.
+- **Legacy stays readable.** Values sealed before tenant keys (format 1)
+  open through the legacy key until the tenant is rotated; tenants made
+  before T14 keep working unrotated.
+
+Open points for the contract and design review:
+
+- A KMS implementation of `Master` (AWS KMS, GCP KMS, Azure Key Vault) with
+  the same wrap and unwrap calls.
+- Rotation is on request by an operator; a policy (yearly, on staff change)
+  would schedule it, and a list of tenants by key age would show who is due.
+- The page-token key (`ERP_PAGE_TOKEN_KEY`) is not rotated; tokens are
+  short-lived cursors, so a key change only invalidates open pages.
 
 ## 7.4 Data from the prototype
 

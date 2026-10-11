@@ -136,7 +136,7 @@ func TestTransmitFailures(t *testing.T) {
 	e.Problem(412, "request.version_mismatch", "POST", path, "", `"9"`)
 	// A run whose data no longer renders the recorded file is not transmitted.
 	pgtest.Exec(t, `UPDATE payments.house_bank SET iban_cipher = $2, version = version + 1 WHERE id = $1`, e.bank,
-		apitest.FieldKeys().Seal(e.Tenant.ID, "DE02120300000000202051"))
+		apitest.Seal(t, e.Tenant.ID, "DE02120300000000202051"))
 	e.Problem(409, "payments.bank_file_changed", "POST", path, "", `"1"`)
 	// Bank details that cannot be opened are an internal error.
 	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
@@ -145,7 +145,7 @@ func TestTransmitFailures(t *testing.T) {
 	pgtest.Exec(t, `UPDATE payments.house_bank SET iban_cipher = '\x00', version = version + 1 WHERE id = $1`, e.bank)
 	e.Problem(500, "platform.internal", "POST", path, "", `"1"`)
 	pgtest.Exec(t, `UPDATE payments.house_bank SET iban_cipher = $2, version = version + 1 WHERE id = $1`, e.bank,
-		apitest.FieldKeys().Seal(e.Tenant.ID, "DE89370400440532013000"))
+		apitest.Seal(t, e.Tenant.ID, "DE89370400440532013000"))
 	if got, _ := e.Must(200, "GET", "/v1/bank-files/"+id(file), "", ""); got["status"] != "created" || len(e.connector.files) != 0 {
 		t.Fatalf("file after failures: %v %v", got, e.connector.files)
 	}

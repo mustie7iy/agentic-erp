@@ -96,12 +96,12 @@ type Config struct {
 	AppRole    string
 	Verifier   *authn.Verifier
 	Pages      *pagination.Codec
-	FieldKeys  *fieldcrypt.Keys   // seals bank accounts and tax identifiers
-	Extractor  capture.Extractor  // reads captured invoices; nil: capture answers 503
-	Connector  payments.Connector // transmits bank files; nil: transmission answers 503
-	ExtractDir string             // sap_file connectors read extracts below it; empty: they answer 503
-	Objects    blobstore.Store    // documents, bank files and audit anchors; nil: documents and files are not kept
-	Secrets    secrets.Resolver   // resolves connectors' secret_ref; nil: env: and file: references on this replica
+	FieldKeys  *fieldcrypt.Keyring // seals bank accounts and tax identifiers with each tenant's key
+	Extractor  capture.Extractor   // reads captured invoices; nil: capture answers 503
+	Connector  payments.Connector  // transmits bank files; nil: transmission answers 503
+	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
+	Objects    blobstore.Store     // documents, bank files and audit anchors; nil: documents and files are not kept
+	Secrets    secrets.Resolver    // resolves connectors' secret_ref; nil: env: and file: references on this replica
 	// Limits enforces the request quotas of 04 §4.11; nil applies none.
 	Limits *ratelimit.Limiter
 	// RequestTimeout is the deadline of one request, so that a saturated

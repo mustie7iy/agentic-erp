@@ -15,7 +15,7 @@ import (
 // pays, in the request's transaction. Bank details are opened only to
 // write them into a bank file.
 type Payees struct {
-	Keys *fieldcrypt.Keys
+	Keys *fieldcrypt.Keyring
 }
 
 // Payee is what a payment run needs to know about a supplier of a legal
@@ -86,7 +86,7 @@ func (y Payees) BankDetails(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID
 	var sealed []byte
 	_, err = pgx.ForEachRow(rows, []any{&id, &d.Holder, &sealed, &d.BIC}, func() error {
 		var err error
-		if d.Account, err = y.Keys.Open(p.TenantID, sealed); err != nil {
+		if d.Account, err = y.Keys.Open(ctx, p.TenantID, sealed); err != nil {
 			return err
 		}
 		out[id] = d

@@ -11,7 +11,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 )
@@ -71,12 +70,12 @@ func provision(ctx context.Context, cfg platformconfig.Config, req provisioning.
 		return provisioning.Result{}, err
 	}
 	req.Document = doc
-	keys, _ := fieldcrypt.New(cfg.FieldKey) // the key was validated with the configuration
 	pool, err := database.Open(ctx, cfg.DatabaseURL, database.DefaultSettings)
 	if err != nil {
 		return provisioning.Result{}, err
 	}
 	defer pool.Close()
+	keys, _ := keyring(cfg, pool) // the keys were validated with the configuration
 	deps := httpapi.Configuration(httpapi.Config{FieldKeys: keys})
-	return (&provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Configuration: deps}).Provision(ctx, req)
+	return (&provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Configuration: deps}).Provision(ctx, req)
 }

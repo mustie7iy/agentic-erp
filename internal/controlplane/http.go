@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -86,6 +87,8 @@ func (h *handler) item(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && !custom:
 		h.serve(w, r, "getTenant", func(w http.ResponseWriter, r *http.Request) error { return h.get(w, r, id) })
+	case r.Method == http.MethodPost && custom && verb == "rotateKey":
+		h.serve(w, r, "rotateTenantKey", func(w http.ResponseWriter, r *http.Request) error { return h.rotateKey(w, r, id) })
 	case r.Method == http.MethodPost && custom:
 		h.serve(w, r, verb+"Tenant", func(w http.ResponseWriter, r *http.Request) error { return h.transition(w, r, id, verb) })
 	case custom:
@@ -215,5 +218,21 @@ func (h *handler) transition(w http.ResponseWriter, r *http.Request, id uuid.UUI
 	}
 	w.Header().Set("ETag", etag.Format(t.Version))
 	writeJSON(w, http.StatusOK, t)
+	return nil
+}
+
+// rotated is the TenantKeyRotated schema: the tenant and the rotation.
+type rotated struct {
+	Tenant
+	Rotation fieldcrypt.Rotation `json:"rotation"`
+}
+
+func (h *handler) rotateKey(w http.ResponseWriter, r *http.Request, id uuid.UUID) error {
+	t, rot, err := h.s.RotateKey(r.Context(), operator(r.Context()), id, r.Header.Get("If-Match"))
+	if err != nil {
+		return err
+	}
+	w.Header().Set("ETag", etag.Format(t.Version))
+	writeJSON(w, http.StatusOK, rotated{Tenant: t, Rotation: rot})
 	return nil
 }

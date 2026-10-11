@@ -119,7 +119,10 @@ erDiagram
 
 `tenant` is the only table without `tenant_id` (it *is* the tenant); it carries
 the tenant's region and group currency. The global tenant-to-cell directory
-lives outside cell databases (05-scalability).
+lives outside cell databases (05-scalability). `tenant_key` holds the
+tenant's field-encryption and fingerprint keys, wrapped by a master key of
+the deployment's ring; one is active, retired ones stay to open older values
+(ADR-0018).
 
 ## 3.4 Identity and access (`identity`)
 

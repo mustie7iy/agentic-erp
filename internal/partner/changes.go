@@ -219,7 +219,7 @@ func checkAddresses(day time.Time, in []AddressInput, current bool) error {
 	return nil
 }
 
-func sealTaxes(keys *fieldcrypt.Keys, tenant uuid.UUID, in []TaxInput) ([]sealedTax, error) {
+func sealTaxes(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, in []TaxInput) ([]sealedTax, error) {
 	out := []sealedTax{}
 	seen := map[string]bool{}
 	for i, t := range in {
@@ -227,13 +227,20 @@ func sealTaxes(keys *fieldcrypt.Keys, tenant uuid.UUID, in []TaxInput) ([]sealed
 			return nil, invalid("partner.duplicate_tax_scheme", fmt.Sprintf("tax_identifiers[%d].scheme", i), "one identifier per scheme")
 		}
 		seen[t.Scheme] = true
-		out = append(out, sealedTax{Scheme: t.Scheme, ValueCipher: keys.Seal(tenant, t.Value),
-			ValueFingerprint: keys.Fingerprint(tenant, t.Value), ValueLast4: fieldcrypt.Last4(t.Value)})
+		cipher, err := keys.Seal(ctx, tenant, t.Value)
+		if err != nil {
+			return nil, err
+		}
+		print, err := keys.Fingerprint(ctx, tenant, t.Value)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sealedTax{Scheme: t.Scheme, ValueCipher: cipher, ValueFingerprint: print, ValueLast4: fieldcrypt.Last4(t.Value)})
 	}
 	return out, nil
 }
 
-func sealBanks(keys *fieldcrypt.Keys, tenant uuid.UUID, day time.Time, in []BankInput, field func(int) string) ([]sealedBank, error) {
+func sealBanks(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, day time.Time, in []BankInput, field func(int) string) ([]sealedBank, error) {
 	out := []sealedBank{}
 	seen := map[string]bool{}
 	for i, b := range in {
@@ -257,7 +264,15 @@ func sealBanks(keys *fieldcrypt.Keys, tenant uuid.UUID, day time.Time, in []Bank
 			return nil, invalid("partner.backdated_bank_account", f+"valid_from", "today or later")
 		}
 		seen[b.Purpose] = true
-		out = append(out, sealedBank{Purpose: b.Purpose, AccountCipher: keys.Seal(tenant, number), AccountFingerprint: keys.Fingerprint(tenant, number),
+		cipher, err := keys.Seal(ctx, tenant, number)
+		if err != nil {
+			return nil, err
+		}
+		print, err := keys.Fingerprint(ctx, tenant, number)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sealedBank{Purpose: b.Purpose, AccountCipher: cipher, AccountFingerprint: print,
 			AccountLast4: fieldcrypt.Last4(number), AccountScheme: b.AccountScheme, BIC: b.BIC, BankCountryCode: b.BankCountryCode,
 			HolderName: b.HolderName, ValidFrom: Date{b.ValidFrom}})
 	}
@@ -438,11 +453,11 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err := checkAddresses(day, in.Addresses, false); err != nil {
 		return Partner{}, Change{}, err
 	}
-	taxes, err := sealTaxes(ports.Keys, p.TenantID, in.TaxIdentifiers)
+	taxes, err := sealTaxes(ctx, ports.Keys, p.TenantID, in.TaxIdentifiers)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	banks, err := sealBanks(ports.Keys, p.TenantID, day, in.BankAccounts, func(i int) string { return fmt.Sprintf("bank_accounts[%d].", i) })
+	banks, err := sealBanks(ctx, ports.Keys, p.TenantID, day, in.BankAccounts, func(i int) string { return fmt.Sprintf("bank_accounts[%d].", i) })
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -614,7 +629,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err := checkAddresses(day, ch.Addresses, true); err != nil {
 		return Change{}, err
 	}
-	taxes, err := sealTaxes(ports.Keys, p.TenantID, ch.TaxIdentifiers)
+	taxes, err := sealTaxes(ctx, ports.Keys, p.TenantID, ch.TaxIdentifiers)
 	if err != nil {
 		return Change{}, err
 	}
@@ -647,7 +662,7 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if err := checkCountries(ctx, tx, []string{"bank_country_code"}, []string{in.BankCountryCode}); err != nil {
 		return Change{}, err
 	}
-	banks, err := sealBanks(ports.Keys, p.TenantID, day, []BankInput{in}, func(int) string { return "" })
+	banks, err := sealBanks(ctx, ports.Keys, p.TenantID, day, []BankInput{in}, func(int) string { return "" })
 	if err != nil {
 		return Change{}, err
 	}

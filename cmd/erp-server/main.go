@@ -114,7 +114,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err != nil {
 		return err
 	}
-	keys, err := fieldcrypt.New(cfg.FieldKey)
+	keys, err := keyring(cfg, pool)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 			return err
 		}
 		service := &controlplane.Service{Pool: pool, AppRole: cfg.AppRole, ControlRole: cfg.ControlRole, Pages: pages,
-			Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})}}
+			Keys: keys, Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})}}
 		control = controlplane.Handler(service, operators, log)
 		log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(cfg.OperatorIssuers), "dev_issuer", cfg.DevIssuer)
 	}
@@ -244,6 +244,27 @@ var (
 	maintenanceInterval = 6 * time.Hour
 	anchorInterval      = time.Minute
 )
+
+// keyring builds the field encryption ring: the configured masters, the
+// legacy key when there is one, and the pool for lookups outside requests.
+func keyring(cfg config.Config, pool *database.Pool) (*fieldcrypt.Keyring, error) {
+	ring := &fieldcrypt.Keyring{Pool: pool, AppRole: cfg.AppRole}
+	for _, mk := range cfg.FieldKeys {
+		m, err := fieldcrypt.NewLocalMaster(mk.ID, mk.Secret)
+		if err != nil {
+			return nil, err
+		}
+		ring.Masters = append(ring.Masters, m)
+	}
+	if len(cfg.FieldKey) > 0 {
+		legacy, err := fieldcrypt.New(cfg.FieldKey)
+		if err != nil {
+			return nil, err
+		}
+		ring.Legacy = legacy
+	}
+	return ring, nil
+}
 
 // objects opens the configured object store, or nil without one.
 func objects(o config.Objects) blobstore.Store {

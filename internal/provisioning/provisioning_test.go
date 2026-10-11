@@ -24,7 +24,8 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 func provisioner(t *testing.T) *provisioning.Provisioner {
-	return &provisioning.Provisioner{Pool: pgtest.Pool(t), AppRole: "erp_app", Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: apitest.FieldKeys()})}
+	keys := apitest.FieldKeys()
+	return &provisioning.Provisioner{Pool: pgtest.Pool(t), AppRole: "erp_app", Keys: keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})}
 }
 
 func request(t *testing.T) provisioning.Request {
@@ -80,6 +81,13 @@ func TestProvisionedTenantIsManagedThroughTheAPI(t *testing.T) {
 		if !codes[want] {
 			t.Errorf("role %s missing: %v", want, codes)
 		}
+	}
+	// The tenant has its own field-encryption key, and its house banks are sealed with it.
+	var keyed, format int
+	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1 AND status = 'active'`, res.TenantID).Scan(&keyed)
+	pgtest.Admin(t).QueryRow(ctx, `SELECT get_byte(iban_cipher, 0) FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, res.TenantID).Scan(&format)
+	if keyed != 1 || format != 2 {
+		t.Fatalf("tenant key: %d keys, house banks sealed with format %d", keyed, format)
 	}
 	// The tenant announced itself, and the audit trail starts with the administrator.
 	if ev := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "tenant_status_changed"}); len(ev) != 1 || ev[0]["status"] != "active" {

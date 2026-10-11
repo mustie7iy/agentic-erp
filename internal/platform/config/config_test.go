@@ -60,6 +60,25 @@ func TestOverrides(t *testing.T) {
 	if _, err := Load(env(m)); err == nil {
 		t.Fatal("empty issuer list accepted")
 	}
+	// Master keys: a ring from ERP_FIELD_KEYS, or one master from the legacy key.
+	m = valid()
+	if c, err := Load(env(m)); err != nil || len(c.FieldKeys) != 1 || c.FieldKeys[0].ID != "v1" || len(c.FieldKeys[0].Secret) != 32 {
+		t.Fatal(c, err)
+	}
+	m["ERP_FIELD_KEYS"] = "k2=" + key + ", k1=" + key
+	if c, err := Load(env(m)); err != nil || len(c.FieldKeys) != 2 || c.FieldKeys[0].ID != "k2" || c.FieldKeys[1].ID != "k1" {
+		t.Fatal(c, err)
+	}
+	delete(m, "ERP_FIELD_KEY")
+	if c, err := Load(env(m)); err != nil || len(c.FieldKey) != 0 || len(c.FieldKeys) != 2 {
+		t.Fatalf("ring without a legacy key: %+v %v", c, err)
+	}
+	for _, bad := range []string{"k1", "k1=short", "bad id!=" + key, key} {
+		m["ERP_FIELD_KEYS"] = bad
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KEYS") {
+			t.Fatalf("%s: %v", bad, err)
+		}
+	}
 	// Operator issuers are optional and validated when given.
 	m = valid()
 	m["ERP_OPERATOR_ISSUERS"], m["ERP_DB_CONTROL_ROLE"] = `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "ops_role"

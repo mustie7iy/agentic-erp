@@ -26,6 +26,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -86,6 +87,7 @@ type Service struct {
 	AppRole     string // erp_app: status changes run in the tenant's scope
 	ControlRole string // erp_control: reads across tenants
 	Provisioner *provisioning.Provisioner
+	Keys        *fieldcrypt.Keyring // rotates tenant keys; nil: rotation answers 503
 	Pages       *pagination.Codec
 	Now         func() time.Time
 	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
@@ -280,4 +282,50 @@ func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, ver
 		return Tenant{}, err
 	}
 	return t, nil
+}
+
+// RotateKey gives the tenant a new field-encryption key and re-seals its
+// sensitive fields (ADR-0018), guarded by If-Match like a status change,
+// and records it in the tenant's audit trail. The tenant's version moves on.
+func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMatch string) (Tenant, fieldcrypt.Rotation, error) {
+	if s.Keys == nil {
+		return Tenant{}, fieldcrypt.Rotation{}, problem.Unavailable("Key rotation is not configured on this server.", 0)
+	}
+	tx, err := s.begin(ctx, database.Scope{Role: s.AppRole, TenantID: id})
+	if err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1 FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Tenant{}, fieldcrypt.Rotation{}, problem.NotFound("No tenant with this id.")
+	}
+	if err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, err
+	}
+	if err := etag.Check(ifMatch, t.Version); err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, err
+	}
+	if t.Status == Offboarded {
+		return Tenant{}, fieldcrypt.Rotation{}, problem.Conflict("tenancy.invalid_transition", "The tenant is offboarded; its keys are not rotated.")
+	}
+	if err := database.SetActor(ctx, tx, op.ID); err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, err
+	}
+	rot, err := s.Keys.Rotate(ctx, tx, id)
+	if err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, err
+	}
+	if t, err = scan(tx.QueryRow(ctx, `UPDATE tenancy.tenant SET version = version + 1 WHERE id = $1 RETURNING `+columns, id)); err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, err
+	}
+	actor := reqctx.Principal{ID: op.ID, Kind: reqctx.KindSystem, TenantID: id}
+	if err := audit.Write(ctx, tx, actor, reqctx.TraceID(ctx), s.now(), audit.Entry{Action: "tenancy.tenant.rotate_key", ObjectType: "tenancy.tenant", ObjectID: id, Outcome: "succeeded",
+		Detail: map[string]any{"key_id": rot.KeyID, "previous_key_id": rot.Previous, "master_key_id": rot.Master, "resealed": rot.Resealed, "operator": op.Subject, "issuer": op.Issuer}}); err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, err
+	}
+	return t, rot, nil
 }

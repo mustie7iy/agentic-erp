@@ -123,7 +123,7 @@ agents (ERP_AGENT_TOKEN, Anthropic credentials):
   agent invoices | config | migration | test
 
 operators (ERP_CONTROL_URL, default localhost:9090; ERP_OPERATOR_TOKEN):
-  tenants list | get | create | suspend | resume | offboard   the control plane: the tenants of the cell
+  tenants list | get | create | suspend | resume | offboard | rotate-key   the control plane: the tenants of the cell
 
 local preparation:
   gen-mock-sap   write a deterministic mock SAP extract

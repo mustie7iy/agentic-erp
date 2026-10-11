@@ -106,6 +106,7 @@ export ERP_OPERATOR_TOKEN=$(./bin/erp token -subject ops)
 ./bin/erp tenants list -status active
 ./bin/erp tenants suspend -id <tenant_id>     # the tenant's requests answer 403 tenancy.tenant_inactive until resume
 ./bin/erp tenants resume -id <tenant_id>
+./bin/erp tenants rotate-key -id <tenant_id>  # new field-encryption key; bank details re-sealed under it
 ```
 
 `erp call OPERATION` calls any operation of [the contract](api/openapi.yaml)
@@ -198,7 +199,10 @@ the request quotas per tenant and principal (`ERP_RATE_LIMIT_TENANT`,
 `ERP_RATE_LIMIT_PRINCIPAL`), the request deadline (`ERP_REQUEST_TIMEOUT`)
 the pool size (`ERP_DB_MAX_CONNS`) and object storage (`ERP_OBJECT_DIR` or
 `ERP_OBJECT_S3_*`: captured documents, bank files and the audit anchors the
-server writes, locked for `ERP_OBJECT_RETENTION`). Settings that carry
+server writes, locked for `ERP_OBJECT_RETENTION`). Field encryption uses a key per tenant,
+wrapped by the master keys in `ERP_FIELD_KEYS` (`id=base64,...`, the first
+for new keys; `ERP_FIELD_KEY` alone is one master); operators rotate a
+tenant's key through the control plane. Settings that carry
 secrets (`DATABASE_URL`, the keys, the S3 credentials) may name where the
 secret lives instead: `env:NAME`, `file:/run/secrets/name` or
 `vault:secret/erp/db#url` with `ERP_VAULT_ADDR` and a token or a Kubernetes
@@ -217,7 +221,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T13 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T14 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier
