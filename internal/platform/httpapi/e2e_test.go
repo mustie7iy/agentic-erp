@@ -12,10 +12,10 @@ import (
 func TestTheWholeContractIsServed(t *testing.T) {
 	api := apitest.New(t)
 	ten := pgtest.NewTenant(t, "integration.migration.read", "tenancy.org.manage", "workflow.request.decide")
-	// An operation of a context not built yet answers 501, after authorization.
+	// Every operation of the contract is served.
 	r := api.Do(apitest.Req{Method: "GET", Path: "/v1/migration-runs", Tenant: ten.ID, As: ten.Human})
-	if r.Code != 501 || apitest.JSON(t, r)["code"] != "platform.not_implemented" {
-		t.Fatalf("unimplemented: %d %s", r.Code, r.Body)
+	if r.Code != 200 {
+		t.Fatalf("migration runs: %d %s", r.Code, r.Body)
 	}
 	// Approval decisions refuse agents before anything else.
 	r = api.Do(apitest.Req{Method: "POST", Path: "/v1/approval-requests/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d0d:approve",

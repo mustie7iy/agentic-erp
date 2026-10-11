@@ -47,3 +47,9 @@ func TestMustOperations(t *testing.T) {
 	}()
 	mustParse([]byte("paths: ["))
 }
+
+func TestSpec(t *testing.T) {
+	if !strings.Contains(string(Spec()), "\nopenapi: \"3.1") {
+		t.Fatal("spec")
+	}
+}

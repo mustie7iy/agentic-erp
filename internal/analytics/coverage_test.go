@@ -11,10 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mustie7iy/agentic-erp/internal/core"
-	"github.com/mustie7iy/agentic-erp/internal/governance"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
-	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // --- model -------------------------------------------------------------------
@@ -269,45 +266,9 @@ func TestFormatting(t *testing.T) {
 
 // --- facts --------------------------------------------------------------------
 
-func TestFiscalCalendarErrorsAndBuildFactsErrors(t *testing.T) {
+func TestFiscalCalendarErrors(t *testing.T) {
 	if _, _, err := fiscal("2026-13-01", 1); err == nil {
 		t.Fatal("bad date")
-	}
-	m, _ := DefaultModel()
-	base := func() *core.Store {
-		s := core.NewStore()
-		s.Companies["1000"] = &core.Company{Code: "1000", Currency: "USD"}
-		s.PutAccount(&core.GLAccount{CompanyCode: "1000", Number: "400000", Name: "Revenue", Type: core.Revenue})
-		return s
-	}
-	cases := map[string]func(s *core.Store){
-		"unknown account": func(s *core.Store) {
-			s.Journal["J1"] = &core.JournalEntry{ID: "J1", CompanyCode: "1000", PostingDate: "2026-01-01", Lines: []core.JournalLine{{Account: "999"}}}
-		},
-		"journal date": func(s *core.Store) {
-			s.Journal["J1"] = &core.JournalEntry{ID: "J1", CompanyCode: "1000", PostingDate: "bad", Lines: []core.JournalLine{{Account: "400000"}}}
-		},
-		"po date": func(s *core.Store) {
-			s.PurchaseOrders["P1"] = &core.PurchaseOrder{ID: "P1", CompanyCode: "1000", OrderDate: "bad", Lines: []core.POLine{{GLAccount: "999", Quantity: 1000, UnitPrice: 1}}}
-		},
-		"invoice date": func(s *core.Store) {
-			s.Invoices["I1"] = &core.SupplierInvoice{ID: "I1", CompanyCode: "1000", InvoiceDate: "bad"}
-		},
-	}
-	for name, mutate := range cases {
-		s := base()
-		mutate(s)
-		if _, err := BuildFacts(s, m, time.Now()); err == nil {
-			t.Errorf("%s: expected an error", name)
-		}
-	}
-	// A PO line on an account missing from the chart still builds, with no account name.
-	s := base()
-	s.PurchaseOrders["P1"] = &core.PurchaseOrder{ID: "P1", CompanyCode: "1000", OrderDate: "2026-02-01", Currency: "USD",
-		Lines: []core.POLine{{GLAccount: "999", Quantity: money.Qty(1000), UnitPrice: 100, PriceUnit: 1}}}
-	f, err := BuildFacts(s, m, time.Now())
-	if err != nil || f.Tables["po_lines"][0].Dims["account_name"] != "" {
-		t.Fatalf("po fact: %v", err)
 	}
 }
 
@@ -412,14 +373,12 @@ func TestComparisonHelpers(t *testing.T) {
 
 // A JPY company's amounts are scaled by its minor unit.
 func TestZeroDecimalCurrency(t *testing.T) {
-	s := core.NewStore()
-	s.Companies["3000"] = &core.Company{Code: "3000", Currency: "JPY"}
-	s.PutAccount(&core.GLAccount{CompanyCode: "3000", Number: "400000", Name: "Revenue", Type: core.Revenue})
-	s.PutAccount(&core.GLAccount{CompanyCode: "3000", Number: "100000", Name: "Bank", Type: core.Asset})
-	s.Journal["J1"] = &core.JournalEntry{ID: "J1", CompanyCode: "3000", PostingDate: "2026-01-05",
-		Lines: []core.JournalLine{{Account: "100000", Amount: 5000}, {Account: "400000", Amount: -5000}}}
+	dims := func(typ string) map[string]string {
+		return map[string]string{"company": "3000", "account_type": typ, "fiscal_year": "2026", "fiscal_month": "1", "posting_date": "2026-01-05"}
+	}
+	f := &Facts{Companies: map[string]string{"3000": "JPY"}, Tables: map[string][]Fact{"gl_lines": {
+		{ID: "J1", Dims: dims("asset"), Amount: 5000, Currency: "JPY"}, {ID: "J1", Dims: dims("revenue"), Amount: -5000, Currency: "JPY"}}}}
 	m, _ := DefaultModel()
-	f, _ := BuildFacts(s, m, time.Now())
 	r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"revenue"}})
 	if err != nil || r.Rows[0][0].(float64) != 5000 || r.Columns[0].Currency != "JPY" {
 		t.Fatalf("JPY revenue: %v %+v", err, r)
@@ -535,13 +494,6 @@ func TestWriteCSV(t *testing.T) {
 
 func TestSessionErrorPaths(t *testing.T) {
 	dir := t.TempDir()
-	audit, _ := governance.NewAuditLog(filepath.Join(dir, "logs", "a.jsonl"))
-	s := session(t, us)
-	s.Audit = audit
-	os.WriteFile(filepath.Join(dir, "logs"), []byte("not a dir"), 0o644)
-	if _, err := s.Run(salesQuery()); err == nil || !strings.Contains(err.Error(), "audit") {
-		t.Fatalf("audit failure must fail the query: %v", err)
-	}
 
 	if _, err := LoadReport(filepath.Join(dir, "missing.json")); err == nil {
 		t.Fatal("missing report")

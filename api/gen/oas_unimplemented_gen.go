@@ -292,6 +292,16 @@ func (UnimplementedHandler) CreatePurchaseOrder(ctx context.Context, req *Purcha
 	return r, ht.ErrNotImplemented
 }
 
+// CreateRecommendation implements createRecommendation operation.
+//
+// Records an agent's recommendation on a business object for people to decide. Agents recommend;
+// people decide. The session must be the caller's and running.
+//
+// POST /v1/recommendations
+func (UnimplementedHandler) CreateRecommendation(ctx context.Context, req *RecommendationCreate, params CreateRecommendationParams) (r CreateRecommendationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateRequisition implements createRequisition operation.
 //
 // Creates a draft requisition.
@@ -338,6 +348,15 @@ func (UnimplementedHandler) CreateSupplierInvoice(ctx context.Context, req *Supp
 	return r, ht.ErrNotImplemented
 }
 
+// DecideRecommendation implements decideRecommendation operation.
+//
+// Records what a person did with an open recommendation: accepted, overridden or ignored. Human-only.
+//
+// POST /v1/recommendations/{id}:decide
+func (UnimplementedHandler) DecideRecommendation(ctx context.Context, req *RecommendationDecide, params DecideRecommendationParams) (r DecideRecommendationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // DisableConnector implements disableConnector operation.
 //
 // Stops all message exchange through the connector; queued messages wait. Requires status `active`.
@@ -353,6 +372,16 @@ func (UnimplementedHandler) DisableConnector(ctx context.Context, req *ReasonInp
 //
 // POST /v1/connectors/{id}:enable
 func (UnimplementedHandler) EnableConnector(ctx context.Context, params EnableConnectorParams) (r EnableConnectorRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// EndAgentSession implements endAgentSession operation.
+//
+// Ends a running session with its outcome and the tokens and cost it used. Only the session's agent
+// ends it. Requires status `running`.
+//
+// POST /v1/agent-sessions/{id}:end
+func (UnimplementedHandler) EndAgentSession(ctx context.Context, req *AgentSessionEnd, params EndAgentSessionParams) (r EndAgentSessionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -402,6 +431,15 @@ func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, param
 //
 // GET /v1/accounts/{id}
 func (UnimplementedHandler) GetAccount(ctx context.Context, params GetAccountParams) (r GetAccountRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAgentSession implements getAgentSession operation.
+//
+// Returns one agent session.
+//
+// GET /v1/agent-sessions/{id}
+func (UnimplementedHandler) GetAgentSession(ctx context.Context, params GetAgentSessionParams) (r GetAgentSessionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -621,6 +659,15 @@ func (UnimplementedHandler) GetPurchaseOrder(ctx context.Context, params GetPurc
 	return r, ht.ErrNotImplemented
 }
 
+// GetRecommendation implements getRecommendation operation.
+//
+// Returns one recommendation.
+//
+// GET /v1/recommendations/{id}
+func (UnimplementedHandler) GetRecommendation(ctx context.Context, params GetRecommendationParams) (r GetRecommendationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRequisition implements getRequisition operation.
 //
 // Returns one requisition. Expandable: `supplier`.
@@ -699,6 +746,24 @@ func (UnimplementedHandler) HoldSupplierInvoice(ctx context.Context, req *Reason
 //
 // GET /v1/accounts
 func (UnimplementedHandler) ListAccounts(ctx context.Context, params ListAccountsParams) (r ListAccountsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAgentSessions implements listAgentSessions operation.
+//
+// Agent sessions, newest first. Sortable by: `started_at`.
+//
+// GET /v1/agent-sessions
+func (UnimplementedHandler) ListAgentSessions(ctx context.Context, params ListAgentSessionsParams) (r ListAgentSessionsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAgentToolCalls implements listAgentToolCalls operation.
+//
+// Tool calls in the order they were made.
+//
+// GET /v1/agent-sessions/{id}/tool-calls
+func (UnimplementedHandler) ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (r ListAgentToolCallsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -965,6 +1030,15 @@ func (UnimplementedHandler) ListPurchaseOrders(ctx context.Context, params ListP
 	return r, ht.ErrNotImplemented
 }
 
+// ListRecommendations implements listRecommendations operation.
+//
+// Agent recommendations, newest first. Sortable by: `created_at`.
+//
+// GET /v1/recommendations
+func (UnimplementedHandler) ListRecommendations(ctx context.Context, params ListRecommendationsParams) (r ListRecommendationsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListRequisitions implements listRequisitions operation.
 //
 // Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
@@ -1088,6 +1162,16 @@ func (UnimplementedHandler) ProposePaymentRun(ctx context.Context, req *PaymentR
 //
 // POST /v1/migration-runs/{id}:reconcile
 func (UnimplementedHandler) ReconcileMigrationRun(ctx context.Context, params ReconcileMigrationRunParams) (r ReconcileMigrationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RecordAgentToolCall implements recordAgentToolCall operation.
+//
+// Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent
+// records its calls.
+//
+// POST /v1/agent-sessions/{id}/tool-calls
+func (UnimplementedHandler) RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (r RecordAgentToolCallRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1215,6 +1299,16 @@ func (UnimplementedHandler) ReverseSupplierInvoice(ctx context.Context, req *Sup
 //
 // POST /v1/change-requests/{id}:simulate
 func (UnimplementedHandler) SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (r SimulateChangeRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// StartAgentSession implements startAgentSession operation.
+//
+// Opens a session for the calling agent: its tool calls and recommendations are recorded under it.
+// Only agents start sessions (403 `agents.not_an_agent`).
+//
+// POST /v1/agent-sessions
+func (UnimplementedHandler) StartAgentSession(ctx context.Context, req *AgentSessionStart, params StartAgentSessionParams) (r StartAgentSessionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

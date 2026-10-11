@@ -1,115 +1,74 @@
-package migrationagent
+package migrationagent_test
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/mustie7iy/agentic-erp/internal/core"
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
-	"github.com/mustie7iy/agentic-erp/internal/migration"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
-	"github.com/mustie7iy/agentic-erp/internal/testkit"
 )
 
-func TestAssessWalksTheWholeProcess(t *testing.T) {
-	scope := map[string]any{"company": "1000", "year": "2026"}
-	srv := llmtest.New(t,
-		llmtest.Tool("profile_extract", scope),
-		llmtest.Step{Tool: "propose_account_classification", Input: func(string) any { return scope }, Expect: "no tax number"},
-		llmtest.Step{Tool: "run_rehearsal", Input: func(string) any { return scope }, Expect: "confidence"},
-		llmtest.Step{Tool: "explain_difference", Input: func(string) any {
-			return map[string]any{"company": "1000", "year": "2026", "account": "400000"}
-		}, Expect: "Total debits posted"},
-		llmtest.Step{Tool: "explain_difference", Input: func(string) any {
-			return map[string]any{"company": "1000", "year": "2026", "vendor": "100012"}
-		}, Expect: "No document-level differences"},
-		llmtest.Step{Tool: "propose_cleansing", Input: func(string) any { return scope }, Expect: "No document-level differences"},
-		llmtest.Step{Text: "Company 1000 reconciles; three warnings need decisions.", Expect: "Request the tax number"},
-	)
-	live := core.NewStore()
-	a := &Agent{LLM: srv.Runner(), Source: testkit.MemSource{E: testkit.Extract()}, Store: live}
-	summary, err := a.Assess(context.Background(), "1000", "2026")
-	if err != nil {
+func TestMain(m *testing.M) { pgtest.Main(m) }
+
+// fromLast reads a field of the body of the last tool result.
+func fromLast(body, field string) string {
+	var r struct{ Body map[string]any }
+	json.Unmarshal([]byte(llmtest.LastToolResult(body)), &r)
+	s, _ := r.Body[field].(string)
+	return s
+}
+
+func TestAssess(t *testing.T) {
+	f := fixture.New(t, "integration.connector.read", "integration.connector.manage", "integration.migration.read", "integration.migration.run",
+		"platform.operation.read", "agents.session.record", "agents.session.read")
+	f.Tenant.AllCompanies(t, f.Tenant.Agent)
+	dir := t.TempDir()
+	if err := sap.WriteExtract(filepath.Join(dir, "x.json"), sap.GenerateMock(42, "2026")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(summary, "reconciles") {
-		t.Fatalf("summary: %s", summary)
+	f.API = apitest.NewWith(t, func(c *httpapi.Config) { c.ExtractDir = dir })
+	srv := httptest.NewServer(f.API.Handler)
+	defer srv.Close()
+	conn, _ := f.Must(201, "POST", "/v1/connectors", `{"kind": "sap_file", "name": "SAP", "settings": {"path": "x.json"}}`, "")
+	api := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Agent.Subject, nil)}
+	run := func(rehearsal bool) map[string]any {
+		return map[string]any{"body": map[string]any{"connector_id": conn["id"], "mode": "documents", "is_rehearsal": rehearsal,
+			"scope": map[string]any{"legal_entity_ids": []string{f.DE.String()}, "fiscal_year": 2026}}}
 	}
-	if strings.Join(srv.ToolNames(), ",") != "profile_extract,propose_account_classification,run_rehearsal,explain_difference,propose_cleansing" {
-		t.Fatalf("tool surface changed: %v", srv.ToolNames())
+	model := llmtest.New(t,
+		llmtest.Tool("createMigrationRun", run(false)),
+		llmtest.Step{Tool: "createMigrationRun", Input: func(string) any { return run(true) }, Expect: "only rehearses"},
+		llmtest.ToolFn("startMigrationRun", func(body string) any { return map[string]any{"id": fromLast(body, "id"), "if_match": `"1"`} }),
+		llmtest.ToolFn("getMigrationRun", func(body string) any {
+			return map[string]any{"id": strings.TrimPrefix(fromLast(body, "resource"), "/v1/migration-runs/")}
+		}),
+		llmtest.Final("Company 2000 reconciles; it can be cut over."))
+	got, err := (&migrationagent.Agent{LLM: model.Runner(), API: api}).Assess(context.Background(), conn["id"].(string), []string{f.DE.String()}, 2026, "documents")
+	if err != nil || got != "Company 2000 reconciles; it can be cut over." {
+		t.Fatalf("assess: %q %v", got, err)
 	}
-	if len(live.Journal) != 0 {
-		t.Fatal("rehearsals must never load into the live store")
+	if !strings.Contains(model.Requests[4], `\"status\":\"reconciled\"`) {
+		t.Fatalf("rehearsal report not read: %s", llmtest.LastToolResult(model.Requests[4]))
 	}
-}
-
-// corrupt serves the mock extract with one journal line changed, so the
-// rehearsal fails and the explanation must find the document.
-type corrupt struct{ sap.Source }
-
-func (c corrupt) Extract(ctx context.Context, s sap.Scope) (*sap.Extract, error) {
-	e, err := c.Source.Extract(ctx, s)
-	if err == nil && len(e.ACDOCA) > 2 {
-		e.ACDOCA[2].HSL = "1.00" // first revenue document, bank line
+	runs, _ := f.Must(200, "GET", "/v1/migration-runs", "", "")
+	if items := runs["items"].([]any); len(items) != 1 || items[0].(map[string]any)["is_rehearsal"] != true {
+		t.Fatalf("runs: %v", runs)
 	}
-	return e, err
-}
-
-func TestRehearsalFailureIsExplainedToTheDocument(t *testing.T) {
-	a := &Agent{Source: corrupt{testkit.MemSource{E: testkit.Extract()}}, Store: core.NewStore()}
-	p, err := a.Profile(context.Background(), "1000", "2026")
-	if err != nil || p["blocking"] != true {
-		t.Fatalf("profile must flag the unbalanced document: %v %v", err, p["blocking"])
+	if _, err := (&migrationagent.Agent{LLM: llmtest.New(t).Runner(), API: api}).Assess(context.Background(), "c", nil, 2026, "documents"); err == nil {
+		t.Fatal("model failure hidden")
 	}
-	res, err := a.Rehearse(context.Background(), "1000", "2026", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Report.Passed || len(res.Load) == 0 {
-		t.Fatal("rehearsal of a corrupt extract must fail")
-	}
-	diffs, err := a.Explain(context.Background(), "1000", "2026", "100000", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(diffs) == 0 || diffs[0].Status != "missing_in_core" || diffs[0].Document != "SAP-1000-2026-0100000002" {
-		t.Fatalf("explanation: %+v", diffs)
-	}
-	if _, err := a.Explain(context.Background(), "1000", "2026", "", ""); err == nil {
-		t.Fatal("account or vendor required")
-	}
-	balances, err := a.Rehearse(context.Background(), "1000", "2026", "balances")
-	if err != nil || balances.Mode != migration.ModeBalances {
-		t.Fatalf("balances rehearsal: %v", err)
-	}
-}
-
-type failing struct{}
-
-func (failing) Name() string { return "failing" }
-func (failing) Extract(context.Context, sap.Scope) (*sap.Extract, error) {
-	return nil, errors.New("SAP is down")
-}
-
-func TestSourceErrors(t *testing.T) {
-	scope := map[string]any{"company": "1000", "year": "2026"}
-	srv := llmtest.New(t,
-		llmtest.Tool("profile_extract", scope),
-		llmtest.Step{Tool: "propose_account_classification", Input: func(string) any { return scope }, Expect: "SAP is down"},
-		llmtest.Step{Tool: "run_rehearsal", Input: func(string) any { return scope }, Expect: "SAP is down"},
-		llmtest.Step{Tool: "explain_difference", Input: func(string) any { return map[string]any{"company": "1000", "year": "2026", "account": "1"} }, Expect: "SAP is down"},
-		llmtest.Step{Tool: "propose_cleansing", Input: func(string) any { return scope }, Expect: "SAP is down"},
-		llmtest.Step{Text: "SAP is unavailable.", Expect: "SAP is down"},
-	)
-	a := &Agent{LLM: srv.Runner(), Source: failing{}, Store: core.NewStore(), Mapping: migration.DefaultMapping()}
-	if out, err := a.Assess(context.Background(), "1000", "2026"); err != nil || out != "SAP is unavailable." {
-		t.Fatalf("%v %q", err, out)
-	}
-	refuse := llmtest.New(t, llmtest.Step{StopReason: "refusal"})
-	a.LLM = refuse.Runner()
-	if _, err := a.Assess(context.Background(), "1000", "2026"); err == nil {
-		t.Fatal("refusal must error")
+	person := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)}
+	if _, err := (&migrationagent.Agent{LLM: model.Runner(), API: person}).Assess(context.Background(), "c", nil, 2026, "documents"); err == nil {
+		t.Fatal("a person ran the agent")
 	}
 }

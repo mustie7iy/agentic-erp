@@ -1,18 +1,19 @@
-// Command erp drives the migration off SAP, configuration as code with its
-// delivery agents, procure-to-pay, the agentic invoice flow and on-demand
-// analytics. Run "erp" for the command list.
+// Command erp is the platform's command line, a thin client of the public
+// API: everything it reads or changes goes through erp-server with the
+// caller's token, under the same permissions, company access and audit as
+// any other client. The only local work is preparing input (a mock SAP
+// extract, a configuration draft from SAP customizing) and running agents
+// and analytics, which themselves call the API.
 //
-//	erp gen-mock-sap                     write a mock SAP extract
-//	erp migrate                          extract, check, load and reconcile a scope
-//	erp invoices [-agent]                process parked invoices
-//	erp tasks                            list open human review tasks
-//	erp approve|reject -task ID -as USER close a review task
-//	erp tb -company 1000                 print a trial balance
-//	erp audit-verify                     verify the audit hash chain
-//	erp metrics                          list governed metrics
-//	erp query -measures ... -by ...      run a semantic query directly
-//	erp ask "question"                   answer with an on-demand dashboard
-//	erp report -id ID                    rerun a saved report on current data
+//	erp call OPERATION [-p name=value]... [-body JSON] [-if-match ETAG]
+//	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]
+//	erp invoices [-agent]          match parked invoices, post clean ones
+//	erp agent invoices|config|migration|test
+//	erp metrics | query | ask | report
+//	erp gen-mock-sap | config generate | config validate
+//
+// The API is ERP_API_URL (default http://localhost:8080); ERP_TOKEN is the
+// person's bearer token and ERP_AGENT_TOKEN the agents' token.
 package main
 
 import (
@@ -24,23 +25,19 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 
-	"github.com/mustie7iy/agentic-erp/internal/agent"
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/config"
-	"github.com/mustie7iy/agentic-erp/internal/core"
-	"github.com/mustie7iy/agentic-erp/internal/governance"
-	"github.com/mustie7iy/agentic-erp/internal/migration"
+	"github.com/mustie7iy/agentic-erp/internal/delivery/sapconfig"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
-const (
-	defaultExtract = "data/sap-extract.json"
-	defaultStore   = "data/store.json"
-	defaultAudit   = "data/audit.jsonl"
-)
+const defaultExtract = "data/sap-extract.json"
 
 // out and errOut are where commands write; tests replace them.
 var (
@@ -48,8 +45,13 @@ var (
 	errOut io.Writer = os.Stderr
 )
 
-// exit ends the process; tests replace it to observe the exit code.
-var exit = os.Exit
+// exit ends the process, getenv reads the environment and newRunner makes
+// the agents' model client; tests replace them.
+var (
+	exit      = os.Exit
+	getenv    = os.Getenv
+	newRunner = llm.New
+)
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -64,13 +66,12 @@ func run(ctx context.Context, args []string) int {
 		usage()
 		return 2
 	}
-	cmd, args := args[0], args[1:]
-	handler, ok := commands[cmd]
+	handler, ok := commands[args[0]]
 	if !ok {
 		usage()
 		return 2
 	}
-	if err := handler(ctx, args); err != nil {
+	if err := handler(ctx, args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
@@ -82,65 +83,132 @@ func run(ctx context.Context, args []string) int {
 
 type command func(ctx context.Context, args []string) error
 
-// commands maps each command name to its handler.
 var commands map[string]command
 
 func init() {
-	plain := func(f func([]string) error) command { return func(_ context.Context, a []string) error { return f(a) } }
 	commands = map[string]command{
-		"gen-mock-sap": plain(genMock),
+		"call":         call,
 		"migrate":      migrate,
 		"invoices":     invoices,
-		"tasks":        plain(tasks),
-		"approve":      plain(func(a []string) error { return decide(a, true) }),
-		"reject":       plain(func(a []string) error { return decide(a, false) }),
-		"tb":           plain(trialBalance),
-		"audit-verify": plain(auditVerify),
-		"metrics":      plain(metricsCmd),
-		"query":        plain(queryCmd),
+		"agent":        agentCmd,
+		"metrics":      metricsCmd,
+		"query":        queryCmd,
 		"ask":          askCmd,
-		"report":       plain(reportCmd),
-	}
-	for name, c := range platformCommands() {
-		commands[name] = c
+		"report":       reportCmd,
+		"gen-mock-sap": genMock,
+		"config":       configCmd,
 	}
 }
 
 func usage() {
 	fmt.Fprintln(errOut, `usage: erp <command> [flags]
 
-commands:
-  gen-mock-sap   write a deterministic mock SAP extract
-  migrate        extract -> data-quality gate -> transform -> load -> reconcile
-  invoices       process parked invoices (rule posts clean ones, -agent investigates exceptions)
-  tasks          list open human review tasks
-  approve        approve a review task as a human (posts the invoice)
-  reject         reject a review task as a human
-  tb             print a trial balance
-  audit-verify   verify the tamper-evident audit log
-  metrics        list the governed metrics and dimensions
-  query          run a semantic query directly (no agent)
+the API (ERP_API_URL, ERP_TOKEN):
+  call           call any API operation: erp call getPaymentRun -p id=...
+  migrate        run a migration scope from a connector: start, reconcile, print the report
+  invoices       match parked supplier invoices and post the clean ones (-agent: investigate held ones)
+  metrics        list the governed metrics
+  query          run a semantic query over the data you may read
   ask            ask a question; the analytics agent builds a dashboard on demand
   report         rerun a saved report on current data
 
-configuration as code (Phase 1 delivery track):
-  config generate|validate|bootstrap|show|propose|evidence|approve|reject|activate|rollback|list|history|diff
-  regress capture|run       regression suites from real transactions
-  agent config|migration|test   delivery agents (need Anthropic credentials)
+agents (ERP_AGENT_TOKEN, Anthropic credentials):
+  agent invoices | config | migration | test
 
-procure-to-pay (Phase 1 business track):
-  req create|approve|reject     purchase requisitions with configured approval routes
-  po create                     order an approved requisition (sends PO output)
-  contract create               outline agreements with agreed prices
-  gr post                       goods receipts and reversals
-  vendor create|bank|block|unblock|approve|reject   governed supplier master changes
-  pay propose|release|reject    payment runs with ISO 20022 bank files
-  capture                       read a supplier invoice PDF (Claude) and park it
+local preparation:
+  gen-mock-sap   write a deterministic mock SAP extract
+  config generate | validate   draft a configuration from SAP customizing, or check one
 
 run "erp <command> -h" for flags`)
 }
 
-func genMock(args []string) error {
+// client is an API client with the token in the named variable.
+func client(tokenVar string) (*apitools.Client, error) {
+	token := getenv(tokenVar)
+	if token == "" {
+		return nil, fmt.Errorf("%s is not set", tokenVar)
+	}
+	base := getenv("ERP_API_URL")
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+	return &apitools.Client{BaseURL: base, Token: token}, nil
+}
+
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, "; ") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
+
+// call performs one API operation, named by its operationId, and prints the
+// answer. Parameters are name=value; a body is JSON, or @file.
+func call(ctx context.Context, args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return errors.New("name the operation: erp call OPERATION [flags]")
+	}
+	fs := flag.NewFlagSet("call "+args[0], flag.ContinueOnError)
+	var params multiFlag
+	fs.Var(&params, "p", "parameter name=value, repeatable (lists are comma-separated)")
+	body := fs.String("body", "", "request body: JSON, or @file")
+	ifMatch := fs.String("if-match", "", "ETag of the resource as last read")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	c, err := client("ERP_TOKEN")
+	if err != nil {
+		return err
+	}
+	op, err := apitools.Operation(c, args[0])
+	if err != nil {
+		return err
+	}
+	input := map[string]any{}
+	for _, p := range params {
+		name, value, ok := strings.Cut(p, "=")
+		if !ok {
+			return fmt.Errorf("parameter %q: want name=value", p)
+		}
+		input[name] = value
+		if strings.Contains(value, ",") {
+			input[name] = strings.Split(value, ",")
+		}
+	}
+	if *ifMatch != "" {
+		input["if_match"] = *ifMatch
+	}
+	if *body != "" {
+		raw := []byte(*body)
+		if path, ok := strings.CutPrefix(*body, "@"); ok {
+			if raw, err = os.ReadFile(path); err != nil {
+				return err
+			}
+		}
+		var b any
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return fmt.Errorf("body: %w", err)
+		}
+		input["body"] = b
+	}
+	raw, _ := json.Marshal(input) // strings and decoded JSON
+	res, err := op.Execute(ctx, raw)
+	if err != nil {
+		return err
+	}
+	var r struct {
+		Status int
+		ETag   string
+		Body   json.RawMessage
+	}
+	json.Unmarshal([]byte(res[0].OfText.Text), &r) // the tool's own encoding
+	pretty, _ := json.MarshalIndent(r.Body, "", "  ")
+	fmt.Fprintf(out, "%d %s\n%s\n", r.Status, r.ETag, pretty)
+	if r.Status >= 400 {
+		return fmt.Errorf("the API answered %d", r.Status)
+	}
+	return nil
+}
+
+func genMock(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("gen-mock-sap", flag.ContinueOnError)
 	outFile := fs.String("out", defaultExtract, "output file")
 	seed := fs.Uint64("seed", 42, "random seed")
@@ -163,259 +231,98 @@ func genMock(args []string) error {
 		return err
 	}
 	fmt.Fprintf(out, "wrote %s\n", *outFile)
-	printCounts(e.Counts())
-	return nil
+	counts := e.Counts()
+	tables := make([]string, 0, len(counts))
+	for t := range counts {
+		tables = append(tables, t)
+	}
+	sort.Strings(tables)
+	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', 0)
+	for _, t := range tables {
+		fmt.Fprintf(tw, "  %s\t%d\n", t, counts[t])
+	}
+	return tw.Flush()
 }
 
-func migrate(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	source := fs.String("source", "file:"+defaultExtract, `"file:PATH" or "odata:https://host" (credentials from SAP_USER, SAP_PASSWORD, SAP_CLIENT)`)
-	companies := fs.String("company", "1000", "comma-separated company codes")
-	year := fs.String("year", "2026", "fiscal year")
-	mode := fs.String("mode", string(migration.ModeDocuments), `"documents" (replay every journal document) or "balances" (opening balances + open items)`)
-	storePath := fs.String("store", defaultStore, "core store snapshot")
-	force := fs.Bool("force", false, "load despite data-quality errors (rehearsals only)")
-	jsonOut := fs.String("json", "", "also write the full result as JSON to this file")
-	if err := fs.Parse(args); err != nil {
-		return err
+func configCmd(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return errors.New("config generate | validate")
 	}
-
-	src, err := parseSource(*source)
-	if err != nil {
-		return err
+	switch args[0] {
+	case "generate":
+		return configGenerate(ctx, args[1:])
+	case "validate":
+		return configValidate(args[1:])
 	}
-	store, err := openStore(*storePath)
-	if err != nil {
-		return err
-	}
-	scope := sap.Scope{CompanyCodes: strings.Split(*companies, ","), FiscalYear: *year}
-	res, runErr := migration.Run(ctx, src, scope, migration.Options{Mode: migration.Mode(*mode), Force: *force}, store)
-
-	fmt.Fprintf(out, "Source: %s   Scope: company %s, fiscal year %s   Mode: %s\n\n",
-		res.Source, strings.Join(scope.CompanyCodes, ","), scope.FiscalYear, res.Mode)
-	if res.ExtractCount != nil {
-		printCounts(res.ExtractCount)
-	}
-	printIssues("Data-quality findings", res.Quality)
-	printIssues("Transform issues", res.Transform)
-	printIssues("Load rejections", res.Load)
-	if *jsonOut != "" {
-		b, _ := json.MarshalIndent(res, "", "  ") // the result is plain data
-		if err := os.WriteFile(*jsonOut, b, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", *jsonOut, err)
-		}
-	}
-	if runErr != nil {
-		if errors.Is(runErr, migration.ErrQualityGate) {
-			fmt.Fprintln(out, "\nNothing was loaded.")
-		}
-		return runErr
-	}
-	fmt.Fprintln(out)
-	res.Report.Print(out)
-	if err := store.Save(*storePath); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "\nStore saved to %s\n", *storePath)
-	if !res.Report.Passed || len(res.Load) > 0 {
-		return fmt.Errorf("reconciliation did not pass")
-	}
-	return nil
+	return fmt.Errorf("unknown config command %q", args[0])
 }
 
 func parseSource(s string) (sap.Source, error) {
 	kind, target, ok := strings.Cut(s, ":")
-	if !ok {
-		return nil, fmt.Errorf("invalid -source %q", s)
-	}
-	switch kind {
-	case "file":
+	switch {
+	case ok && kind == "file":
 		return sap.FileSource{Path: target}, nil
-	case "odata":
-		return &sap.ODataSource{
-			BaseURL: target, User: os.Getenv("SAP_USER"), Password: os.Getenv("SAP_PASSWORD"), Client: os.Getenv("SAP_CLIENT"),
-		}, nil
+	case ok && kind == "odata":
+		return &sap.ODataSource{BaseURL: target, User: getenv("SAP_USER"), Password: getenv("SAP_PASSWORD"), Client: getenv("SAP_CLIENT")}, nil
 	}
-	return nil, fmt.Errorf("unknown source kind %q", kind)
+	return nil, fmt.Errorf("invalid -source %q: want file:PATH or odata:URL", s)
 }
 
-func invoices(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("invoices", flag.ContinueOnError)
-	storePath := fs.String("store", defaultStore, "core store snapshot")
-	auditPath := fs.String("audit", defaultAudit, "audit log")
-	useAgent := fs.Bool("agent", false, "let the Claude exception agent investigate failed matches")
+// configGenerate drafts a configuration document from SAP customizing, for
+// a change request (erp agent config -draft, or erp call createChangeRequest).
+func configGenerate(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("config generate", flag.ContinueOnError)
+	source := fs.String("source", "file:"+defaultExtract, `SAP source: "file:PATH" or "odata:URL"`)
+	companies := fs.String("company", "1000", "comma-separated company codes")
+	year := fs.String("year", "2026", "fiscal year (for the extract)")
+	outPath := fs.String("out", "data/config-draft.yaml", "where to write the draft")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	svc, err := openService(*storePath, *auditPath)
+	src, err := parseSource(*source)
 	if err != nil {
 		return err
 	}
-	var resolver agent.Resolver
-	if *useAgent {
-		resolver = agent.NewClaudeResolver()
+	e, err := src.Extract(ctx, sap.Scope{CompanyCodes: strings.Split(*companies, ","), FiscalYear: *year})
+	if err != nil {
+		return err
 	}
-	sum := agent.ProcessInvoices(ctx, svc, resolver, out)
-	fmt.Fprintf(out, "\nprocessed %d: %d posted, %d sent to human review (%d with agent recommendation)\n",
-		sum.Processed, len(sum.Posted), len(sum.Escalated), len(sum.AgentNotes))
-	for _, e := range sum.Errors {
-		fmt.Fprintln(errOut, "error:", e)
+	cfg, notes := sapconfig.Generate(e, sapconfig.DefaultOptions())
+	doc, _ := cfg.Marshal() // Config.Marshal cannot fail
+	if err := os.WriteFile(*outPath, doc, 0o644); err != nil {
+		return err
 	}
-	return svc.Store.Save(*storePath)
+	fmt.Fprintf(out, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)
+	for _, n := range notes {
+		fmt.Fprintln(out, "  "+n.String())
+	}
+	return printFindings(config.Validate(cfg))
 }
 
-func tasks(args []string) error {
-	fs := flag.NewFlagSet("tasks", flag.ContinueOnError)
-	storePath := fs.String("store", defaultStore, "core store snapshot")
+func configValidate(args []string) error {
+	fs := flag.NewFlagSet("config validate", flag.ContinueOnError)
+	file := fs.String("file", "", "configuration YAML")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	s, err := core.LoadStore(*storePath)
+	c, err := config.Load(*file)
 	if err != nil {
 		return err
 	}
-	n := 0
-	for _, id := range core.SortedKeys(s.Tasks) {
-		t := s.Tasks[id]
-		if t.Status != core.TaskOpen {
-			continue
-		}
-		n++
-		inv := s.Invoices[t.InvoiceID]
-		fmt.Fprintf(out, "%s  invoice %s  vendor %s  gross %s %s\n  reason: %s\n", t.ID, t.InvoiceID, inv.VendorID, inv.GrossAmount, inv.Currency, t.Reason)
-		if t.Recommendation != "" {
-			fmt.Fprintf(out, "  recommendation (%s):\n    %s\n", t.CreatedBy, strings.ReplaceAll(t.Recommendation, "\n", "\n    "))
-		}
-		fmt.Fprintln(out)
+	return printFindings(config.Validate(c))
+}
+
+func printFindings(fs []config.Finding) error {
+	if len(fs) == 0 {
+		fmt.Fprintln(out, "\nValidation: no findings")
+		return nil
 	}
-	fmt.Fprintf(out, "%d open review tasks\n", n)
+	fmt.Fprintln(out, "\nValidation:")
+	for _, f := range fs {
+		fmt.Fprintln(out, "  "+f.String())
+	}
+	if config.HasErrors(fs) {
+		return errors.New("the configuration has validation errors")
+	}
 	return nil
-}
-
-func decide(args []string, approve bool) error {
-	fs := flag.NewFlagSet("approve", flag.ContinueOnError)
-	storePath := fs.String("store", defaultStore, "core store snapshot")
-	auditPath := fs.String("audit", defaultAudit, "audit log")
-	taskID := fs.String("task", "", "review task id")
-	user := fs.String("as", "", "approver user id (recorded in the audit log)")
-	comment := fs.String("comment", "", "decision comment")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *taskID == "" || *user == "" {
-		return fmt.Errorf("-task and -as are required")
-	}
-	svc, err := openService(*storePath, *auditPath)
-	if err != nil {
-		return err
-	}
-	// With an active configuration the approver is a configured user with
-	// their configured permissions; without one, any named person may decide.
-	human := governance.Identity{
-		ID: "user:" + *user, Kind: "human", Autonomy: governance.FullyAutonomous,
-		Permissions: []string{governance.ActInvoicePost, governance.ActInvoiceReview},
-	}
-	if svc.Config != nil {
-		if human, err = svc.Config.Identity(*user); err != nil {
-			return err
-		}
-	}
-	res, err := svc.Decide(human, *taskID, approve, *comment)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "%s: %s %s\n", res.Outcome, res.Reason, res.JournalEntryID)
-	return svc.Store.Save(*storePath)
-}
-
-func trialBalance(args []string) error {
-	fs := flag.NewFlagSet("tb", flag.ContinueOnError)
-	storePath := fs.String("store", defaultStore, "core store snapshot")
-	company := fs.String("company", "1000", "company code")
-	asOf := fs.String("as-of", "", "posting date YYYY-MM-DD (default: all)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	s, err := core.LoadStore(*storePath)
-	if err != nil {
-		return err
-	}
-	tb := s.TrialBalance(*company, *asOf)
-	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintln(tw, "ACCOUNT\tNAME\tBALANCE\t")
-	var total int64
-	for _, acct := range core.SortedKeys(tb) {
-		name := ""
-		if a := s.Account(*company, acct); a != nil {
-			name = a.Name
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t\n", acct, name, tb[acct])
-		total += int64(tb[acct])
-	}
-	fmt.Fprintf(tw, "\tTOTAL (must be 0)\t%d\t\n", total)
-	return tw.Flush()
-}
-
-func auditVerify(args []string) error {
-	fs := flag.NewFlagSet("audit-verify", flag.ContinueOnError)
-	auditPath := fs.String("audit", defaultAudit, "audit log")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	log, err := governance.NewAuditLog(*auditPath) // loading verifies the chain
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "audit log OK: %d events, chain intact\n", len(log.Events()))
-	return nil
-}
-
-func openStore(path string) (*core.Store, error) {
-	s, err := core.LoadStore(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return core.NewStore(), nil
-	}
-	return s, err
-}
-
-func openService(storePath, auditPath string) (*agent.Service, error) {
-	s, err := core.LoadStore(storePath)
-	if err != nil {
-		return nil, fmt.Errorf("%w (run \"erp migrate\" first)", err)
-	}
-	audit, err := governance.NewAuditLog(auditPath)
-	if err != nil {
-		return nil, err
-	}
-	svc := agent.NewService(s, audit)
-	// Use the active configuration's tolerances, tax accounts and limits when there is one.
-	if repo, err := config.OpenRepo(defaultConfigDir, nil); err == nil {
-		if cfg, _, err := repo.Active(); err == nil {
-			svc.Config = cfg
-		}
-	}
-	return svc, nil
-}
-
-func printCounts(c map[string]int) {
-	keys := make([]string, 0, len(c))
-	for k := range c {
-		keys = append(keys, k)
-	}
-	parts := make([]string, 0, len(keys))
-	for _, k := range core.SortedKeys(c) {
-		parts = append(parts, fmt.Sprintf("%s=%d", k, c[k]))
-	}
-	fmt.Fprintln(out, "Extracted rows:", strings.Join(parts, " "))
-}
-
-func printIssues(title string, issues []migration.Issue) {
-	if len(issues) == 0 {
-		return
-	}
-	fmt.Fprintf(out, "\n%s (%d):\n", title, len(issues))
-	for _, i := range issues {
-		fmt.Fprintln(out, "  "+i.String())
-	}
 }

@@ -74,3 +74,34 @@ func (Orders) OrderByNumber(ctx context.Context, legalEntity uuid.UUID, number s
 	}
 	return id, err == nil, err
 }
+
+// CreateOrder creates a draft purchase order, as POST /v1/purchase-orders
+// does, for loads that go through the application services.
+func (e *Endpoints) CreateOrder(ctx context.Context, in NewOrder) (PurchaseOrder, error) {
+	return e.createOrder(ctx, in)
+}
+
+// ReleaseOrder releases a draft purchase order.
+func (e *Endpoints) ReleaseOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (PurchaseOrder, error) {
+	return e.releaseOrder(ctx, id, ifMatch)
+}
+
+// PostReceipt posts a goods receipt, as POST /v1/goods-receipts does.
+func (e *Endpoints) PostReceipt(ctx context.Context, in ReceiptInput) (GoodsReceipt, error) {
+	return e.postReceipt(ctx, in)
+}
+
+// Value is the number of the purchase orders and the total of their live
+// items, in minor units of their currencies.
+func (Orders) Value(ctx context.Context, ids []uuid.UUID) (int, int64, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	var n int
+	var value int64
+	err = tx.QueryRow(ctx, `SELECT count(*), coalesce(sum((SELECT coalesce(sum(round(i.quantity * i.unit_price / i.price_unit)), 0)
+			FROM procurement.purchase_order_item i WHERE i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND NOT i.is_removed)), 0)::bigint
+		FROM procurement.purchase_order o WHERE o.id = ANY($1)`, ids).Scan(&n, &value)
+	return n, value, err
+}

@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
-	"github.com/mustie7iy/agentic-erp/internal/core"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -204,7 +203,7 @@ func TestSetup(t *testing.T) {
 	bad.Companies[0].Currency = "EUR"
 	bad.Companies[0].FiscalYearStartMonth = 4
 	bad.Companies[0].ChartOfAccounts[0].Number = "abc"
-	bad.Companies[0].ChartOfAccounts[1].Type = core.Liability
+	bad.Companies[0].ChartOfAccounts[1].Type = config.Liability
 	bad.Companies[0].ChartOfAccounts[2].VendorReconciliation = false
 	extra := bad.Companies[1]
 	extra.Code = "3000"
@@ -232,7 +231,7 @@ func TestSetup(t *testing.T) {
 	de := &next.Companies[1]
 	de.ChartOfAccounts[4].Name = "Revenue"
 	removed := de.ChartOfAccounts[len(de.ChartOfAccounts)-1].Number
-	de.ChartOfAccounts = append(de.ChartOfAccounts[:len(de.ChartOfAccounts)-1], config.Account{Number: "999000", Name: "Suspense", Type: core.Asset})
+	de.ChartOfAccounts = append(de.ChartOfAccounts[:len(de.ChartOfAccounts)-1], config.Account{Number: "999000", Name: "Suspense", Type: config.Asset})
 	uk := next.Companies[1]
 	uk.Code, uk.Currency, uk.FiscalYearStartMonth = "3000", "GBP", 4
 	next.Companies = append(next.Companies, uk)

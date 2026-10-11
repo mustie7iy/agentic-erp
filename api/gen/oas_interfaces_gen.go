@@ -117,6 +117,10 @@ type CreatePurchaseOrderRes interface {
 	createPurchaseOrderRes()
 }
 
+type CreateRecommendationRes interface {
+	createRecommendationRes()
+}
+
 type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
@@ -137,12 +141,20 @@ type CreateSupplierInvoiceRes interface {
 	createSupplierInvoiceRes()
 }
 
+type DecideRecommendationRes interface {
+	decideRecommendationRes()
+}
+
 type DisableConnectorRes interface {
 	disableConnectorRes()
 }
 
 type EnableConnectorRes interface {
 	enableConnectorRes()
+}
+
+type EndAgentSessionRes interface {
+	endAgentSessionRes()
 }
 
 type EndCompanyAccessRes interface {
@@ -163,6 +175,10 @@ type EndSodRuleRes interface {
 
 type GetAccountRes interface {
 	getAccountRes()
+}
+
+type GetAgentSessionRes interface {
+	getAgentSessionRes()
 }
 
 type GetApprovalRequestRes interface {
@@ -261,6 +277,10 @@ type GetPurchaseOrderRes interface {
 	getPurchaseOrderRes()
 }
 
+type GetRecommendationRes interface {
+	getRecommendationRes()
+}
+
 type GetRequisitionRes interface {
 	getRequisitionRes()
 }
@@ -295,6 +315,14 @@ type HoldSupplierInvoiceRes interface {
 
 type ListAccountsRes interface {
 	listAccountsRes()
+}
+
+type ListAgentSessionsRes interface {
+	listAgentSessionsRes()
+}
+
+type ListAgentToolCallsRes interface {
+	listAgentToolCallsRes()
 }
 
 type ListApprovalRequestsRes interface {
@@ -413,6 +441,10 @@ type ListPurchaseOrdersRes interface {
 	listPurchaseOrdersRes()
 }
 
+type ListRecommendationsRes interface {
+	listRecommendationsRes()
+}
+
 type ListRequisitionsRes interface {
 	listRequisitionsRes()
 }
@@ -465,6 +497,10 @@ type ReconcileMigrationRunRes interface {
 	reconcileMigrationRunRes()
 }
 
+type RecordAgentToolCallRes interface {
+	recordAgentToolCallRes()
+}
+
 type RejectApprovalRequestRes interface {
 	rejectApprovalRequestRes()
 }
@@ -511,6 +547,10 @@ type ReverseSupplierInvoiceRes interface {
 
 type SimulateChangeRequestRes interface {
 	simulateChangeRequestRes()
+}
+
+type StartAgentSessionRes interface {
+	startAgentSessionRes()
 }
 
 type StartMigrationRunRes interface {

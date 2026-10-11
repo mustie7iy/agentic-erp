@@ -345,6 +345,20 @@ func encodeCreatePurchaseOrderRequest(
 	return nil
 }
 
+func encodeCreateRecommendationRequest(
+	req *RecommendationCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateRequisitionRequest(
 	req *RequisitionCreate,
 	r *http.Request,
@@ -415,8 +429,36 @@ func encodeCreateSupplierInvoiceRequest(
 	return nil
 }
 
+func encodeDecideRecommendationRequest(
+	req *RecommendationDecide,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeDisableConnectorRequest(
 	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeEndAgentSessionRequest(
+	req *AgentSessionEnd,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -575,6 +617,20 @@ func encodeProposePaymentRunRequest(
 	return nil
 }
 
+func encodeRecordAgentToolCallRequest(
+	req *AgentToolCallCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeRejectApprovalRequestRequest(
 	req *CommentRequiredInput,
 	r *http.Request,
@@ -713,6 +769,20 @@ func encodeReverseJournalEntryRequest(
 
 func encodeReverseSupplierInvoiceRequest(
 	req *SupplierInvoiceReverse,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeStartAgentSessionRequest(
+	req *AgentSessionStart,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

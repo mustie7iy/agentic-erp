@@ -9,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/mustie7iy/agentic-erp/internal/governance"
 )
 
 // Session holds the results of one conversation with the analytics agent,
@@ -19,29 +17,17 @@ type Session struct {
 	Model     *Model
 	Facts     *Facts
 	Principal Principal
-	Audit     *governance.AuditLog
 	Results   map[string]*Result
 }
 
-func NewSession(m *Model, f *Facts, p Principal, audit *governance.AuditLog) *Session {
-	return &Session{Model: m, Facts: f, Principal: p, Audit: audit, Results: map[string]*Result{}}
+func NewSession(m *Model, f *Facts, p Principal) *Session {
+	return &Session{Model: m, Facts: f, Principal: p, Results: map[string]*Result{}}
 }
 
-// Run executes a semantic query for the session's principal and records it.
+// Run executes a semantic query for the session's principal. The data was
+// read through the API with the principal's permissions and company access.
 func (s *Session) Run(q Query) (*Result, error) {
 	r, err := Execute(s.Model, s.Facts, s.Principal, q)
-	if s.Audit != nil {
-		outcome, detail := "ok", map[string]any{"query": q}
-		if err != nil {
-			outcome, detail["error"] = "error", err.Error()
-		} else {
-			detail["rows"] = len(r.Rows)
-		}
-		id := QueryID(q, s.Principal)
-		if _, aerr := s.Audit.Append(s.Principal.ID, "analytics.query", id, outcome, detail); aerr != nil {
-			return nil, fmt.Errorf("audit: %w", aerr)
-		}
-	}
 	if err != nil {
 		return nil, err
 	}

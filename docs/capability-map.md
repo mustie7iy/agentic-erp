@@ -9,7 +9,7 @@ Phases are defined in [plan.md](plan.md).
 
 | Approach | Meaning |
 |---|---|
-| Native core | Built as deterministic Go services in `internal/core` and its successors |
+| Native core | Built as deterministic Go services, one bounded context per package behind the public API |
 | Agent-native | Delivered mainly by agents working over core services |
 | Integrate | Connect a specialist product instead of building (payroll, tax calculation, CRM, T&E...) |
 | Industry pack | Configuration, data model extensions and agents built on demand for an industry |

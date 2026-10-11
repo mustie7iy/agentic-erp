@@ -200,6 +200,13 @@ type Handler interface {
 	//
 	// POST /v1/purchase-orders
 	CreatePurchaseOrder(ctx context.Context, req *PurchaseOrderCreate, params CreatePurchaseOrderParams) (CreatePurchaseOrderRes, error)
+	// CreateRecommendation implements createRecommendation operation.
+	//
+	// Records an agent's recommendation on a business object for people to decide. Agents recommend;
+	// people decide. The session must be the caller's and running.
+	//
+	// POST /v1/recommendations
+	CreateRecommendation(ctx context.Context, req *RecommendationCreate, params CreateRecommendationParams) (CreateRecommendationRes, error)
 	// CreateRequisition implements createRequisition operation.
 	//
 	// Creates a draft requisition.
@@ -231,6 +238,12 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices
 	CreateSupplierInvoice(ctx context.Context, req *SupplierInvoiceCreate, params CreateSupplierInvoiceParams) (CreateSupplierInvoiceRes, error)
+	// DecideRecommendation implements decideRecommendation operation.
+	//
+	// Records what a person did with an open recommendation: accepted, overridden or ignored. Human-only.
+	//
+	// POST /v1/recommendations/{id}:decide
+	DecideRecommendation(ctx context.Context, req *RecommendationDecide, params DecideRecommendationParams) (DecideRecommendationRes, error)
 	// DisableConnector implements disableConnector operation.
 	//
 	// Stops all message exchange through the connector; queued messages wait. Requires status `active`.
@@ -243,6 +256,13 @@ type Handler interface {
 	//
 	// POST /v1/connectors/{id}:enable
 	EnableConnector(ctx context.Context, params EnableConnectorParams) (EnableConnectorRes, error)
+	// EndAgentSession implements endAgentSession operation.
+	//
+	// Ends a running session with its outcome and the tokens and cost it used. Only the session's agent
+	// ends it. Requires status `running`.
+	//
+	// POST /v1/agent-sessions/{id}:end
+	EndAgentSession(ctx context.Context, req *AgentSessionEnd, params EndAgentSessionParams) (EndAgentSessionRes, error)
 	// EndCompanyAccess implements endCompanyAccess operation.
 	//
 	// Ends the grant. Sets `valid_to` (never into the past, only brought forward); nothing is deleted.
@@ -277,6 +297,12 @@ type Handler interface {
 	//
 	// GET /v1/accounts/{id}
 	GetAccount(ctx context.Context, params GetAccountParams) (GetAccountRes, error)
+	// GetAgentSession implements getAgentSession operation.
+	//
+	// Returns one agent session.
+	//
+	// GET /v1/agent-sessions/{id}
+	GetAgentSession(ctx context.Context, params GetAgentSessionParams) (GetAgentSessionRes, error)
 	// GetApprovalRequest implements getApprovalRequest operation.
 	//
 	// Returns one approval request with steps and decisions.
@@ -421,6 +447,12 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders/{id}
 	GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error)
+	// GetRecommendation implements getRecommendation operation.
+	//
+	// Returns one recommendation.
+	//
+	// GET /v1/recommendations/{id}
+	GetRecommendation(ctx context.Context, params GetRecommendationParams) (GetRecommendationRes, error)
 	// GetRequisition implements getRequisition operation.
 	//
 	// Returns one requisition. Expandable: `supplier`.
@@ -475,6 +507,18 @@ type Handler interface {
 	//
 	// GET /v1/accounts
 	ListAccounts(ctx context.Context, params ListAccountsParams) (ListAccountsRes, error)
+	// ListAgentSessions implements listAgentSessions operation.
+	//
+	// Agent sessions, newest first. Sortable by: `started_at`.
+	//
+	// GET /v1/agent-sessions
+	ListAgentSessions(ctx context.Context, params ListAgentSessionsParams) (ListAgentSessionsRes, error)
+	// ListAgentToolCalls implements listAgentToolCalls operation.
+	//
+	// Tool calls in the order they were made.
+	//
+	// GET /v1/agent-sessions/{id}/tool-calls
+	ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (ListAgentToolCallsRes, error)
 	// ListApprovalRequests implements listApprovalRequests operation.
 	//
 	// Approval requests; filter by `status=pending` for an inbox. Sortable by: `created_at`.
@@ -651,6 +695,12 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders
 	ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error)
+	// ListRecommendations implements listRecommendations operation.
+	//
+	// Agent recommendations, newest first. Sortable by: `created_at`.
+	//
+	// GET /v1/recommendations
+	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (ListRecommendationsRes, error)
 	// ListRequisitions implements listRequisitions operation.
 	//
 	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.
@@ -738,6 +788,13 @@ type Handler interface {
 	//
 	// POST /v1/migration-runs/{id}:reconcile
 	ReconcileMigrationRun(ctx context.Context, params ReconcileMigrationRunParams) (ReconcileMigrationRunRes, error)
+	// RecordAgentToolCall implements recordAgentToolCall operation.
+	//
+	// Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent
+	// records its calls.
+	//
+	// POST /v1/agent-sessions/{id}/tool-calls
+	RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
 	// RejectApprovalRequest implements rejectApprovalRequest operation.
 	//
 	// Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides
@@ -829,6 +886,13 @@ type Handler interface {
 	//
 	// POST /v1/change-requests/{id}:simulate
 	SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (SimulateChangeRequestRes, error)
+	// StartAgentSession implements startAgentSession operation.
+	//
+	// Opens a session for the calling agent: its tool calls and recommendations are recorded under it.
+	// Only agents start sessions (403 `agents.not_an_agent`).
+	//
+	// POST /v1/agent-sessions
+	StartAgentSession(ctx context.Context, req *AgentSessionStart, params StartAgentSessionParams) (StartAgentSessionRes, error)
 	// StartMigrationRun implements startMigrationRun operation.
 	//
 	// Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status

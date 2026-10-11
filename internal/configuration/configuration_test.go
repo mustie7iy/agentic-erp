@@ -62,9 +62,9 @@ func setup(t *testing.T, bare bool) env {
 	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 		VALUES ($1, $2, '1000', 'Acme Corp US', 'US', 'USD', gen_random_uuid(), 'active', $3, $3),
 		($1, gen_random_uuid(), '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $3, $3)`, ten.ID, e.le, ten.Human.ID)
-	for _, r := range document(t).Roles {
+	for _, r := range document(t).RoleNames() {
 		pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,
-			ten.ID, r.Name, ten.Human.ID)
+			ten.ID, r, ten.Human.ID)
 	}
 	if !bare {
 		e.bootstrap(t, jsonOf(t, document(t)))

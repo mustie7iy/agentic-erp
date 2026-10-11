@@ -58,7 +58,7 @@ Go end to end, including server-rendered web pages.
 | Language | Go 1.26 |
 | AI | Anthropic Go SDK, Claude Opus 5.5 by default, server-side refusal fallback |
 | SAP integration | OData V2 client and JSON file extracts |
-| Storage | In-memory store with JSON snapshots, standing in for Postgres |
+| Storage | PostgreSQL 17: row-level security per tenant, a unit of work per request, transactional outbox |
 | Audit | Append-only, SHA-256 hash-chained log |
 | Tests | `go test` with the race detector, plus a fake Claude API server |
 | Analytics | Semantic layer (`semantic.yaml`), in-memory fact tables, Go query engine with row-level security, analytics agent, narrative check, HTML/SVG dashboards, saved and rerunnable reports, CSV export |

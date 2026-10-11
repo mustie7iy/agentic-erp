@@ -497,3 +497,14 @@ func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
 	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
 	return d, err
 }
+
+// Count is how many of the invoices exist.
+func (Invoices) Count(ctx context.Context, ids []uuid.UUID) (int, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	err = tx.QueryRow(ctx, `SELECT count(*) FROM payables.supplier_invoice WHERE id = ANY($1)`, ids).Scan(&n)
+	return n, err
+}

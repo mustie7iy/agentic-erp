@@ -57,11 +57,11 @@ prototype store for that context.
 | T3 (done) | **Partner and ledger** | Journal entries posted and reversed through the API; projector maintains balances; trial balance meets its budget |
 | T4 (done) | **Procurement, payables, workflow** | Requisition → PO → receipt → invoice → match → post through the API, with approvals |
 | T5 (done) | **Payments** | Proposal as an operation, release with SoD, bank file, clearing |
-| T6 | **Agents and integration** onto the API | Delivery agents and SAP migration use generated API tools only; prototype store deleted |
+| T6 (done) | **Agents and integration** onto the API | Delivery agents and SAP migration use generated API tools only; prototype store deleted |
 | T7 | **Hardening** | Load, soak and resilience suites pass at the targets in 01 §1.3 |
 
-The prototype stays runnable as a demo until T6, then `core.Store` is
-removed. The CLI becomes a thin API client.
+The prototype stayed runnable as a demo until T6, which removed
+`core.Store` and made the CLI a thin API client.
 
 ### T2 decisions and open points
 
@@ -393,6 +393,106 @@ Open points for the contract and design review:
   connector should confirm before commit once integration messages exist
   (`integration_message_id` is null).
 - Bank files and captured documents still wait for object storage.
+
+### T6 decisions and open points
+
+What T6 built: `internal/integration` (11 operations: connectors and
+migration runs), `internal/agents` (10 operations: agent sessions, their
+tool calls, recommendations and their decision) and `internal/audit` (2:
+audit events and chain verification) on the pipeline; `internal/apitools`,
+the runtime that gives agents the API as tools; migration 000017. The
+invoice exceptions agent, the configuration, migration and test agents and
+analytics were rewritten as API clients, and the prototype was deleted:
+`internal/core`, `migration`, `governance`, `p2p`, `workflow`, the
+simulation, regression and change-evidence packages, and the roles, users
+and SoD pairs of the configuration document. The exit criterion is
+`TestEndToEnd` (cmd/erp): through the CLI against a real server, a mock SAP
+scope is migrated and reconciled through the integration API, the invoice
+rule runs, all four agents work through API tools only (scripted model), and
+analytics answers from the data the API returns.
+
+Decisions taken while building it:
+
+- **Agents use the public API, nothing else.** `apitools.Tools` builds one
+  tool per operationId from the embedded contract: parameters and the
+  request body become the input schema (references inlined, read-only
+  properties dropped, open enumerations described); operations marked
+  `x-agent: false` are refused. Each agent names the operations it may use.
+  `apitools.Operation` gives people (the CLI) any operation, approvals
+  included; the API still refuses agents those. Results go back to the
+  model as status, ETag and body, truncated at 40,000 bytes.
+- **Sessions are recorded through the API.** An agent opens a session
+  (`startAgentSession`, agents only), every tool call is recorded in order
+  before its result reaches the model, and the session ends completed,
+  refused or failed with the tokens it used. Agents act by
+  `createRecommendation` or by proposing change requests; deciding a
+  recommendation is a person's approval (`agents.recommendation.decide`).
+  The invoice agent skips invoices that already have an open
+  recommendation; the migration agent's guard lets it start rehearsals only.
+- **Migration loads through the owning contexts' services**, inside the
+  request transaction: partners (`partner.Migration`), orders and receipts
+  (procurement), parked invoices (payables), journal entries and clearings
+  (ledger). Each record runs in a savepoint; a refusal (4xx) is reported
+  and the record rolled back, an error (5xx) fails the request. Any
+  refusal or quality error fails the run as a whole and nothing stays. An
+  external reference per record (`integration.external_ref`, keyed by the
+  connector's `settings.system`, default `SAP`) makes runs idempotent: a
+  run of a scope already loaded loads nothing again.
+- **Runs complete within the request.** `:start` (operation
+  `integration.migrate`) extracts, runs the quality gate and loads;
+  `:reconcile` (`integration.reconcile`) recomputes the controls from the
+  SAP extract against the platform. A rehearsal loads, reconciles and rolls
+  back to a savepoint, keeping only its report. An extraction failure is
+  503 and leaves the run queued.
+- **What is migrated.** Posted SAP invoices are carried by their FI
+  documents (ACDOCA), not loaded as supplier invoices again; parked ones
+  become parked invoices. Movement type 102 (receipt reversal) is not
+  migrated: the quality gate reports it. Migrated clearing
+  (`ledger.Postings.Clear`) requires the items to net to zero in
+  transaction and local currency; group-currency rounding is accepted. A
+  payment cleared by a document outside the scope is cleared by the latest
+  of its items' documents. Balances mode posts one opening entry per
+  company (document type OB, range `journal_ob`) with open vendor items
+  kept individually.
+- **Connector secrets are references.** `secret_ref` is `env:NAME`,
+  resolved by `integration.EnvSecrets` in `erp-server`, standing in for a
+  vault. `sap_file` connectors read only below `ERP_EXTRACT_DIR` (local
+  paths); without it they answer 503.
+- **The configuration document no longer has roles, users, agents or SoD
+  pairs** (closing T2's open point); identity owns them. The document keeps
+  role names in approval steps, and `sapconfig` turns SAP's role design into
+  notes for the people who set up identity.
+- **The CLI is a thin client** (`ERP_API_URL`, `ERP_TOKEN`,
+  `ERP_AGENT_TOKEN`): `call` for any operation, `migrate`, the invoice rule,
+  the agents and analytics. Only preparing input stays local: the mock SAP
+  extract and a configuration draft from SAP customizing.
+- **Analytics runs client-side over the API.** `analytics.Source` reads
+  legal entities, partners, accounts, open items, journal entries, orders
+  and invoices with the person's token, so row-level security is the API's
+  company access; the semantic layer and query engine are unchanged.
+  Queries are no longer written to the audit log, which they were in the
+  prototype; that returns when analytics gets an API.
+- **The non-functional suite was re-baselined.** The prototype's
+  concurrency, reliability and security tests went with the store; those
+  properties are now tested per context on PostgreSQL (`EveryFailure`,
+  company access, SoD). `internal/nfr` keeps the budgets of the client-side
+  engines (analytics queries, configuration validation).
+
+Open points for the contract and design review:
+
+- Migration runs complete within the request, like the other operations
+  that do not yet have a worker; a large scope needs the run to move to a
+  worker (Temporal, ADR-0012) before tenants reach that size.
+- The prototype's sandbox simulation and regression suites have no API, and
+  no worker runs `config.simulate`, so tier 3 and 4 configuration changes
+  still wait for evidence; the test agent writes test scripts instead of
+  replaying suites.
+- There is no tenant bootstrap or development identity provider, so the
+  CLI against a live server needs an OIDC issuer and a provisioned tenant;
+  `make demo` runs the walkthrough as a test.
+- `EnvSecrets` is a stand-in: connector credentials need a vault.
+- Agents are tested against a scripted model only; evals against the live
+  API come before any agent gets autonomy above L0.
 
 ## 7.4 Data from the prototype
 

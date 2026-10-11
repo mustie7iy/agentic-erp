@@ -11,74 +11,58 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
-	"github.com/mustie7iy/agentic-erp/internal/core"
-	"github.com/mustie7iy/agentic-erp/internal/governance"
 )
 
 const defaultReports = "data/reports"
 
-type multiFlag []string
-
-func (m *multiFlag) String() string     { return strings.Join(*m, "; ") }
-func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
-
 // analyticsFlags are shared by the analytics commands.
 type analyticsFlags struct {
-	store, audit, model, as, companies *string
+	model, companies *string
 }
 
 func addAnalyticsFlags(fs *flag.FlagSet) analyticsFlags {
 	return analyticsFlags{
-		store:     fs.String("store", defaultStore, "core store snapshot"),
-		audit:     fs.String("audit", defaultAudit, "audit log"),
 		model:     fs.String("semantic", "", "semantic model YAML (default: built-in governed model)"),
-		as:        fs.String("as", "analyst", "user asking (recorded in the audit log)"),
-		companies: fs.String("companies", "", "comma-separated company codes the user may see (default: all)"),
+		companies: fs.String("companies", "", "comma-separated company codes to restrict to (default: all you may read)"),
 	}
 }
 
-func (f analyticsFlags) session() (*analytics.Session, error) {
-	s, err := core.LoadStore(*f.store)
-	if err != nil {
-		return nil, fmt.Errorf("%w (run \"erp migrate\" first)", err)
+func loadModel(path string) (*analytics.Model, error) {
+	if path != "" {
+		return analytics.LoadModel(path)
 	}
-	var m *analytics.Model
-	if *f.model != "" {
-		m, err = analytics.LoadModel(*f.model)
-	} else {
-		m, err = analytics.DefaultModel()
-	}
-	if err != nil {
-		return nil, err
-	}
-	facts, err := analytics.BuildFacts(s, m, time.Now())
+	return analytics.DefaultModel()
+}
+
+// session reads the facts through the API with the person's token: only
+// the legal entities and data they may read.
+func (f analyticsFlags) session(ctx context.Context) (*analytics.Session, error) {
+	m, err := loadModel(*f.model)
 	if err != nil {
 		return nil, err
 	}
-	audit, err := governance.NewAuditLog(*f.audit)
+	c, err := client("ERP_TOKEN")
 	if err != nil {
 		return nil, err
 	}
-	p := analytics.Principal{ID: "user:" + *f.as}
+	facts, err := analytics.Source{API: c}.Facts(ctx, m, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	p := analytics.Principal{ID: "token"}
 	if *f.companies != "" {
 		p.Companies = strings.Split(*f.companies, ",")
 	}
-	return analytics.NewSession(m, facts, p, audit), nil
+	return analytics.NewSession(m, facts, p), nil
 }
 
-func metricsCmd(args []string) error {
+func metricsCmd(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("metrics", flag.ContinueOnError)
 	semantic := fs.String("semantic", "", "semantic model YAML (default: built-in governed model)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	var m *analytics.Model
-	var err error
-	if *semantic != "" {
-		m, err = analytics.LoadModel(*semantic)
-	} else {
-		m, err = analytics.DefaultModel()
-	}
+	m, err := loadModel(*semantic)
 	if err != nil {
 		return err
 	}
@@ -87,19 +71,13 @@ func metricsCmd(args []string) error {
 	for _, met := range m.Metrics {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", met.Name, met.Type, met.Description, strings.Join(m.AllowedDimensions(met.Name), ", "))
 	}
-	tw.Flush()
-	fmt.Fprintln(out, "\nEveryday words:")
-	for word, metric := range m.Defaults {
-		fmt.Fprintf(out, "  %q means %s\n", word, metric)
-	}
-	return nil
+	return tw.Flush()
 }
 
 // queryCmd runs a semantic query directly, without the agent.
 //
-//	erp query -measures revenue -by fiscal_year,fiscal_month \
-//	  -where "fiscal_year in 2025,2026" -where "fiscal_month <= 9"
-func queryCmd(args []string) error {
+//	erp query -measures revenue -by fiscal_year,fiscal_month -where "fiscal_month <= 9"
+func queryCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("query", flag.ContinueOnError)
 	af := addAnalyticsFlags(fs)
 	measures := fs.String("measures", "", "comma-separated metrics")
@@ -110,7 +88,6 @@ func queryCmd(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
 	q := analytics.Query{Measures: splitList(*measures), By: splitList(*by)}
 	for _, w := range where {
 		f, err := parseFilter(w)
@@ -119,7 +96,7 @@ func queryCmd(args []string) error {
 		}
 		q.Where = append(q.Where, f)
 	}
-	sess, err := af.session()
+	sess, err := af.session(ctx)
 	if err != nil {
 		return err
 	}
@@ -162,6 +139,9 @@ func queryCmd(args []string) error {
 	return nil
 }
 
+// newAgent makes the analytics agent; tests replace it.
+var newAgent = analytics.NewAgent
+
 // askCmd answers a plain-language question with an on-demand dashboard.
 func askCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
@@ -174,12 +154,12 @@ func askCmd(ctx context.Context, args []string) error {
 	if question == "" {
 		return fmt.Errorf(`ask a question, e.g. erp ask "monthly sales vs last year this time"`)
 	}
-	sess, err := af.session()
+	sess, err := af.session(ctx)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(errOut, "Working on it...")
-	ans, err := analytics.NewAgent().Ask(ctx, sess, question)
+	ans, err := newAgent().Ask(ctx, sess, question)
 	if err != nil {
 		return err
 	}
@@ -193,7 +173,7 @@ func askCmd(ctx context.Context, args []string) error {
 }
 
 // reportCmd reruns a saved report (or a hand-written report file) on current data.
-func reportCmd(args []string) error {
+func reportCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
 	af := addAnalyticsFlags(fs)
 	id := fs.String("id", "", "saved report id (from erp ask)")
@@ -213,7 +193,7 @@ func reportCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session()
+	sess, err := af.session(ctx)
 	if err != nil {
 		return err
 	}

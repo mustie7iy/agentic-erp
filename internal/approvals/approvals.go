@@ -216,7 +216,7 @@ func steps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([
 		out = append(out, policyStep{doc.Payments.VendorApproverRole, 1})
 	case ConfigChange:
 		for _, s := range config.ApprovalSteps(config.Tier(in.Tier)) {
-			out = append(out, policyStep{s.Role, s.Required})
+			out = append(out, policyStep{s.Role, s.Approvals})
 		}
 	case InvoiceException:
 		out = append(out, policyStep{DefaultExceptionRole, 1})

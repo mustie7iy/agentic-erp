@@ -21,7 +21,8 @@ rather than promising one number up front.
 
 ## Cutover protocol per scope (company code + fiscal year)
 
-1. **Profile.** Run `erp migrate` against a copy. Fix data-quality *errors* in
+1. **Profile.** Run `erp migrate -rehearsal` (a migration run that loads,
+   reconciles and rolls back, keeping only its report). Fix data-quality *errors* in
    SAP. Get business sign-off on each *warning* (duplicate vendors, missing tax
    numbers, blocked vendors with open items).
 2. **Rehearse.** Repeat full migrations until reconciliation passes with no
@@ -45,7 +46,8 @@ and every reconciliation check passing.
 
 ## Reconciliation controls
 
-Each control is computed twice: from the raw SAP extract and from the core.
+Each control is computed twice: from the raw SAP extract and from the
+platform, read through the owning contexts.
 They must be equal.
 
 - Trial balance per account (differences listed by account)
@@ -53,7 +55,8 @@ They must be equal.
 - Open payables, in total and per vendor
 - Vendor count per company code
 - Purchase order count and value
-- Supplier invoices by status (parked, posted)
+- Parked supplier invoices (posted ones are carried by their FI documents)
+- Every SAP document in scope present on the platform (missing ones listed)
 
 ## What to check on a real SAP system
 

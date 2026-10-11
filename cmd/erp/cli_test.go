@@ -1,0 +1,337 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+)
+
+// reply is a canned API answer; status 0 aborts the connection instead.
+type reply struct {
+	status int
+	body   string
+}
+
+var aborted = reply{}
+
+func ok(body string) reply { return reply{200, body} }
+
+// routes answer "METHOD path" with the replies in order, the last one
+// repeated; any other call is a 404 problem.
+type routes map[string][]reply
+
+// fakeAPI serves routes and points the CLI at them with both tokens set;
+// vars overrides the environment (an empty value unsets a variable).
+func fakeAPI(t *testing.T, r routes, vars ...string) {
+	t.Helper()
+	var mu sync.Mutex
+	calls := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		key := req.Method + " " + req.URL.Path
+		n := calls[key]
+		calls[key]++
+		mu.Unlock()
+		replies, found := r[key]
+		if !found {
+			w.WriteHeader(404)
+			w.Write([]byte(`{"code": "not_found", "detail": "` + key + `"}`))
+			return
+		}
+		rep := replies[min(n, len(replies)-1)]
+		if rep.status == 0 {
+			panic(http.ErrAbortHandler)
+		}
+		w.Header().Set("ETag", `"1"`)
+		w.WriteHeader(rep.status)
+		w.Write([]byte(rep.body))
+	}))
+	t.Cleanup(srv.Close)
+	env := map[string]string{"ERP_API_URL": srv.URL, "ERP_TOKEN": "t", "ERP_AGENT_TOKEN": "a"}
+	for i := 0; i+1 < len(vars); i += 2 {
+		env[vars[i]] = vars[i+1]
+	}
+	getenv = func(k string) string { return env[k] }
+	t.Cleanup(func() { getenv = os.Getenv })
+}
+
+// fails runs a command that must fail with output containing want.
+func fails(t *testing.T, want string, args ...string) {
+	t.Helper()
+	code, got := cli(t, args...)
+	if code == 0 || !strings.Contains(got, want) {
+		t.Errorf("erp %s: exit %d, want failure with %q:\n%s", strings.Join(args, " "), code, want, got)
+	}
+}
+
+func TestUsageAndMain(t *testing.T) {
+	if code, got := cli(t); code != 2 || !strings.Contains(got, "usage") {
+		t.Fatalf("no command: %d %s", code, got)
+	}
+	if code, _ := cli(t, "bogus"); code != 2 {
+		t.Fatalf("unknown command: %d", code)
+	}
+	if code, _ := cli(t, "metrics", "-h"); code != 0 {
+		t.Fatalf("help: %d", code)
+	}
+	var code int
+	exit = func(c int) { code = c }
+	args := os.Args
+	os.Args = []string{"erp"}
+	errOut = &strings.Builder{}
+	t.Cleanup(func() { exit, os.Args, errOut = os.Exit, args, os.Stderr })
+	main()
+	if code != 2 {
+		t.Fatalf("main: %d", code)
+	}
+}
+
+func TestCallErrors(t *testing.T) {
+	t.Chdir(t.TempDir())
+	fakeAPI(t, routes{}, "ERP_API_URL", "")
+	fails(t, "no operation noSuchOperation", "call", "noSuchOperation") // on the default URL, refused before any call
+	fakeAPI(t, routes{})
+	fails(t, "name the operation", "call")
+	fails(t, "name the operation", "call", "-p", "x=1")
+	fails(t, "flag provided but not defined", "call", "listMigrationRuns", "-x")
+	fails(t, "want name=value", "call", "listMigrationRuns", "-p", "status")
+	fails(t, "no such file", "call", "createConnector", "-body", "@missing.json")
+	fails(t, "body:", "call", "createConnector", "-body", "{")
+	fails(t, "missing path parameter", "call", "getMigrationRun")
+	fakeAPI(t, routes{}, "ERP_TOKEN", "")
+	fails(t, "ERP_TOKEN is not set", "call", "listMigrationRuns")
+}
+
+func TestLocalPreparationErrors(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("file", nil, 0o644)
+	fails(t, "flag provided", "gen-mock-sap", "-x")
+	fails(t, "not a directory", "gen-mock-sap", "-out", "file/extract.json")
+	must(t, "gen-mock-sap", "-out", "extract.json", "-seed", "7")
+
+	fails(t, "config generate | validate", "config")
+	fails(t, "unknown config command", "config", "bogus")
+	fails(t, "flag provided", "config", "generate", "-x")
+	fails(t, "invalid -source", "config", "generate", "-source", "extract.json")
+	fails(t, "127.0.0.1", "config", "generate", "-source", "odata:http://127.0.0.1:1")
+	fails(t, "not a directory", "config", "generate", "-source", "file:extract.json", "-out", "file/draft.yaml")
+	fails(t, "flag provided", "config", "validate", "-x")
+	fails(t, "missing.yaml", "config", "validate", "-file", "missing.yaml")
+
+	doc := fixture.Document(t)
+	doc.Companies[0].TaxCodes = nil
+	b, _ := doc.Marshal()
+	os.WriteFile("warn.yaml", b, 0o644)
+	if got := must(t, "config", "validate", "-file", "warn.yaml"); !strings.Contains(got, "[warning]") {
+		t.Fatalf("warnings: %s", got)
+	}
+	doc.Companies[0].InvoiceTolerance.PricePercent = 200
+	b, _ = doc.Marshal()
+	os.WriteFile("bad.yaml", b, 0o644)
+	fails(t, "validation errors", "config", "validate", "-file", "bad.yaml")
+}
+
+const runPath = "/v1/migration-runs/r1"
+
+func migration(r routes) routes {
+	base := routes{
+		"POST /v1/migration-runs":        {{201, `{"id": "r1", "status": "queued"}`}},
+		"GET " + runPath:                 {ok(`{"id": "r1", "status": "queued"}`)},
+		"POST " + runPath + ":start":     {ok(`{}`)},
+		"POST " + runPath + ":reconcile": {ok(`{}`)},
+	}
+	for k, v := range r {
+		base[k] = v
+	}
+	return base
+}
+
+func TestMigrateErrors(t *testing.T) {
+	loaded := ok(`{"id": "r1", "status": "loaded"}`)
+	failed := ok(`{"id": "r1", "status": "failed", "report": {"checks": [{"company_code": "1000", "name": "balance", "sap": "1", "platform": "2", "pass": false}],
+		"diffs": [{"company_code": "1000", "key": "211000", "sap": "1", "platform": "2"}], "missing_documents": ["1000/1900000001/2026"]}}`)
+	for name, c := range map[string]struct {
+		r    routes
+		want string
+	}{
+		"create aborted":     {routes{"POST /v1/migration-runs": {aborted}}, "EOF"},
+		"create refused":     {routes{"POST /v1/migration-runs": {{422, `{"code": "integration.invalid_scope"}`}}}, "invalid_scope"},
+		"read aborted":       {routes{"GET " + runPath: {aborted}}, "EOF"},
+		"read refused":       {routes{"GET " + runPath: {{404, `{"code": "not_found"}`}}}, "not_found"},
+		"start aborted":      {routes{"POST " + runPath + ":start": {aborted}}, "EOF"},
+		"reread aborted":     {routes{"GET " + runPath: {ok(`{}`), aborted}}, "EOF"},
+		"reconcile refused":  {routes{"GET " + runPath: {ok(`{}`), loaded, {404, `{"code": "gone"}`}}}, "gone"},
+		"reconciled aborted": {routes{"GET " + runPath: {ok(`{}`), loaded, ok(`{}`), aborted}}, "EOF"},
+		"failed":             {routes{"GET " + runPath: {ok(`{}`), failed}}, "do not cut over"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeAPI(t, migration(c.r))
+			fails(t, c.want, "migrate", "-connector", "c", "-legal-entities", "le")
+		})
+	}
+	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), failed}}))
+	_, got := cli(t, "migrate")
+	for _, want := range []string{"FAIL", "difference 1000 211000", "1 SAP documents are not on the platform"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("report lacks %q:\n%s", want, got)
+		}
+	}
+	fails(t, "flag provided", "migrate", "-x")
+	fakeAPI(t, routes{}, "ERP_TOKEN", "")
+	fails(t, "ERP_TOKEN", "migrate")
+}
+
+const invoicePath = "/v1/supplier-invoices/i1"
+
+func parked(r routes) routes {
+	base := routes{
+		"GET /v1/config-versions": {ok(`{"items": [{"document": {"companies": [{"code": "1000", "auto_post_limit": "100.00"}]}}]}`)},
+		"GET /v1/legal-entities":  {ok(`{"items": [{"id": "le", "code": "1000"}]}`)},
+		"GET /v1/supplier-invoices": {ok(`{"items": [{"id": "i0", "document_number": "5100", "legal_entity_id": "le"},
+			{"id": "i1", "document_number": "5101", "legal_entity_id": "le", "purchase_order_id": "po", "gross_amount": {"amount": "10.00"}}]}`)},
+		"GET " + invoicePath:             {ok(`{}`)},
+		"POST " + invoicePath + ":match": {ok(`{"is_clean": true}`)},
+		"POST " + invoicePath + ":post":  {ok(`{}`)},
+		"GET /v1/recommendations":        {ok(`{"items": []}`)},
+	}
+	for k, v := range r {
+		base[k] = v
+	}
+	return base
+}
+
+func TestInvoicesErrors(t *testing.T) {
+	model(t)
+	for name, c := range map[string]struct {
+		r    routes
+		want string
+	}{
+		"config aborted":     {routes{"GET /v1/config-versions": {aborted}}, "EOF"},
+		"config garbled":     {routes{"GET /v1/config-versions": {ok(`{`)}}, "unexpected end"},
+		"no configuration":   {routes{"GET /v1/config-versions": {ok(`{"items": []}`)}}, "no active configuration"},
+		"entities aborted":   {routes{"GET /v1/legal-entities": {aborted}}, "EOF"},
+		"entities garbled":   {routes{"GET /v1/legal-entities": {ok(`{`)}}, "unexpected end"},
+		"invoices aborted":   {routes{"GET /v1/supplier-invoices": {aborted}}, "EOF"},
+		"invoices garbled":   {routes{"GET /v1/supplier-invoices": {ok(`{`)}}, "unexpected end"},
+		"invoice aborted":    {routes{"GET " + invoicePath: {aborted}}, "EOF"},
+		"match aborted":      {routes{"POST " + invoicePath + ":match": {aborted}}, "EOF"},
+		"match refused":      {routes{"POST " + invoicePath + ":match": {{422, `{"code": "payables.no_order"}`}}}, "invoice 5101: API 422"},
+		"reread aborted":     {routes{"GET " + invoicePath: {ok(`{}`), aborted}}, "EOF"},
+		"post aborted":       {routes{"POST " + invoicePath + ":post": {aborted}}, "EOF"},
+		"post refused":       {routes{"POST " + invoicePath + ":post": {{409, `{"code": "payables.period_closed"}`}}}, "period_closed"},
+		"agent cannot start": {routes{"GET /v1/supplier-invoices": {ok(`{"items": []}`), aborted}}, "EOF"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeAPI(t, parked(c.r))
+			fails(t, c.want, "invoices", "-agent")
+		})
+	}
+	// The agent reports the invoices it could not investigate.
+	fakeAPI(t, parked(nil))
+	if got := must(t, "invoices", "-agent"); !strings.Contains(got, "Posted 1: 5101") || !strings.Contains(got, "5100: apitools: start session") {
+		t.Fatalf("agent errors: %s", got)
+	}
+	fails(t, "flag provided", "invoices", "-x")
+	fakeAPI(t, parked(nil), "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "invoices", "-agent")
+	fakeAPI(t, routes{}, "ERP_TOKEN", "")
+	fails(t, "ERP_TOKEN is not set", "invoices")
+}
+
+func TestAgentErrors(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "agent invoices | config", "agent")
+	fails(t, "unknown agent", "agent", "bogus")
+	fails(t, "flag provided", "agent", "config", "-x")
+	fails(t, "say what to change", "agent", "config")
+	fails(t, "no such file", "agent", "config", "-draft", "missing.yaml", "raise", "it")
+	fails(t, "start session", "agent", "config", "raise", "it")
+	fails(t, "flag provided", "agent", "migration", "-x")
+	fails(t, "start session", "agent", "migration", "-connector", "c")
+	fails(t, "flag provided", "agent", "test", "-x")
+	fails(t, "404", "agent", "test", "-change-request", "cr")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	for _, a := range []string{"config", "migration", "test"} {
+		fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")
+	}
+}
+
+func page(v ...any) reply {
+	b, _ := json.Marshal(map[string]any{"items": v})
+	return ok(string(b))
+}
+
+// facts is the API data analytics reads: one expense, one parked invoice,
+// no revenue.
+func facts() routes {
+	return routes{
+		"GET /v1/legal-entities":    {page(map[string]any{"id": "le", "code": "1000", "local_currency": "USD"})},
+		"GET /v1/business-partners": {page(map[string]any{"id": "p1", "number": "BP1", "name": "Acme"})},
+		"GET /v1/accounts":          {page(map[string]any{"id": "a1", "number": "520000", "name": "Office", "account_type": "expense", "reconciliation_kind": "none"})},
+		"GET /v1/open-items":        {page()},
+		"GET /v1/journal-entries": {page(map[string]any{"id": "j1", "document_type": "KR", "posting_date": "2026-03-02", "lines": []any{
+			map[string]any{"line_no": 1, "account_id": "a1", "amount_lc": map[string]any{"amount": "10.00", "currency": "USD"}}}})},
+		"GET /v1/purchase-orders": {page()},
+		"GET /v1/supplier-invoices": {page(map[string]any{"id": "i1", "supplier_id": "p1", "invoice_date": "2026-03-05", "status": "parked",
+			"gross_amount": map[string]any{"amount": "10.00", "currency": "USD"}})},
+	}
+}
+
+func TestAnalyticsErrors(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.WriteFile("file", nil, 0o644)
+	fakeAPI(t, facts())
+	fails(t, "flag provided", "metrics", "-x")
+	fails(t, "missing.yaml", "metrics", "-semantic", "missing.yaml")
+	fails(t, "flag provided", "query", "-x")
+	fails(t, "want \"dim op values\"", "query", "-where", "fiscal_year 2026")
+	fails(t, "missing.yaml", "query", "-semantic", "missing.yaml", "-measures", "revenue")
+	fails(t, "nope", "query", "-measures", "nope")
+	fails(t, "not a directory", "query", "-measures", "invoice_count", "-csv", "file/q.csv")
+	// A month without revenue shows a dash.
+	if got := must(t, "query", "-measures", "revenue,invoice_count", "-by", "fiscal_month"); !strings.Contains(got, "—") {
+		t.Fatalf("query: %s", got)
+	}
+
+	fails(t, "flag provided", "ask", "-x")
+	fails(t, "ask a question", "ask")
+	ask := llmtest.New(t)
+	newAgent = func() *analytics.Agent { r := ask.Runner(); return &analytics.Agent{Client: r.Client, Model: r.Model} }
+	t.Cleanup(func() { newAgent = analytics.NewAgent })
+	fails(t, "script exhausted", "ask", "how", "much")
+	ask = llmtest.New(t,
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}),
+		llmtest.ToolFn("build_dashboard", func(b string) any {
+			return map[string]any{"spec": analytics.Spec{Title: "Invoices", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
+		}),
+		llmtest.Final("Done."))
+	fails(t, "not a directory", "ask", "-out", "file/reports", "how", "many")
+
+	fails(t, "flag provided", "report", "-x")
+	fails(t, "-id or -file is required", "report")
+	fails(t, "no such file", "report", "-id", "missing")
+	rep := func(name, measure string) string {
+		b, _ := json.Marshal(analytics.Report{ID: "r1", Spec: analytics.Spec{Title: "t", Tables: []analytics.Table{{Title: "t", QueryID: "q"}}}, Queries: map[string]analytics.Query{"q": {Measures: []string{measure}}}})
+		os.WriteFile(name, b, 0o644)
+		return name
+	}
+	fails(t, "query q", "report", "-file", rep("bad.json", "nope"))
+	fails(t, "not a directory", "report", "-file", rep("good.json", "invoice_count"), "-out", "file/reports")
+
+	fakeAPI(t, routes{})
+	fails(t, "/v1/legal-entities", "query", "-measures", "revenue")
+	fakeAPI(t, routes{}, "ERP_TOKEN", "")
+	fails(t, "ERP_TOKEN", "query", "-measures", "revenue")
+	fails(t, "ERP_TOKEN", "ask", "why")
+	fails(t, "ERP_TOKEN", "report", "-file", "good.json")
+}

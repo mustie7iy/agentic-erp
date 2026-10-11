@@ -74,3 +74,7 @@ func mustParse(src []byte) map[string]Operation {
 	}
 	return ops
 }
+
+// Spec is the embedded contract, for clients that build on it (the agent
+// tools are generated from its operations).
+func Spec() []byte { return openapiYAML }

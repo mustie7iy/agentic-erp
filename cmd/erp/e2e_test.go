@@ -4,289 +4,197 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/mustie7iy/agentic-erp/internal/capture"
-	"github.com/mustie7iy/agentic-erp/internal/config"
-	"github.com/mustie7iy/agentic-erp/internal/core"
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
-// cli runs one command in-process and returns its output and exit code.
-func cli(t *testing.T, args ...string) (string, int) {
-	t.Helper()
-	var buf bytes.Buffer
-	out, errOut = &buf, &buf
-	code := run(context.Background(), args)
-	return buf.String(), code
+func TestMain(m *testing.M) { pgtest.Main(m) }
+
+var perms = []string{"integration.connector.read", "integration.connector.manage", "integration.migration.read", "integration.migration.run",
+	"platform.operation.read", "ledger.entry.read", "ledger.account.read", "payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "payables.invoice.hold",
+	"procurement.order.read", "procurement.receipt.read", "partner.supplier.read", "tenancy.org.read", "config.change.read",
+	"config.change.propose", "config.version.read", "agents.session.read", "agents.session.record"}
+
+// env is a configured tenant behind an API server the CLI talks to, with
+// the mock SAP extract of 2026 in the server's extract directory.
+type env struct {
+	fixture.Env
+	dir string
 }
 
-// must runs a command that has to succeed.
+func setup(t *testing.T) env {
+	t.Helper()
+	f := fixture.New(t, perms...)
+	f.Tenant.AllCompanies(t, f.Tenant.Agent)
+	dir := t.TempDir()
+	if err := sap.WriteExtract(filepath.Join(dir, "extract.json"), sap.GenerateMock(42, "2026")); err != nil {
+		t.Fatal(err)
+	}
+	f.API = apitest.NewWith(t, func(c *httpapi.Config) { c.ExtractDir = dir })
+	srv := httptest.NewServer(f.API.Handler)
+	t.Cleanup(srv.Close)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2025-01-01', 0.9, 'ECB', $2)`, f.Tenant.ID, f.Tenant.Human.ID)
+	vars := map[string]string{"ERP_API_URL": srv.URL, "ERP_TOKEN": f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil),
+		"ERP_AGENT_TOKEN": f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Agent.Subject, nil)}
+	getenv = func(k string) string { return vars[k] }
+	t.Cleanup(func() { getenv = os.Getenv })
+	t.Chdir(t.TempDir())
+	return env{Env: f, dir: dir}
+}
+
+// cli runs a command and returns its exit code and output.
+func cli(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	var buf, errBuf bytes.Buffer
+	out, errOut = &buf, &errBuf
+	t.Cleanup(func() { out, errOut = os.Stdout, os.Stderr })
+	code := run(context.Background(), args)
+	return code, buf.String() + errBuf.String()
+}
+
 func must(t *testing.T, args ...string) string {
 	t.Helper()
-	o, code := cli(t, args...)
+	code, got := cli(t, args...)
 	if code != 0 {
-		t.Fatalf("erp %s failed (%d):\n%s", strings.Join(args, " "), code, o)
+		t.Fatalf("erp %s: exit %d\n%s", strings.Join(args, " "), code, got)
 	}
-	return o
+	return got
 }
 
-// fails runs a command that has to fail with the given message.
-func fails(t *testing.T, want string, args ...string) {
+// body is the JSON an "erp call" printed after its status line.
+func body(t *testing.T, output string) map[string]any {
 	t.Helper()
-	o, code := cli(t, args...)
-	if code == 0 || !strings.Contains(o, want) {
-		t.Fatalf("erp %s: want failure containing %q, got (%d):\n%s", strings.Join(args, " "), want, code, o)
-	}
-}
-
-func idIn(t *testing.T, pattern, s string) string {
-	t.Helper()
-	m := regexp.MustCompile(pattern).FindString(s)
-	if m == "" {
-		t.Fatalf("no %s in:\n%s", pattern, s)
+	_, js, _ := strings.Cut(output, "\n")
+	var m map[string]any
+	if err := json.Unmarshal([]byte(js), &m); err != nil {
+		t.Fatalf("not an API answer: %s", output)
 	}
 	return m
 }
 
-type fakeExtractor struct{ e *capture.Extraction }
-
-func (f fakeExtractor) Extract(context.Context, []byte) (*capture.Extraction, error) { return f.e, nil }
-
-// TestPhase1EndToEnd runs the whole Phase 1 flow through the CLI: migrate,
-// generate configuration from SAP customizing, fix the SoD conflict,
-// bootstrap, change configuration through the full approval process,
-// procure-to-pay, payment with a bank file, invoice capture, the delivery
-// agents, and audit verification.
-func TestPhase1EndToEnd(t *testing.T) {
-	t.Chdir(t.TempDir())
-	clock = func() time.Time { return time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC) }
-	defer func() { clock = time.Now }()
-
-	// Migrate SAP data.
-	must(t, "gen-mock-sap", "-year", "2026")
-	if o := must(t, "migrate", "-company", "1000,2000"); !strings.Contains(o, "Reconciliation PASSED") {
-		t.Fatal(o)
-	}
-
-	// Generate configuration from SAP customizing: the SoD conflict blocks it.
-	fails(t, "validation errors", "config", "generate", "-company", "1000,2000", "-out", "draft.yaml")
-	draft, err := config.Load("draft.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	super := draft.User("super1")
-	super.Roles = slices.DeleteFunc(super.Roles, func(r string) bool { return r == "Z_TREASURY_MGR" })
-	draft.Users = append(draft.Users, config.User{ID: "analyst1", Name: "Analyst", Roles: []string{"config_analyst"}})
-	doc, _ := draft.Marshal()
-	os.WriteFile("fixed.yaml", doc, 0o644)
-	if o := must(t, "config", "validate", "-file", "fixed.yaml"); !strings.Contains(o, "Validation") {
-		t.Fatal(o)
-	}
-	fails(t, "validation errors", "config", "validate", "-file", "draft.yaml")
-	fails(t, "is required", "config", "bootstrap", "-file", "fixed.yaml")
-	must(t, "config", "bootstrap", "-file", "fixed.yaml", "-as", "architect1")
-	if o := must(t, "config", "show"); !strings.Contains(o, "# version 1") {
-		t.Fatal(o)
-	}
-
-	// Change configuration: tier 3, needs evidence, two approvals, then activation.
-	if o := must(t, "regress", "capture"); !strings.Contains(o, "decision exception") {
-		t.Fatal(o)
-	}
-	draft.Company("1000").AutoPostLimit = "100000.00"
-	doc, _ = draft.Marshal()
-	os.WriteFile("limit.yaml", doc, 0o644)
-	fails(t, "lacks config.propose", "config", "propose", "-file", "limit.yaml", "-title", "x", "-as", "buyer1")
-	o := must(t, "config", "propose", "-file", "limit.yaml", "-title", "Raise auto-post limit", "-rationale", "fewer approvals", "-as", "analyst1")
-	cr := idIn(t, `CR-\d{4}`, o)
-	if !strings.Contains(o, "pending_approval") || !strings.Contains(o, "simulation (passed=") || !strings.Contains(o, "regression (passed=false)") {
-		t.Fatalf("propose output:\n%s", o)
-	}
-	fails(t, "not approved", "config", "activate", "-cr", cr, "-as", "architect1")
-	must(t, "config", "approve", "-cr", cr, "-as", "owner1", "-comment", "ok")
-	fails(t, "already approved", "config", "approve", "-cr", cr, "-as", "owner1")
-	must(t, "config", "approve", "-cr", cr, "-as", "controller1")
-	if o := must(t, "config", "activate", "-cr", cr, "-as", "architect1"); !strings.Contains(o, "version 2") {
-		t.Fatal(o)
-	}
-	// The suite was captured under v1; after activation it no longer describes the active configuration.
-	fails(t, "capture a new suite", "config", "evidence", "-cr", cr)
-	if o := must(t, "config", "history"); !strings.Contains(o, cr) || !strings.Contains(o, "active") {
-		t.Fatal(o)
-	}
-	if o := must(t, "config", "list"); !strings.Contains(o, "active") {
-		t.Fatal(o)
-	}
-	if o := must(t, "config", "diff", "-cr", cr); !strings.Contains(o, "auto_post_limit") {
-		t.Fatal(o)
-	}
-	if o := must(t, "regress", "run", "-cr", cr); !strings.Contains(o, "change") {
-		t.Fatal(o)
-	}
-	if o := must(t, "config", "rollback", "-to", "1", "-as", "architect1", "-reason", "test rollback"); !strings.Contains(o, "restored as version 3") {
-		t.Fatal(o)
-	}
-	reject := strings.Replace(string(doc), "net_days: 14", "net_days: 21", 1)
-	os.WriteFile("terms.yaml", []byte(reject), 0o644)
-	o = must(t, "config", "propose", "-file", "terms.yaml", "-title", "Terms", "-as", "analyst1")
-	cr2 := idIn(t, `CR-\d{4}`, o)
-	if o := must(t, "config", "reject", "-cr", cr2, "-as", "owner1", "-comment", "no"); !strings.Contains(o, "rejected") {
-		t.Fatal(o)
-	}
-
-	// Invoices are processed under the active configuration.
-	if o := must(t, "invoices"); !strings.Contains(o, "posted") {
-		t.Fatal(o)
-	}
-	o = must(t, "tasks")
-	task := idIn(t, `TASK-\d{8}`, o)
-	fails(t, "lacks", "reject", "-task", task, "-as", "buyer1")
-	must(t, "reject", "-task", task, "-as", "apclerk1", "-comment", "duplicate")
-
-	// Procure-to-pay.
-	fails(t, "lacks requisition.create", "req", "create", "-as", "apclerk1", "-line", "Paper;10;25.00;520000")
-	o = must(t, "req", "create", "-as", "buyer1", "-vendor", "100001", "-line", "Paper;10;25.00;520000;MAT-P")
-	pr := idIn(t, `PR-\d{8}`, o)
-	must(t, "req", "approve", "-id", pr, "-as", "purchmgr1")
-	o = must(t, "po", "create", "-req", pr, "-as", "buyer1")
-	po := idIn(t, `PO-\d{8}`, o)
-	if !strings.Contains(o, "sent by email") {
-		t.Fatal(o)
-	}
-	must(t, "gr", "post", "-po", po, "-line", "10", "-qty", "10", "-as", "whclerk1")
-	fails(t, "over-delivery", "gr", "post", "-po", po, "-line", "10", "-qty", "1", "-as", "whclerk1")
-	must(t, "gr", "post", "-po", po, "-line", "10", "-qty", "2", "-reverse", "-as", "whclerk1")
-	o = must(t, "req", "create", "-as", "buyer1", "-line", "Servers;1;20000.00;530000")
-	pr2 := idIn(t, `PR-\d{8}`, o)
-	must(t, "req", "reject", "-id", pr2, "-as", "purchmgr1", "-comment", "no budget")
-	o = must(t, "contract", "create", "-as", "buyer1", "-vendor", "100003", "-from", "2026-01-01", "-to", "2026-12-31", "-target", "1000.00", "-item", "MAT-T;Toner;40.00;520000")
-	if !strings.Contains(o, "target 1,000.00 USD") {
-		t.Fatal(o)
-	}
-
-	// Supplier master.
-	o = must(t, "vendor", "create", "-as", "mdclerk1", "-id", "300001", "-name", "New Supplier", "-tax", "77-1", "-bank", "GB82WEST12345698765432")
-	mdc := idIn(t, `MDC-\d{8}`, o)
-	fails(t, "lacks vendor.approve", "vendor", "approve", "-change", mdc, "-as", "mdclerk1")
-	must(t, "vendor", "approve", "-change", mdc, "-as", "mdmgr1")
-	o = must(t, "vendor", "bank", "-as", "mdclerk1", "-id", "100001", "-bank", "GB82WEST12345698765432", "-reason", "letter")
-	bank := idIn(t, `MDC-\d{8}`, o)
-	must(t, "vendor", "reject", "-change", bank, "-as", "mdmgr1", "-comment", "unverified")
-	must(t, "vendor", "block", "-as", "mdclerk1", "-id", "100002", "-reason", "audit")
-	o = must(t, "vendor", "unblock", "-as", "mdclerk1", "-id", "100002", "-reason", "cleared")
-	must(t, "vendor", "approve", "-change", idIn(t, `MDC-\d{8}`, o), "-as", "mdmgr1")
-
-	// Payments with an ISO 20022 file.
-	o = must(t, "pay", "propose", "-as", "treas1", "-company", "1000", "-date", "2027-06-30")
-	payRun := idIn(t, `PAY-\d{8}`, o)
-	if !strings.Contains(o, "excluded 100012") {
-		t.Fatalf("blocked vendor excluded:\n%s", o)
-	}
-	fails(t, "lacks payment.release", "pay", "release", "-run", payRun, "-as", "treas1")
-	o = must(t, "pay", "release", "-run", payRun, "-as", "treasmgr1")
-	if !strings.Contains(o, "released") || !strings.Contains(o, "pain.001") {
-		t.Fatal(o)
-	}
-	xmlFile, _ := os.ReadFile("data/bankfiles/" + payRun + ".xml")
-	if !bytes.Contains(xmlFile, []byte("CstmrCdtTrfInitn")) {
-		t.Fatal("bank file not written")
-	}
-	fails(t, "nothing is due", "pay", "propose", "-as", "treas1", "-company", "1000", "-date", "2027-06-30")
-
-	// Invoice capture with a stand-in extractor.
-	s, _ := core.LoadStore("data/store.json")
-	var target *core.PurchaseOrder
-	for _, id := range core.SortedKeys(s.PurchaseOrders) {
-		if p := s.PurchaseOrders[id]; p.CompanyCode == "1000" && s.Vendors[p.VendorID].TaxID != "" {
-			target = p
-			break
-		}
-	}
-	v := s.Vendors[target.VendorID]
-	ext := &capture.Extraction{VendorName: v.Name, VendorTaxID: v.TaxID, InvoiceNumber: "E2E-1", InvoiceDate: "2026-10-01",
-		PurchaseOrder: target.ID, Currency: "USD", Lines: []capture.Line{{Description: "x", Quantity: "1", Amount: "10.00"}},
-		TaxAmount: "0.80", GrossAmount: "10.80", Confidence: "high"}
-	newExtractor = func() capture.Extractor { return fakeExtractor{ext} }
-	defer func() { newExtractor = func() capture.Extractor { return &capture.ClaudeExtractor{LLM: llm.New()} } }()
-	os.WriteFile("invoice.pdf", []byte("%PDF-1.4 e2e"), 0o644)
-	if o := must(t, "capture", "-file", "invoice.pdf"); !strings.Contains(o, "captured") {
-		t.Fatal(o)
-	}
-	fails(t, "already captured", "capture", "-file", "invoice.pdf")
-	fails(t, "lacks invoice.capture", "capture", "-file", "invoice.pdf", "-as", "buyer1")
-
-	// Delivery agents against the scripted model.
-	srv := llmtest.New(t,
-		llmtest.Tool("get_active_config", map[string]any{}),
-		llmtest.Final("No change needed."),
-		llmtest.Tool("profile_extract", map[string]any{"company": "1000", "year": "2026"}),
-		llmtest.Final("Company 1000 is ready."),
-		llmtest.Tool("run_suite", map[string]any{"change_request": cr}),
-		llmtest.Final("Safe to approve."),
-	)
+func model(t *testing.T, steps ...llmtest.Step) {
+	t.Helper()
+	srv := llmtest.New(t, steps...)
 	newRunner = srv.Runner
-	defer func() { newRunner = llm.New }()
-	if o := must(t, "agent", "config", "-extract", "data/sap-extract.json", "check", "the", "limits"); !strings.Contains(o, "No change needed") {
-		t.Fatal(o)
-	}
-	if o := must(t, "agent", "migration", "-company", "1000"); !strings.Contains(o, "ready") {
-		t.Fatal(o)
-	}
-	if o := must(t, "agent", "test", "-cr", cr); !strings.Contains(o, "Safe to approve") {
-		t.Fatal(o)
-	}
-	fails(t, "describe the change", "agent", "config")
-
-	// Every action above is in an intact audit chain.
-	if o := must(t, "audit-verify"); !strings.Contains(o, "chain intact") {
-		t.Fatal(o)
-	}
-	var events int
-	b, _ := os.ReadFile("data/audit.jsonl")
-	for _, line := range bytes.Split(bytes.TrimSpace(b), []byte("\n")) {
-		var e map[string]any
-		if json.Unmarshal(line, &e) == nil {
-			events++
-		}
-	}
-	if events < 30 {
-		t.Fatalf("expected a full audit trail, got %d events", events)
-	}
+	t.Cleanup(func() { newRunner = llm.New })
 }
 
-func TestCLIUsageAndErrors(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if _, code := cli(t); code != 2 {
-		t.Fatal("no command")
-	}
-	if _, code := cli(t, "nope"); code != 2 {
-		t.Fatal("unknown command")
-	}
-	if _, code := cli(t, "migrate", "-h"); code != 0 {
-		t.Fatal("-h is not an error")
-	}
-	fails(t, "usage: erp config", "config")
-	fails(t, "usage: erp pay", "pay", "bogus")
-	fails(t, "no active configuration", "req", "create", "-as", "buyer1", "-line", "a;1;1;1")
-	fails(t, "want description", "req", "create", "-as", "buyer1", "-line", "a;1")
-	fails(t, "is required", "po", "create")
-	fails(t, "-cr is required", "config", "evidence")
-	fails(t, "is required", "config", "validate")
-	fails(t, "no active configuration", "regress", "run")
-	fails(t, "want material", "contract", "create", "-as", "b", "-vendor", "v", "-target", "1", "-item", "x")
-	fails(t, "invalid decimal", "gr", "post", "-po", "p", "-qty", "abc", "-as", "u")
-}
+var (
+	sessionRe = regexp.MustCompile(`session id is ([0-9a-f-]{36})`)
+	invoiceRe = regexp.MustCompile(`Invoice ([0-9a-f-]{36})`)
+	qidRe     = regexp.MustCompile(`q_[0-9a-f]{12}`)
+)
 
-func TestMigrateJSONWriteFailureIsReported(t *testing.T) {
-	t.Chdir(t.TempDir())
-	must(t, "gen-mock-sap")
-	os.Mkdir("report.json", 0o755) // a directory where the file should go
-	fails(t, "write report.json", "migrate", "-json", "report.json")
+// TestEndToEnd is T6's exit criterion through the command line: a scope
+// migrated from SAP through the integration API, the invoice rule and the
+// agents working through API tools only, and analytics over the data the
+// API returns.
+func TestEndToEnd(t *testing.T) {
+	e := setup(t)
+	if got := must(t, "gen-mock-sap", "-out", "extract.json", "-year", "2025", "-through", "6"); !strings.Contains(got, "ACDOCA") {
+		t.Fatalf("mock: %s", got)
+	}
+	if got := must(t, "config", "generate", "-source", "file:extract.json", "-company", "1000,2000", "-year", "2025", "-out", "draft.yaml"); !strings.Contains(got, "no findings") {
+		t.Fatalf("draft: %s", got)
+	}
+	must(t, "config", "validate", "-file", "draft.yaml")
+
+	conn := body(t, must(t, "call", "createConnector", "-body", `{"kind": "sap_file", "name": "SAP PRD", "settings": {"path": "extract.json"}}`))
+	id := conn["id"].(string)
+	got := must(t, "migrate", "-connector", id, "-legal-entities", e.US.String(), "-year", "2026")
+	if !strings.Contains(got, "reconciled") || !strings.Contains(got, "Vendors") {
+		t.Fatalf("migrate: %s", got)
+	}
+	// The rule matches parked invoices: clean ones post, others stay held for the agent.
+	got = must(t, "invoices")
+	if !strings.Contains(got, "Posted") || !strings.Contains(got, "(match)") {
+		t.Fatalf("invoices: %s", got)
+	}
+	steps := []llmtest.Step{}
+	for range 6 {
+		steps = append(steps, llmtest.ToolFn("createRecommendation", func(b string) any {
+			return map[string]any{"body": map[string]any{"session_id": sessionRe.FindStringSubmatch(b)[1], "object_type": "supplier_invoice",
+				"object_id": invoiceRe.FindStringSubmatch(b)[1], "kind": "other", "content": "Check the price with the buyer."}}
+		}), llmtest.Final("ok"))
+	}
+	model(t, steps...)
+	if got := must(t, "agent", "invoices"); !strings.Contains(got, "recommendations") {
+		t.Fatalf("agent invoices: %s", got)
+	}
+	recs := body(t, must(t, "call", "listRecommendations", "-p", "outcome=open"))
+	if len(recs["items"].([]any)) == 0 {
+		t.Fatal("no recommendations")
+	}
+
+	model(t, llmtest.Final("Company 1000 is ready."))
+	if got := must(t, "agent", "migration", "-connector", id, "-legal-entities", e.US.String()); !strings.Contains(got, "ready") {
+		t.Fatalf("agent migration: %s", got)
+	}
+	model(t, llmtest.Final("Nothing to change."))
+	if got := must(t, "agent", "config", "-draft", "draft.yaml", "raise", "the", "tolerance"); !strings.Contains(got, "Nothing to change.") {
+		t.Fatalf("agent config: %s", got)
+	}
+	doc := fixture.Document(t)
+	doc.Companies[1].InvoiceTolerance.PricePercent = 3
+	b, _ := json.Marshal(map[string]any{"title": "Tolerance", "rationale": "r", "base_version": 1, "proposed": doc})
+	os.WriteFile("cr.json", b, 0o644)
+	cr := body(t, must(t, "call", "createChangeRequest", "-body", "@cr.json"))
+	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
+	if got := must(t, "agent", "test", "-change-request", cr["id"].(string), "-out", "uat.md"); !strings.Contains(got, "UAT") {
+		t.Fatalf("agent test: %s", got)
+	}
+	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
+	must(t, "agent", "test", "-change-request", cr["id"].(string))
+
+	// Analytics reads what the person may see through the API.
+	if got := must(t, "metrics"); !strings.Contains(got, "revenue") {
+		t.Fatalf("metrics: %s", got)
+	}
+	got = must(t, "query", "-measures", "revenue,invoice_count", "-by", "fiscal_year", "-where", "fiscal_month <= 9", "-companies", "1000", "-csv", "q.csv")
+	if !strings.Contains(got, "2026") || !strings.Contains(got, "data through") {
+		t.Fatalf("query: %s", got)
+	}
+	ask := llmtest.New(t,
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"revenue"}, "by": []string{"fiscal_year"}}),
+		llmtest.ToolFn("build_dashboard", func(b string) any {
+			return map[string]any{"spec": analytics.Spec{Title: "Revenue", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
+		}),
+		llmtest.Final("Revenue is up."))
+	newAgent = func() *analytics.Agent {
+		r := ask.Runner()
+		return &analytics.Agent{Client: r.Client, Model: r.Model, Today: func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }}
+	}
+	t.Cleanup(func() { newAgent = analytics.NewAgent })
+	got = must(t, "ask", "-out", "reports", "revenue", "by", "year")
+	reportID := regexp.MustCompile(`erp report -id (\S+)`).FindStringSubmatch(got)[1]
+	if got := must(t, "report", "-id", reportID, "-out", "reports"); !strings.Contains(got, "Refreshed") {
+		t.Fatalf("report: %s", got)
+	}
+
+	// People call any operation, approvals included; failures exit 1.
+	if code, got := cli(t, "call", "getMigrationRun", "-p", "id=01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"); code != 1 || !strings.Contains(got, "404") {
+		t.Fatalf("not found: %d %s", code, got)
+	}
+	if code, got := cli(t, "call", "approveApprovalRequest", "-p", "id=01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01", "-if-match", `"1"`,
+		"-body", `{}`); code != 1 || !strings.Contains(got, "404") {
+		t.Fatalf("approval: %d %s", code, got)
+	}
+	if got := must(t, "call", "listSupplierInvoices", "-p", "status=posted", "-p", "expand=supplier,purchase_order"); body(t, got)["items"] == nil {
+		t.Fatalf("list: %s", got)
+	}
 }

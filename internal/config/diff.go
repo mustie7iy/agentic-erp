@@ -71,8 +71,6 @@ var tierRules = []struct {
 	{rx(`^purchasing\.`), TierOperational},
 	{rx(`^payments\.bank_change_hold_days$`), TierOperational},
 	{rx(`^payments\.`), TierPostingRelated},
-	{rx(`^(roles|users|agents)\[\*\]\.(description|name)$`), TierCosmetic},
-	{rx(`^(roles|users|agents|sod_conflicts)`), TierPostingRelated},
 	{rx(`^output\.`), TierOperational},
 	// Number ranges need no approval: like SAP, which treats number range
 	// intervals as current settings maintained directly in production.
@@ -99,7 +97,7 @@ func classify(path string) Tier {
 // identity instead of position.
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code",
-	"payment_terms": "key", "roles": "name", "users": "id", "agents": "id",
+	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
 }
 
@@ -233,12 +231,6 @@ func walk(path, field string, v any, out map[string]string) {
 					parts = append(parts, fmt.Sprint(m[k]))
 				}
 				id = strings.Join(parts, "/")
-			}
-			if _, scalar := item.(map[string]any); !scalar {
-				if _, list := item.([]any); !list {
-					// Scalar lists (permissions, roles) compare as sets.
-					id = fmt.Sprint(item)
-				}
 			}
 			walk(fmt.Sprintf("%s[%s]", path, id), "", item, out)
 		}

@@ -33,6 +33,7 @@ type Config struct {
 	PageTokenKey    []byte         // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required)
 	LLMEnabled      bool           // ANTHROPIC_API_KEY is set: invoice capture reads documents with Claude
 	BankOutboxDir   string         // ERP_BANK_OUTBOX_DIR, where transmitted bank files are dropped; empty disables transmission
+	ExtractDir      string         // ERP_EXTRACT_DIR, where sap_file connectors find SAP extracts; empty disables them
 	FieldKey        []byte         // ERP_FIELD_KEY, base64, at least 32 bytes: encrypts bank accounts and tax identifiers (required)
 	MigrateOnStart  bool           // ERP_MIGRATE_ON_START
 	LogLevel        slog.Level     // ERP_LOG_LEVEL: debug, info, warn, error (default info)
@@ -62,6 +63,7 @@ func Load(getenv func(string) string) (Config, error) {
 		OTLPEndpoint:  getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
 		LLMEnabled:    getenv("ANTHROPIC_API_KEY") != "",
 		BankOutboxDir: getenv("ERP_BANK_OUTBOX_DIR"),
+		ExtractDir:    getenv("ERP_EXTRACT_DIR"),
 	}
 	var errs []error
 	if c.DatabaseURL == "" {
@@ -81,9 +83,9 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.FieldKey, err = base64.StdEncoding.DecodeString(getenv("ERP_FIELD_KEY")); err != nil || len(c.FieldKey) < 32 {
 		errs = append(errs, errors.New("ERP_FIELD_KEY must be base64 of at least 32 random bytes, the same on every replica and kept secret"))
 	}
-	if c.BankOutboxDir != "" {
-		if fi, err := os.Stat(c.BankOutboxDir); err != nil || !fi.IsDir() {
-			errs = append(errs, fmt.Errorf("ERP_BANK_OUTBOX_DIR %q must be an existing directory", c.BankOutboxDir))
+	for name, dir := range map[string]string{"ERP_BANK_OUTBOX_DIR": c.BankOutboxDir, "ERP_EXTRACT_DIR": c.ExtractDir} {
+		if fi, err := os.Stat(dir); dir != "" && (err != nil || !fi.IsDir()) {
+			errs = append(errs, fmt.Errorf("%s %q must be an existing directory", name, dir))
 		}
 	}
 	if c.MigrateOnStart, err = strconv.ParseBool(get("ERP_MIGRATE_ON_START", "false")); err != nil {

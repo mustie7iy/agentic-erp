@@ -1,7 +1,8 @@
 // Package config is configuration as code: the settings SAP keeps in
-// customizing (SPRO) live here as one typed YAML document. Changes are
-// proposed, validated, simulated, approved by tier and activated as new
-// versions with one-step rollback. Agents propose; people approve.
+// customizing (SPRO) live here as one typed YAML document, validated and
+// diffed by tier. The configuration context keeps its versions and change
+// requests; who may do what belongs to the identity context, so the
+// document names roles (in approval steps) but does not define them.
 package config
 
 import (
@@ -10,8 +11,6 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/mustie7iy/agentic-erp/internal/core"
 )
 
 type Config struct {
@@ -20,10 +19,6 @@ type Config struct {
 	PaymentTerms []PaymentTerm `yaml:"payment_terms" json:"payment_terms"`
 	Purchasing   Purchasing    `yaml:"purchasing" json:"purchasing"`
 	Payments     Payments      `yaml:"payments" json:"payments"`
-	Roles        []Role        `yaml:"roles" json:"roles"`
-	Users        []User        `yaml:"users" json:"users"`
-	Agents       []Agent       `yaml:"agents" json:"agents"`
-	SoDConflicts [][2]string   `yaml:"sod_conflicts" json:"sod_conflicts"`
 	Output       Output        `yaml:"output" json:"output"`
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
 }
@@ -61,11 +56,23 @@ type Company struct {
 	HouseBank            HouseBank            `yaml:"house_bank" json:"house_bank"`
 }
 
+// AccountType classifies an account for the balance sheet and the income
+// statement.
+type AccountType string
+
+const (
+	Asset     AccountType = "asset"
+	Liability AccountType = "liability"
+	Equity    AccountType = "equity"
+	Revenue   AccountType = "revenue"
+	Expense   AccountType = "expense"
+)
+
 type Account struct {
-	Number               string           `yaml:"number" json:"number"`
-	Name                 string           `yaml:"name" json:"name"`
-	Type                 core.AccountType `yaml:"type" json:"type"`
-	VendorReconciliation bool             `yaml:"vendor_reconciliation,omitempty" json:"vendor_reconciliation,omitempty"`
+	Number               string      `yaml:"number" json:"number"`
+	Name                 string      `yaml:"name" json:"name"`
+	Type                 AccountType `yaml:"type" json:"type"`
+	VendorReconciliation bool        `yaml:"vendor_reconciliation,omitempty" json:"vendor_reconciliation,omitempty"`
 }
 
 // AccountDetermination says which accounts automatic postings use (SAP T030).
@@ -128,26 +135,6 @@ type Payments struct {
 	VendorApproverRole string `yaml:"vendor_approver_role" json:"vendor_approver_role"`
 }
 
-type Role struct {
-	Name        string   `yaml:"name" json:"name"`
-	Description string   `yaml:"description" json:"description"`
-	Permissions []string `yaml:"permissions" json:"permissions"`
-}
-
-type User struct {
-	ID        string   `yaml:"id" json:"id"`
-	Name      string   `yaml:"name" json:"name"`
-	Roles     []string `yaml:"roles" json:"roles"`
-	Companies []string `yaml:"companies,omitempty" json:"companies,omitempty"`
-}
-
-type Agent struct {
-	ID          string   `yaml:"id" json:"id"`
-	Description string   `yaml:"description" json:"description"`
-	Permissions []string `yaml:"permissions" json:"permissions"`
-	Autonomy    int      `yaml:"autonomy" json:"autonomy"`
-}
-
 type Output struct {
 	PurchaseOrderChannel string `yaml:"purchase_order_channel" json:"purchase_order_channel"` // email | edi | print
 }
@@ -198,33 +185,6 @@ func (c *Company) Account(number string) *Account {
 	for i := range c.ChartOfAccounts {
 		if c.ChartOfAccounts[i].Number == number {
 			return &c.ChartOfAccounts[i]
-		}
-	}
-	return nil
-}
-
-func (c *Config) Role(name string) *Role {
-	for i := range c.Roles {
-		if c.Roles[i].Name == name {
-			return &c.Roles[i]
-		}
-	}
-	return nil
-}
-
-func (c *Config) User(id string) *User {
-	for i := range c.Users {
-		if c.Users[i].ID == id {
-			return &c.Users[i]
-		}
-	}
-	return nil
-}
-
-func (c *Config) Agent(id string) *Agent {
-	for i := range c.Agents {
-		if c.Agents[i].ID == id {
-			return &c.Agents[i]
 		}
 	}
 	return nil

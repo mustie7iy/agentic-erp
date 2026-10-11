@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,46 +19,98 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
-	"github.com/mustie7iy/agentic-erp/internal/core"
-	"github.com/mustie7iy/agentic-erp/internal/governance"
-	"github.com/mustie7iy/agentic-erp/internal/migration"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
-type memSource struct{ e *sap.Extract }
-
-func (m memSource) Name() string { return "memory" }
-func (m memSource) Extract(_ context.Context, s sap.Scope) (*sap.Extract, error) {
-	return sap.FilterScope(m.e, s), nil
-}
-
 var (
-	fixtureOnce  sync.Once
-	fixtureStore *core.Store
+	fixtureOnce   sync.Once
+	fixtureFacts  *Facts
+	ledgerRevenue map[string]int64 // company 1000 revenue per year, from the journal
 )
 
-// twoYears migrates mock SAP data for 2025 (full year) and 2026 (through
-// September) for both company codes into one store.
-func twoYears(t *testing.T) *core.Store {
+func alpha(v string) string { return strings.TrimLeft(v, "0") }
+
+// twoYears builds the facts of mock SAP data for 2025 (full year) and 2026
+// (through September) for both company codes, the way loading them onto
+// the platform and reading them back through the API does.
+func twoYears(t *testing.T) *Facts {
 	t.Helper()
 	fixtureOnce.Do(func() {
-		s := core.NewStore()
+		m, _ := DefaultModel()
+		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, AsOf: time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC)}
+		ledgerRevenue = map[string]int64{}
+		types := func(number string) string {
+			switch number[0] {
+			case '1':
+				return "asset"
+			case '2':
+				return "liability"
+			case '3':
+				return "equity"
+			case '4':
+				return "revenue"
+			}
+			return "expense"
+		}
+		add := func(table, id, company, date, currency string, amount int64, dims map[string]string) {
+			iso := date[:4] + "-" + date[4:6] + "-" + date[6:]
+			fy, fm, _ := fiscal(iso, m.Calendar.FiscalYearStartMonth)
+			dims["company"], dims["posting_date"] = company, iso
+			dims["fiscal_year"], dims["fiscal_month"], dims["fiscal_quarter"] = strconv.Itoa(fy), strconv.Itoa(fm), strconv.Itoa((fm-1)/3+1)
+			f.DataThrough = max(f.DataThrough, iso)
+			f.Tables[table] = append(f.Tables[table], Fact{ID: id, Dims: dims, Amount: amount, Currency: currency})
+		}
 		for _, y := range []struct {
 			year    string
 			seed    uint64
 			through int
 		}{{"2025", 41, 12}, {"2026", 42, 9}} {
 			e := sap.GenerateMockThrough(y.seed, y.year, y.through)
-			scope := sap.Scope{CompanyCodes: []string{"1000", "2000"}, FiscalYear: y.year}
-			res, err := migration.Run(context.Background(), memSource{e}, scope, migration.Options{}, s)
-			if err != nil || !res.Report.Passed {
-				panic("fixture migration failed")
+			names, accounts, recon := map[string]string{}, map[string]string{}, map[string]bool{}
+			for _, v := range e.LFA1 {
+				names[alpha(v.LIFNR)] = v.NAME1
+			}
+			for _, a := range e.SKB1 {
+				accounts[alpha(a.SAKNR)], recon[alpha(a.SAKNR)] = a.TXT50, a.MITKZ == "K"
+			}
+			currency := map[string]string{}
+			for _, c := range e.T001 {
+				currency[c.BUKRS], f.Companies[c.BUKRS] = c.WAERS, c.WAERS
+			}
+			for _, l := range e.ACDOCA {
+				amt, _ := money.ParseDecimal(l.HSL, 2)
+				acct := alpha(l.RACCT)
+				add("gl_lines", l.RBUKRS+"/"+l.GJAHR+"/"+l.BELNR, l.RBUKRS, l.BUDAT, currency[l.RBUKRS], int64(amt), map[string]string{
+					"account": acct, "account_name": accounts[acct], "account_type": types(acct), "document_type": l.BLART,
+					"vendor": alpha(l.LIFNR), "vendor_name": names[alpha(l.LIFNR)], "vendor_recon": strconv.FormatBool(recon[acct]),
+					"cleared": strconv.FormatBool(recon[acct] && l.AUGBL != "")})
+				if l.RBUKRS == "1000" && acct == "400000" {
+					ledgerRevenue[l.GJAHR] -= int64(amt)
+				}
+			}
+			heads := map[string]sap.EKKO{}
+			for _, h := range e.EKKO {
+				heads[h.EBELN] = h
+			}
+			for _, it := range e.EKPO {
+				h := heads[it.EBELN]
+				qty, _ := money.ParseQty(it.MENGE)
+				price, _ := money.ParseDecimal(it.NETPR, 2)
+				unit, _ := strconv.ParseInt(it.PEINH, 10, 64)
+				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, int64(money.Extend(qty, price, max(unit, 1))), map[string]string{
+					"vendor": alpha(h.LIFNR), "vendor_name": names[alpha(h.LIFNR)], "account": alpha(it.SAKTO), "account_name": accounts[alpha(it.SAKTO)]})
+			}
+			for _, h := range e.RBKP {
+				status := map[string]string{"A": "parked", "5": "posted"}[h.RBSTAT]
+				gross, _ := money.ParseDecimal(h.RMWWR, 2)
+				add("ap_invoices", h.BELNR+"/"+h.GJAHR, h.BUKRS, h.BLDAT, h.WAERS, int64(gross), map[string]string{
+					"vendor": alpha(h.LIFNR), "vendor_name": names[alpha(h.LIFNR)], "invoice_status": status})
 			}
 		}
-		fixtureStore = s
+		fixtureFacts = f
 	})
-	return fixtureStore
+	return fixtureFacts
 }
 
 func session(t *testing.T, p Principal) *Session {
@@ -66,12 +119,7 @@ func session(t *testing.T, p Principal) *Session {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := BuildFacts(twoYears(t), m, time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	audit, _ := governance.NewAuditLog("")
-	return NewSession(m, f, p, audit)
+	return NewSession(m, twoYears(t), p)
 }
 
 var us = Principal{ID: "user:test", Companies: []string{"1000"}}
@@ -111,17 +159,8 @@ func TestRevenueMatchesLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ledger := map[string]money.Minor{}
-	for _, je := range twoYears(t).Journal {
-		if je.CompanyCode != "1000" {
-			continue
-		}
-		for _, l := range je.Lines {
-			if l.Account == "400000" {
-				ledger[je.PostingDate[:4]] -= l.Amount
-			}
-		}
-	}
+	twoYears(t)
+	ledger := ledgerRevenue
 	if len(r.Rows) != 2 {
 		t.Fatalf("want 2 years, got %v", r.Rows)
 	}
@@ -332,16 +371,6 @@ func TestHandWrittenReportRemapsQueryIDs(t *testing.T) {
 	}
 	if fresh.Spec.Charts[0].QueryID == "monthly" || results[fresh.Spec.Charts[0].QueryID] == nil {
 		t.Fatal("readable query ids should be remapped to real ones")
-	}
-}
-
-func TestQueriesAreAudited(t *testing.T) {
-	s := session(t, us)
-	s.Run(salesQuery())
-	s.Run(Query{Measures: []string{"nope"}})
-	ev := s.Audit.Events()
-	if len(ev) != 2 || ev[0].Action != "analytics.query" || ev[0].Actor != "user:test" || ev[1].Outcome != "error" {
-		t.Fatalf("unexpected audit events: %+v", ev)
 	}
 }
 

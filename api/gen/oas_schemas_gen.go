@@ -517,6 +517,709 @@ func (s *AgentProfile) SetDescription(val string) {
 	s.Description = val
 }
 
+// A session in which an agent worked through the API: what it was for, which model, its tool calls and
+// recommendations, and what it used.
+// Ref: #/components/schemas/AgentSession
+type AgentSession struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// The agent principal.
+	AgentID uuid.UUID `json:"agent_id"`
+	// What the session was for.
+	Purpose string `json:"purpose"`
+	// Model the agent ran on.
+	Model string `json:"model"`
+	// Status. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Status string `json:"status"`
+	// Input tokens used.
+	InputTokens int64 `json:"input_tokens"`
+	// Output tokens used.
+	OutputTokens int64 `json:"output_tokens"`
+	// Cost of the session, once ended.
+	Cost OptMoney `json:"cost"`
+	// Start time.
+	StartedAt time.Time `json:"started_at"`
+	// End time.
+	EndedAt OptDateTime `json:"ended_at"`
+	// Time of the last change.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *AgentSession) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *AgentSession) GetVersion() int32 {
+	return s.Version
+}
+
+// GetAgentID returns the value of AgentID.
+func (s *AgentSession) GetAgentID() uuid.UUID {
+	return s.AgentID
+}
+
+// GetPurpose returns the value of Purpose.
+func (s *AgentSession) GetPurpose() string {
+	return s.Purpose
+}
+
+// GetModel returns the value of Model.
+func (s *AgentSession) GetModel() string {
+	return s.Model
+}
+
+// GetStatus returns the value of Status.
+func (s *AgentSession) GetStatus() string {
+	return s.Status
+}
+
+// GetInputTokens returns the value of InputTokens.
+func (s *AgentSession) GetInputTokens() int64 {
+	return s.InputTokens
+}
+
+// GetOutputTokens returns the value of OutputTokens.
+func (s *AgentSession) GetOutputTokens() int64 {
+	return s.OutputTokens
+}
+
+// GetCost returns the value of Cost.
+func (s *AgentSession) GetCost() OptMoney {
+	return s.Cost
+}
+
+// GetStartedAt returns the value of StartedAt.
+func (s *AgentSession) GetStartedAt() time.Time {
+	return s.StartedAt
+}
+
+// GetEndedAt returns the value of EndedAt.
+func (s *AgentSession) GetEndedAt() OptDateTime {
+	return s.EndedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AgentSession) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *AgentSession) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AgentSession) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetAgentID sets the value of AgentID.
+func (s *AgentSession) SetAgentID(val uuid.UUID) {
+	s.AgentID = val
+}
+
+// SetPurpose sets the value of Purpose.
+func (s *AgentSession) SetPurpose(val string) {
+	s.Purpose = val
+}
+
+// SetModel sets the value of Model.
+func (s *AgentSession) SetModel(val string) {
+	s.Model = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AgentSession) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetInputTokens sets the value of InputTokens.
+func (s *AgentSession) SetInputTokens(val int64) {
+	s.InputTokens = val
+}
+
+// SetOutputTokens sets the value of OutputTokens.
+func (s *AgentSession) SetOutputTokens(val int64) {
+	s.OutputTokens = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AgentSession) SetCost(val OptMoney) {
+	s.Cost = val
+}
+
+// SetStartedAt sets the value of StartedAt.
+func (s *AgentSession) SetStartedAt(val time.Time) {
+	s.StartedAt = val
+}
+
+// SetEndedAt sets the value of EndedAt.
+func (s *AgentSession) SetEndedAt(val OptDateTime) {
+	s.EndedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AgentSession) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// How a session ended and what it used.
+// Ref: #/components/schemas/AgentSessionEnd
+type AgentSessionEnd struct {
+	// Outcome. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Status string `json:"status"`
+	// Input tokens used.
+	InputTokens int64 `json:"input_tokens"`
+	// Output tokens used.
+	OutputTokens int64 `json:"output_tokens"`
+	// Cost, when known.
+	Cost OptMoney `json:"cost"`
+}
+
+// GetStatus returns the value of Status.
+func (s *AgentSessionEnd) GetStatus() string {
+	return s.Status
+}
+
+// GetInputTokens returns the value of InputTokens.
+func (s *AgentSessionEnd) GetInputTokens() int64 {
+	return s.InputTokens
+}
+
+// GetOutputTokens returns the value of OutputTokens.
+func (s *AgentSessionEnd) GetOutputTokens() int64 {
+	return s.OutputTokens
+}
+
+// GetCost returns the value of Cost.
+func (s *AgentSessionEnd) GetCost() OptMoney {
+	return s.Cost
+}
+
+// SetStatus sets the value of Status.
+func (s *AgentSessionEnd) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetInputTokens sets the value of InputTokens.
+func (s *AgentSessionEnd) SetInputTokens(val int64) {
+	s.InputTokens = val
+}
+
+// SetOutputTokens sets the value of OutputTokens.
+func (s *AgentSessionEnd) SetOutputTokens(val int64) {
+	s.OutputTokens = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AgentSessionEnd) SetCost(val OptMoney) {
+	s.Cost = val
+}
+
+// AgentSessionHeaders wraps AgentSession with response headers.
+type AgentSessionHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AgentSession
+}
+
+// GetETag returns the value of ETag.
+func (s *AgentSessionHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AgentSessionHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AgentSessionHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *AgentSessionHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *AgentSessionHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *AgentSessionHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *AgentSessionHeaders) GetResponse() AgentSession {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AgentSessionHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AgentSessionHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AgentSessionHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *AgentSessionHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *AgentSessionHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *AgentSessionHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AgentSessionHeaders) SetResponse(val AgentSession) {
+	s.Response = val
+}
+
+func (*AgentSessionHeaders) startAgentSessionRes() {}
+
+// One page of agent sessions.
+// Ref: #/components/schemas/AgentSessionPage
+type AgentSessionPage struct {
+	// The sessions on this page.
+	Items []AgentSession `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AgentSessionPage) GetItems() []AgentSession {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AgentSessionPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AgentSessionPage) SetItems(val []AgentSession) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AgentSessionPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// AgentSessionPageHeaders wraps AgentSessionPage with response headers.
+type AgentSessionPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AgentSessionPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *AgentSessionPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *AgentSessionPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *AgentSessionPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *AgentSessionPageHeaders) GetResponse() AgentSessionPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *AgentSessionPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *AgentSessionPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *AgentSessionPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AgentSessionPageHeaders) SetResponse(val AgentSessionPage) {
+	s.Response = val
+}
+
+func (*AgentSessionPageHeaders) listAgentSessionsRes() {}
+
+// A session to start.
+// Ref: #/components/schemas/AgentSessionStart
+type AgentSessionStart struct {
+	// What the session is for.
+	Purpose string `json:"purpose"`
+	// Model the agent runs on.
+	Model string `json:"model"`
+}
+
+// GetPurpose returns the value of Purpose.
+func (s *AgentSessionStart) GetPurpose() string {
+	return s.Purpose
+}
+
+// GetModel returns the value of Model.
+func (s *AgentSessionStart) GetModel() string {
+	return s.Model
+}
+
+// SetPurpose sets the value of Purpose.
+func (s *AgentSessionStart) SetPurpose(val string) {
+	s.Purpose = val
+}
+
+// SetModel sets the value of Model.
+func (s *AgentSessionStart) SetModel(val string) {
+	s.Model = val
+}
+
+// One tool call of an agent session: the API operation it called, its input and a summary of the
+// result. Insert-only.
+// Ref: #/components/schemas/AgentToolCall
+type AgentToolCall struct {
+	// Session.
+	SessionID uuid.UUID `json:"session_id"`
+	// Position in the session, from 1.
+	Seq int32 `json:"seq"`
+	// Tool called: the operationId of an API operation.
+	Tool string `json:"tool"`
+	// Input the agent gave.
+	Input AgentToolCallInput `json:"input"`
+	// Summary of the result.
+	ResultSummary OptString `json:"result_summary"`
+	// Whether the call failed.
+	IsError bool `json:"is_error"`
+	// When it was recorded.
+	CalledAt time.Time `json:"called_at"`
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *AgentToolCall) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetSeq returns the value of Seq.
+func (s *AgentToolCall) GetSeq() int32 {
+	return s.Seq
+}
+
+// GetTool returns the value of Tool.
+func (s *AgentToolCall) GetTool() string {
+	return s.Tool
+}
+
+// GetInput returns the value of Input.
+func (s *AgentToolCall) GetInput() AgentToolCallInput {
+	return s.Input
+}
+
+// GetResultSummary returns the value of ResultSummary.
+func (s *AgentToolCall) GetResultSummary() OptString {
+	return s.ResultSummary
+}
+
+// GetIsError returns the value of IsError.
+func (s *AgentToolCall) GetIsError() bool {
+	return s.IsError
+}
+
+// GetCalledAt returns the value of CalledAt.
+func (s *AgentToolCall) GetCalledAt() time.Time {
+	return s.CalledAt
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *AgentToolCall) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetSeq sets the value of Seq.
+func (s *AgentToolCall) SetSeq(val int32) {
+	s.Seq = val
+}
+
+// SetTool sets the value of Tool.
+func (s *AgentToolCall) SetTool(val string) {
+	s.Tool = val
+}
+
+// SetInput sets the value of Input.
+func (s *AgentToolCall) SetInput(val AgentToolCallInput) {
+	s.Input = val
+}
+
+// SetResultSummary sets the value of ResultSummary.
+func (s *AgentToolCall) SetResultSummary(val OptString) {
+	s.ResultSummary = val
+}
+
+// SetIsError sets the value of IsError.
+func (s *AgentToolCall) SetIsError(val bool) {
+	s.IsError = val
+}
+
+// SetCalledAt sets the value of CalledAt.
+func (s *AgentToolCall) SetCalledAt(val time.Time) {
+	s.CalledAt = val
+}
+
+// A tool call to record.
+// Ref: #/components/schemas/AgentToolCallCreate
+type AgentToolCallCreate struct {
+	// The operationId called.
+	Tool string `json:"tool"`
+	// Input the agent gave.
+	Input AgentToolCallCreateInput `json:"input"`
+	// Summary of the result.
+	ResultSummary OptString `json:"result_summary"`
+	// Whether the call failed.
+	IsError OptBool `json:"is_error"`
+}
+
+// GetTool returns the value of Tool.
+func (s *AgentToolCallCreate) GetTool() string {
+	return s.Tool
+}
+
+// GetInput returns the value of Input.
+func (s *AgentToolCallCreate) GetInput() AgentToolCallCreateInput {
+	return s.Input
+}
+
+// GetResultSummary returns the value of ResultSummary.
+func (s *AgentToolCallCreate) GetResultSummary() OptString {
+	return s.ResultSummary
+}
+
+// GetIsError returns the value of IsError.
+func (s *AgentToolCallCreate) GetIsError() OptBool {
+	return s.IsError
+}
+
+// SetTool sets the value of Tool.
+func (s *AgentToolCallCreate) SetTool(val string) {
+	s.Tool = val
+}
+
+// SetInput sets the value of Input.
+func (s *AgentToolCallCreate) SetInput(val AgentToolCallCreateInput) {
+	s.Input = val
+}
+
+// SetResultSummary sets the value of ResultSummary.
+func (s *AgentToolCallCreate) SetResultSummary(val OptString) {
+	s.ResultSummary = val
+}
+
+// SetIsError sets the value of IsError.
+func (s *AgentToolCallCreate) SetIsError(val OptBool) {
+	s.IsError = val
+}
+
+// Input the agent gave.
+type AgentToolCallCreateInput map[string]jx.Raw
+
+func (s *AgentToolCallCreateInput) init() AgentToolCallCreateInput {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
+}
+
+// AgentToolCallHeaders wraps AgentToolCall with response headers.
+type AgentToolCallHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AgentToolCall
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AgentToolCallHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *AgentToolCallHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *AgentToolCallHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *AgentToolCallHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *AgentToolCallHeaders) GetResponse() AgentToolCall {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AgentToolCallHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *AgentToolCallHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *AgentToolCallHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *AgentToolCallHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AgentToolCallHeaders) SetResponse(val AgentToolCall) {
+	s.Response = val
+}
+
+func (*AgentToolCallHeaders) recordAgentToolCallRes() {}
+
+// Input the agent gave.
+type AgentToolCallInput map[string]jx.Raw
+
+func (s *AgentToolCallInput) init() AgentToolCallInput {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
+}
+
+// One page of tool calls.
+// Ref: #/components/schemas/AgentToolCallPage
+type AgentToolCallPage struct {
+	// The tool calls on this page.
+	Items []AgentToolCall `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AgentToolCallPage) GetItems() []AgentToolCall {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AgentToolCallPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AgentToolCallPage) SetItems(val []AgentToolCall) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AgentToolCallPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// AgentToolCallPageHeaders wraps AgentToolCallPage with response headers.
+type AgentToolCallPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AgentToolCallPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *AgentToolCallPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *AgentToolCallPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *AgentToolCallPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *AgentToolCallPageHeaders) GetResponse() AgentToolCallPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *AgentToolCallPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *AgentToolCallPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *AgentToolCallPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AgentToolCallPageHeaders) SetResponse(val AgentToolCallPage) {
+	s.Response = val
+}
+
+func (*AgentToolCallPageHeaders) listAgentToolCallsRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/ApprovalRequest
 type ApprovalRequest struct {
@@ -1345,18 +2048,22 @@ func (*BadRequestHeaders) createOrgUnitRes()            {}
 func (*BadRequestHeaders) createPartnerChangeRes()      {}
 func (*BadRequestHeaders) createPrincipalRes()          {}
 func (*BadRequestHeaders) createPurchaseOrderRes()      {}
+func (*BadRequestHeaders) createRecommendationRes()     {}
 func (*BadRequestHeaders) createRequisitionRes()        {}
 func (*BadRequestHeaders) createRoleAssignmentRes()     {}
 func (*BadRequestHeaders) createRoleRes()               {}
 func (*BadRequestHeaders) createSodRuleRes()            {}
 func (*BadRequestHeaders) createSupplierInvoiceRes()    {}
+func (*BadRequestHeaders) decideRecommendationRes()     {}
 func (*BadRequestHeaders) disableConnectorRes()         {}
 func (*BadRequestHeaders) enableConnectorRes()          {}
+func (*BadRequestHeaders) endAgentSessionRes()          {}
 func (*BadRequestHeaders) endCompanyAccessRes()         {}
 func (*BadRequestHeaders) endRoleAssignmentRes()        {}
 func (*BadRequestHeaders) endRolePermissionRes()        {}
 func (*BadRequestHeaders) endSodRuleRes()               {}
 func (*BadRequestHeaders) getAccountRes()               {}
+func (*BadRequestHeaders) getAgentSessionRes()          {}
 func (*BadRequestHeaders) getApprovalRequestRes()       {}
 func (*BadRequestHeaders) getBankAccountRes()           {}
 func (*BadRequestHeaders) getBankFileRes()              {}
@@ -1381,6 +2088,7 @@ func (*BadRequestHeaders) getPartnerChangeRes()         {}
 func (*BadRequestHeaders) getPaymentRunRes()            {}
 func (*BadRequestHeaders) getPrincipalRes()             {}
 func (*BadRequestHeaders) getPurchaseOrderRes()         {}
+func (*BadRequestHeaders) getRecommendationRes()        {}
 func (*BadRequestHeaders) getRequisitionRes()           {}
 func (*BadRequestHeaders) getRoleAssignmentRes()        {}
 func (*BadRequestHeaders) getRolePermissionRes()        {}
@@ -1390,6 +2098,8 @@ func (*BadRequestHeaders) getSupplierInvoiceRes()       {}
 func (*BadRequestHeaders) grantRolePermissionRes()      {}
 func (*BadRequestHeaders) holdSupplierInvoiceRes()      {}
 func (*BadRequestHeaders) listAccountsRes()             {}
+func (*BadRequestHeaders) listAgentSessionsRes()        {}
+func (*BadRequestHeaders) listAgentToolCallsRes()       {}
 func (*BadRequestHeaders) listApprovalRequestsRes()     {}
 func (*BadRequestHeaders) listAuditEventsRes()          {}
 func (*BadRequestHeaders) listBalancesRes()             {}
@@ -1419,6 +2129,7 @@ func (*BadRequestHeaders) listPaymentRunsRes()          {}
 func (*BadRequestHeaders) listPaymentsRes()             {}
 func (*BadRequestHeaders) listPrincipalsRes()           {}
 func (*BadRequestHeaders) listPurchaseOrdersRes()       {}
+func (*BadRequestHeaders) listRecommendationsRes()      {}
 func (*BadRequestHeaders) listRequisitionsRes()         {}
 func (*BadRequestHeaders) listRoleAssignmentsRes()      {}
 func (*BadRequestHeaders) listRolePermissionsRes()      {}
@@ -1432,6 +2143,7 @@ func (*BadRequestHeaders) postJournalEntryRes()         {}
 func (*BadRequestHeaders) postSupplierInvoiceRes()      {}
 func (*BadRequestHeaders) proposePaymentRunRes()        {}
 func (*BadRequestHeaders) reconcileMigrationRunRes()    {}
+func (*BadRequestHeaders) recordAgentToolCallRes()      {}
 func (*BadRequestHeaders) rejectApprovalRequestRes()    {}
 func (*BadRequestHeaders) rejectPaymentRunRes()         {}
 func (*BadRequestHeaders) releaseContractRes()          {}
@@ -1444,6 +2156,7 @@ func (*BadRequestHeaders) reverseGoodsReceiptRes()      {}
 func (*BadRequestHeaders) reverseJournalEntryRes()      {}
 func (*BadRequestHeaders) reverseSupplierInvoiceRes()   {}
 func (*BadRequestHeaders) simulateChangeRequestRes()    {}
+func (*BadRequestHeaders) startAgentSessionRes()        {}
 func (*BadRequestHeaders) startMigrationRunRes()        {}
 func (*BadRequestHeaders) submitChangeRequestRes()      {}
 func (*BadRequestHeaders) submitRequisitionRes()        {}
@@ -5064,13 +5777,16 @@ func (*ConflictHeaders) createOrgUnitRes()            {}
 func (*ConflictHeaders) createPartnerChangeRes()      {}
 func (*ConflictHeaders) createPrincipalRes()          {}
 func (*ConflictHeaders) createPurchaseOrderRes()      {}
+func (*ConflictHeaders) createRecommendationRes()     {}
 func (*ConflictHeaders) createRequisitionRes()        {}
 func (*ConflictHeaders) createRoleAssignmentRes()     {}
 func (*ConflictHeaders) createRoleRes()               {}
 func (*ConflictHeaders) createSodRuleRes()            {}
 func (*ConflictHeaders) createSupplierInvoiceRes()    {}
+func (*ConflictHeaders) decideRecommendationRes()     {}
 func (*ConflictHeaders) disableConnectorRes()         {}
 func (*ConflictHeaders) enableConnectorRes()          {}
+func (*ConflictHeaders) endAgentSessionRes()          {}
 func (*ConflictHeaders) endCompanyAccessRes()         {}
 func (*ConflictHeaders) endRoleAssignmentRes()        {}
 func (*ConflictHeaders) endRolePermissionRes()        {}
@@ -5084,6 +5800,7 @@ func (*ConflictHeaders) postJournalEntryRes()         {}
 func (*ConflictHeaders) postSupplierInvoiceRes()      {}
 func (*ConflictHeaders) proposePaymentRunRes()        {}
 func (*ConflictHeaders) reconcileMigrationRunRes()    {}
+func (*ConflictHeaders) recordAgentToolCallRes()      {}
 func (*ConflictHeaders) rejectApprovalRequestRes()    {}
 func (*ConflictHeaders) rejectPaymentRunRes()         {}
 func (*ConflictHeaders) releaseContractRes()          {}
@@ -5096,6 +5813,7 @@ func (*ConflictHeaders) reverseGoodsReceiptRes()      {}
 func (*ConflictHeaders) reverseJournalEntryRes()      {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()   {}
 func (*ConflictHeaders) simulateChangeRequestRes()    {}
+func (*ConflictHeaders) startAgentSessionRes()        {}
 func (*ConflictHeaders) startMigrationRunRes()        {}
 func (*ConflictHeaders) submitChangeRequestRes()      {}
 func (*ConflictHeaders) submitRequisitionRes()        {}
@@ -6178,6 +6896,78 @@ func (s *ContractUpdate) SetItems(val []ContractItem) {
 	s.Items = val
 }
 
+// DecideRecommendationOKHeaders wraps Recommendation with response headers.
+type DecideRecommendationOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Recommendation
+}
+
+// GetETag returns the value of ETag.
+func (s *DecideRecommendationOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DecideRecommendationOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *DecideRecommendationOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *DecideRecommendationOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *DecideRecommendationOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *DecideRecommendationOKHeaders) GetResponse() Recommendation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DecideRecommendationOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DecideRecommendationOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *DecideRecommendationOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *DecideRecommendationOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *DecideRecommendationOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DecideRecommendationOKHeaders) SetResponse(val Recommendation) {
+	s.Response = val
+}
+
+func (*DecideRecommendationOKHeaders) decideRecommendationRes() {}
+
 type Decimal string
 
 // One recorded decision. Insert-only.
@@ -6275,6 +7065,78 @@ func (s *DecisionInput) GetComment() OptString {
 func (s *DecisionInput) SetComment(val OptString) {
 	s.Comment = val
 }
+
+// EndAgentSessionOKHeaders wraps AgentSession with response headers.
+type EndAgentSessionOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AgentSession
+}
+
+// GetETag returns the value of ETag.
+func (s *EndAgentSessionOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *EndAgentSessionOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *EndAgentSessionOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *EndAgentSessionOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *EndAgentSessionOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *EndAgentSessionOKHeaders) GetResponse() AgentSession {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *EndAgentSessionOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *EndAgentSessionOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *EndAgentSessionOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *EndAgentSessionOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *EndAgentSessionOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *EndAgentSessionOKHeaders) SetResponse(val AgentSession) {
+	s.Response = val
+}
+
+func (*EndAgentSessionOKHeaders) endAgentSessionRes() {}
 
 // EndCompanyAccessOKHeaders wraps CompanyAccess with response headers.
 type EndCompanyAccessOKHeaders struct {
@@ -7503,18 +8365,22 @@ func (*ForbiddenHeaders) createOrgUnitRes()            {}
 func (*ForbiddenHeaders) createPartnerChangeRes()      {}
 func (*ForbiddenHeaders) createPrincipalRes()          {}
 func (*ForbiddenHeaders) createPurchaseOrderRes()      {}
+func (*ForbiddenHeaders) createRecommendationRes()     {}
 func (*ForbiddenHeaders) createRequisitionRes()        {}
 func (*ForbiddenHeaders) createRoleAssignmentRes()     {}
 func (*ForbiddenHeaders) createRoleRes()               {}
 func (*ForbiddenHeaders) createSodRuleRes()            {}
 func (*ForbiddenHeaders) createSupplierInvoiceRes()    {}
+func (*ForbiddenHeaders) decideRecommendationRes()     {}
 func (*ForbiddenHeaders) disableConnectorRes()         {}
 func (*ForbiddenHeaders) enableConnectorRes()          {}
+func (*ForbiddenHeaders) endAgentSessionRes()          {}
 func (*ForbiddenHeaders) endCompanyAccessRes()         {}
 func (*ForbiddenHeaders) endRoleAssignmentRes()        {}
 func (*ForbiddenHeaders) endRolePermissionRes()        {}
 func (*ForbiddenHeaders) endSodRuleRes()               {}
 func (*ForbiddenHeaders) getAccountRes()               {}
+func (*ForbiddenHeaders) getAgentSessionRes()          {}
 func (*ForbiddenHeaders) getApprovalRequestRes()       {}
 func (*ForbiddenHeaders) getBankAccountRes()           {}
 func (*ForbiddenHeaders) getBankFileRes()              {}
@@ -7539,6 +8405,7 @@ func (*ForbiddenHeaders) getPartnerChangeRes()         {}
 func (*ForbiddenHeaders) getPaymentRunRes()            {}
 func (*ForbiddenHeaders) getPrincipalRes()             {}
 func (*ForbiddenHeaders) getPurchaseOrderRes()         {}
+func (*ForbiddenHeaders) getRecommendationRes()        {}
 func (*ForbiddenHeaders) getRequisitionRes()           {}
 func (*ForbiddenHeaders) getRoleAssignmentRes()        {}
 func (*ForbiddenHeaders) getRolePermissionRes()        {}
@@ -7548,6 +8415,8 @@ func (*ForbiddenHeaders) getSupplierInvoiceRes()       {}
 func (*ForbiddenHeaders) grantRolePermissionRes()      {}
 func (*ForbiddenHeaders) holdSupplierInvoiceRes()      {}
 func (*ForbiddenHeaders) listAccountsRes()             {}
+func (*ForbiddenHeaders) listAgentSessionsRes()        {}
+func (*ForbiddenHeaders) listAgentToolCallsRes()       {}
 func (*ForbiddenHeaders) listApprovalRequestsRes()     {}
 func (*ForbiddenHeaders) listAuditEventsRes()          {}
 func (*ForbiddenHeaders) listBalancesRes()             {}
@@ -7577,6 +8446,7 @@ func (*ForbiddenHeaders) listPaymentRunsRes()          {}
 func (*ForbiddenHeaders) listPaymentsRes()             {}
 func (*ForbiddenHeaders) listPrincipalsRes()           {}
 func (*ForbiddenHeaders) listPurchaseOrdersRes()       {}
+func (*ForbiddenHeaders) listRecommendationsRes()      {}
 func (*ForbiddenHeaders) listRequisitionsRes()         {}
 func (*ForbiddenHeaders) listRoleAssignmentsRes()      {}
 func (*ForbiddenHeaders) listRolePermissionsRes()      {}
@@ -7590,6 +8460,7 @@ func (*ForbiddenHeaders) postJournalEntryRes()         {}
 func (*ForbiddenHeaders) postSupplierInvoiceRes()      {}
 func (*ForbiddenHeaders) proposePaymentRunRes()        {}
 func (*ForbiddenHeaders) reconcileMigrationRunRes()    {}
+func (*ForbiddenHeaders) recordAgentToolCallRes()      {}
 func (*ForbiddenHeaders) rejectApprovalRequestRes()    {}
 func (*ForbiddenHeaders) rejectPaymentRunRes()         {}
 func (*ForbiddenHeaders) releaseContractRes()          {}
@@ -7602,6 +8473,7 @@ func (*ForbiddenHeaders) reverseGoodsReceiptRes()      {}
 func (*ForbiddenHeaders) reverseJournalEntryRes()      {}
 func (*ForbiddenHeaders) reverseSupplierInvoiceRes()   {}
 func (*ForbiddenHeaders) simulateChangeRequestRes()    {}
+func (*ForbiddenHeaders) startAgentSessionRes()        {}
 func (*ForbiddenHeaders) startMigrationRunRes()        {}
 func (*ForbiddenHeaders) submitChangeRequestRes()      {}
 func (*ForbiddenHeaders) submitRequisitionRes()        {}
@@ -7622,6 +8494,67 @@ func (*ForbiddenHeaders) updateRoleRes()               {}
 func (*ForbiddenHeaders) updateSupplierInvoiceRes()    {}
 func (*ForbiddenHeaders) verifyAuditChainRes()         {}
 func (*ForbiddenHeaders) withdrawChangeRequestRes()    {}
+
+// GetAgentSessionOKHeaders wraps AgentSession with response headers.
+type GetAgentSessionOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AgentSession
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAgentSessionOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetAgentSessionOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetAgentSessionOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetAgentSessionOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAgentSessionOKHeaders) GetResponse() AgentSession {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAgentSessionOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetAgentSessionOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetAgentSessionOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetAgentSessionOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAgentSessionOKHeaders) SetResponse(val AgentSession) {
+	s.Response = val
+}
+
+func (*GetAgentSessionOKHeaders) getAgentSessionRes() {}
 
 // GetBusinessPartnerOKHeaders wraps BusinessPartner with response headers.
 type GetBusinessPartnerOKHeaders struct {
@@ -8598,6 +9531,67 @@ func (s *GetPurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 }
 
 func (*GetPurchaseOrderOKHeaders) getPurchaseOrderRes() {}
+
+// GetRecommendationOKHeaders wraps Recommendation with response headers.
+type GetRecommendationOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Recommendation
+}
+
+// GetETag returns the value of ETag.
+func (s *GetRecommendationOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetRecommendationOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetRecommendationOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetRecommendationOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetRecommendationOKHeaders) GetResponse() Recommendation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetRecommendationOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetRecommendationOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetRecommendationOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetRecommendationOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetRecommendationOKHeaders) SetResponse(val Recommendation) {
+	s.Response = val
+}
+
+func (*GetRecommendationOKHeaders) getRecommendationRes() {}
 
 // GetRequisitionOKHeaders wraps Requisition with response headers.
 type GetRequisitionOKHeaders struct {
@@ -11710,13 +12704,16 @@ func (*NotFoundHeaders) cancelPurchaseOrderRes()      {}
 func (*NotFoundHeaders) cancelRequisitionRes()        {}
 func (*NotFoundHeaders) cancelSupplierInvoiceRes()    {}
 func (*NotFoundHeaders) closeFiscalPeriodRes()        {}
+func (*NotFoundHeaders) decideRecommendationRes()     {}
 func (*NotFoundHeaders) disableConnectorRes()         {}
 func (*NotFoundHeaders) enableConnectorRes()          {}
+func (*NotFoundHeaders) endAgentSessionRes()          {}
 func (*NotFoundHeaders) endCompanyAccessRes()         {}
 func (*NotFoundHeaders) endRoleAssignmentRes()        {}
 func (*NotFoundHeaders) endRolePermissionRes()        {}
 func (*NotFoundHeaders) endSodRuleRes()               {}
 func (*NotFoundHeaders) getAccountRes()               {}
+func (*NotFoundHeaders) getAgentSessionRes()          {}
 func (*NotFoundHeaders) getApprovalRequestRes()       {}
 func (*NotFoundHeaders) getBankAccountRes()           {}
 func (*NotFoundHeaders) getBankFileRes()              {}
@@ -11741,6 +12738,7 @@ func (*NotFoundHeaders) getPartnerChangeRes()         {}
 func (*NotFoundHeaders) getPaymentRunRes()            {}
 func (*NotFoundHeaders) getPrincipalRes()             {}
 func (*NotFoundHeaders) getPurchaseOrderRes()         {}
+func (*NotFoundHeaders) getRecommendationRes()        {}
 func (*NotFoundHeaders) getRequisitionRes()           {}
 func (*NotFoundHeaders) getRoleAssignmentRes()        {}
 func (*NotFoundHeaders) getRolePermissionRes()        {}
@@ -11749,6 +12747,7 @@ func (*NotFoundHeaders) getSodRuleRes()               {}
 func (*NotFoundHeaders) getSupplierInvoiceRes()       {}
 func (*NotFoundHeaders) grantRolePermissionRes()      {}
 func (*NotFoundHeaders) holdSupplierInvoiceRes()      {}
+func (*NotFoundHeaders) listAgentToolCallsRes()       {}
 func (*NotFoundHeaders) listBankAccountsRes()         {}
 func (*NotFoundHeaders) listMatchResultsRes()         {}
 func (*NotFoundHeaders) listPaymentExclusionsRes()    {}
@@ -11758,6 +12757,7 @@ func (*NotFoundHeaders) matchSupplierInvoiceRes()     {}
 func (*NotFoundHeaders) openFiscalPeriodRes()         {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()      {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()    {}
+func (*NotFoundHeaders) recordAgentToolCallRes()      {}
 func (*NotFoundHeaders) rejectApprovalRequestRes()    {}
 func (*NotFoundHeaders) rejectPaymentRunRes()         {}
 func (*NotFoundHeaders) releaseContractRes()          {}
@@ -15862,8 +16862,10 @@ func (*PreconditionFailedHeaders) cancelPurchaseOrderRes()    {}
 func (*PreconditionFailedHeaders) cancelRequisitionRes()      {}
 func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()  {}
 func (*PreconditionFailedHeaders) closeFiscalPeriodRes()      {}
+func (*PreconditionFailedHeaders) decideRecommendationRes()   {}
 func (*PreconditionFailedHeaders) disableConnectorRes()       {}
 func (*PreconditionFailedHeaders) enableConnectorRes()        {}
+func (*PreconditionFailedHeaders) endAgentSessionRes()        {}
 func (*PreconditionFailedHeaders) endCompanyAccessRes()       {}
 func (*PreconditionFailedHeaders) endRoleAssignmentRes()      {}
 func (*PreconditionFailedHeaders) endRolePermissionRes()      {}
@@ -15981,13 +16983,16 @@ func (*PreconditionRequiredHeaders) createOrgUnitRes()            {}
 func (*PreconditionRequiredHeaders) createPartnerChangeRes()      {}
 func (*PreconditionRequiredHeaders) createPrincipalRes()          {}
 func (*PreconditionRequiredHeaders) createPurchaseOrderRes()      {}
+func (*PreconditionRequiredHeaders) createRecommendationRes()     {}
 func (*PreconditionRequiredHeaders) createRequisitionRes()        {}
 func (*PreconditionRequiredHeaders) createRoleAssignmentRes()     {}
 func (*PreconditionRequiredHeaders) createRoleRes()               {}
 func (*PreconditionRequiredHeaders) createSodRuleRes()            {}
 func (*PreconditionRequiredHeaders) createSupplierInvoiceRes()    {}
+func (*PreconditionRequiredHeaders) decideRecommendationRes()     {}
 func (*PreconditionRequiredHeaders) disableConnectorRes()         {}
 func (*PreconditionRequiredHeaders) enableConnectorRes()          {}
+func (*PreconditionRequiredHeaders) endAgentSessionRes()          {}
 func (*PreconditionRequiredHeaders) endCompanyAccessRes()         {}
 func (*PreconditionRequiredHeaders) endRoleAssignmentRes()        {}
 func (*PreconditionRequiredHeaders) endRolePermissionRes()        {}
@@ -16001,6 +17006,7 @@ func (*PreconditionRequiredHeaders) postJournalEntryRes()         {}
 func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()      {}
 func (*PreconditionRequiredHeaders) proposePaymentRunRes()        {}
 func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()    {}
+func (*PreconditionRequiredHeaders) recordAgentToolCallRes()      {}
 func (*PreconditionRequiredHeaders) rejectApprovalRequestRes()    {}
 func (*PreconditionRequiredHeaders) rejectPaymentRunRes()         {}
 func (*PreconditionRequiredHeaders) releaseContractRes()          {}
@@ -16013,6 +17019,7 @@ func (*PreconditionRequiredHeaders) reverseGoodsReceiptRes()      {}
 func (*PreconditionRequiredHeaders) reverseJournalEntryRes()      {}
 func (*PreconditionRequiredHeaders) reverseSupplierInvoiceRes()   {}
 func (*PreconditionRequiredHeaders) simulateChangeRequestRes()    {}
+func (*PreconditionRequiredHeaders) startAgentSessionRes()        {}
 func (*PreconditionRequiredHeaders) startMigrationRunRes()        {}
 func (*PreconditionRequiredHeaders) submitChangeRequestRes()      {}
 func (*PreconditionRequiredHeaders) submitRequisitionRes()        {}
@@ -17433,6 +18440,413 @@ func (s *ReasonInput) GetReason() string {
 func (s *ReasonInput) SetReason(val string) {
 	s.Reason = val
 }
+
+// An agent's recommendation on a business object, and what a person decided.
+// Ref: #/components/schemas/Recommendation
+type Recommendation struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// Session that made it.
+	SessionID uuid.UUID `json:"session_id"`
+	// The agent.
+	AgentID uuid.UUID `json:"agent_id"`
+	// Kind of object, for example `supplier_invoice` or `change_request`.
+	ObjectType string `json:"object_type"`
+	// The object.
+	ObjectID uuid.UUID `json:"object_id"`
+	// What is recommended, for example `release_hold`.
+	Kind string `json:"kind"`
+	// The recommendation and its reasons.
+	Content string `json:"content"`
+	// What people decided; absent while open. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Outcome OptString `json:"outcome"`
+	// The person who decided.
+	DecidedBy OptUUID `json:"decided_by"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Time of the last change.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *Recommendation) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Recommendation) GetVersion() int32 {
+	return s.Version
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *Recommendation) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetAgentID returns the value of AgentID.
+func (s *Recommendation) GetAgentID() uuid.UUID {
+	return s.AgentID
+}
+
+// GetObjectType returns the value of ObjectType.
+func (s *Recommendation) GetObjectType() string {
+	return s.ObjectType
+}
+
+// GetObjectID returns the value of ObjectID.
+func (s *Recommendation) GetObjectID() uuid.UUID {
+	return s.ObjectID
+}
+
+// GetKind returns the value of Kind.
+func (s *Recommendation) GetKind() string {
+	return s.Kind
+}
+
+// GetContent returns the value of Content.
+func (s *Recommendation) GetContent() string {
+	return s.Content
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *Recommendation) GetOutcome() OptString {
+	return s.Outcome
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *Recommendation) GetDecidedBy() OptUUID {
+	return s.DecidedBy
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Recommendation) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Recommendation) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *Recommendation) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Recommendation) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *Recommendation) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetAgentID sets the value of AgentID.
+func (s *Recommendation) SetAgentID(val uuid.UUID) {
+	s.AgentID = val
+}
+
+// SetObjectType sets the value of ObjectType.
+func (s *Recommendation) SetObjectType(val string) {
+	s.ObjectType = val
+}
+
+// SetObjectID sets the value of ObjectID.
+func (s *Recommendation) SetObjectID(val uuid.UUID) {
+	s.ObjectID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *Recommendation) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetContent sets the value of Content.
+func (s *Recommendation) SetContent(val string) {
+	s.Content = val
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *Recommendation) SetOutcome(val OptString) {
+	s.Outcome = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *Recommendation) SetDecidedBy(val OptUUID) {
+	s.DecidedBy = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Recommendation) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Recommendation) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// A recommendation to record.
+// Ref: #/components/schemas/RecommendationCreate
+type RecommendationCreate struct {
+	// The caller's running session.
+	SessionID uuid.UUID `json:"session_id"`
+	// Kind of object.
+	ObjectType string `json:"object_type"`
+	// The object.
+	ObjectID uuid.UUID `json:"object_id"`
+	// What is recommended.
+	Kind string `json:"kind"`
+	// The recommendation and its reasons.
+	Content string `json:"content"`
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *RecommendationCreate) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetObjectType returns the value of ObjectType.
+func (s *RecommendationCreate) GetObjectType() string {
+	return s.ObjectType
+}
+
+// GetObjectID returns the value of ObjectID.
+func (s *RecommendationCreate) GetObjectID() uuid.UUID {
+	return s.ObjectID
+}
+
+// GetKind returns the value of Kind.
+func (s *RecommendationCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetContent returns the value of Content.
+func (s *RecommendationCreate) GetContent() string {
+	return s.Content
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *RecommendationCreate) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetObjectType sets the value of ObjectType.
+func (s *RecommendationCreate) SetObjectType(val string) {
+	s.ObjectType = val
+}
+
+// SetObjectID sets the value of ObjectID.
+func (s *RecommendationCreate) SetObjectID(val uuid.UUID) {
+	s.ObjectID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *RecommendationCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetContent sets the value of Content.
+func (s *RecommendationCreate) SetContent(val string) {
+	s.Content = val
+}
+
+// What a person did with a recommendation.
+// Ref: #/components/schemas/RecommendationDecide
+type RecommendationDecide struct {
+	// Decision. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Outcome string `json:"outcome"`
+	// Optional comment, recorded in the audit trail.
+	Comment OptString `json:"comment"`
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *RecommendationDecide) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetComment returns the value of Comment.
+func (s *RecommendationDecide) GetComment() OptString {
+	return s.Comment
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *RecommendationDecide) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetComment sets the value of Comment.
+func (s *RecommendationDecide) SetComment(val OptString) {
+	s.Comment = val
+}
+
+// RecommendationHeaders wraps Recommendation with response headers.
+type RecommendationHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Recommendation
+}
+
+// GetETag returns the value of ETag.
+func (s *RecommendationHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RecommendationHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RecommendationHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *RecommendationHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *RecommendationHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *RecommendationHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *RecommendationHeaders) GetResponse() Recommendation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RecommendationHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RecommendationHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RecommendationHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *RecommendationHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *RecommendationHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *RecommendationHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RecommendationHeaders) SetResponse(val Recommendation) {
+	s.Response = val
+}
+
+func (*RecommendationHeaders) createRecommendationRes() {}
+
+// One page of recommendations.
+// Ref: #/components/schemas/RecommendationPage
+type RecommendationPage struct {
+	// The recommendations on this page.
+	Items []Recommendation `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RecommendationPage) GetItems() []Recommendation {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RecommendationPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RecommendationPage) SetItems(val []Recommendation) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RecommendationPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// RecommendationPageHeaders wraps RecommendationPage with response headers.
+type RecommendationPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           RecommendationPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *RecommendationPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *RecommendationPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *RecommendationPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *RecommendationPageHeaders) GetResponse() RecommendationPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *RecommendationPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *RecommendationPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *RecommendationPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RecommendationPageHeaders) SetResponse(val RecommendationPage) {
+	s.Response = val
+}
+
+func (*RecommendationPageHeaders) listRecommendationsRes() {}
 
 // RejectPaymentRunOKHeaders wraps PaymentRun with response headers.
 type RejectPaymentRunOKHeaders struct {
@@ -19534,13 +20948,16 @@ func (*ServiceUnavailableHeaders) createOrgUnitRes()            {}
 func (*ServiceUnavailableHeaders) createPartnerChangeRes()      {}
 func (*ServiceUnavailableHeaders) createPrincipalRes()          {}
 func (*ServiceUnavailableHeaders) createPurchaseOrderRes()      {}
+func (*ServiceUnavailableHeaders) createRecommendationRes()     {}
 func (*ServiceUnavailableHeaders) createRequisitionRes()        {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()     {}
 func (*ServiceUnavailableHeaders) createRoleRes()               {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()            {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()    {}
+func (*ServiceUnavailableHeaders) decideRecommendationRes()     {}
 func (*ServiceUnavailableHeaders) disableConnectorRes()         {}
 func (*ServiceUnavailableHeaders) enableConnectorRes()          {}
+func (*ServiceUnavailableHeaders) endAgentSessionRes()          {}
 func (*ServiceUnavailableHeaders) endCompanyAccessRes()         {}
 func (*ServiceUnavailableHeaders) endRoleAssignmentRes()        {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()        {}
@@ -19554,6 +20971,7 @@ func (*ServiceUnavailableHeaders) postJournalEntryRes()         {}
 func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()      {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()        {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()    {}
+func (*ServiceUnavailableHeaders) recordAgentToolCallRes()      {}
 func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()    {}
 func (*ServiceUnavailableHeaders) rejectPaymentRunRes()         {}
 func (*ServiceUnavailableHeaders) releaseContractRes()          {}
@@ -19566,6 +20984,7 @@ func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()      {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()      {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()   {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()    {}
+func (*ServiceUnavailableHeaders) startAgentSessionRes()        {}
 func (*ServiceUnavailableHeaders) startMigrationRunRes()        {}
 func (*ServiceUnavailableHeaders) submitChangeRequestRes()      {}
 func (*ServiceUnavailableHeaders) submitRequisitionRes()        {}
@@ -21093,18 +22512,22 @@ func (*TooManyRequestsHeaders) createOrgUnitRes()            {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()      {}
 func (*TooManyRequestsHeaders) createPrincipalRes()          {}
 func (*TooManyRequestsHeaders) createPurchaseOrderRes()      {}
+func (*TooManyRequestsHeaders) createRecommendationRes()     {}
 func (*TooManyRequestsHeaders) createRequisitionRes()        {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()     {}
 func (*TooManyRequestsHeaders) createRoleRes()               {}
 func (*TooManyRequestsHeaders) createSodRuleRes()            {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()    {}
+func (*TooManyRequestsHeaders) decideRecommendationRes()     {}
 func (*TooManyRequestsHeaders) disableConnectorRes()         {}
 func (*TooManyRequestsHeaders) enableConnectorRes()          {}
+func (*TooManyRequestsHeaders) endAgentSessionRes()          {}
 func (*TooManyRequestsHeaders) endCompanyAccessRes()         {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()        {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()        {}
 func (*TooManyRequestsHeaders) endSodRuleRes()               {}
 func (*TooManyRequestsHeaders) getAccountRes()               {}
+func (*TooManyRequestsHeaders) getAgentSessionRes()          {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()       {}
 func (*TooManyRequestsHeaders) getBankAccountRes()           {}
 func (*TooManyRequestsHeaders) getBankFileRes()              {}
@@ -21129,6 +22552,7 @@ func (*TooManyRequestsHeaders) getPartnerChangeRes()         {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()            {}
 func (*TooManyRequestsHeaders) getPrincipalRes()             {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()         {}
+func (*TooManyRequestsHeaders) getRecommendationRes()        {}
 func (*TooManyRequestsHeaders) getRequisitionRes()           {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()        {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()        {}
@@ -21138,6 +22562,8 @@ func (*TooManyRequestsHeaders) getSupplierInvoiceRes()       {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()      {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()      {}
 func (*TooManyRequestsHeaders) listAccountsRes()             {}
+func (*TooManyRequestsHeaders) listAgentSessionsRes()        {}
+func (*TooManyRequestsHeaders) listAgentToolCallsRes()       {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()     {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()          {}
 func (*TooManyRequestsHeaders) listBalancesRes()             {}
@@ -21167,6 +22593,7 @@ func (*TooManyRequestsHeaders) listPaymentRunsRes()          {}
 func (*TooManyRequestsHeaders) listPaymentsRes()             {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()           {}
 func (*TooManyRequestsHeaders) listPurchaseOrdersRes()       {}
+func (*TooManyRequestsHeaders) listRecommendationsRes()      {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()         {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()      {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()      {}
@@ -21180,6 +22607,7 @@ func (*TooManyRequestsHeaders) postJournalEntryRes()         {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()      {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()        {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()    {}
+func (*TooManyRequestsHeaders) recordAgentToolCallRes()      {}
 func (*TooManyRequestsHeaders) rejectApprovalRequestRes()    {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()         {}
 func (*TooManyRequestsHeaders) releaseContractRes()          {}
@@ -21192,6 +22620,7 @@ func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()      {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()      {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()   {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()    {}
+func (*TooManyRequestsHeaders) startAgentSessionRes()        {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()        {}
 func (*TooManyRequestsHeaders) submitChangeRequestRes()      {}
 func (*TooManyRequestsHeaders) submitRequisitionRes()        {}
@@ -21301,18 +22730,22 @@ func (*UnauthorizedHeaders) createOrgUnitRes()            {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()      {}
 func (*UnauthorizedHeaders) createPrincipalRes()          {}
 func (*UnauthorizedHeaders) createPurchaseOrderRes()      {}
+func (*UnauthorizedHeaders) createRecommendationRes()     {}
 func (*UnauthorizedHeaders) createRequisitionRes()        {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()     {}
 func (*UnauthorizedHeaders) createRoleRes()               {}
 func (*UnauthorizedHeaders) createSodRuleRes()            {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()    {}
+func (*UnauthorizedHeaders) decideRecommendationRes()     {}
 func (*UnauthorizedHeaders) disableConnectorRes()         {}
 func (*UnauthorizedHeaders) enableConnectorRes()          {}
+func (*UnauthorizedHeaders) endAgentSessionRes()          {}
 func (*UnauthorizedHeaders) endCompanyAccessRes()         {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()        {}
 func (*UnauthorizedHeaders) endRolePermissionRes()        {}
 func (*UnauthorizedHeaders) endSodRuleRes()               {}
 func (*UnauthorizedHeaders) getAccountRes()               {}
+func (*UnauthorizedHeaders) getAgentSessionRes()          {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()       {}
 func (*UnauthorizedHeaders) getBankAccountRes()           {}
 func (*UnauthorizedHeaders) getBankFileRes()              {}
@@ -21337,6 +22770,7 @@ func (*UnauthorizedHeaders) getPartnerChangeRes()         {}
 func (*UnauthorizedHeaders) getPaymentRunRes()            {}
 func (*UnauthorizedHeaders) getPrincipalRes()             {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()         {}
+func (*UnauthorizedHeaders) getRecommendationRes()        {}
 func (*UnauthorizedHeaders) getRequisitionRes()           {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()        {}
 func (*UnauthorizedHeaders) getRolePermissionRes()        {}
@@ -21346,6 +22780,8 @@ func (*UnauthorizedHeaders) getSupplierInvoiceRes()       {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()      {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()      {}
 func (*UnauthorizedHeaders) listAccountsRes()             {}
+func (*UnauthorizedHeaders) listAgentSessionsRes()        {}
+func (*UnauthorizedHeaders) listAgentToolCallsRes()       {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()     {}
 func (*UnauthorizedHeaders) listAuditEventsRes()          {}
 func (*UnauthorizedHeaders) listBalancesRes()             {}
@@ -21375,6 +22811,7 @@ func (*UnauthorizedHeaders) listPaymentRunsRes()          {}
 func (*UnauthorizedHeaders) listPaymentsRes()             {}
 func (*UnauthorizedHeaders) listPrincipalsRes()           {}
 func (*UnauthorizedHeaders) listPurchaseOrdersRes()       {}
+func (*UnauthorizedHeaders) listRecommendationsRes()      {}
 func (*UnauthorizedHeaders) listRequisitionsRes()         {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()      {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()      {}
@@ -21388,6 +22825,7 @@ func (*UnauthorizedHeaders) postJournalEntryRes()         {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()      {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()        {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()    {}
+func (*UnauthorizedHeaders) recordAgentToolCallRes()      {}
 func (*UnauthorizedHeaders) rejectApprovalRequestRes()    {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()         {}
 func (*UnauthorizedHeaders) releaseContractRes()          {}
@@ -21400,6 +22838,7 @@ func (*UnauthorizedHeaders) reverseGoodsReceiptRes()      {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()      {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()   {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()    {}
+func (*UnauthorizedHeaders) startAgentSessionRes()        {}
 func (*UnauthorizedHeaders) startMigrationRunRes()        {}
 func (*UnauthorizedHeaders) submitChangeRequestRes()      {}
 func (*UnauthorizedHeaders) submitRequisitionRes()        {}
@@ -21498,13 +22937,16 @@ func (*UnprocessableHeaders) createOrgUnitRes()            {}
 func (*UnprocessableHeaders) createPartnerChangeRes()      {}
 func (*UnprocessableHeaders) createPrincipalRes()          {}
 func (*UnprocessableHeaders) createPurchaseOrderRes()      {}
+func (*UnprocessableHeaders) createRecommendationRes()     {}
 func (*UnprocessableHeaders) createRequisitionRes()        {}
 func (*UnprocessableHeaders) createRoleAssignmentRes()     {}
 func (*UnprocessableHeaders) createRoleRes()               {}
 func (*UnprocessableHeaders) createSodRuleRes()            {}
 func (*UnprocessableHeaders) createSupplierInvoiceRes()    {}
+func (*UnprocessableHeaders) decideRecommendationRes()     {}
 func (*UnprocessableHeaders) disableConnectorRes()         {}
 func (*UnprocessableHeaders) enableConnectorRes()          {}
+func (*UnprocessableHeaders) endAgentSessionRes()          {}
 func (*UnprocessableHeaders) endCompanyAccessRes()         {}
 func (*UnprocessableHeaders) endRoleAssignmentRes()        {}
 func (*UnprocessableHeaders) endRolePermissionRes()        {}
@@ -21518,6 +22960,7 @@ func (*UnprocessableHeaders) postJournalEntryRes()         {}
 func (*UnprocessableHeaders) postSupplierInvoiceRes()      {}
 func (*UnprocessableHeaders) proposePaymentRunRes()        {}
 func (*UnprocessableHeaders) reconcileMigrationRunRes()    {}
+func (*UnprocessableHeaders) recordAgentToolCallRes()      {}
 func (*UnprocessableHeaders) rejectApprovalRequestRes()    {}
 func (*UnprocessableHeaders) rejectPaymentRunRes()         {}
 func (*UnprocessableHeaders) releaseContractRes()          {}
@@ -21530,6 +22973,7 @@ func (*UnprocessableHeaders) reverseGoodsReceiptRes()      {}
 func (*UnprocessableHeaders) reverseJournalEntryRes()      {}
 func (*UnprocessableHeaders) reverseSupplierInvoiceRes()   {}
 func (*UnprocessableHeaders) simulateChangeRequestRes()    {}
+func (*UnprocessableHeaders) startAgentSessionRes()        {}
 func (*UnprocessableHeaders) startMigrationRunRes()        {}
 func (*UnprocessableHeaders) submitChangeRequestRes()      {}
 func (*UnprocessableHeaders) submitRequisitionRes()        {}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	ht "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/ogenerrors"
 	"github.com/ogen-go/ogen/validate"
 	"go.opentelemetry.io/otel/metric"
@@ -51,6 +52,7 @@ func TestErrorMapping(t *testing.T) {
 		&ogenerrors.DecodeParamError{Name: "If-Match", In: "header", Err: errors.New("bad")}: "request.invalid_parameter",
 		problem.Conflict("own.code", "x"):                                                    "own.code",
 		errors.New("plain"):                                                                  "platform.internal",
+		ht.ErrNotImplemented:                                                                 "platform.not_implemented",
 	}
 	required := &validate.Error{Fields: []validate.FieldError{{Name: "If-Match", Error: validate.ErrFieldRequired}}}
 	other := &validate.Error{Fields: []validate.FieldError{{Name: "If-Match", Error: errors.New("too long")}}}

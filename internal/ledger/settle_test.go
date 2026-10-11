@@ -107,6 +107,33 @@ func TestSettlePort(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Paid at 1.00 what was booked at 0.90: a loss; at a rate that
+	// overflows the amount in local or group currency: refused.
+	rate("USD", "2026-05-01", "1.00")
+	rate("USD", "2026-06-01", "1000000")
+	rate("GBP", "2026-06-01", "1000000")
+	loss := account("1000", "520000")
+	pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, 'fx_loss', $3, $4)`,
+		e.ten.ID, e.us, loss, e.ten.Human.ID)
+	dear, bigUSD, bigGBP := post(e.us, "1000", "USD", 10000, "INV-4"), post(e.us, "1000", "USD", 10_000_000_000_000, "INV-5"),
+		post(e.de, "2000", "GBP", 10_000_000_000_000, "INV-6")
+	err = apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		entry, err := postings().Settle(ctx, settlement(e.us, "1000", "USD", "2026-05-15", dear))
+		if err != nil || len(entry.Lines) != 3 || entry.Lines[2].AccountID != loss || entry.Lines[2].GC != 1000 {
+			t.Errorf("loss: %+v %v", entry.Lines, err)
+		}
+		if _, err := postings().Settle(ctx, settlement(e.us, "1000", "USD", "2026-06-15", bigUSD)); err == nil {
+			t.Error("group amount overflowed")
+		}
+		if _, err := postings().Settle(ctx, settlement(e.de, "2000", "GBP", "2026-06-15", bigGBP)); err == nil {
+			t.Error("local amount overflowed")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	for name, call := range map[string]func(ctx context.Context) error{
 		"payable": func(ctx context.Context) error {
 			_, err := ledger.OpenItems{}.Payable(ctx, e.de, "EUR", date("2026-12-31"))
@@ -120,6 +147,86 @@ func TestSettlePort(t *testing.T) {
 			_, err := postings().Settle(ctx, settlement(e.us, "1000", "USD", "2026-04-15", usd))
 			return err
 		},
+	} {
+		if call(context.Background()) == nil {
+			t.Errorf("%s outside a unit of work", name)
+		}
+		apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+	}
+}
+
+// TestMigrationPorts clears migrated items by an existing entry and reads
+// the totals reconciliation compares.
+func TestMigrationPorts(t *testing.T) {
+	e := setup(t)
+	account := func(number string) uuid.UUID { return uuid.MustParse(e.account(t, "2000", number)) }
+	post := func(amount int64, partner *uuid.UUID) ledger.Entry {
+		t.Helper()
+		var entry ledger.Entry
+		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-01"),
+				PostingDate: date("2026-03-01"), Currency: "EUR", SourceContext: "integration", SourceDocumentID: uuid.New(),
+				Lines: []ledger.PostingLine{{AccountID: account("100000"), Amount: amount}, {AccountID: account("211000"), Amount: -amount, PartnerID: partner}}})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return entry
+	}
+	invoice, payment, other := post(10000, &e.supplier), post(-10000, &e.supplier), post(500, &e.vendor)
+	item := func(en ledger.Entry) ledger.ItemRef {
+		return ledger.ItemRef{FiscalYear: en.FiscalYear, EntryID: en.ID, LineNo: 2}
+	}
+	clear := func(items ...ledger.ItemRef) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			_, err := postings().Clear(ctx, e.de, date("2026-03-20"), item(payment), items)
+			return err
+		}
+	}
+	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		chart, err := ledger.Accounts{}.Chart(ctx, e.de)
+		if err != nil || chart["211000"].ReconciliationKind != "supplier" || chart["100000"].Type != "asset" {
+			t.Errorf("chart: %v %v", chart, err)
+		}
+		totals, err := ledger.Reports{}.Totals(ctx, e.de, 2026)
+		if err != nil || totals.ByAccount["211000"] != -500 || totals.Debits != 20500 {
+			t.Errorf("totals: %+v %v", totals, err)
+		}
+		open, err := ledger.Reports{}.OpenPayables(ctx, e.de, 2026)
+		if err != nil || open[e.supplier] != 0 || open[e.vendor] != -500 {
+			t.Errorf("open payables: %v %v", open, err)
+		}
+		for name, c := range map[string]struct {
+			items []ledger.ItemRef
+			code  string
+		}{
+			"unknown":    {[]ledger.ItemRef{{FiscalYear: 2026, EntryID: uuid.New(), LineNo: 1}}, "ledger.not_an_open_item"},
+			"unbalanced": {[]ledger.ItemRef{item(invoice), item(other)}, "ledger.clearing_not_balanced"},
+		} {
+			if err := clear(c.items...)(ctx); problem.From(err).Code != c.code {
+				t.Errorf("%s: %v", name, err)
+			}
+		}
+		if err := clear(item(invoice), item(payment))(ctx); err != nil {
+			return err
+		}
+		if err := clear(item(invoice))(ctx); problem.From(err).Code != "ledger.item_already_cleared" {
+			t.Errorf("cleared twice: %v", err)
+		}
+		open, _ = ledger.Reports{}.OpenPayables(ctx, e.de, 2026)
+		if _, ok := open[e.supplier]; ok {
+			t.Errorf("cleared items still open: %v", open)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, call := range map[string]func(ctx context.Context) error{
+		"chart":         func(ctx context.Context) error { _, err := ledger.Accounts{}.Chart(ctx, e.de); return err },
+		"totals":        func(ctx context.Context) error { _, err := ledger.Reports{}.Totals(ctx, e.de, 2026); return err },
+		"open payables": func(ctx context.Context) error { _, err := ledger.Reports{}.OpenPayables(ctx, e.de, 2026); return err },
+		"clear":         clear(item(invoice), item(payment)),
 	} {
 		if call(context.Background()) == nil {
 			t.Errorf("%s outside a unit of work", name)

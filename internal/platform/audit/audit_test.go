@@ -100,11 +100,36 @@ func TestTamperingIsDetected(t *testing.T) {
 		t.Fatalf("edited event: %+v", res)
 	}
 
+	ranged := func(tenant uuid.UUID, from, to int64) audit.Result {
+		t.Helper()
+		var res audit.Result
+		if err := asApp(t, pool, tenant, func(ctx context.Context, tx pgx.Tx) (err error) {
+			res, err = audit.VerifyRange(ctx, tx, tenant, from, to)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	// A range starts from its first event's stored predecessor.
+	if res := ranged(edited.ID, 3, 0); res.BrokenAt != 0 || res.Checked != 2 || res.LastSeq != 4 {
+		t.Fatalf("range after the edit: %+v", res)
+	}
+	if res := ranged(edited.ID, 1, 2); res.BrokenAt != 2 {
+		t.Fatalf("range with the edit: %+v", res)
+	}
+
 	truncated := pgtest.NewTenant(t)
 	write(truncated, 3)
 	tamper(`DELETE FROM audit.audit_event WHERE tenant_id = $1 AND seq = 3`, truncated.ID)
 	if res := verify(t, pool, truncated.ID); res.BrokenAt != 3 || res.Checked != 2 {
 		t.Fatalf("deleted last event: %+v", res)
+	}
+	if res := ranged(truncated.ID, 1, 2); res.BrokenAt != 0 || res.LastSeq != 2 {
+		t.Fatalf("range before the deletion: %+v", res)
+	}
+	if res := ranged(truncated.ID, 2, 3); res.BrokenAt != 3 {
+		t.Fatalf("range over the deletion: %+v", res)
 	}
 
 	gap := pgtest.NewTenant(t)

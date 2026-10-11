@@ -1,4 +1,4 @@
-.PHONY: generate run-server build test test-short db-up test-db coverage fuzz perf demo demo-analytics clean
+.PHONY: generate run-server build test test-short db-up test-db coverage fuzz perf demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -35,7 +35,7 @@ coverage:
 
 FUZZTIME ?= 15s
 FUZZ_TARGETS = money:FuzzParseDecimal config:FuzzParseValidateDiff analytics:FuzzNarrative \
-	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue capture:FuzzCapture
+	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue
 
 # Fuzz every untrusted-input parser for FUZZTIME each.
 fuzz:
@@ -50,25 +50,12 @@ perf:
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 ./internal/ledger ./internal/payments -run Budget -v
 	go test ./internal/nfr -run '^$$' -bench . -benchmem
 
-# Full walkthrough on mock SAP data: migrate company 1000, run the invoice flow.
-demo: build
-	rm -rf data
-	./bin/erp gen-mock-sap
-	./bin/erp migrate -company 1000
-	./bin/erp invoices
-	./bin/erp tasks
-	./bin/erp audit-verify
-
-# Two years of mock SAP data, migrated, then an on-demand dashboard.
-demo-analytics: build
-	rm -rf data
-	./bin/erp gen-mock-sap -year 2025 -out data/sap-2025.json
-	./bin/erp gen-mock-sap -year 2026 -through 9 -out data/sap-2026.json
-	./bin/erp migrate -source file:data/sap-2025.json -year 2025 -company 1000,2000
-	./bin/erp migrate -source file:data/sap-2026.json -year 2026 -company 1000,2000
-	./bin/erp metrics
-	./bin/erp query -measures revenue,operating_margin -by fiscal_year -where "fiscal_month <= 9" -companies 1000
-	./bin/erp report -file examples/monthly-sales.json -companies 1000 -as sales.director
+# Full walkthrough through the CLI against a real API server and database:
+# mock SAP extract, configuration draft, migration of company 1000 through
+# the integration API, the invoice rule, the four agents (scripted model)
+# and analytics. Needs `make db-up`.
+demo:
+	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./cmd/erp -run TestEndToEnd
 
 clean:
 	rm -rf bin data

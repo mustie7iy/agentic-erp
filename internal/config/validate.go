@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
-	"github.com/mustie7iy/agentic-erp/internal/core"
-	"github.com/mustie7iy/agentic-erp/internal/governance"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
@@ -64,12 +62,8 @@ func Validate(c *Config) []Finding {
 		v.company(p, &co)
 	}
 	v.paymentTerms(c)
-	v.roles(c)
-	v.users(c)
-	v.agents(c)
 	v.purchasing(c)
 	v.payments(c)
-	v.sod(c)
 	v.numberRanges(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
@@ -151,7 +145,7 @@ func (v *validator) company(p string, co *Company) {
 	if co.FiscalYearStartMonth < 1 || co.FiscalYearStartMonth > 12 {
 		v.err(p+".fiscal_year_start_month", "must be 1-12")
 	}
-	types := map[core.AccountType]bool{core.Asset: true, core.Liability: true, core.Equity: true, core.Revenue: true, core.Expense: true}
+	types := map[AccountType]bool{Asset: true, Liability: true, Equity: true, Revenue: true, Expense: true}
 	nums := map[string]bool{}
 	recon := 0
 	for _, a := range co.ChartOfAccounts {
@@ -168,7 +162,7 @@ func (v *validator) company(p string, co *Company) {
 		}
 		if a.VendorReconciliation {
 			recon++
-			if a.Type != core.Liability {
+			if a.Type != Liability {
 				v.err(ap, "a vendor reconciliation account must be a liability")
 			}
 		}
@@ -180,7 +174,7 @@ func (v *validator) company(p string, co *Company) {
 		v.err(p+".chart_of_accounts", "no vendor reconciliation account")
 	}
 	ad := co.AccountDetermination
-	check := func(field, number string, want core.AccountType, recon bool) {
+	check := func(field, number string, want AccountType, recon bool) {
 		a := co.Account(number)
 		switch {
 		case number == "":
@@ -193,14 +187,14 @@ func (v *validator) company(p string, co *Company) {
 			v.err(p+".account_determination."+field, "account %s is not a vendor reconciliation account", number)
 		}
 	}
-	check("ap_reconciliation", ad.APReconciliation, core.Liability, true)
-	check("input_tax", ad.InputTax, core.Asset, false)
-	check("bank", ad.Bank, core.Asset, false)
+	check("ap_reconciliation", ad.APReconciliation, Liability, true)
+	check("input_tax", ad.InputTax, Asset, false)
+	check("bank", ad.Bank, Asset, false)
 	if ad.FXGain != "" {
-		check("fx_gain", ad.FXGain, core.Revenue, false)
+		check("fx_gain", ad.FXGain, Revenue, false)
 	}
 	if ad.FXLoss != "" {
-		check("fx_loss", ad.FXLoss, core.Expense, false)
+		check("fx_loss", ad.FXLoss, Expense, false)
 	}
 
 	codes := map[string]bool{}
@@ -253,65 +247,6 @@ func (v *validator) paymentTerms(c *Config) {
 	}
 }
 
-func (v *validator) roles(c *Config) {
-	seen := map[string]bool{}
-	for _, r := range c.Roles {
-		p := fmt.Sprintf("roles[%s]", r.Name)
-		if r.Name == "" || seen[r.Name] {
-			v.err(p, "role name must be present and unique")
-		}
-		seen[r.Name] = true
-		for _, perm := range r.Permissions {
-			if !slices.Contains(governance.Permissions, perm) {
-				v.err(p+".permissions", "unknown permission %q", perm)
-			}
-		}
-	}
-}
-
-func (v *validator) users(c *Config) {
-	seen := map[string]bool{}
-	for _, u := range c.Users {
-		p := fmt.Sprintf("users[%s]", u.ID)
-		if u.ID == "" || seen[u.ID] {
-			v.err(p, "user id must be present and unique")
-		}
-		seen[u.ID] = true
-		for _, r := range u.Roles {
-			if c.Role(r) == nil {
-				v.err(p+".roles", "unknown role %q", r)
-			}
-		}
-		for _, cc := range u.Companies {
-			if c.Company(cc) == nil {
-				v.err(p+".companies", "unknown company %q", cc)
-			}
-		}
-	}
-}
-
-func (v *validator) agents(c *Config) {
-	seen := map[string]bool{}
-	for _, a := range c.Agents {
-		p := fmt.Sprintf("agents[%s]", a.ID)
-		if !strings.HasPrefix(a.ID, "agent:") || seen[a.ID] {
-			v.err(p, "agent id must start with \"agent:\" and be unique")
-		}
-		seen[a.ID] = true
-		if a.Autonomy < 0 || a.Autonomy > 3 {
-			v.err(p+".autonomy", "must be 0-3")
-		}
-		for _, perm := range a.Permissions {
-			if !slices.Contains(governance.Permissions, perm) {
-				v.err(p+".permissions", "unknown permission %q", perm)
-			}
-			if slices.Contains(governance.ApprovalPermissions, perm) {
-				v.err(p+".permissions", "agents may not hold approval permission %q", perm)
-			}
-		}
-	}
-}
-
 func (v *validator) purchasing(c *Config) {
 	tiers := c.Purchasing.RequisitionApproval
 	if len(tiers) == 0 {
@@ -337,11 +272,8 @@ func (v *validator) purchasing(c *Config) {
 		}
 		for j, s := range t.Steps {
 			sp := fmt.Sprintf("%s.steps[%d]", p, j)
-			r := c.Role(s.Role)
-			if r == nil {
-				v.err(sp+".role", "unknown role %q", s.Role)
-			} else if !slices.Contains(r.Permissions, governance.ActRequisitionApp) {
-				v.err(sp+".role", "role %q lacks %s", s.Role, governance.ActRequisitionApp)
+			if strings.TrimSpace(s.Role) == "" {
+				v.err(sp+".role", "the role is required")
 			}
 			if s.Approvals < 1 {
 				v.err(sp+".approvals", "must be at least 1")
@@ -351,80 +283,17 @@ func (v *validator) purchasing(c *Config) {
 }
 
 func (v *validator) payments(c *Config) {
-	check := func(field, role, perm string) {
-		r := c.Role(role)
-		switch {
-		case r == nil:
-			v.err("payments."+field, "unknown role %q", role)
-		case !slices.Contains(r.Permissions, perm):
-			v.err("payments."+field, "role %q lacks %s", role, perm)
+	for field, role := range map[string]string{"release_role": c.Payments.ReleaseRole, "vendor_approver_role": c.Payments.VendorApproverRole} {
+		if strings.TrimSpace(role) == "" {
+			v.err("payments."+field, "the role is required")
 		}
 	}
-	check("release_role", c.Payments.ReleaseRole, governance.ActPaymentRun)
-	check("vendor_approver_role", c.Payments.VendorApproverRole, governance.ActVendorApprove)
 	if c.Payments.ReleaseApprovals < 1 {
 		v.err("payments.release_approvals", "must be at least 1")
 	}
 	if c.Payments.BankChangeHoldDays < 0 {
 		v.err("payments.bank_change_hold_days", "must not be negative")
 	}
-}
-
-// sod checks every role, user and agent against the conflict pairs.
-func (v *validator) sod(c *Config) {
-	if len(c.SoDConflicts) == 0 {
-		v.warn("sod_conflicts", "no segregation-of-duties rules configured")
-	}
-	for i, pair := range c.SoDConflicts {
-		for _, perm := range pair {
-			if !slices.Contains(governance.Permissions, perm) {
-				v.err(fmt.Sprintf("sod_conflicts[%d]", i), "unknown permission %q", perm)
-			}
-		}
-	}
-	conflict := func(perms []string) (string, bool) {
-		for _, pair := range c.SoDConflicts {
-			if slices.Contains(perms, pair[0]) && slices.Contains(perms, pair[1]) {
-				return pair[0] + " and " + pair[1], true
-			}
-		}
-		return "", false
-	}
-	for _, r := range c.Roles {
-		if what, bad := conflict(r.Permissions); bad {
-			v.err(fmt.Sprintf("roles[%s]", r.Name), "segregation of duties: role combines %s", what)
-		}
-	}
-	for _, u := range c.Users {
-		if what, bad := conflict(c.UserPermissions(u.ID)); bad {
-			v.err(fmt.Sprintf("users[%s]", u.ID), "segregation of duties: user's roles combine %s", what)
-		}
-	}
-	for _, a := range c.Agents {
-		if what, bad := conflict(a.Permissions); bad {
-			v.err(fmt.Sprintf("agents[%s]", a.ID), "segregation of duties: agent combines %s", what)
-		}
-	}
-}
-
-// UserPermissions is the union of permissions across a user's roles.
-func (c *Config) UserPermissions(id string) []string {
-	u := c.User(id)
-	if u == nil {
-		return nil
-	}
-	var out []string
-	for _, rn := range u.Roles {
-		if r := c.Role(rn); r != nil {
-			for _, p := range r.Permissions {
-				if !slices.Contains(out, p) {
-					out = append(out, p)
-				}
-			}
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 // ValidIBAN checks an IBAN with the ISO 13616 mod-97 algorithm.

@@ -92,29 +92,24 @@ as_of:    2026-10-08T06:00Z   # data through 30 Sep close
 | Component | Built now (`internal/analytics`) | At scale |
 |---|---|---|
 | Semantic layer | `semantic.yaml`: metrics, dimensions, calendar and everyday-word defaults, validated on load | Same file format, edited through the configuration approval loop |
-| Analytical store | In-memory fact tables (`gl_lines`, `po_lines`, `ap_invoices`) built from the core store | Postgres change data capture into Parquet, queried by DuckDB embedded in Go; ClickHouse for large volumes |
+| Analytical store | In-memory fact tables (`gl_lines`, `po_lines`, `ap_invoices`) built from the API with the person's token (`analytics.Source`) | Postgres change data capture into Parquet, queried by DuckDB embedded in Go; ClickHouse for large volumes |
 | Query engine | Go engine for semantic queries: filters, breakdowns, derived metrics, ordering, row-level security, currency guard | Compiles the same semantic queries to SQL |
 | Analytics agent | Claude (Anthropic Go SDK tool runner) with three tools: `list_metrics`, `run_query`, `build_dashboard` | More tools: drill-through to documents, forecasting |
 | Dashboard rendering | Self-contained HTML with inline SVG charts, drawn in Go; no scripts | Same spec rendered in the web workspace |
 | Narrative check | Every figure in commentary must be a result value, a subtotal, or a change between results that differ in one dimension | Same |
 | Saved reports | Report JSON (question, spec, queries) plus HTML; rerun recomputes every figure and drops stale commentary | Scheduled delivery and sharing |
 | Exports | CSV of any query result | Excel (excelize) and PDF |
-| Audit | Every query is recorded in the hash-chained audit log with the requester | Same |
+| Audit | Not yet: queries run in the client over what the API returns, so only the API reads are subject to its controls | Every query recorded in the hash-chained audit log with the requester, once analytics has an API |
 
 ## Using it
 
 ```sh
-# two years of mock SAP data
-./bin/erp gen-mock-sap -year 2025 -out data/sap-2025.json
-./bin/erp gen-mock-sap -year 2026 -through 9 -out data/sap-2026.json
-./bin/erp migrate -source file:data/sap-2025.json -year 2025 -company 1000,2000
-./bin/erp migrate -source file:data/sap-2026.json -year 2026 -company 1000,2000
-
+# ERP_API_URL and ERP_TOKEN: analytics reads what your token may see
 ./bin/erp metrics                                    # governed metrics
 ./bin/erp query -measures revenue -by fiscal_year,fiscal_month \
     -where "fiscal_month <= 9" -companies 1000       # semantic query, no agent
 ./bin/erp report -file examples/monthly-sales.json -companies 1000   # example dashboard, no agent
-./bin/erp ask -as sales.director -companies 1000 \
+./bin/erp ask -companies 1000 \
     "monthly sales reports and analytics vs last year this time"     # agent (needs API credentials)
 ./bin/erp report -id rpt_...                         # rerun a saved answer on current data
 ```

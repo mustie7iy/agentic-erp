@@ -43,7 +43,8 @@ func Years() []int {
 
 // DocumentTypes get a number range per company and year.
 var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "requisition": "PR", "purchase_order": "PO",
-	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": "", "payment_run": "PR", "journal_zp": ""}
+	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": "", "payment_run": "PR", "journal_zp": "",
+	"journal_re": "", "journal_kz": "", "journal_ob": ""}
 
 // Document is the prototype's configuration (companies 1000 in USD and
 // 2000 in EUR) with number ranges for every document type in Years.
@@ -102,9 +103,9 @@ func New(t testing.TB, permissions ...string) Env {
 		VALUES ($1, $2, '1000', 'Acme Corp US', 'US', 'USD', gen_random_uuid(), 'active', $4, $4),
 		       ($1, $3, '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $4, $4)`, ten.ID, e.US, e.DE, ten.Human.ID)
 	doc := Document(t)
-	for _, r := range doc.Roles {
-		pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $3, 'active', $4, $4)`,
-			ten.ID, r.Name, r.Description, ten.Human.ID)
+	for _, r := range doc.RoleNames() {
+		pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,
+			ten.ID, r, ten.Human.ID)
 	}
 	e.Approver, e.Approver2 = e.person(t, "approver1"), e.person(t, "approver2")
 	b, _ := json.Marshal(doc)

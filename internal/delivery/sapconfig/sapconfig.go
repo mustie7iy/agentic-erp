@@ -1,68 +1,67 @@
-// Package sapconfig generates a draft configuration from a client's SAP
-// customizing tables, so years of setup are migrated instead of re-keyed.
-// The draft is a proposal: anything without an SAP equivalent gets a
-// documented default and a note for the reviewers.
+// Package sapconfig generates a draft configuration document from a
+// client's SAP customizing tables, so years of setup are migrated instead
+// of re-keyed. The draft is a proposal for a change request: anything
+// without an SAP equivalent gets a documented default and a note for the
+// reviewers. Roles and users are not part of the document (the identity
+// context owns them); the notes list the SAP roles to provision there.
 package sapconfig
 
 import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
-	"github.com/mustie7iy/agentic-erp/internal/governance"
-	"github.com/mustie7iy/agentic-erp/internal/migration"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
+// RangeRule classifies accounts From <= number <= To, compared numerically.
+type RangeRule struct {
+	From, To string
+	Type     config.AccountType
+}
+
 // Options carry the client-specific mapping decisions.
 type Options struct {
-	// GovernanceRoles maps client SAP roles to the platform's governance roles.
-	GovernanceRoles map[string]string
-	// TcodePermissions maps SAP transactions to platform permissions.
-	TcodePermissions map[string][]string
-	Mapping          migration.Mapping
-	AutoPostLimit    string
+	// AccountTypes classify G/L accounts by number range (after ALPHA conversion).
+	AccountTypes []RangeRule
+	// RequisitionApprover, ReleaseRole and VendorApproverRole name the
+	// identity roles the approval policies route to.
+	RequisitionApprover, ReleaseRole, VendorApproverRole string
+	AutoPostLimit                                        string
 }
 
 // DefaultOptions suit a standard S/4HANA procure-to-pay role design.
 func DefaultOptions() Options {
 	return Options{
-		GovernanceRoles: map[string]string{
-			"Z_PROCESS_OWNER":      "process_owner",
-			"Z_CONTROLLER":         "controller",
-			"Z_SOLUTION_ARCHITECT": "solution_architect",
-			"Z_MDG_APPROVER":       "vendor_master_approver",
+		AccountTypes: []RangeRule{
+			{From: "100000", To: "199999", Type: config.Asset},
+			{From: "200000", To: "299999", Type: config.Liability},
+			{From: "300000", To: "399999", Type: config.Equity},
+			{From: "400000", To: "499999", Type: config.Revenue},
+			{From: "500000", To: "999999", Type: config.Expense},
 		},
-		TcodePermissions: map[string][]string{
-			"MIRO":    {governance.ActInvoicePost, governance.ActInvoiceReview},
-			"MIR7":    {governance.ActInvoiceCapture},
-			"ME51N":   {governance.ActRequisition},
-			"ME54N":   {governance.ActRequisitionApp},
-			"ME21N":   {governance.ActPOCreate},
-			"ME31K":   {governance.ActContractManage},
-			"MIGO":    {governance.ActGoodsReceipt},
-			"XK01":    {governance.ActVendorCreate},
-			"XK02":    {governance.ActVendorChange, governance.ActVendorBank},
-			"F110":    {governance.ActPaymentPropose},
-			"BNK_APP": {governance.ActPaymentRun},
-			"FBL1N":   {governance.ActAnalyticsQuery},
-			"FBL3N":   {governance.ActAnalyticsQuery},
-			"STMS":    {governance.ActConfigActivate},
-		},
-		Mapping:       migration.DefaultMapping(),
+		RequisitionApprover: "Z_PURCH_MGR", ReleaseRole: "Z_TREASURY_MGR", VendorApproverRole: "vendor_master_approver",
 		AutoPostLimit: "50000.00",
 	}
 }
 
-// governancePermissions are granted to the governance roles regardless of
-// their SAP transactions.
-var governancePermissions = map[string][]string{
-	"process_owner":          {governance.ActConfigApprove, governance.ActRequisitionApp},
-	"controller":             {governance.ActConfigApprove, governance.ActAnalyticsQuery},
-	"solution_architect":     {governance.ActConfigApprove, governance.ActConfigActivate},
-	"vendor_master_approver": {governance.ActVendorApprove},
+// accountType classifies an account number.
+func (o Options) accountType(number string) (config.AccountType, error) {
+	n, err := strconv.ParseInt(number, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("account %q is not numeric; add an explicit mapping rule", number)
+	}
+	for _, r := range o.AccountTypes {
+		from, err1 := strconv.ParseInt(r.From, 10, 64)
+		to, err2 := strconv.ParseInt(r.To, 10, 64)
+		if err1 == nil && err2 == nil && n >= from && n <= to {
+			return r.Type, nil
+		}
+	}
+	return "", fmt.Errorf("no account type rule covers account %s", number)
 }
 
 // Note explains a generated setting reviewers should look at.
@@ -73,12 +72,16 @@ type Note struct {
 
 func (n Note) String() string { return n.Path + ": " + n.Message }
 
-// Generate builds a draft configuration. Validate the result: SAP role
-// designs often contain segregation-of-duties conflicts, and those surface
-// as validation errors to be resolved before activation.
+// documentTypes get number ranges in every company and fiscal year of the
+// extract, besides one journal range per SAP document type it holds.
+var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_zp": "", "journal_ob": "",
+	"requisition": "PR", "purchase_order": "PO", "contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "payment_run": "PY",
+	"partner_change": ""}
+
+// Generate builds a draft configuration; validate it before proposing it.
 func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {
 	g := &gen{e: e, opts: opts}
-	c := &config.Config{Version: 1, SoDConflicts: governance.DefaultSoDConflicts(), Output: config.Output{PurchaseOrderChannel: "email"}}
+	c := &config.Config{Version: 1, Output: config.Output{PurchaseOrderChannel: "email"}}
 	for _, t := range e.T001 {
 		c.Companies = append(c.Companies, g.company(t))
 	}
@@ -91,19 +94,17 @@ func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {
 		c.PaymentTerms = []config.PaymentTerm{{Key: "NT30", Description: "Net 30 days", NetDays: 30}}
 		g.note("payment_terms", "T052 not in extract; added NT30 as a placeholder")
 	}
-	c.Roles, c.Users = g.roles()
-	c.Agents = defaultAgents()
-	c.Purchasing = config.Purchasing{RequisitionApproval: g.requisitionTiers(c)}
-	c.Payments = config.Payments{
-		ReleaseRole: g.roleWith(c, governance.ActPaymentRun), ReleaseApprovals: 1, BankChangeHoldDays: 5,
-		VendorApproverRole: g.roleWith(c, governance.ActVendorApprove),
-	}
+	approver := opts.RequisitionApprover
+	g.note("purchasing.requisition_approval", "SAP release strategies are not in the extract; generated two tiers (up to 10,000: "+approver+
+		"; above: "+approver+" then process_owner)")
+	c.Purchasing = config.Purchasing{RequisitionApproval: []config.ApprovalTier{
+		{UpTo: "10000.00", Steps: []config.ApprovalStep{{Role: approver, Approvals: 1}}},
+		{Steps: []config.ApprovalStep{{Role: approver, Approvals: 1}, {Role: "process_owner", Approvals: 1}}},
+	}}
+	c.Payments = config.Payments{ReleaseRole: opts.ReleaseRole, ReleaseApprovals: 1, BankChangeHoldDays: 5, VendorApproverRole: opts.VendorApproverRole}
 	g.note("payments.bank_change_hold_days", "no SAP equivalent; payments to a vendor are held for 5 days after a bank change")
-	for _, gr := range []string{"process_owner", "controller", "solution_architect"} {
-		if !slices.ContainsFunc(c.Users, func(u config.User) bool { return slices.Contains(u.Roles, gr) }) {
-			g.note("users", fmt.Sprintf("no user holds governance role %s; configuration changes need one", gr))
-		}
-	}
+	c.NumberRanges = g.numberRanges()
+	g.roles(c)
 	return c, g.notes
 }
 
@@ -114,6 +115,8 @@ type gen struct {
 }
 
 func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}) }
+
+func alpha(s string) string { return strings.TrimLeft(s, "0") }
 
 func (g *gen) company(t sap.T001) config.Company {
 	p := fmt.Sprintf("companies[%s]", t.BUKRS)
@@ -127,15 +130,14 @@ func (g *gen) company(t sap.T001) config.Company {
 		if a.BUKRS != t.BUKRS {
 			continue
 		}
-		num := strings.TrimLeft(a.SAKNR, "0")
-		typ, err := g.opts.Mapping.AccountType(num)
+		num := alpha(a.SAKNR)
+		typ, err := g.opts.accountType(num)
 		if err != nil {
 			g.note(p+".chart_of_accounts["+num+"]", err.Error())
 			continue
 		}
 		co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: num, Name: a.TXT50, Type: typ, VendorReconciliation: a.MITKZ == "K"})
 	}
-	alpha := func(s string) string { return strings.TrimLeft(s, "0") }
 	for _, r := range g.e.T030 {
 		if r.BUKRS != t.BUKRS {
 			continue
@@ -194,96 +196,45 @@ func (g *gen) company(t sap.T001) config.Company {
 	return co
 }
 
-func (g *gen) roles() ([]config.Role, []config.User) {
-	var roles []config.Role
-	nameFor := func(agr string) string {
-		if n, ok := g.opts.GovernanceRoles[agr]; ok {
-			return n
-		}
-		return agr
+// numberRanges gives every company a range per document type in each
+// fiscal year the extract's journal covers, so the draft can number
+// migrated and new documents.
+func (g *gen) numberRanges() []config.NumberRange {
+	years, types := map[string]bool{}, map[string]string{}
+	for k, v := range documentTypes {
+		types[k] = v
 	}
-	unmapped := map[string]bool{}
-	for _, d := range g.e.AGR_DEFINE {
-		r := config.Role{Name: nameFor(d.AGR_NAME), Description: d.TEXT}
-		for _, t := range g.e.AGR_TCODES {
-			if t.AGR_NAME != d.AGR_NAME {
-				continue
-			}
-			perms, ok := g.opts.TcodePermissions[t.TCODE]
-			if !ok {
-				unmapped[t.TCODE] = true
-			}
-			for _, perm := range perms {
-				if !slices.Contains(r.Permissions, perm) {
-					r.Permissions = append(r.Permissions, perm)
-				}
+	for _, l := range g.e.ACDOCA {
+		years[l.GJAHR] = true
+		types["journal_"+strings.ToLower(l.BLART)] = ""
+	}
+	if len(years) == 0 {
+		g.note("number_ranges", "the extract has no journal; add number ranges for the fiscal years to migrate")
+	}
+	var out []config.NumberRange
+	for _, t := range g.e.T001 {
+		for _, y := range sortedKeys(years) {
+			year, _ := strconv.Atoi(y)
+			for _, dt := range sortedKeys(types) {
+				out = append(out, config.NumberRange{Company: t.BUKRS, DocumentType: dt, FiscalYear: year, Prefix: types[dt], First: 100000, Last: 999999})
 			}
 		}
-		for _, perm := range governancePermissions[r.Name] {
-			if !slices.Contains(r.Permissions, perm) {
-				r.Permissions = append(r.Permissions, perm)
-			}
-		}
-		slices.Sort(r.Permissions)
-		roles = append(roles, r)
 	}
-	// Roles for people who propose configuration changes: kept separate from
-	// approval roles to satisfy segregation of duties.
-	roles = append(roles, config.Role{Name: "config_analyst", Description: "Proposes configuration changes", Permissions: []string{governance.ActConfigPropose}})
-	for _, t := range sortedKeys(unmapped) {
-		g.note("roles", fmt.Sprintf("transaction %s has no platform equivalent and was not mapped", t))
-	}
-	byUser := map[string][]string{}
+	return out
+}
+
+// roles notes the roles the document routes approvals to, and the SAP
+// roles with their users, to provision in the identity context.
+func (g *gen) roles(c *config.Config) {
+	g.note("roles", "provision these identity roles before activating: "+strings.Join(c.RoleNames(), ", "))
+	users := map[string][]string{}
 	for _, u := range g.e.AGR_USERS {
-		id := strings.ToLower(u.UNAME)
-		role := nameFor(u.AGR_NAME)
-		if !slices.Contains(byUser[id], role) {
-			byUser[id] = append(byUser[id], role)
+		if !slices.Contains(users[u.AGR_NAME], u.UNAME) {
+			users[u.AGR_NAME] = append(users[u.AGR_NAME], u.UNAME)
 		}
 	}
-	var users []config.User
-	for _, id := range sortedKeys(byUser) {
-		users = append(users, config.User{ID: id, Name: strings.ToUpper(id), Roles: byUser[id]})
-	}
-	return roles, users
-}
-
-func (g *gen) roleWith(c *config.Config, perm string) string {
-	for _, r := range c.Roles {
-		if slices.Contains(r.Permissions, perm) {
-			return r.Name
-		}
-	}
-	g.note("payments", "no role holds "+perm)
-	return ""
-}
-
-func (g *gen) requisitionTiers(c *config.Config) []config.ApprovalTier {
-	approver := ""
-	for _, r := range c.Roles {
-		if slices.Contains(r.Permissions, governance.ActRequisitionApp) && r.Name != "process_owner" {
-			approver = r.Name
-			break
-		}
-	}
-	if approver == "" {
-		approver = "process_owner"
-	}
-	g.note("purchasing.requisition_approval", "SAP release strategies are not in the extract; generated two tiers (up to 10,000: "+approver+"; above: "+approver+" then process_owner)")
-	return []config.ApprovalTier{
-		{UpTo: "10000.00", Steps: []config.ApprovalStep{{Role: approver, Approvals: 1}}},
-		{Steps: []config.ApprovalStep{{Role: approver, Approvals: 1}, {Role: "process_owner", Approvals: 1}}},
-	}
-}
-
-func defaultAgents() []config.Agent {
-	return []config.Agent{
-		{ID: "agent:ap-exceptions", Description: "Investigates invoices that fail matching", Permissions: []string{governance.ActInvoiceHold, governance.ActInvoiceReview}, Autonomy: 0},
-		{ID: "agent:invoice-capture", Description: "Reads supplier invoices from PDF and email", Permissions: []string{governance.ActInvoiceCapture}, Autonomy: 0},
-		{ID: "agent:configuration", Description: "Proposes configuration changes", Permissions: []string{governance.ActConfigPropose}, Autonomy: 0},
-		{ID: "agent:migration", Description: "Runs migration rehearsals and explains differences", Permissions: []string{governance.ActMigrationRun}, Autonomy: 0},
-		{ID: "agent:test", Description: "Builds and runs regression suites", Permissions: []string{}, Autonomy: 0},
-		{ID: "agent:analytics", Description: "Answers questions with on-demand dashboards", Permissions: []string{governance.ActAnalyticsQuery}, Autonomy: 0},
+	for _, d := range g.e.AGR_DEFINE {
+		g.note("roles["+d.AGR_NAME+"]", fmt.Sprintf("SAP role %q (users: %s): map its permissions in identity", d.TEXT, strings.Join(users[d.AGR_NAME], ", ")))
 	}
 }
 

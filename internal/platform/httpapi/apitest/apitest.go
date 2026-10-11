@@ -203,7 +203,7 @@ func inRequest(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, failAt int, fn f
 // stops when fn succeeds with no statement left to fail.
 func EveryFailure(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, name string, fn func(ctx context.Context) error) {
 	t.Helper()
-	for n := 1; n < 100; n++ {
+	for n := 1; n < 1000; n++ {
 		err := inRequest(t, ten, a, n, fn)
 		if err == nil {
 			if n == 1 {
@@ -218,7 +218,7 @@ func EveryFailure(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, name string, 
 			}
 		}
 	}
-	t.Errorf("%s: still failing after 100 statements", name)
+	t.Errorf("%s: still failing after 1000 statements", name)
 }
 
 // Client calls the API as one actor of one tenant. Unsafe calls get a fresh

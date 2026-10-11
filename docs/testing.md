@@ -24,37 +24,39 @@ deletion is commented in the code. Coverage measures that every statement
 runs under test; the assertions in the suites below are what show the
 results are right.
 
-At the time of writing the suites contain 342 tests (including subtests)
-across 24 packages, all passing under the race detector.
+At the time of writing the suites contain 305 test functions (many with
+subtests) across 47 packages, all passing under the race detector.
+Database-backed suites run against PostgreSQL (`make db-up`), each package
+in its own database (`internal/platform/pgtest`), and
+`apitest.EveryFailure` fails each database statement of an operation in
+turn to prove nothing is left half done.
 
 ## Functional tests
 
 | Area | Where | What is proven |
 |---|---|---|
-| Ledger, AP, three-way match | `internal/core` | Balanced postings, vendor rules, every match issue, tolerances, index refresh |
-| Procurement and payments (core) | `internal/core/procure_test.go` | Contract pricing/validity/target value, receipts and reversals, over-delivery, payment proposals with every exclusion, reserved items, all-or-nothing execution |
-| Procure-to-pay service | `internal/p2p` | Requisition → approval → PO → receipt → invoice → posting; two-step approvals; contracts; vendor creation and bank changes with approval; payment holds; block/unblock; release failure rollback; EDI output |
-| Approval workflow | `internal/workflow` | Sequential steps, self-approval, agents cannot approve, double approval, reject/cancel |
-| Configuration as code | `internal/config` | Every validation rule (one test per rule), change tiers, full change lifecycle, evidence gates, stale changes, rollback, tamper detection, persistence |
-| Configuration from SAP | `internal/delivery/sapconfig` | T001/SKB1/T030/T007A/T169G/T012K/T052/AGR_* mapped; gaps and defaults noted; the SAP role design's SoD conflict surfaced |
-| Simulation and regression | `internal/delivery/simulate`, `regress` | Sandbox replay never touches live data; decision and ledger impact of a change; stratified suites cover every decision and issue kind; suites replay their own snapshot |
-| Evidence | `internal/delivery/changes` | Tier 3 changes become approvable only with simulation and regression evidence; stale suites refused |
-| Delivery agents | `configagent`, `migrationagent`, `testagent` | Full tool loops against a scripted model; tool surfaces fixed; agents never approve, activate or load into production |
-| Invoice capture | `internal/capture` | Vendor/PO matching, arithmetic and tax-rate checks, low confidence held, duplicates refused, prompt injection inert, structured-output request shape |
-| Migration | `internal/migration` | Quality gate, both modes, reconciliation, idempotent reruns, account classification confidence, document-level difference explanations, cleansing proposals |
+| Tenancy, identity, configuration | `internal/tenancy`, `identity`, `configuration` | Legal entities and org units, principals, effective-dated role and permission grants, company access, SoD refused at grant time and enforced per operation, configuration versions and change requests by tier |
+| Configuration as code | `internal/config` | Every validation rule (one test per rule), change tiers, diffs |
+| Configuration from SAP | `internal/delivery/sapconfig` | T001/SKB1/T030/T007A/T169G/T012K/T052/AGR_* mapped; number ranges per fiscal year; gaps, defaults and role notes |
+| Partner and ledger | `internal/partner`, `internal/ledger` | Governed partner changes, encrypted bank accounts; balanced postings in three currencies, reversal, periods, projector balances, open items, clearing, settlement with realized exchange differences |
+| Procure-to-pay | `internal/procurement`, `payables`, `approvals` | Requisition → approval → PO → receipt → invoice → match → posting; contracts; over-delivery; exceptions decided on approval requests; no self-approval |
+| Payments | `internal/payments` | Proposal worker with every exclusion, release by another person, payment entries clearing the items, bank files and transmission |
+| Migration | `internal/integration` | Connectors, quality gate, both modes, loads through the owning services, refused records failing the run, rehearsals rolled back, idempotent reruns, reconciliation with differences and missing documents |
+| Agents runtime | `internal/agents`, `internal/apitools` | Sessions, tool calls and recommendations through the API; tools generated from the contract, `x-agent: false` refused, every call recorded |
+| Agents | `internal/agent`, `configagent`, `migrationagent`, `testagent` | Full tool loops against a scripted model through the real API; agents only recommend or propose; the migration agent starts rehearsals only |
+| Audit | `internal/audit`, `internal/platform/audit` | Audit events listed, the hash chain verified over a range, tampering reported |
+| Invoice capture | `internal/capture` | Structured-output request shape, prompt injection inert |
 | Bank files | `internal/bankfile` | pain.001 structure, control sums, IBAN vs domestic accounts, escaping, schema field lengths |
-| Analytics | `internal/analytics` | Semantic queries match the ledger, guardrails, row-level security, narrative check, rendering, reruns |
-| End to end | `cmd/erp/e2e_test.go` | All of Phase 1 through the CLI: migrate, generate configuration from SAP, fix SoD, bootstrap, tier-3 change with evidence and two approvals, activation, rollback, invoices, procure-to-pay, supplier changes, payment with bank file, capture, all three delivery agents, audit verification |
+| Analytics | `internal/analytics` | Facts read through the API, semantic queries, guardrails, row-level security, narrative check, rendering, reruns |
+| End to end | `cmd/erp/e2e_test.go` | The CLI against a real API server: mock SAP extract, configuration draft, a scope migrated and reconciled through the integration API, the invoice rule, all four agents through API tools, analytics |
 
-## Non-functional tests (`internal/nfr`)
+## Non-functional tests
 
 | Suite | What is proven |
 |---|---|
-| Performance (`perf_test.go`) | Budgets for the invoice pipeline (2k invoices against 20k history), payment proposal over 20k open items, payment execution for 1k vendors, migration, analytics over 60k journal lines, configuration validate+diff with 2k users; benchmarks for matching and queries. These budgets found an O(n²) match (29 s, now 74 ms) and a per-vendor journal scan (3.7 s, now 13 ms). |
-| Concurrency (`concurrency_test.go`, run with `-race`) | Mixed workload on one store; ten simultaneous payment proposals claim items once; two releasers post a run once; twenty concurrent configuration changes, one activation wins |
-| Security (`security_test.go`) | Exhaustive authorization matrix over every configured user and P2P operation; agents can never approve anything; SoD enforced at run time even if validation were bypassed; audit-trail edits and deletions detected |
-| Reliability (`reliability_test.go`) | Atomic snapshots survive a crashed write; failed saves keep the old file; corrupt snapshots are errors; an unauditable action fails instead of happening silently; simulation, suite capture and migration are deterministic; Phase 1 records round-trip through snapshots |
-| Fuzzing (per package) | Amount parsing round-trips; arbitrary configuration YAML never panics validation or diff; any commentary text is safe for the narrative check; bank files stay well-formed XML with exact control sums for any names; OData values; capture never posts whatever the model returns |
+| Performance (`perf_test.go`, `make perf`) | Budgets for analytics over a large fact set and configuration validation with 2k number ranges; database budgets live with their contexts (trial balance, payment proposal over 100,000 items) |
+| Concurrency, reliability, security | Per context on PostgreSQL: every statement failing in turn (`EveryFailure`), the race detector, permission, company access and SoD checks on every operation |
+| Fuzzing (per package) | Amount parsing round-trips; arbitrary configuration YAML never panics validation or diff; any commentary text is safe for the narrative check; bank files stay well-formed XML with exact control sums for any names; OData values |
 
 ## Model and SAP stand-ins
 

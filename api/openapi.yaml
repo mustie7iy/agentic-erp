@@ -60,6 +60,8 @@ tags:
     description: Approval requests and decisions. Decisions are human-only.
   - name: audit
     description: Tamper-evident audit trail.
+  - name: agents
+    description: Agent sessions, their tool calls and recommendations for people to decide.
   - name: integration
     description: Connectors to external systems and data migration runs.
   - name: platform
@@ -7767,6 +7769,505 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/agent-sessions:
+    get:
+      operationId: listAgentSessions
+      tags:
+        - agents
+      summary: List agent sessions
+      description: "Agent sessions, newest first. Sortable by: `started_at`."
+      x-permission: agents.session.read
+      parameters:
+        - name: agent_id
+          in: query
+          required: false
+          description: Only sessions of this agent.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only sessions in this status.
+          schema:
+            type: string
+            description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - running
+              - completed
+              - failed
+              - refused
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: "One page of agent session results."
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: startAgentSession
+      tags:
+        - agents
+      summary: Start an agent session
+      description: "Opens a session for the calling agent: its tool calls and recommendations are recorded under it. Only agents start sessions (403 `agents.not_an_agent`)."
+      x-permission: agents.session.record
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The session to start.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentSessionStart"
+      responses:
+        "201":
+          description: "Created; the running session."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/agent-sessions/{id}":
+    get:
+      operationId: getAgentSession
+      tags:
+        - agents
+      summary: Get an agent session
+      description: "Returns one agent session."
+      x-permission: agents.session.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: "The agent session."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/agent-sessions/{id}:end":
+    post:
+      operationId: endAgentSession
+      tags:
+        - agents
+      summary: End an agent session
+      description: "Ends a running session with its outcome and the tokens and cost it used. Only the session's agent ends it. Requires status `running`."
+      x-permission: agents.session.record
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The session's outcome.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentSessionEnd"
+      responses:
+        "200":
+          description: "The agent session after endAgentSession."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/agent-sessions/{id}/tool-calls":
+    get:
+      operationId: listAgentToolCalls
+      tags:
+        - agents
+      summary: List the tool calls of a session
+      description: "Tool calls in the order they were made."
+      x-permission: agents.session.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: "One page of tool call results."
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentToolCallPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: recordAgentToolCall
+      tags:
+        - agents
+      summary: Record a tool call
+      description: "Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent records its calls."
+      x-permission: agents.session.record
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The tool call.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentToolCallCreate"
+      responses:
+        "201":
+          description: "Created; the recorded tool call."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentToolCall"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/recommendations:
+    get:
+      operationId: listRecommendations
+      tags:
+        - agents
+      summary: List recommendations
+      description: "Agent recommendations, newest first. Sortable by: `created_at`."
+      x-permission: agents.session.read
+      parameters:
+        - name: session_id
+          in: query
+          required: false
+          description: Only recommendations of this session.
+          schema:
+            type: string
+            format: uuid
+        - name: object_type
+          in: query
+          required: false
+          description: Only recommendations about this kind of object.
+          schema:
+            type: string
+        - name: object_id
+          in: query
+          required: false
+          description: Only recommendations about this object.
+          schema:
+            type: string
+            format: uuid
+        - name: outcome
+          in: query
+          required: false
+          description: Only recommendations with this outcome; `open` for those not decided yet.
+          schema:
+            type: string
+            description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - open
+              - accepted
+              - overridden
+              - ignored
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: "One page of recommendation results."
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createRecommendation
+      tags:
+        - agents
+      summary: Make a recommendation
+      description: "Records an agent's recommendation on a business object for people to decide. Agents recommend; people decide. The session must be the caller's and running."
+      x-permission: agents.session.record
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The recommendation.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecommendationCreate"
+      responses:
+        "201":
+          description: "Created; the open recommendation."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recommendation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/recommendations/{id}":
+    get:
+      operationId: getRecommendation
+      tags:
+        - agents
+      summary: Get a recommendation
+      description: "Returns one recommendation."
+      x-permission: agents.session.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: "The recommendation."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recommendation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/recommendations/{id}:decide":
+    post:
+      operationId: decideRecommendation
+      tags:
+        - agents
+      summary: Decide a recommendation
+      description: "Records what a person did with an open recommendation: accepted, overridden or ignored. Human-only."
+      x-permission: agents.recommendation.decide
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The decision.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecommendationDecide"
+      responses:
+        "200":
+          description: "The recommendation after decideRecommendation."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recommendation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 components:
   securitySchemes:
     oidc:
@@ -8031,6 +8532,430 @@ components:
       description: Tenant custom fields (ADR-0009), validated against the tenant's published schema for this resource type. Keys are snake_case.
       example:
         cost_object_hint: MKT-2026
+    AgentSession:
+      type: object
+      description: "A session in which an agent worked through the API: what it was for, which model, its tool calls and recommendations, and what it used."
+      required:
+        - id
+        - version
+        - agent_id
+        - purpose
+        - model
+        - status
+        - input_tokens
+        - output_tokens
+        - started_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: Optimistic-lock version; equals the ETag.
+          minimum: 1
+          readOnly: true
+        agent_id:
+          type: string
+          format: uuid
+          description: The agent principal.
+          readOnly: true
+        purpose:
+          type: string
+          description: What the session was for.
+          readOnly: true
+        model:
+          type: string
+          description: Model the agent ran on.
+          readOnly: true
+        status:
+          type: string
+          description: "Status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - running
+            - completed
+            - failed
+            - refused
+          readOnly: true
+        input_tokens:
+          type: integer
+          format: int64
+          description: Input tokens used.
+          minimum: 0
+          readOnly: true
+        output_tokens:
+          type: integer
+          format: int64
+          description: Output tokens used.
+          minimum: 0
+          readOnly: true
+        cost:
+          $ref: "#/components/schemas/Money"
+          description: Cost of the session, once ended.
+          readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          description: Start time.
+          readOnly: true
+        ended_at:
+          type: string
+          format: date-time
+          description: End time.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Time of the last change.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c01"
+          version: 1
+          agent_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c02"
+          purpose: Investigate held supplier invoices
+          model: claude-opus-5-5
+          status: running
+          input_tokens: 0
+          output_tokens: 0
+          started_at: "2026-10-09T14:03:11Z"
+          updated_at: "2026-10-09T14:03:11Z"
+    AgentSessionStart:
+      type: object
+      description: A session to start.
+      required:
+        - purpose
+        - model
+      properties:
+        purpose:
+          type: string
+          description: What the session is for.
+          minLength: 1
+          maxLength: 500
+        model:
+          type: string
+          description: Model the agent runs on.
+          minLength: 1
+          maxLength: 100
+      additionalProperties: false
+      examples:
+        - purpose: Investigate held supplier invoices
+          model: claude-opus-5-5
+    AgentSessionEnd:
+      type: object
+      description: How a session ended and what it used.
+      required:
+        - status
+        - input_tokens
+        - output_tokens
+      properties:
+        status:
+          type: string
+          description: "Outcome. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - completed
+            - failed
+            - refused
+        input_tokens:
+          type: integer
+          format: int64
+          description: Input tokens used.
+          minimum: 0
+        output_tokens:
+          type: integer
+          format: int64
+          description: Output tokens used.
+          minimum: 0
+        cost:
+          $ref: "#/components/schemas/Money"
+          description: Cost, when known.
+      additionalProperties: false
+      examples:
+        - status: completed
+          input_tokens: 18200
+          output_tokens: 2100
+    AgentSessionPage:
+      type: object
+      description: One page of agent sessions.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSession"
+          description: The sessions on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    AgentToolCall:
+      type: object
+      description: "One tool call of an agent session: the API operation it called, its input and a summary of the result. Insert-only."
+      required:
+        - session_id
+        - seq
+        - tool
+        - input
+        - is_error
+        - called_at
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: Session.
+          readOnly: true
+        seq:
+          type: integer
+          format: int32
+          description: Position in the session, from 1.
+          minimum: 1
+          readOnly: true
+        tool:
+          type: string
+          description: "Tool called: the operationId of an API operation."
+          readOnly: true
+        input:
+          type: object
+          additionalProperties: true
+          description: Input the agent gave.
+          readOnly: true
+        result_summary:
+          type: string
+          description: Summary of the result.
+          readOnly: true
+        is_error:
+          type: boolean
+          description: Whether the call failed.
+          readOnly: true
+        called_at:
+          type: string
+          format: date-time
+          description: When it was recorded.
+          readOnly: true
+      examples:
+        - session_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c01"
+          seq: 1
+          tool: getSupplierInvoice
+          input:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c03"
+          result_summary: "200"
+          is_error: false
+          called_at: "2026-10-09T14:03:12Z"
+    AgentToolCallCreate:
+      type: object
+      description: A tool call to record.
+      required:
+        - tool
+        - input
+      properties:
+        tool:
+          type: string
+          description: The operationId called.
+          pattern: "^[a-z][A-Za-z0-9]*$"
+          maxLength: 100
+        input:
+          type: object
+          additionalProperties: true
+          description: Input the agent gave.
+        result_summary:
+          type: string
+          description: Summary of the result.
+          maxLength: 2000
+        is_error:
+          type: boolean
+          description: Whether the call failed.
+      additionalProperties: false
+      examples:
+        - tool: getSupplierInvoice
+          input:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c03"
+          result_summary: "200"
+    AgentToolCallPage:
+      type: object
+      description: One page of tool calls.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentToolCall"
+          description: The tool calls on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    Recommendation:
+      type: object
+      description: "An agent's recommendation on a business object, and what a person decided."
+      required:
+        - id
+        - version
+        - session_id
+        - agent_id
+        - object_type
+        - object_id
+        - kind
+        - content
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: Optimistic-lock version; equals the ETag.
+          minimum: 1
+          readOnly: true
+        session_id:
+          type: string
+          format: uuid
+          description: Session that made it.
+          readOnly: true
+        agent_id:
+          type: string
+          format: uuid
+          description: The agent.
+          readOnly: true
+        object_type:
+          type: string
+          description: "Kind of object, for example `supplier_invoice` or `change_request`."
+          readOnly: true
+        object_id:
+          type: string
+          format: uuid
+          description: The object.
+          readOnly: true
+        kind:
+          type: string
+          description: "What is recommended, for example `release_hold`."
+          readOnly: true
+        content:
+          type: string
+          description: The recommendation and its reasons.
+          readOnly: true
+        outcome:
+          type: string
+          description: "What people decided; absent while open. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - accepted
+            - overridden
+            - ignored
+          readOnly: true
+        decided_by:
+          type: string
+          format: uuid
+          description: The person who decided.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Time of the last change.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c04"
+          version: 1
+          session_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c01"
+          agent_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c02"
+          object_type: supplier_invoice
+          object_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c03"
+          kind: release_hold
+          content: The price matches the supplier's new price list; release the hold.
+          created_at: "2026-10-09T14:03:13Z"
+          updated_at: "2026-10-09T14:03:13Z"
+    RecommendationCreate:
+      type: object
+      description: A recommendation to record.
+      required:
+        - session_id
+        - object_type
+        - object_id
+        - kind
+        - content
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: The caller's running session.
+        object_type:
+          type: string
+          description: Kind of object.
+          pattern: "^[a-z][a-z_]*$"
+          maxLength: 100
+        object_id:
+          type: string
+          format: uuid
+          description: The object.
+        kind:
+          type: string
+          description: What is recommended.
+          pattern: "^[a-z][a-z_]*$"
+          maxLength: 100
+        content:
+          type: string
+          description: The recommendation and its reasons.
+          minLength: 1
+          maxLength: 10000
+      additionalProperties: false
+      examples:
+        - session_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c01"
+          object_type: supplier_invoice
+          object_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5c03"
+          kind: release_hold
+          content: The price matches the supplier's new price list; release the hold.
+    RecommendationDecide:
+      type: object
+      description: What a person did with a recommendation.
+      required:
+        - outcome
+      properties:
+        outcome:
+          type: string
+          description: "Decision. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - accepted
+            - overridden
+            - ignored
+        comment:
+          type: string
+          description: Optional comment, recorded in the audit trail.
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - outcome: accepted
+    RecommendationPage:
+      type: object
+      description: One page of recommendations.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recommendation"
+          description: The recommendations on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     AuditFields:
       type: object
       description: "Standard fields of mutable resources (04-api-design §4.4)."

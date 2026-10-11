@@ -167,6 +167,7 @@ func Write(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, traceID strin
 // Result reports a chain verification.
 type Result struct {
 	Checked  int64 // events checked
+	LastSeq  int64 // last sequence number checked
 	BrokenAt int64 // first sequence number that does not verify; 0 when intact
 }
 
@@ -174,12 +175,20 @@ type Result struct {
 // against the chain head. One query returns the head with the events, so a
 // chain whose events were deleted, even all of them, is reported broken.
 func Verify(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Result, error) {
+	return VerifyRange(ctx, tx, tenant, 1, 0)
+}
+
+// VerifyRange recomputes the events from..to (to 0: up to the head). The
+// first event's stored predecessor hash is trusted, so a range starts from
+// a point verified before; a range that reaches the head is checked
+// against it as well.
+func VerifyRange(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, from, to int64) (Result, error) {
 	rows, _ := tx.Query(ctx, `SELECT coalesce(h.seq, 0), h.hash, e.seq, e.occurred_at, e.actor_id, e.actor_kind, e.action,
 		e.object_type, coalesce(e.object_id::text, ''), e.outcome, e.detail::text, coalesce(e.trace_id, ''), e.prev_hash, e.hash
 		FROM (SELECT 1) one
 		LEFT JOIN audit.chain_head h ON h.tenant_id = $1
-		LEFT JOIN audit.audit_event e ON e.tenant_id = $1
-		ORDER BY e.seq`, tenant)
+		LEFT JOIN audit.audit_event e ON e.tenant_id = $1 AND e.seq >= $2 AND ($3 = 0 OR e.seq <= $3)
+		ORDER BY e.seq`, tenant, from, to)
 	var (
 		res                    Result
 		prev                   []byte
@@ -198,11 +207,14 @@ func Verify(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Result, error) {
 		if seq == nil || res.BrokenAt != 0 {
 			return nil // no events, or already broken
 		}
+		if res.Checked == 0 && from > 1 {
+			prev = storedPrev // the range starts from a verified point
+		}
 		res.Checked++
 		d := canonical([]byte(*detail))
 		r := record{TenantID: tenant, Seq: *seq, OccurredAt: at.UTC().Format(timeLayout), ActorID: *actorID, ActorKind: *kind,
 			Action: *action, ObjectType: *objType, ObjectID: *objID, Outcome: *outcome, Detail: d, TraceID: *traceID}
-		if r.Seq != res.Checked || !bytes.Equal(storedPrev, prev) || !bytes.Equal(storedHash, r.hash(prev)) {
+		if r.Seq != from+res.Checked-1 || !bytes.Equal(storedPrev, prev) || !bytes.Equal(storedHash, r.hash(prev)) {
 			res.BrokenAt = r.Seq
 			return nil
 		}
@@ -212,9 +224,16 @@ func Verify(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("audit: verify: %w", err)
 	}
-	if res.BrokenAt == 0 && (headSeq != res.Checked || (res.Checked > 0 && !bytes.Equal(headHash, prev))) {
+	res.LastSeq = from + res.Checked - 1
+	last := to
+	if last == 0 {
+		last = headSeq
+	}
+	switch {
+	case res.BrokenAt != 0:
+	case res.LastSeq != last, to == 0 && res.Checked > 0 && !bytes.Equal(headHash, prev):
 		// Events after the last verified one are missing (deleted or never written).
-		res.BrokenAt = res.Checked + 1
+		res.BrokenAt = res.LastSeq + 1
 	}
 	return res, nil
 }

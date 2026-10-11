@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	ht "github.com/ogen-go/ogen/http"
@@ -22,10 +23,13 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -61,6 +65,9 @@ type (
 	procurementAPI = procurement.Endpoints
 	payablesAPI    = payables.Endpoints
 	paymentsAPI    = payments.Endpoints
+	auditAPI       = audit.Endpoints
+	integrationAPI = integration.Endpoints
+	agentsAPI      = agents.Endpoints
 )
 
 // handler is the generated Handler: one embedded endpoint set per context.
@@ -76,22 +83,26 @@ type handler struct {
 	*procurementAPI
 	*payablesAPI
 	*paymentsAPI
+	*auditAPI
+	*integrationAPI
+	*agentsAPI
 }
 
 // Config is what the API needs.
 type Config struct {
-	Pool      *database.Pool
-	AppRole   string
-	Verifier  *authn.Verifier
-	Pages     *pagination.Codec
-	FieldKeys *fieldcrypt.Keys   // seals bank accounts and tax identifiers
-	Extractor capture.Extractor  // reads captured invoices; nil: capture answers 503
-	Connector payments.Connector // transmits bank files; nil: transmission answers 503
-	Log       *slog.Logger
-	Metrics   *telemetry.Metrics
-	Tracer    trace.TracerProvider
-	Meter     metric.MeterProvider // per-operation metrics of the generated server
-	Now       func() time.Time
+	Pool       *database.Pool
+	AppRole    string
+	Verifier   *authn.Verifier
+	Pages      *pagination.Codec
+	FieldKeys  *fieldcrypt.Keys   // seals bank accounts and tax identifiers
+	Extractor  capture.Extractor  // reads captured invoices; nil: capture answers 503
+	Connector  payments.Connector // transmits bank files; nil: transmission answers 503
+	ExtractDir string             // sap_file connectors read extracts below it; empty: they answer 503
+	Log        *slog.Logger
+	Metrics    *telemetry.Metrics
+	Tracer     trace.TracerProvider
+	Meter      metric.MeterProvider // per-operation metrics of the generated server
+	Now        func() time.Time
 }
 
 // New builds the public API handler.
@@ -125,7 +136,10 @@ func New(cfg Config) (http.Handler, error) {
 				Numbers: configuration.Numbers{}}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
 			Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Approvals: opener,
 			Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor},
-		paymentsAPI: Payments(cfg),
+		paymentsAPI:    Payments(cfg),
+		auditAPI:       &audit.Endpoints{Pages: cfg.Pages},
+		integrationAPI: Integration(cfg),
+		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages},
 	}
 	srv, err := gen.NewServer(h, security{},
 		gen.WithErrorHandler(errorHandler(cfg.Log)),
@@ -155,6 +169,23 @@ func Payments(cfg Config) *payments.Endpoints {
 		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
 		Settings: configuration.Settings{}, Keys: cfg.FieldKeys, Connector: cfg.Connector}
+}
+
+// Integration is the integration context as the API wires it: migration
+// runs load through the same application services as the API.
+func Integration(cfg Config) *integration.Endpoints {
+	postings := ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}
+	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}
+	orders := &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
+		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
+		Settings: configuration.Settings{}, Invoices: payables.Invoices{}}
+	invoices := &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
+		Orders: procurement.Orders{}, Postings: postings, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
+		Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Payments: payments.Reservations{}}
+	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
+		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: orders, OrderValues: procurement.Orders{},
+		Invoices: invoices, InvoiceCounts: payables.Invoices{}, Postings: postings, Reports: ledger.Reports{}, Secrets: integration.EnvSecrets{Getenv: os.Getenv},
+		ExtractDir: cfg.ExtractDir}
 }
 
 // security confirms the pipeline authenticated the request; the token itself
