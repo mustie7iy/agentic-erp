@@ -263,6 +263,13 @@ var (
 	unblockOU  = transition{"unblock", Blocked, Active, "org_unit_unblocked"}
 )
 
+// ActivateLegalEntity activates an inactive legal entity regardless of its
+// version, for provisioning, which creates the configuration's companies
+// ready to post.
+func ActivateLegalEntity(ctx context.Context, id uuid.UUID) (LegalEntity, error) {
+	return changeLegalEntityStatus(ctx, id, func(int32) error { return nil }, activateLE, "")
+}
+
 func (t transition) check(what, current string) error {
 	if current != t.from {
 		return problem.Conflict("tenancy.invalid_status", "The "+what+" is "+current+"; "+t.action+" requires status "+t.from+".")

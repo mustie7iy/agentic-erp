@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -78,9 +81,15 @@ func TestFromTranslatesDatabaseErrors(t *testing.T) {
 		pgErr("55P03", ""):                               {409, "request.in_progress"},
 		pgErr("57014", ""):                               {503, "platform.unavailable"},
 		pgErr("42501", ""):                               {500, "platform.internal"},
-		context.DeadlineExceeded:                         {503, "platform.unavailable"},
-		errors.New("plain"):                              {500, "platform.internal"},
-		Conflict("own.code", "kept"):                     {409, "own.code"},
+		pgErr("57P01", ""):                               {503, "platform.unavailable"}, // terminated by the administrator (failover)
+		pgErr("08006", ""):                               {503, "platform.unavailable"}, // connection failure
+		&pgconn.ConnectError{}:                           {503, "platform.unavailable"},
+		&net.OpError{Op: "write", Err: errors.New("broken pipe")}: {503, "platform.unavailable"},
+		fmt.Errorf("read: %w", io.ErrUnexpectedEOF):               {503, "platform.unavailable"},
+		syscall.ECONNRESET:           {503, "platform.unavailable"},
+		context.DeadlineExceeded:     {503, "platform.unavailable"},
+		errors.New("plain"):          {500, "platform.internal"},
+		Conflict("own.code", "kept"): {409, "own.code"},
 	}
 	for err, want := range cases {
 		p := From(err)
@@ -93,6 +102,9 @@ func TestFromTranslatesDatabaseErrors(t *testing.T) {
 	}
 	if p := From(pgErr("55P03", "")); p.RetryAfter != 1 {
 		t.Fatal("lock timeouts must ask the client to retry")
+	}
+	if p := From(pgErr("57P01", "")); p.RetryAfter != 1 || !strings.Contains(p.Detail, "connection was lost") {
+		t.Fatal("a lost connection must ask the client to retry")
 	}
 }
 

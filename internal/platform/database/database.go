@@ -26,10 +26,15 @@ type Scope struct {
 	ReadOnly bool
 }
 
-// Settings bound how long a transaction may wait or run.
+// Settings bound how long a transaction may wait or run, and how many
+// connections the pool opens.
 type Settings struct {
 	LockTimeout      time.Duration // waiting for a row lock, e.g. on a concurrent idempotency key
 	StatementTimeout time.Duration
+	// MaxConns is the pool's size; 0 keeps pgx's default (the number of CPUs,
+	// at least 4). Requests beyond it wait for a connection until their
+	// deadline, which sheds load as 503 instead of overloading the database.
+	MaxConns int32
 }
 
 // DefaultSettings suit request transactions (ADR-0014).
@@ -43,7 +48,14 @@ type Pool struct {
 
 // Open connects and verifies the database is reachable.
 func Open(ctx context.Context, url string, settings Settings) (*Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("database: open: %w", err)
+	}
+	if settings.MaxConns != 0 {
+		cfg.MaxConns = settings.MaxConns // the driver refuses a size below 1
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("database: open: %w", err)
 	}

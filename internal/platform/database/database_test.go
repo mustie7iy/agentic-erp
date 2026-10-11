@@ -108,6 +108,9 @@ func TestOpenAndBeginErrors(t *testing.T) {
 	if _, err := database.Open(ctx, "postgres://nobody@127.0.0.1:1/x?connect_timeout=1", database.DefaultSettings); err == nil {
 		t.Fatal("unreachable database accepted")
 	}
+	if _, err := database.Open(ctx, pgtest.URL(t), database.Settings{MaxConns: -1}); err == nil {
+		t.Fatal("pool of a negative size accepted")
+	}
 	pool := pgtest.Pool(t)
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatal(err)
@@ -130,6 +133,22 @@ func TestOpenAndBeginErrors(t *testing.T) {
 	if err := pool.WithConn(ctx, func(c *pgx.Conn) error { return c.QueryRow(ctx, "SELECT 1").Scan(&one) }); err != nil || one != 1 {
 		t.Fatal(one, err)
 	}
+	// The pool is as large as configured, and no larger.
+	small, err := database.Open(ctx, pgtest.URL(t), database.Settings{MaxConns: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer small.Close()
+	held, err := small.Begin(ctx, database.Scope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief, done := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer done()
+	if _, err := small.Begin(brief, database.Scope{}); err == nil {
+		t.Fatal("second connection of a pool of one")
+	}
+	held.Rollback(ctx)
 	// Settings outside PostgreSQL's range fail the scope setup.
 	bad, err := database.Open(ctx, pgtest.URL(t), database.Settings{LockTimeout: -time.Second})
 	if err != nil {

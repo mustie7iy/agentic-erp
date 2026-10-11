@@ -51,30 +51,49 @@ support work that consultants do today.
 
 ```sh
 make db-up      # PostgreSQL 17 in Docker on :55432
-make test       # functional, end-to-end and non-functional suites, race detector on
+make test       # functional, end-to-end and resilience suites, race detector on
 make coverage   # whole-suite statement coverage gate
 make demo       # the CLI against a real API server: mock SAP -> migrate -> invoices -> agents -> analytics
+make load       # the load suite against the p95/p99 budgets (make soak, make resilience likewise)
 ```
 
 `erp` is a thin client of the API: everything it reads or changes goes
 through `erp-server` with your token, under the same permissions, company
-access and audit as any other client. Point it at a server (see below) with
+access and audit as any other client. Point it at a server with
 `ERP_API_URL` (default `http://localhost:8080`), a person's bearer token in
 `ERP_TOKEN` and the agents' token in `ERP_AGENT_TOKEN`.
 
+A tenant is provisioned once by an operator, with its first administrator and
+its first configuration; from then on the administrator manages it through
+the API. Locally, the server can mint tokens for any subject
+(`ERP_DEV_ISSUER=true`; never in production):
+
 ```sh
-go build -o bin/erp ./cmd/erp
-./bin/erp gen-mock-sap -out extract.json                      # deterministic mock SAP extract (copy it to ERP_EXTRACT_DIR)
-./bin/erp config generate -source file:extract.json -company 1000,2000 -out draft.yaml   # configuration from SAP customizing
+make db-up
+export DATABASE_URL=postgres://postgres:dev@localhost:55432/postgres?sslmode=disable
+export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64) ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
+export ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true ERP_EXTRACT_DIR=$PWD/data
+go build -o bin/erp ./cmd/erp && go build -o bin/erp-server ./cmd/erp-server
+mkdir -p data && ./bin/erp gen-mock-sap -out data/extract.json
+./bin/erp config generate -source file:data/extract.json -company 1000,2000 -out data/config.yaml
+./bin/erp-server &                                   # migrates, then serves :8080 (API) and :9090 (admin)
+./bin/erp-server provision -name Acme -region eu-west -currency EUR \
+  -admin-subject ada -admin-name "Ada" -config data/config.yaml     # prints the tenant and administrator ids
+export ERP_TOKEN=$(./bin/erp token -tenant <tenant_id> -subject ada)
+./bin/erp call listLegalEntities                                    # the configuration's companies, active
 ./bin/erp call createConnector -body '{"kind": "sap_file", "name": "SAP PRD", "settings": {"path": "extract.json"}}'
 ./bin/erp migrate -connector <id> -legal-entities <id>,... -year 2026 -rehearsal   # load, reconcile, roll back
 ./bin/erp migrate -connector <id> -legal-entities <id>,... -year 2026              # fails unless the run reconciles
 ./bin/erp invoices                     # the rule: match parked invoices, post clean ones within the auto-post limit
-./bin/erp invoices -agent              # then the exceptions agent investigates held invoices
 ./bin/erp call listRecommendations -p outcome=open
 ./bin/erp call listBalances -p legal_entity_id=<id> -p fiscal_year=2026
 ./bin/erp call verifyAuditChain -body '{}'
 ```
+
+The administrator holds the `tenant_admin` role (every permission) and
+provisions colleagues and agents through the API (`erp call createPrincipal`,
+`createRole`, `assignRole`); an agent's token (`ERP_AGENT_TOKEN`) is minted
+for the agent principal's subject the same way.
 
 `erp call OPERATION` calls any operation of [the contract](api/openapi.yaml)
 by its operationId: `-p name=value` for parameters, `-body` JSON or `@file`,
@@ -124,7 +143,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 | `internal/bankfile` | ISO 20022 pain.001 credit transfer files |
 | `internal/capture` | Invoice capture: Claude structured extraction from PDF |
 | `internal/llm` | Shared Claude agent plumbing; `llmtest` is a scripted Messages API for tests |
-| `internal/nfr` | Performance budgets of the client-side engines |
+| `internal/nfr` | Load, soak and resilience suites over the whole stack; performance budgets of the client-side engines |
 | `cmd/erp` | The CLI, a thin API client |
 
 **Platform foundation** (API-first; design in [docs/design](docs/design/), ADR-0014 for the request pipeline):
@@ -133,7 +152,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 |---|---|
 | `api/openapi.yaml`, `api/asyncapi.yaml` | The API and event contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
 | `db/migrations` | The data model as versioned PostgreSQL migrations, applied by the embedded runner (`db.Migrate`) |
-| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `pagination`, `etag`, `config`, `httpapi` (wiring) |
+| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `pagination`, `etag`, `config`, `httpapi` (wiring) |
 | `internal/operations` | Long-running operations: the first context on the foundation (`/v1/operations`) |
 | `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`), outbox relay |
 
@@ -158,7 +177,12 @@ make run-server                 # migrates, then serves :8080 (API) and :9090 (a
 ```
 
 All settings are environment variables, documented in
-[`internal/platform/config`](internal/platform/config/config.go). Tokens must
+[`internal/platform/config`](internal/platform/config/config.go): among them
+the request quotas per tenant and principal (`ERP_RATE_LIMIT_TENANT`,
+`ERP_RATE_LIMIT_PRINCIPAL`), the request deadline (`ERP_REQUEST_TIMEOUT`)
+and the pool size (`ERP_DB_MAX_CONNS`). The admin listener serves
+`/livez`, `/readyz` (schema version and partition horizon) and `/metrics`
+(request latency per operation, worker backlogs). Tokens must
 carry the tenant id in the `tenant_id` claim, and the subject must be a
 provisioned principal of that tenant. Every operation in the contract is
 served: implemented ones run, the rest answer `501` until their context moves
@@ -167,7 +191,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T6 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T7 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier
@@ -178,9 +202,9 @@ built ahead of its Phase 2 slot. The Phase 1 exit criteria that need a client
 mock data. See [docs/plan.md](docs/plan.md) and [docs/testing.md](docs/testing.md).
 Known gaps:
 
-- There is no local tenant bootstrap or development identity provider yet:
-  running the CLI against a live server needs an OIDC issuer and a
-  provisioned tenant (`make demo` runs the walkthrough in a test instead).
+- Tenants are provisioned by an operator on the server (`erp-server
+  provision`); there is no self-service signup, and the development issuer
+  is for local use only.
 - Single currency per company code. No FX revaluation yet.
 - The OData entity and field mappings follow SAP API Business Hub names but have
   not yet been validated against a live system. Check them against your `$metadata`.
@@ -188,4 +212,7 @@ Known gaps:
   needs evals before any agent gets autonomy above L0.
 - Sandbox simulation and regression suites from the prototype have no API
   yet, so tier 3 and 4 configuration changes wait for simulation evidence.
+- The load suite meets its budgets at the rate a laptop or CI runner
+  reaches (about 500 requests/s); the largest tenant's peak needs a
+  cell-sized environment.
 - No AR, inventory valuation, tax engine or payroll yet (later phases).

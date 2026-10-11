@@ -41,6 +41,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
@@ -98,11 +99,16 @@ type Config struct {
 	Extractor  capture.Extractor  // reads captured invoices; nil: capture answers 503
 	Connector  payments.Connector // transmits bank files; nil: transmission answers 503
 	ExtractDir string             // sap_file connectors read extracts below it; empty: they answer 503
-	Log        *slog.Logger
-	Metrics    *telemetry.Metrics
-	Tracer     trace.TracerProvider
-	Meter      metric.MeterProvider // per-operation metrics of the generated server
-	Now        func() time.Time
+	// Limits enforces the request quotas of 04 §4.11; nil applies none.
+	Limits *ratelimit.Limiter
+	// RequestTimeout is the deadline of one request, so that a saturated
+	// database sheds load as 503 instead of queueing; 0 sets none.
+	RequestTimeout time.Duration
+	Log            *slog.Logger
+	Metrics        *telemetry.Metrics
+	Tracer         trace.TracerProvider
+	Meter          metric.MeterProvider // per-operation metrics of the generated server
+	Now            func() time.Time
 }
 
 // New builds the public API handler.
@@ -112,12 +118,7 @@ func New(cfg Config) (http.Handler, error) {
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}},
-		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Dependencies: configuration.Dependencies{
-			LegalEntities: tenancy.Directory{},
-			Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
-				payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
-			Approvals: opener,
-		}},
+		configAPI:     &configuration.Endpoints{Pages: cfg.Pages, Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys,
 			Approvals: opener},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
@@ -159,7 +160,37 @@ func New(cfg Config) (http.Handler, error) {
 		return nil, err
 	}
 	unit := &uow.Middleware{Pool: cfg.Pool, Role: cfg.AppRole, Log: cfg.Log, Now: cfg.Now}
-	return telemetry.Middleware(cfg.Log, cfg.Metrics, cfg.Tracer)(cfg.Verifier.Middleware(unit.Wrap(srv))), nil
+	var chain http.Handler = unit.Wrap(srv)
+	if cfg.Limits != nil {
+		chain = cfg.Limits.Middleware(chain)
+	}
+	chain = cfg.Verifier.Middleware(chain)
+	if cfg.RequestTimeout > 0 {
+		chain = deadline(cfg.RequestTimeout, chain)
+	}
+	return telemetry.Middleware(cfg.Log, cfg.Metrics, cfg.Tracer)(chain), nil
+}
+
+// deadline gives each request a deadline. Work past it fails with the
+// context's error, which the unit of work answers as 503 with Retry-After
+// (the response is buffered until commit, so nothing is half-written).
+func deadline(d time.Duration, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), d)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Configuration is the configuration context's dependencies as the API
+// wires them, for provisioning to bootstrap a tenant the same way.
+func Configuration(cfg Config) configuration.Dependencies {
+	return configuration.Dependencies{
+		LegalEntities: tenancy.Directory{},
+		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
+			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
+		Approvals: approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}},
+	}
 }
 
 // Payments is the payments context as the API wires it, for the proposal
@@ -265,9 +296,13 @@ func missing(err error) bool {
 }
 
 // Admin serves the operational endpoints on the internal port: liveness,
-// readiness and metrics.
-func Admin(ready func(context.Context) error, m *telemetry.Metrics) http.Handler {
+// readiness and metrics, and the development issuer's token endpoint when
+// dev is not nil.
+func Admin(ready func(context.Context) error, m *telemetry.Metrics, dev http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	if dev != nil {
+		mux.Handle("POST /dev/token", dev)
+	}
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))

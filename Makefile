@@ -1,4 +1,4 @@
-.PHONY: generate run-server build test test-short db-up test-db coverage fuzz perf demo clean
+.PHONY: generate run-server build test test-short db-up test-db coverage fuzz perf load soak resilience demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -49,6 +49,17 @@ perf:
 	go test ./internal/nfr -run Perf -v
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 ./internal/ledger ./internal/payments -run Budget -v
 	go test ./internal/nfr -run '^$$' -bench . -benchmem
+
+# Non-functional suites against the database (05-scalability §5.8). Each
+# takes ERP_LOAD_USERS (16) and ERP_LOAD_RPS (0: unpaced); load takes
+# ERP_LOAD_DURATION (10s), soak takes ERP_SOAK_DURATION (30s) and
+# ERP_SOAK_WINDOW (5s). The nightly workflow runs them long.
+load:
+	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./internal/nfr -run 'TestLoad'
+soak:
+	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v -timeout 48h ./internal/nfr -run 'TestSoak'
+resilience:
+	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./internal/nfr -run 'TestResilience'
 
 # Full walkthrough through the CLI against a real API server and database:
 # mock SAP extract, configuration draft, migration of company 1000 through

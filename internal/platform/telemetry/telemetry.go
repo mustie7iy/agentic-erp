@@ -52,9 +52,10 @@ func Tracing(ctx context.Context, otlpEndpoint string) (*sdktrace.TracerProvider
 
 // Metrics are the HTTP metrics, in their own registry.
 type Metrics struct {
-	Registry *prometheus.Registry
-	requests *prometheus.CounterVec
-	duration *prometheus.HistogramVec
+	Registry   *prometheus.Registry
+	requests   *prometheus.CounterVec
+	duration   *prometheus.HistogramVec
+	readErrors *prometheus.CounterVec // created by the first Gauge
 }
 
 // NewMetrics registers the request metrics.

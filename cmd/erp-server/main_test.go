@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -68,6 +70,8 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	env := environment(t, is, natsURL)
 	env["ANTHROPIC_API_KEY"] = "test" // invoice capture is wired; nothing calls the model here
 	env["ERP_BANK_OUTBOX_DIR"] = t.TempDir()
+	maintenanceInterval = 10 * time.Millisecond // the partition maintenance runs while the server serves
+	defer func() { maintenanceInterval = 6 * time.Hour }()
 	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel")
 	pgtest.Exec(t, `INSERT INTO platform.operation (tenant_id, id, kind, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), 'payments.propose', 'running', $2, $2)`,
 		ten.ID, ten.Human.ID)
@@ -77,7 +81,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	done := make(chan int, 1)
 	var logs bytes.Buffer
 	go func() {
-		done <- cli(ctx, func(k string) string { return env[k] }, &syncWriter{w: &logs}, func(api, admin net.Listener) {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &syncWriter{w: &logs}, func(api, admin net.Listener) {
 			addrs <- [2]string{api.Addr().String(), admin.Addr().String()}
 		})
 	}()
@@ -98,6 +102,28 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	}
 	if resp, _ := get("http://"+a[1]+"/readyz", ""); resp.StatusCode != 200 {
 		t.Fatalf("readyz %d", resp.StatusCode)
+	}
+	// The workers' backlogs are read on each scrape of the admin metrics (a
+	// read that outlasts its timeout on a loaded machine is left out of that
+	// scrape, so a few scrapes are allowed).
+	var scraped []byte
+	for attempt := 0; attempt < 5; attempt++ {
+		mresp, err := http.Get("http://" + a[1] + "/metrics")
+		if err != nil {
+			t.Fatal(err)
+		}
+		scraped, _ = io.ReadAll(mresp.Body)
+		mresp.Body.Close()
+		if strings.Contains(string(scraped), "erp_outbox_backlog ") && strings.Contains(string(scraped), "erp_projection_backlog 0") &&
+			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	for _, want := range []string{"erp_outbox_backlog ", "erp_projection_backlog 0", "erp_payment_proposals_queued 0"} {
+		if !strings.Contains(string(scraped), want) {
+			t.Errorf("metrics lack %q:\n%s", want, scraped)
+		}
 	}
 	token := is.Token(t, ten.ID, ten.Human.Subject, nil)
 	resp, page := get("http://"+a[0]+"/v1/operations", token)
@@ -167,6 +193,57 @@ func TestReadiness(t *testing.T) {
 	if err := ready(empty)(ctx); err == nil || !strings.Contains(err.Error(), "schema version 1") {
 		t.Fatalf("old schema: %v", err)
 	}
+	// A partition horizon that got too short is not ready either; maintenance restores it.
+	shortURL := emptyDatabase(t)
+	short, err := database.Open(ctx, shortURL, database.DefaultSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer short.Close()
+	if err := migrate(ctx, short, quiet()); err != nil {
+		t.Fatal(err)
+	}
+	sc, _ := pgx.Connect(ctx, shortURL)
+	defer sc.Close(ctx)
+	if _, err := sc.Exec(ctx, `DO $$ DECLARE r record; BEGIN FOR r IN SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'audit' AND relname ~ '^audit_event_[0-9]{6}$' AND substr(relname, 13) > to_char(now(), 'YYYYMM')
+		LOOP EXECUTE format('DROP TABLE audit.%I', r.relname); END LOOP; END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ready(short)(ctx); err == nil || !strings.Contains(err.Error(), "partition horizon") {
+		t.Fatalf("short horizon: %v", err)
+	}
+	if err := partitions(ctx, short, quiet()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ready(short)(ctx); err != nil {
+		t.Fatalf("after maintenance: %v", err)
+	}
+	// A database without the schema fails the partition check and the maintenance.
+	if err := partitions(ctx, empty, quiet()); err == nil {
+		t.Fatal("maintenance without the schema")
+	}
+}
+
+func TestMaintenanceRetries(t *testing.T) {
+	var logs bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	runs := 0
+	done := make(chan struct{})
+	go func() {
+		maintain(ctx, time.Millisecond, func(context.Context) error {
+			runs++
+			if runs == 3 {
+				cancel()
+			}
+			return errors.New("not now")
+		}, slog.New(slog.NewTextHandler(&syncWriter{w: &logs}, nil)))
+		close(done)
+	}()
+	<-done
+	if runs != 3 || strings.Count(logs.String(), "partition maintenance failed") != 2 {
+		t.Fatalf("%d runs\n%s", runs, logs.String())
+	}
 }
 
 func TestStartupFailures(t *testing.T) {
@@ -187,6 +264,7 @@ func TestStartupFailures(t *testing.T) {
 		"api port":          func(_ map[string]string, c *config.Config) { c.HTTPAddr = busy.Addr().String() },
 		"admin port":        func(_ map[string]string, c *config.Config) { c.AdminAddr = busy.Addr().String() },
 		"migrations":        func(_ map[string]string, c *config.Config) { c.DatabaseURL = limitedUser(t) },
+		"partitions":        func(_ map[string]string, c *config.Config) { c.DatabaseURL, c.MigrateOnStart = emptyDatabase(t), false },
 	}
 	for name, mutate := range cases {
 		env := environment(t, is, "")
@@ -196,10 +274,10 @@ func TestStartupFailures(t *testing.T) {
 			t.Errorf("%s: started", name)
 		}
 	}
-	// A meter provider that cannot create instruments fails the API.
-	prev := otel.GetMeterProvider()
+	// A meter provider that cannot create instruments fails the API. (The
+	// global delegate cannot be set back, so a no-op provider takes its place.)
 	otel.SetMeterProvider(failingProvider{})
-	defer otel.SetMeterProvider(prev)
+	defer otel.SetMeterProvider(noop.NewMeterProvider())
 	if err := run(ctx, load(t, environment(t, is, "")), quiet(), nil); err == nil {
 		t.Error("broken meter provider: started")
 	}
@@ -216,14 +294,14 @@ func TestAListenerFailureStopsTheServer(t *testing.T) {
 
 func TestExitCodes(t *testing.T) {
 	var stderr bytes.Buffer
-	if code := cli(context.Background(), func(string) string { return "" }, &stderr, nil); code != 2 || !strings.Contains(stderr.String(), "DATABASE_URL") {
+	if code := cli(context.Background(), nil, func(string) string { return "" }, io.Discard, &stderr, nil); code != 2 || !strings.Contains(stderr.String(), "DATABASE_URL") {
 		t.Fatalf("bad configuration: %d %s", code, stderr.String())
 	}
 	is := authntest.New(t)
 	env := environment(t, is, "")
 	env["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = "not a url"
 	stderr.Reset()
-	if code := cli(context.Background(), func(k string) string { return env[k] }, &stderr, nil); code != 1 {
+	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 1 {
 		t.Fatalf("run failure: %d", code)
 	}
 	// main exits with cli's code; here the configuration is empty.
@@ -278,3 +356,98 @@ func (failingMeter) Int64Counter(string, ...metric.Int64CounterOption) (metric.I
 type failingProvider struct{ noop.MeterProvider }
 
 func (failingProvider) Meter(string, ...metric.MeterOption) metric.Meter { return failingMeter{} }
+
+// TestProvisionAndDevelopmentLogin is the operator's path to a usable
+// tenant: erp-server provision creates it, the development issuer mints its
+// administrator a token, and the administrator works through the API.
+func TestProvisionAndDevelopmentLogin(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	delete(env, "ERP_OIDC_ISSUERS")
+	env["ERP_DEV_ISSUER"] = "true"
+	getenv := func(k string) string { return env[k] }
+	doc, _ := fixture.Document(t).Marshal()
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(file, doc, 0o644)
+	var stdout, stderr bytes.Buffer
+	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|ada", "-admin-name", "Ada", "-admin-email", "ada@example.com", "-config", file}
+	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	var created struct {
+		TenantID        string `json:"tenant_id"`
+		AdministratorID string `json:"administrator_id"`
+		Version         int    `json:"configuration_version"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &created); err != nil || created.Version != 1 {
+		t.Fatalf("%v %s", err, stdout.String())
+	}
+	for name, c := range map[string]struct {
+		args []string
+		code int
+		want string
+	}{
+		"help":        {[]string{"provision", "-h"}, 0, ""},
+		"bad flag":    {[]string{"provision", "-x"}, 2, "flag provided"},
+		"no config":   {[]string{"provision", "-name", "x"}, 1, "-config is required"},
+		"no file":     {[]string{"provision", "-config", "/no/such.yaml"}, 1, "no such file"},
+		"invalid":     {[]string{"provision", "-config", file}, 1, "tenancy.invalid_tenant"},
+		"unknown cmd": {[]string{"serve"}, 2, "unknown command"},
+	} {
+		stderr.Reset()
+		if code := cli(context.Background(), c.args, getenv, io.Discard, &stderr, nil); code != c.code || !strings.Contains(stderr.String(), c.want) {
+			t.Errorf("%s: %d %s", name, code, stderr.String())
+		}
+	}
+	// Without a reachable database provisioning fails after the configuration was accepted.
+	down := map[string]string{}
+	for k, v := range env {
+		down[k] = v
+	}
+	down["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	if code := cli(context.Background(), args, func(k string) string { return down[k] }, io.Discard, &stderr, nil); code != 1 {
+		t.Fatalf("database down: %d", code)
+	}
+
+	// The server with the development issuer: a minted token works on the API.
+	ctx, cancel := context.WithCancel(context.Background())
+	addrs := make(chan [2]string, 1)
+	done := make(chan int, 1)
+	var logs bytes.Buffer
+	go func() {
+		done <- cli(ctx, nil, getenv, io.Discard, &syncWriter{w: &logs}, func(api, admin net.Listener) {
+			addrs <- [2]string{api.Addr().String(), admin.Addr().String()}
+		})
+	}()
+	var a [2]string
+	select {
+	case a = <-addrs:
+	case code := <-done:
+		t.Fatalf("the server stopped with %d before serving:\n%s", code, logs.String())
+	}
+	mint, err := http.Post("http://"+a[1]+"/dev/token", "application/json", strings.NewReader(`{"tenant_id": "`+created.TenantID+`", "subject": "idp|ada"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var minted struct{ Token string }
+	json.NewDecoder(mint.Body).Decode(&minted)
+	mint.Body.Close()
+	if mint.StatusCode != 200 || minted.Token == "" {
+		t.Fatalf("mint: %d", mint.StatusCode)
+	}
+	req, _ := http.NewRequest("GET", "http://"+a[0]+"/v1/config-versions?is_active=true", nil)
+	req.Header.Set("Authorization", "Bearer "+minted.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page map[string]any
+	json.NewDecoder(resp.Body).Decode(&page)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || len(page["items"].([]any)) != 1 {
+		t.Fatalf("as the administrator: %d %v", resp.StatusCode, page)
+	}
+	cancel()
+	if code := <-done; code != 0 || !strings.Contains(logs.String(), "ERP_DEV_ISSUER") {
+		t.Fatalf("exit %d\n%s", code, logs.String())
+	}
+}

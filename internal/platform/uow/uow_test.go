@@ -346,30 +346,55 @@ func TestFailuresAtTheEnd(t *testing.T) {
 	}
 }
 
-// faultTx fails statements that start with a prefix.
+// faultTx fails statements that start with a prefix, with err (default:
+// errInjected).
 type faultTx struct {
 	pgx.Tx
 	prefix string
+	err    error
 }
 
 var errInjected = errors.New("injected failure")
 
+func (f faultTx) fault() error {
+	if f.err != nil {
+		return f.err
+	}
+	return errInjected
+}
+
 func (f faultTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	if strings.HasPrefix(strings.TrimSpace(sql), f.prefix) {
-		return pgconn.CommandTag{}, errInjected
+		return pgconn.CommandTag{}, f.fault()
 	}
 	return f.Tx.Exec(ctx, sql, args...)
 }
 
-type errRow struct{}
+type errRow struct{ err error }
 
-func (errRow) Scan(...any) error { return errInjected }
+func (r errRow) Scan(...any) error { return r.err }
 
 func (f faultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	if strings.HasPrefix(strings.TrimSpace(sql), f.prefix) {
-		return errRow{}
+		return errRow{f.fault()}
 	}
 	return f.Tx.QueryRow(ctx, sql, args...)
+}
+
+// TestLostConnectionIsRetryable checks that a connection lost while the
+// audit entries are written is a 503 the client retries, not a 500.
+func TestLostConnectionIsRetryable(t *testing.T) {
+	pool := pgtest.Pool(t)
+	a := newApp(t, pool)
+	ten := pgtest.NewTenant(t)
+	a.mw.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		return faultTx{Tx: tx, prefix: "INSERT INTO audit.chain_head", err: &pgconn.PgError{Code: "57P01", Message: "terminating connection"}}, err
+	}
+	r := a.do(call{method: "POST", path: "/create", key: "key-lost-connection-1", tenant: ten.ID, subject: ten.Human.Subject})
+	if r.Code != 503 || r.Header().Get("Retry-After") != "1" || !strings.Contains(r.Body.String(), "connection was lost") {
+		t.Fatalf("%d %v %s", r.Code, r.Header(), r.Body)
+	}
 }
 
 func TestInjectedDatabaseFailures(t *testing.T) {

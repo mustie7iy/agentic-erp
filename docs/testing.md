@@ -24,8 +24,8 @@ deletion is commented in the code. Coverage measures that every statement
 runs under test; the assertions in the suites below are what show the
 results are right.
 
-At the time of writing the suites contain 305 test functions (many with
-subtests) across 47 packages, all passing under the race detector.
+At the time of writing the suites contain 324 test functions (many with
+subtests) across 49 packages, all passing under the race detector.
 Database-backed suites run against PostgreSQL (`make db-up`), each package
 in its own database (`internal/platform/pgtest`), and
 `apitest.EveryFailure` fails each database statement of an operation in
@@ -35,6 +35,7 @@ turn to prove nothing is left half done.
 
 | Area | Where | What is proven |
 |---|---|---|
+| Provisioning | `internal/provisioning`, `cmd/erp-server` | A tenant provisioned with its administrator, roles, active legal entities and configuration v1 in one transaction; the administrator sets the tenant up through the API; every statement failing in turn leaves nothing; the development issuer mints tokens the API accepts |
 | Tenancy, identity, configuration | `internal/tenancy`, `identity`, `configuration` | Legal entities and org units, principals, effective-dated role and permission grants, company access, SoD refused at grant time and enforced per operation, configuration versions and change requests by tier |
 | Configuration as code | `internal/config` | Every validation rule (one test per rule), change tiers, diffs |
 | Configuration from SAP | `internal/delivery/sapconfig` | T001/SKB1/T030/T007A/T169G/T012K/T052/AGR_* mapped; number ranges per fiscal year; gaps, defaults and role notes |
@@ -50,13 +51,30 @@ turn to prove nothing is left half done.
 | Analytics | `internal/analytics` | Facts read through the API, semantic queries, guardrails, row-level security, narrative check, rendering, reruns |
 | End to end | `cmd/erp/e2e_test.go` | The CLI against a real API server: mock SAP extract, configuration draft, a scope migrated and reconciled through the integration API, the invoice rule, all four agents through API tools, analytics |
 
-## Non-functional tests
+## Non-functional tests (`internal/nfr`)
 
-| Suite | What is proven |
-|---|---|
-| Performance (`perf_test.go`, `make perf`) | Budgets for analytics over a large fact set and configuration validation with 2k number ranges; database budgets live with their contexts (trial balance, payment proposal over 100,000 items) |
-| Concurrency, reliability, security | Per context on PostgreSQL: every statement failing in turn (`EveryFailure`), the race detector, permission, company access and SoD checks on every operation |
-| Fuzzing (per package) | Amount parsing round-trips; arbitrary configuration YAML never panics validation or diff; any commentary text is safe for the narrative check; bank files stay well-formed XML with exact control sums for any names; OData values |
+The suites of 05-scalability §5.8 run over a harness that runs the platform
+the way `erp-server` does: the public API on a real listener over a
+configured tenant, the balance projector and the outbox relay to an embedded
+JetStream, and virtual users with a principal each. They are plain `go test`
+runs sized by environment variables, so they use the same fixtures and
+assertions as the functional suites.
+
+| Suite | What is proven | How to run |
+|---|---|---|
+| Load (`load_test.go`) | The mix of posting, lists, single reads, approval decisions and trial balance meets the p95 and p99 budgets of 01-requirements §1.3; the workers drain; the ledger is consistent afterwards. A hot principal is refused at the door while others are served | `make load` (`ERP_LOAD_USERS`, `ERP_LOAD_DURATION`, `ERP_LOAD_RPS`) |
+| Soak (`soak_test.go`) | Over windows of sustained load: no failed request, p95 within 1.5× of the first window or within budget, stable goroutines and heap, workers keeping up | `make soak` (`ERP_SOAK_DURATION`, `ERP_SOAK_WINDOW`); nightly for hours |
+| Resilience (`resilience_test.go`) | Database connections killed under load: 503s for milliseconds, recovery within the RTO, retried posts post once; JetStream node stopped and started: events wait and arrive exactly once; workers killed mid-work (projector, relay, proposal worker): each entry projected, event delivered and proposal built once; shutdown under load: complete answers or connection errors, never half-written | `make resilience`; also in `make test` |
+| Performance (`perf_test.go`, `make perf`) | Budgets for analytics over a large fact set and configuration validation with 2k number ranges; database budgets live with their contexts (trial balance, payment proposal over 100,000 items) | `make perf` |
+| Fuzzing (per package) | Amount parsing round-trips; arbitrary configuration YAML never panics validation or diff; any commentary text is safe for the narrative check; bank files stay well-formed XML with exact control sums for any names; OData values | `make fuzz` |
+
+Every suite ends with the consistency check: each reference posted once,
+every entry answered 201 in the journal, projected balances equal to the
+journal, audit chain intact. Load and soak skip under `-short` and the race
+detector. The nightly workflow (`.github/workflows/nightly.yml`) runs load
+for two minutes, the resilience suite, a two-hour soak and five minutes of
+fuzzing per target; the budgets are met at the rate the runner reaches, not
+at the largest tenant's peak, which needs a cell-sized environment.
 
 ## Model and SAP stand-ins
 

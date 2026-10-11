@@ -17,12 +17,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -97,6 +99,7 @@ func init() {
 		"report":       reportCmd,
 		"gen-mock-sap": genMock,
 		"config":       configCmd,
+		"token":        token,
 	}
 }
 
@@ -118,6 +121,7 @@ agents (ERP_AGENT_TOKEN, Anthropic credentials):
 local preparation:
   gen-mock-sap   write a deterministic mock SAP extract
   config generate | validate   draft a configuration from SAP customizing, or check one
+  token          mint a token from a server running with ERP_DEV_ISSUER (ERP_ADMIN_URL, default localhost:9090)
 
 run "erp <command> -h" for flags`)
 }
@@ -205,6 +209,43 @@ func call(ctx context.Context, args []string) error {
 	if r.Status >= 400 {
 		return fmt.Errorf("the API answered %d", r.Status)
 	}
+	return nil
+}
+
+// token asks a development server for a bearer token: erp token -tenant ID
+// -subject SUBJECT prints it, for ERP_TOKEN or ERP_AGENT_TOKEN.
+func token(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("token", flag.ContinueOnError)
+	tenant := fs.String("tenant", "", "tenant id")
+	subject := fs.String("subject", "", "the principal's subject at the identity provider")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *tenant == "" || *subject == "" {
+		return errors.New("-tenant and -subject are required")
+	}
+	admin := getenv("ERP_ADMIN_URL")
+	if admin == "" {
+		admin = "http://localhost:9090"
+	}
+	body, _ := json.Marshal(map[string]string{"tenant_id": *tenant, "subject": *subject})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(admin, "/")+"/dev/token", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var answer struct {
+		Token string
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil || resp.StatusCode != http.StatusOK || answer.Token == "" {
+		return fmt.Errorf("the admin listener answered %d: is the server running with ERP_DEV_ISSUER=true?", resp.StatusCode)
+	}
+	fmt.Fprintln(out, answer.Token)
 	return nil
 }
 

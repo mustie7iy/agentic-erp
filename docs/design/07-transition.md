@@ -58,7 +58,8 @@ prototype store for that context.
 | T4 (done) | **Procurement, payables, workflow** | Requisition → PO → receipt → invoice → match → post through the API, with approvals |
 | T5 (done) | **Payments** | Proposal as an operation, release with SoD, bank file, clearing |
 | T6 (done) | **Agents and integration** onto the API | Delivery agents and SAP migration use generated API tools only; prototype store deleted |
-| T7 | **Hardening** | Load, soak and resilience suites pass at the targets in 01 §1.3 |
+| T7 (done) | **Hardening** | Load, soak and resilience suites pass at the targets in 01 §1.3 |
+| T8 (done) | **Operations**: provisioning and local login | A tenant is provisioned by an operator and run through the API from the command line, with a development issuer locally |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -493,6 +494,142 @@ Open points for the contract and design review:
 - `EnvSecrets` is a stand-in: connector credentials need a vault.
 - Agents are tested against a scripted model only; evals against the live
   API come before any agent gets autonomy above L0.
+
+### T7 decisions and open points
+
+What T7 built: the non-functional suites of 05 §5.8 in `internal/nfr`
+(`make load`, `make soak`, `make resilience`; the nightly workflow runs
+them long) over a harness that runs the platform the way `erp-server` does:
+the public API on a real listener over a configured tenant, the balance
+projector and the outbox relay to an embedded JetStream, and virtual users
+with a principal each. Hardening the suites asked for: request quotas per
+tenant and principal (04 §4.11), a request deadline and pool sizing that
+shed load as 503 instead of queueing, lost database connections answered
+as retryable 503s, backlog gauges for the workers (05 §5.7), and partition
+maintenance with a readiness check (05 §5.3, §5.7). The exit criterion is
+`TestLoad`, `TestSoak` and the four `TestResilience*` tests passing against
+the budgets of 01 §1.3; locally (16 users, PostgreSQL in Docker) the mix
+runs at about 500 requests/s with read p95 27 ms (budget 50), list 30 ms
+(150), posting 175-180 ms (200), approval 34 ms (150) and trial balance
+28 ms (1 s), and recovery from a connection loss takes about 50 ms.
+
+Decisions taken while building it:
+
+- **Rate limits are token buckets per replica** (`internal/platform/ratelimit`):
+  a bucket per tenant (default 2,000/s, burst 10,000) and per principal
+  (default 50/s, burst 100; `ERP_RATE_LIMIT_TENANT`,
+  `ERP_RATE_LIMIT_PRINCIPAL`, `off` to disable). The principal's bucket is
+  checked first, so a hot principal's refusals do not count against its
+  tenant. Every response carries `RateLimit-Limit`, `RateLimit-Remaining`
+  and `RateLimit-Reset` for the tighter quota; a refusal is 429
+  `request.rate_limited` with `Retry-After`, answered before the unit of
+  work opens a transaction. With n replicas a caller gets up to n times the
+  quota until limits move to the gateway.
+- **Load is shed, not queued.** Each request has a deadline
+  (`ERP_REQUEST_TIMEOUT`, default 30 s) and the pool a size
+  (`ERP_DB_MAX_CONNS`, default the driver's); a request that cannot get a
+  connection or finish in time is a 503 with `Retry-After`, and the unit
+  of work buffers responses until commit, so nothing is half-written.
+- **A lost connection is a 503 the client retries.** `problem.From` maps
+  class 08 and 57P0x errors, connection errors and network faults to
+  `platform.unavailable` with "retry with the same Idempotency-Key"; the
+  resilience suite found them answered as 500. Nothing of the aborted
+  transaction survives, and the idempotency key makes the retry safe.
+- **Backlogs are read on each scrape** (`telemetry.Metrics.Gauge`):
+  `erp_outbox_backlog`, `erp_projection_backlog` and
+  `erp_payment_proposals_queued`, counted by the role that drains each
+  queue; a failed read counts in `erp_gauge_read_errors_total`.
+- **Partitions are maintained by the server.** `db.EnsurePartitions`
+  creates audit months six months ahead and journal years three years
+  ahead at start and every six hours (`db.Horizon` measures the horizon);
+  readiness fails below three audit months or two journal years, so a
+  horizon that stopped growing shows before a posting fails.
+- **The suites are tests, not tools.** They are plain `go test` runs sized
+  by environment variables (`ERP_LOAD_USERS`, `ERP_LOAD_DURATION`,
+  `ERP_LOAD_RPS`, `ERP_SOAK_DURATION`, `ERP_SOAK_WINDOW`), so they use the
+  same fixtures and assertions as the functional suites. Load and soak
+  skip under `-short` and the race detector; the resilience tests run in
+  `make test`. The load test asserts the p95 and p99 budgets of every
+  operation and that the workers drained; the soak asserts no failed
+  request, p95 drift within 1.5× of the first window or within budget,
+  stable goroutines and heap, and workers keeping up; every suite ends with
+  the consistency check (each reference posted once, every 201 in the
+  journal, projected balances equal to the journal, audit chain intact).
+- **Resilience cases.** Killing every database connection under load
+  (`pg_terminate_backend`, as a failover does): requests fail as 503 for
+  tens of milliseconds, failed posts retried with their key post once, and
+  recovery is measured against the RTO. Stopping the JetStream node:
+  events wait in the outbox and are in the stream exactly once after the
+  node returns. Killing workers: the projector restarted every 100 ms
+  mid-batch projects each entry once; a relay that crashes after
+  publishing republishes and JetStream de-duplicates; a proposal worker
+  that crashes mid-build (a failing transaction injected) leaves the run
+  for the next round, which builds it once. Shutting the server down under
+  load: every request gets a complete answer or a connection error.
+
+Open points for the contract and design review:
+
+- The budgets are met at the rate a laptop reaches (about 500 requests/s
+  for the mix with 16 users), not at the largest tenant's 2,000/s sustained
+  and 10,000/s peak. The suite paces with `ERP_LOAD_RPS`; a run at the
+  peak needs a cell-sized environment, which is the first scalability gate
+  of 05 §5.1 before Phase 1 goes live.
+- Primary failover and NATS node loss are simulated inside one process
+  (connections terminated, an embedded node stopped); the quarterly
+  resilience tests of 05 §5.8 against real clusters are still to be run.
+- Rate limits are per replica and the per-agent-profile quotas of 04 §4.11
+  are not implemented; limits per tenant per cell belong at the gateway.
+- `erp-server`'s outbox gauge counts every context's outbox on each
+  scrape; at very large backlogs the count itself gets slow, and a
+  sampled gauge would be better.
+- Read replicas, PgBouncer and the global router of 05 §5.2-5.4 are
+  deployment concerns not exercised here.
+
+### T8 decisions and open points
+
+What T8 built: `internal/provisioning`, the one step the API cannot do for
+itself (every request runs as a principal of an existing tenant), as the
+operator command `erp-server provision`; and a development issuer
+(`authn.DevIssuer`, `ERP_DEV_ISSUER=true`) that mints tokens on the admin
+listener, with `erp token` to fetch them. The exit criterion is
+`TestProvisionAndDevelopmentLogin` (cmd/erp-server): a tenant provisioned
+from a configuration file, its administrator's token minted, and the API
+answering the administrator. This closes T2's first open point and the
+README's "no local tenant bootstrap" gap.
+
+Decisions taken while building it:
+
+- **One transaction provisions everything.** The tenant row is written as
+  the connection's own role (the migrations' owner), then the transaction
+  switches to `erp_app` acting as the new administrator, so the tenant's
+  audit trail starts with the administrator: the administrator principal
+  (all companies), the `tenant_admin` role holding every permission of
+  `ref.permission`, the roles the configuration's approval policies name
+  (empty, for the administrator to fill), an active legal entity per
+  company of the configuration, and the configuration as version 1 through
+  `configuration.Bootstrap`. `TenantStatusChanged` (provisioning → active)
+  is published. A failure anywhere leaves nothing (`TestProvisioningIsAllOrNothing`).
+- **The first configuration is required.** A tenant without one cannot
+  post, and there is no API to bootstrap later (changes go through change
+  requests on version 1). `erp config generate` writes one from SAP
+  customizing before the tenant exists.
+- **The development issuer is static, not discovered.** `authn.New` takes
+  static issuers with known keys next to the discovered ones; the server
+  trusts its own fresh RSA key under issuer `erp-dev`, audience `erp-api`,
+  and serves `POST /dev/token` on the admin listener only. With
+  `ERP_DEV_ISSUER=true`, `ERP_OIDC_ISSUERS` becomes optional; the server
+  logs a warning at start. Tokens live an hour.
+
+Open points for the contract and design review:
+
+- Provisioning is an operator command on the server, not an API: a
+  control-plane API (and the global tenant directory of 05 §5.4) is still
+  to be designed, and with it suspending and offboarding tenants.
+- Per-tenant identity providers (ADR-0014's registry) are still deployment
+  configuration; the development issuer does not change that.
+- The administrator holds every permission, including approvals, so
+  segregation of duties starts when the administrator provisions the real
+  roles; a tenant's first SoD rules could be part of the configuration.
 
 ## 7.4 Data from the prototype
 

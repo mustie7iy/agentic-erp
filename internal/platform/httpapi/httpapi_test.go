@@ -21,8 +21,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 )
 
@@ -30,15 +33,20 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 func TestAdmin(t *testing.T) {
 	m := telemetry.NewMetrics()
-	healthy := Admin(func(context.Context) error { return nil }, m)
-	sick := Admin(func(context.Context) error { return errors.New("db down") }, m)
+	healthy := Admin(func(context.Context) error { return nil }, m, nil)
+	sick := Admin(func(context.Context) error { return errors.New("db down") }, m, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(201) }))
 	for _, c := range []struct {
 		h    http.Handler
 		path string
 		code int
-	}{{healthy, "/livez", 200}, {healthy, "/readyz", 200}, {sick, "/readyz", 503}, {sick, "/livez", 200}, {healthy, "/metrics", 200}} {
+	}{{healthy, "/livez", 200}, {healthy, "/readyz", 200}, {sick, "/readyz", 503}, {sick, "/livez", 200}, {healthy, "/metrics", 200},
+		{healthy, "/dev/token", 404}, {sick, "/dev/token", 201}} {
 		rec := httptest.NewRecorder()
-		c.h.ServeHTTP(rec, httptest.NewRequest("GET", c.path, nil))
+		method := "GET"
+		if c.path == "/dev/token" {
+			method = "POST"
+		}
+		c.h.ServeHTTP(rec, httptest.NewRequest(method, c.path, nil))
 		if rec.Code != c.code {
 			t.Errorf("%s: %d", c.path, rec.Code)
 		}
@@ -97,5 +105,48 @@ func TestNewReportsServerErrors(t *testing.T) {
 		Tracer: tracenoop.NewTracerProvider(), Meter: failingProvider{}, Now: time.Now})
 	if err == nil {
 		t.Fatal("server construction failure not reported")
+	}
+}
+
+// TestQuotasAndDeadlines checks the hardening in the request chain: the
+// rate limiter answers before the unit of work, and a request past its
+// deadline is a 503 the client can retry.
+func TestQuotasAndDeadlines(t *testing.T) {
+	is := authntest.New(t)
+	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ten := pgtest.NewTenant(t, "platform.operation.read")
+	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	keys, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
+	base := Config{Pool: pgtest.Pool(t), AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: keys, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now}
+	get := func(h http.Handler) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/v1/operations", nil)
+		req.Header.Set("Authorization", "Bearer "+is.Token(t, ten.ID, ten.Human.Subject, nil))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	limited := base
+	limited.Limits = &ratelimit.Limiter{Principal: ratelimit.Quota{Rate: 0.001, Burst: 1}}
+	h, err := New(limited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := get(h); rec.Code != 200 || rec.Header().Get("RateLimit-Remaining") != "0" {
+		t.Fatalf("first: %d %v", rec.Code, rec.Header())
+	}
+	if rec := get(h); rec.Code != 429 || rec.Header().Get("Retry-After") == "" || !strings.Contains(rec.Body.String(), "request.rate_limited") {
+		t.Fatalf("second: %d %v %s", rec.Code, rec.Header(), rec.Body)
+	}
+	expiring := base
+	expiring.RequestTimeout = time.Nanosecond
+	if h, err = New(expiring); err != nil {
+		t.Fatal(err)
+	}
+	if rec := get(h); rec.Code != 503 || rec.Header().Get("Retry-After") != "1" || !strings.Contains(rec.Body.String(), "platform.unavailable") {
+		t.Fatalf("expired: %d %v %s", rec.Code, rec.Header(), rec.Body)
 	}
 }

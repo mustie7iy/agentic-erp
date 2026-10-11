@@ -174,7 +174,12 @@ func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 			return err
 		}
 	} else if err := buf.Flush(ctx, tx, p, reqctx.TraceID(ctx), m.Now()); err != nil {
-		// The audit trail rejecting an entry is never the client's fault.
+		// The audit trail rejecting an entry is never the client's fault: a
+		// lost connection stays the retryable 503 it translates to, anything
+		// else is internal.
+		if p := problem.From(err); p.Status >= http.StatusInternalServerError {
+			return p
+		}
 		return problem.Internal(err)
 	}
 	if req != nil {

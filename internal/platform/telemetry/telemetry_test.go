@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -102,5 +104,27 @@ func TestOTLPExport(t *testing.T) {
 		if _, err := Tracing(ctx, bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
+	}
+}
+
+func TestGaugesAreReadOnScrape(t *testing.T) {
+	m := NewMetrics()
+	var backlog float64 = 7
+	m.Gauge("erp_test_backlog", "A backlog.", func(context.Context) (float64, error) { return backlog, nil })
+	m.Gauge("erp_test_broken", "Never readable.", func(context.Context) (float64, error) { return 0, errors.New("down") })
+	scrape := func() string {
+		rec := httptest.NewRecorder()
+		m.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+		return rec.Body.String()
+	}
+	// Collectors run concurrently, so the error counter shows the failure on this scrape or the next.
+	got := scrape() + scrape()
+	if !strings.Contains(got, "erp_test_backlog 7") || strings.Contains(got, "erp_test_broken 0") ||
+		!regexp.MustCompile(`erp_gauge_read_errors_total\{gauge="erp_test_broken"\} [12]`).MatchString(got) {
+		t.Fatal(got)
+	}
+	backlog = 0
+	if got = scrape(); !strings.Contains(got, "erp_test_backlog 0") {
+		t.Fatal(got)
 	}
 }

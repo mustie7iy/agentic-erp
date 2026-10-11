@@ -335,3 +335,36 @@ func TestAnalyticsErrors(t *testing.T) {
 	fails(t, "ERP_TOKEN", "ask", "why")
 	fails(t, "ERP_TOKEN", "report", "-file", "good.json")
 }
+
+func TestTokenCommand(t *testing.T) {
+	minted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/dev/token" || r.Method != http.MethodPost {
+			w.WriteHeader(404)
+			return
+		}
+		var in map[string]string
+		json.NewDecoder(r.Body).Decode(&in)
+		if in["subject"] == "nobody" {
+			w.WriteHeader(404)
+			w.Write([]byte(`{"code": "not_found"}`))
+			return
+		}
+		w.Write([]byte(`{"token": "t-` + in["subject"] + `", "expires_in": 3600}`))
+	}))
+	defer minted.Close()
+	env := map[string]string{"ERP_ADMIN_URL": minted.URL}
+	getenv = func(k string) string { return env[k] }
+	t.Cleanup(func() { getenv = os.Getenv })
+	if got := must(t, "token", "-tenant", "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01", "-subject", "ada"); !strings.Contains(got, "t-ada") {
+		t.Fatalf("token: %s", got)
+	}
+	fails(t, "flag provided", "token", "-x")
+	fails(t, "-tenant and -subject are required", "token", "-tenant", "x")
+	fails(t, "ERP_DEV_ISSUER", "token", "-tenant", "x", "-subject", "nobody")
+	env["ERP_ADMIN_URL"] = "http://127.0.0.1:1"
+	fails(t, "connection refused", "token", "-tenant", "x", "-subject", "ada")
+	env["ERP_ADMIN_URL"] = "://bad"
+	fails(t, "missing protocol scheme", "token", "-tenant", "x", "-subject", "ada")
+	delete(env, "ERP_ADMIN_URL") // the default admin listener is not running here
+	fails(t, "connection refused", "token", "-tenant", "x", "-subject", "ada")
+}

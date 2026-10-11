@@ -120,6 +120,11 @@ func New(t testing.TB, permissions ...string) Env {
 	return e
 }
 
+// Person creates a human in every legal entity holding the tenant's human
+// role and every role other than "all" and "machine": an approver, or one
+// of the many users of a load test.
+func (e Env) Person(t testing.TB, name string) pgtest.Actor { return e.person(t, name) }
+
 // person creates a human in every legal entity holding the tenant's human
 // role and every role other than "all" and "machine".
 func (e Env) person(t testing.TB, name string) pgtest.Actor {

@@ -50,7 +50,9 @@ jobs:
       - name: Functional and non-functional tests (race detector)
         run: go test -race -count=1 ./...
       - name: Performance budgets (without the race detector)
-        run: go test -count=1 -run Budget -v ./internal/ledger
+        run: |
+          go test -count=1 -run Budget -v ./internal/ledger
+          go test -count=1 -run Perf -v ./internal/nfr
       - name: Coverage gate
         run: ./scripts/coverage.sh
       - name: Fuzz (30s per target)

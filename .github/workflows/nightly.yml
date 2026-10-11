@@ -1,0 +1,42 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "15 2 * * *"
+  workflow_dispatch:
+    inputs:
+      soak:
+        description: Soak duration
+        default: 2h
+
+# The load and soak suites of 05-scalability §5.8 at length, and longer
+# fuzzing. Budgets are 01-requirements §1.3; the runner is far smaller than
+# a cell, so the run validates the suite and trends, not the peak.
+jobs:
+  nfr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
+      ERP_LOAD_USERS: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Load (2 minutes)
+        run: make load ERP_LOAD_DURATION=2m
+      - name: Resilience
+        run: make resilience
+      - name: Soak
+        run: make soak ERP_SOAK_DURATION=${{ github.event.inputs.soak || '2h' }} ERP_SOAK_WINDOW=1m
+      - name: Fuzz (5 minutes per target)
+        run: make fuzz FUZZTIME=5m

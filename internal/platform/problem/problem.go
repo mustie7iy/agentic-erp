@@ -9,10 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -144,9 +147,17 @@ func From(err error) *Problem {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return Unavailable("The request did not complete in time; retry with the same Idempotency-Key.", 1).WithCause(err)
 	}
+	if lostConnection(err) {
+		return Unavailable("The database connection was lost; retry with the same Idempotency-Key.", 1).WithCause(err)
+	}
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) {
 		return Internal(err)
+	}
+	// Class 08 (connection exception) and 57P0x (the server shutting down or
+	// terminating the session): the transaction is gone, the request can be retried.
+	if strings.HasPrefix(pg.Code, "08") || strings.HasPrefix(pg.Code, "57P0") {
+		return Unavailable("The database connection was lost; retry with the same Idempotency-Key.", 1).WithCause(err)
 	}
 	if pg.ConstraintName != "" {
 		constraintsMu.RLock()
@@ -175,6 +186,16 @@ func From(err error) *Problem {
 		return Unavailable("The request took too long and was cancelled.", 1).WithCause(err)
 	}
 	return Internal(err)
+}
+
+// lostConnection reports a connection to the database failing or closing
+// under a request (a failover, a terminated backend, a network fault):
+// nothing of the request's transaction survives, so it is safe to retry.
+func lostConnection(err error) bool {
+	var connect *pgconn.ConnectError
+	var netErr net.Error
+	return pgconn.SafeToRetry(err) || errors.As(err, &connect) || errors.As(err, &netErr) ||
+		errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
 }
 
 // Cause returns the logged cause of a problem, if any.

@@ -25,8 +25,8 @@ func budget(t *testing.T, name string, limit time.Duration, f func()) {
 }
 
 func skipShort(t *testing.T) {
-	if testing.Short() {
-		t.Skip("performance budget; skipped with -short")
+	if testing.Short() || raceDetector {
+		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
 	}
 }
 

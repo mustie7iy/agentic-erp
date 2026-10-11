@@ -40,12 +40,23 @@ type Verifier struct {
 	issuers map[string]issuer
 }
 
-// New discovers each issuer's configuration and keys endpoint.
-func New(ctx context.Context, issuers []Issuer) (*Verifier, error) {
-	if len(issuers) == 0 {
+// Static is an issuer trusted with known keys instead of discovery (the
+// development issuer).
+type Static struct {
+	Issuer Issuer
+	Keys   oidc.KeySet
+}
+
+// New discovers each issuer's configuration and keys endpoint, and trusts
+// the static issuers as given.
+func New(ctx context.Context, issuers []Issuer, static ...Static) (*Verifier, error) {
+	if len(issuers)+len(static) == 0 {
 		return nil, errors.New("authn: at least one trusted issuer is required")
 	}
 	v := &Verifier{issuers: map[string]issuer{}}
+	for _, s := range static {
+		v.issuers[s.Issuer.URL] = issuer{verifier: oidc.NewVerifier(s.Issuer.URL, s.Keys, &oidc.Config{ClientID: s.Issuer.Audience}), tenantClaim: DefaultTenantClaim}
+	}
 	for _, is := range issuers {
 		if is.Audience == "" {
 			return nil, fmt.Errorf("authn: issuer %s: audience is required", is.URL)
