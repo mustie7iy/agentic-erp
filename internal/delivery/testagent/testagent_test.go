@@ -19,7 +19,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 var sessionRe = regexp.MustCompile(`session id is ([0-9a-f-]{36})`)
 
 func TestReview(t *testing.T) {
-	f := fixture.New(t, "config.change.read", "config.change.propose", "config.version.read", "agents.session.record", "agents.session.read")
+	f := fixture.New(t, "config.change.read", "config.change.propose", "config.version.read", "config.regression.manage", "agents.session.record", "agents.session.read")
 	srv := httptest.NewServer(f.API.Handler)
 	defer srv.Close()
 	api := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Agent.Subject, nil)}
@@ -30,6 +30,8 @@ func TestReview(t *testing.T) {
 	id := cr["id"].(string)
 	model := llmtest.New(t,
 		llmtest.Tool("getChangeRequest", map[string]any{"id": id}),
+		llmtest.Tool("listRegressionSuites", map[string]any{}),
+		llmtest.Tool("createRegressionSuite", map[string]any{"body": map[string]any{"name": "Before the tolerance change"}}), // 422: nothing to capture yet
 		llmtest.ToolFn("createRecommendation", func(body string) any {
 			return map[string]any{"body": map[string]any{"session_id": sessionRe.FindStringSubmatch(body)[1], "object_type": "change_request",
 				"object_id": id, "kind": "approve", "content": "Operational change within policy."}}

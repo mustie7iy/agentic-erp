@@ -207,6 +207,17 @@ type Handler interface {
 	//
 	// POST /v1/recommendations
 	CreateRecommendation(ctx context.Context, req *RecommendationCreate, params CreateRecommendationParams) (CreateRecommendationRes, error)
+	// CreateRegressionSuite implements createRegressionSuite operation.
+	//
+	// Captures a regression suite from the supplier invoices on purchase orders of the recent window under
+	// the active configuration version: a stratified sample (every decision, every match issue kind,
+	// invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
+	// change request then replays the latest suite of its base version and records `regression` evidence:
+	// a case outside the companies the change touches that is decided differently fails it. 422
+	// `config.no_cases` when the window has no invoices to capture.
+	//
+	// POST /v1/regression-suites
+	CreateRegressionSuite(ctx context.Context, req *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
 	// CreateRequisition implements createRequisition operation.
 	//
 	// Creates a draft requisition.
@@ -453,6 +464,12 @@ type Handler interface {
 	//
 	// GET /v1/recommendations/{id}
 	GetRecommendation(ctx context.Context, params GetRecommendationParams) (GetRecommendationRes, error)
+	// GetRegressionSuite implements getRegressionSuite operation.
+	//
+	// Returns one regression suite with its cases.
+	//
+	// GET /v1/regression-suites/{id}
+	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
 	// GetRequisition implements getRequisition operation.
 	//
 	// Returns one requisition. Expandable: `supplier`.
@@ -701,6 +718,12 @@ type Handler interface {
 	//
 	// GET /v1/recommendations
 	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (ListRecommendationsRes, error)
+	// ListRegressionSuites implements listRegressionSuites operation.
+	//
+	// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+	//
+	// GET /v1/regression-suites
+	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
 	// ListRequisitions implements listRequisitions operation.
 	//
 	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`.

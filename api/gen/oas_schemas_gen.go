@@ -2049,6 +2049,7 @@ func (*BadRequestHeaders) createPartnerChangeRes()      {}
 func (*BadRequestHeaders) createPrincipalRes()          {}
 func (*BadRequestHeaders) createPurchaseOrderRes()      {}
 func (*BadRequestHeaders) createRecommendationRes()     {}
+func (*BadRequestHeaders) createRegressionSuiteRes()    {}
 func (*BadRequestHeaders) createRequisitionRes()        {}
 func (*BadRequestHeaders) createRoleAssignmentRes()     {}
 func (*BadRequestHeaders) createRoleRes()               {}
@@ -2089,6 +2090,7 @@ func (*BadRequestHeaders) getPaymentRunRes()            {}
 func (*BadRequestHeaders) getPrincipalRes()             {}
 func (*BadRequestHeaders) getPurchaseOrderRes()         {}
 func (*BadRequestHeaders) getRecommendationRes()        {}
+func (*BadRequestHeaders) getRegressionSuiteRes()       {}
 func (*BadRequestHeaders) getRequisitionRes()           {}
 func (*BadRequestHeaders) getRoleAssignmentRes()        {}
 func (*BadRequestHeaders) getRolePermissionRes()        {}
@@ -2130,6 +2132,7 @@ func (*BadRequestHeaders) listPaymentsRes()             {}
 func (*BadRequestHeaders) listPrincipalsRes()           {}
 func (*BadRequestHeaders) listPurchaseOrdersRes()       {}
 func (*BadRequestHeaders) listRecommendationsRes()      {}
+func (*BadRequestHeaders) listRegressionSuitesRes()     {}
 func (*BadRequestHeaders) listRequisitionsRes()         {}
 func (*BadRequestHeaders) listRoleAssignmentsRes()      {}
 func (*BadRequestHeaders) listRolePermissionsRes()      {}
@@ -8366,6 +8369,7 @@ func (*ForbiddenHeaders) createPartnerChangeRes()      {}
 func (*ForbiddenHeaders) createPrincipalRes()          {}
 func (*ForbiddenHeaders) createPurchaseOrderRes()      {}
 func (*ForbiddenHeaders) createRecommendationRes()     {}
+func (*ForbiddenHeaders) createRegressionSuiteRes()    {}
 func (*ForbiddenHeaders) createRequisitionRes()        {}
 func (*ForbiddenHeaders) createRoleAssignmentRes()     {}
 func (*ForbiddenHeaders) createRoleRes()               {}
@@ -8406,6 +8410,7 @@ func (*ForbiddenHeaders) getPaymentRunRes()            {}
 func (*ForbiddenHeaders) getPrincipalRes()             {}
 func (*ForbiddenHeaders) getPurchaseOrderRes()         {}
 func (*ForbiddenHeaders) getRecommendationRes()        {}
+func (*ForbiddenHeaders) getRegressionSuiteRes()       {}
 func (*ForbiddenHeaders) getRequisitionRes()           {}
 func (*ForbiddenHeaders) getRoleAssignmentRes()        {}
 func (*ForbiddenHeaders) getRolePermissionRes()        {}
@@ -8447,6 +8452,7 @@ func (*ForbiddenHeaders) listPaymentsRes()             {}
 func (*ForbiddenHeaders) listPrincipalsRes()           {}
 func (*ForbiddenHeaders) listPurchaseOrdersRes()       {}
 func (*ForbiddenHeaders) listRecommendationsRes()      {}
+func (*ForbiddenHeaders) listRegressionSuitesRes()     {}
 func (*ForbiddenHeaders) listRequisitionsRes()         {}
 func (*ForbiddenHeaders) listRoleAssignmentsRes()      {}
 func (*ForbiddenHeaders) listRolePermissionsRes()      {}
@@ -9592,6 +9598,67 @@ func (s *GetRecommendationOKHeaders) SetResponse(val Recommendation) {
 }
 
 func (*GetRecommendationOKHeaders) getRecommendationRes() {}
+
+// GetRegressionSuiteOKHeaders wraps RegressionSuite with response headers.
+type GetRegressionSuiteOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           RegressionSuite
+}
+
+// GetETag returns the value of ETag.
+func (s *GetRegressionSuiteOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetRegressionSuiteOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetRegressionSuiteOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetRegressionSuiteOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetRegressionSuiteOKHeaders) GetResponse() RegressionSuite {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetRegressionSuiteOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetRegressionSuiteOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetRegressionSuiteOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetRegressionSuiteOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetRegressionSuiteOKHeaders) SetResponse(val RegressionSuite) {
+	s.Response = val
+}
+
+func (*GetRegressionSuiteOKHeaders) getRegressionSuiteRes() {}
 
 // GetRequisitionOKHeaders wraps Requisition with response headers.
 type GetRequisitionOKHeaders struct {
@@ -12739,6 +12806,7 @@ func (*NotFoundHeaders) getPaymentRunRes()            {}
 func (*NotFoundHeaders) getPrincipalRes()             {}
 func (*NotFoundHeaders) getPurchaseOrderRes()         {}
 func (*NotFoundHeaders) getRecommendationRes()        {}
+func (*NotFoundHeaders) getRegressionSuiteRes()       {}
 func (*NotFoundHeaders) getRequisitionRes()           {}
 func (*NotFoundHeaders) getRoleAssignmentRes()        {}
 func (*NotFoundHeaders) getRolePermissionRes()        {}
@@ -16984,6 +17052,7 @@ func (*PreconditionRequiredHeaders) createPartnerChangeRes()      {}
 func (*PreconditionRequiredHeaders) createPrincipalRes()          {}
 func (*PreconditionRequiredHeaders) createPurchaseOrderRes()      {}
 func (*PreconditionRequiredHeaders) createRecommendationRes()     {}
+func (*PreconditionRequiredHeaders) createRegressionSuiteRes()    {}
 func (*PreconditionRequiredHeaders) createRequisitionRes()        {}
 func (*PreconditionRequiredHeaders) createRoleAssignmentRes()     {}
 func (*PreconditionRequiredHeaders) createRoleRes()               {}
@@ -18847,6 +18916,461 @@ func (s *RecommendationPageHeaders) SetResponse(val RecommendationPage) {
 }
 
 func (*RecommendationPageHeaders) listRecommendationsRes() {}
+
+// One case of a regression suite: a supplier invoice and the decision it got when the suite was
+// captured.
+// Ref: #/components/schemas/RegressionCase
+type RegressionCase struct {
+	// Position in the suite.
+	CaseNo int32 `json:"case_no"`
+	// The invoice replayed.
+	SupplierInvoiceID uuid.UUID `json:"supplier_invoice_id"`
+	// The invoice's document number.
+	DocumentNumber string `json:"document_number"`
+	// Company code of the invoice's legal entity.
+	Company string `json:"company"`
+	// The strata that selected the case, e.g. `decision exception; issue price_variance`.
+	Why string `json:"why"`
+	// Decision at capture. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	ExpectedDecision string `json:"expected_decision"`
+	// Match issue codes at capture, empty for a clean match.
+	ExpectedIssues []string `json:"expected_issues"`
+}
+
+// GetCaseNo returns the value of CaseNo.
+func (s *RegressionCase) GetCaseNo() int32 {
+	return s.CaseNo
+}
+
+// GetSupplierInvoiceID returns the value of SupplierInvoiceID.
+func (s *RegressionCase) GetSupplierInvoiceID() uuid.UUID {
+	return s.SupplierInvoiceID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *RegressionCase) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetCompany returns the value of Company.
+func (s *RegressionCase) GetCompany() string {
+	return s.Company
+}
+
+// GetWhy returns the value of Why.
+func (s *RegressionCase) GetWhy() string {
+	return s.Why
+}
+
+// GetExpectedDecision returns the value of ExpectedDecision.
+func (s *RegressionCase) GetExpectedDecision() string {
+	return s.ExpectedDecision
+}
+
+// GetExpectedIssues returns the value of ExpectedIssues.
+func (s *RegressionCase) GetExpectedIssues() []string {
+	return s.ExpectedIssues
+}
+
+// SetCaseNo sets the value of CaseNo.
+func (s *RegressionCase) SetCaseNo(val int32) {
+	s.CaseNo = val
+}
+
+// SetSupplierInvoiceID sets the value of SupplierInvoiceID.
+func (s *RegressionCase) SetSupplierInvoiceID(val uuid.UUID) {
+	s.SupplierInvoiceID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *RegressionCase) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetCompany sets the value of Company.
+func (s *RegressionCase) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetWhy sets the value of Why.
+func (s *RegressionCase) SetWhy(val string) {
+	s.Why = val
+}
+
+// SetExpectedDecision sets the value of ExpectedDecision.
+func (s *RegressionCase) SetExpectedDecision(val string) {
+	s.ExpectedDecision = val
+}
+
+// SetExpectedIssues sets the value of ExpectedIssues.
+func (s *RegressionCase) SetExpectedIssues(val []string) {
+	s.ExpectedIssues = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/RegressionSuite
+type RegressionSuite struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Human suite number.
+	Number string `json:"number"`
+	// Name given at capture.
+	Name string `json:"name"`
+	// The configuration version the cases were decided under.
+	ConfigVersion int32 `json:"config_version"`
+	// How many days of invoices the capture looked at.
+	WindowDays int32 `json:"window_days"`
+	// Number of cases.
+	CaseCount int32 `json:"case_count"`
+	// The reasons cases were selected, in order.
+	Strata []string `json:"strata"`
+	// The cases.
+	Cases []RegressionCase `json:"cases"`
+}
+
+// GetID returns the value of ID.
+func (s *RegressionSuite) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *RegressionSuite) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *RegressionSuite) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *RegressionSuite) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *RegressionSuite) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *RegressionSuite) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetNumber returns the value of Number.
+func (s *RegressionSuite) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *RegressionSuite) GetName() string {
+	return s.Name
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *RegressionSuite) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetWindowDays returns the value of WindowDays.
+func (s *RegressionSuite) GetWindowDays() int32 {
+	return s.WindowDays
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *RegressionSuite) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// GetStrata returns the value of Strata.
+func (s *RegressionSuite) GetStrata() []string {
+	return s.Strata
+}
+
+// GetCases returns the value of Cases.
+func (s *RegressionSuite) GetCases() []RegressionCase {
+	return s.Cases
+}
+
+// SetID sets the value of ID.
+func (s *RegressionSuite) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *RegressionSuite) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *RegressionSuite) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *RegressionSuite) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *RegressionSuite) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *RegressionSuite) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetNumber sets the value of Number.
+func (s *RegressionSuite) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *RegressionSuite) SetName(val string) {
+	s.Name = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *RegressionSuite) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetWindowDays sets the value of WindowDays.
+func (s *RegressionSuite) SetWindowDays(val int32) {
+	s.WindowDays = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *RegressionSuite) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// SetStrata sets the value of Strata.
+func (s *RegressionSuite) SetStrata(val []string) {
+	s.Strata = val
+}
+
+// SetCases sets the value of Cases.
+func (s *RegressionSuite) SetCases(val []RegressionCase) {
+	s.Cases = val
+}
+
+// Capture a regression suite under the active configuration version.
+// Ref: #/components/schemas/RegressionSuiteCreate
+type RegressionSuiteCreate struct {
+	// Name of the suite.
+	Name string `json:"name"`
+	// At most this many cases (default 50).
+	MaxCases OptInt32 `json:"max_cases"`
+	// Capture from the invoices of the last this many days (default 90).
+	WindowDays OptInt32 `json:"window_days"`
+}
+
+// GetName returns the value of Name.
+func (s *RegressionSuiteCreate) GetName() string {
+	return s.Name
+}
+
+// GetMaxCases returns the value of MaxCases.
+func (s *RegressionSuiteCreate) GetMaxCases() OptInt32 {
+	return s.MaxCases
+}
+
+// GetWindowDays returns the value of WindowDays.
+func (s *RegressionSuiteCreate) GetWindowDays() OptInt32 {
+	return s.WindowDays
+}
+
+// SetName sets the value of Name.
+func (s *RegressionSuiteCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetMaxCases sets the value of MaxCases.
+func (s *RegressionSuiteCreate) SetMaxCases(val OptInt32) {
+	s.MaxCases = val
+}
+
+// SetWindowDays sets the value of WindowDays.
+func (s *RegressionSuiteCreate) SetWindowDays(val OptInt32) {
+	s.WindowDays = val
+}
+
+// RegressionSuiteHeaders wraps RegressionSuite with response headers.
+type RegressionSuiteHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           RegressionSuite
+}
+
+// GetETag returns the value of ETag.
+func (s *RegressionSuiteHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RegressionSuiteHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RegressionSuiteHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *RegressionSuiteHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *RegressionSuiteHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *RegressionSuiteHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *RegressionSuiteHeaders) GetResponse() RegressionSuite {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RegressionSuiteHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RegressionSuiteHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RegressionSuiteHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *RegressionSuiteHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *RegressionSuiteHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *RegressionSuiteHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RegressionSuiteHeaders) SetResponse(val RegressionSuite) {
+	s.Response = val
+}
+
+func (*RegressionSuiteHeaders) createRegressionSuiteRes() {}
+
+// One page of regression suites.
+// Ref: #/components/schemas/RegressionSuitePage
+type RegressionSuitePage struct {
+	// The suites on this page.
+	Items []RegressionSuite `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RegressionSuitePage) GetItems() []RegressionSuite {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RegressionSuitePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RegressionSuitePage) SetItems(val []RegressionSuite) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RegressionSuitePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// RegressionSuitePageHeaders wraps RegressionSuitePage with response headers.
+type RegressionSuitePageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           RegressionSuitePage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *RegressionSuitePageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *RegressionSuitePageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *RegressionSuitePageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *RegressionSuitePageHeaders) GetResponse() RegressionSuitePage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *RegressionSuitePageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *RegressionSuitePageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *RegressionSuitePageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RegressionSuitePageHeaders) SetResponse(val RegressionSuitePage) {
+	s.Response = val
+}
+
+func (*RegressionSuitePageHeaders) listRegressionSuitesRes() {}
 
 // RejectPaymentRunOKHeaders wraps PaymentRun with response headers.
 type RejectPaymentRunOKHeaders struct {
@@ -20949,6 +21473,7 @@ func (*ServiceUnavailableHeaders) createPartnerChangeRes()      {}
 func (*ServiceUnavailableHeaders) createPrincipalRes()          {}
 func (*ServiceUnavailableHeaders) createPurchaseOrderRes()      {}
 func (*ServiceUnavailableHeaders) createRecommendationRes()     {}
+func (*ServiceUnavailableHeaders) createRegressionSuiteRes()    {}
 func (*ServiceUnavailableHeaders) createRequisitionRes()        {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()     {}
 func (*ServiceUnavailableHeaders) createRoleRes()               {}
@@ -22513,6 +23038,7 @@ func (*TooManyRequestsHeaders) createPartnerChangeRes()      {}
 func (*TooManyRequestsHeaders) createPrincipalRes()          {}
 func (*TooManyRequestsHeaders) createPurchaseOrderRes()      {}
 func (*TooManyRequestsHeaders) createRecommendationRes()     {}
+func (*TooManyRequestsHeaders) createRegressionSuiteRes()    {}
 func (*TooManyRequestsHeaders) createRequisitionRes()        {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()     {}
 func (*TooManyRequestsHeaders) createRoleRes()               {}
@@ -22553,6 +23079,7 @@ func (*TooManyRequestsHeaders) getPaymentRunRes()            {}
 func (*TooManyRequestsHeaders) getPrincipalRes()             {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()         {}
 func (*TooManyRequestsHeaders) getRecommendationRes()        {}
+func (*TooManyRequestsHeaders) getRegressionSuiteRes()       {}
 func (*TooManyRequestsHeaders) getRequisitionRes()           {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()        {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()        {}
@@ -22594,6 +23121,7 @@ func (*TooManyRequestsHeaders) listPaymentsRes()             {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()           {}
 func (*TooManyRequestsHeaders) listPurchaseOrdersRes()       {}
 func (*TooManyRequestsHeaders) listRecommendationsRes()      {}
+func (*TooManyRequestsHeaders) listRegressionSuitesRes()     {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()         {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()      {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()      {}
@@ -22731,6 +23259,7 @@ func (*UnauthorizedHeaders) createPartnerChangeRes()      {}
 func (*UnauthorizedHeaders) createPrincipalRes()          {}
 func (*UnauthorizedHeaders) createPurchaseOrderRes()      {}
 func (*UnauthorizedHeaders) createRecommendationRes()     {}
+func (*UnauthorizedHeaders) createRegressionSuiteRes()    {}
 func (*UnauthorizedHeaders) createRequisitionRes()        {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()     {}
 func (*UnauthorizedHeaders) createRoleRes()               {}
@@ -22771,6 +23300,7 @@ func (*UnauthorizedHeaders) getPaymentRunRes()            {}
 func (*UnauthorizedHeaders) getPrincipalRes()             {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()         {}
 func (*UnauthorizedHeaders) getRecommendationRes()        {}
+func (*UnauthorizedHeaders) getRegressionSuiteRes()       {}
 func (*UnauthorizedHeaders) getRequisitionRes()           {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()        {}
 func (*UnauthorizedHeaders) getRolePermissionRes()        {}
@@ -22812,6 +23342,7 @@ func (*UnauthorizedHeaders) listPaymentsRes()             {}
 func (*UnauthorizedHeaders) listPrincipalsRes()           {}
 func (*UnauthorizedHeaders) listPurchaseOrdersRes()       {}
 func (*UnauthorizedHeaders) listRecommendationsRes()      {}
+func (*UnauthorizedHeaders) listRegressionSuitesRes()     {}
 func (*UnauthorizedHeaders) listRequisitionsRes()         {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()      {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()      {}
@@ -22938,6 +23469,7 @@ func (*UnprocessableHeaders) createPartnerChangeRes()      {}
 func (*UnprocessableHeaders) createPrincipalRes()          {}
 func (*UnprocessableHeaders) createPurchaseOrderRes()      {}
 func (*UnprocessableHeaders) createRecommendationRes()     {}
+func (*UnprocessableHeaders) createRegressionSuiteRes()    {}
 func (*UnprocessableHeaders) createRequisitionRes()        {}
 func (*UnprocessableHeaders) createRoleAssignmentRes()     {}
 func (*UnprocessableHeaders) createRoleRes()               {}

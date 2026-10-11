@@ -80,6 +80,7 @@ type Dependencies struct {
 	Sections      []Section
 	Approvals     Opener
 	Simulator     Simulator // replays transactions for simulation evidence (the worker)
+	Regressor     Regressor // captures and replays regression suites
 }
 
 // check validates a document for activation on top of base (nil for the
@@ -151,7 +152,7 @@ const crSelect = `SELECT c.id, c.number, c.title, c.rationale, c.author_id, c.ba
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'path', i.path, 'old_value', i.old_value, 'new_value', i.new_value,
 			'tier', i.tier) ORDER BY i.item_no) FROM config.change_item i WHERE i.tenant_id = c.tenant_id AND i.change_request_id = c.id), '[]'),
 		coalesce((SELECT json_agg(json_build_object('kind', e.kind, 'passed', e.passed, 'summary', e.summary, 'detail', e.detail,
-			'recorded_at', e.recorded_at, 'recorded_by', e.recorded_by) ORDER BY e.recorded_at)
+			'recorded_at', e.recorded_at, 'recorded_by', e.recorded_by) ORDER BY e.recorded_at, e.kind)
 			FROM config.evidence e WHERE e.tenant_id = c.tenant_id AND e.change_request_id = c.id), '[]')
 	FROM config.change_request c`
 

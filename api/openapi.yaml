@@ -2414,6 +2414,135 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/regression-suites:
+    get:
+      operationId: listRegressionSuites
+      tags:
+        - configuration
+      summary: List regression suites
+      description: "Regression suites captured for this tenant, newest first. Sortable by: `captured_at`."
+      x-permission: config.change.read
+      parameters:
+        - name: config_version
+          in: query
+          required: false
+          description: Only suites captured on this configuration version.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of regression suite results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegressionSuitePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createRegressionSuite
+      tags:
+        - configuration
+      summary: Capture a regression suite
+      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. 422 `config.no_cases` when the window has no invoices to capture."
+      x-permission: config.regression.manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The suite to capture.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegressionSuiteCreate"
+      responses:
+        "201":
+          description: "Created; the captured suite with its cases."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegressionSuite"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/regression-suites/{id}":
+    get:
+      operationId: getRegressionSuite
+      tags:
+        - configuration
+      summary: Get a regression suite
+      description: Returns one regression suite with its cases.
+      x-permission: config.change.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The regression suite.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegressionSuite"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/config-versions:
     get:
       operationId: listConfigVersions
@@ -10418,6 +10547,179 @@ components:
           detail: {}
           recorded_at: "2026-10-09T14:03:11Z"
           recorded_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d3c"
+    RegressionCase:
+      type: object
+      description: "One case of a regression suite: a supplier invoice and the decision it got when the suite was captured."
+      required:
+        - case_no
+        - supplier_invoice_id
+        - document_number
+        - company
+        - why
+        - expected_decision
+        - expected_issues
+      properties:
+        case_no:
+          type: integer
+          format: int32
+          description: Position in the suite.
+          minimum: 1
+          readOnly: true
+        supplier_invoice_id:
+          type: string
+          format: uuid
+          description: The invoice replayed.
+          readOnly: true
+        document_number:
+          type: string
+          description: The invoice's document number.
+          readOnly: true
+        company:
+          type: string
+          description: Company code of the invoice's legal entity.
+          readOnly: true
+        why:
+          type: string
+          description: "The strata that selected the case, e.g. `decision exception; issue price_variance`."
+          readOnly: true
+        expected_decision:
+          type: string
+          description: "Decision at capture. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - auto_post
+            - review
+            - exception
+          readOnly: true
+        expected_issues:
+          type: array
+          items:
+            type: string
+          description: Match issue codes at capture, empty for a clean match.
+          readOnly: true
+      examples:
+        - case_no: 1
+          supplier_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          document_number: SI100007
+          company: "2000"
+          why: decision exception; issue price_variance
+          expected_decision: exception
+          expected_issues: [price_variance]
+    RegressionSuite:
+      description: A regression suite captured under a configuration version, replayed by simulations of changes based on that version.
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - number
+            - name
+            - config_version
+            - window_days
+            - case_count
+            - strata
+            - cases
+          properties:
+            number:
+              type: string
+              description: Human suite number.
+              readOnly: true
+            name:
+              type: string
+              description: Name given at capture.
+              readOnly: true
+            config_version:
+              type: integer
+              format: int32
+              description: The configuration version the cases were decided under.
+              minimum: 1
+              readOnly: true
+            window_days:
+              type: integer
+              format: int32
+              description: How many days of invoices the capture looked at.
+              minimum: 1
+              readOnly: true
+            case_count:
+              type: integer
+              format: int32
+              description: Number of cases.
+              minimum: 0
+              readOnly: true
+            strata:
+              type: array
+              items:
+                type: string
+              description: The reasons cases were selected, in order.
+              readOnly: true
+            cases:
+              type: array
+              items:
+                $ref: "#/components/schemas/RegressionCase"
+              description: The cases.
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e00"
+          version: 1
+          created_at: "2026-10-11T09:00:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          updated_at: "2026-10-11T09:00:00Z"
+          number: RS-0001
+          name: Before the tax change
+          config_version: 1
+          window_days: 90
+          case_count: 1
+          strata: [decision exception, issue price_variance]
+          cases:
+            - case_no: 1
+              supplier_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+              document_number: SI100007
+              company: "2000"
+              why: decision exception; issue price_variance
+              expected_decision: exception
+              expected_issues: [price_variance]
+    RegressionSuiteCreate:
+      type: object
+      description: Capture a regression suite under the active configuration version.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Name of the suite.
+          minLength: 1
+          maxLength: 200
+        max_cases:
+          type: integer
+          format: int32
+          description: At most this many cases (default 50).
+          minimum: 1
+          maximum: 500
+        window_days:
+          type: integer
+          format: int32
+          description: Capture from the invoices of the last this many days (default 90).
+          minimum: 1
+          maximum: 366
+      examples:
+        - name: Before the tax change
+          max_cases: 50
+          window_days: 90
+    RegressionSuitePage:
+      type: object
+      description: One page of regression suites.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RegressionSuite"
+          description: The suites on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     ChangeRequest:
       description: A proposed configuration change, governed by tier-based approval and evidence.
       allOf:

@@ -107,7 +107,8 @@ through the API, and only make recommendations or change requests:
 ```sh
 ./bin/erp agent config -draft draft.yaml "raise the price tolerance in company 1000 to 3%"
 ./bin/erp agent migration -connector <id> -legal-entities <id>   # rehearsals only
-./bin/erp agent test -change-request <id> -out uat.md
+./bin/erp agent test -change-request <id> -out uat.md                  # captures a regression suite when one is missing
+./bin/erp call createRegressionSuite -body '{"name": "Baseline"}'    # pin today's invoice decisions for tier 3-4 changes
 ```
 
 On-demand analytics reads the data you may see through the API (see
@@ -210,9 +211,9 @@ Known gaps:
   not yet been validated against a live system. Check them against your `$metadata`.
 - Agents are tested against a scripted model; their behavior with the live API
   needs evals before any agent gets autonomy above L0.
-- Tier 3 and 4 configuration changes get simulation evidence from the
-  worker (supplier invoices replayed under the proposal); regression
-  suites from the prototype have no API yet.
+- Tier 3 and 4 configuration changes need simulation and regression
+  evidence; both replay supplier invoices only, so changes to other areas
+  pass with nothing to decide on.
 - The load suite meets its budgets at the rate a laptop or CI runner
   reaches (about 500 requests/s); the largest tenant's peak needs a
   cell-sized environment.

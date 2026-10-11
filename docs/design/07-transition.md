@@ -61,6 +61,7 @@ prototype store for that context.
 | T7 (done) | **Hardening** | Load, soak and resilience suites pass at the targets in 01 §1.3 |
 | T8 (done) | **Operations**: provisioning and local login | A tenant is provisioned by an operator and run through the API from the command line, with a development issuer locally |
 | T9 (done) | **Simulation** | Tier 3 and 4 configuration changes get simulation evidence from a worker that replays recent invoices under the proposal, and move on to approval |
+| T10 (done) | **Regression suites** | Suites captured from real invoices through the API; the simulation replays the base version's latest suite under the proposal and records regression evidence |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -687,6 +688,57 @@ Open points for the contract and design review:
   migration runs; chunked runs wait for Temporal (ADR-0012).
 - Regression evidence and the regression suites it needs are still to be
   rebuilt on the API.
+
+### T10 decisions and open points
+
+What T10 built: regression suites on the API (`regression-suites`: capture,
+get, list; permission `config.regression.manage`; migration 000018), their
+capture and replay in payables (`payables.Regression`) and the regression
+evidence the simulation worker now records next to the simulation. A suite
+is a stratified sample of the recent supplier invoices on purchase orders
+under the active version (every decision, every match issue kind, invoices
+near the auto-post limit, then more up to the maximum) with the decision
+each case got. Tier 3 and 4 changes need both kinds of evidence again
+(`config.RequiredEvidence`); the test agent can capture suites. The exit
+criterion is `TestRegressionSuites` (internal/payables) for capture and
+replay on real invoices, and `TestRegressionEvidence`
+(internal/configuration) for the evidence: no suite, a stale suite, a
+regression outside the change's scope, and changes inside it.
+
+Decisions taken while building it:
+
+- **A suite is pinned expectations, not a snapshot.** The prototype stored
+  a copy of the data; here a case is the invoice id and its decision at
+  capture, replayed on today's data (the ledger is append-only, so the
+  inputs do not change). A replay under the base version that no longer
+  matches means the suite is stale ("capture a new suite"), and the
+  evidence fails until one is.
+- **What passes.** The simulation's replay is informational; the regression
+  suite judges. A case decided differently under the proposal is the
+  change at work when its company is one the change's items touch
+  (`companies[<code>]...` paths); outside those companies it is a
+  regression and the evidence fails. Changes to payment terms, purchasing
+  or payments touch no company, so any difference fails them. Both kinds
+  are recorded in the same worker run; the request moves on when both pass.
+- **No suite is a failing evidence, not an error.** The operation
+  succeeds, the evidence says "capture one (createRegressionSuite) and
+  simulate again", and the test agent's prompt tells it to do so.
+- **Capture is synchronous** (at most 2,000 invoices looked at, 50 cases by
+  default) and reads committed data in the request; evidence of the
+  regression kind is immutable like all evidence.
+
+Open points for the contract and design review:
+
+- The replay covers supplier invoices like the simulation; suites of other
+  transaction kinds (payments, receipts) come with their replays.
+- A suite belongs to the version it was captured on; after an activation,
+  the next tier 3 change needs a new suite on the new version (the evidence
+  says so). Carrying a suite forward when its cases still match would save
+  a step.
+- The scope rule (touched companies) is a heuristic; a change could
+  legitimately alter decisions in another company (shared payment terms)
+  and would need a new suite to approve. An explicit "accepted changes"
+  step on the change request would be more precise.
 
 ## 7.4 Data from the prototype
 

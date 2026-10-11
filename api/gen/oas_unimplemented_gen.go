@@ -302,6 +302,20 @@ func (UnimplementedHandler) CreateRecommendation(ctx context.Context, req *Recom
 	return r, ht.ErrNotImplemented
 }
 
+// CreateRegressionSuite implements createRegressionSuite operation.
+//
+// Captures a regression suite from the supplier invoices on purchase orders of the recent window under
+// the active configuration version: a stratified sample (every decision, every match issue kind,
+// invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
+// change request then replays the latest suite of its base version and records `regression` evidence:
+// a case outside the companies the change touches that is decided differently fails it. 422
+// `config.no_cases` when the window has no invoices to capture.
+//
+// POST /v1/regression-suites
+func (UnimplementedHandler) CreateRegressionSuite(ctx context.Context, req *RegressionSuiteCreate, params CreateRegressionSuiteParams) (r CreateRegressionSuiteRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateRequisition implements createRequisition operation.
 //
 // Creates a draft requisition.
@@ -665,6 +679,15 @@ func (UnimplementedHandler) GetPurchaseOrder(ctx context.Context, params GetPurc
 //
 // GET /v1/recommendations/{id}
 func (UnimplementedHandler) GetRecommendation(ctx context.Context, params GetRecommendationParams) (r GetRecommendationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetRegressionSuite implements getRegressionSuite operation.
+//
+// Returns one regression suite with its cases.
+//
+// GET /v1/regression-suites/{id}
+func (UnimplementedHandler) GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (r GetRegressionSuiteRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1036,6 +1059,15 @@ func (UnimplementedHandler) ListPurchaseOrders(ctx context.Context, params ListP
 //
 // GET /v1/recommendations
 func (UnimplementedHandler) ListRecommendations(ctx context.Context, params ListRecommendationsParams) (r ListRecommendationsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListRegressionSuites implements listRegressionSuites operation.
+//
+// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+//
+// GET /v1/regression-suites
+func (UnimplementedHandler) ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (r ListRegressionSuitesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

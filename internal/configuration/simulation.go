@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -158,18 +159,30 @@ func (w *SimulationWorker) process(ctx context.Context, j job) error {
 	if err != nil {
 		return failOrRetry(err, fail)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO config.evidence (tenant_id, change_request_id, kind, passed, summary, detail, recorded_by)
-		VALUES ($1, $2, 'simulation', $3, $4, $5, $6)`, actor.TenantID, id, sim.Passed, sim.Summary, sim.Detail, actor.ID); err != nil {
+	if err := recordEvidence(ctx, tx, actor, id, "simulation", sim); err != nil {
 		return err
 	}
-	// A passing simulation is all the evidence a tier needs today
-	// (config.RequiredEvidence); the request moves on to approval. Tiers
-	// that need evidence always have approval steps, so it never goes
-	// straight to approved here.
+	// The simulation and the regression suite are the evidence a tier needs
+	// (config.RequiredEvidence); when both pass the request moves on to
+	// approval. Tiers that need evidence always have approval steps, so it
+	// never goes straight to approved here.
+	passed := sim.Passed
+	detail := map[string]any{"kind": "simulation", "passed": sim.Passed, "summary": sim.Summary, "operation_id": j.OperationID}
+	if slices.Contains(config.RequiredEvidence(config.Tier(c.Tier)), "regression") {
+		reg, err := regression(ctx, tx, w.Dependencies, c, base, proposed)
+		if err != nil {
+			return failOrRetry(err, fail)
+		}
+		if err := recordEvidence(ctx, tx, actor, id, "regression", reg); err != nil {
+			return err
+		}
+		passed = passed && reg.Passed
+		detail["regression_passed"], detail["regression_summary"] = reg.Passed, reg.Summary
+	}
 	status := c.Status
 	var request *uuid.UUID
 	var events []outbox.Event
-	if sim.Passed {
+	if passed {
 		if status, request, err = route(ctx, w.Dependencies, c, config.Tier(c.Tier)); err != nil {
 			return err
 		}
@@ -180,12 +193,19 @@ func (w *SimulationWorker) process(ctx context.Context, j job) error {
 		events = append(events, crEvent(id, "change_request_validated", map[string]any{"change_request_id": id, "number": c.Number, "tier": int(c.Tier),
 			"workflow_request_id": request, "outcome": status, "status": status}))
 	}
-	if err := record(ctx, "config.change_request.evidence", id, map[string]any{"kind": "simulation", "passed": sim.Passed, "summary": sim.Summary,
-		"operation_id": j.OperationID, "status": status}, events...); err != nil {
+	detail["status"] = status
+	if err := record(ctx, "config.change_request.evidence", id, detail, events...); err != nil {
 		return err
 	}
-	_, err = operations.Succeed(ctx, j.OperationID, "/v1/change-requests/"+id.String(),
-		map[string]any{"kind": "simulation", "passed": sim.Passed, "summary": sim.Summary, "status": status})
+	delete(detail, "operation_id")
+	_, err = operations.Succeed(ctx, j.OperationID, "/v1/change-requests/"+id.String(), detail)
+	return err
+}
+
+// recordEvidence adds a result as evidence of the given kind.
+func recordEvidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, id uuid.UUID, kind string, s Simulation) error {
+	_, err := tx.Exec(ctx, `INSERT INTO config.evidence (tenant_id, change_request_id, kind, passed, summary, detail, recorded_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, kind, s.Passed, s.Summary, s.Detail, actor.ID)
 	return err
 }
 

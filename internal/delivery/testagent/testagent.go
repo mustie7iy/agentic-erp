@@ -16,10 +16,14 @@ import (
 )
 
 // Tools are the operations the agent may call.
-var Tools = []string{"getChangeRequest", "getConfigVersion", "listConfigVersions", "getOperation", "createRecommendation"}
+var Tools = []string{"getChangeRequest", "getConfigVersion", "listConfigVersions", "listRegressionSuites", "createRegressionSuite", "getOperation", "createRecommendation"}
 
 const system = `You are a test consultant. Review the configuration change request you are given: read it with
 getChangeRequest (its computed items, risk tier, status and evidence) and the version it is based on.
+
+A change of tier 3 or 4 needs simulation and regression evidence before approval. If its evidence says no regression
+suite is captured on its base version, capture one with createRegressionSuite (listRegressionSuites shows the existing
+ones) and say in your recommendation that the simulation must be run again.
 
 Then call createRecommendation exactly once with object_type "change_request", the change request id as object_id,
 the session id you are given, and kind approve, reject or needs_evidence, with the reasons in content: what the change

@@ -34,15 +34,43 @@ func (f *fakeSimulator) Simulate(context.Context, *config.Config, *config.Config
 	return f.sim, f.err
 }
 
+// worker runs simulations with the given simulator and a regressor whose
+// suites always pass.
 func worker(t *testing.T, s configuration.Simulator) *configuration.SimulationWorker {
 	t.Helper()
 	deps := fixture.Deps()
 	deps.Simulator = s
+	deps.Regressor = &fakeRegressor{cases: []configuration.RegressionCase{caseOf(1, "2000", "auto_post")}, failures: map[string][]configuration.RegressionFailure{}}
 	return &configuration.SimulationWorker{Dependencies: deps, Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker"}
 }
 
 type sim struct {
 	fixture.Env
+}
+
+// suite captures a regression suite on version 1 (the fake regressor
+// supplies the cases), which tier 3 evidence needs.
+func (s sim) suite(t *testing.T) {
+	t.Helper()
+	deps := fixture.Deps()
+	deps.Regressor = &fakeRegressor{cases: []configuration.RegressionCase{caseOf(1, "2000", "auto_post")}}
+	if err := apitest.Committed(t, s.Tenant, s.Tenant.Human, func(ctx context.Context) error {
+		_, err := configuration.CaptureRegressionSuite(ctx, deps, configuration.NewRegressionSuite{Name: "Baseline"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// evidenceOf is the latest evidence of a kind on a change request.
+func evidenceOf(got map[string]any, kind string) map[string]any {
+	var out map[string]any
+	for _, e := range got["evidence"].([]any) {
+		if m := e.(map[string]any); m["kind"] == kind {
+			out = m
+		}
+	}
+	return out
 }
 
 // tier3 proposes and submits a posting-relevant change (a tax rate) and
@@ -71,6 +99,7 @@ func (s sim) status(t *testing.T, path string) map[string]any {
 // people approve, one activates.
 func TestSimulationEvidenceMovesTier3On(t *testing.T) {
 	s := sim{fixture.New(t, append(perms, "platform.operation.read", "platform.operation.cancel")...)}
+	s.suite(t)
 	cr, op := s.tier3(t, "9")
 	path, opPath := "/v1/change-requests/"+cr["id"].(string), "/v1/operations/"+op["id"].(string)
 	fake := &fakeSimulator{sim: configuration.Simulation{Passed: true, Summary: "3 invoices replayed", Detail: map[string]any{"invoices": 3}}}
@@ -80,14 +109,13 @@ func TestSimulationEvidenceMovesTier3On(t *testing.T) {
 		t.Fatalf("run: %d %v", n, err)
 	}
 	got := s.status(t, path)
-	evidence := got["evidence"].([]any)
-	if got["status"] != "pending_approval" || got["workflow_request_id"] == nil || len(evidence) != 1 {
+	if got["status"] != "pending_approval" || got["workflow_request_id"] == nil || len(got["evidence"].([]any)) != 2 {
 		t.Fatalf("after the simulation: %v", got)
 	}
-	e := evidence[0].(map[string]any)
-	if e["kind"] != "simulation" || e["passed"] != true || e["summary"] != "3 invoices replayed" || e["detail"].(map[string]any)["invoices"] != float64(3) ||
-		e["recorded_by"] != s.Tenant.Human.ID.String() {
-		t.Fatalf("evidence: %v", e)
+	e := evidenceOf(got, "simulation")
+	if e["passed"] != true || e["summary"] != "3 invoices replayed" || e["detail"].(map[string]any)["invoices"] != float64(3) ||
+		e["recorded_by"] != s.Tenant.Human.ID.String() || evidenceOf(got, "regression")["passed"] != true {
+		t.Fatalf("evidence: %v", got["evidence"])
 	}
 	done := s.status(t, opPath)
 	if done["status"] != "succeeded" || done["resource"] != path || done["result"].(map[string]any)["status"] != "pending_approval" {
@@ -115,6 +143,7 @@ func TestSimulationEvidenceMovesTier3On(t *testing.T) {
 
 func TestSimulationOutcomes(t *testing.T) {
 	s := sim{fixture.New(t, append(perms, "platform.operation.read", "platform.operation.cancel")...)}
+	s.suite(t)
 	ctx := context.Background()
 
 	// A simulation that does not pass is recorded; the request waits for a better proposal or another run.
@@ -125,7 +154,7 @@ func TestSimulationOutcomes(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("failed simulation: %d %v", n, err)
 	}
-	if got := s.status(t, path); got["status"] != "awaiting_evidence" || got["evidence"].([]any)[0].(map[string]any)["passed"] != false {
+	if got := s.status(t, path); got["status"] != "awaiting_evidence" || evidenceOf(got, "simulation")["passed"] != false {
 		t.Fatalf("after a failed simulation: %v", got)
 	}
 	if done := s.status(t, opPath); done["status"] != "succeeded" || done["result"].(map[string]any)["passed"] != false {
@@ -138,7 +167,7 @@ func TestSimulationOutcomes(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("second simulation: %d %v", n, err)
 	}
-	if got := s.status(t, path); got["status"] != "pending_approval" || len(got["evidence"].([]any)) != 2 {
+	if got := s.status(t, path); got["status"] != "pending_approval" || len(got["evidence"].([]any)) != 4 {
 		t.Fatalf("after the second simulation: %v", got)
 	}
 
@@ -195,6 +224,7 @@ func TestSimulationOutcomes(t *testing.T) {
 
 func TestSimulationWorkerFailures(t *testing.T) {
 	s := sim{fixture.New(t, append(perms, "platform.operation.read")...)}
+	s.suite(t)
 	ctx := context.Background()
 	fake := &fakeSimulator{sim: configuration.Simulation{Passed: true, Summary: "fine", Detail: map[string]any{}}}
 	cr, op := s.tier3(t, "4")

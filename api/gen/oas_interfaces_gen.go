@@ -121,6 +121,10 @@ type CreateRecommendationRes interface {
 	createRecommendationRes()
 }
 
+type CreateRegressionSuiteRes interface {
+	createRegressionSuiteRes()
+}
+
 type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
@@ -279,6 +283,10 @@ type GetPurchaseOrderRes interface {
 
 type GetRecommendationRes interface {
 	getRecommendationRes()
+}
+
+type GetRegressionSuiteRes interface {
+	getRegressionSuiteRes()
 }
 
 type GetRequisitionRes interface {
@@ -443,6 +451,10 @@ type ListPurchaseOrdersRes interface {
 
 type ListRecommendationsRes interface {
 	listRecommendationsRes()
+}
+
+type ListRegressionSuitesRes interface {
+	listRegressionSuitesRes()
 }
 
 type ListRequisitionsRes interface {
