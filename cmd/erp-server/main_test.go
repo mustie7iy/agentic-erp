@@ -115,12 +115,12 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		scraped, _ = io.ReadAll(mresp.Body)
 		mresp.Body.Close()
 		if strings.Contains(string(scraped), "erp_outbox_backlog ") && strings.Contains(string(scraped), "erp_projection_backlog 0") &&
-			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") {
+			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") && strings.Contains(string(scraped), "erp_simulations_queued 0") {
 			break
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	for _, want := range []string{"erp_outbox_backlog ", "erp_projection_backlog 0", "erp_payment_proposals_queued 0"} {
+	for _, want := range []string{"erp_outbox_backlog ", "erp_projection_backlog 0", "erp_payment_proposals_queued 0", "erp_simulations_queued 0"} {
 		if !strings.Contains(string(scraped), want) {
 			t.Errorf("metrics lack %q:\n%s", want, scraped)
 		}

@@ -15,10 +15,12 @@ func ApprovalSteps(t Tier) []ApprovalStep {
 	return nil
 }
 
-// RequiredEvidence lists what a tier needs before approval.
+// RequiredEvidence lists what a tier needs before approval: posting-relevant
+// and structural changes need a simulation. Regression evidence returns
+// when regression suites have an API again.
 func RequiredEvidence(t Tier) []string {
 	if t >= TierPostingRelated {
-		return []string{"simulation", "regression"}
+		return []string{"simulation"}
 	}
 	return nil
 }

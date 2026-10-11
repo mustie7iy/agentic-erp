@@ -139,7 +139,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 | `internal/agent` | The invoice exceptions agent: investigates held invoices and writes a recommendation for a person. *AI Agent + Orchestration* |
 | `internal/delivery/*` | Configuration generated from SAP customizing, and the configuration, migration and test agents |
 | `internal/analytics` | On-demand analytics: governed semantic layer, facts read through the API, query engine with row-level security, analytics agent, narrative check, dashboard renderer, saved reports |
-| `internal/config` | Configuration as code: the typed YAML document, validators and change tiers |
+| `internal/config` | Configuration as code: the typed YAML document, validators and change tiers; `internal/configuration` holds versions, change requests, evidence and the simulation worker |
 | `internal/bankfile` | ISO 20022 pain.001 credit transfer files |
 | `internal/capture` | Invoice capture: Claude structured extraction from PDF |
 | `internal/llm` | Shared Claude agent plumbing; `llmtest` is a scripted Messages API for tests |
@@ -210,8 +210,9 @@ Known gaps:
   not yet been validated against a live system. Check them against your `$metadata`.
 - Agents are tested against a scripted model; their behavior with the live API
   needs evals before any agent gets autonomy above L0.
-- Sandbox simulation and regression suites from the prototype have no API
-  yet, so tier 3 and 4 configuration changes wait for simulation evidence.
+- Tier 3 and 4 configuration changes get simulation evidence from the
+  worker (supplier invoices replayed under the proposal); regression
+  suites from the prototype have no API yet.
 - The load suite meets its budgets at the rate a laptop or CI runner
   reaches (about 500 requests/s); the largest tenant's peak needs a
   cell-sized environment.

@@ -218,7 +218,7 @@ func TestRuntime(t *testing.T) {
 		ApprovalSteps(TierStructural)[0].Role != "solution_architect" {
 		t.Fatal("approval steps by tier")
 	}
-	if RequiredEvidence(TierOperational) != nil || len(RequiredEvidence(TierPostingRelated)) != 2 {
+	if RequiredEvidence(TierOperational) != nil || len(RequiredEvidence(TierPostingRelated)) != 1 || RequiredEvidence(TierStructural)[0] != "simulation" {
 		t.Fatal("evidence by tier")
 	}
 	if got := strings.Join(c.RoleNames(), ","); got != "Z_PURCH_MGR,process_owner,Z_TREASURY_MGR,vendor_master_approver,controller,solution_architect" {

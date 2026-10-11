@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
@@ -140,6 +141,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	proposer := &payments.Proposer{Endpoints: httpapi.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 	proposerDone := make(chan struct{})
 	go func() { proposer.Run(runCtx); close(proposerDone) }()
+	simulator := &configuration.SimulationWorker{Dependencies: httpapi.Configuration(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
+	simulatorDone := make(chan struct{})
+	go func() { simulator.Run(runCtx); close(simulatorDone) }()
 	maintenanceDone := make(chan struct{})
 	go func() {
 		maintain(runCtx, maintenanceInterval, func(ctx context.Context) error { return partitions(ctx, pool, log) }, log)
@@ -198,6 +202,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-relayDone
 	<-projectorDone
 	<-proposerDone
+	<-simulatorDone
 	<-maintenanceDone
 	log.Info("erp-server stopped")
 	return serveErr // nil after a requested shutdown; set when a listener failed
@@ -260,6 +265,8 @@ func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
 	m.Gauge("erp_payment_proposals_queued", "Payment proposals waiting for the worker.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM platform.operation o JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
 			WHERE o.kind = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled')`, payments.ProposeKind))
+	m.Gauge("erp_simulations_queued", "Configuration simulations waiting for the worker.",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM platform.operation WHERE kind = $1 AND status = 'queued'`, configuration.SimulateKind))
 }
 
 // devHandler is the development issuer's token endpoint, or nil without one.

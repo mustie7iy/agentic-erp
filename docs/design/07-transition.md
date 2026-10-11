@@ -60,6 +60,7 @@ prototype store for that context.
 | T6 (done) | **Agents and integration** onto the API | Delivery agents and SAP migration use generated API tools only; prototype store deleted |
 | T7 (done) | **Hardening** | Load, soak and resilience suites pass at the targets in 01 §1.3 |
 | T8 (done) | **Operations**: provisioning and local login | A tenant is provisioned by an operator and run through the API from the command line, with a development issuer locally |
+| T9 (done) | **Simulation** | Tier 3 and 4 configuration changes get simulation evidence from a worker that replays recent invoices under the proposal, and move on to approval |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -630,6 +631,62 @@ Open points for the contract and design review:
 - The administrator holds every permission, including approvals, so
   segregation of duties starts when the administrator provisions the real
   roles; a tenant's first SoD rules could be part of the configuration.
+
+### T9 decisions and open points
+
+What T9 built: the `config.simulate` worker (`configuration.SimulationWorker`,
+run by `erp-server` like the payment proposer) and the replay behind it
+(`payables.Simulation`). `:simulate` on a change request in
+`awaiting_evidence` queues the operation; the worker finds queued
+simulations across tenants as `erp_worker`, runs each in one transaction of
+its tenant as `erp_app` acting as the person who asked, records the result
+as `simulation` evidence and, when it passed, moves the request to
+`pending_approval` with its approval request (the same routing submission
+uses for tier 2). The exit criterion is `TestSimulationEvidenceMovesTier3On`
+(internal/configuration): a tax-rate change is submitted, simulated, approved
+by two people and activated as version 2, and
+`TestSimulationReplaysInvoices` (internal/payables) for what the replay
+finds. This closes the open point carried since T2 ("tier 3 and 4 changes
+wait for simulation evidence").
+
+Decisions taken while building it:
+
+- **The replay reads committed data and writes nothing.** The three-way
+  match is now a pure function (`payables.evaluate`) of the invoice, its
+  order, what was invoiced before and a tolerance, used by `:match` and by
+  the simulation alike. The simulation replays the supplier invoices on
+  purchase orders of the last 90 days (at most 2,000, newest first) under
+  the base and the proposed configuration and reports: decisions that
+  change (auto-post, review by a person, exception), posting rules that
+  move with the invoices and amounts of the window they apply to (input tax
+  and payables reconciliation accounts, tax code rates and accounts), and
+  invoices the proposal cannot evaluate (a tax code or company it drops).
+  It passes when every invoice could be evaluated; the differences are
+  information for the approvers, in the evidence detail.
+- **Required evidence is the simulation alone** for now
+  (`config.RequiredEvidence`). The contract's evidence kinds still include
+  `regression`; it returns when regression suites have an API again (T6
+  removed the prototype's).
+- **Operations complete or fail honestly.** A request no longer awaiting
+  evidence (withdrawn meanwhile), a proposal the simulator refuses, or an
+  operation naming no request fails the operation with the problem; a
+  transient error leaves it queued for the next round; a cancelled
+  operation is left alone. A simulation that does not pass still completes
+  the operation and records the evidence; the request waits for a better
+  proposal or another run.
+- **Backlog gauge** `erp_simulations_queued` joins the worker gauges.
+
+Open points for the contract and design review:
+
+- The replay covers supplier invoices; changes to payment terms, approval
+  routes, house banks or number ranges are classified by tier but have no
+  replay yet, so their simulation reports nothing to decide on and passes.
+- There is no event for recorded evidence; `ChangeRequestValidated` is
+  emitted again with the new status when the request moves on.
+- Simulation runs within one worker transaction, like proposals and
+  migration runs; chunked runs wait for Temporal (ADR-0012).
+- Regression evidence and the regression suites it needs are still to be
+  rebuilt on the API.
 
 ## 7.4 Data from the prototype
 

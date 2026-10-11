@@ -190,6 +190,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
 		Approvals: approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}},
+		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 // Issue is one three-way match issue.
@@ -74,17 +75,74 @@ func GetMatch(ctx context.Context, id uuid.UUID) (Match, error) {
 	return m, nil
 }
 
-// tolerance is the company's invoice tolerance: a percentage of the
-// expected item value and an absolute amount in minor units.
-func tolerance(doc *config.Config, company string, exp int) (int64, int64) {
+// tolerance is the company's invoice tolerance.
+func tolerance(doc *config.Config, company string) config.Tolerance {
 	var t config.Tolerance
 	for _, c := range doc.Companies {
 		if c.Code == company {
 			t = c.InvoiceTolerance
 		}
 	}
-	abs, _ := money.ParseDecimal(t.PriceAbsolute, exp) // validated with the document; "" is zero
-	return int64(t.PricePercent), int64(abs)
+	return t
+}
+
+// invoicedQuantities sums, per order item, what other posted invoices
+// already invoiced on the order.
+func invoicedQuantities(ctx context.Context, tx pgx.Tx, order, exclude uuid.UUID) (map[int32]string, error) {
+	rows, _ := tx.Query(ctx, `SELECT t.po_item_no, trim_scale(sum(t.quantity))::text FROM payables.supplier_invoice_item t
+		JOIN payables.supplier_invoice i ON i.tenant_id = t.tenant_id AND i.id = t.supplier_invoice_id
+		WHERE t.purchase_order_id = $1 AND i.status = 'posted' AND i.id <> $2 AND NOT t.is_removed GROUP BY 1`, order, exclude)
+	invoiced := map[int32]string{}
+	var no int32
+	var qty string
+	_, err := pgx.ForEachRow(rows, []any{&no, &qty}, func() error { invoiced[no] = qty; return nil })
+	return invoiced, err
+}
+
+// evaluate is the three-way match: the invoice against its order, the
+// receipts and what was invoiced before, within the tolerance. It is a
+// pure function of its inputs, so a simulation can run it under a proposed
+// configuration.
+func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t config.Tolerance) []Issue {
+	issues := []Issue{}
+	add := func(code string, item *int32, format string, a ...any) {
+		issues = append(issues, Issue{Code: code, ItemNo: item, Message: fmt.Sprintf(format, a...)})
+	}
+	format := func(m int64) string { return money.Minor(m).Plain(v.Exponent) }
+	var net int64
+	for _, it := range v.Items {
+		net += it.Amount
+	}
+	if net+v.Tax != v.Gross {
+		add(IssueTotalMismatch, nil, "gross %s does not equal items %s + tax %s", format(v.Gross), format(net), format(v.Tax))
+	}
+	if order.Status != "released" {
+		add(IssueOrderNotOpen, nil, "purchase order %s is %s", order.DocumentNumber, order.Status)
+	}
+	absolute, _ := money.ParseDecimal(t.PriceAbsolute, v.Exponent) // validated with the document; "" is zero
+	pct, abs := int64(t.PricePercent), int64(absolute)
+	items := map[int32]int{}
+	for i, oi := range order.Items {
+		items[oi.ItemNo] = i
+	}
+	for _, it := range v.Items {
+		if it.POItemNo == nil {
+			continue
+		}
+		oi := order.Items[items[*it.POItemNo]]
+		want := expected(it.Quantity, oi.UnitPrice, oi.PriceUnit)
+		allowed := max(abs, int64(money.Percent(money.Minor(want).Abs(), pct)))
+		if diff := it.Amount - want; money.Minor(diff).Abs() > money.Minor(allowed) {
+			add(IssuePriceVariance, &it.ItemNo, "order item %d: invoiced %s but the order price gives %s (variance %s, tolerance %s)",
+				oi.ItemNo, format(it.Amount), format(want), format(diff), format(allowed))
+		}
+		total := new(big.Rat).Add(rat(it.Quantity), rat(orDefault(invoiced[oi.ItemNo], "0")))
+		if total.Cmp(rat(oi.Received)) > 0 {
+			add(IssueQtyReceived, &it.ItemNo, "order item %d: invoiced quantity %s exceeds received %s",
+				oi.ItemNo, total.FloatString(6), oi.Received)
+		}
+	}
+	return issues
 }
 
 // expected is quantity × unit price / price unit, rounded half away from zero.
@@ -138,52 +196,11 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return Match{}, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT t.po_item_no, trim_scale(sum(t.quantity))::text FROM payables.supplier_invoice_item t
-		JOIN payables.supplier_invoice i ON i.tenant_id = t.tenant_id AND i.id = t.supplier_invoice_id
-		WHERE t.purchase_order_id = $1 AND i.status = 'posted' AND i.id <> $2 AND NOT t.is_removed GROUP BY 1`, *v.PurchaseOrderID, id)
-	invoiced := map[int32]string{}
-	var no int32
-	var qty string
-	if _, err := pgx.ForEachRow(rows, []any{&no, &qty}, func() error { invoiced[no] = qty; return nil }); err != nil {
+	invoiced, err := invoicedQuantities(ctx, tx, *v.PurchaseOrderID, id)
+	if err != nil {
 		return Match{}, err
 	}
-	issues := []Issue{}
-	add := func(code string, item *int32, format string, a ...any) {
-		issues = append(issues, Issue{Code: code, ItemNo: item, Message: fmt.Sprintf(format, a...)})
-	}
-	format := func(m int64) string { return money.Minor(m).Plain(v.Exponent) }
-	var net int64
-	for _, it := range v.Items {
-		net += it.Amount
-	}
-	if net+v.Tax != v.Gross {
-		add(IssueTotalMismatch, nil, "gross %s does not equal items %s + tax %s", format(v.Gross), format(net), format(v.Tax))
-	}
-	if order.Status != "released" {
-		add(IssueOrderNotOpen, nil, "purchase order %s is %s", order.DocumentNumber, order.Status)
-	}
-	pct, abs := tolerance(doc, le.Code, v.Exponent)
-	items := map[int32]int{}
-	for i, oi := range order.Items {
-		items[oi.ItemNo] = i
-	}
-	for _, it := range v.Items {
-		if it.POItemNo == nil {
-			continue
-		}
-		oi := order.Items[items[*it.POItemNo]]
-		want := expected(it.Quantity, oi.UnitPrice, oi.PriceUnit)
-		allowed := max(abs, int64(money.Percent(money.Minor(want).Abs(), pct)))
-		if diff := it.Amount - want; money.Minor(diff).Abs() > money.Minor(allowed) {
-			add(IssuePriceVariance, &it.ItemNo, "order item %d: invoiced %s but the order price gives %s (variance %s, tolerance %s)",
-				oi.ItemNo, format(it.Amount), format(want), format(diff), format(allowed))
-		}
-		total := new(big.Rat).Add(rat(it.Quantity), rat(orDefault(invoiced[oi.ItemNo], "0")))
-		if total.Cmp(rat(oi.Received)) > 0 {
-			add(IssueQtyReceived, &it.ItemNo, "order item %d: invoiced quantity %s exceeds received %s",
-				oi.ItemNo, total.FloatString(6), oi.Received)
-		}
-	}
+	issues := evaluate(v, order, invoiced, tolerance(doc, le.Code))
 	m, err := scanMatch(tx.QueryRow(ctx, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, issues,
 		config_version, evaluated_by) VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7) RETURNING `+matchColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), id, len(issues) == 0, issues, version, p.ID))

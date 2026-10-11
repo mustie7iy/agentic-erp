@@ -6,11 +6,10 @@
 // approved, and activated by a person. Number ranges are maintained through
 // the document and applied to config.number_range on activation.
 //
-// T2 scope: tier 1 changes need no approval (as in the prototype) and are
-// approved on submission; tier 2-4 changes wait in pending_approval until
-// the workflow context opens approval requests for them (T4), and tier 3-4
-// changes wait for simulation evidence, whose worker arrives with the
-// contexts it replays.
+// Tier 1 changes need no approval and are approved on submission; tier 2
+// changes open approval requests in the workflow context; tier 3-4 changes
+// first wait for simulation evidence, which the SimulationWorker records
+// by replaying recent transactions under the proposal (:simulate).
 package configuration
 
 import (
@@ -80,6 +79,7 @@ type Dependencies struct {
 	LegalEntities LegalEntities
 	Sections      []Section
 	Approvals     Opener
+	Simulator     Simulator // replays transactions for simulation evidence (the worker)
 }
 
 // check validates a document for activation on top of base (nil for the
@@ -413,24 +413,11 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 			return ChangeRequest{}, err
 		}
 	}
-	status := PendingApproval
-	switch {
-	case len(config.RequiredEvidence(tier)) > 0:
-		status = AwaitingEvidence
-	case len(config.ApprovalSteps(tier)) == 0:
-		status = Approved
-	}
+	status := AwaitingEvidence
 	var request *uuid.UUID
-	if status == PendingApproval {
-		r, needed, err := deps.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.ConfigChange, ObjectID: id,
-			Title: "Configuration change " + c.Number + ": " + c.Title, Tier: int(tier)})
-		if err != nil {
+	if len(config.RequiredEvidence(tier)) == 0 {
+		if status, request, err = route(ctx, deps, c, tier); err != nil {
 			return ChangeRequest{}, err
-		}
-		if needed {
-			request = &r
-		} else {
-			status = Approved
 		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE config.change_request SET tier = $2, status = $3, workflow_request_id = $5, version = version + 1, updated_by = $4
