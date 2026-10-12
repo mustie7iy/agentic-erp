@@ -412,14 +412,21 @@ func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
 			return n, err
 		}
 	}
-	var parts []string
+	var parts, oldest []string
 	for _, c := range outbox.Contexts {
 		parts = append(parts, "SELECT count(*) FROM "+pgx.Identifier{c, "outbox"}.Sanitize()+" WHERE published_at IS NULL")
+		oldest = append(oldest, "SELECT min(occurred_at) FROM "+pgx.Identifier{c, "outbox"}.Sanitize()+" WHERE published_at IS NULL")
 	}
 	m.Gauge("erp_outbox_backlog", "Events waiting in the outbox for the relay.",
 		count(cfg.RelayRole, "SELECT sum(n)::float8 FROM ("+strings.Join(parts, " UNION ALL ")+") AS b(n)"))
+	// Lag is what an alert watches (05 §5.6): the age of the oldest waiting
+	// row, one index lookup per outbox however large the backlog.
+	m.Gauge("erp_outbox_lag_seconds", "Age of the oldest event waiting in the outbox for the relay.",
+		count(cfg.RelayRole, "SELECT coalesce(extract(epoch FROM now() - min(t)), 0)::float8 FROM ("+strings.Join(oldest, " UNION ALL ")+") AS b(t)"))
 	m.Gauge("erp_projection_backlog", "Journal entries the balance projector has not reached.",
 		count(cfg.ProjectorRole, "SELECT count(*)::float8 FROM ledger.balance_projection WHERE projected_at IS NULL"))
+	m.Gauge("erp_projection_lag_seconds", "Age of the oldest journal entry the balance projector has not reached.",
+		count(cfg.ProjectorRole, "SELECT coalesce(extract(epoch FROM now() - min(enqueued_at)), 0)::float8 FROM ledger.balance_projection WHERE projected_at IS NULL"))
 	m.Gauge("erp_payment_proposals_queued", "Payment proposals waiting for the worker.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM platform.operation o JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
 			WHERE o.kind = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled')`, payments.ProposeKind))

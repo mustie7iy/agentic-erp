@@ -129,7 +129,8 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	for _, want := range []string{"erp_outbox_backlog ", "erp_projection_backlog 0", "erp_payment_proposals_queued 0", "erp_simulations_queued 0"} {
+	for _, want := range []string{"erp_outbox_backlog ", "erp_projection_backlog 0", "erp_payment_proposals_queued 0", "erp_simulations_queued 0",
+		"erp_outbox_lag_seconds ", "erp_projection_lag_seconds 0"} {
 		if !strings.Contains(string(scraped), want) {
 			t.Errorf("metrics lack %q:\n%s", want, scraped)
 		}

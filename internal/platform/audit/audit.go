@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,6 +123,55 @@ func canonical(valid []byte) json.RawMessage {
 	return out
 }
 
+// Personal data never belongs in an audit detail (ADR-0026): details carry
+// identifiers, statuses and amounts, never what the identifiers point to.
+// The convention is checked at write time: a detail whose key names
+// personal data, or whose value looks like a bank account number or an
+// email address, is refused, so the rule cannot drift unnoticed.
+var personalKeys = map[string]bool{"iban": true, "account_number": true, "email": true, "phone": true, "holder_name": true,
+	"tax_id": true, "vat_id": true, "date_of_birth": true, "street": true, "address": true}
+
+var (
+	ibanLike  = regexp.MustCompile(`^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$`)
+	emailLike = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+)
+
+// Personal reports the path of the first detail field that carries
+// personal data, by key or by the look of its value.
+func Personal(detail map[string]any) (string, bool) {
+	return personal("", detail)
+}
+
+func personal(path string, v any) (string, bool) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, child := range x {
+			p := k
+			if path != "" {
+				p = path + "." + k
+			}
+			if personalKeys[strings.ToLower(k)] {
+				return p, true
+			}
+			if found, ok := personal(p, child); ok {
+				return found, true
+			}
+		}
+	case []any:
+		for i, child := range x {
+			if found, ok := personal(fmt.Sprintf("%s[%d]", path, i), child); ok {
+				return found, true
+			}
+		}
+	case string:
+		s := strings.ReplaceAll(x, " ", "")
+		if ibanLike.MatchString(s) || emailLike.MatchString(x) {
+			return path, true
+		}
+	}
+	return "", false
+}
+
 // Write appends entries to the actor's tenant chain.
 func Write(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, traceID string, now time.Time, entries ...Entry) error {
 	// Create the head on first use and lock it: concurrent writers in the
@@ -137,6 +188,9 @@ func Write(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, traceID strin
 	}
 	at := now.UTC().Truncate(time.Microsecond)
 	for _, e := range entries {
+		if field, found := Personal(e.Detail); found {
+			return fmt.Errorf("audit: %s: detail %s carries personal data (ADR-0026)", e.Action, field)
+		}
 		detail, err := normalize(e.Detail)
 		if err != nil {
 			return fmt.Errorf("audit: %s: detail: %w", e.Action, err)

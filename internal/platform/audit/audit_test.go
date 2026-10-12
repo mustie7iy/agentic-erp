@@ -3,6 +3,7 @@ package audit_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -187,6 +188,27 @@ func TestErrors(t *testing.T) {
 		return audit.Write(ctx, tx, actor(other), "", time.Now(), entry)
 	}); err == nil {
 		t.Fatal("cross-tenant write accepted")
+	}
+	// Personal data in a detail is refused at write time (ADR-0026).
+	for name, detail := range map[string]map[string]any{
+		"key":           {"iban": "x"},
+		"nested key":    {"bank": map[string]any{"Holder_Name": "A"}},
+		"iban value":    {"account": "DE89 3704 0044 0532 0130 00"},
+		"email value":   {"contact": "a.person@example.com"},
+		"in a list":     {"items": []any{map[string]any{"ok": 1}, map[string]any{"email": "x"}}},
+		"value in list": {"refs": []any{"GB29NWBK60161331926819"}},
+	} {
+		if field, found := audit.Personal(detail); !found || field == "" {
+			t.Errorf("%s: not found in %v", name, detail)
+		}
+		if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+			return audit.Write(ctx, tx, actor(ten), "", time.Now(), audit.Entry{Action: "x.y", ObjectType: "x", Outcome: "ok", Detail: detail})
+		}); err == nil || !strings.Contains(err.Error(), "personal data") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if field, found := audit.Personal(map[string]any{"supplier_id": "0192a000-0000-7000-8000-000000000301", "amount": "12.00", "status": "parked", "number": "BP90000003", "note": "paid @ once"}); found {
+		t.Errorf("identifiers flagged: %s", field)
 	}
 	// Detail that is not JSON, and actions the table rejects.
 	if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {

@@ -15,7 +15,7 @@ they need to decide, and what the implementation found out on the way.
 | Decision records | 30, all `proposed` | [adr/](adr/README.md) |
 | API contract | 165 operations (OpenAPI 3.1), 82 event types (AsyncAPI 3.0) | [`api/openapi.yaml`](../../api/openapi.yaml), [`api/asyncapi.yaml`](../../api/asyncapi.yaml) |
 | Operator contracts | 9 cell operations, 8 global operations | [`api/control.yaml`](../../api/control.yaml), [`api/directory.yaml`](../../api/directory.yaml) |
-| Physical model | 26 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
+| Physical model | 27 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
 | Tests | 443 test functions across 68 packages, 100% statement coverage, race detector in CI; load, soak and resilience suites | [docs/testing.md](../testing.md) |
 | Transition | 25 steps done, each with its decisions and open points | [07-transition.md](07-transition.md) |
 
@@ -65,6 +65,9 @@ Every step recorded its open points (07-transition, "decisions and open points")
 | T17, T22, T23 | Restoring an exported tenant | T24 re-onboarding |
 | T18 | Directory operations not on a contract; placement | T19 |
 | T19, T23, T24 | Cross-cell verification of a moved tenant | T25 |
+| T3, T7 | Projector lag not a metric; the outbox gauge counts whole outboxes on each scrape | Fixed after the package was written: `erp_outbox_lag_seconds` and `erp_projection_lag_seconds` (age of the oldest waiting row, one index lookup each) beside the counts |
+| T15, T21 | The control plane could show a tenant's latest audit verification and the master wrapping its key | Fixed after the package was written: `encryption` and `audit_verification` on the tenant (migration 000027 lets the control role read them) |
+| T22 | A lint of audit details for personal data | Fixed after the package was written: `audit.Write` refuses a detail whose key names personal data or whose value looks like an IBAN or an email address (ADR-0026 at write time) |
 | T5 | No operation for the bank's status reports; `acknowledged` and `rejected` files never produced | Fixed after the package was written: `reportBankFileStatus` applies the bank's report (accepted or rejected, with its reason) to a transmitted file, publishing `BankFileAcknowledged` or `BankFileRejected`; failing the released run stays with the reversal decision |
 | T4 | Purchase orders never closed; contracts never expired | Fixed after the package was written: `closePurchaseOrder` (`:close` on a released order; receipts and invoices refused after) and a contract-expiry job emitting `ContractExpired` |
 | T2, T3, T4 | Event contract drift: `LegalEntityUnblocked` documented on `:activate`; no event for leaving `inactive`; `BankAccountChanged` naming the ended account as the new one; `PeriodClosed` described as an operation; `SupplierInvoiceCaptured` saying `parked` only | Fixed after the package was written: `LegalEntityActivated` and `OrgUnitActivated` added, descriptions corrected, `bank_account_id` null on an end-only change |
@@ -91,8 +94,6 @@ Every step recorded its open points (07-transition, "decisions and open points")
 
 - Budgets are met at a laptop's rate (about 500 requests/s), not the largest tenant's 2,000/s sustained and 10,000/s peak; the first scalability gate of 05 §5.1 needs a cell-sized environment; quarterly resilience tests against real clusters (T7).
 - Rate limits are per replica; per-agent-profile quotas belong at the gateway; read replicas and PgBouncer are deployment concerns (T7).
-- The outbox gauge counts every context's outbox on each scrape (T7).
-- Projector lag not exported as a metric (T3).
 - Further providers behind existing ports: GCP KMS and Azure Key Vault masters; AWS Secrets Manager, GCP and Azure secret stores; ECS task role and process credential providers; a credentials check at start (T13, T15, T20).
 - KMS key policy restricting `Decrypt` to the replicas' role is the deployment's (T15).
 - Bucket lifecycle rule for uploads never consumed; exports to object storage and SAP extracts are still files on disk (T12, T16).
@@ -104,8 +105,6 @@ Every step recorded its open points (07-transition, "decisions and open points")
 
 - Agents are tested against a scripted model only; evals against the live API come before any agent gets autonomy above L0 (T6).
 - Uploads serve capture only; attachments on other documents would reuse the resource (T16).
-- The control plane could show a tenant's latest verification and which master wraps its key (T15, T21).
-- A lint of audit details for personal data would turn the write-time rule into a check (T22).
 
 ### Accepted as designed (no decision needed unless a reviewer objects)
 

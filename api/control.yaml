@@ -458,6 +458,10 @@ components:
           example: "2026-10-11T09:00:00Z"
         offboarding:
           $ref: "#/components/schemas/Offboarding"
+        encryption:
+          $ref: "#/components/schemas/Encryption"
+        audit_verification:
+          $ref: "#/components/schemas/AuditVerification"
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
           name: Acme
@@ -467,6 +471,89 @@ components:
           version: 1
           created_at: "2026-10-11T09:00:00Z"
           updated_at: "2026-10-11T09:00:00Z"
+          encryption:
+            key_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d77"
+            master_key_id: "kms"
+            created_at: "2026-10-11T09:00:00Z"
+          audit_verification:
+            verified_at: "2026-10-12T08:00:00Z"
+            ok: true
+            head_seq: 4021
+            checked: 4021
+            anchors_checked: 3
+            broken_at: null
+    Encryption:
+      type: object
+      description: "The key that seals the tenant's sensitive fields (ADR-0018): present once the tenant has a key of its own; which master wraps it (ADR-0019) and since when. Rotation (`:rotateKey`, or the rotation policy) replaces it."
+      required:
+        - key_id
+        - master_key_id
+        - created_at
+      properties:
+        key_id:
+          type: string
+          format: uuid
+          description: The active tenant key.
+          readOnly: true
+        master_key_id:
+          type: string
+          description: "The master key wrapping it: a local master's name, or the KMS master's."
+          readOnly: true
+          example: kms
+        created_at:
+          type: string
+          format: date-time
+          description: When the key was created (UTC); its age under the rotation policy.
+          readOnly: true
+      examples:
+        - key_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d77"
+          master_key_id: kms
+          created_at: "2026-10-11T09:00:00Z"
+    AuditVerification:
+      type: object
+      description: "The latest scheduled verification of the tenant's audit chain against its anchors (ADR-0025); present once a round has run."
+      required:
+        - verified_at
+        - ok
+        - head_seq
+        - checked
+        - anchors_checked
+        - broken_at
+      properties:
+        verified_at:
+          type: string
+          format: date-time
+          readOnly: true
+        ok:
+          type: boolean
+          description: The chain verified end to end and every anchor matched.
+          readOnly: true
+        head_seq:
+          type: integer
+          format: int64
+          description: The chain head at verification.
+          readOnly: true
+        checked:
+          type: integer
+          format: int64
+          description: Entries recomputed.
+          readOnly: true
+        anchors_checked:
+          type: integer
+          format: int32
+          readOnly: true
+        broken_at:
+          type: [integer, "null"]
+          format: int64
+          description: The first sequence number that did not verify; null when ok.
+          readOnly: true
+      examples:
+        - verified_at: "2026-10-12T08:00:00Z"
+          ok: true
+          head_seq: 4021
+          checked: 4021
+          anchors_checked: 3
+          broken_at: null
     Offboarding:
       type: object
       description: "What became of an offboarded tenant's data (ADR-0021); present once the export is complete."

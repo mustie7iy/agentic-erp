@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api"
+	auditchain "github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
@@ -628,6 +629,30 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if got["version"] != float64(2) || h.Get("ETag") != `"2"` || rot["resealed"] != float64(2) || rot["master_key_id"] != "test" ||
 		rot["previous_key_id"] == uuid.Nil.String() || rot["key_id"] == rot["previous_key_id"] {
 		t.Fatalf("rotation: %v", got)
+	}
+	// The tenant shows its key and, once a round ran, its latest audit verification.
+	shown, _ := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
+	enc, _ := shown["encryption"].(map[string]any)
+	if enc == nil || enc["key_id"] != rot["key_id"] || enc["master_key_id"] != "test" || enc["created_at"] == nil || shown["audit_verification"] != nil {
+		t.Fatalf("encryption shown: %v", shown)
+	}
+	verifier := &auditchain.Verifier{Pool: p.s.Pool, AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if _, err := verifier.Verify(ctx, uuid.MustParse(id)); err != nil {
+		t.Fatal(err)
+	}
+	shown, _ = p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
+	ver, _ := shown["audit_verification"].(map[string]any)
+	if ver == nil || ver["ok"] != true || ver["head_seq"].(float64) < 1 || ver["broken_at"] != nil || ver["verified_at"] == nil {
+		t.Fatalf("verification shown: %v", shown)
+	}
+	listed, _ := p.must(200, "ops|alice", "GET", tenants+"?status=active&order_by=name", "")
+	found := false
+	for _, it := range listed["items"].([]any) {
+		m := it.(map[string]any)
+		found = found || m["id"] == id && m["encryption"] != nil && m["audit_verification"] != nil
+	}
+	if !found {
+		t.Fatalf("listing lacks the fields: %v", listed)
 	}
 	var resealed []byte
 	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&resealed)

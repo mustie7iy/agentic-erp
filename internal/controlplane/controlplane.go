@@ -58,7 +58,27 @@ type Tenant struct {
 	Version       int32        `json:"version"`
 	CreatedAt     time.Time    `json:"created_at"`
 	UpdatedAt     time.Time    `json:"updated_at"`
-	Offboarding   *Offboarding `json:"offboarding,omitempty"` // once an offboarded tenant's data was exported
+	Offboarding   *Offboarding `json:"offboarding,omitempty"`        // once an offboarded tenant's data was exported
+	Encryption    *Encryption  `json:"encryption,omitempty"`         // the tenant's own key, once it has one (ADR-0018)
+	Verification  *Verified    `json:"audit_verification,omitempty"` // the latest scheduled verification of its audit chain (ADR-0025)
+}
+
+// Encryption is the key that seals the tenant's sensitive fields: which
+// master wraps it and since when.
+type Encryption struct {
+	KeyID       uuid.UUID `json:"key_id"`
+	MasterKeyID string    `json:"master_key_id"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// Verified is the outcome of the latest scheduled audit verification.
+type Verified struct {
+	VerifiedAt     time.Time `json:"verified_at"`
+	OK             bool      `json:"ok"`
+	HeadSeq        int64     `json:"head_seq"`
+	Checked        int64     `json:"checked"`
+	AnchorsChecked int32     `json:"anchors_checked"`
+	BrokenAt       *int64    `json:"broken_at"`
 }
 
 // Offboarding is what became of an offboarded tenant's data (ADR-0021).
@@ -122,15 +142,28 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
-const columns = `id, name, region, group_currency, status, version, created_at, updated_at, exported_at, export_ref, erase_after, erased_at`
+// columns are the tenant's row plus, as JSON, its active key and its
+// latest audit verification, read with the row so a listing stays one query.
+const columns = `id, name, region, group_currency, status, version, created_at, updated_at, exported_at, export_ref, erase_after, erased_at,
+	(SELECT row_to_json(k) FROM (SELECT k.id AS key_id, k.master_key_id, k.created_at FROM tenancy.tenant_key k WHERE k.tenant_id = tenancy.tenant.id AND k.status = 'active') k),
+	(SELECT row_to_json(v) FROM (SELECT v.verified_at, v.ok, v.head_seq, v.checked, v.anchors_checked, v.broken_at FROM audit.verification v WHERE v.tenant_id = tenancy.tenant.id ORDER BY v.verified_at DESC LIMIT 1) v)`
 
 func scan(row pgx.Row) (Tenant, error) {
 	var t Tenant
 	var exportedAt, eraseAfter, erasedAt *time.Time
 	var ref *string
-	err := row.Scan(&t.ID, &t.Name, &t.Region, &t.GroupCurrency, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt, &exportedAt, &ref, &eraseAfter, &erasedAt)
+	var key, verified []byte
+	err := row.Scan(&t.ID, &t.Name, &t.Region, &t.GroupCurrency, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt, &exportedAt, &ref, &eraseAfter, &erasedAt, &key, &verified)
 	if exportedAt != nil {
 		t.Offboarding = &Offboarding{ExportedAt: *exportedAt, ExportRef: *ref, EraseAfter: *eraseAfter, ErasedAt: erasedAt}
+	}
+	if key != nil {
+		t.Encryption = &Encryption{}
+		_ = json.Unmarshal(key, t.Encryption) // the database's JSON of its own columns
+	}
+	if verified != nil {
+		t.Verification = &Verified{}
+		_ = json.Unmarshal(verified, t.Verification)
 	}
 	return t, err
 }
