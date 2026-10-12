@@ -211,6 +211,13 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	projector := &ledger.Projector{Pool: pool, Role: cfg.ProjectorRole, Log: log}
 	projectorDone := make(chan struct{})
 	go func() { projector.Run(runCtx); close(projectorDone) }()
+	simulator := &configuration.SimulationWorker{Dependencies: httpapi.Configuration(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
+	simulatorDone := make(chan struct{})
+	if engine == nil {
+		go func() { simulator.Run(runCtx); close(simulatorDone) }()
+	} else {
+		close(simulatorDone) // simulations run as workflows
+	}
 	// workerErr is the workflow worker's end: nil after a requested shutdown,
 	// the failure when it could not start (joined into the server's exit).
 	proposerDone, workerDone, dispatchDone, workerErr := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan error, 1)
@@ -225,15 +232,14 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		close(proposerDone)
 		activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}
 		go func() {
-			workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) { workflows.Register(r, activities) })
+			workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
+				workflows.Register(r, activities, &workflows.Simulations{Worker: simulator})
+			})
 			close(workerDone)
 		}()
 		dispatcher := &workflows.Dispatcher{Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Log: log}
 		go func() { dispatcher.Run(runCtx); close(dispatchDone) }()
 	}
-	simulator := &configuration.SimulationWorker{Dependencies: httpapi.Configuration(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
-	simulatorDone := make(chan struct{})
-	go func() { simulator.Run(runCtx); close(simulatorDone) }()
 	maintenanceDone := make(chan struct{})
 	go func() {
 		maintain(runCtx, maintenanceInterval, func(ctx context.Context) error { return partitions(ctx, pool, log) }, log)

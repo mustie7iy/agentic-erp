@@ -15,7 +15,7 @@ they need to decide, and what the implementation found out on the way.
 | Decision records | 30, all `proposed` | [adr/](adr/README.md) |
 | API contract | 165 operations (OpenAPI 3.1), 82 event types (AsyncAPI 3.0) | [`api/openapi.yaml`](../../api/openapi.yaml), [`api/asyncapi.yaml`](../../api/asyncapi.yaml) |
 | Operator contracts | 9 cell operations, 8 global operations | [`api/control.yaml`](../../api/control.yaml), [`api/directory.yaml`](../../api/directory.yaml) |
-| Physical model | 29 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
+| Physical model | 30 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
 | Tests | 443 test functions across 68 packages, 100% statement coverage, race detector in CI; load, soak and resilience suites | [docs/testing.md](../testing.md) |
 | Transition | 25 steps done, each with its decisions and open points | [07-transition.md](07-transition.md) |
 

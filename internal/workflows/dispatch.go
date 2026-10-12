@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
@@ -62,11 +63,22 @@ func ReleaseWorkflowID(tenant, legalEntity uuid.UUID, number string, attempt int
 	return fmt.Sprintf("%s-release-%d", WorkflowID(tenant, legalEntity, number), attempt)
 }
 
+// SimulateWorkflowID is the id of a change request's simulation workflow:
+// {tenant}-change_request-{number}-simulate-{attempt}, since a request may
+// be simulated again after a failed or cancelled attempt.
+func SimulateWorkflowID(tenant uuid.UUID, number string, attempt int) string {
+	return fmt.Sprintf("%s-change_request-%s-simulate-%d", tenant, number, attempt)
+}
+
 // start is what the dispatcher starts for a pending operation.
 func (p pending) start(queue string) workflow.Start {
-	if p.kind == payments.ReleaseKind {
+	switch p.kind {
+	case payments.ReleaseKind:
 		return workflow.Start{ID: ReleaseWorkflowID(p.tenant, p.legalEntity, p.number, p.attempt), Queue: queue, Name: ReleaseWorkflow,
 			Args: []any{ReleaseInput{TenantID: p.tenant, RunID: p.run, OperationID: p.operation}}}
+	case configuration.SimulateKind:
+		return workflow.Start{ID: SimulateWorkflowID(p.tenant, p.number, p.attempt), Queue: queue, Name: SimulateWorkflow,
+			Args: []any{SimulateInput{TenantID: p.tenant, OperationID: p.operation}}}
 	}
 	return workflow.Start{ID: WorkflowID(p.tenant, p.legalEntity, p.number), Queue: queue, Name: ProposeWorkflow,
 		Args: []any{ProposeInput{TenantID: p.tenant, RunID: p.run, OperationID: p.operation}}}
@@ -88,7 +100,13 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 			FROM platform.operation o
 			JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.release_operation_id = o.id
 			WHERE o.kind = $2 AND o.status = 'queued' AND r.status = 'releasing' AND o.workflow_id IS NULL
-		ORDER BY 3`, payments.ProposeKind, payments.ReleaseKind)
+		UNION ALL
+		SELECT o.kind, o.tenant_id, o.id, o.id, '00000000-0000-0000-0000-000000000000'::uuid, cr.number,
+			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.request->>'change_request_id' = o.request->>'change_request_id' AND x.id <= o.id)
+			FROM platform.operation o
+			JOIN config.change_request cr ON cr.tenant_id = o.tenant_id AND cr.id = (o.request->>'change_request_id')::uuid
+			WHERE o.kind = $3 AND o.status = 'queued' AND o.workflow_id IS NULL
+		ORDER BY 3`, payments.ProposeKind, payments.ReleaseKind, configuration.SimulateKind)
 	jobs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (pending, error) {
 		var p pending
 		err := r.Scan(&p.kind, &p.tenant, &p.operation, &p.run, &p.legalEntity, &p.number, &p.attempt)
@@ -141,8 +159,10 @@ func (d *Dispatcher) Run(ctx context.Context) {
 }
 
 // Register registers the workflows and activities a cell's worker hosts.
-func Register(r workflow.Registry, p *Payments) {
+func Register(r workflow.Registry, p *Payments, s *Simulations) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
 	r.RegisterWorkflowWithOptions(ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: ReleaseWorkflow})
+	r.RegisterWorkflowWithOptions(SimulateChange, sdkworkflow.RegisterOptions{Name: SimulateWorkflow})
 	r.RegisterActivity(p)
+	r.RegisterActivity(s)
 }

@@ -3,6 +3,7 @@ package workflows_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/testsuite"
 
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -600,4 +602,89 @@ func (e env) vendorInvoice(t *testing.T, ref, gross string) {
 		"items": [{"account_id": %q, "description": "Fees", "quantity": {"value": "1", "unit": "EA"}, "amount": {"amount": %q, "currency": "EUR"}}]}`,
 		e.DE, e.Vendor, ref, gross, e.expense, gross), "")
 	e.Must(200, "POST", "/v1/supplier-invoices/"+id(inv)+":post", `{"posting_date": "2026-03-01"}`, `"1"`)
+}
+
+// simulationAsked brings a tier 3 change request to awaiting evidence and
+// asks for its simulation; it returns the operation and the request's path.
+func simulationAsked(t *testing.T) (env, workflows.SimulateInput, string) {
+	t.Helper()
+	f := fixture.New(t, "config.change.read", "config.change.propose", "config.change.activate", "config.version.read", "platform.operation.read", "platform.operation.cancel")
+	e := env{Env: f}
+	doc := fixture.Document(t)
+	doc.Companies[0].TaxCodes[0].RatePercent = "9" // posting-relevant: tier 3, which needs simulation evidence
+	body, _ := json.Marshal(doc)
+	cr, _ := e.Must(201, "POST", "/v1/change-requests", fmt.Sprintf(`{"title": "Tax rate", "base_version": 1, "proposed": %s}`, body), "")
+	path := "/v1/change-requests/" + id(cr)
+	_, tag := e.Must(200, "GET", path, "", "")
+	if submitted, _ := e.Must(200, "POST", path+":submit", "", tag); submitted["status"] != "awaiting_evidence" {
+		t.Fatalf("submitted: %v", submitted)
+	}
+	_, tag = e.Must(200, "GET", path, "", "")
+	op, _ := e.Must(202, "POST", path+":simulate", "", tag)
+	return e, workflows.SimulateInput{TenantID: e.Tenant.ID, OperationID: uuid.MustParse(id(op))}, path
+}
+
+func simulations(t *testing.T) *workflows.Simulations {
+	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	return &workflows.Simulations{Worker: &configuration.SimulationWorker{Dependencies: httpapi.Configuration(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys()}),
+		Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker"}}
+}
+
+// TestSimulationWorkflow: a change request's simulation runs as a workflow
+// whose activity is the simulation worker's unit of work; an operation no
+// longer queued is left alone; failures are reported.
+func TestSimulationWorkflow(t *testing.T) {
+	e, in, path := simulationAsked(t)
+	s := simulations(t)
+	var suite testsuite.WorkflowTestSuite
+	run := func() error {
+		env := suite.NewTestWorkflowEnvironment()
+		env.RegisterWorkflow(workflows.SimulateChange)
+		env.RegisterActivity(s)
+		env.ExecuteWorkflow(workflows.SimulateChange, in)
+		return env.GetWorkflowError()
+	}
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+	cr, _ := e.Must(200, "GET", path, "", "")
+	if done["status"] != "succeeded" || done["result"].(map[string]any)["kind"] != "simulation" || done["result"].(map[string]any)["passed"] != true {
+		t.Fatalf("simulated: %v %v", done, cr)
+	}
+	if err := run(); err != nil { // nothing left to do
+		t.Fatal(err)
+	}
+	if again, _ := e.Must(200, "GET", path, "", ""); again["version"] != cr["version"] {
+		t.Fatalf("simulated twice: %v", again)
+	}
+	s.Worker.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	if err := s.Simulate(context.Background(), in); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Fatalf("database down: %v", err)
+	}
+	// Dispatched under the request's number and attempt; a cancelled attempt is followed by the next.
+	e2, in2, path2 := simulationAsked(t)
+	engine := &fakeEngine{}
+	d := &workflows.Dispatcher{Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}
+	if _, err := d.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var number string
+	pgtest.Admin(t).QueryRow(context.Background(), `SELECT number FROM config.change_request WHERE id = $1`, uuid.MustParse(strings.TrimPrefix(path2, "/v1/change-requests/"))).Scan(&number)
+	found := false
+	for _, st := range engine.started {
+		found = found || st.ID == workflows.SimulateWorkflowID(e2.Tenant.ID, number, 1) && st.Name == workflows.SimulateWorkflow && st.Args[0].(workflows.SimulateInput) == in2
+	}
+	if !found {
+		t.Fatalf("simulation start: %+v", engine.started)
+	}
+	e2.Must(200, "POST", "/v1/operations/"+in2.OperationID.String()+":cancel", "", "*") // the dispatch recorded the workflow id, so the version moved
+	_, tag := e2.Must(200, "GET", path2, "", "")
+	op3, _ := e2.Must(202, "POST", path2+":simulate", "", tag)
+	if n, err := d.RunOnce(context.Background()); err != nil || n != 1 {
+		t.Fatalf("second attempt dispatch: %d %v", n, err)
+	}
+	if last := engine.started[len(engine.started)-1]; last.ID != workflows.SimulateWorkflowID(e2.Tenant.ID, number, 2) || last.Args[0].(workflows.SimulateInput).OperationID != uuid.MustParse(id(op3)) {
+		t.Fatalf("second attempt: %+v", last)
+	}
 }

@@ -88,6 +88,20 @@ type job struct {
 // one runs the tenant's oldest queued simulation and reports whether there
 // was one.
 func (w *SimulationWorker) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
+	return w.simulate(ctx, tenant, `o.kind = $1 AND o.status = 'queued' ORDER BY o.id LIMIT 1`, SimulateKind)
+}
+
+// Simulate runs one queued simulation, named by its operation, and reports
+// whether there was one to run (ADR-0012: the activity of the simulation
+// workflow; an operation no longer queued is left alone, so a retry runs
+// nothing twice).
+func (w *SimulationWorker) Simulate(ctx context.Context, tenant, operation uuid.UUID) (bool, error) {
+	return w.simulate(ctx, tenant, `o.kind = $1 AND o.status = 'queued' AND o.id = $2`, SimulateKind, operation)
+}
+
+// simulate locks the queued operation the condition selects and runs it in
+// one transaction as its requester, with the audit entries and events.
+func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where string, args ...any) (bool, error) {
 	tx, err := w.begin(ctx, database.Scope{Role: w.AppRole, TenantID: tenant})
 	if err != nil {
 		return false, err
@@ -103,7 +117,7 @@ func (w *SimulationWorker) one(ctx context.Context, tenant uuid.UUID) (bool, err
 	var j job
 	err = tx.QueryRow(ctx, `SELECT o.id, coalesce(o.request->>'change_request_id', ''), o.created_by, p.kind FROM platform.operation o
 		JOIN identity.principal p ON p.tenant_id = o.tenant_id AND p.id = o.created_by
-		WHERE o.kind = $1 AND o.status = 'queued' ORDER BY o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`, SimulateKind).Scan(&j.OperationID, &j.ChangeRequest, &j.By, &j.ByKind)
+		WHERE `+where+` FOR UPDATE OF o SKIP LOCKED`, args...).Scan(&j.OperationID, &j.ChangeRequest, &j.By, &j.ByKind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
