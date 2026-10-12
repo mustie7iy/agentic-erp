@@ -36,6 +36,7 @@ func Handler(s *Service, v *authn.Verifier, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(Base+"/tenants", h.collection)
 	mux.HandleFunc(Base+"/tenants/{rest}", h.item)
+	mux.HandleFunc(Base+"/tenants/{id}/fingerprint", h.fingerprintItem)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, r, problem.NotFound("No such endpoint."))
 	})
@@ -51,7 +52,7 @@ type handler struct {
 type endpoint func(w http.ResponseWriter, r *http.Request) error
 
 // Roles maps each operation to the operator role it needs (ADR-0027).
-var Roles = map[string]string{"listTenants": authn.RoleRead, "getTenant": authn.RoleRead, "createTenant": authn.RoleProvision}
+var Roles = map[string]string{"listTenants": authn.RoleRead, "getTenant": authn.RoleRead, "getTenantFingerprint": authn.RoleRead, "createTenant": authn.RoleProvision}
 
 // required is the role an operation needs: RoleOperate unless Roles says otherwise.
 func required(operation string) string {
@@ -157,6 +158,36 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request, id uuid.UUID) erro
 	}
 	w.Header().Set("ETag", etag.Format(t.Version))
 	writeJSON(w, http.StatusOK, t)
+	return nil
+}
+
+// fingerprintItem serves the tenant's one sub-resource, {id}/fingerprint.
+func (h *handler) fingerprintItem(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	switch {
+	case err != nil:
+		problem.Write(w, r, problem.BadRequest("request.invalid_parameter", "Parameter id is invalid.",
+			problem.FieldError{Field: "id", Code: "invalid", Message: "a UUID"}))
+	case r.Method != http.MethodGet:
+		notAllowed(w, r, "GET")
+	default:
+		h.serve(w, r, "getTenantFingerprint", func(w http.ResponseWriter, r *http.Request) error { return h.fingerprint(w, r, id) })
+	}
+}
+
+// fingerprinted is the TenantFingerprint schema of the contract.
+type fingerprinted struct {
+	Tenant
+	Fingerprint offboarding.Fingerprint `json:"fingerprint"`
+}
+
+func (h *handler) fingerprint(w http.ResponseWriter, r *http.Request, id uuid.UUID) error {
+	t, fp, err := h.s.Fingerprint(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("ETag", etag.Format(t.Version))
+	writeJSON(w, http.StatusOK, fingerprinted{Tenant: t, Fingerprint: fp})
 	return nil
 }
 

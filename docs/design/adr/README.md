@@ -34,3 +34,4 @@ new record. Status values: proposed, accepted, superseded.
 | [0027](0027-operator-roles.md) | Operator roles from a token claim: read, provision, operate, admin; no claim means every role | proposed |
 | [0028](0028-key-rotation-policy.md) | Tenant keys older than a configured age are rotated by a worker, as an operator would | proposed |
 | [0029](0029-reonboarding-from-export.md) | A tenant comes back from its export, verified against the manifest; the row copy of a move between cells | proposed |
+| [0030](0030-cross-cell-verification.md) | A tenant's fingerprint (rows per table, audit chain head) on each cell; the global plane compares two cells before a move switches | proposed |

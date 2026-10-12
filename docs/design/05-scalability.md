@@ -132,8 +132,11 @@ up and verify row counts and the audit hash chain; (4) switch the directory
 entry; (5) remove the old rows after a retention period. There are no
 sequences to remap because ids are UUIDs. Step (2) is the directory's
 `read_only` status (the router lets reads through and refuses writes with a
-retry); step (4) is an upsert of the entry's cell and API URL, visible to
-the router within its cache period; step (5) is the erasure of ADR-0021.
+retry); step (1) is an export and an import (ADR-0029); step (3) is
+`verifyTenant` on the global control plane, which compares the two cells'
+fingerprints (ADR-0030); step (4) is an upsert of the entry's cell and API
+URL, visible to the router within its cache period; step (5) is the erasure
+of ADR-0021.
 
 ## 5.5 Events and asynchronous work
 

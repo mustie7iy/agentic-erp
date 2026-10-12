@@ -89,13 +89,8 @@ type manifest struct {
 	TenantID   uuid.UUID       `json:"tenant_id"`
 	Tenant     json.RawMessage `json:"tenant"`
 	ExportedAt time.Time       `json:"exported_at"`
-	ChainHead  *chainHead      `json:"audit_chain_head,omitempty"`
+	ChainHead  *ChainHead      `json:"audit_chain_head,omitempty"`
 	Tables     []exportedTable `json:"tables"`
-}
-
-type chainHead struct {
-	Seq  int64  `json:"seq"`
-	Hash string `json:"hash"`
 }
 
 type exportedTable struct {
@@ -227,13 +222,7 @@ func (w *Worker) Export(ctx context.Context, tenant uuid.UUID) (Export, error) {
 		m.Tables = append(m.Tables, parts...)
 		ex.Rows += rows
 	}
-	var head chainHead
-	var hash []byte
-	switch err := tx.QueryRow(ctx, `SELECT seq, hash FROM audit.chain_head WHERE tenant_id = $1`, tenant).Scan(&head.Seq, &hash); {
-	case err == nil:
-		head.Hash = hex.EncodeToString(hash)
-		m.ChainHead = &head
-	case !errors.Is(err, pgx.ErrNoRows):
+	if m.ChainHead, err = readHead(ctx, tx, tenant); err != nil {
 		return Export{}, err
 	}
 	body, _ := json.Marshal(m) // plain fields and raw JSON always encode

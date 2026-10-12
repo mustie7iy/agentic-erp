@@ -107,6 +107,7 @@ export ERP_OPERATOR_TOKEN=$(./bin/erp token -subject ops)
 ./bin/erp tenants suspend -id <tenant_id>     # the tenant's requests answer 403 tenancy.tenant_inactive until resume
 ./bin/erp tenants resume -id <tenant_id>
 ./bin/erp tenants rotate-key -id <tenant_id>  # new field-encryption key; bank details re-sealed under it
+./bin/erp tenants fingerprint -id <tenant_id> # rows per table and the audit chain head, what a move between cells compares
 ```
 
 `erp call OPERATION` calls any operation of [the contract](api/openapi.yaml)
@@ -226,7 +227,9 @@ tenant's cell ([ADR-0022](docs/design/adr/0022-tenant-directory-and-router.md));
 with `ERP_OPERATOR_ISSUERS` and `ERP_PAGE_TOKEN_KEY` its admin listener
 (`ERP_ROUTER_ADMIN_ADDR`) serves the global control plane
 ([`api/directory.yaml`](api/directory.yaml): tenants and cells across the
-platform, provisioning placed in a cell of the region, moves between cells;
+platform, provisioning placed in a cell of the region, moves between cells
+verified by comparing the two cells' fingerprints with `erp directory verify`,
+[ADR-0030](docs/design/adr/0030-cross-cell-verification.md);
 `erp directory`, [ADR-0023](docs/design/adr/0023-global-control-plane.md)).
 Each cell registers itself with `ERP_CELL_REGION`, `ERP_CELL_CONTROL_URL`
 and `ERP_CELL_ACCEPTING`. Tokens must
@@ -243,7 +246,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T24 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T25 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier

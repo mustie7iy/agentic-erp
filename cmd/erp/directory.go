@@ -28,7 +28,7 @@ import (
 //	erp directory move -id ID -cell C [-if-match ETAG]
 func directoryCmd(ctx context.Context, args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: erp directory cells|tenants|locate|create|freeze|unfreeze|move [flags]")
+		return errors.New("usage: erp directory cells|tenants|locate|create|freeze|unfreeze|verify|move [flags]")
 	}
 	switch args[0] {
 	case "cells":
@@ -41,10 +41,12 @@ func directoryCmd(ctx context.Context, args []string) error {
 		return directoryCreate(ctx, args[1:])
 	case "freeze", "unfreeze":
 		return directoryTransition(ctx, args[0], args[1:])
+	case "verify":
+		return directoryVerify(ctx, args[1:])
 	case "move":
 		return directoryMove(ctx, args[1:])
 	}
-	return fmt.Errorf("erp directory %s: unknown command (cells, tenants, locate, create, freeze, unfreeze, move)", args[0])
+	return fmt.Errorf("erp directory %s: unknown command (cells, tenants, locate, create, freeze, unfreeze, verify, move)", args[0])
 }
 
 // directory performs one call of the global control plane.
@@ -190,6 +192,31 @@ func directoryTransition(ctx context.Context, verb string, args []string) error 
 		return err
 	}
 	printJSON(e)
+	return nil
+}
+
+// directoryVerify compares the tenant's data in its cell and in another
+// (ADR-0030): equal fingerprints are the evidence a move waits for. The
+// command exits with an error when they differ, so a script can wait.
+func directoryVerify(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("directory verify", flag.ContinueOnError)
+	id := fs.String("id", "", "tenant id")
+	cell := fs.String("cell", "", "the cell the tenant is being copied to")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *id == "" || *cell == "" {
+		return errors.New("-id and -cell are required")
+	}
+	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)})
+	v, _, err := directory(ctx, http.MethodPost, "/tenants/"+*id+":verify", body, nil)
+	if err != nil {
+		return err
+	}
+	printJSON(v)
+	if v["equal"] != true {
+		return errors.New("the cells differ")
+	}
 	return nil
 }
 

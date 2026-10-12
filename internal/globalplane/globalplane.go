@@ -8,12 +8,10 @@
 package globalplane
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -24,7 +22,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // Service is the global control plane over the directory.
@@ -161,23 +158,11 @@ func (s *Service) Create(ctx context.Context, key, authorization string, body []
 	if err != nil {
 		return Placed{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(chosen.ControlURL, "/")+"/control/v1/tenants", bytes.NewReader(body))
+	status, answer, headers, err := s.call(ctx, chosen, http.MethodPost, "/control/v1/tenants", body, map[string]string{"Content-Type": "application/json", "Idempotency-Key": key, "Authorization": authorization})
 	if err != nil {
-		return Placed{}, problem.Unavailable("Cell "+chosen.Name+" has no usable control URL.", 60).WithCause(err)
+		return Placed{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", key)
-	req.Header.Set("Authorization", authorization)
-	resp, err := s.client().Do(req)
-	if err != nil {
-		return Placed{}, problem.New(http.StatusBadGateway, "platform.cell_unreachable", "Cell unreachable", "Cell "+chosen.Name+" did not answer; try again with the same Idempotency-Key.").WithCause(err)
-	}
-	defer resp.Body.Close()
-	answer, err := io.ReadAll(io.LimitReader(resp.Body, uow.MaxBody))
-	if err != nil {
-		return Placed{}, problem.New(http.StatusBadGateway, "platform.cell_unreachable", "Cell unreachable", "Cell "+chosen.Name+" did not finish its answer; try again with the same Idempotency-Key.").WithCause(err)
-	}
-	if resp.StatusCode == http.StatusCreated {
+	if status == http.StatusCreated {
 		var created struct {
 			ID     uuid.UUID `json:"id"`
 			Region string    `json:"region"`
@@ -188,5 +173,5 @@ func (s *Service) Create(ctx context.Context, key, authorization string, body []
 			_ = s.Directory.Upsert(ctx, directory.Entry{TenantID: created.ID, Region: created.Region, Cell: chosen.Name, APIURL: chosen.APIURL, Status: created.Status})
 		}
 	}
-	return Placed{Status: resp.StatusCode, Body: answer, Headers: resp.Header, Cell: chosen}, nil
+	return Placed{Status: status, Body: answer, Headers: headers, Cell: chosen}, nil
 }

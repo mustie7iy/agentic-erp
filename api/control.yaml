@@ -128,6 +128,31 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  "/control/v1/tenants/{id}/fingerprint":
+    get:
+      operationId: getTenantFingerprint
+      tags:
+        - tenants
+      summary: Get a tenant's fingerprint
+      description: "The tenant with its fingerprint (ADR-0030): the rows of every table carrying a `tenant_id` (outboxes left out) and the audit chain head, read in one snapshot. Two cells holding the same tenant give the same fingerprint; the global control plane compares them (`verifyTenant`) before a move switches the directory. Read-only; `ETag` is the tenant's version."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The tenant with its fingerprint.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantFingerprint"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   "/control/v1/tenants/{id}:suspend":
     post:
       operationId: suspendTenant
@@ -508,6 +533,91 @@ components:
             objects: 37
             kept: 3
             erased_at: "2026-10-11T09:06:00Z"
+    TenantFingerprint:
+      description: The tenant with its fingerprint.
+      allOf:
+        - $ref: "#/components/schemas/Tenant"
+        - type: object
+          required:
+            - fingerprint
+          properties:
+            fingerprint:
+              $ref: "#/components/schemas/Fingerprint"
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          name: Acme
+          region: eu-west
+          group_currency: EUR
+          status: active
+          version: 3
+          created_at: "2026-10-11T09:00:00Z"
+          updated_at: "2026-10-11T09:02:00Z"
+          fingerprint:
+            tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+            computed_at: "2026-10-12T08:00:00Z"
+            tables:
+              - name: identity.principal
+                rows: 12
+              - name: payables.supplier_invoice
+                rows: 840
+            audit_chain_head:
+              seq: 4021
+              hash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    Fingerprint:
+      type: object
+      description: "The tenant's data in numbers, read in one snapshot: every table's rows and the audit chain head."
+      required:
+        - tenant_id
+        - computed_at
+        - tables
+        - audit_chain_head
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant.
+        computed_at:
+          type: string
+          format: date-time
+          description: When the snapshot was read.
+        tables:
+          type: array
+          description: Every table carrying a `tenant_id`, outboxes left out, in name order.
+          items:
+            type: object
+            required:
+              - name
+              - rows
+            properties:
+              name:
+                type: string
+                description: "`schema.table`."
+                example: ledger.journal_line
+              rows:
+                type: integer
+                format: int64
+                description: Rows of the tenant.
+                minimum: 0
+                example: 120
+        audit_chain_head:
+          description: The audit chain's last entry; null while the tenant has no audit trail.
+          oneOf:
+            - type: "null"
+            - type: object
+              required:
+                - seq
+                - hash
+              properties:
+                seq:
+                  type: integer
+                  format: int64
+                  description: Sequence number of the last entry.
+                  example: 4021
+                hash:
+                  type: string
+                  description: Hash of the last entry, hex.
+                  pattern: "^[0-9a-f]{64}$"
+                  example: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
     Erasure:
       type: object
       description: What an erasure did.

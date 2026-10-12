@@ -285,6 +285,7 @@ which is reachable only inside the platform (ADR-0015).
 | `suspendTenant`, `resumeTenant`, `offboardTenant` | `POST /control/v1/tenants/{id}:verb` | `If-Match` required; 409 `tenancy.invalid_transition` outside active → suspended → active, active or suspended → offboarded (final) |
 | `rotateTenantKey` | `POST /control/v1/tenants/{id}:rotateKey` | `If-Match` required; a new field-encryption key, every sensitive field re-sealed (ADR-0018) |
 | `eraseTenant` | `POST /control/v1/tenants/{id}:erase` | `If-Match` required; an offboarded, exported tenant's data erased before its grace period ends (ADR-0021); `offboarding` on the tenant shows the stages |
+| `getTenantFingerprint` | `GET /control/v1/tenants/{id}/fingerprint` | The tenant with its fingerprint: rows per table (outboxes left out) and the audit chain head in one snapshot (ADR-0030); read role; `ETag` = version |
 
 The control plane follows this document's rules (problems, pagination,
 idempotency, concurrency) with these differences:
@@ -327,6 +328,7 @@ tokens as the cells' control planes:
 | `getDirectoryTenant` | `GET /directory/v1/tenants/{id}` | The entry; `ETag` = version |
 | `createDirectoryTenant` | `POST /directory/v1/tenants` | The cell contract's `TenantCreate` plus an optional `cell`; placed in the emptiest accepting cell of the region and forwarded to that cell's control plane with the operator's token and `Idempotency-Key`; the answer names the cell (`X-Erp-Cell`) |
 | `freezeTenant`, `moveTenant`, `unfreezeTenant` | `POST /directory/v1/tenants/{id}:verb` | `If-Match` required; the directory steps of a move (05 §5.4): read-only at the router, the entry switched to a registered cell of the same region, active again |
+| `verifyTenant` | `POST /directory/v1/tenants/{id}:verify` | The tenant's fingerprint in its cell and in the `cell` named, fetched with the operator's token, with every difference (ADR-0030); changes nothing, so no `If-Match`; 422 for an unknown or the tenant's own cell, 502 for a cell not answering or refusing |
 | `listCells` | `GET /directory/v1/cells` | The cells that registered themselves, with tenant counts, fewest first |
 
 The global plane keeps no audit trail: what it forwards is recorded by the

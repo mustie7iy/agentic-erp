@@ -251,6 +251,41 @@ paths:
           $ref: "#/components/responses/PreconditionFailed"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+  "/directory/v1/tenants/{id}:verify":
+    post:
+      operationId: verifyTenant
+      tags:
+        - directory
+      summary: Compare a tenant's data in two cells
+      description: "Step 3 of a move (05 §5.4, ADR-0030): asks the tenant's cell and the cell named for the tenant's fingerprint (every table's rows and the audit chain head, each cell's `getTenantFingerprint` with the operator's token) and names every difference. `equal` is the evidence that the copy is complete; the entry is not changed, in any status. 422 when the cell is unknown or the tenant's own; 502 when a cell does not answer or refuses the operator; 503 when the tenant's own cell has not registered."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        description: The cell to compare with.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Verify"
+      responses:
+        "200":
+          description: Both fingerprints and their differences.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Verification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /directory/v1/cells:
     get:
       operationId: listCells
@@ -602,6 +637,125 @@ components:
           maxLength: 40
       examples:
         - cell: eu-2
+    Verify:
+      type: object
+      description: The cell a tenant is being copied to.
+      required:
+        - cell
+      properties:
+        cell:
+          type: string
+          description: A registered cell of the tenant's region, other than the tenant's own.
+          minLength: 1
+          maxLength: 40
+      examples:
+        - cell: eu-2
+    Verification:
+      type: object
+      description: "The tenant's fingerprint in its cell (source) and in the cell named (destination), and every difference between them."
+      required:
+        - tenant_id
+        - source
+        - destination
+        - equal
+        - differences
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        source:
+          $ref: "#/components/schemas/Side"
+        destination:
+          $ref: "#/components/schemas/Side"
+        equal:
+          type: boolean
+          description: Both cells hold the tenant and the fingerprints match.
+        differences:
+          type: array
+          description: "One line per difference: a cell without the tenant, a table's rows, the audit chain head; empty when equal."
+          items:
+            type: string
+      examples:
+        - tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          source:
+            cell: eu-1
+            fingerprint:
+              tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              computed_at: "2026-10-12T08:00:00Z"
+              tables:
+                - name: ledger.journal_line
+                  rows: 120
+              audit_chain_head:
+                seq: 4021
+                hash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+          destination:
+            cell: eu-2
+            fingerprint:
+              tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              computed_at: "2026-10-12T08:00:01Z"
+              tables:
+                - name: ledger.journal_line
+                  rows: 118
+              audit_chain_head:
+                seq: 4021
+                hash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+          equal: false
+          differences:
+            - "ledger.journal_line: 120 rows in eu-1, 118 in eu-2"
+    Side:
+      type: object
+      description: One cell's view of the tenant.
+      required:
+        - cell
+        - fingerprint
+      properties:
+        cell:
+          type: string
+        fingerprint:
+          description: "The cell control plane's `Fingerprint` (api/control.yaml); null when the cell has no such tenant."
+          oneOf:
+            - type: "null"
+            - type: object
+              required:
+                - tenant_id
+                - computed_at
+                - tables
+                - audit_chain_head
+              properties:
+                tenant_id:
+                  type: string
+                  format: uuid
+                computed_at:
+                  type: string
+                  format: date-time
+                tables:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - rows
+                    properties:
+                      name:
+                        type: string
+                      rows:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                audit_chain_head:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      required:
+                        - seq
+                        - hash
+                      properties:
+                        seq:
+                          type: integer
+                          format: int64
+                        hash:
+                          type: string
+                          pattern: "^[0-9a-f]{64}$"
     FieldError:
       type: object
       description: One invalid input field.
@@ -779,8 +933,27 @@ components:
               - field: region
                 code: no_cell
                 message: a region with an accepting cell
+    ServiceUnavailable:
+      description: The tenant's own cell has not registered itself, so its control plane is unknown.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/platform/unavailable"
+            title: Service unavailable
+            status: 503
+            code: platform.unavailable
+            detail: "The tenant's cell eu-1 has not registered itself; its control plane is unknown."
+            instance: "/directory/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:verify"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
     BadGateway:
-      description: The cell chosen did not answer; retry with the same `Idempotency-Key`.
+      description: A cell did not answer, or refused the operator; a provisioning is retried with the same `Idempotency-Key`.
       content:
         application/problem+json:
           schema:

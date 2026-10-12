@@ -31,19 +31,41 @@ import (
 // reads the tenant first and uses its ETag.
 func tenantsCmd(ctx context.Context, args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: erp tenants list|get|create|suspend|resume|offboard|rotate-key|erase [flags]")
+		return errors.New("usage: erp tenants list|get|fingerprint|create|suspend|resume|offboard|rotate-key|erase [flags]")
 	}
 	switch args[0] {
 	case "list":
 		return tenantsList(ctx, args[1:])
 	case "get":
 		return tenantsGet(ctx, args[1:])
+	case "fingerprint":
+		return tenantsFingerprint(ctx, args[1:])
 	case "create":
 		return tenantsCreate(ctx, args[1:])
 	case "suspend", "resume", "offboard", "rotate-key", "erase":
 		return tenantsTransition(ctx, args[0], args[1:])
 	}
-	return fmt.Errorf("erp tenants %s: unknown command (list, get, create, suspend, resume, offboard, rotate-key, erase)", args[0])
+	return fmt.Errorf("erp tenants %s: unknown command (list, get, fingerprint, create, suspend, resume, offboard, rotate-key, erase)", args[0])
+}
+
+// tenantsFingerprint prints the tenant with its fingerprint: every table's
+// rows and the audit chain head (ADR-0030), what a move compares.
+func tenantsFingerprint(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("tenants fingerprint", flag.ContinueOnError)
+	id := fs.String("id", "", "tenant id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *id == "" {
+		return errors.New("-id is required")
+	}
+	t, h, err := control(ctx, http.MethodGet, "/tenants/"+*id+"/fingerprint", nil, nil)
+	if err != nil {
+		return err
+	}
+	t["etag"] = h.Get("ETag")
+	printJSON(t)
+	return nil
 }
 
 // control performs one call of the control plane and returns the body and

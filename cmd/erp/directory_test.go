@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -51,6 +52,11 @@ func TestDirectoryCommand(t *testing.T) {
 			var in map[string]string
 			json.NewDecoder(r.Body).Decode(&in)
 			w.Write([]byte(`{"tenant_id": "t1", "status": "read_only", "cell": "` + in["cell"] + `", "version": 4}`))
+		case r.URL.Path == "/directory/v1/tenants/t1:verify":
+			var in map[string]string
+			json.NewDecoder(r.Body).Decode(&in)
+			equal := in["cell"] == "eu-2"
+			w.Write([]byte(`{"tenant_id": "t1", "source": {"cell": "eu-1"}, "destination": {"cell": "` + in["cell"] + `"}, "equal": ` + strconv.FormatBool(equal) + `, "differences": ["ledger.journal_line: 120 rows in eu-1, 118 in ` + in["cell"] + `"]}`))
 		case r.URL.Path == "/directory/v1/tenants/t1:unfreeze":
 			w.WriteHeader(409)
 			w.Write([]byte(`{"code": "tenancy.invalid_transition", "detail": "The tenant is active; unfreeze applies to read-only tenants."}`))
@@ -108,6 +114,12 @@ func TestDirectoryCommand(t *testing.T) {
 	if got := must(t, "directory", "move", "-id", "t1", "-cell", "eu-4"); !strings.Contains(got, `"eu-4"`) { // the ETag read first
 		t.Fatalf("move reading the etag: %s", got)
 	}
+	if got := must(t, "directory", "verify", "-id", "t1", "-cell", "eu-2"); !strings.Contains(got, `"equal": true`) {
+		t.Fatalf("verify: %s", got)
+	}
+	fails(t, "the cells differ", "directory", "verify", "-id", "t1", "-cell", "eu-3")
+	fails(t, "404 request.not_found", "directory", "verify", "-id", "t9", "-cell", "eu-2")
+	fails(t, "-id and -cell are required", "directory", "verify", "-id", "t1")
 	fails(t, "404 request.not_found", "directory", "move", "-id", "t1", "-cell", "eu-4", "-if-match", `"9"`)
 	fails(t, "404 request.not_found", "directory", "freeze", "-id", "t9")
 	fails(t, "409 tenancy.invalid_transition", "directory", "unfreeze", "-id", "t1")
@@ -121,7 +133,7 @@ func TestDirectoryCommand(t *testing.T) {
 	fails(t, "no such file", "directory", "create", "-config", "/no/such.yaml")
 	fails(t, "unknown command", "directory", "explode")
 	fails(t, "usage: erp directory", "directory")
-	for _, sub := range []string{"cells", "tenants", "locate", "create", "freeze", "move"} {
+	for _, sub := range []string{"cells", "tenants", "locate", "create", "freeze", "verify", "move"} {
 		fails(t, "flag provided but not defined", "directory", sub, "-x")
 	}
 	env["ERP_OPERATOR_TOKEN"] = "wrong"

@@ -68,7 +68,7 @@ func TestDirectoryOperations(t *testing.T) {
 	}
 	want := map[string]string{"listDirectoryTenants": "GET /directory/v1/tenants", "createDirectoryTenant": "POST /directory/v1/tenants", "getDirectoryTenant": "GET /directory/v1/tenants/{id}",
 		"freezeTenant": "POST /directory/v1/tenants/{id}:freeze", "unfreezeTenant": "POST /directory/v1/tenants/{id}:unfreeze", "moveTenant": "POST /directory/v1/tenants/{id}:move",
-		"listCells": "GET /directory/v1/cells"}
+		"verifyTenant": "POST /directory/v1/tenants/{id}:verify", "listCells": "GET /directory/v1/cells"}
 	if len(ops) != len(want) {
 		t.Fatalf("%d operations", len(ops))
 	}
@@ -89,7 +89,7 @@ func TestControlOperations(t *testing.T) {
 	}
 	want := map[string]string{"listTenants": "GET /control/v1/tenants", "createTenant": "POST /control/v1/tenants", "getTenant": "GET /control/v1/tenants/{id}",
 		"suspendTenant": "POST /control/v1/tenants/{id}:suspend", "resumeTenant": "POST /control/v1/tenants/{id}:resume", "offboardTenant": "POST /control/v1/tenants/{id}:offboard",
-		"rotateTenantKey": "POST /control/v1/tenants/{id}:rotateKey", "eraseTenant": "POST /control/v1/tenants/{id}:erase"}
+		"rotateTenantKey": "POST /control/v1/tenants/{id}:rotateKey", "eraseTenant": "POST /control/v1/tenants/{id}:erase", "getTenantFingerprint": "GET /control/v1/tenants/{id}/fingerprint"}
 	if len(ops) != len(want) {
 		t.Fatalf("%d operations", len(ops))
 	}

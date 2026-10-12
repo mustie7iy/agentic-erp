@@ -186,6 +186,27 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Tenant, error) {
 	return t, err
 }
 
+// Fingerprint reads the tenant and its fingerprint (ADR-0030): every
+// table's rows and the audit chain head, in the tenant's scope, in one
+// snapshot. The global control plane compares two cells' fingerprints
+// before a move switches the directory.
+func (s *Service) Fingerprint(ctx context.Context, id uuid.UUID) (Tenant, offboarding.Fingerprint, error) {
+	tx, err := s.begin(ctx, database.Scope{Role: s.AppRole, TenantID: id, ReadOnly: true})
+	if err != nil {
+		return Tenant{}, offboarding.Fingerprint{}, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Tenant{}, offboarding.Fingerprint{}, problem.NotFound("No tenant with this id.")
+	}
+	if err != nil {
+		return Tenant{}, offboarding.Fingerprint{}, err
+	}
+	fp, err := offboarding.TakeFingerprint(ctx, tx, id, s.now())
+	return t, fp, err
+}
+
 // Create provisions a tenant for the operator. With req.Idempotency set, a
 // retry of an earlier request answers the tenant that request created
 // (replayed = true) instead of creating a second one.

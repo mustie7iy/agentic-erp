@@ -3,22 +3,26 @@ package globalplane_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/globalplane"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -339,5 +343,180 @@ func TestGlobalControlPlane(t *testing.T) {
 	}
 	if status, _, _ := p.as("ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString()); status != 500 {
 		t.Errorf("create with the directory down: %d", status)
+	}
+}
+
+// fpCell is a cell's control plane answering fingerprint requests with
+// whatever it is told, remembering the operator tokens it saw.
+type fpCell struct {
+	mu     sync.Mutex
+	status int
+	body   string
+	auth   []string
+}
+
+func (c *fpCell) set(status int, body string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.status, c.body = status, body
+}
+
+func (c *fpCell) handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.auth = append(c.auth, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization"))
+		w.WriteHeader(c.status)
+		w.Write([]byte(c.body))
+	})
+}
+
+func fingerprintJSON(id uuid.UUID, tables map[string]int, head string) string {
+	fp := map[string]any{"tenant_id": id, "computed_at": "2026-10-12T08:00:00Z", "tables": []any{}, "audit_chain_head": nil}
+	names := make([]string, 0, len(tables))
+	for n := range tables {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fp["tables"] = append(fp["tables"].([]any), map[string]any{"name": n, "rows": tables[n]})
+	}
+	if head != "" {
+		seq, hash, _ := strings.Cut(head, ":")
+		n, _ := strconv.Atoi(seq)
+		fp["audit_chain_head"] = map[string]any{"seq": n, "hash": hash}
+	}
+	body, _ := json.Marshal(map[string]any{"id": id, "status": "active", "version": 1, "fingerprint": fp})
+	return string(body)
+}
+
+// TestVerifyTenant: the global plane fetches the tenant's fingerprint from
+// its cell and from the destination with the operator's token and names
+// every difference (ADR-0030); cells without the tenant, unreachable or
+// refusing are told apart.
+func TestVerifyTenant(t *testing.T) {
+	p := newPlane(t)
+	ctx := context.Background()
+	region := "vf" + strings.ToLower(uuid.NewString()[:6])
+	a, b := &fpCell{}, &fpCell{}
+	aSrv, bSrv := httptest.NewServer(a.handler()), httptest.NewServer(b.handler())
+	defer aSrv.Close()
+	defer bSrv.Close()
+	for _, c := range []directory.Cell{
+		{Name: region + "-a", Region: region, APIURL: "https://a.api.example.com", ControlURL: aSrv.URL, Accepting: true},
+		{Name: region + "-b", Region: region, APIURL: "https://b.api.example.com", ControlURL: bSrv.URL, Accepting: true},
+		{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: true},
+		{Name: region + "-bad", Region: region, APIURL: "https://x.api.example.com", ControlURL: "::", Accepting: true},
+	} {
+		if err := p.dir.UpsertCell(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := uuid.Must(uuid.NewV7())
+	if err := p.dir.Upsert(ctx, directory.Entry{TenantID: id, Region: region, Cell: region + "-a", APIURL: "https://a.api.example.com", Status: directory.Active}); err != nil {
+		t.Fatal(err)
+	}
+	h1 := strings.Repeat("a", 64)
+	path := "/directory/v1/tenants/" + id.String() + ":verify"
+	to := func(cell string) string { return `{"cell":"` + region + "-" + cell + `"}` }
+	// Equal.
+	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120}, "5:"+h1))
+	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120}, "5:"+h1))
+	v, _ := p.must(200, "ops|alice", "POST", path, to("b"))
+	if v["equal"] != true || len(v["differences"].([]any)) != 0 || v["source"].(map[string]any)["cell"] != region+"-a" || v["destination"].(map[string]any)["fingerprint"] == nil {
+		t.Fatalf("equal: %v", v)
+	}
+	b.mu.Lock()
+	seen := strings.Join(b.auth, "\n")
+	b.mu.Unlock()
+	if !strings.Contains(seen, "GET /control/v1/tenants/"+id.String()+"/fingerprint Bearer "+p.operator("ops|alice")) {
+		t.Fatalf("the destination did not see the operator's token: %s", seen)
+	}
+	// Differences of every kind.
+	diffs := func(want ...string) {
+		t.Helper()
+		v, _ := p.must(200, "ops|alice", "POST", path, to("b"))
+		var got []string
+		for _, d := range v["differences"].([]any) {
+			got = append(got, d.(string))
+		}
+		if v["equal"] != false || strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("differences:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	}
+	h2 := strings.Repeat("b", 64)
+	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 118, "payables.supplier_invoice": 7}, "6:"+h2))
+	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120, "ledger.period": 12}, "5:"+h1))
+	diffs("ledger.journal_line: 120 rows in "+region+"-a, 118 in "+region+"-b",
+		"ledger.period: 12 rows in "+region+"-a, no table in "+region+"-b",
+		"payables.supplier_invoice: no table in "+region+"-a, 7 rows in "+region+"-b",
+		"audit chain head: seq 5 (aaaaaaaaaaaa…) in "+region+"-a, seq 6 (bbbbbbbbbbbb…) in "+region+"-b")
+	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120, "ledger.period": 12}, ""))
+	diffs("audit chain head: seq 5 in " + region + "-a, none in " + region + "-b")
+	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120, "ledger.period": 12}, ""))
+	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120, "ledger.period": 12}, "2:ab"))
+	diffs("audit chain head: none in " + region + "-a, seq 2 in " + region + "-b")
+	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, "2:ab"))
+	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, "2:cd"))
+	diffs("audit chain head: seq 2 (ab) in " + region + "-a, seq 2 (cd) in " + region + "-b")
+	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, ""))
+	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, ""))
+	if v, _ := p.must(200, "ops|alice", "POST", path, to("b")); v["equal"] != true {
+		t.Fatalf("no audit trail on either side: %v", v)
+	}
+	b.set(404, `{"code":"request.not_found","detail":"No tenant with this id."}`)
+	diffs(region + "-b has no tenant with this id")
+	a.set(404, `{"code":"request.not_found","detail":"No tenant with this id."}`)
+	diffs("neither " + region + "-a nor " + region + "-b has the tenant")
+	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, "2:"+h2))
+	diffs(region + "-a has no tenant with this id")
+	// Cells that do not cooperate.
+	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, "2:"+h2))
+	b.set(403, `{"code":"authz.operator_role","detail":"This operation needs the operator role erp:read."}`)
+	p.problem(502, "platform.cell_refused", "ops|alice", "POST", path, to("b"))
+	b.set(200, `not json`)
+	p.problem(502, "platform.cell_unreachable", "ops|alice", "POST", path, to("b"))
+	a.set(500, `{"code":"platform.internal","detail":"The request failed."}`)
+	p.problem(502, "platform.cell_refused", "ops|alice", "POST", path, to("b"))
+	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, "2:"+h2))
+	b.set(200, `{"id":"x"}`)
+	p.problem(502, "platform.cell_unreachable", "ops|alice", "POST", path, to("b"))
+	p.problem(502, "platform.cell_unreachable", "ops|alice", "POST", path, to("down"))
+	p.problem(503, "platform.unavailable", "ops|alice", "POST", path, to("bad"))
+	// Requests that are wrong before any cell is asked.
+	p.problem(422, "tenancy.unknown_cell", "ops|alice", "POST", path, to("nowhere"))
+	p.problem(422, "tenancy.same_cell", "ops|alice", "POST", path, to("a"))
+	p.problem(404, "request.not_found", "ops|alice", "POST", "/directory/v1/tenants/"+uuid.NewString()+":verify", to("b"))
+	p.problem(400, "request.invalid_body", "ops|alice", "POST", path, `{"cell":""}`)
+	p.problem(400, "request.invalid_body", "ops|alice", "POST", path, `{"cell":"x","extra":1}`)
+	// A tenant whose own cell never registered.
+	ghost := uuid.Must(uuid.NewV7())
+	if err := p.dir.Upsert(ctx, directory.Entry{TenantID: ghost, Region: region, Cell: region + "-ghost", APIURL: "https://g.api.example.com", Status: directory.Active}); err != nil {
+		t.Fatal(err)
+	}
+	p.problem(503, "platform.unavailable", "ops|alice", "POST", "/directory/v1/tenants/"+ghost.String()+":verify", to("b"))
+	// Roles: a reader verifies, a provisioner does not.
+	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, "2:"+h2))
+	for roles, want := range map[string]int{"erp:read": 200, "erp:provision": 403} {
+		headers := map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": roles}), "Content-Type": "application/json"}
+		if status, m, _ := p.do("POST", path, to("b"), headers); status != want {
+			t.Errorf("%s verifies: %d %v", roles, status, m)
+		}
+	}
+	// The directory failing after the entry was read, and down.
+	calls := 0
+	p.dir.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+		if calls++; calls == 2 {
+			return errors.New("directory lost")
+		}
+		return p.dir.Pool.InTx(ctx, scope, fn)
+	}
+	if status, _, _ := p.as("ops|alice", "POST", path, to("b")); status != 500 {
+		t.Errorf("verify with the cells unreadable: %d", status)
+	}
+	p.dir.InTx = nil
+	p.dir.Close()
+	if status, _, _ := p.as("ops|alice", "POST", path, to("b")); status != 500 {
+		t.Errorf("verify with the directory down: %d", status)
 	}
 }

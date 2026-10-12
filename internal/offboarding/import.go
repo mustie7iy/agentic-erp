@@ -48,7 +48,7 @@ type Imported struct {
 	ExportedAt time.Time        `json:"exported_at"`
 	Tables     int              `json:"tables"`
 	Rows       map[string]int64 `json:"rows"` // inserted, per table
-	ChainHead  *chainHead       `json:"audit_chain_head,omitempty"`
+	ChainHead  *ChainHead       `json:"audit_chain_head,omitempty"`
 }
 
 // skipped tables: an outbox's events were delivered in the cell they

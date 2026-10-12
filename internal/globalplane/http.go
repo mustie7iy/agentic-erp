@@ -44,7 +44,7 @@ type handler struct {
 type endpoint func(w http.ResponseWriter, r *http.Request) error
 
 // Roles maps each operation to the operator role it needs (ADR-0027).
-var Roles = map[string]string{"listDirectoryTenants": authn.RoleRead, "getDirectoryTenant": authn.RoleRead, "listCells": authn.RoleRead, "createDirectoryTenant": authn.RoleProvision}
+var Roles = map[string]string{"listDirectoryTenants": authn.RoleRead, "getDirectoryTenant": authn.RoleRead, "listCells": authn.RoleRead, "verifyTenant": authn.RoleRead, "createDirectoryTenant": authn.RoleProvision}
 
 func required(operation string) string {
 	if role, ok := Roles[operation]; ok {
@@ -142,6 +142,23 @@ func (h *handler) tenant(w http.ResponseWriter, r *http.Request) {
 			}
 			e, err := h.s.Move(r.Context(), id, ifMatch, in.Cell)
 			return h.entry(w, e, err)
+		})
+	case r.Method == http.MethodPost && custom && verb == "verify":
+		h.serve(w, r, "verifyTenant", func(w http.ResponseWriter, r *http.Request) error {
+			var in struct {
+				Cell string `json:"cell"`
+			}
+			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&in); err != nil || in.Cell == "" {
+				return problem.BadRequest("request.invalid_body", "The request body does not match the contract: a cell is required.")
+			}
+			v, err := h.s.Verify(r.Context(), id, in.Cell, r.Header.Get("Authorization"))
+			if err != nil {
+				return err
+			}
+			writeJSON(w, http.StatusOK, v)
+			return nil
 		})
 	case custom:
 		if r.Method == http.MethodPost {

@@ -76,6 +76,7 @@ prototype store for that context.
 | T22 (done) | **Chunked exports** | Offboarding exports stream each table into objects of bounded size, listed part by part in the manifest; audit details stay as written, with minimization a write-time rule rather than a rewrite |
 | T23 (done) | **Operator roles, rotation policy, security lint** | Operator tokens carry roles the control planes check per operation; a worker rotates tenant keys older than a configured age; the API's own upload URLs can be absolute; `gosec` runs in CI with its exclusions decided and recorded |
 | T24 (done) | **Re-onboarding from export** | `erp-server import` brings an exported tenant back into a cell, row for row and chain head and all, every part checked against the manifest; the row copy a move between cells needs |
+| T25 (done) | **Cross-cell verification** | Each cell answers a tenant's fingerprint (rows per table, audit chain head); the global control plane compares the tenant's cell with the destination and names every difference, the evidence a move waits for before switching the entry |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1362,6 +1363,44 @@ Open points for the contract and design review:
   does not create them.
 - A cross-cell `:verify` on the global control plane would run the import's
   checks against a destination without writing.
+
+### T25 decisions and open points
+
+What T25 built: cross-cell verification (ADR-0030), the step of a move
+that was still outside the API. Each cell's control plane answers
+`GET /control/v1/tenants/{id}/fingerprint` (`offboarding.TakeFingerprint`:
+the rows of every table carrying a `tenant_id`, outboxes left out, and the
+audit chain head, in one read-only snapshot in the tenant's scope). The
+global control plane's `POST /directory/v1/tenants/{id}:verify` asks the
+tenant's cell and the cell named with the operator's own token and answers
+both fingerprints, `equal`, and one line per difference. `erp tenants
+fingerprint` and `erp directory verify` (non-zero exit while the cells
+differ) drive them. The exit criteria are `TestTenantFingerprint` (a
+provisioned tenant's counts and chain head, stable across reads, no
+outboxes, readers allowed, every database failure reported) and
+`TestVerifyTenant` (equal cells; every kind of difference named; a cell
+without the tenant, unreachable, refusing or never registered told apart;
+unknown and same cells refused; roles).
+
+Decisions taken while building it:
+
+- **Counts and the chain head, not row hashes.** One statement per table;
+  the chain head already hashes every audited change. Row hashing can be a
+  deeper mode later.
+- **Verification does not change the entry.** It runs in any status, before
+  freezing (how far is the copy) and after (safe to switch).
+- **The operator's token travels to both cells**, as provisioning's does;
+  the global plane holds no credentials of its own.
+
+Open points for the contract and design review:
+
+- The move is five operator steps (freeze, export, import, verify, move,
+  unfreeze); a long-running `:migrate` operation on the global plane could
+  drive them, once the import can be called on a cell rather than run as a
+  command.
+- Fingerprints count rows in a snapshot per cell at different moments; a
+  tenant still taking writes in its source cell differs by design until it
+  is frozen.
 
 ## 7.4 Data from the prototype
 

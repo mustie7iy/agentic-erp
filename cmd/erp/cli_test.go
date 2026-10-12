@@ -403,6 +403,8 @@ func TestTenantsCommand(t *testing.T) {
 			w.Write([]byte(`{"id": "t2", "name": "` + in["name"].(string) + `", "status": "active", "provisioned": {"configuration_version": 1}}`))
 		case r.URL.Path == "/control/v1/tenants/t1":
 			w.Write([]byte(`{"id": "t1", "status": "active", "version": 3}`))
+		case r.URL.Path == "/control/v1/tenants/t1/fingerprint":
+			w.Write([]byte(`{"id": "t1", "status": "active", "version": 3, "fingerprint": {"tables": [{"name": "identity.principal", "rows": 12}], "audit_chain_head": {"seq": 7, "hash": "ab"}}}`))
 		case r.URL.Path == "/control/v1/tenants/t1:suspend" && r.Header.Get("If-Match") == `"3"`:
 			w.Write([]byte(`{"id": "t1", "status": "suspended", "version": 4}`))
 		case r.URL.Path == "/control/v1/tenants/t1:resume" && r.Header.Get("If-Match") == `"3"`:
@@ -455,7 +457,12 @@ func TestTenantsCommand(t *testing.T) {
 	}
 	fails(t, "tenancy.invalid_transition", "tenants", "offboard", "-id", "t1")
 	fails(t, "tenancy.invalid_tenant", "tenants", "create", "-config", file)
+	if got := must(t, "tenants", "fingerprint", "-id", "t1"); !strings.Contains(got, `"rows": 12`) || !strings.Contains(got, `"seq": 7`) || !strings.Contains(got, `"etag": "\"3\""`) {
+		t.Fatalf("fingerprint: %s", got)
+	}
 	fails(t, "request.not_found", "tenants", "get", "-id", "nope")
+	fails(t, "request.not_found", "tenants", "fingerprint", "-id", "nope")
+	fails(t, "-id is required", "tenants", "fingerprint")
 	fails(t, "request.not_found", "tenants", "suspend", "-id", "nope")
 	fails(t, "not JSON", "tenants", "get", "-id", "plain")
 	fails(t, "usage", "tenants")
@@ -464,7 +471,7 @@ func TestTenantsCommand(t *testing.T) {
 	fails(t, "-id is required", "tenants", "suspend")
 	fails(t, "-config is required", "tenants", "create", "-name", "x")
 	fails(t, "no such file", "tenants", "create", "-config", "/no/such.yaml")
-	for _, sub := range []string{"list", "get", "create", "suspend"} {
+	for _, sub := range []string{"list", "get", "fingerprint", "create", "suspend"} {
 		fails(t, "flag provided", "tenants", sub, "-x")
 	}
 	env["ERP_OPERATOR_TOKEN"] = "wrong"

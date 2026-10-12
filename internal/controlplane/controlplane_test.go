@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -709,4 +710,85 @@ func (m *memoryDirectory) Upsert(_ context.Context, e directory.Entry) error {
 	m.entries[e.TenantID] = e
 	m.writes++
 	return nil
+}
+
+// TestTenantFingerprint: the fingerprint (ADR-0030) counts every table of
+// the tenant but the outboxes and carries the audit chain head; it is a
+// read for the read role under the tenant's ETag; every database failure
+// is reported.
+func TestTenantFingerprint(t *testing.T) {
+	p := newPlane(t)
+	created, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Printed"), "Idempotency-Key", "key-"+uuid.NewString())
+	id := created["id"].(string)
+	got, h := p.must(200, "ops|alice", "GET", tenants+"/"+id+"/fingerprint", "")
+	fp := got["fingerprint"].(map[string]any)
+	rows := map[string]float64{}
+	for _, tb := range fp["tables"].([]any) {
+		m := tb.(map[string]any)
+		rows[m["name"].(string)] = m["rows"].(float64)
+		if strings.HasSuffix(m["name"].(string), ".outbox") {
+			t.Errorf("outbox %s in the fingerprint", m["name"])
+		}
+	}
+	head, _ := fp["audit_chain_head"].(map[string]any)
+	if got["id"] != id || got["status"] != "active" || h.Get("ETag") == "" || rows["identity.principal"] < 1 || rows["tenancy.tenant_key"] != 1 || head == nil || head["seq"].(float64) < 1 || len(head["hash"].(string)) != 64 || fp["tenant_id"] != id {
+		t.Fatalf("fingerprint: %v %v", got, h)
+	}
+	// The same tenant twice gives the same fingerprint (computed_at aside).
+	again, _ := p.must(200, "ops|alice", "GET", tenants+"/"+id+"/fingerprint", "")
+	a, b := again["fingerprint"].(map[string]any), fp
+	delete(a, "computed_at")
+	delete(b, "computed_at")
+	if fmt.Sprint(a) != fmt.Sprint(b) {
+		t.Fatalf("fingerprints differ:\n%v\n%v", a, b)
+	}
+	// Routing: the one sub-resource, GET only; readers may read it.
+	p.problem(404, "request.not_found", "ops|alice", "GET", tenants+"/"+uuid.NewString()+"/fingerprint", "")
+	if status, _, _ := p.as("ops|alice", "POST", tenants+"/"+id+"/fingerprint", ""); status != 405 {
+		t.Fatalf("POST fingerprint: %d", status)
+	}
+	if status, m, _ := p.as("ops|alice", "GET", tenants+"/"+id+"/thumbprint", ""); status != 404 || m["detail"] != "No such endpoint." {
+		t.Fatalf("unknown sub-resource: %d %v", status, m)
+	}
+	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", tenants+"/not-a-uuid/fingerprint", "")
+	reader := map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": []any{"erp:read"}})}
+	if status, _, _ := p.do("GET", tenants+"/"+id+"/fingerprint", "", reader); status != 200 {
+		t.Fatalf("reader: %d", status)
+	}
+	// Every database failure is reported: the tenant row, the table list,
+	// a count, the chain head (one statement per table, more than
+	// everyFailure walks).
+	failingAt := func(n int, count *int) {
+		p.s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+			tx, err := p.s.Pool.Begin(ctx, scope)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: count}, nil
+		}
+	}
+	defer func() { p.s.Begin = nil }()
+	var total int
+	failingAt(0, &total)
+	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err != nil || total < 4 {
+		t.Fatalf("counting statements: %v after %d", err, total)
+	}
+	for _, n := range []int{1, 2, 3, total} {
+		count := 0
+		failingAt(n, &count)
+		if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); !errors.Is(err, pgtest.ErrInjected) {
+			t.Errorf("statement %d failing: %v", n, err)
+		}
+	}
+	p.s.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Errorf("database down: %v", err)
+	}
+	p.s.Begin = nil
+	// A tenant without an audit trail has no chain head.
+	bare := pgtest.NewTenant(t)
+	plain, _ := p.must(200, "ops|alice", "GET", tenants+"/"+bare.ID.String()+"/fingerprint", "")
+	if plain["fingerprint"].(map[string]any)["audit_chain_head"] != nil {
+		t.Fatalf("bare tenant: %v", plain)
+	}
 }
