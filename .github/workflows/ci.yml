@@ -19,10 +19,10 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the secret scan reads the pushed commit range, whose base a shallow clone lacks
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: Raise the database connection limit
@@ -50,7 +50,7 @@ jobs:
         # G115 (integer conversions of bounded domain values), G304 and G107 (paths and URLs come from settings and flags by design).
         run: go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
       - name: Secret scanning
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Generated server matches the contract
@@ -72,7 +72,13 @@ jobs:
       - name: Schema tests (migrations and database-enforced rules)
         run: go test -count=1 -v ./db
       - name: Functional and non-functional tests (race detector)
-        run: go test -race -count=1 ./...
+        # The race build shares nothing with the plain build cache above; drop
+        # it first so the runner's disk (72 GB, most of it taken by the image)
+        # holds the race build and later the instrumented coverage build.
+        run: |
+          go clean -cache
+          df -h / | tail -1
+          go test -race -count=1 ./...
       - name: Performance budgets (without the race detector)
         # The runner is about twice as slow as a laptop on these; the scaled
         # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
