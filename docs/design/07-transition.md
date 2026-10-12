@@ -69,6 +69,7 @@ prototype store for that context.
 | T15 (done) | **KMS master** | The master key that wraps tenant keys lives in a key management service; existing tenant keys move onto it without rewriting a sealed row, and the local masters it replaces leave the ring |
 | T16 (done) | **Direct uploads** | Documents above the request limit reach object storage through an upload URL (presigned on the store, or signed on the API) and are captured by id; the invoice's document is kept and served as before |
 | T17 (done) | **Offboarding lifecycle** | An offboarded tenant's data is exported to locked object storage, kept for a grace period and erased from the cell by a worker or on an operator's request; the tenant row and its audit trail remain |
+| T18 (done) | **Tenant directory and router** | A global directory maps tenants to cells and is kept current by the cells; `erp-router` verifies a request's token, looks its tenant up and forwards it to the tenant's cell, refusing unknown, suspended, offboarded and (for writes) moving tenants at the door |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1115,6 +1116,49 @@ Open points for the contract and design review:
 - Restoring an exported tenant into a cell (re-onboarding, migration
   between cells) is not built; the export's format is the input it would
   take.
+
+### T18 decisions and open points
+
+What T18 built: the global tenant directory and router of 05 §5.4
+(ADR-0022). `internal/directory` is the directory (one table in its own
+database, `ERP_DIRECTORY_URL`, created on open), a cache, and a sync worker
+that every cell runs to keep its tenants' entries current (status, region,
+`ERP_CELL_API_URL`); the control plane registers a tenant right after
+provisioning and after each status change. `internal/router` and
+`cmd/erp-router` verify the token with the cells' issuers, look the tenant
+up (cached for `ERP_DIRECTORY_CACHE`) and reverse-proxy the request to the
+cell's API URL unchanged, naming the cell in `X-Erp-Cell`; unknown tenants
+404, suspended and offboarded 403, a moving tenant's writes 503 with a
+retry, a cell down 502. The exit criteria are `TestRouting` (router: two
+cells, every refusal), `TestRoutesToTheCell` (the binary end to end),
+`TestPostgresDirectory`, `TestCache`, `TestSync` (directory), the
+directory registrations in `TestTenantsLifecycleThroughTheControlPlane`
+and `TestDirectorySync` (the server recording its tenants).
+
+Decisions taken while building it:
+
+- **The directory lives outside the cells.** Its own database URL, its own
+  one-table schema created by whoever opens it; locally it may be a schema
+  in the same PostgreSQL.
+- **Cells write, the router reads.** A registration after each change plus
+  a reconciling round a minute: no change is lost, and a cell that comes up
+  with a directory for the first time registers every tenant it has.
+- **`read_only` belongs to the directory.** It marks a move in progress
+  and survives the cells' writes; the cell knows nothing of it.
+- **The router trusts no cell with routing.** It verifies the token itself
+  before reading the tenant claim, and the cell verifies again: a cell never
+  trusts the router's word for who is calling.
+
+Open points for the contract and design review:
+
+- Operator operations on the directory (set `read_only`, move an entry to
+  another cell) are in code (`Postgres.SetStatus`) but not on a contract;
+  a global control plane would carry them, together with the tenant move
+  of 05 §5.4.
+- Placement of new tenants (which cell takes the next tenant of a region)
+  is the operator's choice of which cell's control plane to call.
+- The router caches lookups; a cell change reaches it within the cache
+  period, which is the shortest "read-only" window a move can have.
 
 ## 7.4 Data from the prototype
 

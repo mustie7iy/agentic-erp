@@ -2,6 +2,8 @@
 
 build:
 	go build -o bin/erp ./cmd/erp
+	go build -o bin/erp-server ./cmd/erp-server
+	go build -o bin/erp-router ./cmd/erp-router
 
 # Everything: functional, end-to-end and non-functional suites, race detector on.
 test:

@@ -256,3 +256,22 @@ func TestOffboardGrace(t *testing.T) {
 		}
 	}
 }
+
+func TestDirectorySettings(t *testing.T) {
+	m := valid()
+	if c, err := Load(env(m)); err != nil || c.DirectoryURL != "" {
+		t.Fatal(c.DirectoryURL, err)
+	}
+	m["ERP_DIRECTORY_URL"] = "postgres://dir@db/directory"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_API_URL") {
+		t.Fatalf("directory without the cell's URL: %v", err)
+	}
+	m["ERP_CELL_API_URL"] = "eu-1.api.example.com"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_API_URL") {
+		t.Fatalf("cell URL without a scheme: %v", err)
+	}
+	m["ERP_CELL_API_URL"] = "https://eu-1.api.example.com"
+	if c, err := Load(env(m)); err != nil || c.DirectoryURL != "postgres://dir@db/directory" || c.CellAPIURL != "https://eu-1.api.example.com" {
+		t.Fatalf("%+v %v", c, err)
+	}
+}

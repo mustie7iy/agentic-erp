@@ -17,6 +17,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
+	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
@@ -140,6 +141,8 @@ const tenants = controlplane.Base + "/tenants"
 
 func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	p := newPlane(t)
+	recorded := &memoryDirectory{entries: map[uuid.UUID]directory.Entry{}}
+	p.s.Directory = &directory.Sync{Directory: recorded, Cell: "test", APIURL: "https://test.api.example.com", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	ctx := context.Background()
 
 	// Only operators get in: no token, a tenant's token and a token from an untrusted issuer are refused.
@@ -275,6 +278,12 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	public.Problem(403, "tenancy.tenant_inactive", "GET", "/v1/roles", "", "")
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":resume", "", "If-Match", `"4"`)
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":offboard", "", "If-Match", `"4"`)
+	if e := recorded.entries[uuid.MustParse(id)]; e.Status != directory.Offboarded || e.Cell != "test" || e.APIURL != "https://test.api.example.com" || e.Region != "eu-west" {
+		t.Fatalf("directory entry after the lifecycle: %+v", e)
+	}
+	if recorded.writes < 5 { // provisioning, suspend, resume, offboard, and the second tenant
+		t.Fatalf("%d directory writes", recorded.writes)
+	}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":suspend", "", "If-Match", `"4"`)
 	filtered, _ := p.must(200, "ops|alice", "GET", tenants+"?status=offboarded", "")
 	if items := filtered["items"].([]any); len(items) != 1 || items[0].(map[string]any)["id"] != id {
@@ -645,4 +654,24 @@ func auditDetail(t *testing.T, tenant uuid.UUID, action string) map[string]any {
 		t.Fatal(err)
 	}
 	return detail
+}
+
+// memoryDirectory records what the control plane registers.
+type memoryDirectory struct {
+	entries map[uuid.UUID]directory.Entry
+	writes  int
+}
+
+func (m *memoryDirectory) Lookup(_ context.Context, tenant uuid.UUID) (directory.Entry, error) {
+	e, ok := m.entries[tenant]
+	if !ok {
+		return directory.Entry{}, directory.ErrUnknown
+	}
+	return e, nil
+}
+
+func (m *memoryDirectory) Upsert(_ context.Context, e directory.Entry) error {
+	m.entries[e.TenantID] = e
+	m.writes++
+	return nil
 }

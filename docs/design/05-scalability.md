@@ -108,10 +108,11 @@ flowchart LR
 ```
 
 - The **global directory** maps tenant to region and cell. It is small, read
-  mostly and cached at the router. It holds no business data.
+  mostly and cached at the router. It holds no business data. Built in T18:
+  `internal/directory` (its own database, written by the cells, ADR-0022).
 - The router resolves the cell from the token's tenant claim and forwards
   the request; clients may also call `https://{cell}.api.example.com` directly
-  (the `servers` entry in the OpenAPI contract).
+  (the `servers` entry in the OpenAPI contract). Built in T18: `erp-router`.
 - **Cell size is capped** (initial guideline: about 1 B journal lines per
   year, 10 TB, 5,000 requests/s). A full cell takes no new tenants; new cells
   are added by automation.
@@ -129,7 +130,10 @@ tenant is a filtered copy: (1) copy all rows `WHERE tenant_id = X`
 tenant briefly into read-only mode at the router; (3) let replication catch
 up and verify row counts and the audit hash chain; (4) switch the directory
 entry; (5) remove the old rows after a retention period. There are no
-sequences to remap because ids are UUIDs.
+sequences to remap because ids are UUIDs. Step (2) is the directory's
+`read_only` status (the router lets reads through and refuses writes with a
+retry); step (4) is an upsert of the entry's cell and API URL, visible to
+the router within its cache period; step (5) is the erasure of ADR-0021.
 
 ## 5.5 Events and asynchronous work
 

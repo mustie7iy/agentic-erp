@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -53,6 +54,8 @@ type Config struct {
 	DevIssuer       bool            // ERP_DEV_ISSUER: mint tokens on the admin listener for local development; makes ERP_OIDC_ISSUERS optional
 	Objects         Objects         // ERP_OBJECT_DIR or ERP_OBJECT_S3_*: object storage for documents, bank files and audit anchors; neither leaves it off
 	OffboardGrace   time.Duration   // ERP_OFFBOARD_GRACE: how long an offboarded tenant's data stays in the cell after its export before it is erased (default 720h; ADR-0021)
+	DirectoryURL    string          // ERP_DIRECTORY_URL: the global tenant directory's database; empty: a single cell, no directory (ADR-0022)
+	CellAPIURL      string          // ERP_CELL_API_URL: this cell's public API base URL, recorded in the directory for the router (required with ERP_DIRECTORY_URL)
 	Vault           Vault           // ERP_VAULT_*: where vault: references are resolved
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
@@ -90,7 +93,7 @@ type Vault struct {
 
 // SecretSettings are the settings that may carry a secret reference
 // instead of a value.
-var SecretSettings = []string{"DATABASE_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
+var SecretSettings = []string{"DATABASE_URL", "ERP_DIRECTORY_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
 	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
 
 // Objects is the object storage configuration: a directory (development) or
@@ -236,6 +239,12 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if c.OffboardGrace, err = time.ParseDuration(get("ERP_OFFBOARD_GRACE", "720h")); err != nil || c.OffboardGrace < 0 {
 		errs = append(errs, errors.New("ERP_OFFBOARD_GRACE must be a duration such as 720h (30 days); 0 erases right after the export"))
+	}
+	c.DirectoryURL, c.CellAPIURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL")
+	if c.DirectoryURL != "" {
+		if u, err := url.Parse(c.CellAPIURL); err != nil || u.Scheme == "" || u.Host == "" {
+			errs = append(errs, errors.New("ERP_DIRECTORY_URL needs ERP_CELL_API_URL, this cell's public API base URL such as https://eu-1.api.example.com"))
+		}
 	}
 	for name, dir := range map[string]string{"ERP_BANK_OUTBOX_DIR": c.BankOutboxDir, "ERP_EXTRACT_DIR": c.ExtractDir, "ERP_OBJECT_DIR": c.Objects.Dir} {
 		if fi, err := os.Stat(dir); dir != "" && (err != nil || !fi.IsDir()) {

@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -99,6 +100,7 @@ type Service struct {
 	Provisioner *provisioning.Provisioner
 	Keys        *fieldcrypt.Keyring // rotates tenant keys; nil: rotation answers 503
 	Offboarding *offboarding.Worker // erases exported tenants on request; nil: erasure answers 503
+	Directory   *directory.Sync     // records tenants in the global directory after a change; nil: a single cell
 	Pages       *pagination.Codec
 	Now         func() time.Time
 	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
@@ -205,7 +207,17 @@ func (s *Service) Create(ctx context.Context, op Operator, req provisioning.Requ
 		return Created{}, false, err
 	}
 	t, err := s.Get(ctx, res.TenantID)
+	if err == nil {
+		s.register(ctx, t)
+	}
 	return Created{Tenant: t, Provisioned: res}, false, err
+}
+
+// register tells the directory about the tenant's current state (ADR-0022).
+func (s *Service) register(ctx context.Context, t Tenant) {
+	if s.Directory != nil {
+		s.Directory.Register(ctx, t.ID, t.Region, t.Status)
+	}
 }
 
 // replay finds the result of an earlier provisioning request with the same
@@ -297,6 +309,7 @@ func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, ver
 	if err := tx.Commit(ctx); err != nil {
 		return Tenant{}, err
 	}
+	s.register(ctx, t)
 	return t, nil
 }
 

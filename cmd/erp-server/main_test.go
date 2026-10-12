@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
@@ -658,4 +659,47 @@ func countKeys(t *testing.T, master string) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+// TestDirectorySync: with a directory configured the server records its
+// tenants there, API URL and status included.
+func TestDirectorySync(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"] = pgtest.URL(t), "https://test.api.example.com"
+	ten := pgtest.NewTenant(t)
+	directoryInterval = 20 * time.Millisecond
+	defer func() { directoryInterval = time.Minute }()
+	cfg := load(t, env)
+	runCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
+	dir, err := directory.Open(context.Background(), pgtest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	var entry directory.Entry
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		if e, err := dir.Lookup(context.Background(), ten.ID); err == nil {
+			entry = e
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if entry.Cell != "test" || entry.APIURL != "https://test.api.example.com" || entry.Status != directory.Active {
+		t.Fatalf("directory entry: %+v", entry)
+	}
+	// A directory that cannot be opened stops the start.
+	env["ERP_DIRECTORY_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	if err := run(context.Background(), load(t, env), quiet(), nil); err == nil {
+		t.Fatal("started without its directory")
+	}
 }

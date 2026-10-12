@@ -26,6 +26,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
+	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
@@ -136,6 +137,20 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		offboarder = &offboarding.Worker{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: offboardInterval,
 			Grace: cfg.OffboardGrace, Retention: cfg.Objects.Retention, Log: log}
 	}
+	// With a global directory (ADR-0022) the cell keeps its tenants' entries
+	// current, right after a change and in rounds.
+	var sync *directory.Sync
+	var dirDone = make(chan struct{})
+	if cfg.DirectoryURL != "" {
+		dir, err := directory.Open(ctx, cfg.DirectoryURL)
+		if err != nil {
+			return err
+		}
+		defer dir.Close()
+		sync = &directory.Sync{Pool: pool, ControlRole: cfg.ControlRole, Directory: dir, Cell: cfg.Cell, APIURL: cfg.CellAPIURL, Interval: directoryInterval, Log: log}
+	} else {
+		close(dirDone)
+	}
 	var control http.Handler
 	if len(cfg.OperatorIssuers)+len(static) > 0 {
 		operators, err := authn.New(ctx, cfg.OperatorIssuers, static...)
@@ -144,7 +159,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		}
 		service := &controlplane.Service{Pool: pool, AppRole: cfg.AppRole, ControlRole: cfg.ControlRole, Pages: pages,
 			Keys: keys, Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})},
-			Offboarding: offboarder}
+			Offboarding: offboarder, Directory: sync}
 		control = controlplane.Handler(service, operators, log)
 		log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(cfg.OperatorIssuers), "dev_issuer", cfg.DevIssuer)
 	}
@@ -185,6 +200,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		maintain(runCtx, maintenanceInterval, func(ctx context.Context) error { return partitions(ctx, pool, log) }, log)
 		close(maintenanceDone)
 	}()
+	if sync != nil {
+		go func() { sync.Run(runCtx); close(dirDone) }()
+	}
 	anchorDone, offboardDone := make(chan struct{}), make(chan struct{})
 	if store == nil {
 		close(anchorDone)
@@ -228,7 +246,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	for i, ln := range []net.Listener{apiLn, adminLn} {
 		go func() { errc <- servers[i].Serve(ln) }()
 	}
-	log.Info("erp-server started", "api", apiLn.Addr().String(), "admin", adminLn.Addr().String(), "cell", cfg.Cell)
+	log.Info("erp-server started", "api", apiLn.Addr().String(), "admin", adminLn.Addr().String(), "cell", cfg.Cell, "directory", cfg.DirectoryURL != "")
 	if started != nil {
 		started(apiLn, adminLn)
 	}
@@ -251,6 +269,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-maintenanceDone
 	<-anchorDone
 	<-offboardDone
+	<-dirDone
 	log.Info("erp-server stopped")
 	return serveErr // nil after a requested shutdown; set when a listener failed
 }
@@ -262,6 +281,7 @@ var (
 	maintenanceInterval = 6 * time.Hour
 	anchorInterval      = time.Minute
 	offboardInterval    = time.Minute
+	directoryInterval   = time.Minute
 )
 
 // keyring builds the field encryption ring: the KMS master first when there

@@ -26,3 +26,4 @@ new record. Status values: proposed, accepted, superseded.
 | [0019](0019-kms-master.md) | KMS master key in front of the ring; tenant keys move by re-wrapping | proposed |
 | [0020](0020-direct-uploads.md) | Direct uploads for documents above the request limit: presigned PUT or a signed path on the API | proposed |
 | [0021](0021-offboarding-lifecycle.md) | Offboarding lifecycle: export to locked storage, grace period, erasure; the tenant row and audit trail stay | proposed |
+| [0022](0022-tenant-directory-and-router.md) | Global tenant directory in its own database, written by the cells; a router verifies, looks up and forwards | proposed |

@@ -142,7 +142,7 @@ compensations (ADR-0007); the domain events already exist for it.
 
 | Tier | Runs | Scales by |
 |---|---|---|
-| API gateway | Managed gateway or Envoy | Replicas |
+| API gateway | Managed gateway or Envoy, in front of `erp-router` (verifies the token, forwards to the tenant's cell; ADR-0022) | Replicas |
 | Platform service | Stateless Go containers on Kubernetes | Horizontal pod autoscaling |
 | Workers | Temporal workers (same binary, worker mode) | Replicas per task queue |
 | Database | PostgreSQL 17 primary + synchronous standby + read replicas | Vertical, partitions, then cells (05-scalability) |
@@ -151,7 +151,8 @@ compensations (ADR-0007); the domain events already exist for it.
 
 A **cell** is one complete copy of this stack (service, workers, database,
 bus) serving a set of tenants. Cells are the unit of horizontal scale and of
-failure isolation; a routing layer maps tenants to cells (05-scalability).
+failure isolation; the global directory and `erp-router` map tenants to cells
+(05-scalability, ADR-0022).
 
 ## 2.6 Cross-cutting concerns
 
