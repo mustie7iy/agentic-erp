@@ -34,15 +34,24 @@ func Main(m *testing.M) {
 		os.Exit(m.Run())
 	}
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, admin)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "pgtest: connect:", err)
-		os.Exit(1)
-	}
+	// Every package's binary starts at once under go test ./..., so the
+	// server may be at its connection limit or restarting for a moment;
+	// connecting and creating retry for a while before giving up.
+	var conn *pgx.Conn
 	name := fmt.Sprintf("erp_pkg_%d", time.Now().UnixNano())
-	if _, err := conn.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		fmt.Fprintln(os.Stderr, "pgtest: create:", err)
-		os.Exit(1)
+	var err error
+	for attempt := 1; ; attempt++ {
+		if conn, err = pgx.Connect(ctx, admin); err == nil {
+			if _, err = conn.Exec(ctx, "CREATE DATABASE "+name); err == nil {
+				break
+			}
+			conn.Close(ctx)
+		}
+		if attempt == 20 {
+			fmt.Fprintln(os.Stderr, "pgtest: setting up the package database:", err)
+			os.Exit(1)
+		}
+		time.Sleep(time.Duration(attempt) * 250 * time.Millisecond)
 	}
 	u, _ := url.Parse(admin)
 	u.Path = "/" + name

@@ -10,8 +10,15 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 MIN="${COVERAGE_MIN:-100.0}"
+excluded='/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fieldcrypt/kmstest|fixture)/|/api/gen/'
+# Instrument only the packages the figure counts. With -coverpkg=./... every
+# one of the ~70 test binaries carried an instrumented copy of api/gen
+# (650,000 generated lines, 16 times the rest of the code), which filled a
+# CI runner's disk; instrumenting the measured packages keeps the build
+# proportional to the code under test.
+coverpkg="$(go list ./... | sed 's#$#/#' | grep -v -E "$excluded" | sed 's#/$##' | paste -sd, -)"
 profile="$(mktemp)"
-if ! go test -short -count=1 -coverpkg=./... -coverprofile="$profile" ./... > "$profile.log" 2>&1; then
+if ! go test -short -count=1 -coverpkg="$coverpkg" -coverprofile="$profile" ./... > "$profile.log" 2>&1; then
   echo "coverage: tests failed:" >&2
   grep -E "^(--- FAIL|FAIL|panic:)" "$profile.log" >&2
   # Everything the failing packages printed: build errors ("# pkg" blocks),
@@ -20,7 +27,7 @@ if ! go test -short -count=1 -coverpkg=./... -coverprofile="$profile" ./... > "$
   grep -v -E "^(ok |\?|---  *PASS|=== RUN|coverage: )" "$profile.log" | head -400 >&2
   exit 1
 fi
-grep -v -E '/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fieldcrypt/kmstest|fixture)/|/api/gen/' "$profile" > "$profile.prod"
+grep -v -E "$excluded" "$profile" > "$profile.prod"
 total="$(go tool cover -func="$profile.prod" | awk '/^total:/ {print $NF}' | tr -d '%')"
 echo "statement coverage: ${total}% (minimum ${MIN}%)"
 if awk -v t="$total" -v m="$MIN" 'BEGIN { exit !(t+0 < m+0) }'; then

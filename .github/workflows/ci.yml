@@ -82,7 +82,13 @@ jobs:
           go test -count=1 -run Budget -v ./internal/ledger
           go test -count=1 -run Perf -v ./internal/nfr
       - name: Coverage gate
-        run: ./scripts/coverage.sh
+        # The race build above and the instrumented build here share nothing,
+        # so the race cache is dropped first; the runner's disk ran out once.
+        run: |
+          go clean -cache
+          df -h / | tail -1
+          ./scripts/coverage.sh
+          df -h / | tail -1
       - name: Fuzz (30s per target)
         run: make fuzz FUZZTIME=30s
       - name: Build
