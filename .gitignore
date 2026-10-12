@@ -3,3 +3,8 @@ data/
 .env
 *.log
 bin/
+
+# binaries built in the repository root (go build ./cmd/...)
+/erp-server
+/erp-router
+/erp
