@@ -301,6 +301,23 @@ func Next(ctx context.Context, tx pgx.Tx) (Job, bool, error) {
 	return j, err == nil, err
 }
 
+// JobFor finds and locks one run's job: the run still proposing with its
+// operation queued or cancelled. ok is false when there is nothing left to
+// do for the run, so a retried worker does nothing twice.
+func JobFor(ctx context.Context, tx pgx.Tx, run uuid.UUID) (Job, bool, error) {
+	var j Job
+	var status string
+	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by, pr.kind FROM payments.payment_run r
+		JOIN platform.operation o ON o.tenant_id = r.tenant_id AND o.id = r.operation_id
+		JOIN identity.principal pr ON pr.tenant_id = r.tenant_id AND pr.id = r.proposed_by
+		WHERE r.id = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled') FOR UPDATE OF o, r`, run).Scan(&j.RunID, &status, &j.ProposedBy, &j.ProposerKind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Job{}, false, nil
+	}
+	j.Cancelled = status == operations.Cancelled
+	return j, err == nil, err
+}
+
 // Process does a job as its proposer: it builds the run, or fails it when
 // its operation was cancelled. A problem while building fails the run and
 // its operation; other errors leave both for another attempt.

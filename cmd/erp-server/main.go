@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -43,8 +44,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/workflows"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
@@ -178,9 +181,23 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	}
 	metrics := telemetry.NewMetrics()
 	backlogs(pool, cfg, metrics)
+	// The workflow engine (ADR-0012): with ERP_TEMPORAL_ADDRESS the server
+	// hosts a worker and dispatches queued operations to it; without, the
+	// in-process workers of the transition keep running them.
+	var engine *workflow.Temporal
+	var engineClient workflow.Client
+	if cfg.Temporal.Address != "" {
+		engine, err = workflow.Dial(ctx, workflow.Config{Address: cfg.Temporal.Address, Namespace: cfg.Temporal.Namespace})
+		if err != nil {
+			return err
+		}
+		defer engine.Close()
+		engineClient = engine
+		log.Info("workflow engine connected", "address", cfg.Temporal.Address, "namespace", cfg.Temporal.Namespace, "task_queue", cfg.Temporal.TaskQueue)
+	}
 	apiCfg := httpapi.Config{
 		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, ExtractDir: cfg.ExtractDir, Objects: store, Secrets: cfg.Secrets, Log: log,
-		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL,
+		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: metrics, Tracer: tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 	}
@@ -194,9 +211,25 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	projector := &ledger.Projector{Pool: pool, Role: cfg.ProjectorRole, Log: log}
 	projectorDone := make(chan struct{})
 	go func() { projector.Run(runCtx); close(projectorDone) }()
-	proposer := &payments.Proposer{Endpoints: httpapi.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
-	proposerDone := make(chan struct{})
-	go func() { proposer.Run(runCtx); close(proposerDone) }()
+	// workerErr is the workflow worker's end: nil after a requested shutdown,
+	// the failure when it could not start (joined into the server's exit).
+	proposerDone, workerDone, dispatchDone, workerErr := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	if engine == nil {
+		proposer := &payments.Proposer{Endpoints: httpapi.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
+		go func() { proposer.Run(runCtx); close(proposerDone) }()
+		close(workerDone)
+		close(dispatchDone)
+		workerErr <- nil
+	} else {
+		close(proposerDone)
+		activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}
+		go func() {
+			workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) { workflows.Register(r, activities) })
+			close(workerDone)
+		}()
+		dispatcher := &workflows.Dispatcher{Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Log: log}
+		go func() { dispatcher.Run(runCtx); close(dispatchDone) }()
+	}
 	simulator := &configuration.SimulationWorker{Dependencies: httpapi.Configuration(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 	simulatorDone := make(chan struct{})
 	go func() { simulator.Run(runCtx); close(simulatorDone) }()
@@ -293,6 +326,8 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-relayDone
 	<-projectorDone
 	<-proposerDone
+	<-dispatchDone
+	<-workerDone
 	<-simulatorDone
 	<-maintenanceDone
 	<-anchorDone
@@ -302,7 +337,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-expireDone
 	<-dirDone
 	log.Info("erp-server stopped")
-	return serveErr // nil after a requested shutdown; set when a listener failed
+	return errors.Join(serveErr, <-workerErr) // nil after a requested shutdown; set when a listener or the workflow worker failed
 }
 
 // maintenanceInterval is how often a replica checks the partition horizon,
@@ -315,6 +350,7 @@ var (
 	directoryInterval   = time.Minute
 	rotationInterval    = time.Hour
 	expiryInterval      = time.Hour
+	dispatchInterval    = time.Second
 )
 
 // keyring builds the field encryption ring: the KMS master first when there

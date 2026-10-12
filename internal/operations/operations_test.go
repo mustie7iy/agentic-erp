@@ -1,8 +1,11 @@
 package operations_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -13,10 +16,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -153,8 +158,23 @@ func TestListOperations(t *testing.T) {
 	}
 }
 
+// fakeEngine records the workflows it is asked to cancel; ids containing
+// "fail" are refused.
+type fakeEngine struct{ cancelled []string }
+
+func (f *fakeEngine) Start(context.Context, workflow.Start) (bool, error) { return true, nil }
+func (f *fakeEngine) Cancel(_ context.Context, id string) error {
+	f.cancelled = append(f.cancelled, id)
+	if strings.Contains(id, "fail") {
+		return errors.New("engine down")
+	}
+	return nil
+}
+
 func TestCancelOperation(t *testing.T) {
-	api := apitest.New(t)
+	engine := &fakeEngine{}
+	var logs bytes.Buffer
+	api := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Workflows = engine; cfg.Log = slog.New(slog.NewTextHandler(&logs, nil)) })
 	ten := pgtest.NewTenant(t, perms...)
 	o := start(t, ten, "payments.propose")
 	path := "/v1/operations/" + o.ID.String() + ":cancel"
@@ -176,6 +196,22 @@ func TestCancelOperation(t *testing.T) {
 	got := apitest.JSON(t, r)
 	if r.Code != 200 || r.Header().Get("ETag") != `"2"` || got["status"] != "cancelled" || got["updated_by"] != ten.Agent.ID.String() {
 		t.Fatalf("cancel: %d %v", r.Code, got)
+	}
+	// An operation without a workflow asks the engine nothing; one with a
+	// workflow has it cancelled; an engine that does not take the
+	// cancellation is logged, the database row being the truth.
+	if len(engine.cancelled) != 0 {
+		t.Fatalf("engine asked for %v", engine.cancelled)
+	}
+	for _, wf := range []string{"wf-ok", "wf-fail"} {
+		ox := start(t, ten, "payments.propose")
+		pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = $2, version = version + 1 WHERE id = $1`, ox.ID, wf)
+		if r := api.Do(apitest.Req{Method: "POST", Path: "/v1/operations/" + ox.ID.String() + ":cancel", Tenant: ten.ID, As: ten.Agent, Key: apitest.NewKey(), IfMatch: "*"}); r.Code != 200 {
+			t.Fatalf("cancel %s: %d %s", wf, r.Code, r.Body)
+		}
+	}
+	if strings.Join(engine.cancelled, " ") != "wf-ok wf-fail" || !strings.Contains(logs.String(), "did not take the cancellation") {
+		t.Fatalf("engine: %v %s", engine.cancelled, logs.String())
 	}
 	// A retry with the same key returns the same answer and changes nothing.
 	replay := api.Do(apitest.Req{Method: "POST", Path: path, Tenant: ten.ID, As: ten.Agent, Key: key, IfMatch: `"1"`})

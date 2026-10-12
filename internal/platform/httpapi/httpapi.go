@@ -46,6 +46,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
+	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -99,6 +100,7 @@ type Config struct {
 	FieldKeys  *fieldcrypt.Keyring // seals bank accounts and tax identifiers with each tenant's key
 	Extractor  capture.Extractor   // reads captured invoices; nil: capture answers 503
 	Connector  payments.Connector  // transmits bank files; nil: transmission answers 503
+	Workflows  workflow.Client     // the workflow engine behind operations (ADR-0012); nil: none
 	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
 	Objects    blobstore.Store     // documents, bank files and audit anchors; nil: documents and files are not kept
 	UploadKey  []byte              // signs the API's own upload URLs (directory store); the same on every replica
@@ -121,7 +123,7 @@ func New(cfg Config) (http.Handler, error) {
 	opener := approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
 	uploads := &payables.Uploads{Objects: cfg.Objects, Secret: cfg.UploadKey, PublicURL: cfg.PublicURL, Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
 	h := handler{
-		operationsAPI: &operations.Endpoints{Pages: cfg.Pages},
+		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}},
 		configAPI:     &configuration.Endpoints{Pages: cfg.Pages, Dependencies: Configuration(cfg)},

@@ -56,6 +56,7 @@ type Config struct {
 	OffboardGrace   time.Duration   // ERP_OFFBOARD_GRACE: how long an offboarded tenant's data stays in the cell after its export before it is erased (default 720h; ADR-0021)
 	AuditVerify     time.Duration   // ERP_AUDIT_VERIFY_INTERVAL: how often every tenant's audit chain is verified against its anchors (default 1h; 0 disables the worker)
 	KeyRotationAge  time.Duration   // ERP_KEY_ROTATION_AGE: tenant keys older than this are rotated by the server (default 0: on request only; ADR-0028)
+	Temporal        Temporal        // ERP_TEMPORAL_ADDRESS, _NAMESPACE, _TASK_QUEUE: the workflow engine (ADR-0012); empty address: in-process workers
 	PublicURL       string          // ERP_PUBLIC_URL: the public base URL of this API, for absolute upload URLs (default: paths)
 	DirectoryURL    string          // ERP_DIRECTORY_URL: the global tenant directory's database; empty: a single cell, no directory (ADR-0022)
 	CellAPIURL      string          // ERP_CELL_API_URL: this cell's public API base URL, recorded in the directory for the router (required with ERP_DIRECTORY_URL)
@@ -138,6 +139,15 @@ var (
 // SecretSettings may be references (env:, file:, vault:), resolved here, so
 // that credentials live in the vault or in mounted files rather than in
 // the environment of every replica.
+// Temporal locates the workflow engine (ADR-0012). An empty Address keeps
+// the in-process workers; with one, the server hosts a Temporal worker on
+// TaskQueue and dispatches queued operations to it.
+type Temporal struct {
+	Address   string
+	Namespace string
+	TaskQueue string
+}
+
 func Load(getenv func(string) string) (Config, error) {
 	var errs []error
 	resolver, vault, err := resolver(getenv)
@@ -271,6 +281,7 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, errors.New("ERP_PUBLIC_URL must be a base URL such as https://api.example.com"))
 		}
 	}
+	c.Temporal = Temporal{Address: getenv("ERP_TEMPORAL_ADDRESS"), Namespace: get("ERP_TEMPORAL_NAMESPACE", "default"), TaskQueue: get("ERP_TEMPORAL_TASK_QUEUE", "erp")}
 	c.AWS = AWS{Getenv: raw, STSEndpoint: get("ERP_AWS_STS_ENDPOINT", "https://sts.amazonaws.com"), IMDSEndpoint: get("ERP_AWS_IMDS_ENDPOINT", "http://169.254.169.254")}
 	c.DirectoryURL, c.CellAPIURL, c.CellRegion, c.CellControlURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL"), getenv("ERP_CELL_REGION"), getenv("ERP_CELL_CONTROL_URL")
 	c.CellAccepting = get("ERP_CELL_ACCEPTING", "true") != "false"

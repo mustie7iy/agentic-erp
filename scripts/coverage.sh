@@ -10,7 +10,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 MIN="${COVERAGE_MIN:-100.0}"
-excluded='/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fieldcrypt/kmstest|fixture)/|/api/gen/'
+excluded='/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fieldcrypt/kmstest|workflow/workflowtest|fixture)/|/api/gen/'
 # Instrument only the packages the figure counts. With -coverpkg=./... every
 # one of the ~70 test binaries carried an instrumented copy of api/gen
 # (650,000 generated lines, 16 times the rest of the code), which filled a

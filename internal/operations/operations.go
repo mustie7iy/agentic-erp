@@ -47,17 +47,18 @@ type Operation struct {
 	CreatedBy     uuid.UUID
 	UpdatedAt     time.Time
 	UpdatedBy     uuid.UUID
+	WorkflowID    *string // the workflow running the work, once dispatched (ADR-0012)
 }
 
 // Cancellable is true while the work has not finished.
 func (o Operation) Cancellable() bool { return o.Status == Queued || o.Status == Running }
 
-const columns = `id, kind, status, progress_done, progress_total, resource, result, error, version, created_at, created_by, updated_at, updated_by`
+const columns = `id, kind, status, progress_done, progress_total, resource, result, error, version, created_at, created_by, updated_at, updated_by, workflow_id`
 
 func scan(row pgx.Row) (Operation, error) {
 	var o Operation
 	err := row.Scan(&o.ID, &o.Kind, &o.Status, &o.ProgressDone, &o.ProgressTotal, &o.Resource, &o.Result, &o.Error,
-		&o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)
+		&o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy, &o.WorkflowID)
 	return o, err
 }
 

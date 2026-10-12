@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,11 +12,18 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 )
 
 // Endpoints implements the operations part of the generated API.
 type Endpoints struct {
 	Pages *pagination.Codec
+	// Workflows cancels the workflow behind an operation (ADR-0012); nil
+	// when the cell runs no workflow engine. The database row is the truth:
+	// an activity that finds its operation cancelled fails the work itself,
+	// so a cancellation the engine does not get is caught up with there.
+	Workflows workflow.Client
+	Log       *slog.Logger
 }
 
 // GetOperation implements GET /v1/operations/{id}.
@@ -94,6 +102,11 @@ func (e *Endpoints) CancelOperation(ctx context.Context, params gen.CancelOperat
 	updated, err := cancel(ctx, tx, p, o)
 	if err != nil {
 		return nil, err
+	}
+	if e.Workflows != nil && o.WorkflowID != nil {
+		if err := e.Workflows.Cancel(ctx, *o.WorkflowID); err != nil && e.Log != nil {
+			e.Log.WarnContext(ctx, "operation cancelled in the database; the workflow engine did not take the cancellation", "operation", o.ID, "workflow", *o.WorkflowID, "error", err)
+		}
 	}
 	if err := audit.Add(ctx, audit.Entry{Action: "platform.operation.cancel", ObjectType: "platform.operation", ObjectID: o.ID,
 		Outcome: "succeeded", Detail: map[string]any{"kind": o.Kind, "from_status": o.Status}}); err != nil {

@@ -77,7 +77,7 @@ prototype store for that context.
 | T23 (done) | **Operator roles, rotation policy, security lint** | Operator tokens carry roles the control planes check per operation; a worker rotates tenant keys older than a configured age; the API's own upload URLs can be absolute; `gosec` runs in CI with its exclusions decided and recorded |
 | T24 (done) | **Re-onboarding from export** | `erp-server import` brings an exported tenant back into a cell, row for row and chain head and all, every part checked against the manifest; the row copy a move between cells needs |
 | T25 (done) | **Cross-cell verification** | Each cell answers a tenant's fingerprint (rows per table, audit chain head); the global control plane compares the tenant's cell with the destination and names every difference, the evidence a move waits for before switching the entry |
-| T26 | **Temporal runtime** (ADR-0012, accepted) | `erp-server` runs a Temporal worker; the `Operation` resource is the API's view of a workflow (id from the business key, status, progress, result, error, `:cancel`); one existing operation runs end to end as a workflow whose activities are the application services in the unit of work; a dev server in tests and CI |
+| T26 (done) | **Temporal runtime** (ADR-0012, accepted) | `erp-server` runs a Temporal worker; the `Operation` resource is the API's view of a workflow (id from the business key, status, progress, result, error, `:cancel`); one existing operation runs end to end as a workflow whose activities are the application services in the unit of work; a dev server in tests and CI |
 | T27 | **Payment proposals and releases as workflows** | A proposal is chunked and resumable, reporting progress; a release over any number of items is an operation; each posting is one idempotent activity; a failed workflow raises an exception-queue item |
 | T28 | **Simulations, regression and migration runs as workflows** | Chunked replays and migration runs resume after a restart; evidence is recorded by activities; the in-process workers are deleted |
 | T29 | **Human waits and timers** | Approval requests and period close run as workflows that wait on decisions and deadlines; escalation timers; workflow versioning and the payload codec in place; namespaces per environment and tenant isolation by task queue |
@@ -1405,6 +1405,50 @@ Open points for the contract and design review:
 - Fingerprints count rows in a snapshot per cell at different moments; a
   tenant still taking writes in its source cell differs by design until it
   is frozen.
+
+### T26 decisions and open points
+
+What T26 built: the Temporal runtime behind the `Operation` resource
+(ADR-0012). `internal/platform/workflow` is the port: `Client` starts and
+cancels workflows, `Temporal` implements it on a cluster and hosts a worker;
+`workflowtest.Server` starts the CLI's headless development server for
+tests. `internal/workflows` holds the application's workflows and
+activities: `ProposePaymentRun` runs one activity, `Payments.Propose`, which
+does what the proposal worker did (one transaction in the tenant's scope as
+the proposer, audit and events with it) and does nothing for a run already
+built, so a retry is safe; a cancelled workflow runs the activity once more
+detached, which fails the run when its operation was cancelled. The
+`Dispatcher` turns queued operations into workflows: the committed operation
+row is the hand-off, the workflow id is the run's business key
+(`{tenant}-{legal entity}-payment_run-{number}`), the id is recorded on the
+operation (migration 000028), and the engine refuses a known id, so a
+restart dispatches nothing twice. `:cancel` cancels the workflow by that id;
+the database row stays the truth, so an engine that misses the cancellation
+is caught up with by the activity. With `ERP_TEMPORAL_ADDRESS` the server
+hosts the worker and the dispatcher and the in-process proposer stays off;
+without it the transition's workers run as before. The exit criteria are
+`TestWorkflowEngine` (a proposal through the API built by the engine) and
+`TestProposalWorkflow`, `TestDispatcher`, `TestTemporal`.
+
+Decisions taken while building it:
+
+- **The operation row is the hand-off, not a start from the request.** The
+  request commits; the dispatcher starts; the engine deduplicates by id.
+  No two-phase coordination between the database and the engine.
+- **One activity per unit of work.** The activity is the whole proposal,
+  as the ADR's integrity rule asks (a posting never spans steps); T27 chunks
+  it with progress and resumption.
+- **Idempotent by state, not by memory.** An activity checks the run's
+  status before acting; a retry after a commit finds nothing to do.
+
+Open points for the contract and design review:
+
+- The worker runs inside `erp-server`; a worker-only mode (the same binary
+  without listeners) scales workers per task queue as 02 §2.5 describes.
+- Tenant isolation by task queue or namespace, the payload codec and
+  workflow versioning (ADR-0012's engineering rules) come with T29.
+- The dispatcher polls every second; a start from the request after its
+  commit would remove the poll once the unit of work has an after-commit hook.
 
 ## 7.4 Data from the prototype
 

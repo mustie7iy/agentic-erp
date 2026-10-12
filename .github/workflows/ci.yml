@@ -25,6 +25,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Install the Temporal CLI
+        # The workflow engine's development server (ADR-0012): tests start it
+        # headless on a free port when the CLI is on the path.
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
       - name: Raise the database connection limit
         # The service container keeps PostgreSQL's default of 100 connections; the
         # suites run packages in parallel, each with its own pool, and have hit

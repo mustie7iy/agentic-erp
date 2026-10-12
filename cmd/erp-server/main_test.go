@@ -40,6 +40,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -855,4 +856,88 @@ func wipeTrail(t *testing.T, tenant uuid.UUID) {
 	id := tenant.String()
 	pgtest.Exec(t, `SELECT set_config('app.erasing', '`+id+`', true); DELETE FROM audit.verification WHERE tenant_id = '`+id+`'; DELETE FROM audit.anchor WHERE tenant_id = '`+id+`';
 		DELETE FROM audit.audit_event WHERE tenant_id = '`+id+`'; DELETE FROM audit.chain_head WHERE tenant_id = '`+id+`'`)
+}
+
+// TestWorkflowEngine: with ERP_TEMPORAL_ADDRESS the server hosts a worker and
+// dispatches queued operations to the engine; a payment proposal asked for
+// through the API is built by the workflow. An engine that cannot be
+// reached stops the start.
+func TestWorkflowEngine(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["ERP_TEMPORAL_ADDRESS"] = workflowtest.Server(t)
+	env["ERP_TEMPORAL_TASK_QUEUE"] = "erp-test-" + uuid.NewString()[:8]
+	dispatchInterval = 50 * time.Millisecond
+	defer func() { dispatchInterval = time.Second }()
+	f := fixture.New(t, "payments.run.read", "payments.run.propose", "platform.operation.read")
+	var bank uuid.UUID
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id FROM payments.house_bank WHERE legal_entity_id = $1`, f.DE).Scan(&bank); err != nil {
+		t.Fatal(err)
+	}
+	cfg := load(t, env)
+	runCtx, cancel := context.WithCancel(context.Background())
+	addrs := make(chan string, 1)
+	done := make(chan error, 1)
+	var logs bytes.Buffer
+	go func() {
+		done <- run(runCtx, cfg, slog.New(slog.NewTextHandler(&syncWriter{w: &logs}, nil)), func(api, _ net.Listener) { addrs <- api.Addr().String() })
+	}()
+	var addr string
+	select {
+	case addr = <-addrs:
+	case err := <-done:
+		t.Fatalf("stopped before serving: %v", err)
+	}
+	token := is.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)
+	call := func(method, path, body string) (int, map[string]any) {
+		req, _ := http.NewRequest(method, "http://"+addr+path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		if method == "POST" {
+			req.Header.Set("Idempotency-Key", uuid.NewString())
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var m map[string]any
+		json.NewDecoder(resp.Body).Decode(&m)
+		return resp.StatusCode, m
+	}
+	code, op := call("POST", "/v1/payment-runs:propose", `{"legal_entity_id": "`+f.DE.String()+`", "house_bank_id": "`+bank.String()+`", "run_date": "2026-04-15", "due_by": "2026-04-15"}`)
+	if code != 202 {
+		t.Fatalf("propose: %d %v", code, op)
+	}
+	var final map[string]any
+	for deadline := time.Now().Add(60 * time.Second); ; {
+		_, final = call("GET", "/v1/operations/"+op["id"].(string), "")
+		if final["status"] == "succeeded" || final["status"] == "failed" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if final["status"] != "succeeded" {
+		t.Fatalf("operation: %v\n%s", final, logs.String())
+	}
+	if _, run := call("GET", op["resource"].(string), ""); run["status"] != "proposed" {
+		t.Fatalf("run: %v", run)
+	}
+	var workflowID *string
+	pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(op["id"].(string))).Scan(&workflowID)
+	if workflowID == nil || !strings.Contains(*workflowID, "payment_run") {
+		t.Fatalf("workflow id: %v", workflowID)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), "workflow engine connected") || !strings.Contains(logs.String(), "workflows started") {
+		t.Fatalf("logs: %s", logs.String())
+	}
+	// An engine that cannot be reached stops the start.
+	env["ERP_TEMPORAL_ADDRESS"] = "127.0.0.1:1"
+	if err := run(context.Background(), load(t, env), quiet(), nil); err == nil || !strings.Contains(err.Error(), "connecting to") {
+		t.Fatalf("started without its engine: %v", err)
+	}
 }

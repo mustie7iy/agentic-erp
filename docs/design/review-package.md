@@ -15,7 +15,7 @@ they need to decide, and what the implementation found out on the way.
 | Decision records | 30, all `proposed` | [adr/](adr/README.md) |
 | API contract | 165 operations (OpenAPI 3.1), 82 event types (AsyncAPI 3.0) | [`api/openapi.yaml`](../../api/openapi.yaml), [`api/asyncapi.yaml`](../../api/asyncapi.yaml) |
 | Operator contracts | 9 cell operations, 8 global operations | [`api/control.yaml`](../../api/control.yaml), [`api/directory.yaml`](../../api/directory.yaml) |
-| Physical model | 27 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
+| Physical model | 28 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
 | Tests | 443 test functions across 68 packages, 100% statement coverage, race detector in CI; load, soak and resilience suites | [docs/testing.md](../testing.md) |
 | Transition | 25 steps done, each with its decisions and open points | [07-transition.md](07-transition.md) |
 
@@ -82,7 +82,7 @@ Every step recorded its open points (07-transition, "decisions and open points")
 - The administrator holds every permission including approvals until real roles are provisioned; a tenant's first SoD rules could ship with the configuration (T8).
 - Operator roles are coarse; per-cell or per-region scoping would be a further claim (T23).
 
-### Decided: work that outgrows one transaction (ADR-0012 accepted on 2026-10-12: Temporal; scheduled as T26 to T29)
+### Decided: work that outgrows one transaction (ADR-0012 accepted on 2026-10-12: Temporal; T26 done, T27 to T29 scheduled)
 
 - Payment release answers synchronously and takes about 26 s for 2,000 payments over 100,000 items locally; proposals report progress only on completion; migration runs and simulations run within the request or one worker transaction (T5, T6, T9).
 - A connector should confirm a sent bank file before commit once integration messages exist (T5).
