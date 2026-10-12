@@ -65,8 +65,9 @@ type Upload struct {
 
 // Uploads issues upload URLs and receives the uploads the API hosts.
 type Uploads struct {
-	Objects blobstore.Store // where uploads land; nil: uploads answer 503
-	Secret  []byte          // signs the API's own upload URLs; the same on every replica
+	Objects   blobstore.Store // where uploads land; nil: uploads answer 503
+	Secret    []byte          // signs the API's own upload URLs; the same on every replica
+	PublicURL string          // the API's public base URL (ERP_PUBLIC_URL); set, the API's own upload URLs are absolute
 	// Pool and AppRole serve the API-hosted PUT, which runs outside the unit
 	// of work (no bearer token, a body above its limit).
 	Pool    *database.Pool
@@ -153,7 +154,7 @@ func (u *Uploads) Target(ctx context.Context, tenant uuid.UUID, up Upload) (Targ
 	}
 	expires := strconv.FormatInt(up.ExpiresAt.Unix(), 10)
 	q := url.Values{"tenant": {tenant.String()}, "expires": {expires}, "signature": {u.sign(tenant, up.ID, expires)}}
-	t.URL = "/v1/uploads/" + up.ID.String() + "/content?" + q.Encode()
+	t.URL = u.PublicURL + "/v1/uploads/" + up.ID.String() + "/content?" + q.Encode()
 	return t, nil
 }
 

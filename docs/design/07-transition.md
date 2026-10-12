@@ -74,6 +74,7 @@ prototype store for that context.
 | T20 (done) | **Ambient cloud credentials** | The S3 store and the KMS master sign with the deployment's role credentials (environment, web identity, instance metadata) when no access keys are set; session tokens are signed; temporary credentials are renewed before they expire |
 | T21 (done) | **Scheduled audit verification** | A worker recomputes every tenant's audit chain against its anchors every hour, records each round, and raises an alarm (log, event, gauge) once when a chain stops verifying |
 | T22 (done) | **Chunked exports** | Offboarding exports stream each table into objects of bounded size, listed part by part in the manifest; audit details stay as written, with minimization a write-time rule rather than a rewrite |
+| T23 (done) | **Operator roles, rotation policy, security lint** | Operator tokens carry roles the control planes check per operation; a worker rotates tenant keys older than a configured age; the API's own upload URLs can be absolute; `gosec` runs in CI with its exclusions decided and recorded |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1296,6 +1297,41 @@ Open points for the contract and design review:
   the parts in manifest order; it is not built.
 - A lint of audit details for personal data (names, IBANs, emails) would
   turn the write-time rule into a check.
+
+### T23 decisions and open points
+
+What T23 built: four smaller items from the open points. Operator roles
+(ADR-0027): the verifier reads a roles claim (`roles`, or `roles_claim` per
+issuer) and both control planes check one role per operation (`erp:read`,
+`erp:provision`, `erp:operate`, `erp:admin` implying all; a token without
+the claim does everything). A key rotation policy (ADR-0028):
+`controlplane.KeyRotator` rotates the keys of active tenants older than
+`ERP_KEY_ROTATION_AGE` (migration 000025 lets the worker role see key
+ages). `ERP_PUBLIC_URL` makes the API's own upload URLs absolute. `gosec`
+runs in CI, with G104, G115, G304 and G107 excluded by decision and the
+remaining findings fixed (file permissions) or annotated with their reason
+(test doubles' example keys, the deterministic mock generator, SVG built
+from numbers, a slice walked in pairs). The exit criteria are
+`TestOperatorRoles` (authn, controlplane; the globalplane cases), `TestKeyRotationPolicy`
+(controlplane and the server), the public URL case of `TestDirectUploads`,
+and a clean `gosec` run.
+
+Decisions taken while building it:
+
+- **No claim, every role.** Existing issuers keep working; a deployment
+  opts into roles by emitting the claim.
+- **The rotation policy reuses the keyring.** The worker does what
+  `:rotateKey` does, with a system actor and the policy in the audit detail.
+- **Exclusions over annotations where a rule is noise by design.** Four
+  rules are excluded with the reason recorded; everything else is fixed or
+  annotated at the line.
+
+Open points for the contract and design review:
+
+- Re-onboarding a tenant from its export, and a cross-cell `:verify` of a
+  moved tenant, are the two unbuilt items left from earlier steps.
+- Operator roles are coarse; per-cell or per-region scoping would be a
+  claim the verifier also reads.
 
 ## 7.4 Data from the prototype
 

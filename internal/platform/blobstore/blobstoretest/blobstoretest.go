@@ -22,7 +22,7 @@ import (
 // Credentials the server accepts.
 const (
 	AccessKey = "AKIDEXAMPLE"
-	SecretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+	SecretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY" // #nosec G101 -- the AWS documentation's example key, for a test double
 	Region    = "us-east-1"
 	Bucket    = "erp-test"
 )

@@ -63,7 +63,7 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	if token == "" {
 		return nil, nil, errors.New("ERP_OPERATOR_TOKEN is not set (erp token -subject NAME mints one from a development issuer)")
 	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+path, bytes.NewReader(body)) // #nosec G704 -- the operator's own control plane, from settings
 	if err != nil {
 		return nil, nil, err
 	}
@@ -72,7 +72,7 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) // #nosec G704 -- see above
 	if err != nil {
 		return nil, nil, err
 	}

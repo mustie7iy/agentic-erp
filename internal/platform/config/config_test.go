@@ -329,3 +329,24 @@ func TestAuditVerifyInterval(t *testing.T) {
 		}
 	}
 }
+
+func TestRotationPolicyAndPublicURL(t *testing.T) {
+	m := valid()
+	if c, err := Load(env(m)); err != nil || c.KeyRotationAge != 0 || c.PublicURL != "" {
+		t.Fatal(c.KeyRotationAge, c.PublicURL, err)
+	}
+	m["ERP_KEY_ROTATION_AGE"], m["ERP_PUBLIC_URL"] = "8760h", "https://api.example.com/"
+	if c, err := Load(env(m)); err != nil || c.KeyRotationAge != 8760*time.Hour || c.PublicURL != "https://api.example.com" {
+		t.Fatal(c.KeyRotationAge, c.PublicURL, err)
+	}
+	for name, bad := range map[string][2]string{"negative age": {"ERP_KEY_ROTATION_AGE", "-1h"}, "words": {"ERP_KEY_ROTATION_AGE", "yearly"}, "relative url": {"ERP_PUBLIC_URL", "api.example.com"}} {
+		mm := map[string]string{}
+		for k, v := range m {
+			mm[k] = v
+		}
+		mm[bad[0]] = bad[1]
+		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

@@ -30,7 +30,7 @@ func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal) error
 		v.Tiles = append(v.Tiles, tv)
 	}
 	for _, c := range s.Charts {
-		v.Charts = append(v.Charts, chartView{Title: c.Title, SVG: template.HTML(chartSVG(c, results[c.QueryID]))})
+		v.Charts = append(v.Charts, chartView{Title: c.Title, SVG: template.HTML(chartSVG(c, results[c.QueryID]))}) // #nosec G203 -- SVG built by chartSVG from numbers and escaped labels, never from raw input
 	}
 	for _, t := range s.Tables {
 		v.Tables = append(v.Tables, tableView(t, results[t.QueryID]))

@@ -50,8 +50,23 @@ type handler struct {
 // endpoint is one operation of the contract: its body answers or fails.
 type endpoint func(w http.ResponseWriter, r *http.Request) error
 
+// Roles maps each operation to the operator role it needs (ADR-0027).
+var Roles = map[string]string{"listTenants": authn.RoleRead, "getTenant": authn.RoleRead, "createTenant": authn.RoleProvision}
+
+// required is the role an operation needs: RoleOperate unless Roles says otherwise.
+func required(operation string) string {
+	if role, ok := Roles[operation]; ok {
+		return role
+	}
+	return authn.RoleOperate
+}
+
 func (h *handler) serve(w http.ResponseWriter, r *http.Request, operation string, e endpoint) {
 	reqctx.InfoFrom(r.Context()).Operation = operation
+	if claims, _ := reqctx.ClaimsFrom(r.Context()); !authn.OperatorAllowed(claims, required(operation)) {
+		problem.Write(w, r, problem.Forbidden("authz.operator_role", "This operation needs the operator role "+required(operation)+"."))
+		return
+	}
 	if err := e(w, r); err != nil {
 		p := problem.From(err)
 		if p.Status >= 500 {

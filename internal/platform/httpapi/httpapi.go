@@ -102,6 +102,7 @@ type Config struct {
 	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
 	Objects    blobstore.Store     // documents, bank files and audit anchors; nil: documents and files are not kept
 	UploadKey  []byte              // signs the API's own upload URLs (directory store); the same on every replica
+	PublicURL  string              // the API's public base URL, making the API's own upload URLs absolute; empty: paths
 	Secrets    secrets.Resolver    // resolves connectors' secret_ref; nil: env: and file: references on this replica
 	// Limits enforces the request quotas of 04 §4.11; nil applies none.
 	Limits *ratelimit.Limiter
@@ -118,7 +119,7 @@ type Config struct {
 // New builds the public API handler.
 func New(cfg Config) (http.Handler, error) {
 	opener := approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
-	uploads := &payables.Uploads{Objects: cfg.Objects, Secret: cfg.UploadKey, Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
+	uploads := &payables.Uploads{Objects: cfg.Objects, Secret: cfg.UploadKey, PublicURL: cfg.PublicURL, Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},

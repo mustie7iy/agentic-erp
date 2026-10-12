@@ -608,6 +608,43 @@ func TestObjectStores(t *testing.T) {
 	}
 }
 
+// TestKeyRotationPolicy: with an age set the server rotates old keys.
+func TestKeyRotationPolicy(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["ERP_KEY_ROTATION_AGE"] = "1ns"
+	getenv := func(k string) string { return env[k] }
+	doc, _ := fixture.Document(t).Marshal()
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(file, doc, 0o600)
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), []string{"provision", "-name", "Old", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|old", "-admin-name", "Old", "-config", file}, getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	var created struct {
+		TenantID string `json:"tenant_id"`
+	}
+	json.Unmarshal(stdout.Bytes(), &created)
+	rotationInterval = 20 * time.Millisecond
+	defer func() { rotationInterval = time.Hour }()
+	cfg := load(t, env)
+	runCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
+	var n int
+	for deadline := time.Now().Add(10 * time.Second); n < 2 && time.Now().Before(deadline); {
+		pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, created.TenantID).Scan(&n)
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if n < 2 {
+		t.Fatalf("%d keys: the policy did not rotate", n)
+	}
+}
+
 // TestRewrapCommand puts a KMS master in front of the ring and moves a
 // tenant's keys onto it.
 func TestRewrapCommand(t *testing.T) {

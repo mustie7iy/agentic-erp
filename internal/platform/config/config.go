@@ -55,6 +55,8 @@ type Config struct {
 	Objects         Objects         // ERP_OBJECT_DIR or ERP_OBJECT_S3_*: object storage for documents, bank files and audit anchors; neither leaves it off
 	OffboardGrace   time.Duration   // ERP_OFFBOARD_GRACE: how long an offboarded tenant's data stays in the cell after its export before it is erased (default 720h; ADR-0021)
 	AuditVerify     time.Duration   // ERP_AUDIT_VERIFY_INTERVAL: how often every tenant's audit chain is verified against its anchors (default 1h; 0 disables the worker)
+	KeyRotationAge  time.Duration   // ERP_KEY_ROTATION_AGE: tenant keys older than this are rotated by the server (default 0: on request only; ADR-0028)
+	PublicURL       string          // ERP_PUBLIC_URL: the public base URL of this API, for absolute upload URLs (default: paths)
 	DirectoryURL    string          // ERP_DIRECTORY_URL: the global tenant directory's database; empty: a single cell, no directory (ADR-0022)
 	CellAPIURL      string          // ERP_CELL_API_URL: this cell's public API base URL, recorded in the directory for the router (required with ERP_DIRECTORY_URL)
 	CellRegion      string          // ERP_CELL_REGION: the region this cell belongs to, for placement (required with ERP_DIRECTORY_URL)
@@ -261,6 +263,14 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.AuditVerify, err = time.ParseDuration(get("ERP_AUDIT_VERIFY_INTERVAL", "1h")); err != nil || c.AuditVerify < 0 {
 		errs = append(errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must be a duration such as 1h, or 0 to leave chains unverified between requests"))
 	}
+	if c.KeyRotationAge, err = time.ParseDuration(get("ERP_KEY_ROTATION_AGE", "0")); err != nil || c.KeyRotationAge < 0 {
+		errs = append(errs, errors.New("ERP_KEY_ROTATION_AGE must be a duration such as 8760h (a year), or 0 to rotate on request only"))
+	}
+	if c.PublicURL = strings.TrimRight(getenv("ERP_PUBLIC_URL"), "/"); c.PublicURL != "" {
+		if u, err := url.Parse(c.PublicURL); err != nil || u.Scheme == "" || u.Host == "" {
+			errs = append(errs, errors.New("ERP_PUBLIC_URL must be a base URL such as https://api.example.com"))
+		}
+	}
 	c.AWS = AWS{Getenv: raw, STSEndpoint: get("ERP_AWS_STS_ENDPOINT", "https://sts.amazonaws.com"), IMDSEndpoint: get("ERP_AWS_IMDS_ENDPOINT", "http://169.254.169.254")}
 	c.DirectoryURL, c.CellAPIURL, c.CellRegion, c.CellControlURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL"), getenv("ERP_CELL_REGION"), getenv("ERP_CELL_CONTROL_URL")
 	c.CellAccepting = get("ERP_CELL_ACCEPTING", "true") != "false"
@@ -294,7 +304,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if n, err := strconv.Atoi(get("ERP_DB_MAX_CONNS", "0")); err != nil || n < 0 || n > 10_000 {
 		errs = append(errs, errors.New("ERP_DB_MAX_CONNS must be a whole number of connections (0: the driver's default)"))
 	} else {
-		c.DBMaxConns = int32(n)
+		c.DBMaxConns = int32(n) // #nosec G109 -- a pool size, checked to be a small whole number
 	}
 	if c.TenantQuota, err = ratelimit.ParseQuota(get("ERP_RATE_LIMIT_TENANT", "2000/10000")); err != nil {
 		errs = append(errs, fmt.Errorf("ERP_RATE_LIMIT_TENANT: %w", err))

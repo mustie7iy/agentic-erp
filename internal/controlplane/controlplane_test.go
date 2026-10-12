@@ -363,6 +363,41 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	p.s.Offboarding = nil
 }
 
+// TestOperatorRoles: a token with roles may do what its roles allow; one
+// without the claim may do everything.
+func TestOperatorRoles(t *testing.T) {
+	p := newPlane(t)
+	created, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Roled"), "Idempotency-Key", "key-"+uuid.NewString())
+	id := created["id"].(string)
+	with := func(roles any) string {
+		return "Bearer " + p.is.Token(p.t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": roles})
+	}
+	for _, c := range []struct {
+		name   string
+		roles  any
+		method string
+		path   string
+		code   int
+	}{
+		{"reader lists", []any{"erp:read"}, "GET", tenants, 200},
+		{"reader gets", []any{"erp:read"}, "GET", tenants + "/" + id, 200},
+		{"reader suspends", []any{"erp:read"}, "POST", tenants + "/" + id + ":suspend", 403},
+		{"reader provisions", []any{"erp:read"}, "POST", tenants, 403},
+		{"provisioner lists", "erp:provision", "GET", tenants, 403},
+		{"operator suspends", []any{"erp:operate"}, "POST", tenants + "/" + id + ":suspend", 200},
+		{"operator resumes", "erp:operate erp:read", "POST", tenants + "/" + id + ":resume", 200},
+		{"admin erases", []any{"erp:admin"}, "POST", tenants + "/" + id + ":erase", 503},
+		{"no roles at all", []any{}, "GET", tenants, 403},
+		{"operator rotates", []any{"erp:operate"}, "POST", tenants + "/" + id + ":rotateKey", 200},
+		{"reader rotates", []any{"erp:read"}, "POST", tenants + "/" + id + ":rotateKey", 403},
+	} {
+		status, m, _ := p.do(c.method, c.path, "", map[string]string{"Authorization": with(c.roles), "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()})
+		if status != c.code || (status == 403 && m["code"] != "authz.operator_role") {
+			t.Errorf("%s: %d %v", c.name, status, m)
+		}
+	}
+}
+
 // TestContractIsServed checks that every operation of api/control.yaml is
 // routed: no operation answers "no such endpoint" or "method not allowed".
 func TestContractIsServed(t *testing.T) {

@@ -291,6 +291,30 @@ func TestGlobalControlPlane(t *testing.T) {
 	if status, _, _ := p.do("GET", "/directory/v1/cells", "", map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.New(), "ada", nil)}); status != 401 {
 		t.Fatalf("tenant token: %d", status)
 	}
+	// Operator roles: readers read, provisioners provision, operators move.
+	withRoles := func(roles any) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": roles}), "Content-Type": "application/json", "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()}
+	}
+	for _, c := range []struct {
+		name   string
+		roles  any
+		method string
+		path   string
+		code   int
+	}{
+		{"reader lists cells", []any{"erp:read"}, "GET", "/directory/v1/cells", 200},
+		{"reader lists tenants", []any{"erp:read"}, "GET", "/directory/v1/tenants?region=" + region, 200},
+		{"reader freezes", []any{"erp:read"}, "POST", "/directory/v1/tenants/" + id.String() + ":freeze", 403},
+		{"reader provisions", []any{"erp:read"}, "POST", "/directory/v1/tenants", 403},
+		{"provisioner provisions", []any{"erp:provision"}, "POST", "/directory/v1/tenants", 400},
+		{"operator freezes", "erp:operate", "POST", "/directory/v1/tenants/" + id.String() + ":freeze", 200},
+		{"admin unfreezes", []any{"erp:admin"}, "POST", "/directory/v1/tenants/" + id.String() + ":unfreeze", 200},
+	} {
+		status, m, _ := p.do(c.method, c.path, "", withRoles(c.roles))
+		if status != c.code || (status == 403 && m["code"] != "authz.operator_role") {
+			t.Errorf("%s: %d %v", c.name, status, m)
+		}
+	}
 	// Every operation of the contract is served.
 	ops, err := api.DirectoryOperations()
 	if err != nil {

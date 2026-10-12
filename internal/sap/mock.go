@@ -31,7 +31,7 @@ func GenerateMock(seed uint64, fiscalYear string) *Extract {
 func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extract {
 	g := &mockGen{
 		through: throughMonth,
-		r:       rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)),
+		r:       rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), // #nosec G404 -- deterministic mock data, not a secret
 		e:       &Extract{},
 		gj:      fiscalYear,
 		fi:      map[string]int{},

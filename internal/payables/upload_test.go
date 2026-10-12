@@ -159,6 +159,12 @@ func TestDirectUploads(t *testing.T) {
 		t.Fatalf("oversized: %d %s", r.Code, r.Body)
 	}
 
+	// With a public URL the API's own upload URL is absolute.
+	public := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects, cfg.PublicURL = store, "https://api.example.com" })
+	r = public.Do(apitest.Req{Method: "POST", Path: "/v1/uploads", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), Body: `{"purpose":"supplier_invoice","content_type":"application/pdf"}`})
+	if r.Code != 201 || !strings.HasPrefix(apitest.JSON(t, r)["url"].(string), "https://api.example.com/v1/uploads/") {
+		t.Fatalf("public url: %d %s", r.Code, r.Body)
+	}
 	// Without object storage uploads are not served; nor is a capture from one.
 	plain := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Extractor = x })
 	r = plain.Do(apitest.Req{Method: "POST", Path: "/v1/uploads", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), Body: `{"purpose":"supplier_invoice","content_type":"application/pdf"}`})

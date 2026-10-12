@@ -177,8 +177,8 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	backlogs(pool, cfg, metrics)
 	apiCfg := httpapi.Config{
 		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, ExtractDir: cfg.ExtractDir, Objects: store, Secrets: cfg.Secrets, Log: log,
-		UploadKey: uploadKey(cfg.PageTokenKey),
-		Limits:    ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
+		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL,
+		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: metrics, Tracer: tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 	}
 	apiHandler, err := httpapi.New(apiCfg)
@@ -213,6 +213,14 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		anchorer := &audit.Anchorer{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: anchorInterval, Retention: cfg.Objects.Retention, Log: log}
 		go func() { anchorer.Run(runCtx); close(anchorDone) }()
 		go func() { offboarder.Run(runCtx); close(offboardDone) }()
+	}
+	// Keys older than the policy's age are rotated by the server (ADR-0028).
+	rotateDone := make(chan struct{})
+	if cfg.KeyRotationAge == 0 {
+		close(rotateDone)
+	} else {
+		rotator := &controlplane.KeyRotator{Pool: pool, Keys: keys, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Age: cfg.KeyRotationAge, Interval: rotationInterval, Log: log}
+		go func() { rotator.Run(runCtx); close(rotateDone) }()
 	}
 	// Every tenant's audit chain is verified against its anchors in rounds
 	// (ADR-0011); a chain that stops verifying is an alarm.
@@ -282,6 +290,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-anchorDone
 	<-offboardDone
 	<-verifyDone
+	<-rotateDone
 	<-dirDone
 	log.Info("erp-server stopped")
 	return serveErr // nil after a requested shutdown; set when a listener failed
@@ -295,6 +304,7 @@ var (
 	anchorInterval      = time.Minute
 	offboardInterval    = time.Minute
 	directoryInterval   = time.Minute
+	rotationInterval    = time.Hour
 )
 
 // keyring builds the field encryption ring: the KMS master first when there

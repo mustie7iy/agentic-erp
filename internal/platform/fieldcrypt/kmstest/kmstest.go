@@ -25,7 +25,7 @@ import (
 // Credentials and key the server accepts.
 const (
 	AccessKey = "AKIDEXAMPLE"
-	SecretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+	SecretKey = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY" // #nosec G101 -- the AWS documentation's example key, for a test double
 	Region    = "us-east-1"
 	KeyID     = "alias/erp-master"
 	KeyARN    = "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"

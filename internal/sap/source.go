@@ -42,11 +42,11 @@ func (f FileSource) Extract(_ context.Context, scope Scope) (*Extract, error) {
 
 // WriteExtract saves an extract as JSON.
 func WriteExtract(path string, e *Extract) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	data, _ := json.MarshalIndent(e, "", "  ") // plain data: cannot fail
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // FilterScope keeps only rows belonging to the scope's company codes and

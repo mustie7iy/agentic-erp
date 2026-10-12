@@ -196,7 +196,7 @@ func call(ctx context.Context, args []string) error {
 	if *body != "" {
 		raw := []byte(*body)
 		if path, ok := strings.CutPrefix(*body, "@"); ok {
-			if raw, err = os.ReadFile(path); err != nil {
+			if raw, err = os.ReadFile(path); err != nil { // #nosec G703 -- a file the user names on the command line
 				return err
 			}
 		}
@@ -343,7 +343,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	}
 	cfg, notes := sapconfig.Generate(e, sapconfig.DefaultOptions())
 	doc, _ := cfg.Marshal() // Config.Marshal cannot fail
-	if err := os.WriteFile(*outPath, doc, 0o644); err != nil {
+	if err := os.WriteFile(*outPath, doc, 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)

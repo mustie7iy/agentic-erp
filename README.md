@@ -232,14 +232,18 @@ Each cell registers itself with `ERP_CELL_REGION`, `ERP_CELL_CONTROL_URL`
 and `ERP_CELL_ACCEPTING`. Tokens must
 carry the tenant id in the `tenant_id` claim, and the subject must be a
 provisioned principal of that tenant; operator tokens name no tenant and
-work only on the control plane. Every operation in the contract is
+work only on the control plane; a `roles` claim on them narrows what an
+operator may do (`erp:read`, `erp:provision`, `erp:operate`, `erp:admin`,
+[ADR-0027](docs/design/adr/0027-operator-roles.md)). `ERP_KEY_ROTATION_AGE`
+rotates tenant keys older than that age without an operator
+([ADR-0028](docs/design/adr/0028-key-rotation-policy.md)). Every operation in the contract is
 served: implemented ones run, the rest answer `501` until their context moves
 onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md)).
 
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T22 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T23 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier

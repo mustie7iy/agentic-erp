@@ -23,16 +23,45 @@ import (
 // DefaultTenantClaim names the claim that carries the tenant id.
 const DefaultTenantClaim = "tenant_id"
 
+// DefaultRolesClaim names the claim that carries an operator's roles, a
+// JSON array of strings or a space-separated string.
+const DefaultRolesClaim = "roles"
+
+// Operator roles (ADR-0027). A token without a roles claim holds every
+// role; one with the claim holds what it lists, and RoleAdmin implies all.
+const (
+	RoleRead      = "erp:read"      // list and read tenants, cells, entries
+	RoleProvision = "erp:provision" // provision tenants
+	RoleOperate   = "erp:operate"   // suspend, resume, offboard, erase, rotate keys, freeze, move
+	RoleAdmin     = "erp:admin"     // everything
+)
+
+// OperatorAllowed reports whether the operator's roles permit an operation
+// that requires role.
+func OperatorAllowed(c reqctx.Claims, role string) bool {
+	if c.Roles == nil {
+		return true
+	}
+	for _, r := range c.Roles {
+		if r == role || r == RoleAdmin {
+			return true
+		}
+	}
+	return false
+}
+
 // Issuer is a trusted identity provider.
 type Issuer struct {
 	URL         string `json:"issuer"`
 	Audience    string `json:"audience"`
 	TenantClaim string `json:"tenant_claim"` // default DefaultTenantClaim
+	RolesClaim  string `json:"roles_claim"`  // operator issuers: the claim carrying the operator's roles (default DefaultRolesClaim)
 }
 
 type issuer struct {
 	verifier    *oidc.IDTokenVerifier
 	tenantClaim string
+	rolesClaim  string
 }
 
 // Verifier checks bearer tokens from the trusted issuers.
@@ -55,7 +84,7 @@ func New(ctx context.Context, issuers []Issuer, static ...Static) (*Verifier, er
 	}
 	v := &Verifier{issuers: map[string]issuer{}}
 	for _, s := range static {
-		v.issuers[s.Issuer.URL] = issuer{verifier: oidc.NewVerifier(s.Issuer.URL, s.Keys, &oidc.Config{ClientID: s.Issuer.Audience}), tenantClaim: DefaultTenantClaim}
+		v.issuers[s.Issuer.URL] = issuer{verifier: oidc.NewVerifier(s.Issuer.URL, s.Keys, &oidc.Config{ClientID: s.Issuer.Audience}), tenantClaim: DefaultTenantClaim, rolesClaim: DefaultRolesClaim}
 	}
 	for _, is := range issuers {
 		if is.Audience == "" {
@@ -65,13 +94,17 @@ func New(ctx context.Context, issuers []Issuer, static ...Static) (*Verifier, er
 		if err != nil {
 			return nil, fmt.Errorf("authn: issuer %s: %w", is.URL, err)
 		}
-		claim := is.TenantClaim
+		claim, roles := is.TenantClaim, is.RolesClaim
 		if claim == "" {
 			claim = DefaultTenantClaim
+		}
+		if roles == "" {
+			roles = DefaultRolesClaim
 		}
 		v.issuers[is.URL] = issuer{
 			verifier:    provider.Verifier(&oidc.Config{ClientID: is.Audience}),
 			tenantClaim: claim,
+			rolesClaim:  roles,
 		}
 	}
 	return v, nil
@@ -125,7 +158,25 @@ func (v *Verifier) verify(ctx context.Context, raw string) (reqctx.Claims, strin
 	var claims map[string]any
 	_ = tok.Claims(&claims) // the payload was decoded during verification
 	s, _ := claims[is.tenantClaim].(string)
-	return reqctx.Claims{Issuer: iss, Subject: tok.Subject}, s, nil
+	return reqctx.Claims{Issuer: iss, Subject: tok.Subject, Roles: roles(claims[is.rolesClaim])}, s, nil
+}
+
+// roles reads a roles claim: a JSON array of strings, or one string of
+// space-separated roles (the scope style); absent or malformed is nil.
+func roles(v any) []string {
+	switch c := v.(type) {
+	case []any:
+		out := []string{}
+		for _, r := range c {
+			if s, ok := r.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		return strings.Fields(c)
+	}
+	return nil
 }
 
 // unverifiedIssuer reads `iss` to choose the verifier; nothing else is

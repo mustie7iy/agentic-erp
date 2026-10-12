@@ -14,7 +14,7 @@ import (
 
 // Credentials the server accepts.
 const (
-	Token   = "hvs.test-token"
+	Token   = "hvs.test-token" // #nosec G101 -- a test double's token, never a real credential
 	K8sRole = "erp-server"
 	K8sJWT  = "eyJ.service-account.jwt"
 )

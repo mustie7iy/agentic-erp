@@ -180,20 +180,20 @@ func (s *Session) Rerun(rep *Report) (*Report, map[string]*Result, error) {
 
 // Save writes the report definition (JSON) and its rendered page (HTML).
 func (rep *Report) Save(dir string, results map[string]*Result) (htmlPath string, err error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err
 	}
 	// A Report holds only strings, numbers and nested structs, so marshaling
 	// cannot fail; rendering into memory with the fixed page template cannot
 	// fail either (Render only reports errors from its writer).
 	b, _ := json.MarshalIndent(rep, "", "  ")
-	if err := os.WriteFile(filepath.Join(dir, rep.ID+".json"), b, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rep.ID+".json"), b, 0o600); err != nil {
 		return "", err
 	}
 	var page bytes.Buffer
 	Render(&page, &rep.Spec, results, rep.Principal)
 	htmlPath = filepath.Join(dir, rep.ID+".html")
-	return htmlPath, os.WriteFile(htmlPath, page.Bytes(), 0o644)
+	return htmlPath, os.WriteFile(htmlPath, page.Bytes(), 0o600)
 }
 
 func LoadReport(path string) (*Report, error) {

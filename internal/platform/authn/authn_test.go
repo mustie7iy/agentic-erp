@@ -162,3 +162,53 @@ func TestMiddleware(t *testing.T) {
 		t.Fatal("claims not passed on")
 	}
 }
+
+// TestOperatorRoles: the roles claim as an array or a space-separated
+// string, absent roles meaning every role, and the admin role implying all.
+func TestOperatorRoles(t *testing.T) {
+	is := authntest.New(t)
+	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for name, c := range map[string]struct {
+		claim any
+		roles []string
+	}{
+		"array":   {[]any{"erp:read", "erp:operate"}, []string{"erp:read", "erp:operate"}},
+		"scope":   {"erp:read erp:provision", []string{"erp:read", "erp:provision"}},
+		"empty":   {[]any{}, []string{}},
+		"garbage": {42, nil},
+		"mixed":   {[]any{"erp:read", 7, ""}, []string{"erp:read"}},
+	} {
+		claims, err := v.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil, "roles": c.claim}))
+		if err != nil || strings.Join(claims.Roles, ",") != strings.Join(c.roles, ",") || (claims.Roles == nil) != (c.roles == nil) {
+			t.Errorf("%s: %v %v", name, claims.Roles, err)
+		}
+	}
+	claims, err := v.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil}))
+	if err != nil || claims.Roles != nil || !authn.OperatorAllowed(claims, authn.RoleOperate) {
+		t.Fatalf("no roles claim: %v %v", claims.Roles, err)
+	}
+	for roles, allowed := range map[string]map[string]bool{
+		"":                     {authn.RoleRead: false, authn.RoleOperate: false},
+		"erp:read":             {authn.RoleRead: true, authn.RoleOperate: false, authn.RoleProvision: false},
+		"erp:provision":        {authn.RoleProvision: true, authn.RoleOperate: false},
+		"erp:admin":            {authn.RoleRead: true, authn.RoleProvision: true, authn.RoleOperate: true},
+		"erp:read erp:operate": {authn.RoleRead: true, authn.RoleOperate: true, authn.RoleProvision: false},
+	} {
+		for role, want := range allowed {
+			if got := authn.OperatorAllowed(reqctx.Claims{Roles: strings.Fields(roles)}, role); got != want {
+				t.Errorf("roles %q, %s: %v", roles, role, got)
+			}
+		}
+	}
+	// A custom roles claim name per issuer.
+	custom := is.Config()
+	custom.RolesClaim = "groups"
+	v2, _ := authn.New(ctx, []authn.Issuer{custom})
+	if claims, err := v2.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil, "groups": []any{"erp:admin"}})); err != nil || len(claims.Roles) != 1 {
+		t.Fatalf("custom claim: %v %v", claims.Roles, err)
+	}
+}

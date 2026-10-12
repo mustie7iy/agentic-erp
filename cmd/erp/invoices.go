@@ -258,7 +258,7 @@ func agentTest(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(out, "Recommendation recorded: %t\n\n%s\n", rev.Recommended, rev.Scripts)
 	if *outFile != "" {
-		return os.WriteFile(*outFile, []byte(rev.Scripts), 0o644)
+		return os.WriteFile(*outFile, []byte(rev.Scripts), 0o600)
 	}
 	return nil
 }

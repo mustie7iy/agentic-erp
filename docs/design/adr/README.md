@@ -31,3 +31,6 @@ new record. Status values: proposed, accepted, superseded.
 | [0024](0024-ambient-aws-credentials.md) | Ambient AWS credentials (environment, web identity, instance metadata) for the S3 store and the KMS master; static keys optional | proposed |
 | [0025](0025-scheduled-audit-verification.md) | Scheduled audit verification: every chain recomputed against its anchors in rounds; an alarm once when one stops verifying | proposed |
 | [0026](0026-export-chunking-and-audit-detail.md) | Exports written in parts of bounded size; audit details kept as written, minimized at write time, never rewritten | proposed |
+
+| [0027](0027-operator-roles.md) | Operator roles from a token claim: read, provision, operate, admin; no claim means every role | proposed |
+| [0028](0028-key-rotation-policy.md) | Tenant keys older than a configured age are rotated by a worker, as an operator would | proposed |

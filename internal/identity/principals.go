@@ -300,7 +300,7 @@ func changedFields(pairs ...any) []string {
 	fields := []string{}
 	for i := 0; i < len(pairs); i += 2 {
 		if pairs[i].(bool) {
-			fields = append(fields, pairs[i+1].(string))
+			fields = append(fields, pairs[i+1].(string)) // #nosec G602 -- pairs come in twos by construction
 		}
 	}
 	return fields

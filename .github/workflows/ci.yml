@@ -33,6 +33,10 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: Vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Static security analysis
+        # Excluded by decision (docs/design/06-engineering-process.md): G104 (errors ignored on purpose carry a comment),
+        # G115 (integer conversions of bounded domain values), G304 and G107 (paths and URLs come from settings and flags by design).
+        run: go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
       - name: Secret scanning
         uses: gitleaks/gitleaks-action@v2
         env:

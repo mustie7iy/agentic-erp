@@ -25,6 +25,9 @@ type Claims struct {
 	Issuer   string
 	Subject  string
 	TenantID uuid.UUID
+	// Roles are an operator token's roles (ADR-0027): nil when the token
+	// carries no roles claim, which the control planes treat as every role.
+	Roles []string
 }
 
 // Principal is the authenticated actor resolved in the tenant's identity data.
