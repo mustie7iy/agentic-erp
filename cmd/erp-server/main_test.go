@@ -25,9 +25,13 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 
+	"github.com/google/uuid"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+
+	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -645,6 +649,71 @@ func TestKeyRotationPolicy(t *testing.T) {
 	}
 }
 
+// TestImportCommand brings an erased tenant back from its export.
+func TestImportCommand(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	getenv := func(k string) string { return env[k] }
+	doc, _ := fixture.Document(t).Marshal()
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(file, doc, 0o600)
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), []string{"provision", "-name", "Back", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|back", "-admin-name", "Back", "-config", file}, getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	var created struct {
+		TenantID uuid.UUID `json:"tenant_id"`
+	}
+	json.Unmarshal(stdout.Bytes(), &created)
+	// Offboarded, exported and erased by the worker; the trail wiped as a destination cell would find it.
+	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', version = version + 1 WHERE id = $1`, created.TenantID)
+	pool := pgtest.Pool(t)
+	store := blobstore.Dir{Root: env["ERP_OBJECT_DIR"]}
+	w := &offboarding.Worker{Pool: pool, Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Retention: 24 * time.Hour, Log: quiet()} // locked exports survive the erasure
+	ex, err := w.Export(context.Background(), created.TenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Erase(context.Background(), created.TenantID, offboarding.Actor, nil); err != nil {
+		t.Fatal(err)
+	}
+	wipeTrail(t, created.TenantID)
+	stdout.Reset()
+	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, getenv, &stdout, &stderr, nil); code != 0 || !strings.Contains(stdout.String(), `"identity.principal"`) {
+		t.Fatalf("import: %d %s %s", code, stdout.String(), stderr.String())
+	}
+	var status string
+	pgtest.Admin(t).QueryRow(context.Background(), `SELECT status FROM tenancy.tenant WHERE id = $1`, created.TenantID).Scan(&status)
+	if status != "active" {
+		t.Fatalf("tenant after the import: %s", status)
+	}
+	for name, c := range map[string]struct {
+		args []string
+		env  func(map[string]string)
+		code int
+		want string
+	}{
+		"help":        {[]string{"import", "-h"}, nil, 0, ""},
+		"bad flag":    {[]string{"import", "-x"}, nil, 2, "flag provided"},
+		"no manifest": {[]string{"import"}, nil, 1, "-manifest is required"},
+		"live tenant": {[]string{"import", "-manifest", ex.Ref}, nil, 1, "not erased"},
+		"no store":    {[]string{"import", "-manifest", ex.Ref}, func(e map[string]string) { delete(e, "ERP_OBJECT_DIR") }, 1, "no object storage"},
+		"db down":     {[]string{"import", "-manifest", ex.Ref}, func(e map[string]string) { e["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1" }, 1, "connect"},
+	} {
+		e := map[string]string{}
+		for k, v := range env {
+			e[k] = v
+		}
+		if c.env != nil {
+			c.env(e)
+		}
+		stderr.Reset()
+		if code := cli(context.Background(), c.args, func(k string) string { return e[k] }, io.Discard, &stderr, nil); code != c.code || !strings.Contains(stderr.String(), c.want) {
+			t.Errorf("%s: %d %s", name, code, stderr.String())
+		}
+	}
+}
+
 // TestRewrapCommand puts a KMS master in front of the ring and moves a
 // tenant's keys onto it.
 func TestRewrapCommand(t *testing.T) {
@@ -776,4 +845,13 @@ func TestDirectorySync(t *testing.T) {
 	if err := run(context.Background(), load(t, env), quiet(), nil); err == nil {
 		t.Fatal("started without its directory")
 	}
+}
+
+// wipeTrail removes a tenant's audit trail the way a destination cell
+// would lack it: the erasure keeps it, an import brings it back.
+func wipeTrail(t *testing.T, tenant uuid.UUID) {
+	t.Helper()
+	id := tenant.String()
+	pgtest.Exec(t, `SELECT set_config('app.erasing', '`+id+`', true); DELETE FROM audit.verification WHERE tenant_id = '`+id+`'; DELETE FROM audit.anchor WHERE tenant_id = '`+id+`';
+		DELETE FROM audit.audit_event WHERE tenant_id = '`+id+`'; DELETE FROM audit.chain_head WHERE tenant_id = '`+id+`'`)
 }

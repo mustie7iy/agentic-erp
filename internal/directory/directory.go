@@ -120,7 +120,11 @@ func Open(ctx context.Context, url string) (*Postgres, error) {
 	}
 	p := &Postgres{Pool: pool}
 	if err := pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, Schema)
+		// Openers starting together (replicas of a cell, a router and a
+		// control plane) serialize on an advisory lock: two concurrent
+		// CREATE SCHEMA IF NOT EXISTS otherwise race into a unique violation
+		// on pg_namespace.
+		_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('directory.schema'));`+Schema)
 		return err
 	}); err != nil {
 		pool.Close()

@@ -243,7 +243,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T23 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T24 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier
@@ -258,7 +258,9 @@ Known gaps:
   through the control plane on the admin listener (or `erp-server provision`
   to bootstrap); an offboarded tenant's data is exported to locked object
   storage and erased after `ERP_OFFBOARD_GRACE` (default 30 days,
-  [ADR-0021](docs/design/adr/0021-offboarding-lifecycle.md)). There is no
+  [ADR-0021](docs/design/adr/0021-offboarding-lifecycle.md)), and comes back
+  from that export with `erp-server import`
+  ([ADR-0029](docs/design/adr/0029-reonboarding-from-export.md)). There is no
   self-service signup, and the development issuer is for local use only.
 - Documents above 5 MB go through `POST /v1/uploads` (a presigned `PUT`
   to the store, or a signed path on the API with a directory store), up to

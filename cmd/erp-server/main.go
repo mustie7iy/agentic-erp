@@ -57,8 +57,8 @@ func main() {
 	exit(code)
 }
 
-// cli runs the server, or with "provision" or "rewrap" as the first
-// argument that command, and returns the process exit code: 2 for bad
+// cli runs the server, or with "provision", "rewrap" or "import" as the
+// first argument that command, and returns the process exit code: 2 for bad
 // configuration or usage, 1 for a failure while running, 0 after a clean
 // shutdown or a completed command.
 func cli(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer, started func(api, admin net.Listener)) int {
@@ -74,8 +74,10 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return provisionCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "rewrap":
 			return rewrapCmd(ctx, args[1:], cfg, stdout, stderr)
+		case "import":
+			return importCmd(ctx, args[1:], cfg, stdout, stderr)
 		}
-		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master)\n", args[0])
+		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in)\n", args[0])
 		return 2
 	}
 	if err := run(ctx, cfg, log, started); err != nil {

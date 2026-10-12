@@ -75,6 +75,7 @@ prototype store for that context.
 | T21 (done) | **Scheduled audit verification** | A worker recomputes every tenant's audit chain against its anchors every hour, records each round, and raises an alarm (log, event, gauge) once when a chain stops verifying |
 | T22 (done) | **Chunked exports** | Offboarding exports stream each table into objects of bounded size, listed part by part in the manifest; audit details stay as written, with minimization a write-time rule rather than a rewrite |
 | T23 (done) | **Operator roles, rotation policy, security lint** | Operator tokens carry roles the control planes check per operation; a worker rotates tenant keys older than a configured age; the API's own upload URLs can be absolute; `gosec` runs in CI with its exclusions decided and recorded |
+| T24 (done) | **Re-onboarding from export** | `erp-server import` brings an exported tenant back into a cell, row for row and chain head and all, every part checked against the manifest; the row copy a move between cells needs |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1332,6 +1333,35 @@ Open points for the contract and design review:
   moved tenant, are the two unbuilt items left from earlier steps.
 - Operator roles are coarse; per-cell or per-region scoping would be a
   claim the verifier also reads.
+
+### T24 decisions and open points
+
+What T24 built: re-onboarding from an export (ADR-0029).
+`offboarding.Importer` reads a manifest and its parts from the store, checks
+each part's hash and row count, writes the tenant row (new, or back from its
+tombstone) and every table's rows in passes over foreign keys through
+`json_populate_record` (generated columns left to the database, outboxes
+skipped), then checks the audit chain head against the manifest, all in one
+transaction. `erp-server import -manifest KEY` runs it. The exit criteria
+are `TestReonboarding` (an erased fixture tenant back with every table's
+count and the chain head equal; refused while live or when rows are
+present; created in a cell that never had it) and `TestImportRefusals`
+(every mismatch and failure named).
+
+Decisions taken while building it:
+
+- **Verified before written, verified after.** Hashes and counts gate the
+  insert; the chain head gates the commit.
+- **Passes over foreign keys**, as the erasure does in reverse: order is
+  discovered, not declared.
+- **Outboxes stay where the events happened.**
+
+Open points for the contract and design review:
+
+- Partitions for old years must exist in the destination cell; the import
+  does not create them.
+- A cross-cell `:verify` on the global control plane would run the import's
+  checks against a destination without writing.
 
 ## 7.4 Data from the prototype
 
