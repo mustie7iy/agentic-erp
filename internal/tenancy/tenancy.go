@@ -255,10 +255,10 @@ type transition struct {
 // Activation publishes nothing: the contract has no "activated" event yet
 // (LegalEntityCreated carries status inactive), see docs/design/07-transition.md.
 var (
-	activateLE = transition{"activate", Inactive, Active, ""}
+	activateLE = transition{"activate", Inactive, Active, "legal_entity_activated"}
 	blockLE    = transition{"block", Active, Blocked, "legal_entity_blocked"}
 	unblockLE  = transition{"unblock", Blocked, Active, "legal_entity_unblocked"}
-	activateOU = transition{"activate", Inactive, Active, ""}
+	activateOU = transition{"activate", Inactive, Active, "org_unit_activated"}
 	blockOU    = transition{"block", Active, Blocked, "org_unit_blocked"}
 	unblockOU  = transition{"unblock", Blocked, Active, "org_unit_unblocked"}
 )

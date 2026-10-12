@@ -180,7 +180,7 @@ func TestBankChanges(t *testing.T) {
 	if got, _ := e.Must(200, "GET", path+"/"+id(second), "", ""); got["valid_to"] != e.date(10) {
 		t.Fatalf("not ended: %v", got)
 	}
-	if last := e.events(t, "bank_account_changed"); last[len(last)-1]["bank_account_id"] != id(second) || last[len(last)-1]["valid_to"] != e.date(10) {
+	if last := e.events(t, "bank_account_changed"); last[len(last)-1]["bank_account_id"] != nil || last[len(last)-1]["ended_bank_account_id"] != id(second) || last[len(last)-1]["valid_to"] != e.date(10) {
 		t.Fatalf("end event: %v", last[len(last)-1])
 	}
 	// An end that is no longer earlier than the account's end is refused on apply.

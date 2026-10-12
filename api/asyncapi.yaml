@@ -129,9 +129,11 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       LegalEntityCreated: {$ref: '#/components/messages/LegalEntityCreated'}
+      LegalEntityActivated: {$ref: '#/components/messages/LegalEntityActivated'}
       LegalEntityBlocked: {$ref: '#/components/messages/LegalEntityBlocked'}
       LegalEntityUnblocked: {$ref: '#/components/messages/LegalEntityUnblocked'}
       OrgUnitCreated: {$ref: '#/components/messages/OrgUnitCreated'}
+      OrgUnitActivated: {$ref: '#/components/messages/OrgUnitActivated'}
       OrgUnitBlocked: {$ref: '#/components/messages/OrgUnitBlocked'}
       OrgUnitUnblocked: {$ref: '#/components/messages/OrgUnitUnblocked'}
       TenantStatusChanged: {$ref: '#/components/messages/TenantStatusChanged'}
@@ -293,9 +295,11 @@ operations:
     channel: {$ref: '#/channels/tenancy'}
     messages:
       - $ref: '#/channels/tenancy/messages/LegalEntityCreated'
+      - $ref: '#/channels/tenancy/messages/LegalEntityActivated'
       - $ref: '#/channels/tenancy/messages/LegalEntityBlocked'
       - $ref: '#/channels/tenancy/messages/LegalEntityUnblocked'
       - $ref: '#/channels/tenancy/messages/OrgUnitCreated'
+      - $ref: '#/channels/tenancy/messages/OrgUnitActivated'
       - $ref: '#/channels/tenancy/messages/OrgUnitBlocked'
       - $ref: '#/channels/tenancy/messages/OrgUnitUnblocked'
       - $ref: '#/channels/tenancy/messages/TenantStatusChanged'
@@ -601,12 +605,14 @@ components:
     BankAccountChanged:
       name: BankAccountChanged
       title: Bank account changed
-      summary: An approved bank change added a new effective-dated bank account for a partner.
+      summary: An approved bank change added a new effective-dated bank account for a partner, or ended one.
       description: |
         Emitted when a `bank_change` partner change is applied: a new
         `partner.bank_account` row becomes valid from `valid_from` and the
         account it replaces (if any) is ended (`valid_to`, `ended_at`,
-        `ended_by` set; rows are never deleted). Payments uses it to hold
+        `ended_by` set; rows are never deleted), or an existing account is
+        ended without a replacement (`bank_account_id` null, the ended
+        account in `ended_bank_account_id`). Payments uses it to hold
         payments to the partner for the configured period after a bank
         change. Only `account_last4` and `account_scheme` are exposed.
         Subject is the business partner id.
@@ -744,10 +750,10 @@ components:
       title: Posting period closed
       summary: A fiscal period was closed (or locked) for posting.
       description: |
-        Emitted by `fiscal-periods/{id}:close` (an operation; its completion
-        is also published as `OperationCompleted`) when `ledger.period_status`
-        becomes `closed` or `locked`. Postings into the period are refused
-        from then on. Subject is the period status id.
+        Emitted by `fiscal-periods/{id}:close` (synchronous: the request
+        answers 200 with the period) when `ledger.period_status` becomes
+        `closed` or `locked`. Postings into the period are refused from
+        then on. Subject is the period status id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -842,8 +848,8 @@ components:
     SupplierInvoiceCaptured:
       name: SupplierInvoiceCaptured
       title: Supplier invoice captured
-      summary: A supplier invoice was captured and parked.
-      description: Emitted by `supplier-invoices:capture` (or manual, EDI or migration entry) when the invoice row is inserted in status `parked`. Subject is the supplier invoice id.
+      summary: A supplier invoice was captured and parked, or held.
+      description: "Emitted by `supplier-invoices:capture` (or manual, EDI or migration entry) when the invoice row is inserted: in status `parked`, or `on_hold` when the capture's confidence was below the threshold, in which case `SupplierInvoiceHeld` follows in the same transaction with the reason. Subject is the supplier invoice id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -1132,6 +1138,22 @@ components:
           payload: {operation_id: 0192a000-0000-7000-8000-000000000805, kind: payments.propose, status: succeeded, resource: /v1/payment-runs/0192a000-0000-7000-8000-000000000801, progress: {done: 212, total: 212}, error: null}
 
     # ------------------------------------------------ further state changes
+    LegalEntityActivated:
+      name: LegalEntityActivated
+      title: Legal entity activated
+      summary: "A new legal entity became usable for postings and documents."
+      description: "Emitted by `legal-entities/{id}:activate` when the legal entity's status goes from `inactive` to `active`. Subject is the legal entity id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tenancy.legal_entity_activated.v1}
+      payload: {$ref: '#/components/schemas/LegalEntityStatusChangedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000046", "source": "/erp/eu-1/tenancy", "type": "com.example.erp.tenancy.legal_entity_activated.v1", "subject": "0192a000-0000-7000-8000-000000000201", "time": "2026-10-08T08:30:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"legal_entity_id": "0192a000-0000-7000-8000-000000000201", "code": "DE01", "previous_status": "inactive", "status": "active"}
     LegalEntityBlocked:
       name: LegalEntityBlocked
       title: Legal entity blocked
@@ -1152,7 +1174,7 @@ components:
       name: LegalEntityUnblocked
       title: Legal entity unblocked
       summary: "A blocked legal entity was activated again."
-      description: "Emitted by `legal-entities/{id}:activate` when the legal entity's status goes from `blocked` back to `active`. Subject is the legal entity id."
+      description: "Emitted by `legal-entities/{id}:unblock` when the legal entity's status goes from `blocked` back to `active`. Subject is the legal entity id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -1196,11 +1218,27 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000043", "source": "/erp/eu-1/tenancy", "type": "com.example.erp.tenancy.org_unit_blocked.v1", "subject": "0192a000-0000-7000-8000-000000000605", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"org_unit_id": "0192a000-0000-7000-8000-000000000605", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "kind": "purchasing_org", "code": "PO_DE", "previous_status": "active", "status": "blocked"}
+    OrgUnitActivated:
+      name: OrgUnitActivated
+      title: Org unit activated
+      summary: "A new org unit became usable."
+      description: "Emitted by `org-units/{id}:activate` when the org unit's status goes from `inactive` to `active`. Subject is the org unit id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tenancy.org_unit_activated.v1}
+      payload: {$ref: '#/components/schemas/OrgUnitStatusChangedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000047", "source": "/erp/eu-1/tenancy", "type": "com.example.erp.tenancy.org_unit_activated.v1", "subject": "0192a000-0000-7000-8000-000000000605", "time": "2026-10-08T08:30:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"org_unit_id": "0192a000-0000-7000-8000-000000000605", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "kind": "purchasing_org", "code": "PO_DE", "previous_status": "inactive", "status": "active"}
     OrgUnitUnblocked:
       name: OrgUnitUnblocked
       title: Org unit unblocked
       summary: "A blocked org unit was activated again."
-      description: "Emitted by `org-units/{id}:activate` when the org unit's status goes from `blocked` back to `active`. Subject is the org unit id."
+      description: "Emitted by `org-units/{id}:unblock` when the org unit's status goes from `blocked` back to `active`. Subject is the org unit id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2054,7 +2092,7 @@ components:
       required: [partner_id, bank_account_id, purpose, account_scheme, account_last4, bank_country_code, valid_from, valid_to, ended_bank_account_id, partner_change_id]
       properties:
         partner_id: {$ref: '#/components/schemas/Uuid'}
-        bank_account_id: {$ref: '#/components/schemas/Uuid', description: The new account.}
+        bank_account_id: {$ref: '#/components/schemas/NullableUuid', description: The new account; null when the change only ends an account.}
         ended_bank_account_id: {$ref: '#/components/schemas/NullableUuid', description: The account this change ended; null for a partner's first account.}
         ended_valid_to: {$ref: '#/components/schemas/NullableDate', description: '`valid_to` set on the ended account.'}
         purpose: {type: string, description: 'Open enum: payments, collections.'}
@@ -2254,7 +2292,7 @@ components:
         purchase_order_id: {$ref: '#/components/schemas/NullableUuid'}
         source: {type: string, description: 'Open enum: manual, capture, edi, migration.'}
         capture_sha256: {type: [string, 'null'], pattern: '^[0-9a-f]{64}$', description: Hash of the captured document when source is capture.}
-        status: {type: string, description: 'Open enum; parked in v1.'}
+        status: {type: string, description: 'Open enum: parked, or on_hold for a low-confidence capture.'}
     SupplierInvoiceMatchedV1:
       type: object
       required: [match_result_id, supplier_invoice_id, evaluated_at, is_clean, config_version, issues]
@@ -2494,6 +2532,15 @@ components:
         code: {"type": "string", "pattern": "^[A-Z0-9]{1,10}$"}
         previous_status: {"type": "string", "description": "Open enum: active, blocked, inactive."}
         status: {"type": "string", "description": "Open enum: active, blocked, inactive."}
+    LegalEntityStatusChangedV1:
+      type: object
+      description: The legal entity after a status transition (activated, blocked, unblocked).
+      required: ["legal_entity_id", "code", "previous_status", "status"]
+      properties:
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        code: {"type": "string", "pattern": "^[A-Z0-9]{1,10}$"}
+        previous_status: {"type": "string", "description": "Open enum: active, blocked, inactive."}
+        status: {"type": "string", "description": "Open enum: active, blocked, inactive."}
     LegalEntityUnblockedV1:
       type: object
       required: ["legal_entity_id", "code", "previous_status", "status"]
@@ -2515,6 +2562,17 @@ components:
         status: {"type": "string", "description": "Open enum: active, blocked, inactive."}
     OrgUnitBlockedV1:
       type: object
+      required: ["org_unit_id", "legal_entity_id", "kind", "code", "previous_status", "status"]
+      properties:
+        org_unit_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        kind: {"type": "string", "description": "Open enum: purchasing_org, plant, storage_location, sales_org."}
+        code: {"type": "string"}
+        previous_status: {"type": "string", "description": "Open enum: active, blocked, inactive."}
+        status: {"type": "string", "description": "Open enum: active, blocked, inactive."}
+    OrgUnitStatusChangedV1:
+      type: object
+      description: The org unit after a status transition (activated, blocked, unblocked).
       required: ["org_unit_id", "legal_entity_id", "kind", "code", "previous_status", "status"]
       properties:
         org_unit_id: {"$ref": "#/components/schemas/Uuid"}

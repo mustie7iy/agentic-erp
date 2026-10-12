@@ -907,7 +907,7 @@ func applyBankChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Chang
 		return nil, err
 	}
 	return []outbox.Event{event("bank_account_changed", c.PartnerID, "partner.business_partner", map[string]any{
-		"partner_id": c.PartnerID, "bank_account_id": b.ID, "ended_bank_account_id": b.ID, "ended_valid_to": to.Format(time.DateOnly),
+		"partner_id": c.PartnerID, "bank_account_id": nil, "ended_bank_account_id": b.ID, "ended_valid_to": to.Format(time.DateOnly), // no new account: the change only ends one
 		"purpose": b.Purpose, "account_scheme": b.AccountScheme, "account_last4": b.AccountLast4, "bic": b.BIC,
 		"bank_country_code": b.BankCountryCode, "valid_from": b.ValidFrom.Format(time.DateOnly), "valid_to": to.Format(time.DateOnly),
 		"partner_change_id": c.ID})}, nil

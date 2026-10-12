@@ -91,11 +91,13 @@ func TestLegalEntityLifecycle(t *testing.T) {
 	}
 
 	created := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "legal_entity_created"})
+	activated := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "legal_entity_activated"})
 	blocked := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "legal_entity_blocked"})
 	unblocked := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "legal_entity_unblocked"})
 	if len(created) != 1 || created[0]["code"] != "DE01" || created[0]["status"] != "inactive" ||
+		len(activated) != 1 || activated[0]["previous_status"] != "inactive" || activated[0]["status"] != "active" ||
 		len(blocked) != 1 || blocked[0]["previous_status"] != "active" || len(unblocked) != 1 || unblocked[0]["status"] != "active" {
-		t.Fatalf("events: %v %v %v", created, blocked, unblocked)
+		t.Fatalf("events: %v %v %v %v", created, activated, blocked, unblocked)
 	}
 	var actions []string
 	rows, _ := pgtest.Admin(t).Query(context.Background(), `SELECT action || coalesce(':' || (detail->>'reason'), '') FROM audit.audit_event
@@ -304,10 +306,12 @@ func TestOrgUnits(t *testing.T) {
 		t.Fatal(got)
 	}
 	created := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "org_unit_created"})
+	activated := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "org_unit_activated"})
 	blocked := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "org_unit_blocked"})
 	unblocked := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "org_unit_unblocked"})
-	if len(created) != 2 || created[1]["parent_id"] != plant["id"] || len(blocked) != 1 || len(unblocked) != 1 || unblocked[0]["kind"] != "plant" {
-		t.Fatalf("events: %v %v %v", created, blocked, unblocked)
+	if len(created) != 2 || created[1]["parent_id"] != plant["id"] || len(activated) == 0 || activated[0]["previous_status"] != "inactive" ||
+		len(blocked) != 1 || len(unblocked) != 1 || unblocked[0]["kind"] != "plant" {
+		t.Fatalf("events: %v %v %v %v", created, activated, blocked, unblocked)
 	}
 
 	list := func(q string) []string {
