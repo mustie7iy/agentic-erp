@@ -43,6 +43,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -224,6 +225,11 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		rotator := &controlplane.KeyRotator{Pool: pool, Keys: keys, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Age: cfg.KeyRotationAge, Interval: rotationInterval, Log: log}
 		go func() { rotator.Run(runCtx); close(rotateDone) }()
 	}
+	// Active contracts past their validity are expired in rounds (the
+	// contract's ContractExpired is the job's).
+	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log}
+	expireDone := make(chan struct{})
+	go func() { expirer.Run(runCtx); close(expireDone) }()
 	// Every tenant's audit chain is verified against its anchors in rounds
 	// (ADR-0011); a chain that stops verifying is an alarm.
 	verifyDone := make(chan struct{})
@@ -293,6 +299,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-offboardDone
 	<-verifyDone
 	<-rotateDone
+	<-expireDone
 	<-dirDone
 	log.Info("erp-server stopped")
 	return serveErr // nil after a requested shutdown; set when a listener failed
@@ -307,6 +314,7 @@ var (
 	offboardInterval    = time.Minute
 	directoryInterval   = time.Minute
 	rotationInterval    = time.Hour
+	expiryInterval      = time.Hour
 )
 
 // keyring builds the field encryption ring: the KMS master first when there

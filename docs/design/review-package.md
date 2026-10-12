@@ -15,7 +15,7 @@ they need to decide, and what the implementation found out on the way.
 | Decision records | 30, all `proposed` | [adr/](adr/README.md) |
 | API contract | 165 operations (OpenAPI 3.1), 82 event types (AsyncAPI 3.0) | [`api/openapi.yaml`](../../api/openapi.yaml), [`api/asyncapi.yaml`](../../api/asyncapi.yaml) |
 | Operator contracts | 9 cell operations, 8 global operations | [`api/control.yaml`](../../api/control.yaml), [`api/directory.yaml`](../../api/directory.yaml) |
-| Physical model | 25 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
+| Physical model | 26 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
 | Tests | 443 test functions across 68 packages, 100% statement coverage, race detector in CI; load, soak and resilience suites | [docs/testing.md](../testing.md) |
 | Transition | 25 steps done, each with its decisions and open points | [07-transition.md](07-transition.md) |
 
@@ -65,12 +65,13 @@ Every step recorded its open points (07-transition, "decisions and open points")
 | T17, T22, T23 | Restoring an exported tenant | T24 re-onboarding |
 | T18 | Directory operations not on a contract; placement | T19 |
 | T19, T23, T24 | Cross-cell verification of a moved tenant | T25 |
+| T4 | Purchase orders never closed; contracts never expired | Fixed after the package was written: `closePurchaseOrder` (`:close` on a released order; receipts and invoices refused after) and a contract-expiry job emitting `ContractExpired` |
 | T2, T3, T4 | Event contract drift: `LegalEntityUnblocked` documented on `:activate`; no event for leaving `inactive`; `BankAccountChanged` naming the ended account as the new one; `PeriodClosed` described as an operation; `SupplierInvoiceCaptured` saying `parked` only | Fixed after the package was written: `LegalEntityActivated` and `OrgUnitActivated` added, descriptions corrected, `bank_account_id` null on an end-only change |
 
 ### Still open: contract gaps (the API review decides)
 
 - Events: `PartnerChangeCancelled` has no operation; no event for recorded evidence (`ChangeRequestValidated` repeats) (T3, T9).
-- Missing operations: bank status reports (pain.002, camt.054) and the `acknowledged`, `rejected` and `PaymentRunFailed` outcomes; payment reversal (resetting a clearing); purchase order close and contract expiry; tax code rate changes with end validity (T3, T4, T5).
+- Missing operations: bank status reports (pain.002, camt.054) and the `acknowledged`, `rejected` and `PaymentRunFailed` outcomes; payment reversal (resetting a clearing changes the ledger model of ADR-0006, so it is a decision rather than a gap); tax code rate changes with end validity (T3, T5).
 - Custom fields validated for snake_case keys only; schema validation waits for published custom field schemas (ADR-0009) (T2).
 - The per-tenant identity provider registry ADR-0014 expected is not built; trusted issuers come from deployment configuration (T2, T8).
 - The configuration document still carries roles, users and SoD pairs the identity context owns; one house bank per company, no payment methods, cash discount or partial payments (T2, T5).

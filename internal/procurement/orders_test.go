@@ -93,6 +93,27 @@ func TestPurchaseOrders(t *testing.T) {
 	}
 	e.Problem(409, "procurement.invalid_status", "PATCH", path, `{}`, "*")
 	e.Problem(409, "procurement.invalid_status", "POST", path+":release", "", "*")
+	// A released order is closed when nothing more is expected: receipts and
+	// a second close are refused, the event names the transition.
+	other := e.order(t, items(item(e.office, "3", "EA", "5.00", "EUR", "")), "")
+	otherPath := "/v1/purchase-orders/" + id(other)
+	e.Problem(409, "procurement.invalid_status", "POST", otherPath+":close", "", "*")
+	e.act(t, otherPath, "release", "")
+	if code, m := e.receipt(t, id(other), "1:1:EA"); code != 201 {
+		t.Fatalf("receipt before close: %d %v", code, m)
+	}
+	closed := e.act(t, otherPath, "close", "")
+	if closed["status"] != "closed" {
+		t.Fatalf("closed: %v", closed)
+	}
+	if code, m := e.receipt(t, id(other), "1:1:EA"); code != 409 || m["code"] != "procurement.order_not_released" {
+		t.Fatalf("receipt after close: %d %v", code, m)
+	}
+	e.Problem(409, "procurement.invalid_status", "POST", otherPath+":close", "", "*")
+	e.Problem(409, "procurement.invalid_status", "POST", otherPath+":cancel", "", "*")
+	if ev := events(t, e, "purchase_order_closed"); len(ev) != 1 || ev[0]["previous_status"] != "released" || ev[0]["status"] != "closed" || ev[0]["purchase_order_id"] != id(other) {
+		t.Fatalf("closed event: %v", ev)
+	}
 	// Cancelling gives the requisition back.
 	can := e.act(t, path, "cancel", "")
 	if can["status"] != "cancelled" {

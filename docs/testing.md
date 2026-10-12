@@ -24,7 +24,7 @@ deletion is commented in the code. Coverage measures that every statement
 runs under test; the assertions in the suites below are what show the
 results are right.
 
-At the time of writing the suites contain 443 test functions (many with
+At the time of writing the suites contain 444 test functions (many with
 subtests) across 68 packages, all passing under the race detector.
 Database-backed suites run against PostgreSQL (`make db-up`), each package
 in its own database (`internal/platform/pgtest`), and
@@ -51,7 +51,7 @@ turn to prove nothing is left half done.
 | Configuration as code | `internal/config` | Every validation rule (one test per rule), change tiers, diffs |
 | Configuration from SAP | `internal/delivery/sapconfig` | T001/SKB1/T030/T007A/T169G/T012K/T052/AGR_* mapped; number ranges per fiscal year; gaps, defaults and role notes |
 | Partner and ledger | `internal/partner`, `internal/ledger` | Governed partner changes, encrypted bank accounts; balanced postings in three currencies, reversal, periods, projector balances, open items, clearing, settlement with realized exchange differences |
-| Procure-to-pay | `internal/procurement`, `payables`, `approvals` | Requisition → approval → PO → receipt → invoice → match → posting; contracts; over-delivery; exceptions decided on approval requests; no self-approval; the simulation replays invoices under a proposed configuration (decisions, posting rules, breaks); regression suites are stratified samples replayed with pinned decisions |
+| Procure-to-pay | `internal/procurement`, `payables`, `approvals` | Requisition → approval → PO → receipt → invoice → match → posting; orders closed when nothing more is expected; contracts, expired by a job past their validity; over-delivery; exceptions decided on approval requests; no self-approval; the simulation replays invoices under a proposed configuration (decisions, posting rules, breaks); regression suites are stratified samples replayed with pinned decisions |
 | Payments | `internal/payments` | Proposal worker with every exclusion, release by another person, payment entries clearing the items, bank files and transmission |
 | Migration | `internal/integration` | Connectors, quality gate, both modes, loads through the owning services, refused records failing the run, rehearsals rolled back, idempotent reruns, reconciliation with differences and missing documents |
 | Agents runtime | `internal/agents`, `internal/apitools` | Sessions, tool calls and recommendations through the API; tools generated from the contract, `x-agent: false` refused, every call recorded |

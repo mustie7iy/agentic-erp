@@ -260,7 +260,7 @@ and role administration) are never exposed as agent tools.
 | configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close` |
-| procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:cancel`, `:reverse` |
+| procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose`, `:release`, `:reject`, `:transmit` |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |

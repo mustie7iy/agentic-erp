@@ -65,6 +65,10 @@ type CloseFiscalPeriodRes interface {
 	closeFiscalPeriodRes()
 }
 
+type ClosePurchaseOrderRes interface {
+	closePurchaseOrderRes()
+}
+
 type CreateBusinessPartnerRes interface {
 	createBusinessPartnerRes()
 }

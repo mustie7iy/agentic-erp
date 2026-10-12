@@ -22,6 +22,7 @@ const (
 	CancelSupplierInvoiceOperation      OperationName = "CancelSupplierInvoice"
 	CaptureSupplierInvoiceOperation     OperationName = "CaptureSupplierInvoice"
 	CloseFiscalPeriodOperation          OperationName = "CloseFiscalPeriod"
+	ClosePurchaseOrderOperation         OperationName = "ClosePurchaseOrder"
 	CreateBusinessPartnerOperation      OperationName = "CreateBusinessPartner"
 	CreateChangeRequestOperation        OperationName = "CreateChangeRequest"
 	CreateClearingOperation             OperationName = "CreateClearing"

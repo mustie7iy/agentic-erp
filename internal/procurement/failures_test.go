@@ -111,6 +111,8 @@ func TestDatabaseFailures(t *testing.T) {
 	released := e.order(t, items(item(e.office, "10", "EA", "1.00", "EUR", `, "contract_item_no": 1`)), fmt.Sprintf(`, "contract_id": %q, "requisition_id": %q`, id(active), id(approvedReq)))
 	e.act(t, "/v1/purchase-orders/"+id(released), "release", "")
 	_, gr := e.receipt(t, id(released), "1:2:EA")
+	closable := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	e.act(t, "/v1/purchase-orders/"+id(closable), "release", "")
 	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
 	d := func(s string) time.Time { v, _ := time.Parse(time.DateOnly, s); return v }
 	sup := gen.NewOptUUID(e.Supplier)
@@ -204,6 +206,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"release order": func(ctx context.Context) error {
 			_, err := h.ReleasePurchaseOrder(ctx, gen.ReleasePurchaseOrderParams{ID: u(draftPO), IfMatch: "*"})
+			return err
+		},
+		"close order": func(ctx context.Context) error {
+			_, err := h.ClosePurchaseOrder(ctx, gen.ClosePurchaseOrderParams{ID: u(closable), IfMatch: "*"})
 			return err
 		},
 		"post receipt": func(ctx context.Context) error {

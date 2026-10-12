@@ -500,6 +500,30 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 			"contract_id": o.ContractID, "total_amount": moneyOf(value, o.Currency, o.Exponent), "items": items})))
 }
 
+// closeOrder closes a released order: no further receipts or invoices are
+// expected (receipts and invoice matching refuse a closed order). Orders
+// fully received and invoiced are closed by the buyer the same way; the
+// contract's consumption stays.
+func (e *Endpoints) closeOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (PurchaseOrder, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
+	o, err := loadOrder(ctx, tx, id, ifMatch, "close", Released)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'closed', version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
+		return PurchaseOrder{}, err
+	}
+	closed, err := getOrder(ctx, tx, id, false)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
+	return closed, record(ctx, "procurement.purchase_order.close", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
+		event("purchase_order_closed", "purchase_order", id, orderEvent(o, map[string]any{"previous_status": o.Status, "status": Closed})))
+}
+
 // cancelOrder cancels an order with nothing received or invoiced against
 // it. A released contract order gives its contract consumption back, and
 // the requisition can be ordered again.

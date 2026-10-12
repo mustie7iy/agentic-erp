@@ -2037,6 +2037,7 @@ func (*BadRequestHeaders) cancelRequisitionRes()          {}
 func (*BadRequestHeaders) cancelSupplierInvoiceRes()      {}
 func (*BadRequestHeaders) captureSupplierInvoiceRes()     {}
 func (*BadRequestHeaders) closeFiscalPeriodRes()          {}
+func (*BadRequestHeaders) closePurchaseOrderRes()         {}
 func (*BadRequestHeaders) createBusinessPartnerRes()      {}
 func (*BadRequestHeaders) createChangeRequestRes()        {}
 func (*BadRequestHeaders) createClearingRes()             {}
@@ -5773,6 +5774,7 @@ func (*ConflictHeaders) cancelRequisitionRes()        {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()    {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()   {}
 func (*ConflictHeaders) closeFiscalPeriodRes()        {}
+func (*ConflictHeaders) closePurchaseOrderRes()       {}
 func (*ConflictHeaders) createBusinessPartnerRes()    {}
 func (*ConflictHeaders) createChangeRequestRes()      {}
 func (*ConflictHeaders) createClearingRes()           {}
@@ -8446,6 +8448,7 @@ func (*ForbiddenHeaders) cancelRequisitionRes()          {}
 func (*ForbiddenHeaders) cancelSupplierInvoiceRes()      {}
 func (*ForbiddenHeaders) captureSupplierInvoiceRes()     {}
 func (*ForbiddenHeaders) closeFiscalPeriodRes()          {}
+func (*ForbiddenHeaders) closePurchaseOrderRes()         {}
 func (*ForbiddenHeaders) createBusinessPartnerRes()      {}
 func (*ForbiddenHeaders) createChangeRequestRes()        {}
 func (*ForbiddenHeaders) createClearingRes()             {}
@@ -13057,6 +13060,7 @@ func (*NotFoundHeaders) cancelPurchaseOrderRes()        {}
 func (*NotFoundHeaders) cancelRequisitionRes()          {}
 func (*NotFoundHeaders) cancelSupplierInvoiceRes()      {}
 func (*NotFoundHeaders) closeFiscalPeriodRes()          {}
+func (*NotFoundHeaders) closePurchaseOrderRes()         {}
 func (*NotFoundHeaders) decideRecommendationRes()       {}
 func (*NotFoundHeaders) disableConnectorRes()           {}
 func (*NotFoundHeaders) enableConnectorRes()            {}
@@ -17219,6 +17223,7 @@ func (*PreconditionFailedHeaders) cancelPurchaseOrderRes()    {}
 func (*PreconditionFailedHeaders) cancelRequisitionRes()      {}
 func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()  {}
 func (*PreconditionFailedHeaders) closeFiscalPeriodRes()      {}
+func (*PreconditionFailedHeaders) closePurchaseOrderRes()     {}
 func (*PreconditionFailedHeaders) decideRecommendationRes()   {}
 func (*PreconditionFailedHeaders) disableConnectorRes()       {}
 func (*PreconditionFailedHeaders) enableConnectorRes()        {}
@@ -17327,6 +17332,7 @@ func (*PreconditionRequiredHeaders) cancelRequisitionRes()        {}
 func (*PreconditionRequiredHeaders) cancelSupplierInvoiceRes()    {}
 func (*PreconditionRequiredHeaders) captureSupplierInvoiceRes()   {}
 func (*PreconditionRequiredHeaders) closeFiscalPeriodRes()        {}
+func (*PreconditionRequiredHeaders) closePurchaseOrderRes()       {}
 func (*PreconditionRequiredHeaders) createBusinessPartnerRes()    {}
 func (*PreconditionRequiredHeaders) createChangeRequestRes()      {}
 func (*PreconditionRequiredHeaders) createClearingRes()           {}
@@ -21749,6 +21755,7 @@ func (*ServiceUnavailableHeaders) cancelRequisitionRes()          {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()      {}
 func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()     {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()          {}
+func (*ServiceUnavailableHeaders) closePurchaseOrderRes()         {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()      {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()        {}
 func (*ServiceUnavailableHeaders) createClearingRes()             {}
@@ -23331,6 +23338,7 @@ func (*TooManyRequestsHeaders) cancelRequisitionRes()          {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()      {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()     {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()          {}
+func (*TooManyRequestsHeaders) closePurchaseOrderRes()         {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()      {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()        {}
 func (*TooManyRequestsHeaders) createClearingRes()             {}
@@ -23556,6 +23564,7 @@ func (*UnauthorizedHeaders) cancelRequisitionRes()          {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()      {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()     {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()          {}
+func (*UnauthorizedHeaders) closePurchaseOrderRes()         {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()      {}
 func (*UnauthorizedHeaders) createChangeRequestRes()        {}
 func (*UnauthorizedHeaders) createClearingRes()             {}
@@ -23770,6 +23779,7 @@ func (*UnprocessableHeaders) cancelRequisitionRes()        {}
 func (*UnprocessableHeaders) cancelSupplierInvoiceRes()    {}
 func (*UnprocessableHeaders) captureSupplierInvoiceRes()   {}
 func (*UnprocessableHeaders) closeFiscalPeriodRes()        {}
+func (*UnprocessableHeaders) closePurchaseOrderRes()       {}
 func (*UnprocessableHeaders) createBusinessPartnerRes()    {}
 func (*UnprocessableHeaders) createChangeRequestRes()      {}
 func (*UnprocessableHeaders) createClearingRes()           {}
@@ -24361,6 +24371,7 @@ func (s *UpdatePurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 }
 
 func (*UpdatePurchaseOrderOKHeaders) cancelPurchaseOrderRes()  {}
+func (*UpdatePurchaseOrderOKHeaders) closePurchaseOrderRes()   {}
 func (*UpdatePurchaseOrderOKHeaders) releasePurchaseOrderRes() {}
 func (*UpdatePurchaseOrderOKHeaders) updatePurchaseOrderRes()  {}
 

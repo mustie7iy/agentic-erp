@@ -546,6 +546,15 @@ func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.Release
 	return orderOK(o), nil
 }
 
+// ClosePurchaseOrder implements POST /v1/purchase-orders/{id}:close.
+func (e *Endpoints) ClosePurchaseOrder(ctx context.Context, params gen.ClosePurchaseOrderParams) (gen.ClosePurchaseOrderRes, error) {
+	o, err := e.closeOrder(ctx, params.ID, ifMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return orderOK(o), nil
+}
+
 // CancelPurchaseOrder implements POST /v1/purchase-orders/{id}:cancel.
 func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPurchaseOrderParams) (gen.CancelPurchaseOrderRes, error) {
 	o, err := e.cancelOrder(ctx, params.ID, ifMatch(params.IfMatch))

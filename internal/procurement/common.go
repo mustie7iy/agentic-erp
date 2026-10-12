@@ -31,6 +31,7 @@ const (
 	Closed          = "closed"
 	Active          = "active"
 	Terminated      = "terminated"
+	Expired         = "expired"
 )
 
 func init() {

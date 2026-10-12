@@ -117,6 +117,14 @@ type Handler interface {
 	//
 	// POST /v1/fiscal-periods/{id}:close
 	CloseFiscalPeriod(ctx context.Context, params CloseFiscalPeriodParams) (CloseFiscalPeriodRes, error)
+	// ClosePurchaseOrder implements closePurchaseOrder operation.
+	//
+	// Closes a released order: no further goods receipts or invoices are expected and both are refused
+	// from then on; the contract consumption stays. Requires status `released`. Orders fully received and
+	// invoiced are closed this way by the buyer.
+	//
+	// POST /v1/purchase-orders/{id}:close
+	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
 	// CreateBusinessPartner implements createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see

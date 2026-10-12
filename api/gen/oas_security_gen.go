@@ -55,6 +55,7 @@ var operationRolesOidc = map[string][]string{
 	CancelSupplierInvoiceOperation:      []string{},
 	CaptureSupplierInvoiceOperation:     []string{},
 	CloseFiscalPeriodOperation:          []string{},
+	ClosePurchaseOrderOperation:         []string{},
 	CreateBusinessPartnerOperation:      []string{},
 	CreateChangeRequestOperation:        []string{},
 	CreateClearingOperation:             []string{},

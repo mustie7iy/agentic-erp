@@ -170,6 +170,17 @@ func (UnimplementedHandler) CloseFiscalPeriod(ctx context.Context, params CloseF
 	return r, ht.ErrNotImplemented
 }
 
+// ClosePurchaseOrder implements closePurchaseOrder operation.
+//
+// Closes a released order: no further goods receipts or invoices are expected and both are refused
+// from then on; the contract consumption stays. Requires status `released`. Orders fully received and
+// invoiced are closed this way by the buyer.
+//
+// POST /v1/purchase-orders/{id}:close
+func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (r ClosePurchaseOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateBusinessPartner implements createBusinessPartner operation.
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
