@@ -20,6 +20,8 @@ jobs:
       DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the secret scan reads the pushed commit range, whose base a shallow clone lacks
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
