@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -89,6 +90,8 @@ func (h *handler) item(w http.ResponseWriter, r *http.Request) {
 		h.serve(w, r, "getTenant", func(w http.ResponseWriter, r *http.Request) error { return h.get(w, r, id) })
 	case r.Method == http.MethodPost && custom && verb == "rotateKey":
 		h.serve(w, r, "rotateTenantKey", func(w http.ResponseWriter, r *http.Request) error { return h.rotateKey(w, r, id) })
+	case r.Method == http.MethodPost && custom && verb == "erase":
+		h.serve(w, r, "eraseTenant", func(w http.ResponseWriter, r *http.Request) error { return h.erase(w, r, id) })
 	case r.Method == http.MethodPost && custom:
 		h.serve(w, r, verb+"Tenant", func(w http.ResponseWriter, r *http.Request) error { return h.transition(w, r, id, verb) })
 	case custom:
@@ -234,5 +237,21 @@ func (h *handler) rotateKey(w http.ResponseWriter, r *http.Request, id uuid.UUID
 	}
 	w.Header().Set("ETag", etag.Format(t.Version))
 	writeJSON(w, http.StatusOK, rotated{Tenant: t, Rotation: rot})
+	return nil
+}
+
+// erased is the answer of :erase.
+type erased struct {
+	Tenant
+	Erasure offboarding.Erasure `json:"erasure"`
+}
+
+func (h *handler) erase(w http.ResponseWriter, r *http.Request, id uuid.UUID) error {
+	t, er, err := h.s.Erase(r.Context(), operator(r.Context()), id, r.Header.Get("If-Match"))
+	if err != nil {
+		return err
+	}
+	w.Header().Set("ETag", etag.Format(t.Version))
+	writeJSON(w, http.StatusOK, erased{Tenant: t, Erasure: er})
 	return nil
 }

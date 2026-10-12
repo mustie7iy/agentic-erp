@@ -118,7 +118,9 @@ erDiagram
 ```
 
 `tenant` is the only table without `tenant_id` (it *is* the tenant); it carries
-the tenant's region and group currency. The global tenant-to-cell directory
+the tenant's region and group currency, and once offboarded what became of
+its data: `exported_at`, `export_ref`, `erase_after`, `erased_at`
+(ADR-0021). The global tenant-to-cell directory
 lives outside cell databases (05-scalability). `tenant_key` holds the
 tenant's field-encryption and fingerprint keys, wrapped by a master key of
 the deployment's ring; one is active, retired ones stay to open older values

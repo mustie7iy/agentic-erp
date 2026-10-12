@@ -239,3 +239,20 @@ func TestKMSSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestOffboardGrace(t *testing.T) {
+	m := valid()
+	if c, err := Load(env(m)); err != nil || c.OffboardGrace != 720*time.Hour {
+		t.Fatal(c.OffboardGrace, err)
+	}
+	m["ERP_OFFBOARD_GRACE"] = "0"
+	if c, err := Load(env(m)); err != nil || c.OffboardGrace != 0 {
+		t.Fatal(c.OffboardGrace, err)
+	}
+	for _, bad := range []string{"-1h", "soon"} {
+		m["ERP_OFFBOARD_GRACE"] = bad
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OFFBOARD_GRACE") {
+			t.Fatalf("%s: %v", bad, err)
+		}
+	}
+}

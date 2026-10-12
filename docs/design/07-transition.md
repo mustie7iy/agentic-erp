@@ -68,6 +68,7 @@ prototype store for that context.
 | T14 (done) | **Key management** | Every tenant's sensitive fields are sealed with the tenant's own key, wrapped by a ring of master keys; operators rotate a tenant's key and the fields are re-sealed in one transaction |
 | T15 (done) | **KMS master** | The master key that wraps tenant keys lives in a key management service; existing tenant keys move onto it without rewriting a sealed row, and the local masters it replaces leave the ring |
 | T16 (done) | **Direct uploads** | Documents above the request limit reach object storage through an upload URL (presigned on the store, or signed on the API) and are captured by id; the invoice's document is kept and served as before |
+| T17 (done) | **Offboarding lifecycle** | An offboarded tenant's data is exported to locked object storage, kept for a grace period and erased from the cell by a worker or on an operator's request; the tenant row and its audit trail remain |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1071,6 +1072,49 @@ Open points for the contract and design review:
   for clients that do not know the API's base.
 - Uploads serve capture only; attachments on other documents would reuse
   the resource with further purposes.
+
+### T17 decisions and open points
+
+What T17 built: the offboarding lifecycle (ADR-0021). `internal/offboarding`
+is a worker that exports offboarded tenants (every table with a `tenant_id`
+as JSON Lines plus a manifest with row counts, hashes and the audit chain
+head, under `tenants/<id>/exports/<offboarding time>/`, locked for the
+retention period) and, after `ERP_OFFBOARD_GRACE` (default 30 days), erases
+them: `platform.erase_tenant` (migration 000023, owner-run, in the tenant's
+scope, passes over foreign keys, insert-only tables let it through) deletes
+every row but the audit schema, and the store's new `List` and `Delete`
+remove every object under the tenant's prefix but the locked ones. The
+tenant row records `exported_at`, `export_ref`, `erase_after`, `erased_at`,
+shown as `offboarding` by the control plane; `POST
+/control/v1/tenants/{id}:erase` (`erp tenants erase`) erases earlier, as
+the operator. The exit criteria are `TestOffboardingLifecycle` and
+`TestOffboardingFailures` (offboarding), the erase flow in
+`TestTenantsLifecycleThroughTheControlPlane` (controlplane) and
+`TestListAndDelete` (blobstore).
+
+Decisions taken while building it:
+
+- **Export before erasure, once, by offboarding time.** A retried round
+  finds the objects of an earlier attempt and describes what is stored;
+  nothing is overwritten.
+- **One owner-run function erases.** The application role keeps its lack
+  of `DELETE` grants; the mutation guard of insert-only tables admits the
+  erasure through a transaction-local setting only that function sets.
+- **The audit trail and the tenant row stay.** The erasure's own entry is
+  the last of the trail; locked anchors and exports stay in the store.
+- **The worker and the operator share one path.** `:erase` runs the same
+  erasure with the operator as actor, after the tenant's state is checked
+  under `If-Match`.
+
+Open points for the contract and design review:
+
+- Audit entries keep details about erased objects; a minimization pass
+  (hashing or dropping detail after erasure) is a separate design.
+- Exports are built table by table in memory; a tenant whose largest table
+  exceeds a replica's memory needs streaming exports.
+- Restoring an exported tenant into a cell (re-onboarding, migration
+  between cells) is not built; the export's format is the input it would
+  take.
 
 ## 7.4 Data from the prototype
 

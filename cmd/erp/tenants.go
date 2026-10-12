@@ -25,13 +25,13 @@ import (
 //	erp tenants list [-status active] [-order-by "name asc"] [-page-size N] [-page-token T]
 //	erp tenants get -id ID
 //	erp tenants create -name Acme -region eu-west -currency EUR -admin-subject S -admin-name N [-admin-email E] -config config.yaml
-//	erp tenants suspend|resume|offboard|rotate-key -id ID [-if-match ETAG]
+//	erp tenants suspend|resume|offboard|rotate-key|erase -id ID [-if-match ETAG]
 //
 // Each command prints the answer as JSON; a transition without -if-match
 // reads the tenant first and uses its ETag.
 func tenantsCmd(ctx context.Context, args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: erp tenants list|get|create|suspend|resume|offboard|rotate-key [flags]")
+		return errors.New("usage: erp tenants list|get|create|suspend|resume|offboard|rotate-key|erase [flags]")
 	}
 	switch args[0] {
 	case "list":
@@ -40,10 +40,10 @@ func tenantsCmd(ctx context.Context, args []string) error {
 		return tenantsGet(ctx, args[1:])
 	case "create":
 		return tenantsCreate(ctx, args[1:])
-	case "suspend", "resume", "offboard", "rotate-key":
+	case "suspend", "resume", "offboard", "rotate-key", "erase":
 		return tenantsTransition(ctx, args[0], args[1:])
 	}
-	return fmt.Errorf("erp tenants %s: unknown command (list, get, create, suspend, resume, offboard, rotate-key)", args[0])
+	return fmt.Errorf("erp tenants %s: unknown command (list, get, create, suspend, resume, offboard, rotate-key, erase)", args[0])
 }
 
 // control performs one call of the control plane and returns the status,

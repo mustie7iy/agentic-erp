@@ -28,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
@@ -122,8 +123,19 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err != nil {
 		return err
 	}
+	store := objects(cfg.Objects)
+	if store == nil {
+		log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported")
+	}
 	// The control plane trusts the operator issuers, and the development
 	// issuer's operator tokens; without either it is not served.
+	// Offboarded tenants are exported and erased by a worker, where there
+	// is a store for the exports; the control plane erases on request.
+	var offboarder *offboarding.Worker
+	if store != nil {
+		offboarder = &offboarding.Worker{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: offboardInterval,
+			Grace: cfg.OffboardGrace, Retention: cfg.Objects.Retention, Log: log}
+	}
 	var control http.Handler
 	if len(cfg.OperatorIssuers)+len(static) > 0 {
 		operators, err := authn.New(ctx, cfg.OperatorIssuers, static...)
@@ -131,7 +143,8 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 			return err
 		}
 		service := &controlplane.Service{Pool: pool, AppRole: cfg.AppRole, ControlRole: cfg.ControlRole, Pages: pages,
-			Keys: keys, Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})}}
+			Keys: keys, Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})},
+			Offboarding: offboarder}
 		control = controlplane.Handler(service, operators, log)
 		log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(cfg.OperatorIssuers), "dev_issuer", cfg.DevIssuer)
 	}
@@ -142,10 +155,6 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	var connector payments.Connector
 	if cfg.BankOutboxDir != "" {
 		connector = payments.DirConnector{Dir: cfg.BankOutboxDir}
-	}
-	store := objects(cfg.Objects)
-	if store == nil {
-		log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored")
 	}
 	metrics := telemetry.NewMetrics()
 	backlogs(pool, cfg, metrics)
@@ -176,12 +185,14 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		maintain(runCtx, maintenanceInterval, func(ctx context.Context) error { return partitions(ctx, pool, log) }, log)
 		close(maintenanceDone)
 	}()
-	anchorDone := make(chan struct{})
+	anchorDone, offboardDone := make(chan struct{}), make(chan struct{})
 	if store == nil {
 		close(anchorDone)
+		close(offboardDone)
 	} else {
 		anchorer := &audit.Anchorer{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: anchorInterval, Retention: cfg.Objects.Retention, Log: log}
 		go func() { anchorer.Run(runCtx); close(anchorDone) }()
+		go func() { offboarder.Run(runCtx); close(offboardDone) }()
 	}
 	relayDone := make(chan struct{})
 	if cfg.NATSURL == "" {
@@ -239,15 +250,18 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-simulatorDone
 	<-maintenanceDone
 	<-anchorDone
+	<-offboardDone
 	log.Info("erp-server stopped")
 	return serveErr // nil after a requested shutdown; set when a listener failed
 }
 
 // maintenanceInterval is how often a replica checks the partition horizon,
-// anchorInterval how often it anchors moved chain heads; tests shorten them.
+// anchorInterval how often it anchors moved chain heads, offboardInterval how
+// often offboarded tenants are exported and erased; tests shorten them.
 var (
 	maintenanceInterval = 6 * time.Hour
 	anchorInterval      = time.Minute
+	offboardInterval    = time.Minute
 )
 
 // keyring builds the field encryption ring: the KMS master first when there

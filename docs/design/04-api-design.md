@@ -283,6 +283,8 @@ which is reachable only inside the platform (ADR-0015).
 | `createTenant` | `POST /control/v1/tenants` | `Idempotency-Key` required; the tenant, its administrator, roles, legal entities and configuration v1 in one transaction; 201 with the tenant and what was provisioned |
 | `getTenant` | `GET /control/v1/tenants/{id}` | `ETag` = version |
 | `suspendTenant`, `resumeTenant`, `offboardTenant` | `POST /control/v1/tenants/{id}:verb` | `If-Match` required; 409 `tenancy.invalid_transition` outside active → suspended → active, active or suspended → offboarded (final) |
+| `rotateTenantKey` | `POST /control/v1/tenants/{id}:rotateKey` | `If-Match` required; a new field-encryption key, every sensitive field re-sealed (ADR-0018) |
+| `eraseTenant` | `POST /control/v1/tenants/{id}:erase` | `If-Match` required; an offboarded, exported tenant's data erased before its grace period ends (ADR-0021); `offboarding` on the tenant shows the stages |
 
 The control plane follows this document's rules (problems, pagination,
 idempotency, concurrency) with these differences:
@@ -307,6 +309,8 @@ idempotency, concurrency) with these differences:
   a `control|` prefix that is unique across tenants: a retry answers the
   tenant the first request created (`Idempotent-Replayed: true`), and two
   concurrent requests with one key create one tenant (409 for the loser).
-- **Nothing is deleted.** Offboarding is a final status; retention and
-  export are operations outside this API.
+- **Offboarding is a final status with a lifecycle.** The worker exports
+  the tenant's data to locked object storage and erases it after the grace
+  period; `:erase` does it earlier. The tenant row and its audit trail
+  stay (ADR-0021).
 

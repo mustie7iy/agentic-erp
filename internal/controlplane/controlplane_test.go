@@ -17,9 +17,11 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
+	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
@@ -318,6 +320,38 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	if res, err := audit.Verify(ctx, tx, ten.ID); err != nil || res.BrokenAt != 0 || res.Checked < 4 {
 		t.Fatalf("chain: %+v %v", res, err)
 	}
+
+	// Erasure: not before the export, which the offboarding worker does; then on request, once.
+	p.problem(503, "platform.unavailable", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
+	clock := time.Now().UTC().Truncate(time.Second)
+	store := blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}
+	p.s.Offboarding = &offboarding.Worker{Pool: p.s.Pool, Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Grace: time.Hour, Now: func() time.Time { return clock }}
+	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
+	if ex, _, err := p.s.Offboarding.RunOnce(ctx); err != nil || ex != 1 {
+		t.Fatalf("export: %d %v", ex, err)
+	}
+	after, afterH := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
+	off := after["offboarding"].(map[string]any)
+	if off["exported_at"] == nil || off["erase_after"] == nil || off["erased_at"] != nil || !strings.HasSuffix(off["export_ref"].(string), "/manifest.json") || afterH.Get("ETag") != `"5"` {
+		t.Fatalf("after the export: %v", after)
+	}
+	p.problem(412, "request.version_mismatch", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
+	p.problem(404, "request.not_found", "ops|alice", "POST", tenants+"/"+uuid.NewString()+":erase", "", "If-Match", "*")
+	erased, erasedH := p.must(200, "ops|bob", "POST", tenants+"/"+id+":erase", "", "If-Match", `"5"`)
+	er := erased["erasure"].(map[string]any)
+	if erasedH.Get("ETag") != `"6"` || erased["offboarding"].(map[string]any)["erased_at"] == nil || er["rows"].(map[string]any)["identity.principal"] == nil || er["erased_at"] == nil {
+		t.Fatalf("erasure: %v", erased)
+	}
+	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"6"`)
+	var n int
+	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, uuid.MustParse(id)).Scan(&n)
+	if n != 0 {
+		t.Fatalf("%d principals left after the erasure", n)
+	}
+	if detail := auditDetail(t, uuid.MustParse(id), "tenancy.tenant.erase"); detail["operator"] != "ops|bob" {
+		t.Fatalf("erase audit entry: %v", detail)
+	}
+	p.s.Offboarding = nil
 }
 
 // TestContractIsServed checks that every operation of api/control.yaml is
@@ -379,12 +413,13 @@ func everyFailure(t *testing.T, s *controlplane.Service, name string, fn func(ct
 	pool := s.Pool
 	defer func() { s.Begin = nil }()
 	for n := 1; n < 100; n++ {
+		count := 0 // statements across every transaction of one call
 		s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 			tx, err := pool.Begin(ctx, scope)
 			if err != nil {
 				return nil, err
 			}
-			return &pgtest.FailingTx{Tx: tx, FailAt: n}, nil
+			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
 		}
 		err := fn(context.Background())
 		if err == nil {
@@ -436,6 +471,27 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		_, err := s.Transition(ctx, op, created.ID, "suspend", "*")
 		return err
 	})
+	// Erasure spans the control plane's and the worker's transactions; an exported, offboarded tenant is needed.
+	gone, _, err := s.Create(ctx, op, request("key-gone"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Transition(ctx, op, gone.ID, "offboard", "*"); err != nil {
+		t.Fatal(err)
+	}
+	s.Offboarding = &offboarding.Worker{Pool: s.Pool, Store: blobstore.Dir{Root: t.TempDir()}, AppRole: "erp_app", WorkerRole: "erp_worker", Grace: time.Hour}
+	if _, err := s.Offboarding.Export(ctx, gone.ID); err != nil {
+		t.Fatal(err)
+	}
+	everyFailure(t, s, "erase", func(ctx context.Context) error {
+		s.Offboarding.Begin = s.Begin
+		_, _, err := s.Erase(ctx, op, gone.ID, "*")
+		if problem.From(err).Status == 409 { // erased by an earlier iteration whose last statement failed after the fact
+			return nil
+		}
+		return err
+	})
+	s.Offboarding.Begin = nil
 	// The transaction itself failing to start.
 	s.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	for name, call := range map[string]func() error{
@@ -443,6 +499,7 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		"get":    func() error { _, err := s.Get(ctx, created.ID); return err },
 		"replay": func() error { _, _, err := s.Create(ctx, op, request("key-first")); return err },
 		"resume": func() error { _, err := s.Transition(ctx, op, created.ID, "resume", "*"); return err },
+		"erase":  func() error { _, _, err := s.Erase(ctx, op, gone.ID, "*"); return err },
 	} {
 		if err := call(); err == nil || !strings.Contains(err.Error(), "database down") {
 			t.Errorf("%s: %v", name, err)
@@ -578,4 +635,14 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 func mustBytes(id string) []byte {
 	u := uuid.MustParse(id)
 	return u[:]
+}
+
+// auditDetail is the detail of the tenant's last audit entry of an action.
+func auditDetail(t *testing.T, tenant uuid.UUID, action string) map[string]any {
+	t.Helper()
+	var detail map[string]any
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT detail FROM audit.audit_event WHERE tenant_id = $1 AND action = $2 ORDER BY seq DESC LIMIT 1`, tenant, action).Scan(&detail); err != nil {
+		t.Fatal(err)
+	}
+	return detail
 }

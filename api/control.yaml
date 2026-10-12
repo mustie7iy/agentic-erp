@@ -198,7 +198,7 @@ paths:
       tags:
         - tenants
       summary: Offboard a tenant
-      description: "Moves an active or suspended tenant to `offboarded`, the final status: its requests are refused for good, and nothing is deleted (retention and export are operations outside this API). An offboarded tenant cannot be resumed."
+      description: "Moves an active or suspended tenant to `offboarded`, the final status: its requests are refused for good. The offboarding worker then exports the tenant's data to locked object storage and, after the grace period (`ERP_OFFBOARD_GRACE`), erases it from the cell; `offboarding` on the tenant shows how far that got, and `:erase` does it earlier. An offboarded tenant cannot be resumed."
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -224,6 +224,40 @@ paths:
           $ref: "#/components/responses/PreconditionFailed"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}:erase":
+    post:
+      operationId: eraseTenant
+      tags:
+        - tenants
+      summary: Erase an offboarded tenant's data now
+      description: "Erases the data of an offboarded tenant whose export is complete, before its grace period ends (the offboarding worker erases it after `offboarding.erase_after` otherwise): every row of the tenant but its audit trail, and every object of the tenant but the locked ones (its exports, its audit anchors). The tenant row stays, with `offboarding.erased_at`; the audit trail records the erasure as the operator. 409 `tenancy.invalid_transition` unless the tenant is offboarded and exported, or when it was erased before; 503 while the server has no object storage."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The tenant with what the erasure did.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantErased"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/control/v1/tenants/{id}:rotateKey":
     post:
       operationId: rotateTenantKey
@@ -397,6 +431,8 @@ components:
           description: Time of the last status change (UTC).
           readOnly: true
           example: "2026-10-11T09:00:00Z"
+        offboarding:
+          $ref: "#/components/schemas/Offboarding"
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
           name: Acme
@@ -406,6 +442,112 @@ components:
           version: 1
           created_at: "2026-10-11T09:00:00Z"
           updated_at: "2026-10-11T09:00:00Z"
+    Offboarding:
+      type: object
+      description: "What became of an offboarded tenant's data (ADR-0021); present once the export is complete."
+      required:
+        - exported_at
+        - export_ref
+        - erase_after
+      properties:
+        exported_at:
+          type: string
+          format: date-time
+          description: When the export to object storage completed (UTC).
+          readOnly: true
+          example: "2026-10-11T09:05:00Z"
+        export_ref:
+          type: string
+          description: "Object key of the export's manifest, which lists every exported table with its row count and hash; the export is locked for the retention period."
+          readOnly: true
+          example: "tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01/exports/1791755602/manifest.json"
+        erase_after:
+          type: string
+          format: date-time
+          description: When the worker erases the tenant's data from the cell (UTC); `:erase` does it earlier.
+          readOnly: true
+          example: "2026-11-10T09:05:00Z"
+        erased_at:
+          type: string
+          format: date-time
+          description: When the data was erased (UTC); absent until then.
+          readOnly: true
+          example: "2026-11-10T09:06:00Z"
+      examples:
+        - exported_at: "2026-10-11T09:05:00Z"
+          export_ref: "tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01/exports/1791755602/manifest.json"
+          erase_after: "2026-11-10T09:05:00Z"
+    TenantErased:
+      description: The tenant after an erasure, with what the erasure did.
+      allOf:
+        - $ref: "#/components/schemas/Tenant"
+        - type: object
+          required:
+            - erasure
+          properties:
+            erasure:
+              $ref: "#/components/schemas/Erasure"
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          name: Acme
+          region: eu-west
+          group_currency: EUR
+          status: offboarded
+          version: 6
+          created_at: "2026-10-11T09:00:00Z"
+          updated_at: "2026-10-11T09:06:00Z"
+          offboarding:
+            exported_at: "2026-10-11T09:05:00Z"
+            export_ref: "tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01/exports/1791755602/manifest.json"
+            erase_after: "2026-11-10T09:05:00Z"
+            erased_at: "2026-10-11T09:06:00Z"
+          erasure:
+            rows:
+              identity.principal: 12
+              payables.supplier_invoice: 840
+            objects: 37
+            kept: 3
+            erased_at: "2026-10-11T09:06:00Z"
+    Erasure:
+      type: object
+      description: What an erasure did.
+      required:
+        - rows
+        - objects
+        - kept
+        - erased_at
+      properties:
+        rows:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+          description: Rows deleted, per table.
+          readOnly: true
+          example:
+            identity.principal: 12
+        objects:
+          type: integer
+          description: Objects deleted from the tenant's prefix in object storage.
+          readOnly: true
+          example: 37
+        kept:
+          type: integer
+          description: Objects kept because their retention holds (audit anchors, exports).
+          readOnly: true
+          example: 3
+        erased_at:
+          type: string
+          format: date-time
+          description: When (UTC).
+          readOnly: true
+          example: "2026-10-11T09:06:00Z"
+      examples:
+        - rows:
+            identity.principal: 12
+          objects: 37
+          kept: 3
+          erased_at: "2026-10-11T09:06:00Z"
     Administrator:
       type: object
       description: The tenant's first person, who holds every permission and sets the tenant up through the public API.

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,8 @@ var (
 	ErrExists = errors.New("blobstore: object exists")
 	// ErrNotFound is returned by Get when the key holds nothing.
 	ErrNotFound = errors.New("blobstore: object not found")
+	// ErrLocked is returned by Delete while the object's retention holds.
+	ErrLocked = errors.New("blobstore: object is locked")
 )
 
 // PutOptions describe an object being written.
@@ -49,6 +52,18 @@ type Store interface {
 	Stat(ctx context.Context, key string) (int64, string, error)
 }
 
+// Eraser is a store that can list and delete a tenant's objects, for the
+// one deletion the platform makes: the erasure of an offboarded tenant
+// (ADR-0021). Locked objects (anchors, exports) stay: Delete returns
+// ErrLocked for them until their retention ends.
+type Eraser interface {
+	// List returns the keys below prefix (a key prefix ending in "/" lists a
+	// directory; without it, keys starting with the prefix).
+	List(ctx context.Context, prefix string) ([]string, error)
+	// Delete removes the object; nothing to do when the key holds nothing.
+	Delete(ctx context.Context, key string) error
+}
+
 // Presigner is a store that can hand out URLs clients write to directly
 // (04-api-design §4.11: documents above the request limit). S3 is one; the
 // directory store is not, and the API receives those uploads itself.
@@ -64,6 +79,7 @@ const (
 	KindBankFiles = "bank-files" // pain.001 files, named by bank file id
 	KindUploads   = "uploads"    // documents clients upload directly, named by upload id; copied under their hash when used
 	KindAnchors   = "audit/anchors"
+	KindExports   = "exports" // the export of an offboarded tenant, one directory per export, locked
 )
 
 // Prefix is the first segment of every key.
@@ -94,6 +110,14 @@ func checkKey(key string) error {
 // RetainUntil is recorded but not enforced (the filesystem cannot).
 type Dir struct {
 	Root string
+	Now  func() time.Time // for retention checks on Delete; nil: time.Now
+}
+
+func (d Dir) now() time.Time {
+	if d.Now != nil {
+		return d.Now()
+	}
+	return time.Now()
 }
 
 func (d Dir) path(key string) string { return filepath.Join(d.Root, filepath.FromSlash(key)) }
@@ -170,12 +194,68 @@ func (d Dir) Stat(_ context.Context, key string) (int64, string, error) {
 
 // contentTypeOf reads the sidecar; content without one is binary.
 func (d Dir) contentTypeOf(key string) string {
+	ct, _ := d.meta(key)
+	return ct
+}
+
+// meta reads the sidecar: content type and retention (zero when unlocked).
+func (d Dir) meta(key string) (string, time.Time) {
+	ct, until := "application/octet-stream", time.Time{}
 	if meta, err := os.ReadFile(d.path(key) + ".meta"); err == nil {
-		if line, _, _ := strings.Cut(string(meta), "\n"); line != "" {
-			return line
+		lines := strings.Split(string(meta), "\n")
+		if lines[0] != "" {
+			ct = lines[0]
+		}
+		if len(lines) > 1 {
+			until, _ = time.Parse(time.RFC3339, lines[1]) // written by Put; anything else is unlocked
 		}
 	}
-	return "application/octet-stream"
+	return ct, until
+}
+
+// List implements Eraser.
+func (d Dir) List(_ context.Context, prefix string) ([]string, error) {
+	if err := checkKey(strings.TrimSuffix(prefix, "/")); err != nil {
+		return nil, err
+	}
+	base := d.path(strings.TrimSuffix(prefix, "/"))
+	if !strings.HasSuffix(prefix, "/") {
+		base = filepath.Dir(base) // keys starting with the prefix live in its directory and below
+	}
+	var keys []string
+	err := filepath.WalkDir(base, func(p string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || strings.HasSuffix(p, ".meta") {
+			return err
+		}
+		rel, _ := filepath.Rel(d.Root, p) // p is below Root
+		if key := filepath.ToSlash(rel); strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("blobstore: %w", err)
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+// Delete implements Eraser: the retention a Put recorded is honoured.
+func (d Dir) Delete(_ context.Context, key string) error {
+	if err := checkKey(key); err != nil {
+		return err
+	}
+	if _, until := d.meta(key); !until.IsZero() && d.now().Before(until) {
+		return ErrLocked
+	}
+	if err := os.Remove(d.path(key)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("blobstore: %w", err)
+	}
+	os.Remove(d.path(key) + ".meta")
+	return nil
 }
 
 func contentType(opts PutOptions) string {

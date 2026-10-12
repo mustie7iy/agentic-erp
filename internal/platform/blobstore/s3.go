@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -124,6 +125,76 @@ func (s S3) Get(ctx context.Context, key string) ([]byte, string, error) {
 	}
 	// S3 always answers with a Content-Type (the one given at Put, else binary/octet-stream).
 	return content, resp.Header.Get("Content-Type"), nil
+}
+
+// listResult is the body of ListObjectsV2.
+type listResult struct {
+	Contents []struct {
+		Key string `xml:"Key"`
+	} `xml:"Contents"`
+	IsTruncated           bool   `xml:"IsTruncated"`
+	NextContinuationToken string `xml:"NextContinuationToken"`
+}
+
+// List implements Eraser with ListObjectsV2, following continuation tokens.
+func (s S3) List(ctx context.Context, prefix string) ([]string, error) {
+	if err := checkKey(strings.TrimSuffix(prefix, "/")); err != nil {
+		return nil, err
+	}
+	var keys []string
+	token := ""
+	for {
+		q := url.Values{"list-type": {"2"}, "prefix": {prefix}}
+		if token != "" {
+			q.Set("continuation-token", token)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.Endpoint, "/")+"/"+s.Bucket+"?"+q.Encode(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("blobstore: %w", err)
+		}
+		sigv4.Sign(req, s.AccessKey, s.SecretKey, s.Region, "s3", sigv4.PayloadHash(nil), s.now())
+		resp, err := s.client().Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("blobstore: LIST %s: %w", prefix, err)
+		}
+		var page listResult
+		if resp.StatusCode >= 300 {
+			err = s.failure(resp, "LIST", prefix)
+		} else if derr := xml.NewDecoder(resp.Body).Decode(&page); derr != nil {
+			err = fmt.Errorf("blobstore: LIST %s: %w", prefix, derr)
+		}
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range page.Contents {
+			keys = append(keys, c.Key)
+		}
+		if !page.IsTruncated || page.NextContinuationToken == "" {
+			return keys, nil
+		}
+		token = page.NextContinuationToken
+	}
+}
+
+// Delete implements Eraser: an object under retention (Object Lock) is
+// refused by the service, which is ErrLocked here.
+func (s S3) Delete(ctx context.Context, key string) error {
+	if err := checkKey(key); err != nil {
+		return err
+	}
+	resp, err := s.do(ctx, http.MethodDelete, key, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusForbidden:
+		return fmt.Errorf("%w: %v", ErrLocked, s.failure(resp, http.MethodDelete, key))
+	case resp.StatusCode >= 300 && resp.StatusCode != http.StatusNotFound:
+		return s.failure(resp, http.MethodDelete, key)
+	}
+	return nil
 }
 
 // Stat implements Store with a HEAD request.

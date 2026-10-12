@@ -14,17 +14,29 @@ var ErrInjected = errors.New("pgtest: injected failure")
 
 // FailingTx wraps a transaction so that its Nth statement (Exec, Query or
 // QueryRow, counted from 1) fails with ErrInjected. Running a handler with
-// N = 1, 2, ... until it succeeds exercises every database error path.
+// N = 1, 2, ... until it succeeds exercises every database error path. With
+// Count set, the statements of every FailingTx sharing it are counted
+// together, so a handler spanning several transactions is covered too.
 type FailingTx struct {
 	pgx.Tx
 	FailAt int
+	Count  *int
 	calls  int
 }
 
 // Calls is the number of statements issued so far.
-func (f *FailingTx) Calls() int { return f.calls }
+func (f *FailingTx) Calls() int {
+	if f.Count != nil {
+		return *f.Count
+	}
+	return f.calls
+}
 
 func (f *FailingTx) fail() bool {
+	if f.Count != nil {
+		*f.Count++
+		return *f.Count == f.FailAt
+	}
 	f.calls++
 	return f.calls == f.FailAt
 }

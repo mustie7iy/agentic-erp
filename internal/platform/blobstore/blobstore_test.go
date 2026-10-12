@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -247,5 +248,120 @@ func TestStatAndPresignedUploads(t *testing.T) {
 	// A directory store whose file cannot be inspected.
 	if _, _, err := (blobstore.Dir{Root: filepath.Join(dir.Root, "tenants/x/documents/a")}).Stat(ctx, "tenants/y/documents/b"); err == nil || errors.Is(err, blobstore.ErrNotFound) {
 		t.Fatalf("stat below a file: %v", err)
+	}
+}
+
+// TestListAndDelete: both stores list a prefix and delete objects, and
+// refuse to delete one whose retention holds (the one deletion the
+// platform makes is the erasure of an offboarded tenant).
+func TestListAndDelete(t *testing.T) {
+	ctx := context.Background()
+	clock := time.Now()
+	dir := blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}
+	srv := blobstoretest.New(t)
+	srv.Now = func() time.Time { return clock }
+	srv.PageSize = 2
+	s3 := srv.Store()
+	for name, store := range map[string]blobstore.Eraser{"dir": dir, "s3": s3} {
+		st := store.(blobstore.Store)
+		tenant := "tenants/" + uuid.NewString()
+		for _, k := range []string{"/documents/a", "/documents/b", "/bank-files/f.xml", "/uploads/u1", "/audit/anchors/000000000001.json"} {
+			opts := blobstore.PutOptions{ContentType: "text/plain"}
+			if strings.Contains(k, "anchors") {
+				opts.RetainUntil = clock.Add(time.Hour)
+			}
+			if err := st.Put(ctx, tenant+k, []byte("x"), opts); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+		}
+		st.Put(ctx, tenant+"-other/documents/c", []byte("y"), blobstore.PutOptions{}) // another tenant whose id starts the same
+		keys, err := store.List(ctx, tenant+"/")
+		if err != nil || len(keys) != 5 || keys[0] != tenant+"/audit/anchors/000000000001.json" || keys[4] != tenant+"/uploads/u1" {
+			t.Fatalf("%s: list: %v %v", name, keys, err)
+		}
+		if keys, err := store.List(ctx, tenant+"/documents/"); err != nil || len(keys) != 2 {
+			t.Fatalf("%s: list documents: %v %v", name, keys, err)
+		}
+		if keys, err := store.List(ctx, tenant); err != nil || len(keys) != 6 { // a key prefix, not a directory
+			t.Fatalf("%s: list by key prefix: %v %v", name, keys, err)
+		}
+		if keys, err := store.List(ctx, "tenants/none/"); err != nil || len(keys) != 0 {
+			t.Fatalf("%s: list nothing: %v %v", name, keys, err)
+		}
+		if _, err := store.List(ctx, "../"); err == nil {
+			t.Fatalf("%s: listed a bad prefix", name)
+		}
+		if err := store.Delete(ctx, tenant+"/audit/anchors/000000000001.json"); !errors.Is(err, blobstore.ErrLocked) {
+			t.Fatalf("%s: deleted a locked object: %v", name, err)
+		}
+		for _, k := range []string{"/documents/a", "/documents/b", "/bank-files/f.xml", "/uploads/u1", "/uploads/u1"} { // the last one twice: nothing to do
+			if err := store.Delete(ctx, tenant+k); err != nil {
+				t.Fatalf("%s: delete %s: %v", name, k, err)
+			}
+		}
+		if err := store.Delete(ctx, "../x"); err == nil {
+			t.Fatalf("%s: deleted a bad key", name)
+		}
+		keys, _ = store.List(ctx, tenant+"/")
+		if len(keys) != 1 || !strings.Contains(keys[0], "anchors") {
+			t.Fatalf("%s: after deletes: %v", name, keys)
+		}
+		if _, _, err := st.Get(ctx, tenant+"-other/documents/c"); err != nil {
+			t.Fatalf("%s: the other tenant's object went: %v", name, err)
+		}
+		clock = clock.Add(2 * time.Hour) // the retention ends
+		if err := store.Delete(ctx, tenant+"/audit/anchors/000000000001.json"); err != nil {
+			t.Fatalf("%s: delete after retention: %v", name, err)
+		}
+		clock = clock.Add(-2 * time.Hour)
+	}
+	// Failures: the service refuses, the transport fails, a listing that is not XML.
+	srv.Fail = http.StatusInternalServerError
+	if _, err := s3.List(ctx, "tenants/"); err == nil || !strings.Contains(err.Error(), "LIST") {
+		t.Fatalf("list failure: %v", err)
+	}
+	if err := s3.Delete(ctx, "tenants/x/documents/a"); err == nil || errors.Is(err, blobstore.ErrLocked) {
+		t.Fatalf("delete failure: %v", err)
+	}
+	srv.Fail = 0
+	down := s3
+	down.Endpoint = "http://127.0.0.1:1"
+	if _, err := down.List(ctx, "tenants/"); err == nil {
+		t.Fatal("list over a dead transport")
+	}
+	down.Endpoint = "::"
+	if _, err := down.List(ctx, "tenants/"); err == nil {
+		t.Fatal("list with an endpoint that is not a URL")
+	}
+	garbage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("<html>")) }))
+	defer garbage.Close()
+	odd := s3
+	odd.Endpoint = garbage.URL
+	if _, err := odd.List(ctx, "tenants/"); err == nil || !strings.Contains(err.Error(), "LIST") {
+		t.Fatalf("garbage listing: %v", err)
+	}
+	if err := down.Delete(ctx, "tenants/x/documents/a"); err == nil {
+		t.Fatal("delete over a dead transport")
+	}
+	// A directory store whose object cannot be removed (a directory in its place), and a
+	// directory it cannot walk; one without a clock deletes an object whose retention ended.
+	bad := blobstore.Dir{Root: t.TempDir()}
+	os.MkdirAll(filepath.Join(bad.Root, "tenants/x/documents/a/sub"), 0o700)
+	if err := bad.Delete(ctx, "tenants/x/documents/a"); err == nil {
+		t.Fatal("removed a directory as an object")
+	}
+	if _, err := (blobstore.Dir{Root: filepath.Join(bad.Root, "tenants/x/documents/a/sub")}).List(ctx, "tenants/"); err != nil {
+		t.Fatalf("list in an empty root: %v", err)
+	}
+	if runtime.GOOS != "windows" && os.Getuid() != 0 {
+		os.Chmod(filepath.Join(bad.Root, "tenants/x/documents/a/sub"), 0)
+		defer os.Chmod(filepath.Join(bad.Root, "tenants/x/documents/a/sub"), 0o700)
+		if _, err := bad.List(ctx, "tenants/"); err == nil {
+			t.Fatal("listed through an unreadable directory")
+		}
+	}
+	bad.Put(ctx, "tenants/y/audit/anchors/1", []byte("x"), blobstore.PutOptions{RetainUntil: time.Now().Add(-time.Hour)})
+	if err := bad.Delete(ctx, "tenants/y/audit/anchors/1"); err != nil {
+		t.Fatalf("delete after retention without a clock: %v", err)
 	}
 }

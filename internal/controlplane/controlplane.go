@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -48,14 +49,23 @@ var Statuses = []string{Provisioning, Active, Suspended, Offboarded}
 
 // Tenant is a row of tenancy.tenant as the control plane shows it.
 type Tenant struct {
-	ID            uuid.UUID `json:"id"`
-	Name          string    `json:"name"`
-	Region        string    `json:"region"`
-	GroupCurrency string    `json:"group_currency"`
-	Status        string    `json:"status"`
-	Version       int32     `json:"version"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            uuid.UUID    `json:"id"`
+	Name          string       `json:"name"`
+	Region        string       `json:"region"`
+	GroupCurrency string       `json:"group_currency"`
+	Status        string       `json:"status"`
+	Version       int32        `json:"version"`
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
+	Offboarding   *Offboarding `json:"offboarding,omitempty"` // once an offboarded tenant's data was exported
+}
+
+// Offboarding is what became of an offboarded tenant's data (ADR-0021).
+type Offboarding struct {
+	ExportedAt time.Time  `json:"exported_at"`
+	ExportRef  string     `json:"export_ref"`
+	EraseAfter time.Time  `json:"erase_after"`
+	ErasedAt   *time.Time `json:"erased_at,omitempty"`
 }
 
 // Created is a provisioned tenant with what provisioning made for it.
@@ -88,6 +98,7 @@ type Service struct {
 	ControlRole string // erp_control: reads across tenants
 	Provisioner *provisioning.Provisioner
 	Keys        *fieldcrypt.Keyring // rotates tenant keys; nil: rotation answers 503
+	Offboarding *offboarding.Worker // erases exported tenants on request; nil: erasure answers 503
 	Pages       *pagination.Codec
 	Now         func() time.Time
 	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
@@ -109,11 +120,16 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
-const columns = `id, name, region, group_currency, status, version, created_at, updated_at`
+const columns = `id, name, region, group_currency, status, version, created_at, updated_at, exported_at, export_ref, erase_after, erased_at`
 
 func scan(row pgx.Row) (Tenant, error) {
 	var t Tenant
-	err := row.Scan(&t.ID, &t.Name, &t.Region, &t.GroupCurrency, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt)
+	var exportedAt, eraseAfter, erasedAt *time.Time
+	var ref *string
+	err := row.Scan(&t.ID, &t.Name, &t.Region, &t.GroupCurrency, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt, &exportedAt, &ref, &eraseAfter, &erasedAt)
+	if exportedAt != nil {
+		t.Offboarding = &Offboarding{ExportedAt: *exportedAt, ExportRef: *ref, EraseAfter: *eraseAfter, ErasedAt: erasedAt}
+	}
 	return t, err
 }
 
@@ -328,4 +344,40 @@ func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMa
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
 	return t, rot, nil
+}
+
+// Erase erases an offboarded tenant's data before its grace period ends
+// (ADR-0021), guarded by If-Match: the export must be complete. The
+// erasure is recorded in the tenant's audit trail as the operator.
+func (s *Service) Erase(ctx context.Context, op Operator, id uuid.UUID, ifMatch string) (Tenant, offboarding.Erasure, error) {
+	if s.Offboarding == nil {
+		return Tenant{}, offboarding.Erasure{}, problem.Unavailable("This server has no object storage; offboarded tenants are not exported or erased.", 0)
+	}
+	tx, err := s.begin(ctx, database.Scope{Role: s.AppRole, TenantID: id, ReadOnly: true})
+	if err != nil {
+		return Tenant{}, offboarding.Erasure{}, err
+	}
+	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1`, id))
+	tx.Rollback(context.WithoutCancel(ctx))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Tenant{}, offboarding.Erasure{}, problem.NotFound("No tenant with this id.")
+	}
+	if err != nil {
+		return Tenant{}, offboarding.Erasure{}, err
+	}
+	if err := etag.Check(ifMatch, t.Version); err != nil {
+		return Tenant{}, offboarding.Erasure{}, err
+	}
+	switch {
+	case t.Status != Offboarded || t.Offboarding == nil:
+		return Tenant{}, offboarding.Erasure{}, problem.Conflict("tenancy.invalid_transition", "The tenant is "+t.Status+" and not yet exported; erase applies to offboarded tenants whose export is complete.")
+	case t.Offboarding.ErasedAt != nil:
+		return Tenant{}, offboarding.Erasure{}, problem.Conflict("tenancy.invalid_transition", "The tenant has already been erased.")
+	}
+	er, err := s.Offboarding.Erase(ctx, id, op.ID, map[string]any{"operator": op.Subject, "issuer": op.Issuer})
+	if err != nil {
+		return Tenant{}, offboarding.Erasure{}, err
+	}
+	t, err = s.Get(ctx, id)
+	return t, er, err
 }

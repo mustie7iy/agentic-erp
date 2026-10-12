@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,8 +46,11 @@ type Server struct {
 	// (0: serve normally); FailPlain answers it with a non-XML body.
 	Fail      int
 	FailPlain bool
-	// Now is the clock presigned URLs are checked against (nil: time.Now).
+	// Now is the clock presigned URLs and object locks are checked against
+	// (nil: time.Now).
 	Now func() time.Time
+	// PageSize is how many keys a listing page holds (default 1000).
+	PageSize int
 }
 
 // New starts a server that stops when the test ends.
@@ -100,12 +104,25 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.answer(w, s.Fail, "InternalError", "We encountered an internal error. Please try again.")
 		return
 	}
+	if r.URL.Path == "/"+Bucket && r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
+		s.list(w, r)
+		return
+	}
 	key, ok := strings.CutPrefix(r.URL.Path, "/"+Bucket+"/")
 	if !ok {
 		s.answer(w, http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.")
 		return
 	}
 	switch r.Method {
+	case http.MethodDelete:
+		if o, exists := s.Objects[key]; exists {
+			if until, err := time.Parse(time.RFC3339, o.RetainUntil); err == nil && s.now().Before(until) {
+				s.answer(w, http.StatusForbidden, "AccessDenied", "Access Denied because object protected by object lock.")
+				return
+			}
+			delete(s.Objects, key)
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case http.MethodHead:
 		o, exists := s.Objects[key]
 		if !exists {
@@ -161,6 +178,42 @@ func (s *Server) authentic(r *http.Request, body []byte) bool {
 	sigv4.Sign(clone, AccessKey, SecretKey, Region, "s3", r.Header.Get("X-Amz-Content-Sha256"), when)
 	_ = body
 	return clone.Header.Get("Authorization") == got
+}
+
+func (s *Server) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+// list answers ListObjectsV2: the keys with the prefix, sorted, PageSize
+// (default 1000) per page with a continuation token.
+func (s *Server) list(w http.ResponseWriter, r *http.Request) {
+	prefix, token := r.URL.Query().Get("prefix"), r.URL.Query().Get("continuation-token")
+	var keys []string
+	for k := range s.Objects {
+		if strings.HasPrefix(k, prefix) && k > token {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	size := s.PageSize
+	if size <= 0 {
+		size = 1000
+	}
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>`)
+	for i, k := range keys {
+		if i == size {
+			b.WriteString("<IsTruncated>true</IsTruncated><NextContinuationToken>" + keys[i-1] + "</NextContinuationToken>")
+			break
+		}
+		b.WriteString("<Contents><Key>" + k + "</Key></Contents>")
+	}
+	b.WriteString("</ListBucketResult>")
+	w.Header().Set("Content-Type", "application/xml")
+	w.Write([]byte(b.String()))
 }
 
 func (s *Server) answer(w http.ResponseWriter, status int, code, message string) {

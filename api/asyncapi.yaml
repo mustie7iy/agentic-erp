@@ -135,6 +135,8 @@ channels:
       OrgUnitBlocked: {$ref: '#/components/messages/OrgUnitBlocked'}
       OrgUnitUnblocked: {$ref: '#/components/messages/OrgUnitUnblocked'}
       TenantStatusChanged: {$ref: '#/components/messages/TenantStatusChanged'}
+      TenantExported: {$ref: '#/components/messages/TenantExported'}
+      TenantErased: {$ref: '#/components/messages/TenantErased'}
   identity:
     address: 'erp.{cell}.identity.{tenant}.{event}'
     title: Identity events
@@ -296,6 +298,8 @@ operations:
       - $ref: '#/channels/tenancy/messages/OrgUnitBlocked'
       - $ref: '#/channels/tenancy/messages/OrgUnitUnblocked'
       - $ref: '#/channels/tenancy/messages/TenantStatusChanged'
+      - $ref: '#/channels/tenancy/messages/TenantExported'
+      - $ref: '#/channels/tenancy/messages/TenantErased'
   publishIdentityEvents:
     action: send
     title: Identity publishes
@@ -1448,6 +1452,38 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000054", "source": "/erp/eu-1/tenancy", "type": "com.example.erp.tenancy.tenant_status_changed.v1", "subject": "0192a000-0000-7000-8000-000000000001", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
           payload: {"tenant_id": "0192a000-0000-7000-8000-000000000001", "previous_status": "provisioning", "status": "active"}
+    TenantExported:
+      name: TenantExported
+      title: Tenant exported
+      summary: "The offboarded tenant's data was exported to locked object storage; erasure follows after the grace period."
+      description: "Emitted when the offboarding worker completes a tenant's export (ADR-0021). Subject is the tenant id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tenancy.tenant_exported.v1}
+      payload: {$ref: '#/components/schemas/TenantExportedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000078", "source": "/erp/eu-1/tenancy", "type": "com.example.erp.tenancy.tenant_exported.v1", "subject": "0192a000-0000-7000-8000-000000000001", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"tenant_id": "0192a000-0000-7000-8000-000000000001", "export_ref": "tenants/0192a000-0000-7000-8000-000000000001/exports/1791755602/manifest.json", "tables": 61, "rows": 12840, "erase_after": "2026-11-07T09:00:00Z"}
+    TenantErased:
+      name: TenantErased
+      title: Tenant erased
+      summary: "The offboarded tenant's data was erased from the cell; the tenant row and its audit trail remain."
+      description: "Emitted when the offboarding worker or an operator erases a tenant after its export (ADR-0021). Subject is the tenant id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tenancy.tenant_erased.v1}
+      payload: {$ref: '#/components/schemas/TenantErasedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000079", "source": "/erp/eu-1/tenancy", "type": "com.example.erp.tenancy.tenant_erased.v1", "subject": "0192a000-0000-7000-8000-000000000001", "time": "2026-11-07T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"tenant_id": "0192a000-0000-7000-8000-000000000001", "export_ref": "tenants/0192a000-0000-7000-8000-000000000001/exports/1791755602/manifest.json", "rows": 12840, "objects": 37}
     PrincipalCreated:
       name: PrincipalCreated
       title: Principal created
@@ -2635,6 +2671,23 @@ components:
         tenant_id: {"$ref": "#/components/schemas/Uuid"}
         previous_status: {"type": "string", "description": "Open enum: provisioning, active, suspended, offboarded."}
         status: {"type": "string", "description": "Open enum: provisioning, active, suspended, offboarded."}
+    TenantExportedV1:
+      type: object
+      required: ["tenant_id", "export_ref", "tables", "rows", "erase_after"]
+      properties:
+        tenant_id: {"$ref": "#/components/schemas/Uuid"}
+        export_ref: {"type": "string", "description": "Object key of the export's manifest."}
+        tables: {"type": "integer", "description": "Tables exported."}
+        rows: {"type": "integer", "description": "Rows exported across tables."}
+        erase_after: {"type": "string", "format": "date-time", "description": "When the data may be erased."}
+    TenantErasedV1:
+      type: object
+      required: ["tenant_id", "export_ref", "rows", "objects"]
+      properties:
+        tenant_id: {"$ref": "#/components/schemas/Uuid"}
+        export_ref: {"type": "string", "description": "Object key of the export's manifest, which outlives the erasure."}
+        rows: {"type": "integer", "description": "Rows deleted across tables."}
+        objects: {"type": "integer", "description": "Objects deleted from the tenant's prefix."}
     PrincipalCreatedV1:
       type: object
       required: ["principal_id", "kind", "display_name", "all_companies", "status"]
