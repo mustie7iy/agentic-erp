@@ -59,9 +59,9 @@ func count(t *testing.T, sql string, args ...any) int64 {
 	return n
 }
 
-func worker(t *testing.T, store blobstore.Store, clock *time.Time) *offboarding.Worker {
+func worker(t *testing.T, pool *database.Pool, store blobstore.Store, clock *time.Time) *offboarding.Worker {
 	t.Helper()
-	return &offboarding.Worker{Pool: pgtest.Pool(t), Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Grace: time.Hour, Retention: 24 * time.Hour,
+	return &offboarding.Worker{Pool: pool, Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Grace: time.Hour, Retention: 24 * time.Hour,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return *clock }}
 }
 
@@ -70,11 +70,12 @@ func worker(t *testing.T, store blobstore.Store, clock *time.Time) *offboarding.
 // audit trail remain, and other tenants are untouched.
 func TestOffboardingLifecycle(t *testing.T) {
 	ctx := context.Background()
+	pool := pgtest.Pool(t)
 	e := fixture.New(t, "payables.invoice.read")
 	other := fixture.New(t, "payables.invoice.read")
 	clock := time.Now().UTC().Truncate(time.Second)
 	store := blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}
-	w := worker(t, store, &clock)
+	w := worker(t, pool, store, &clock)
 	tenant := e.Tenant.ID
 	prefix := "tenants/" + tenant.String() + "/"
 	// A document of the tenant, and an anchor locked for years.
@@ -224,14 +225,14 @@ func TestOffboardingLifecycle(t *testing.T) {
 }
 
 // beginFailing fails the k-th transaction a worker starts.
-func beginFailing(t *testing.T, k int) func(context.Context, database.Scope) (pgx.Tx, error) {
+func beginFailing(pool *database.Pool, k int) func(context.Context, database.Scope) (pgx.Tx, error) {
 	calls := 0
 	return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		calls++
 		if calls == k {
 			return nil, errors.New("pool down")
 		}
-		return pgtest.Pool(t).Begin(ctx, s)
+		return pool.Begin(ctx, s)
 	}
 }
 
@@ -239,12 +240,13 @@ func beginFailing(t *testing.T, k int) func(context.Context, database.Scope) (pg
 // refusing, each reported and nothing half done.
 func TestOffboardingFailures(t *testing.T) {
 	ctx := context.Background()
+	pool := pgtest.Pool(t)
 	clock := time.Now().UTC()
 	e := fixture.New(t, "payables.invoice.read")
 	tenant := e.Tenant.ID
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', version = version + 1 WHERE id = $1`, tenant)
 	// Without a store, or with one that fails, nothing is exported and the tenant stays unexported.
-	bare := &offboarding.Worker{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	bare := &offboarding.Worker{Pool: pool, AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if _, err := bare.Export(ctx, tenant); problem.From(err).Status != 503 {
 		t.Fatalf("without a store: %v", err)
 	}
@@ -254,7 +256,7 @@ func TestOffboardingFailures(t *testing.T) {
 	stopped, cancelNow := context.WithCancel(ctx)
 	cancelNow()
 	bare.Run(stopped) // the default interval, one round, then the stop
-	if _, _, err := worker(t, failingStore{err: errors.New("store down")}, &clock).RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "store down") {
+	if _, _, err := worker(t, pool, failingStore{err: errors.New("store down")}, &clock).RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "store down") {
 		t.Fatalf("failing store: %v", err)
 	}
 	if n := count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1 AND exported_at IS NULL`, tenant); n != 1 {
@@ -262,8 +264,8 @@ func TestOffboardingFailures(t *testing.T) {
 	}
 	// A tenant exported by another round between the two transactions; the reset moves its offboarding time.
 	store := blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}
-	w := worker(t, blobstore.Dir{Root: t.TempDir()}, &clock) // its objects go to a store of their own
-	w.Begin = interfering(t, 2, func() {
+	w := worker(t, pool, blobstore.Dir{Root: t.TempDir()}, &clock) // its objects go to a store of their own
+	w.Begin = interfering(pool, 2, func() {
 		pgtest.Exec(t, `UPDATE tenancy.tenant SET exported_at = now(), export_ref = 'elsewhere', erase_after = now() + interval '1 hour', version = version + 1 WHERE id = $1`, tenant)
 	})
 	if _, err := w.Export(ctx, tenant); problem.From(err).Code != "tenancy.invalid_transition" {
@@ -278,23 +280,23 @@ func TestOffboardingFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A store whose objects exist but cannot be read back fails the export.
-	if _, err := worker(t, existsUnreadable{}, &clock).Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "reading the stored") {
+	if _, err := worker(t, pool, existsUnreadable{}, &clock).Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "reading the stored") {
 		t.Fatalf("unreadable existing object: %v", err)
 	}
 	// A store that takes the tables but not the manifest.
-	if _, err := worker(t, manifestless{store}, &clock).Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "storing") || !strings.Contains(err.Error(), "manifest.json") {
+	if _, err := worker(t, pool, manifestless{store}, &clock).Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "storing") || !strings.Contains(err.Error(), "manifest.json") {
 		t.Fatalf("manifest failure: %v", err)
 	}
 	// A commit that fails.
-	w = worker(t, store, &clock)
-	w.Begin = brokenCommitAt(t, 2)
+	w = worker(t, pool, store, &clock)
+	w.Begin = brokenCommitAt(pool, 2)
 	if _, err := w.Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "commit failed") {
 		t.Fatalf("export commit: %v", err)
 	}
 	// Each database statement of an export failing in turn is reported.
 	// The transactions themselves failing to start, the first and the second.
 	for k := 1; k <= 2; k++ {
-		w.Begin = beginFailing(t, k)
+		w.Begin = beginFailing(pool, k)
 		if _, err := w.Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "pool down") {
 			t.Fatalf("begin %d: %v", k, err)
 		}
@@ -302,7 +304,7 @@ func TestOffboardingFailures(t *testing.T) {
 	for n := 1; n < 200; n++ {
 		count := 0
 		w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pgtest.Pool(t).Begin(ctx, s)
+			tx, err := pool.Begin(ctx, s)
 			if err != nil {
 				return nil, err
 			}
@@ -347,11 +349,11 @@ func TestOffboardingFailures(t *testing.T) {
 	}
 	// Erasure: before the grace period on request works; the store's listing and deletion failing stop it before the row is marked.
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET erase_after = now() - interval '1 hour', version = version + 1 WHERE id = $1`, tenant)
-	broken := worker(t, brokenEraser{Store: store, list: errors.New("list down")}, &clock)
+	broken := worker(t, pool, brokenEraser{Store: store, list: errors.New("list down")}, &clock)
 	if _, err := broken.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "list down") {
 		t.Fatalf("listing failure: %v", err)
 	}
-	broken = worker(t, brokenEraser{Store: store, del: errors.New("delete down")}, &clock)
+	broken = worker(t, pool, brokenEraser{Store: store, del: errors.New("delete down")}, &clock)
 	if _, err := broken.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "delete down") {
 		t.Fatalf("deletion failure: %v", err)
 	}
@@ -359,9 +361,9 @@ func TestOffboardingFailures(t *testing.T) {
 		t.Fatal("marked erased despite the failure")
 	}
 	// Each database statement of an erasure failing in turn is reported; a store without an eraser keeps its objects.
-	plain := worker(t, plainStore{store}, &clock)
+	plain := worker(t, pool, plainStore{store}, &clock)
 	for k := 1; k <= 2; k++ {
-		plain.Begin = beginFailing(t, k)
+		plain.Begin = beginFailing(pool, k)
 		if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "pool down") {
 			t.Fatalf("begin %d: %v", k, err)
 		}
@@ -372,12 +374,12 @@ func TestOffboardingFailures(t *testing.T) {
 	}
 	// Commits that fail, and a tenant erased by another round between the transactions.
 	for k := 1; k <= 2; k++ {
-		plain.Begin = brokenCommitAt(t, k)
+		plain.Begin = brokenCommitAt(pool, k)
 		if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "commit failed") {
 			t.Fatalf("erase commit %d: %v", k, err)
 		}
 	}
-	plain.Begin = interfering(t, 2, func() {
+	plain.Begin = interfering(pool, 2, func() {
 		pgtest.Exec(t, `UPDATE tenancy.tenant SET erased_at = now(), version = version + 1 WHERE id = $1`, tenant)
 	})
 	if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); problem.From(err).Code != "tenancy.invalid_transition" {
@@ -387,7 +389,7 @@ func TestOffboardingFailures(t *testing.T) {
 	for n := 1; n < 200; n++ {
 		count := 0
 		plain.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pgtest.Pool(t).Begin(ctx, s)
+			tx, err := pool.Begin(ctx, s)
 			if err != nil {
 				return nil, err
 			}
@@ -413,7 +415,7 @@ func TestOffboardingFailures(t *testing.T) {
 	// The pending queries themselves failing, and the transaction not starting.
 	for n := 1; n <= 2; n++ {
 		w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pgtest.Pool(t).Begin(ctx, s)
+			tx, err := pool.Begin(ctx, s)
 			if err != nil {
 				return nil, err
 			}
@@ -469,11 +471,11 @@ func (b brokenCommit) Commit(ctx context.Context) error {
 }
 
 // brokenCommitAt breaks the commit of the k-th transaction a worker starts.
-func brokenCommitAt(t *testing.T, k int) func(context.Context, database.Scope) (pgx.Tx, error) {
+func brokenCommitAt(pool *database.Pool, k int) func(context.Context, database.Scope) (pgx.Tx, error) {
 	calls := 0
 	return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		calls++
-		tx, err := pgtest.Pool(t).Begin(ctx, s)
+		tx, err := pool.Begin(ctx, s)
 		if err != nil || calls != k {
 			return tx, err
 		}
@@ -482,13 +484,13 @@ func brokenCommitAt(t *testing.T, k int) func(context.Context, database.Scope) (
 }
 
 // interfering runs fn (another round's work) before the k-th transaction.
-func interfering(t *testing.T, k int, fn func()) func(context.Context, database.Scope) (pgx.Tx, error) {
+func interfering(pool *database.Pool, k int, fn func()) func(context.Context, database.Scope) (pgx.Tx, error) {
 	calls := 0
 	return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		calls++
 		if calls == k {
 			fn()
 		}
-		return pgtest.Pool(t).Begin(ctx, s)
+		return pool.Begin(ctx, s)
 	}
 }
