@@ -549,9 +549,11 @@ func TestObjectStores(t *testing.T) {
 	}
 	env := environment(t, is, "")
 	delete(env, "ERP_OBJECT_DIR")
-	if logs := serve(env); !strings.Contains(logs, "no object storage configured") {
+	env["ERP_AUDIT_VERIFY_INTERVAL"] = "0"
+	if logs := serve(env); !strings.Contains(logs, "no object storage configured") || !strings.Contains(logs, "ERP_AUDIT_VERIFY_INTERVAL is 0") {
 		t.Fatalf("logs: %s", logs)
 	}
+	delete(env, "ERP_AUDIT_VERIFY_INTERVAL")
 	// A tenant with a chain head and no anchor yet.
 	ten := pgtest.NewTenant(t)
 	pgtest.Exec(t, `INSERT INTO audit.chain_head (tenant_id, seq, hash) VALUES ($1, 1, decode(repeat('ab', 32), 'hex'))`, ten.ID)

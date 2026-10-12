@@ -170,7 +170,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 | `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `blobstore` (write-once object storage: directory or S3), `secrets` (references to the environment, mounted files or Vault), `pagination`, `etag`, `config`, `httpapi` (wiring) |
 | `internal/operations` | Long-running operations: the first context on the foundation (`/v1/operations`) |
 | `internal/provisioning`, `internal/controlplane` | Tenant provisioning in one transaction, and the operators' control plane (`/control/v1/tenants`: list, create, suspend, resume, offboard) on the admin listener |
-| `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`, `/control/v1`), outbox relay and workers (balance projector, payment proposer, configuration simulator, audit anchorer, offboarding, directory sync) |
+| `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`, `/control/v1`), outbox relay and workers (balance projector, payment proposer, configuration simulator, audit anchorer and verifier, offboarding, directory sync) |
 | `internal/directory`, `internal/router`, `internal/globalplane`, `cmd/erp-router` | The global tenant directory (its own database, written by the cells), the router that verifies a request's token and forwards it to the tenant's cell, and the global control plane over the directory (ADR-0022, ADR-0023) |
 
 ## Guardrails built in
@@ -180,7 +180,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 - **Agents cannot post exceptions.** Only a clean three-way match can be posted by a non-human, and only within the auto-post limit (default 50,000.00).
 - **The exception agent has read-only and escalate tools only.** It cannot post, pay or change master data. Bank details are masked in what it sees, and vendor-supplied text is treated as untrusted data.
 - **Segregation of duties** applies to agents: no identity can both post invoices and release payments.
-- **Every decision is audited** in an append-only, SHA-256-chained log. `verifyAuditChain` detects edits and deletions.
+- **Every decision is audited** in an append-only, SHA-256-chained log, anchored to write-once storage. `verifyAuditChain` detects edits and deletions on request, and a worker verifies every tenant's chain every hour and raises an alarm (log, event, gauge) when one stops verifying.
 - **Reconciliation recomputes the SAP side from the raw extract**, so a transform bug shows up as a difference instead of being copied into both sides.
 
 ## Running the API server
@@ -239,7 +239,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T20 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T22 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier

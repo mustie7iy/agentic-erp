@@ -214,6 +214,16 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		go func() { anchorer.Run(runCtx); close(anchorDone) }()
 		go func() { offboarder.Run(runCtx); close(offboardDone) }()
 	}
+	// Every tenant's audit chain is verified against its anchors in rounds
+	// (ADR-0011); a chain that stops verifying is an alarm.
+	verifyDone := make(chan struct{})
+	if cfg.AuditVerify == 0 {
+		close(verifyDone)
+		log.Warn("ERP_AUDIT_VERIFY_INTERVAL is 0: audit chains are verified on request only")
+	} else {
+		verifier := &audit.Verifier{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: cfg.AuditVerify, Log: log}
+		go func() { verifier.Run(runCtx); close(verifyDone) }()
+	}
 	relayDone := make(chan struct{})
 	if cfg.NATSURL == "" {
 		log.Warn("ERP_NATS_URL not set: events stay in the outbox until a relay runs")
@@ -271,6 +281,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	<-maintenanceDone
 	<-anchorDone
 	<-offboardDone
+	<-verifyDone
 	<-dirDone
 	log.Info("erp-server stopped")
 	return serveErr // nil after a requested shutdown; set when a listener failed
@@ -397,6 +408,8 @@ func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
 	m.Gauge("erp_audit_chains_unanchored", "Tenants whose audit chain head moved since its last anchor.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM audit.chain_head h
 			WHERE h.seq > coalesce((SELECT max(x.seq) FROM audit.anchor x WHERE x.tenant_id = h.tenant_id), 0)`))
+	m.Gauge("erp_audit_chains_tampered", "Tenants whose latest scheduled audit verification found the chain broken.",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM (SELECT DISTINCT ON (tenant_id) ok FROM audit.verification ORDER BY tenant_id, verified_at DESC) v WHERE NOT v.ok`))
 }
 
 // traced wraps the control plane in the request telemetry of the public

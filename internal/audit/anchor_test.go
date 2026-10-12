@@ -141,13 +141,16 @@ func TestAnchoring(t *testing.T) {
 		t.Fatalf("tampered object: %v", res)
 	}
 	os.Remove(path)
+	if res := verify(t, c, store, &one, nil); res["verified"] != false || res["first_broken_seq"] != float64(3) { // a removed anchor object is a finding, not an outage
+		t.Fatalf("missing object: %v", res)
+	}
 	if err := apitest.InRequest(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) error {
 		h := endpoints()
-		h.Anchors = store
+		h.Anchors = failingStore{err: errors.New("store down")}
 		_, err := h.VerifyAuditChain(ctx, &gen.AuditVerify{FromSeq: gen.NewOptInt64(1)}, gen.VerifyAuditChainParams{})
 		return err
 	}); err == nil || problem.From(err).Status < 500 {
-		t.Fatalf("missing object: %v", err)
+		t.Fatalf("store down: %v", err)
 	}
 	os.WriteFile(path, content, 0o600)
 	// A rewritten event hash disagrees with its anchor (the chain check sees it too, later or at the same place).

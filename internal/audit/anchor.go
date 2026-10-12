@@ -198,6 +198,9 @@ func checkAnchors(ctx context.Context, tx pgx.Tx, store blobstore.Store, tenant 
 			continue
 		}
 		stored, _, err := store.Get(ctx, s.ObjectRef)
+		if errors.Is(err, blobstore.ErrNotFound) {
+			return i, s.Seq, nil // a locked object that is gone was removed behind the platform's back: the anchor does not verify
+		}
 		if err != nil {
 			return i, 0, fmt.Errorf("audit: anchor %s: %w", s.ObjectRef, err)
 		}

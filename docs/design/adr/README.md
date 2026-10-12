@@ -29,3 +29,5 @@ new record. Status values: proposed, accepted, superseded.
 | [0022](0022-tenant-directory-and-router.md) | Global tenant directory in its own database, written by the cells; a router verifies, looks up and forwards | proposed |
 | [0023](0023-global-control-plane.md) | Global control plane over the directory: cells register, placement forwards provisioning, moves in three steps | proposed |
 | [0024](0024-ambient-aws-credentials.md) | Ambient AWS credentials (environment, web identity, instance metadata) for the S3 store and the KMS master; static keys optional | proposed |
+| [0025](0025-scheduled-audit-verification.md) | Scheduled audit verification: every chain recomputed against its anchors in rounds; an alarm once when one stops verifying | proposed |
+| [0026](0026-export-chunking-and-audit-detail.md) | Exports written in parts of bounded size; audit details kept as written, minimized at write time, never rewritten | proposed |

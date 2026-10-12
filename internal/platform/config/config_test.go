@@ -312,3 +312,20 @@ func TestAmbientAWSCredentials(t *testing.T) {
 		t.Fatalf("%+v %v", c.AWS, err)
 	}
 }
+
+func TestAuditVerifyInterval(t *testing.T) {
+	m := valid()
+	if c, err := Load(env(m)); err != nil || c.AuditVerify != time.Hour {
+		t.Fatal(c.AuditVerify, err)
+	}
+	m["ERP_AUDIT_VERIFY_INTERVAL"] = "0"
+	if c, err := Load(env(m)); err != nil || c.AuditVerify != 0 {
+		t.Fatal(c.AuditVerify, err)
+	}
+	for _, bad := range []string{"-1h", "often"} {
+		m["ERP_AUDIT_VERIFY_INTERVAL"] = bad
+		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_AUDIT_VERIFY_INTERVAL") {
+			t.Fatalf("%s: %v", bad, err)
+		}
+	}
+}

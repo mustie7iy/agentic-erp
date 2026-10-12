@@ -72,6 +72,8 @@ prototype store for that context.
 | T18 (done) | **Tenant directory and router** | A global directory maps tenants to cells and is kept current by the cells; `erp-router` verifies a request's token, looks its tenant up and forwards it to the tenant's cell, refusing unknown, suspended, offboarded and (for writes) moving tenants at the door |
 | T19 (done) | **Global control plane** | Operators see tenants and cells across the platform, provision a tenant into the emptiest accepting cell of its region (or a named one) through the cell's control plane, and move a tenant between cells in three directory steps |
 | T20 (done) | **Ambient cloud credentials** | The S3 store and the KMS master sign with the deployment's role credentials (environment, web identity, instance metadata) when no access keys are set; session tokens are signed; temporary credentials are renewed before they expire |
+| T21 (done) | **Scheduled audit verification** | A worker recomputes every tenant's audit chain against its anchors every hour, records each round, and raises an alarm (log, event, gauge) once when a chain stops verifying |
+| T22 (done) | **Chunked exports** | Offboarding exports stream each table into objects of bounded size, listed part by part in the manifest; audit details stay as written, with minimization a write-time rule rather than a rewrite |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1236,6 +1238,64 @@ Open points for the contract and design review:
   credential provider are further providers behind the same interface.
 - A credentials check at start would fail fast; today the first store or
   master call does.
+
+### T21 decisions and open points
+
+What T21 built: scheduled audit verification (ADR-0025). `audit.Verifier`
+recomputes every tenant's chain from its first event and checks every
+anchor each round (`ERP_AUDIT_VERIFY_INTERVAL`, default 1h, 0 disables),
+records the result in `audit.verification` (migration 000024, insert-only),
+and, when a chain that verified stops doing so, logs an error, publishes
+`AuditChainTampered` (a `platform` event) and is counted by the gauge
+`erp_audit_chains_tampered` until a round verifies again. The exit
+criterion is `TestScheduledVerification` (audit): a verified chain
+recorded, an event rewritten behind the chain's back found at its sequence,
+the alarm logged and published once, every statement and transaction
+failure reported, a failing anchor store reported, no store tolerated.
+
+Decisions taken while building it:
+
+- **Full recomputation each round.** The anchors fix points; everything
+  between them is suspect, so the round reads the whole chain.
+- **Alarm on the transition, not every round.** The previous row of
+  `audit.verification` says whether the chain verified before; the gauge
+  carries the state in between.
+- **The platform channel carries the event.** The audit schema has no
+  outbox of its own; a tampered chain is a platform-level alarm.
+
+Open points for the contract and design review:
+
+- Incremental verification with checkpoints for chains too long to read
+  hourly.
+- The control plane could show a tenant's latest verification; today it is
+  the table, the gauge and the event.
+
+### T22 decisions and open points
+
+What T22 built: chunked exports (ADR-0026). The offboarding worker streams
+a table's rows and stores a part every `ChunkRows` rows (10,000 by
+default), named `<table>.00001.jsonl` onwards; the manifest lists each part
+with its rows, bytes and hash, and a retried export finds the parts already
+stored. The audit-detail question of T17 is closed by decision: details are
+not rewritten after an erasure (the hash chain covers them), and the review
+checklist asks that details carry identifiers, not personal data. The exit
+criterion is `TestOffboardingLifecycle` with one row per part: every part
+locked, listed, and summing to the table's rows.
+
+Decisions taken while building it:
+
+- **Parts, not multipart uploads.** The store port stays write-once and
+  whole-object; a part of 10,000 rows is far below any object limit.
+- **Chain integrity over detail minimization.** A rewritten detail is a
+  broken chain; the trail of an erased tenant says what happened to which
+  object, and the export holds the content under retention.
+
+Open points for the contract and design review:
+
+- Restoring a tenant from its export into a cell (re-onboarding) would read
+  the parts in manifest order; it is not built.
+- A lint of audit details for personal data (names, IBANs, emails) would
+  turn the write-time rule into a check.
 
 ## 7.4 Data from the prototype
 

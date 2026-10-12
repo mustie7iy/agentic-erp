@@ -307,6 +307,14 @@ func (s *Stack) Drain(timeout time.Duration) error {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("backlogs after %v: %d entries unprojected, %d events unpublished", timeout, p, o)
 		}
+		if p > 0 && s.Projector != nil {
+			// An entry that committed after the projector's last round (a request
+			// in flight when the load stopped) is projected here rather than
+			// counted against the run.
+			if _, err := s.Projector.RunOnce(context.Background()); err != nil {
+				return fmt.Errorf("projecting the backlog: %w", err)
+			}
+		}
 		time.Sleep(50 * time.Millisecond)
 	}
 }

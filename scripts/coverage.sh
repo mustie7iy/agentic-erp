@@ -11,7 +11,12 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 MIN="${COVERAGE_MIN:-100.0}"
 profile="$(mktemp)"
-go test -short -count=1 -coverpkg=./... -coverprofile="$profile" ./... >/dev/null
+if ! go test -short -count=1 -coverpkg=./... -coverprofile="$profile" ./... > "$profile.log" 2>&1; then
+  echo "coverage: tests failed:" >&2
+  grep -E "^(--- FAIL|FAIL|panic:|ok )" "$profile.log" | grep -v "^ok " >&2
+  grep -B2 -A25 "^--- FAIL" "$profile.log" | head -200 >&2
+  exit 1
+fi
 grep -v -E '/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fieldcrypt/kmstest|fixture)/|/api/gen/' "$profile" > "$profile.prod"
 total="$(go tool cover -func="$profile.prod" | awk '/^total:/ {print $NF}' | tr -d '%')"
 echo "statement coverage: ${total}% (minimum ${MIN}%)"

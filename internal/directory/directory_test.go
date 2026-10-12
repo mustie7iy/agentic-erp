@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -192,8 +193,9 @@ func TestPostgresDirectory(t *testing.T) {
 		t.Fatal("opened a URL that is not one")
 	}
 	pgtest.Exec(t, `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dir_limited') THEN CREATE ROLE dir_limited LOGIN PASSWORD 'x'; END IF; END $$`)
-	limited := strings.Replace(pgtest.URL(t), "postgres:dev@", "dir_limited:x@", 1)
-	if _, err := directory.Open(ctx, limited); err == nil || !strings.Contains(err.Error(), "schema") {
+	limited, _ := url.Parse(pgtest.URL(t))
+	limited.User = url.UserPassword("dir_limited", "x")
+	if _, err := directory.Open(ctx, limited.String()); err == nil || !strings.Contains(err.Error(), "schema") {
 		t.Fatalf("limited user: %v", err)
 	}
 	// Lookups failing are reported.
@@ -370,4 +372,55 @@ func mustKeyset(t *testing.T) *pagination.Keyset {
 		t.Fatal(err)
 	}
 	return ks
+}
+
+// TestDirectoryStatementFailures: every statement of every operation
+// failing in turn is reported, never hidden.
+func TestDirectoryStatementFailures(t *testing.T) {
+	ctx := context.Background()
+	dir, err := directory.Open(ctx, pgtest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	tenant := uuid.New()
+	dir.UpsertCell(ctx, directory.Cell{Name: "sf-1", Region: "sf-west", APIURL: "https://sf-1", ControlURL: "http://sf-1:9090", Accepting: true})
+	dir.UpsertCell(ctx, directory.Cell{Name: "sf-2", Region: "sf-west", APIURL: "https://sf-2", ControlURL: "http://sf-2:9090", Accepting: true})
+	dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "sf-west", Cell: "sf-1", APIURL: "https://sf-1", Status: directory.ReadOnly})
+	pool := dir.Pool
+	for name, op := range map[string]func() error{
+		"lookup": func() error { _, err := dir.Lookup(ctx, tenant); return err },
+		"upsert": func() error {
+			return dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "sf-west", Cell: "sf-1", APIURL: "https://sf-1", Status: directory.Active})
+		},
+		"set status": func() error { _, err := dir.SetStatus(ctx, tenant, 0, directory.ReadOnly); return err },
+		"move":       func() error { _, err := dir.Move(ctx, tenant, 0, "sf-2"); return err },
+		"list tenants": func() error {
+			_, _, err := dir.ListTenants(ctx, directory.Filter{Region: "sf-west"}, mustKeyset(t))
+			return err
+		},
+		"upsert cell": func() error {
+			return dir.UpsertCell(ctx, directory.Cell{Name: "sf-1", Region: "sf-west", APIURL: "https://sf-1", ControlURL: "http://sf-1:9090", Accepting: true})
+		},
+		"list cells": func() error { _, err := dir.ListCells(ctx, "sf-west"); return err },
+		"place":      func() error { _, err := dir.Place(ctx, "sf-key-"+uuid.NewString(), "sf-west", ""); return err },
+	} {
+		for n := 1; n < 10; n++ {
+			dir.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+				return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}) })
+			}
+			err := op()
+			if err == nil {
+				if n == 1 {
+					t.Errorf("%s: succeeded without a statement to fail", name)
+				}
+				break
+			}
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("%s: statement %d: %v", name, n, err)
+				break
+			}
+		}
+	}
+	dir.InTx = nil
 }

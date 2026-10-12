@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS directory.placement (
 // Postgres keeps the directory in a database of its own (ERP_DIRECTORY_URL).
 type Postgres struct {
 	Pool *database.Pool
+	// InTx runs a transaction; nil: Pool.InTx. Tests inject failures.
+	InTx func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error
+}
+
+func (p *Postgres) inTx(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+	if p.InTx != nil {
+		return p.InTx(ctx, scope, fn)
+	}
+	return p.Pool.InTx(ctx, scope, fn)
 }
 
 // Open connects to the directory database and makes sure its table exists.
@@ -126,7 +135,7 @@ func (p *Postgres) Close() { p.Pool.Close() }
 // Lookup implements Store.
 func (p *Postgres) Lookup(ctx context.Context, tenant uuid.UUID) (Entry, error) {
 	var e Entry
-	err := p.Pool.InTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+	err := p.inTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT `+entryColumns+` FROM directory.tenant WHERE tenant_id = $1`, tenant).Scan(e.fields()...)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -146,7 +155,7 @@ func (e *Entry) fields() []any {
 
 // Upsert implements Store.
 func (p *Postgres) Upsert(ctx context.Context, e Entry) error {
-	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO directory.tenant (tenant_id, region, cell, api_url, status) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (tenant_id) DO UPDATE SET region = EXCLUDED.region, cell = EXCLUDED.cell, api_url = EXCLUDED.api_url,
 			status = CASE WHEN directory.tenant.status = 'read_only' THEN 'read_only' ELSE EXCLUDED.status END,
@@ -166,7 +175,7 @@ func (p *Postgres) Upsert(ctx context.Context, e Entry) error {
 // new entry; ErrUnknown when there is no entry, ErrVersion on a mismatch.
 func (p *Postgres) update(ctx context.Context, tenant uuid.UUID, version int32, set string, args ...any) (Entry, error) {
 	var e Entry
-	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		var current int32
 		if err := tx.QueryRow(ctx, `SELECT version FROM directory.tenant WHERE tenant_id = $1 FOR UPDATE`, tenant).Scan(&current); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -205,7 +214,7 @@ var ErrRegion = errors.New("directory: the cell is in another region")
 // at the version given (0: any): ErrUnknownCell, ErrRegion otherwise.
 func (p *Postgres) Move(ctx context.Context, tenant uuid.UUID, version int32, cell string) (Entry, error) {
 	var e Entry
-	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		var current int32
 		var region string
 		if err := tx.QueryRow(ctx, `SELECT version, region FROM directory.tenant WHERE tenant_id = $1 FOR UPDATE`, tenant).Scan(&current, &region); err != nil {
@@ -253,7 +262,7 @@ var Sort = pagination.Sort{Default: "updated_at", DefaultDesc: true, Fields: []p
 // ListTenants returns one page of entries.
 func (p *Postgres) ListTenants(ctx context.Context, f Filter, ks *pagination.Keyset) ([]Entry, string, error) {
 	var entries []Entry
-	err := p.Pool.InTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+	err := p.inTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
 		// The keyset breaks ties on a column named id.
 		q, args := ks.SQL(`SELECT `+entryColumns+` FROM (SELECT *, tenant_id AS id FROM directory.tenant) t WHERE ($1 = '' OR region = $1) AND ($2 = '' OR cell = $2) AND ($3 = '' OR status = $3)`,
 			[]any{f.Region, f.Cell, f.Status})
@@ -279,7 +288,7 @@ func (p *Postgres) ListTenants(ctx context.Context, f Filter, ks *pagination.Key
 
 // UpsertCell records a cell, as the cell itself does each round.
 func (p *Postgres) UpsertCell(ctx context.Context, c Cell) error {
-	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO directory.cell (name, region, api_url, control_url, accepting) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (name) DO UPDATE SET region = EXCLUDED.region, api_url = EXCLUDED.api_url, control_url = EXCLUDED.control_url, accepting = EXCLUDED.accepting, updated_at = now()`,
 			c.Name, c.Region, c.APIURL, c.ControlURL, c.Accepting)
@@ -295,7 +304,7 @@ func (p *Postgres) UpsertCell(ctx context.Context, c Cell) error {
 // counts, fewest tenants first.
 func (p *Postgres) ListCells(ctx context.Context, region string) ([]Cell, error) {
 	var cells []Cell
-	err := p.Pool.InTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+	err := p.inTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
 		rows, _ := tx.Query(ctx, `SELECT c.name, c.region, c.api_url, c.control_url, c.accepting, (SELECT count(*) FROM directory.tenant t WHERE t.cell = c.name), c.updated_at
 			FROM directory.cell c WHERE $1 = '' OR c.region = $1 ORDER BY 6, c.name`, region)
 		var err error
@@ -314,7 +323,7 @@ func (p *Postgres) ListCells(ctx context.Context, region string) ([]Cell, error)
 // key so a retry goes there too. ErrUnknownCell when none fits.
 func (p *Postgres) Place(ctx context.Context, key, region, cell string) (Cell, error) {
 	var chosen Cell
-	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		var name string
 		switch err := tx.QueryRow(ctx, `SELECT cell FROM directory.placement WHERE idempotency_key = $1`, key).Scan(&name); {
 		case err == nil:

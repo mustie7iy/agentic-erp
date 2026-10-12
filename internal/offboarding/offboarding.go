@@ -44,6 +44,7 @@ type Worker struct {
 	Interval   time.Duration   // between rounds; default 1 minute
 	Grace      time.Duration   // between export and erasure
 	Retention  time.Duration   // how long exports are locked; 0 leaves them unlocked
+	ChunkRows  int             // rows per export object; default 10000 (bounds the memory a table takes)
 	Log        *slog.Logger
 	Now        func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests replace it to
@@ -99,6 +100,7 @@ type chainHead struct {
 
 type exportedTable struct {
 	Name   string `json:"name"`
+	Part   int    `json:"part"` // 1, 2, ... within the table
 	Key    string `json:"key"`
 	Rows   int64  `json:"rows"`
 	Bytes  int    `json:"bytes"`
@@ -218,22 +220,12 @@ func (w *Worker) Export(ctx context.Context, tenant uuid.UUID) (Export, error) {
 	m := manifest{TenantID: tenant, Tenant: row, ExportedAt: now}
 	var ex Export
 	for _, name := range names {
-		rows, _ := tx.Query(ctx, `SELECT row_to_json(t)::text FROM `+name+` t WHERE tenant_id = $1`, tenant)
-		lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		parts, rows, err := w.exportTable(ctx, tx, tenant, name, dir, opts)
 		if err != nil {
-			return Export{}, fmt.Errorf("reading %s: %w", name, err)
-		}
-		if len(lines) == 0 {
-			continue
-		}
-		content := []byte(strings.Join(lines, "\n") + "\n")
-		key := dir + "/" + strings.ReplaceAll(name, `"`, "") + ".jsonl"
-		if content, err = w.put(ctx, key, content, opts); err != nil {
 			return Export{}, err
 		}
-		sum := sha256.Sum256(content)
-		m.Tables = append(m.Tables, exportedTable{Name: name, Key: key, Rows: int64(len(lines)), Bytes: len(content), SHA256: hex.EncodeToString(sum[:])})
-		ex.Rows += int64(len(lines))
+		m.Tables = append(m.Tables, parts...)
+		ex.Rows += rows
 	}
 	var head chainHead
 	var hash []byte
@@ -280,6 +272,57 @@ func (w *Worker) Export(ctx context.Context, tenant uuid.UUID) (Export, error) {
 		return Export{}, err
 	}
 	return ex, nil
+}
+
+// exportTable streams a table's rows into objects of ChunkRows each, so a
+// table takes a bounded amount of memory whatever its size, and returns the
+// parts written and the rows they hold.
+func (w *Worker) exportTable(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, name, dir string, opts blobstore.PutOptions) ([]exportedTable, int64, error) {
+	chunk := w.ChunkRows
+	if chunk <= 0 {
+		chunk = 10000
+	}
+	rows, _ := tx.Query(ctx, `SELECT row_to_json(t)::text FROM `+name+` t WHERE tenant_id = $1`, tenant) // errors surface from ForEachRow
+	var parts []exportedTable
+	var total int64
+	var buf strings.Builder
+	n := 0
+	flush := func() error {
+		if n == 0 {
+			return nil
+		}
+		part := len(parts) + 1
+		key := fmt.Sprintf("%s/%s.%05d.jsonl", dir, strings.ReplaceAll(name, `"`, ""), part)
+		content, err := w.put(ctx, key, []byte(buf.String()), opts)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(content)
+		parts = append(parts, exportedTable{Name: name, Part: part, Key: key, Rows: int64(n), Bytes: len(content), SHA256: hex.EncodeToString(sum[:])})
+		total += int64(n)
+		buf.Reset()
+		n = 0
+		return nil
+	}
+	var line string
+	var stored error // a part that could not be stored, reported as such rather than as a read failure
+	if _, err := pgx.ForEachRow(rows, []any{&line}, func() error {
+		buf.WriteString(line)
+		buf.WriteByte('\n')
+		if n++; n == chunk {
+			stored = flush()
+		}
+		return stored
+	}); err != nil {
+		if stored != nil {
+			return nil, 0, stored
+		}
+		return nil, 0, fmt.Errorf("reading %s: %w", name, err)
+	}
+	if err := flush(); err != nil {
+		return nil, 0, err
+	}
+	return parts, total, nil
 }
 
 // put stores an object of the export, or reads back the one already there

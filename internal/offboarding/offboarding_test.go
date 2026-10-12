@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strconv"
@@ -76,6 +77,7 @@ func TestOffboardingLifecycle(t *testing.T) {
 	clock := time.Now().UTC().Truncate(time.Second)
 	store := blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}
 	w := worker(t, pool, store, &clock)
+	w.ChunkRows = 1 // one row per object: every table with rows exports in parts
 	tenant := e.Tenant.ID
 	prefix := "tenants/" + tenant.String() + "/"
 	// A document of the tenant, and an anchor locked for years.
@@ -120,6 +122,7 @@ func TestOffboardingLifecycle(t *testing.T) {
 		} `json:"audit_chain_head"`
 		Tables []struct {
 			Name, Key, SHA256 string
+			Part              int
 			Rows              int64
 		}
 	}
@@ -127,17 +130,22 @@ func TestOffboardingLifecycle(t *testing.T) {
 		t.Fatalf("manifest: %s %v", body, err)
 	}
 	found := false
+	var principalRows int64
 	for _, tb := range m.Tables {
 		if tb.Name == "identity.principal" {
 			found = true
 			lines, ct, err := store.Get(ctx, tb.Key)
-			if err != nil || ct != "application/x-ndjson" || int64(strings.Count(string(lines), "\n")) != principals || tb.Rows != principals {
-				t.Fatalf("principal export: %q %d %v", ct, tb.Rows, err)
+			if err != nil || ct != "application/x-ndjson" || int64(strings.Count(string(lines), "\n")) != tb.Rows || tb.Rows != 1 || !strings.HasSuffix(tb.Key, fmt.Sprintf(".%05d.jsonl", tb.Part)) {
+				t.Fatalf("principal export part %d: %q %d %v", tb.Part, ct, tb.Rows, err)
 			}
+			principalRows += tb.Rows
 			if err := store.Delete(ctx, tb.Key); !errors.Is(err, blobstore.ErrLocked) {
 				t.Fatalf("the export is not locked: %v", err)
 			}
 		}
+	}
+	if principalRows != principals { // one row per part, with ChunkRows 1
+		t.Fatalf("%d principal rows exported, want %d", principalRows, principals)
 	}
 	if !found {
 		t.Fatalf("manifest without principals: %v", m.Tables)
@@ -275,13 +283,19 @@ func TestOffboardingFailures(t *testing.T) {
 	// Objects of an earlier attempt that did not get to record itself are kept, and described as stored.
 	var offboardedAt time.Time
 	pgtest.Admin(t).QueryRow(ctx, `SELECT updated_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&offboardedAt)
-	stale := "tenants/" + tenant.String() + "/exports/" + strconv.FormatInt(offboardedAt.Unix(), 10) + "/identity.principal.jsonl"
+	stale := "tenants/" + tenant.String() + "/exports/" + strconv.FormatInt(offboardedAt.Unix(), 10) + "/identity.principal.00001.jsonl"
 	if err := store.Put(ctx, stale, []byte("{\"stale\":true}\n"), blobstore.PutOptions{ContentType: "application/x-ndjson"}); err != nil {
 		t.Fatal(err)
 	}
 	// A store whose objects exist but cannot be read back fails the export.
 	if _, err := worker(t, pool, existsUnreadable{}, &clock).Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "reading the stored") {
 		t.Fatalf("unreadable existing object: %v", err)
+	}
+	// A store that takes the first part of a table but not the second.
+	partial := worker(t, pool, secondPartFails{store}, &clock)
+	partial.ChunkRows = 1
+	if _, err := partial.Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "storing") || !strings.Contains(err.Error(), ".00002.jsonl") {
+		t.Fatalf("second part failing: %v", err)
 	}
 	// A store that takes the tables but not the manifest.
 	if _, err := worker(t, pool, manifestless{store}, &clock).Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "storing") || !strings.Contains(err.Error(), "manifest.json") {
@@ -493,4 +507,14 @@ func interfering(pool *database.Pool, k int, fn func()) func(context.Context, da
 		}
 		return pool.Begin(ctx, s)
 	}
+}
+
+// secondPartFails stores everything but a table's second part.
+type secondPartFails struct{ blobstore.Store }
+
+func (f secondPartFails) Put(ctx context.Context, key string, content []byte, opts blobstore.PutOptions) error {
+	if strings.HasSuffix(key, ".00002.jsonl") {
+		return errors.New("store full")
+	}
+	return f.Store.Put(ctx, key, content, opts)
 }

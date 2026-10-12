@@ -284,6 +284,7 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       OperationCompleted: {$ref: '#/components/messages/OperationCompleted'}
+      AuditChainTampered: {$ref: '#/components/messages/AuditChainTampered'}
 
 operations:
   publishTenancyEvents:
@@ -425,6 +426,7 @@ operations:
     channel: {$ref: '#/channels/platform'}
     messages:
       - $ref: '#/channels/platform/messages/OperationCompleted'
+      - $ref: '#/channels/platform/messages/AuditChainTampered'
 
 components:
   parameters:
@@ -1096,6 +1098,22 @@ components:
           payload: {recommendation_id: 0192a000-0000-7000-8000-000000000c02, session_id: 0192a000-0000-7000-8000-000000000c01, agent_id: 0192a000-0000-7000-8000-000000000103, object_type: supplier_invoice, object_id: 0192a000-0000-7000-8000-000000000701, kind: release_hold, content: The supplier's price list effective 2026-10-01 is 540.00 per EA; recommend updating the PO price and releasing the hold.}
 
     # --------------------------------------------------------------- platform
+    AuditChainTampered:
+      name: AuditChainTampered
+      title: Audit chain tampered
+      summary: "A tenant's audit chain stopped verifying against its anchors."
+      description: "Emitted once by the scheduled verification worker when a chain that verified does not any more (ADR-0011): an event, an anchor or the head was changed or removed behind the platform's back. Subject is the tenant id. Operators verify on request (`POST /v1/audit-events:verify`) to see where."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.platform.audit_chain_tampered.v1}
+      payload: {$ref: '#/components/schemas/AuditChainTamperedV1'}
+      examples:
+        - name: example
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000080, source: /erp/eu-1/platform, type: com.example.erp.platform.audit_chain_tampered.v1, subject: 0192a000-0000-7000-8000-000000000001, time: '2026-10-12T03:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {tenant_id: 0192a000-0000-7000-8000-000000000001, broken_at: 4812, head_seq: 12840, verified_at: '2026-10-12T03:00:00Z'}
     OperationCompleted:
       name: OperationCompleted
       title: Operation completed
@@ -2437,6 +2455,14 @@ components:
         content: {type: string}
 
     # ------------------------------------------------------------- platform
+    AuditChainTamperedV1:
+      type: object
+      required: [tenant_id, broken_at, head_seq, verified_at]
+      properties:
+        tenant_id: {$ref: '#/components/schemas/Uuid'}
+        broken_at: {type: integer, description: 'First sequence number that does not verify.'}
+        head_seq: {type: integer, description: 'The chain head at verification.'}
+        verified_at: {type: string, format: date-time}
     OperationCompletedV1:
       type: object
       required: [operation_id, kind, status, progress, resource]
