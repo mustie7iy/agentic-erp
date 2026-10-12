@@ -84,8 +84,14 @@ every entry answered 201 in the journal, projected balances equal to the
 journal, audit chain intact. Load and soak skip under `-short` and the race
 detector. The nightly workflow (`.github/workflows/nightly.yml`) runs load
 for two minutes, the resilience suite, a two-hour soak and five minutes of
-fuzzing per target; the budgets are met at the rate the runner reaches, not
-at the largest tenant's peak, which needs a cell-sized environment.
+fuzzing per target. The runner is several times slower than a laptop (about
+110 requests/s with the database in a sidecar container), so its budgets are
+scaled by `ERP_BUDGET_SCALE` (4 nightly, 2 for the performance step of the
+push pipeline, 1 by default): the scaled budgets catch a regression, the
+consistency checks still gate, and the budgets at scale 1 are for a
+cell-sized environment, which the largest tenant's peak needs anyway. Both
+workflows raise the service container's `max_connections` to 300 before
+the suites run, as the local database has.
 
 ## Model and SAP stand-ins
 

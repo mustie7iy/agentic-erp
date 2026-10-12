@@ -93,6 +93,9 @@ Every pull request runs, and must pass:
 | Build and container image | `go build`, image scan |
 
 Nightly: load and soak suites (05 §5.8), longer fuzzing, dependency updates.
+Latency budgets on the shared runner are scaled by `ERP_BUDGET_SCALE`
+(docs/testing.md); the budgets at scale 1 are checked in a cell-sized
+environment.
 
 ## 6.6 Testing strategy
 

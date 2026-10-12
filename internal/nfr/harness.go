@@ -657,8 +657,8 @@ func (st *Stats) CheckBudgets(t testing.TB) {
 			t.Errorf("%s: no samples", op)
 			continue
 		}
-		if p95, p99 := st.Percentile(op, 95), st.Percentile(op, 99); p95 > b[0] || p99 > b[1] {
-			t.Errorf("%s: p95 %v (budget %v), p99 %v (budget %v)", op, p95.Round(time.Millisecond), b[0], p99.Round(time.Millisecond), b[1])
+		if p95, p99 := st.Percentile(op, 95), st.Percentile(op, 99); p95 > Budget(b[0]) || p99 > Budget(b[1]) {
+			t.Errorf("%s: p95 %v (budget %v), p99 %v (budget %v)", op, p95.Round(time.Millisecond), Budget(b[0]), p99.Round(time.Millisecond), Budget(b[1]))
 		}
 	}
 	if f := st.Failures(); len(f) > 0 {
@@ -681,6 +681,28 @@ func Setting(name string, def time.Duration) time.Duration {
 		panic(fmt.Sprintf("%s=%q: want a duration such as 30s or a number", name, v))
 	}
 	return time.Duration(n)
+}
+
+// BudgetScale is the factor ERP_BUDGET_SCALE applies to every latency
+// budget (default 1). The budgets of 01-requirements §1.3 are a cell's; a
+// shared CI runner with the database in a sidecar container is several
+// times slower, so its runs scale them to catch regressions rather than
+// fail on the machine. A scale below 1 tightens them.
+func BudgetScale() float64 {
+	v := os.Getenv("ERP_BUDGET_SCALE")
+	if v == "" {
+		return 1
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0 {
+		panic(fmt.Sprintf("ERP_BUDGET_SCALE=%q: want a positive number such as 4", v))
+	}
+	return f
+}
+
+// Budget scales a latency budget by BudgetScale.
+func Budget(d time.Duration) time.Duration {
+	return time.Duration(float64(d) * BudgetScale()).Round(time.Millisecond)
 }
 
 // contains reports whether s has sub.

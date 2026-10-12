@@ -11,7 +11,11 @@ on:
 
 # The load and soak suites of 05-scalability §5.8 at length, and longer
 # fuzzing. Budgets are 01-requirements §1.3; the runner is far smaller than
-# a cell, so the run validates the suite and trends, not the peak.
+# a cell (about 110 requests/s against a laptop's 500 and a cell's 2,000),
+# so the budgets are scaled by ERP_BUDGET_SCALE: the run validates the
+# suite, the consistency checks and trends, and fails on a regression, not
+# on the machine. The budgets at scale 1 are checked in a cell-sized
+# environment (05 §5.1, the first scalability gate).
 jobs:
   nfr:
     runs-on: ubuntu-latest
@@ -27,11 +31,24 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
       ERP_LOAD_USERS: 16
+      ERP_BUDGET_SCALE: 4
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Raise the database connection limit
+        # The service container keeps PostgreSQL's default of 100 connections; the
+        # suites run packages in parallel, each with its own pool, and have hit
+        # "too many clients already" on the runner. 300 matches the local setup.
+        run: |
+          PGPASSWORD=dev psql -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300"
+          docker restart $(docker ps -q --filter ancestor=postgres:17)
+          for i in $(seq 1 60); do
+            PGPASSWORD=dev psql -h localhost -U postgres -tAc "SHOW max_connections" 2>/dev/null | grep -qx 300 && exit 0
+            sleep 1
+          done
+          echo "the database did not come back with max_connections = 300" >&2; exit 1
       - name: Load (2 minutes)
         run: make load ERP_LOAD_DURATION=2m
       - name: Resilience

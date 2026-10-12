@@ -15,6 +15,7 @@ import (
 // with -short to skip them.
 func budget(t *testing.T, name string, limit time.Duration, f func()) {
 	t.Helper()
+	limit = Budget(limit)
 	start := time.Now()
 	f()
 	took := time.Since(start)

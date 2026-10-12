@@ -44,7 +44,7 @@ func TestSoak(t *testing.T) {
 		if last.Count(op) == 0 || first.Count(op) == 0 {
 			continue
 		}
-		if start, end := first.Percentile(op, 95), last.Percentile(op, 95); end > b[0] && end > start*3/2 {
+		if start, end := first.Percentile(op, 95), last.Percentile(op, 95); end > Budget(b[0]) && end > start*3/2 {
 			t.Errorf("%s: p95 drifted from %v to %v", op, start.Round(time.Millisecond), end.Round(time.Millisecond))
 		}
 	}

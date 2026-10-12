@@ -25,6 +25,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Raise the database connection limit
+        # The service container keeps PostgreSQL's default of 100 connections; the
+        # suites run packages in parallel, each with its own pool, and have hit
+        # "too many clients already" on the runner. 300 matches the local setup.
+        run: |
+          PGPASSWORD=dev psql -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300"
+          docker restart $(docker ps -q --filter ancestor=postgres:17)
+          for i in $(seq 1 60); do
+            PGPASSWORD=dev psql -h localhost -U postgres -tAc "SHOW max_connections" 2>/dev/null | grep -qx 300 && exit 0
+            sleep 1
+          done
+          echo "the database did not come back with max_connections = 300" >&2; exit 1
       - name: Format
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: Vet
@@ -62,6 +74,10 @@ jobs:
       - name: Functional and non-functional tests (race detector)
         run: go test -race -count=1 ./...
       - name: Performance budgets (without the race detector)
+        # The runner is about twice as slow as a laptop on these; the scaled
+        # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
+        env:
+          ERP_BUDGET_SCALE: 2
         run: |
           go test -count=1 -run Budget -v ./internal/ledger
           go test -count=1 -run Perf -v ./internal/nfr
