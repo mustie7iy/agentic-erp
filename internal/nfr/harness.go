@@ -634,7 +634,7 @@ func (st *Stats) Report(t testing.TB, title string) {
 		}
 		budget := "-"
 		if bd, ok := Budgets[op]; ok {
-			budget = bd[0].String()
+			budget = Budget(bd[0]).String() // as checked, scaled by ERP_BUDGET_SCALE
 		}
 		fmt.Fprintf(&b, "  %-8s %7d %10v %10v %10v %10s\n", op, st.Count(op), st.Percentile(op, 50).Round(time.Millisecond),
 			st.Percentile(op, 95).Round(time.Millisecond), st.Percentile(op, 99).Round(time.Millisecond), budget)

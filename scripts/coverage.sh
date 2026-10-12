@@ -13,8 +13,11 @@ MIN="${COVERAGE_MIN:-100.0}"
 profile="$(mktemp)"
 if ! go test -short -count=1 -coverpkg=./... -coverprofile="$profile" ./... > "$profile.log" 2>&1; then
   echo "coverage: tests failed:" >&2
-  grep -E "^(--- FAIL|FAIL|panic:|ok )" "$profile.log" | grep -v "^ok " >&2
-  grep -B2 -A25 "^--- FAIL" "$profile.log" | head -200 >&2
+  grep -E "^(--- FAIL|FAIL|panic:)" "$profile.log" >&2
+  # Everything the failing packages printed: build errors ("# pkg" blocks),
+  # TestMain failures and test output alike, without the passing packages.
+  echo "--- output of the failing packages:" >&2
+  grep -v -E "^(ok |\?|---  *PASS|=== RUN|coverage: )" "$profile.log" | head -400 >&2
   exit 1
 fi
 grep -v -E '/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fieldcrypt/kmstest|fixture)/|/api/gen/' "$profile" > "$profile.prod"
