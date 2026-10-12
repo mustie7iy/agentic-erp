@@ -288,6 +288,15 @@ func (e *Endpoints) GetBankFileContent(ctx context.Context, params gen.GetBankFi
 	return &gen.GetBankFileContentOKHeaders{Response: gen.GetBankFileContentOK{Data: bytes.NewReader(content)}}, nil
 }
 
+// ReportBankFileStatus implements POST /v1/bank-files/{id}:report.
+func (e *Endpoints) ReportBankFileStatus(ctx context.Context, req *gen.BankStatusReport, params gen.ReportBankFileStatusParams) (gen.ReportBankFileStatusRes, error) {
+	f, err := ReportFile(ctx, params.ID, ifMatch(params.IfMatch), string(req.Outcome), req.Reference.Value, req.Reason.Value)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ReportBankFileStatusOKHeaders{ETag: gen.NewOptString(etag.Format(f.Version)), Response: fileToAPI(f)}, nil
+}
+
 // TransmitBankFile implements POST /v1/bank-files/{id}:transmit.
 func (e *Endpoints) TransmitBankFile(ctx context.Context, params gen.TransmitBankFileParams) (gen.TransmitBankFileRes, error) {
 	op, err := e.TransmitFile(ctx, params.ID, ifMatch(params.IfMatch))

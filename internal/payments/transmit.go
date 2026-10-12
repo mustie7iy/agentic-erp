@@ -125,6 +125,64 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 	return operations.Succeed(ctx, op.ID, "/v1/bank-files/"+f.ID.String(), map[string]any{"bank_file_id": f.ID, "status": FileTransmitted})
 }
 
+// fileStatusReport is what the bank's status report (pain.002, camt.054)
+// says about a transmitted file, applied by treasury on the API.
+type fileStatusReport struct {
+	action, to, event string
+}
+
+var (
+	acknowledgeFile = fileStatusReport{"acknowledge", FileAcknowledged, "bank_file_acknowledged"}
+	rejectFile      = fileStatusReport{"reject", FileRejected, "bank_file_rejected"}
+)
+
+// ReportFile applies the bank's status report to a transmitted file:
+// accepted moves it to acknowledged, rejected to rejected with the bank's
+// reason. The run stays released with its postings either way: undoing
+// them is a reversal, which the ledger does not offer yet.
+func ReportFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, outcome, reference, reason string) (BankFile, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return BankFile{}, err
+	}
+	r := acknowledgeFile
+	switch outcome {
+	case "accepted":
+	case "rejected":
+		r = rejectFile
+		if reason == "" {
+			return BankFile{}, problem.Unprocessable("payments.reason_required", "A rejection carries the bank's reason.",
+				problem.FieldError{Field: "reason", Code: "required", Message: "the bank's reason"})
+		}
+	default:
+		return BankFile{}, problem.Unprocessable("payments.invalid_outcome", "The outcome "+outcome+" is not one the report can carry.",
+			problem.FieldError{Field: "outcome", Code: "invalid", Message: "accepted or rejected"})
+	}
+	f, err := getFile(ctx, tx, id, true)
+	if err != nil {
+		return BankFile{}, err
+	}
+	if err := ifMatch(f.Version); err != nil {
+		return BankFile{}, err
+	}
+	if f.Status != FileTransmitted {
+		return BankFile{}, problem.Conflict("payments.invalid_status", "Only a transmitted bank file can be "+r.to+"; this one is "+f.Status+".")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = $2, version = version + 1 WHERE id = $1`, f.ID, r.to); err != nil {
+		return BankFile{}, err
+	}
+	updated, err := getFile(ctx, tx, id, false)
+	if err != nil {
+		return BankFile{}, err
+	}
+	detail := map[string]any{"bank_file_id": f.ID, "from_status": f.Status, "report_reference": reference}
+	payload := map[string]any{"previous_status": f.Status, "status": r.to, "report_reference": reference}
+	if reason != "" {
+		detail["reason"], payload["reason"] = reason, reason
+	}
+	return updated, record(ctx, "payments.bank_file."+r.action, f.ID, detail, fileEvent(f, r.event, payload))
+}
+
 // FileContent returns a bank file's content, checked against its hash.
 func (e *Endpoints) FileContent(ctx context.Context, id uuid.UUID) ([]byte, error) {
 	tx, _, err := reqctx.Request(ctx)

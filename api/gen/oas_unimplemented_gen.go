@@ -1328,6 +1328,19 @@ func (UnimplementedHandler) ReleaseSupplierInvoice(ctx context.Context, req OptD
 	return r, ht.ErrNotImplemented
 }
 
+// ReportBankFileStatus implements reportBankFileStatus operation.
+//
+// Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to
+// `acknowledged` and publishes `BankFileAcknowledged`; `rejected` moves it to `rejected` with the
+// bank's reason and publishes `BankFileRejected`. The report's reference is kept in the audit trail.
+// The run stays released with its postings either way; undoing them is a reversal (see the design
+// review). Requires status `transmitted`.
+//
+// POST /v1/bank-files/{id}:report
+func (UnimplementedHandler) ReportBankFileStatus(ctx context.Context, req *BankStatusReport, params ReportBankFileStatusParams) (r ReportBankFileStatusRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // RequestBankAccountChange implements requestBankAccountChange operation.
 //
 // Opens a pending partner change of kind `bank_change` that adds an account. The account exists only

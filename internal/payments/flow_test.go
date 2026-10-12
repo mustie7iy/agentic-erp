@@ -109,6 +109,22 @@ func TestProposeReleaseTransmit(t *testing.T) {
 		t.Fatalf("transmitted events: %v", ev)
 	}
 	e.Problem(409, "payments.invalid_status", "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"2"`)
+	// The bank's status report: acknowledged, once; a rejection no longer applies.
+	report := "/v1/bank-files/" + id(file) + ":report"
+	e.Problem(412, "request.version_mismatch", "POST", report, `{"outcome": "accepted"}`, `"1"`)
+	e.Problem(400, "request.invalid_body", "POST", report, `{}`, `"2"`)
+	e.Problem(422, "payments.invalid_outcome", "POST", report, `{"outcome": "lost"}`, `"2"`)
+	e.Problem(422, "payments.reason_required", "POST", report, `{"outcome": "rejected"}`, `"2"`)
+	acked, tag := e.Must(200, "POST", report, `{"outcome": "accepted", "reference": "pain.002-0001"}`, `"2"`)
+	if acked["status"] != "acknowledged" || tag != `"3"` {
+		t.Fatalf("acknowledged: %v %v", acked, tag)
+	}
+	if ev := events(t, e.Tenant, "bank_file_acknowledged"); len(ev) != 1 || ev[0]["previous_status"] != "transmitted" || ev[0]["status"] != "acknowledged" || ev[0]["report_reference"] != "pain.002-0001" {
+		t.Fatalf("acknowledged event: %v", ev)
+	}
+	e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "accepted"}`, `"3"`)
+	e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "rejected", "reason": "AC01"}`, `"3"`)
+	e.Problem(404, "request.not_found", "POST", "/v1/bank-files/0192a000-0000-7000-8000-00000000dead:report", `{"outcome": "rejected", "reason": "AC01"}`, "*")
 }
 
 func TestExclusions(t *testing.T) {

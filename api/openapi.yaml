@@ -7065,6 +7065,63 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-files/{id}:report":
+    post:
+      operationId: reportBankFileStatus
+      tags:
+        - payments
+      summary: Apply the bank's status report to a bank file
+      description: "Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to `acknowledged` and publishes `BankFileAcknowledged`; `rejected` moves it to `rejected` with the bank's reason and publishes `BankFileRejected`. The report's reference is kept in the audit trail. The run stays released with its postings either way; undoing them is a reversal (see the design review). Requires status `transmitted`."
+      x-permission: payments.file.transmit
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The bank's status report.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankStatusReport"
+      responses:
+        "200":
+          description: The bank file after reportBankFileStatus.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankFile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/approval-requests/{id}":
     get:
       operationId: getApprovalRequest
@@ -9691,6 +9748,36 @@ components:
       additionalProperties: false
       examples:
         - comment: Checked against the contract.
+    BankStatusReport:
+      type: object
+      description: "What the bank's status report (pain.002, camt.054) says about a transmitted file."
+      required:
+        - outcome
+      properties:
+        outcome:
+          type: string
+          description: "`accepted`: the bank took the file; `rejected`: it did not (`reason` required). Open enumeration; other values answer 422."
+          x-extensible-enum:
+            - accepted
+            - rejected
+          example: accepted
+        reference:
+          type: string
+          maxLength: 100
+          description: The report's message id or reference at the bank.
+          example: "pain.002-2026-10-12-0001"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The bank's reason for a rejection, as reported; required with outcome `rejected` (422 otherwise).
+          example: "AC01 Incorrect account number"
+      examples:
+        - outcome: accepted
+          reference: "pain.002-2026-10-12-0001"
+        - outcome: rejected
+          reference: "pain.002-2026-10-12-0002"
+          reason: "AC01 Incorrect account number"
     ReasonInput:
       type: object
       description: Body of a transition that requires a reason.

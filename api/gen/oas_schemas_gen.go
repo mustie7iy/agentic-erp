@@ -2160,6 +2160,7 @@ func (*BadRequestHeaders) releaseContractRes()            {}
 func (*BadRequestHeaders) releasePaymentRunRes()          {}
 func (*BadRequestHeaders) releasePurchaseOrderRes()       {}
 func (*BadRequestHeaders) releaseSupplierInvoiceRes()     {}
+func (*BadRequestHeaders) reportBankFileStatusRes()       {}
 func (*BadRequestHeaders) requestBankAccountChangeRes()   {}
 func (*BadRequestHeaders) requestBankAccountEndRes()      {}
 func (*BadRequestHeaders) reverseGoodsReceiptRes()        {}
@@ -3272,6 +3273,48 @@ func (s *BankFilePageHeaders) SetResponse(val BankFilePage) {
 }
 
 func (*BankFilePageHeaders) listBankFilesRes() {}
+
+// What the bank's status report (pain.002, camt.054) says about a transmitted file.
+// Ref: #/components/schemas/BankStatusReport
+type BankStatusReport struct {
+	// `accepted`: the bank took the file; `rejected`: it did not (`reason` required). Open enumeration;
+	// other values answer 422.
+	Outcome string `json:"outcome"`
+	// The report's message id or reference at the bank.
+	Reference OptString `json:"reference"`
+	// The bank's reason for a rejection, as reported; required with outcome `rejected` (422 otherwise).
+	Reason OptString `json:"reason"`
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *BankStatusReport) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetReference returns the value of Reference.
+func (s *BankStatusReport) GetReference() OptString {
+	return s.Reference
+}
+
+// GetReason returns the value of Reason.
+func (s *BankStatusReport) GetReason() OptString {
+	return s.Reason
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *BankStatusReport) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetReference sets the value of Reference.
+func (s *BankStatusReport) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetReason sets the value of Reason.
+func (s *BankStatusReport) SetReason(val OptString) {
+	s.Reason = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/BusinessPartner
@@ -5820,6 +5863,7 @@ func (*ConflictHeaders) releaseContractRes()          {}
 func (*ConflictHeaders) releasePaymentRunRes()        {}
 func (*ConflictHeaders) releasePurchaseOrderRes()     {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()   {}
+func (*ConflictHeaders) reportBankFileStatusRes()     {}
 func (*ConflictHeaders) requestBankAccountChangeRes() {}
 func (*ConflictHeaders) requestBankAccountEndRes()    {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()      {}
@@ -8571,6 +8615,7 @@ func (*ForbiddenHeaders) releaseContractRes()            {}
 func (*ForbiddenHeaders) releasePaymentRunRes()          {}
 func (*ForbiddenHeaders) releasePurchaseOrderRes()       {}
 func (*ForbiddenHeaders) releaseSupplierInvoiceRes()     {}
+func (*ForbiddenHeaders) reportBankFileStatusRes()       {}
 func (*ForbiddenHeaders) requestBankAccountChangeRes()   {}
 func (*ForbiddenHeaders) requestBankAccountEndRes()      {}
 func (*ForbiddenHeaders) reverseGoodsReceiptRes()        {}
@@ -13125,6 +13170,7 @@ func (*NotFoundHeaders) releaseContractRes()            {}
 func (*NotFoundHeaders) releasePaymentRunRes()          {}
 func (*NotFoundHeaders) releasePurchaseOrderRes()       {}
 func (*NotFoundHeaders) releaseSupplierInvoiceRes()     {}
+func (*NotFoundHeaders) reportBankFileStatusRes()       {}
 func (*NotFoundHeaders) requestBankAccountChangeRes()   {}
 func (*NotFoundHeaders) requestBankAccountEndRes()      {}
 func (*NotFoundHeaders) reverseGoodsReceiptRes()        {}
@@ -17243,6 +17289,7 @@ func (*PreconditionFailedHeaders) releaseContractRes()        {}
 func (*PreconditionFailedHeaders) releasePaymentRunRes()      {}
 func (*PreconditionFailedHeaders) releasePurchaseOrderRes()   {}
 func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes() {}
+func (*PreconditionFailedHeaders) reportBankFileStatusRes()   {}
 func (*PreconditionFailedHeaders) requestBankAccountEndRes()  {}
 func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()    {}
 func (*PreconditionFailedHeaders) reverseJournalEntryRes()    {}
@@ -17378,6 +17425,7 @@ func (*PreconditionRequiredHeaders) releaseContractRes()          {}
 func (*PreconditionRequiredHeaders) releasePaymentRunRes()        {}
 func (*PreconditionRequiredHeaders) releasePurchaseOrderRes()     {}
 func (*PreconditionRequiredHeaders) releaseSupplierInvoiceRes()   {}
+func (*PreconditionRequiredHeaders) reportBankFileStatusRes()     {}
 func (*PreconditionRequiredHeaders) requestBankAccountChangeRes() {}
 func (*PreconditionRequiredHeaders) requestBankAccountEndRes()    {}
 func (*PreconditionRequiredHeaders) reverseGoodsReceiptRes()      {}
@@ -19741,6 +19789,78 @@ func (s *RejectPaymentRunOKHeaders) SetResponse(val PaymentRun) {
 func (*RejectPaymentRunOKHeaders) rejectPaymentRunRes()  {}
 func (*RejectPaymentRunOKHeaders) releasePaymentRunRes() {}
 
+// ReportBankFileStatusOKHeaders wraps BankFile with response headers.
+type ReportBankFileStatusOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankFile
+}
+
+// GetETag returns the value of ETag.
+func (s *ReportBankFileStatusOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReportBankFileStatusOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *ReportBankFileStatusOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *ReportBankFileStatusOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *ReportBankFileStatusOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *ReportBankFileStatusOKHeaders) GetResponse() BankFile {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReportBankFileStatusOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReportBankFileStatusOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *ReportBankFileStatusOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *ReportBankFileStatusOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *ReportBankFileStatusOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReportBankFileStatusOKHeaders) SetResponse(val BankFile) {
+	s.Response = val
+}
+
+func (*ReportBankFileStatusOKHeaders) reportBankFileStatusRes() {}
+
 // RequestBankAccountEndOKHeaders wraps PartnerChange with response headers.
 type RequestBankAccountEndOKHeaders struct {
 	ETag               OptString
@@ -21802,6 +21922,7 @@ func (*ServiceUnavailableHeaders) releaseContractRes()            {}
 func (*ServiceUnavailableHeaders) releasePaymentRunRes()          {}
 func (*ServiceUnavailableHeaders) releasePurchaseOrderRes()       {}
 func (*ServiceUnavailableHeaders) releaseSupplierInvoiceRes()     {}
+func (*ServiceUnavailableHeaders) reportBankFileStatusRes()       {}
 func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()   {}
 func (*ServiceUnavailableHeaders) requestBankAccountEndRes()      {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()        {}
@@ -23461,6 +23582,7 @@ func (*TooManyRequestsHeaders) releaseContractRes()            {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()          {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()       {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()     {}
+func (*TooManyRequestsHeaders) reportBankFileStatusRes()       {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()   {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()      {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()        {}
@@ -23687,6 +23809,7 @@ func (*UnauthorizedHeaders) releaseContractRes()            {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()          {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()       {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()     {}
+func (*UnauthorizedHeaders) reportBankFileStatusRes()       {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()   {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()      {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()        {}
@@ -23825,6 +23948,7 @@ func (*UnprocessableHeaders) releaseContractRes()          {}
 func (*UnprocessableHeaders) releasePaymentRunRes()        {}
 func (*UnprocessableHeaders) releasePurchaseOrderRes()     {}
 func (*UnprocessableHeaders) releaseSupplierInvoiceRes()   {}
+func (*UnprocessableHeaders) reportBankFileStatusRes()     {}
 func (*UnprocessableHeaders) requestBankAccountChangeRes() {}
 func (*UnprocessableHeaders) requestBankAccountEndRes()    {}
 func (*UnprocessableHeaders) reverseGoodsReceiptRes()      {}

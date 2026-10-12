@@ -28,6 +28,18 @@ func TestDatabaseFailures(t *testing.T) {
 	e.decide(t, 200, released, "release", "")
 	files, _ := e.Must(200, "GET", "/v1/bank-files", "", "")
 	file := uuidOf(id(files["items"].([]any)[0].(map[string]any)))
+	transmitted := func(number, invoice string) uuid.UUID { // a released run of one invoice, its file transmitted
+		s := e.NewSupplier(t, number)
+		e.bankAccount(t, s, "DE89370400440532013000", "S", "2026-01-01", "", "create")
+		e.invoice(t, s, invoice, "7.00", "2026-03-01")
+		r := e.run(t, "2026-04-15", "2026-04-15")
+		e.decide(t, 200, r, "release", "")
+		fs, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(r), "", "")
+		f := id(fs["items"].([]any)[0].(map[string]any))
+		e.Must(202, "POST", "/v1/bank-files/"+f+":transmit", "", `"1"`)
+		return uuidOf(f)
+	}
+	toAck, toReject := transmitted("BP90000004", "INV-4"), transmitted("BP90000005", "INV-5")
 	e.invoice(t, e.Vendor, "INV-2", "50.00", "2026-03-01")
 	e.invoice(t, e.NewSupplier(t, "BP90000003"), "INV-3", "5.00", "2026-03-01")
 	proposed := e.run(t, "2026-04-16", "2026-04-16")
@@ -87,6 +99,15 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"transmit": func(ctx context.Context) error {
 			_, err := h.TransmitBankFile(ctx, gen.TransmitBankFileParams{ID: file, IfMatch: "*"})
+			return err
+		},
+		"report accepted": func(ctx context.Context) error {
+			_, err := h.ReportBankFileStatus(ctx, &gen.BankStatusReport{Outcome: "accepted"}, gen.ReportBankFileStatusParams{ID: toAck, IfMatch: "*"})
+			return err
+		},
+		"report rejected": func(ctx context.Context) error {
+			_, err := h.ReportBankFileStatus(ctx, &gen.BankStatusReport{Outcome: "rejected", Reference: gen.NewOptString("pain.002-0002"),
+				Reason: gen.NewOptString("AC01 Incorrect account number")}, gen.ReportBankFileStatusParams{ID: toReject, IfMatch: "*"})
 			return err
 		},
 		"in run": func(ctx context.Context) error {

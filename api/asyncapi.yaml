@@ -2966,6 +2966,7 @@ components:
         payment_run_id: {"$ref": "#/components/schemas/Uuid"}
         previous_status: {"type": "string", "description": "Open enum; transmitted in v1."}
         status: {"type": "string", "description": "Open enum: acknowledged, rejected."}
+        report_reference: {"type": ["string", "null"], "description": "The bank's status report reference, when given."}
     BankFileRejectedV1:
       type: object
       required: ["bank_file_id", "payment_run_id", "previous_status", "status"]
@@ -2974,6 +2975,8 @@ components:
         payment_run_id: {"$ref": "#/components/schemas/Uuid"}
         previous_status: {"type": "string", "description": "Open enum; transmitted in v1."}
         status: {"type": "string", "description": "Open enum: acknowledged, rejected."}
+        report_reference: {"type": ["string", "null"], "description": "The bank's status report reference, when given."}
+        reason: {"type": "string", "description": "The bank's reason, as reported."}
     RecommendationDecidedV1:
       type: object
       required: ["recommendation_id", "session_id", "object_type", "object_id", "kind", "outcome", "decided_by"]

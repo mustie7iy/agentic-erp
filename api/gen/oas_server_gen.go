@@ -906,6 +906,16 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, req OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// ReportBankFileStatus implements reportBankFileStatus operation.
+	//
+	// Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to
+	// `acknowledged` and publishes `BankFileAcknowledged`; `rejected` moves it to `rejected` with the
+	// bank's reason and publishes `BankFileRejected`. The report's reference is kept in the audit trail.
+	// The run stays released with its postings either way; undoing them is a reversal (see the design
+	// review). Requires status `transmitted`.
+	//
+	// POST /v1/bank-files/{id}:report
+	ReportBankFileStatus(ctx context.Context, req *BankStatusReport, params ReportBankFileStatusParams) (ReportBankFileStatusRes, error)
 	// RequestBankAccountChange implements requestBankAccountChange operation.
 	//
 	// Opens a pending partner change of kind `bank_change` that adds an account. The account exists only

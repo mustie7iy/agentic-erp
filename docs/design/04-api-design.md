@@ -262,7 +262,7 @@ and role administration) are never exposed as agent tools.
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close` |
 | procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
-| payments | `payment-runs`, `bank-files` | `:propose`, `:release`, `:reject`, `:transmit` |
+| payments | `payment-runs`, `bank-files` | `:propose`, `:release`, `:reject`, `:transmit`, `:report` |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |

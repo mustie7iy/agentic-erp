@@ -145,6 +145,7 @@ const (
 	ReleasePaymentRunOperation          OperationName = "ReleasePaymentRun"
 	ReleasePurchaseOrderOperation       OperationName = "ReleasePurchaseOrder"
 	ReleaseSupplierInvoiceOperation     OperationName = "ReleaseSupplierInvoice"
+	ReportBankFileStatusOperation       OperationName = "ReportBankFileStatus"
 	RequestBankAccountChangeOperation   OperationName = "RequestBankAccountChange"
 	RequestBankAccountEndOperation      OperationName = "RequestBankAccountEnd"
 	ReverseGoodsReceiptOperation        OperationName = "ReverseGoodsReceipt"

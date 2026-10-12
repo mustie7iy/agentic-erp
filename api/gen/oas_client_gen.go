@@ -927,6 +927,16 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, request OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// ReportBankFileStatus invokes reportBankFileStatus operation.
+	//
+	// Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to
+	// `acknowledged` and publishes `BankFileAcknowledged`; `rejected` moves it to `rejected` with the
+	// bank's reason and publishes `BankFileRejected`. The report's reference is kept in the audit trail.
+	// The run stays released with its postings either way; undoing them is a reversal (see the design
+	// review). Requires status `transmitted`.
+	//
+	// POST /v1/bank-files/{id}:report
+	ReportBankFileStatus(ctx context.Context, request *BankStatusReport, params ReportBankFileStatusParams) (ReportBankFileStatusRes, error)
 	// RequestBankAccountChange invokes requestBankAccountChange operation.
 	//
 	// Opens a pending partner change of kind `bank_change` that adds an account. The account exists only
@@ -24553,6 +24563,170 @@ func (c *Client) sendReleaseSupplierInvoice(ctx context.Context, request OptDeci
 
 	stage = "DecodeResponse"
 	result, err := decodeReleaseSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReportBankFileStatus invokes reportBankFileStatus operation.
+//
+// Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to
+// `acknowledged` and publishes `BankFileAcknowledged`; `rejected` moves it to `rejected` with the
+// bank's reason and publishes `BankFileRejected`. The report's reference is kept in the audit trail.
+// The run stays released with its postings either way; undoing them is a reversal (see the design
+// review). Requires status `transmitted`.
+//
+// POST /v1/bank-files/{id}:report
+func (c *Client) ReportBankFileStatus(ctx context.Context, request *BankStatusReport, params ReportBankFileStatusParams) (ReportBankFileStatusRes, error) {
+	res, err := c.sendReportBankFileStatus(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendReportBankFileStatus(ctx context.Context, request *BankStatusReport, params ReportBankFileStatusParams) (res ReportBankFileStatusRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reportBankFileStatus"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-files/{id}:report"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReportBankFileStatusOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/bank-files/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":report"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeReportBankFileStatusRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReportBankFileStatusOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReportBankFileStatusResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

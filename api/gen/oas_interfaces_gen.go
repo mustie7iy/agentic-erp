@@ -557,6 +557,10 @@ type ReleaseSupplierInvoiceRes interface {
 	releaseSupplierInvoiceRes()
 }
 
+type ReportBankFileStatusRes interface {
+	reportBankFileStatusRes()
+}
+
 type RequestBankAccountChangeRes interface {
 	requestBankAccountChangeRes()
 }

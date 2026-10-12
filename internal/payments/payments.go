@@ -57,8 +57,10 @@ const (
 
 // Bank file statuses.
 const (
-	FileCreated     = "created"
-	FileTransmitted = "transmitted"
+	FileCreated      = "created"
+	FileTransmitted  = "transmitted"
+	FileAcknowledged = "acknowledged"
+	FileRejected     = "rejected"
 )
 
 const (
