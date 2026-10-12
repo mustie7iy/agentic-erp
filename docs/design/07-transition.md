@@ -77,6 +77,10 @@ prototype store for that context.
 | T23 (done) | **Operator roles, rotation policy, security lint** | Operator tokens carry roles the control planes check per operation; a worker rotates tenant keys older than a configured age; the API's own upload URLs can be absolute; `gosec` runs in CI with its exclusions decided and recorded |
 | T24 (done) | **Re-onboarding from export** | `erp-server import` brings an exported tenant back into a cell, row for row and chain head and all, every part checked against the manifest; the row copy a move between cells needs |
 | T25 (done) | **Cross-cell verification** | Each cell answers a tenant's fingerprint (rows per table, audit chain head); the global control plane compares the tenant's cell with the destination and names every difference, the evidence a move waits for before switching the entry |
+| T26 | **Temporal runtime** (ADR-0012, accepted) | `erp-server` runs a Temporal worker; the `Operation` resource is the API's view of a workflow (id from the business key, status, progress, result, error, `:cancel`); one existing operation runs end to end as a workflow whose activities are the application services in the unit of work; a dev server in tests and CI |
+| T27 | **Payment proposals and releases as workflows** | A proposal is chunked and resumable, reporting progress; a release over any number of items is an operation; each posting is one idempotent activity; a failed workflow raises an exception-queue item |
+| T28 | **Simulations, regression and migration runs as workflows** | Chunked replays and migration runs resume after a restart; evidence is recorded by activities; the in-process workers are deleted |
+| T29 | **Human waits and timers** | Approval requests and period close run as workflows that wait on decisions and deadlines; escalation timers; workflow versioning and the payload codec in place; namespaces per environment and tenant isolation by task queue |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.

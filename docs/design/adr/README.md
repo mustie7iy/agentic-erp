@@ -16,7 +16,7 @@ new record. Status values: proposed, accepted, superseded.
 | [0009](0009-extensibility.md) | Governed custom fields in jsonb | proposed |
 | [0010](0010-authentication-authorization.md) | OIDC authentication; permission, company and SoD authorization | proposed |
 | [0011](0011-audit-trail.md) | Hash-chained audit events in the same transaction | proposed |
-| [0012](0012-long-running-operations.md) | Long-running work as Temporal workflows behind API operations | proposed |
+| [0012](0012-long-running-operations.md) | Long-running work as Temporal workflows behind API operations: multi-step, cross-module, human waits, timers and batches; postings stay one ACID activity; ids from business keys | accepted |
 | [0013](0013-api-style.md) | Resource-oriented REST with OpenAPI 3.1 as the source of truth | proposed |
 | [0014](0014-request-pipeline-and-code-generation.md) | Request pipeline, unit of work and server code generation (ogen) | proposed |
 | [0015](0015-control-plane.md) | Control plane for tenants on the admin listener with operator tokens | proposed |

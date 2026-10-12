@@ -36,7 +36,7 @@ Six assumptions shaped the data model ([01 § Assumptions](01-requirements.md#as
 
 All 30 are `proposed`. The review accepts, amends or rejects each. They fall into three groups.
 
-**Foundation (0001 to 0014).** Taken before T1 and exercised by every step since: modular monolith, PostgreSQL as system of record, pooled tenancy with RLS, UUIDv7 plus number ranges, integer minor units, append-only ledger with derived balances, transactional outbox with CloudEvents, optimistic locking and idempotency keys, governed custom fields, OIDC with permission, company and SoD authorization, hash-chained audit, long-running work as operations, resource-oriented REST from an OpenAPI source of truth, and the request pipeline with generated server code. One of them is not yet implemented as written: **ADR-0012 names Temporal** for long-running work, but proposals, migration runs and simulations still run inside one worker transaction (see the open points on chunked work below). The review decides whether Temporal stays the plan or the in-process workers with operations are the design.
+**Foundation (0001 to 0014).** ADR-0012 is accepted (decision 2 below, taken 2026-10-12); the rest are proposed. Taken before T1 and exercised by every step since: modular monolith, PostgreSQL as system of record, pooled tenancy with RLS, UUIDv7 plus number ranges, integer minor units, append-only ledger with derived balances, transactional outbox with CloudEvents, optimistic locking and idempotency keys, governed custom fields, OIDC with permission, company and SoD authorization, hash-chained audit, long-running work as operations, resource-oriented REST from an OpenAPI source of truth, and the request pipeline with generated server code. One of them is not yet implemented as written: **ADR-0012 names Temporal** for long-running work, but proposals, migration runs and simulations still run inside one worker transaction (see the open points on chunked work below). The review decides whether Temporal stays the plan or the in-process workers with operations are the design.
 
 **Platform operations (0015 to 0025).** Taken step by step as the platform grew: the control plane on the admin listener, write-once object storage, secrets by reference, per-tenant encryption keys with a KMS master, direct uploads, the offboarding lifecycle, the global directory and router, the global control plane, ambient cloud credentials and scheduled audit verification. Each has a question worth a reviewer's minute, listed in its record under Alternatives.
 
@@ -82,7 +82,7 @@ Every step recorded its open points (07-transition, "decisions and open points")
 - The administrator holds every permission including approvals until real roles are provisioned; a tenant's first SoD rules could ship with the configuration (T8).
 - Operator roles are coarse; per-cell or per-region scoping would be a further claim (T23).
 
-### Still open: work that outgrows one transaction (the scalability review decides, with ADR-0012)
+### Decided: work that outgrows one transaction (ADR-0012 accepted on 2026-10-12: Temporal; scheduled as T26 to T29)
 
 - Payment release answers synchronously and takes about 26 s for 2,000 payments over 100,000 items locally; proposals report progress only on completion; migration runs and simulations run within the request or one worker transaction (T5, T6, T9).
 - A connector should confirm a sent bank file before commit once integration messages exist (T5).
@@ -128,7 +128,7 @@ Every step recorded its open points (07-transition, "decisions and open points")
 ## 6. Decisions requested, in order
 
 1. The six assumptions (section 2): any correction changes the schema.
-2. ADR-0012: Temporal, or in-process workers behind operations, for long-running work. This decides how the "outgrows one transaction" group is closed.
+2. ~~ADR-0012: Temporal, or in-process workers behind operations~~ Decided: Temporal, with the scope, integrity, idempotency and engineering rules recorded in the ADR; the "outgrows one transaction" group is scheduled as T26 to T29.
 3. The tenant move as five operator steps (ADR-0021, 0029, 0030) or one long-running operation.
 4. The contract gaps (section 4): which events and operations are added before a consumer builds on v1.
 5. The platform owner's list: the cell-sized environment for the first scalability gate, the further providers, the deployment concerns.
