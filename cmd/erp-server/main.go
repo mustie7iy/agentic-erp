@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log/slog"
@@ -150,7 +151,8 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	backlogs(pool, cfg, metrics)
 	apiCfg := httpapi.Config{
 		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, ExtractDir: cfg.ExtractDir, Objects: store, Secrets: cfg.Secrets, Log: log,
-		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
+		UploadKey: uploadKey(cfg.PageTokenKey),
+		Limits:    ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: metrics, Tracer: tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 	}
 	apiHandler, err := httpapi.New(apiCfg)
@@ -272,6 +274,16 @@ func keyring(cfg config.Config, pool *database.Pool) (*fieldcrypt.Keyring, error
 		ring.Legacy = legacy
 	}
 	return ring, nil
+}
+
+// uploadKey derives the key that signs the API's own upload URLs from the
+// page-token key, so every replica signs and checks the same way without
+// one more setting; both keys guard short-lived URLs of one deployment.
+func uploadKey(pageTokenKey []byte) []byte {
+	h := sha256.New()
+	h.Write([]byte("erp upload urls\n"))
+	h.Write(pageTokenKey)
+	return h.Sum(nil)
 }
 
 // objects opens the configured object store, or nil without one.

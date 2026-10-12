@@ -5774,6 +5774,95 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/uploads":
+    post:
+      operationId: createUpload
+      tags:
+        - payables
+      summary: Start a direct upload
+      description: "Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to `PUT` the bytes to, with the `headers` to send, within `expires_at`; the URL is absolute when it points at object storage, or a path on this API. The upload is then named by `upload_id` in the operation that consumes it (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while the server has no object storage."
+      x-permission: payables.invoice.capture
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: What is being uploaded.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadCreate"
+      responses:
+        "201":
+          description: "Created; the upload with its URL."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upload"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/uploads/{id}":
+    get:
+      operationId: getUpload
+      tags:
+        - payables
+      summary: Get an upload
+      description: "Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is consumed (`used`); an upload to object storage stays `open` until it is consumed."
+      x-permission: payables.invoice.capture
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The upload.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upload"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/supplier-invoices/{id}":
     get:
       operationId: getSupplierInvoice
@@ -14836,10 +14925,9 @@ components:
         - supplier_reference: INV-2026/001
     SupplierInvoiceCapture:
       type: object
-      description: A scanned or electronic invoice document to capture.
+      description: "A scanned or electronic invoice document to capture: the bytes in `document`, or the `upload_id` of a direct upload (`POST /v1/uploads`) for documents above the request limit. Exactly one of the two."
       required:
         - legal_entity_id
-        - document
       properties:
         legal_entity_id:
           type: string
@@ -14849,9 +14937,123 @@ components:
           type: string
           contentMediaType: application/octet-stream
           description: The invoice document (PDF, PNG, JPEG or e-invoice XML), at most 5 MB. The same document cannot be captured twice (409).
+        upload_id:
+          type: string
+          format: uuid
+          description: "A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was consumed before."
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           document: JVBERi0xLjcK
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          upload_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+    Upload:
+      description: "A direct upload: a document too large for a request body goes to object storage through `url`, then an operation consumes it by id (04 §4.11)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - purpose
+            - content_type
+            - max_bytes
+            - status
+            - url
+            - method
+            - headers
+            - expires_at
+          properties:
+            purpose:
+              type: string
+              description: "What the document is for; decides which operation may consume it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - supplier_invoice
+              readOnly: true
+            content_type:
+              type: string
+              description: The content type the bytes must be sent with.
+              readOnly: true
+            max_bytes:
+              type: integer
+              format: int64
+              description: Largest upload accepted; a larger one is refused when consumed.
+              readOnly: true
+            status:
+              type: string
+              description: "`open` until bytes arrive through this API (`received`) or the upload is consumed (`used`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - open
+                - received
+                - used
+              readOnly: true
+            url:
+              type: string
+              description: "Where to send the bytes with `method` and `headers`: an absolute URL of the object store, or a path on this API (no bearer token needed; the URL is signed)."
+              readOnly: true
+            method:
+              type: string
+              description: "The HTTP method to send the bytes with. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - PUT
+              readOnly: true
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+              description: Headers the request to `url` must carry, exactly.
+              readOnly: true
+            expires_at:
+              type: string
+              format: date-time
+              description: Until when `url` accepts the bytes (UTC).
+              readOnly: true
+            size:
+              type: integer
+              format: int64
+              description: Bytes received, once known (an upload through this API, or one consumed).
+              readOnly: true
+            used_by:
+              type: string
+              format: uuid
+              description: The resource that consumed the upload (a supplier invoice), once used.
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          version: 1
+          created_at: "2026-03-10T09:00:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          updated_at: "2026-03-10T09:00:00Z"
+          purpose: supplier_invoice
+          content_type: application/pdf
+          max_bytes: 52428800
+          status: open
+          url: "https://s3.eu-west-1.amazonaws.com/erp-objects/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d00/uploads/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=900"
+          method: PUT
+          headers:
+            Content-Type: application/pdf
+          expires_at: "2026-03-10T09:15:00Z"
+    UploadCreate:
+      type: object
+      description: What a direct upload will carry.
+      required:
+        - purpose
+        - content_type
+      properties:
+        purpose:
+          type: string
+          description: "What the document is for. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - supplier_invoice
+        content_type:
+          type: string
+          description: "The content type of the document; another type is refused (422 `payables.unsupported_content_type`). Open enumeration: values may be added within /v1."
+          x-extensible-enum:
+            - application/pdf
+            - image/png
+            - image/jpeg
+            - application/xml
+            - text/xml
+      examples:
+        - purpose: supplier_invoice
+          content_type: application/pdf
     SupplierInvoicePost:
       type: object
       description: Options for posting.

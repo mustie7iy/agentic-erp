@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -208,6 +209,9 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	}
 	if !seen[id] || !seen[second["id"].(string)] || pages < 2 {
 		t.Fatalf("paged %d pages, saw %v", pages, seen)
+	}
+	if first, _ := p.must(200, "ops|alice", "GET", tenants+"?order_by=name%20asc&page_size=1", ""); first["next_page_token"] == nil {
+		t.Fatalf("by name, one per page: %v", first)
 	}
 	byName, _ := p.must(200, "ops|alice", "GET", tenants+"?order_by=name%20asc&page_size=500", "")
 	names := []string{}
@@ -514,7 +518,10 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	p.problem(428, "request.precondition_required", "ops|alice", "POST", tenants+"/"+id+":rotateKey", "")
 	p.problem(412, "request.version_mismatch", "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", `"7"`)
 	p.problem(404, "request.not_found", "ops|alice", "POST", tenants+"/"+uuid.NewString()+":rotateKey", "", "If-Match", "*")
+	at := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	p.s.Now = func() time.Time { return at } // the audit entry carries the service's clock
 	got, h := p.must(200, "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", `"1"`)
+	p.s.Now = nil
 	rot := got["rotation"].(map[string]any)
 	if got["version"] != float64(2) || h.Get("ETag") != `"2"` || rot["resealed"] != float64(2) || rot["master_key_id"] != "test" ||
 		rot["previous_key_id"] == uuid.Nil.String() || rot["key_id"] == rot["previous_key_id"] {

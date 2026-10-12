@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -44,6 +45,8 @@ type Server struct {
 	// (0: serve normally); FailPlain answers it with a non-XML body.
 	Fail      int
 	FailPlain bool
+	// Now is the clock presigned URLs are checked against (nil: time.Now).
+	Now func() time.Time
 }
 
 // New starts a server that stops when the test ends.
@@ -103,6 +106,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.Method {
+	case http.MethodHead:
+		o, exists := s.Objects[key]
+		if !exists {
+			s.answer(w, http.StatusNotFound, "NoSuchKey", "The specified key does not exist.")
+			return
+		}
+		w.Header().Set("Content-Type", o.ContentType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(o.Content)))
+		w.WriteHeader(http.StatusOK)
 	case http.MethodPut:
 		if _, exists := s.Objects[key]; exists && r.Header.Get("If-None-Match") == "*" {
 			s.answer(w, http.StatusPreconditionFailed, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold.")
@@ -127,8 +139,18 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 // authentic recomputes the signature of the request with the server's
-// credentials, at the time the request names, and compares.
+// credentials, at the time the request names, and compares. A presigned
+// request (signature in the query) must also be within its validity at
+// Now (the clock of the test, default the real one).
 func (s *Server) authentic(r *http.Request, body []byte) bool {
+	if r.URL.Query().Get("X-Amz-Signature") != "" {
+		ok, made, ttl := sigv4.Verify(r, AccessKey, SecretKey, Region, "s3")
+		now := time.Now()
+		if s.Now != nil {
+			now = s.Now()
+		}
+		return ok && now.Before(made.Add(ttl))
+	}
 	got := r.Header.Get("Authorization")
 	when, err := time.Parse("20060102T150405Z", r.Header.Get("X-Amz-Date"))
 	if err != nil || got == "" {

@@ -8,6 +8,7 @@
 //	erp call OPERATION [-p name=value]... [-body JSON] [-if-match ETAG]
 //	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]
 //	erp invoices [-agent]          match parked invoices, post clean ones
+//	erp capture -legal-entity ID -file F   capture an invoice document (large ones through an upload)
 //	erp agent invoices|config|migration|test
 //	erp metrics | query | ask | report
 //	erp gen-mock-sap | config generate | config validate
@@ -93,6 +94,7 @@ var commands map[string]command
 func init() {
 	commands = map[string]command{
 		"call":         call,
+		"capture":      captureCmd,
 		"migrate":      migrate,
 		"invoices":     invoices,
 		"agent":        agentCmd,
@@ -114,6 +116,7 @@ the API (ERP_API_URL, ERP_TOKEN):
   call           call any API operation: erp call getPaymentRun -p id=...
   migrate        run a migration scope from a connector: start, reconcile, print the report
   invoices       match parked supplier invoices and post the clean ones (-agent: investigate held ones)
+  capture        capture a supplier invoice from a document file (large ones through an upload)
   metrics        list the governed metrics
   query          run a semantic query over the data you may read
   ask            ask a question; the analytics agent builds a dashboard on demand

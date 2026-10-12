@@ -18,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -155,7 +156,17 @@ func (e *Endpoints) CreateSupplierInvoice(ctx context.Context, req *gen.Supplier
 
 // CaptureSupplierInvoice implements POST /v1/supplier-invoices:capture.
 func (e *Endpoints) CaptureSupplierInvoice(ctx context.Context, req *gen.SupplierInvoiceCaptureMultipart, _ gen.CaptureSupplierInvoiceParams) (gen.CaptureSupplierInvoiceRes, error) {
-	op, err := e.CaptureInvoice(ctx, req.LegalEntityID, []byte(req.Document))
+	var op operations.Operation
+	var err error
+	switch document, upload := req.Document.Get(); {
+	case req.Document.Set == req.UploadID.Set:
+		return nil, problem.Unprocessable("payables.capture_needs_document", "Send the document, or the upload_id of a direct upload: one of the two.",
+			problem.FieldError{Field: "document", Code: "required", Message: "document or upload_id"})
+	case upload:
+		op, err = e.CaptureInvoice(ctx, req.LegalEntityID, []byte(document))
+	default:
+		op, err = e.CaptureUpload(ctx, req.LegalEntityID, req.UploadID.Value)
+	}
 	if err != nil {
 		return nil, err
 	}

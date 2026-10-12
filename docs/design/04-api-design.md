@@ -214,7 +214,7 @@ check in CI enforces this.
 |---|---|
 | Requests per tenant | 2,000/s sustained, burst 10,000 |
 | Requests per principal | 50/s (agents configurable per profile) |
-| Request body | 5 MB (documents are stored in object storage and read back through `GET .../document` and `.../content`; larger ones will go to `:upload` URLs) |
+| Request body | 5 MB (documents are stored in object storage and read back through `GET .../document` and `.../content`; larger ones, up to 50 MB, go through `POST /v1/uploads`: a presigned `PUT` to the store, or a signed path on the API, then `upload_id` in the consuming operation, ADR-0020) |
 | Lines per document | 10,000 (larger loads use import operations) |
 | `page_size` | 500 |
 
@@ -261,7 +261,7 @@ and role administration) are never exposed as agent tools.
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close` |
 | procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:cancel`, `:reverse` |
-| payables | `supplier-invoices`, `match-results` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
+| payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose`, `:release`, `:reject`, `:transmit` |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |

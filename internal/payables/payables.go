@@ -151,6 +151,7 @@ type Endpoints struct {
 	OrderNumbers  OrderNumbers      // resolves the order number a captured document prints
 	Extractor     capture.Extractor // reads captured documents; nil: capture is not available
 	Objects       blobstore.Store   // keeps captured documents; nil: only their hash is recorded, and downloads answer 503
+	Uploads       *Uploads          // direct uploads of large documents; nil or without a store: uploads answer 503
 }
 
 // Item is a live invoice item.

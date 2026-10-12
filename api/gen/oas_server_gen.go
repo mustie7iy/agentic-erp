@@ -249,6 +249,16 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices
 	CreateSupplierInvoice(ctx context.Context, req *SupplierInvoiceCreate, params CreateSupplierInvoiceParams) (CreateSupplierInvoiceRes, error)
+	// CreateUpload implements createUpload operation.
+	//
+	// Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to
+	// `PUT` the bytes to, with the `headers` to send, within `expires_at`; the URL is absolute when it
+	// points at object storage, or a path on this API. The upload is then named by `upload_id` in the
+	// operation that consumes it (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while
+	// the server has no object storage.
+	//
+	// POST /v1/uploads
+	CreateUpload(ctx context.Context, req *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
 	// DecideRecommendation implements decideRecommendation operation.
 	//
 	// Records what a person did with an open recommendation: accepted, overridden or ignored. Human-only.
@@ -523,6 +533,13 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices/{id}/document
 	GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (GetSupplierInvoiceDocumentRes, error)
+	// GetUpload implements getUpload operation.
+	//
+	// Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
+	// consumed (`used`); an upload to object storage stays `open` until it is consumed.
+	//
+	// GET /v1/uploads/{id}
+	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
 	// GrantRolePermission implements grantRolePermission operation.
 	//
 	// Adds an effective-dated permission grant to the role.

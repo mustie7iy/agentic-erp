@@ -72,7 +72,7 @@ func NewWith(t testing.TB, configure func(*httpapi.Config)) *API {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	a := &API{t: t, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &syncBuffer{}}
 	cfg := httpapi.Config{
-		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(),
+		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(), UploadKey: []byte(strings.Repeat("u", 32)),
 		Log: telemetry.NewLogger(a.logs, -4), Metrics: a.Metrics,
 		Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now,
 	}

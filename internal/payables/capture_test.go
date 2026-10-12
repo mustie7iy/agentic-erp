@@ -66,7 +66,7 @@ func TestCapture(t *testing.T) {
 	run := func(x capture.Extractor, doc string) (gen.CaptureSupplierInvoiceRes, error) {
 		var res gen.CaptureSupplierInvoiceRes
 		err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-			res, err = endpoints(x).CaptureSupplierInvoice(ctx, &gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE, Document: doc},
+			res, err = endpoints(x).CaptureSupplierInvoice(ctx, &gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE, Document: gen.NewOptString(doc)},
 				gen.CaptureSupplierInvoiceParams{})
 			return err
 		})

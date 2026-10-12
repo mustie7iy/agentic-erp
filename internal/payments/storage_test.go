@@ -21,6 +21,7 @@ type failingStore struct{ err error }
 
 func (f failingStore) Put(context.Context, string, []byte, blobstore.PutOptions) error { return f.err }
 func (f failingStore) Get(context.Context, string) ([]byte, string, error)             { return nil, "", f.err }
+func (f failingStore) Stat(context.Context, string) (int64, string, error)             { return 0, "", f.err }
 
 // TestBankFilesAreKept: with object storage the file written at release is
 // kept and handed out or transmitted from there, always checked against the

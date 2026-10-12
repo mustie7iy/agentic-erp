@@ -224,7 +224,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T15 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T16 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier
@@ -240,9 +240,10 @@ Known gaps:
   bootstrap); there is no self-service signup, offboarding is a status
   without data retention or export yet, and the development issuer is for
   local use only.
-- Documents are limited to 5 MB in the request; presigned uploads to
-  object storage are not built. Without object storage configured the
-  server keeps only hashes and does not anchor the audit chain.
+- Documents above 5 MB go through `POST /v1/uploads` (a presigned `PUT`
+  to the store, or a signed path on the API with a directory store), up to
+  50 MB. Without object storage configured the server keeps only hashes,
+  serves no uploads and does not anchor the audit chain.
 - Single currency per company code. No FX revaluation yet.
 - The OData entity and field mappings follow SAP API Business Hub names but have
   not yet been validated against a live system. Check them against your `$metadata`.

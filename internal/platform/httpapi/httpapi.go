@@ -101,6 +101,7 @@ type Config struct {
 	Connector  payments.Connector  // transmits bank files; nil: transmission answers 503
 	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
 	Objects    blobstore.Store     // documents, bank files and audit anchors; nil: documents and files are not kept
+	UploadKey  []byte              // signs the API's own upload URLs (directory store); the same on every replica
 	Secrets    secrets.Resolver    // resolves connectors' secret_ref; nil: env: and file: references on this replica
 	// Limits enforces the request quotas of 04 §4.11; nil applies none.
 	Limits *ratelimit.Limiter
@@ -117,6 +118,7 @@ type Config struct {
 // New builds the public API handler.
 func New(cfg Config) (http.Handler, error) {
 	opener := approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
+	uploads := &payables.Uploads{Objects: cfg.Objects, Secret: cfg.UploadKey, Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
@@ -139,7 +141,7 @@ func New(cfg Config) (http.Handler, error) {
 			Orders: procurement.Orders{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 				Numbers: configuration.Numbers{}}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
 			Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Approvals: opener,
-			Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor, Objects: cfg.Objects},
+			Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads},
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -171,7 +173,14 @@ func New(cfg Config) (http.Handler, error) {
 	if cfg.RequestTimeout > 0 {
 		chain = deadline(cfg.RequestTimeout, chain)
 	}
-	return telemetry.Middleware(cfg.Log, cfg.Metrics, cfg.Tracer)(chain), nil
+	// The API-hosted upload is the one route outside the generated server:
+	// a signed URL instead of a bearer token, a body above the request
+	// limit, and no unit of work (the upload itself is not idempotent work;
+	// the capture that consumes it is).
+	mux := http.NewServeMux()
+	mux.Handle("PUT /v1/uploads/{id}/content", uploads)
+	mux.Handle("/", chain)
+	return telemetry.Middleware(cfg.Log, cfg.Metrics, cfg.Tracer)(mux), nil
 }
 
 // deadline gives each request a deadline. Work past it fails with the

@@ -73,3 +73,52 @@ func TestEncoding(t *testing.T) {
 		t.Fatalf("PayloadHash: %s", got)
 	}
 }
+
+// TestPresign checks the presigner against the example of the S3 developer
+// guide (query-parameter authentication, 2013-05-24, 86400 s) and the
+// verifier against the presigner.
+func TestPresign(t *testing.T) {
+	req, _ := http.NewRequest("GET", "https://examplebucket.s3.amazonaws.com/test.txt", nil)
+	made := time.Date(2013, 5, 24, 0, 0, 0, 0, time.UTC)
+	got := sigv4.Presign(req, "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "us-east-1", "s3", 24*time.Hour, made)
+	want := "https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404&X-Amz-SignedHeaders=host"
+	if got != want {
+		t.Fatalf("\n got %s\nwant %s", got, want)
+	}
+	// A PUT with a signed Content-Type verifies with that type only.
+	req, _ = http.NewRequest("PUT", "https://s3.example.com/bucket/tenants/x/uploads/1", nil)
+	req.Header.Set("Content-Type", "application/pdf")
+	u := sigv4.Presign(req, accessKey, secretKey, "us-east-1", "s3", 15*time.Minute, made)
+	sent, _ := http.NewRequest("PUT", u, nil)
+	sent.Header.Set("Content-Type", "application/pdf")
+	ok, at, ttl := sigv4.Verify(sent, accessKey, secretKey, "us-east-1", "s3")
+	if !ok || !at.Equal(made) || ttl != 15*time.Minute {
+		t.Fatalf("verify: %v %v %v", ok, at, ttl)
+	}
+	sent.Header.Set("Content-Type", "image/png")
+	if ok, _, _ := sigv4.Verify(sent, accessKey, secretKey, "us-east-1", "s3"); ok {
+		t.Fatal("another content type verified")
+	}
+	sent.Header.Set("Content-Type", "application/pdf")
+	for name, mutate := range map[string]func(q url.Values){
+		"wrong secret":     func(url.Values) {},
+		"no signature":     func(q url.Values) { q.Del("X-Amz-Signature") },
+		"bad date":         func(q url.Values) { q.Set("X-Amz-Date", "yesterday") },
+		"other credential": func(q url.Values) { q.Set("X-Amz-Credential", "AKIDOTHER/20130524/us-east-1/s3/aws4_request") },
+		"tampered":         func(q url.Values) { q.Set("X-Amz-Expires", "999999") },
+	} {
+		bad := *sent
+		bad.URL = new(url.URL)
+		*bad.URL = *sent.URL
+		q := bad.URL.Query()
+		mutate(q)
+		bad.URL.RawQuery = q.Encode()
+		secret := secretKey
+		if name == "wrong secret" {
+			secret = "nope"
+		}
+		if ok, _, _ := sigv4.Verify(&bad, accessKey, secret, "us-east-1", "s3"); ok {
+			t.Errorf("%s: verified", name)
+		}
+	}
+}

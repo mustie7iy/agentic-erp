@@ -60,10 +60,7 @@ func rewrap(ctx context.Context, cfg platformconfig.Config) (rewrapResult, error
 		return rewrapResult{}, err
 	}
 	defer pool.Close()
-	keys, _ := keyring(cfg, pool) // the keys were validated with the configuration
-	if len(keys.Masters) == 0 {
-		return rewrapResult{}, errors.New("no master key to wrap tenant keys with (ERP_FIELD_KEYS or ERP_FIELD_KMS_KEY)")
-	}
+	keys, _ := keyring(cfg, pool) // the keys were validated with the configuration, which requires a master
 	res := rewrapResult{Master: keys.Masters[0].ID()}
 	var tenants []uuid.UUID
 	err = pool.InTx(ctx, database.Scope{Role: cfg.ControlRole, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {

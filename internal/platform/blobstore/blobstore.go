@@ -44,12 +44,25 @@ type Store interface {
 	// Get reads the object and its content type; ErrNotFound when the key
 	// holds nothing.
 	Get(ctx context.Context, key string) ([]byte, string, error)
+	// Stat reports the object's size and content type without reading it;
+	// ErrNotFound when the key holds nothing.
+	Stat(ctx context.Context, key string) (int64, string, error)
+}
+
+// Presigner is a store that can hand out URLs clients write to directly
+// (04-api-design §4.11: documents above the request limit). S3 is one; the
+// directory store is not, and the API receives those uploads itself.
+type Presigner interface {
+	// PresignPut returns a URL a client may PUT the object to within
+	// expires, sending exactly the content type given.
+	PresignPut(ctx context.Context, key, contentType string, expires time.Duration) (string, error)
 }
 
 // Kinds of objects, the second key segment after the tenant.
 const (
 	KindDocuments = "documents"  // captured supplier invoice documents, named by sha256
 	KindBankFiles = "bank-files" // pain.001 files, named by bank file id
+	KindUploads   = "uploads"    // documents clients upload directly, named by upload id; copied under their hash when used
 	KindAnchors   = "audit/anchors"
 )
 
@@ -137,13 +150,32 @@ func (d Dir) Get(_ context.Context, key string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("blobstore: %w", err)
 	}
-	ct := "application/octet-stream"
+	return content, d.contentTypeOf(key), nil
+}
+
+// Stat implements Store.
+func (d Dir) Stat(_ context.Context, key string) (int64, string, error) {
+	if err := checkKey(key); err != nil {
+		return 0, "", err
+	}
+	info, err := os.Stat(d.path(key))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, "", ErrNotFound
+	}
+	if err != nil {
+		return 0, "", fmt.Errorf("blobstore: %w", err)
+	}
+	return info.Size(), d.contentTypeOf(key), nil
+}
+
+// contentTypeOf reads the sidecar; content without one is binary.
+func (d Dir) contentTypeOf(key string) string {
 	if meta, err := os.ReadFile(d.path(key) + ".meta"); err == nil {
 		if line, _, _ := strings.Cut(string(meta), "\n"); line != "" {
-			ct = line
+			return line
 		}
 	}
-	return content, ct, nil
+	return "application/octet-stream"
 }
 
 func contentType(opts PutOptions) string {

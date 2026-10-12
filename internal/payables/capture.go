@@ -38,15 +38,34 @@ func unreadable(detail string) error {
 // extraction, so the invoice refers to what was read; the same bytes
 // captured twice (also by a retried request) find the object there already.
 func (e *Endpoints) CaptureInvoice(ctx context.Context, legalEntity uuid.UUID, document []byte) (operations.Operation, error) {
+	if len(document) > MaxDocument {
+		return operations.Operation{}, problem.Unprocessable("payables.document_too_large", "Documents are at most 5 MB in the request; larger ones go through an upload (POST /v1/uploads).")
+	}
+	return e.capture(ctx, legalEntity, document, nil)
+}
+
+// CaptureUpload captures the document of a direct upload (POST /v1/uploads),
+// which the capture consumes: used once, the invoice records it.
+func (e *Endpoints) CaptureUpload(ctx context.Context, legalEntity, upload uuid.UUID) (operations.Operation, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	document, up, err := e.Uploads.take(ctx, tx, upload, "supplier_invoice")
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	return e.capture(ctx, legalEntity, document, &up)
+}
+
+// capture extracts and enters a document, from the request or from upload.
+func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document []byte, upload *Upload) (operations.Operation, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return operations.Operation{}, err
 	}
 	if e.Extractor == nil {
 		return operations.Operation{}, problem.Unavailable("Invoice capture is not configured on this server.", 0)
-	}
-	if len(document) > MaxDocument {
-		return operations.Operation{}, problem.Unprocessable("payables.document_too_large", "Documents are at most 5 MB.")
 	}
 	sum := sha256.Sum256(document)
 	var exists bool
@@ -151,6 +170,11 @@ func (e *Endpoints) CaptureInvoice(ctx context.Context, legalEntity uuid.UUID, d
 	v, err := e.insert(ctx, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
 	if err != nil {
 		return operations.Operation{}, err
+	}
+	if upload != nil {
+		if err := e.Uploads.mark(ctx, tx, *upload, document, v.ID); err != nil {
+			return operations.Operation{}, err
+		}
 	}
 	return operations.Succeed(ctx, op.ID, "/v1/supplier-invoices/"+v.ID.String(),
 		map[string]any{"supplier_invoice_id": v.ID, "status": v.Status, "warnings": warnings})

@@ -164,3 +164,88 @@ type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
 func (failingReader) Close() error             { return nil }
+
+// TestStatAndPresignedUploads: both stores report size and type without
+// reading; S3 hands out presigned PUT URLs bound to a content type and a
+// validity, which the double enforces.
+func TestStatAndPresignedUploads(t *testing.T) {
+	ctx := context.Background()
+	dir := blobstore.Dir{Root: t.TempDir()}
+	srv := blobstoretest.New(t)
+	s3 := srv.Store()
+	for name, store := range map[string]blobstore.Store{"dir": dir, "s3": s3} {
+		if _, _, err := store.Stat(ctx, "tenants/x/documents/none"); !errors.Is(err, blobstore.ErrNotFound) {
+			t.Fatalf("%s: stat of nothing: %v", name, err)
+		}
+		if _, _, err := store.Stat(ctx, "../etc"); err == nil {
+			t.Fatalf("%s: stat of a bad key", name)
+		}
+		if err := store.Put(ctx, "tenants/x/documents/a", []byte("hello"), blobstore.PutOptions{ContentType: "text/plain"}); err != nil {
+			t.Fatal(err)
+		}
+		if size, ct, err := store.Stat(ctx, "tenants/x/documents/a"); err != nil || size != 5 || ct != "text/plain" {
+			t.Fatalf("%s: stat: %d %q %v", name, size, ct, err)
+		}
+	}
+	// A directory store does not presign; S3 does.
+	if _, ok := blobstore.Store(dir).(blobstore.Presigner); ok {
+		t.Fatal("the directory store presigns")
+	}
+	if _, err := s3.PresignPut(ctx, "../x", "application/pdf", time.Minute); err == nil {
+		t.Fatal("presigned a bad key")
+	}
+	key := "tenants/x/uploads/u1"
+	u, err := s3.PresignPut(ctx, key, "application/pdf", 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(url, contentType string) int {
+		req, _ := http.NewRequest(http.MethodPut, url, strings.NewReader("%PDF-1.7"))
+		req.Header.Set("Content-Type", contentType)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := put(u, "image/png"); code != http.StatusForbidden {
+		t.Fatalf("another content type: %d", code)
+	}
+	if code := put(u, "application/pdf"); code != http.StatusOK {
+		t.Fatalf("presigned put: %d", code)
+	}
+	if size, ct, err := s3.Stat(ctx, key); err != nil || size != 8 || ct != "application/pdf" {
+		t.Fatalf("uploaded: %d %q %v", size, ct, err)
+	}
+	// Past its validity the URL is refused; a URL made with other credentials too.
+	srv.Now = func() time.Time { return time.Now().Add(16 * time.Minute) }
+	if code := put(u, "application/pdf"); code != http.StatusForbidden {
+		t.Fatalf("expired: %d", code)
+	}
+	srv.Now = nil
+	other := s3
+	other.SecretKey = "nope"
+	u2, _ := other.PresignPut(ctx, key, "application/pdf", time.Minute)
+	if code := put(u2, "application/pdf"); code != http.StatusForbidden {
+		t.Fatalf("foreign credentials: %d", code)
+	}
+	// Failures of the service and of the transport are reported by Stat.
+	srv.Fail = http.StatusInternalServerError
+	if _, _, err := s3.Stat(ctx, key); err == nil || !strings.Contains(err.Error(), "HEAD") {
+		t.Fatalf("service failure: %v", err)
+	}
+	srv.Fail = 0
+	down := s3
+	down.Endpoint = "http://127.0.0.1:1"
+	if _, _, err := down.Stat(ctx, key); err == nil {
+		t.Fatal("unreachable service")
+	}
+	if _, err := (blobstore.S3{Endpoint: "::", Bucket: "b"}).PresignPut(ctx, key, "application/pdf", time.Minute); err == nil {
+		t.Fatal("bad endpoint presigned")
+	}
+	// A directory store whose file cannot be inspected.
+	if _, _, err := (blobstore.Dir{Root: filepath.Join(dir.Root, "tenants/x/documents/a")}).Stat(ctx, "tenants/y/documents/b"); err == nil || errors.Is(err, blobstore.ErrNotFound) {
+		t.Fatalf("stat below a file: %v", err)
+	}
+}

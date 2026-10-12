@@ -148,7 +148,26 @@ func encodeCaptureSupplierInvoiceRequest(
 			Explode: true,
 		}
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
-			return e.EncodeValue(conv.StringToString(request.Document))
+			if val, ok := request.Document.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "upload_id" form field.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "upload_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := request.UploadID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
 		}); err != nil {
 			return errors.Wrap(err, "encode query")
 		}
@@ -431,6 +450,20 @@ func encodeCreateSodRuleRequest(
 
 func encodeCreateSupplierInvoiceRequest(
 	req *SupplierInvoiceCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateUploadRequest(
+	req *UploadCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

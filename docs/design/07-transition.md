@@ -67,6 +67,7 @@ prototype store for that context.
 | T13 (done) | **Secrets** | Settings and connectors name their secrets by reference (environment, mounted file, Vault) and the server resolves them at start and on use; the repository is scanned for leaked secrets |
 | T14 (done) | **Key management** | Every tenant's sensitive fields are sealed with the tenant's own key, wrapped by a ring of master keys; operators rotate a tenant's key and the fields are re-sealed in one transaction |
 | T15 (done) | **KMS master** | The master key that wraps tenant keys lives in a key management service; existing tenant keys move onto it without rewriting a sealed row, and the local masters it replaces leave the ring |
+| T16 (done) | **Direct uploads** | Documents above the request limit reach object storage through an upload URL (presigned on the store, or signed on the API) and are captured by id; the invoice's document is kept and served as before |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1025,6 +1026,51 @@ Open points for the contract and design review:
   key and when it was rotated.
 - A KMS key policy that restricts `Decrypt` to the replicas' role is the
   deployment's; the platform cannot check it.
+
+### T16 decisions and open points
+
+What T16 built: direct uploads (ADR-0020). `POST /v1/uploads` starts an
+upload of a document above the 5 MB request limit (up to 50 MB) and answers
+with where to `PUT` it: a presigned URL of the S3 store (query-string
+Signature Version 4, now in `internal/platform/sigv4` with the AWS example
+as its known answer), or, with the directory store, a signed path on the
+API (`PUT /v1/uploads/{id}/content`, the one route outside the generated
+server and the unit of work, bounded by the upload's limit). `GET
+/v1/uploads/{id}` shows the upload; `:capture` takes `upload_id` in place
+of `document`, checks the object (`Stat`, new on the store port) before
+reading it, stores it under its hash like any captured document and closes
+the upload. `erp capture` sends small documents in the request and large
+ones through an upload. The exit criteria are `TestDirectUploads`
+(payables, through the API's own URL: refusals, limits, expiry, re-sent
+bytes, every failure) and `TestPresignedUploads` (through the S3 double's
+presigned URL), and `TestStatAndPresignedUploads` (blobstore).
+
+Decisions taken while building it:
+
+- **The upload is a resource, the bytes are not a request.** The unit of
+  work hashes every body for idempotency; documents bypass it and land in
+  the store, which is where they were going anyway. The API's own upload
+  route exists for the directory store and for deployments whose store is
+  not reachable by clients.
+- **Checked when consumed, not when uploaded.** A presigned `PUT` cannot
+  bound the size on every S3-compatible service; the capture asks the
+  store for the size first and refuses before reading. Nothing uploaded
+  yet, expired, used before and too large are distinct 422 codes.
+- **Idempotent by content.** A PUT re-sent after a lost answer finds the
+  object in the write-once store; the same bytes are accepted, different
+  bytes are a conflict, so a failed statement never leaves an upload that
+  cannot complete.
+- **The signing key is derived**, from the page-token key, rather than one
+  more setting: both guard short-lived URLs of one deployment.
+
+Open points for the contract and design review:
+
+- Objects of uploads never consumed stay under `tenants/*/uploads/`; a
+  bucket lifecycle rule or the offboarding erasure removes them.
+- The API's upload URL is a path; `ERP_PUBLIC_URL` would make it absolute
+  for clients that do not know the API's base.
+- Uploads serve capture only; attachments on other documents would reuse
+  the resource with further purposes.
 
 ## 7.4 Data from the prototype
 

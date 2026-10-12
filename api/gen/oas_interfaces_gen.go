@@ -145,6 +145,10 @@ type CreateSupplierInvoiceRes interface {
 	createSupplierInvoiceRes()
 }
 
+type CreateUploadRes interface {
+	createUploadRes()
+}
+
 type DecideRecommendationRes interface {
 	decideRecommendationRes()
 }
@@ -319,6 +323,10 @@ type GetSupplierInvoiceDocumentRes interface {
 
 type GetSupplierInvoiceRes interface {
 	getSupplierInvoiceRes()
+}
+
+type GetUploadRes interface {
+	getUploadRes()
 }
 
 type GrantRolePermissionRes interface {

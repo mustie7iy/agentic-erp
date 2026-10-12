@@ -2057,6 +2057,7 @@ func (*BadRequestHeaders) createRoleAssignmentRes()       {}
 func (*BadRequestHeaders) createRoleRes()                 {}
 func (*BadRequestHeaders) createSodRuleRes()              {}
 func (*BadRequestHeaders) createSupplierInvoiceRes()      {}
+func (*BadRequestHeaders) createUploadRes()               {}
 func (*BadRequestHeaders) decideRecommendationRes()       {}
 func (*BadRequestHeaders) disableConnectorRes()           {}
 func (*BadRequestHeaders) enableConnectorRes()            {}
@@ -2101,6 +2102,7 @@ func (*BadRequestHeaders) getRoleRes()                    {}
 func (*BadRequestHeaders) getSodRuleRes()                 {}
 func (*BadRequestHeaders) getSupplierInvoiceDocumentRes() {}
 func (*BadRequestHeaders) getSupplierInvoiceRes()         {}
+func (*BadRequestHeaders) getUploadRes()                  {}
 func (*BadRequestHeaders) grantRolePermissionRes()        {}
 func (*BadRequestHeaders) holdSupplierInvoiceRes()        {}
 func (*BadRequestHeaders) listAccountsRes()               {}
@@ -5790,6 +5792,7 @@ func (*ConflictHeaders) createRoleAssignmentRes()     {}
 func (*ConflictHeaders) createRoleRes()               {}
 func (*ConflictHeaders) createSodRuleRes()            {}
 func (*ConflictHeaders) createSupplierInvoiceRes()    {}
+func (*ConflictHeaders) createUploadRes()             {}
 func (*ConflictHeaders) decideRecommendationRes()     {}
 func (*ConflictHeaders) disableConnectorRes()         {}
 func (*ConflictHeaders) enableConnectorRes()          {}
@@ -6903,6 +6906,89 @@ func (s *ContractUpdate) SetTargetValue(val OptMoney) {
 func (s *ContractUpdate) SetItems(val []ContractItem) {
 	s.Items = val
 }
+
+// CreateUploadCreatedHeaders wraps Upload with response headers.
+type CreateUploadCreatedHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Upload
+}
+
+// GetETag returns the value of ETag.
+func (s *CreateUploadCreatedHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CreateUploadCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CreateUploadCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CreateUploadCreatedHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CreateUploadCreatedHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CreateUploadCreatedHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CreateUploadCreatedHeaders) GetResponse() Upload {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CreateUploadCreatedHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CreateUploadCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CreateUploadCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CreateUploadCreatedHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CreateUploadCreatedHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CreateUploadCreatedHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreateUploadCreatedHeaders) SetResponse(val Upload) {
+	s.Response = val
+}
+
+func (*CreateUploadCreatedHeaders) createUploadRes() {}
 
 // DecideRecommendationOKHeaders wraps Recommendation with response headers.
 type DecideRecommendationOKHeaders struct {
@@ -8380,6 +8466,7 @@ func (*ForbiddenHeaders) createRoleAssignmentRes()       {}
 func (*ForbiddenHeaders) createRoleRes()                 {}
 func (*ForbiddenHeaders) createSodRuleRes()              {}
 func (*ForbiddenHeaders) createSupplierInvoiceRes()      {}
+func (*ForbiddenHeaders) createUploadRes()               {}
 func (*ForbiddenHeaders) decideRecommendationRes()       {}
 func (*ForbiddenHeaders) disableConnectorRes()           {}
 func (*ForbiddenHeaders) enableConnectorRes()            {}
@@ -8424,6 +8511,7 @@ func (*ForbiddenHeaders) getRoleRes()                    {}
 func (*ForbiddenHeaders) getSodRuleRes()                 {}
 func (*ForbiddenHeaders) getSupplierInvoiceDocumentRes() {}
 func (*ForbiddenHeaders) getSupplierInvoiceRes()         {}
+func (*ForbiddenHeaders) getUploadRes()                  {}
 func (*ForbiddenHeaders) grantRolePermissionRes()        {}
 func (*ForbiddenHeaders) holdSupplierInvoiceRes()        {}
 func (*ForbiddenHeaders) listAccountsRes()               {}
@@ -10162,6 +10250,67 @@ func (s *GetSupplierInvoiceOKHeaders) SetResponse(val SupplierInvoice) {
 }
 
 func (*GetSupplierInvoiceOKHeaders) getSupplierInvoiceRes() {}
+
+// GetUploadOKHeaders wraps Upload with response headers.
+type GetUploadOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Upload
+}
+
+// GetETag returns the value of ETag.
+func (s *GetUploadOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetUploadOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetUploadOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetUploadOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetUploadOKHeaders) GetResponse() Upload {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetUploadOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetUploadOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetUploadOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetUploadOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetUploadOKHeaders) SetResponse(val Upload) {
+	s.Response = val
+}
+
+func (*GetUploadOKHeaders) getUploadRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/GoodsReceipt
@@ -12952,6 +13101,7 @@ func (*NotFoundHeaders) getRoleRes()                    {}
 func (*NotFoundHeaders) getSodRuleRes()                 {}
 func (*NotFoundHeaders) getSupplierInvoiceDocumentRes() {}
 func (*NotFoundHeaders) getSupplierInvoiceRes()         {}
+func (*NotFoundHeaders) getUploadRes()                  {}
 func (*NotFoundHeaders) grantRolePermissionRes()        {}
 func (*NotFoundHeaders) holdSupplierInvoiceRes()        {}
 func (*NotFoundHeaders) listAgentToolCallsRes()         {}
@@ -17197,6 +17347,7 @@ func (*PreconditionRequiredHeaders) createRoleAssignmentRes()     {}
 func (*PreconditionRequiredHeaders) createRoleRes()               {}
 func (*PreconditionRequiredHeaders) createSodRuleRes()            {}
 func (*PreconditionRequiredHeaders) createSupplierInvoiceRes()    {}
+func (*PreconditionRequiredHeaders) createUploadRes()             {}
 func (*PreconditionRequiredHeaders) decideRecommendationRes()     {}
 func (*PreconditionRequiredHeaders) disableConnectorRes()         {}
 func (*PreconditionRequiredHeaders) enableConnectorRes()          {}
@@ -21618,6 +21769,7 @@ func (*ServiceUnavailableHeaders) createRoleAssignmentRes()       {}
 func (*ServiceUnavailableHeaders) createRoleRes()                 {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()              {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()      {}
+func (*ServiceUnavailableHeaders) createUploadRes()               {}
 func (*ServiceUnavailableHeaders) decideRecommendationRes()       {}
 func (*ServiceUnavailableHeaders) disableConnectorRes()           {}
 func (*ServiceUnavailableHeaders) enableConnectorRes()            {}
@@ -22440,14 +22592,19 @@ func (s *SupplierInvoice) SetExpanded(val OptExpanded) {
 	s.Expanded = val
 }
 
-// A scanned or electronic invoice document to capture.
+// A scanned or electronic invoice document to capture: the bytes in `document`, or the `upload_id` of
+// a direct upload (`POST /v1/uploads`) for documents above the request limit. Exactly one of the two.
 // Ref: #/components/schemas/SupplierInvoiceCapture
 type SupplierInvoiceCaptureMultipart struct {
 	// Legal entity receiving the invoice.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The invoice document (PDF, PNG, JPEG or e-invoice XML), at most 5 MB. The same document cannot be
 	// captured twice (409).
-	Document string `json:"document"`
+	Document OptString `json:"document"`
+	// A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this
+	// capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used`
+	// when it was consumed before.
+	UploadID OptUUID `json:"upload_id"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -22456,8 +22613,13 @@ func (s *SupplierInvoiceCaptureMultipart) GetLegalEntityID() uuid.UUID {
 }
 
 // GetDocument returns the value of Document.
-func (s *SupplierInvoiceCaptureMultipart) GetDocument() string {
+func (s *SupplierInvoiceCaptureMultipart) GetDocument() OptString {
 	return s.Document
+}
+
+// GetUploadID returns the value of UploadID.
+func (s *SupplierInvoiceCaptureMultipart) GetUploadID() OptUUID {
+	return s.UploadID
 }
 
 // SetLegalEntityID sets the value of LegalEntityID.
@@ -22466,8 +22628,13 @@ func (s *SupplierInvoiceCaptureMultipart) SetLegalEntityID(val uuid.UUID) {
 }
 
 // SetDocument sets the value of Document.
-func (s *SupplierInvoiceCaptureMultipart) SetDocument(val string) {
+func (s *SupplierInvoiceCaptureMultipart) SetDocument(val OptString) {
 	s.Document = val
+}
+
+// SetUploadID sets the value of UploadID.
+func (s *SupplierInvoiceCaptureMultipart) SetUploadID(val OptUUID) {
+	s.UploadID = val
 }
 
 // Enter a supplier invoice. It is created `parked`.
@@ -23184,6 +23351,7 @@ func (*TooManyRequestsHeaders) createRoleAssignmentRes()       {}
 func (*TooManyRequestsHeaders) createRoleRes()                 {}
 func (*TooManyRequestsHeaders) createSodRuleRes()              {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()      {}
+func (*TooManyRequestsHeaders) createUploadRes()               {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()       {}
 func (*TooManyRequestsHeaders) disableConnectorRes()           {}
 func (*TooManyRequestsHeaders) enableConnectorRes()            {}
@@ -23228,6 +23396,7 @@ func (*TooManyRequestsHeaders) getRoleRes()                    {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                 {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes() {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()         {}
+func (*TooManyRequestsHeaders) getUploadRes()                  {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()        {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()        {}
 func (*TooManyRequestsHeaders) listAccountsRes()               {}
@@ -23407,6 +23576,7 @@ func (*UnauthorizedHeaders) createRoleAssignmentRes()       {}
 func (*UnauthorizedHeaders) createRoleRes()                 {}
 func (*UnauthorizedHeaders) createSodRuleRes()              {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()      {}
+func (*UnauthorizedHeaders) createUploadRes()               {}
 func (*UnauthorizedHeaders) decideRecommendationRes()       {}
 func (*UnauthorizedHeaders) disableConnectorRes()           {}
 func (*UnauthorizedHeaders) enableConnectorRes()            {}
@@ -23451,6 +23621,7 @@ func (*UnauthorizedHeaders) getRoleRes()                    {}
 func (*UnauthorizedHeaders) getSodRuleRes()                 {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes() {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()         {}
+func (*UnauthorizedHeaders) getUploadRes()                  {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()        {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()        {}
 func (*UnauthorizedHeaders) listAccountsRes()               {}
@@ -23619,6 +23790,7 @@ func (*UnprocessableHeaders) createRoleAssignmentRes()     {}
 func (*UnprocessableHeaders) createRoleRes()               {}
 func (*UnprocessableHeaders) createSodRuleRes()            {}
 func (*UnprocessableHeaders) createSupplierInvoiceRes()    {}
+func (*UnprocessableHeaders) createUploadRes()             {}
 func (*UnprocessableHeaders) decideRecommendationRes()     {}
 func (*UnprocessableHeaders) disableConnectorRes()         {}
 func (*UnprocessableHeaders) enableConnectorRes()          {}
@@ -24414,3 +24586,248 @@ func (*UpdateSupplierInvoiceOKHeaders) postSupplierInvoiceRes()    {}
 func (*UpdateSupplierInvoiceOKHeaders) releaseSupplierInvoiceRes() {}
 func (*UpdateSupplierInvoiceOKHeaders) reverseSupplierInvoiceRes() {}
 func (*UpdateSupplierInvoiceOKHeaders) updateSupplierInvoiceRes()  {}
+
+// Merged schema.
+// Ref: #/components/schemas/Upload
+type Upload struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// What the document is for; decides which operation may consume it. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Purpose string `json:"purpose"`
+	// The content type the bytes must be sent with.
+	ContentType string `json:"content_type"`
+	// Largest upload accepted; a larger one is refused when consumed.
+	MaxBytes int64 `json:"max_bytes"`
+	// `open` until bytes arrive through this API (`received`) or the upload is consumed (`used`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// Where to send the bytes with `method` and `headers`: an absolute URL of the object store, or a path
+	// on this API (no bearer token needed; the URL is signed).
+	URL string `json:"url"`
+	// The HTTP method to send the bytes with. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Method string `json:"method"`
+	// Headers the request to `url` must carry, exactly.
+	Headers UploadHeaders `json:"headers"`
+	// Until when `url` accepts the bytes (UTC).
+	ExpiresAt time.Time `json:"expires_at"`
+	// Bytes received, once known (an upload through this API, or one consumed).
+	Size OptInt64 `json:"size"`
+	// The resource that consumed the upload (a supplier invoice), once used.
+	UsedBy OptUUID `json:"used_by"`
+}
+
+// GetID returns the value of ID.
+func (s *Upload) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Upload) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Upload) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Upload) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Upload) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Upload) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetPurpose returns the value of Purpose.
+func (s *Upload) GetPurpose() string {
+	return s.Purpose
+}
+
+// GetContentType returns the value of ContentType.
+func (s *Upload) GetContentType() string {
+	return s.ContentType
+}
+
+// GetMaxBytes returns the value of MaxBytes.
+func (s *Upload) GetMaxBytes() int64 {
+	return s.MaxBytes
+}
+
+// GetStatus returns the value of Status.
+func (s *Upload) GetStatus() string {
+	return s.Status
+}
+
+// GetURL returns the value of URL.
+func (s *Upload) GetURL() string {
+	return s.URL
+}
+
+// GetMethod returns the value of Method.
+func (s *Upload) GetMethod() string {
+	return s.Method
+}
+
+// GetHeaders returns the value of Headers.
+func (s *Upload) GetHeaders() UploadHeaders {
+	return s.Headers
+}
+
+// GetExpiresAt returns the value of ExpiresAt.
+func (s *Upload) GetExpiresAt() time.Time {
+	return s.ExpiresAt
+}
+
+// GetSize returns the value of Size.
+func (s *Upload) GetSize() OptInt64 {
+	return s.Size
+}
+
+// GetUsedBy returns the value of UsedBy.
+func (s *Upload) GetUsedBy() OptUUID {
+	return s.UsedBy
+}
+
+// SetID sets the value of ID.
+func (s *Upload) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Upload) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Upload) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Upload) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Upload) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Upload) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetPurpose sets the value of Purpose.
+func (s *Upload) SetPurpose(val string) {
+	s.Purpose = val
+}
+
+// SetContentType sets the value of ContentType.
+func (s *Upload) SetContentType(val string) {
+	s.ContentType = val
+}
+
+// SetMaxBytes sets the value of MaxBytes.
+func (s *Upload) SetMaxBytes(val int64) {
+	s.MaxBytes = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Upload) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetURL sets the value of URL.
+func (s *Upload) SetURL(val string) {
+	s.URL = val
+}
+
+// SetMethod sets the value of Method.
+func (s *Upload) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetHeaders sets the value of Headers.
+func (s *Upload) SetHeaders(val UploadHeaders) {
+	s.Headers = val
+}
+
+// SetExpiresAt sets the value of ExpiresAt.
+func (s *Upload) SetExpiresAt(val time.Time) {
+	s.ExpiresAt = val
+}
+
+// SetSize sets the value of Size.
+func (s *Upload) SetSize(val OptInt64) {
+	s.Size = val
+}
+
+// SetUsedBy sets the value of UsedBy.
+func (s *Upload) SetUsedBy(val OptUUID) {
+	s.UsedBy = val
+}
+
+// What a direct upload will carry.
+// Ref: #/components/schemas/UploadCreate
+type UploadCreate struct {
+	// What the document is for. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Purpose string `json:"purpose"`
+	// The content type of the document; another type is refused (422 `payables.unsupported_content_type`).
+	// Open enumeration: values may be added within /v1.
+	ContentType string `json:"content_type"`
+}
+
+// GetPurpose returns the value of Purpose.
+func (s *UploadCreate) GetPurpose() string {
+	return s.Purpose
+}
+
+// GetContentType returns the value of ContentType.
+func (s *UploadCreate) GetContentType() string {
+	return s.ContentType
+}
+
+// SetPurpose sets the value of Purpose.
+func (s *UploadCreate) SetPurpose(val string) {
+	s.Purpose = val
+}
+
+// SetContentType sets the value of ContentType.
+func (s *UploadCreate) SetContentType(val string) {
+	s.ContentType = val
+}
+
+// Headers the request to `url` must carry, exactly.
+type UploadHeaders map[string]string
+
+func (s *UploadHeaders) init() UploadHeaders {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}

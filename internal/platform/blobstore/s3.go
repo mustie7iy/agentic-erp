@@ -126,6 +126,39 @@ func (s S3) Get(ctx context.Context, key string) ([]byte, string, error) {
 	return content, resp.Header.Get("Content-Type"), nil
 }
 
+// Stat implements Store with a HEAD request.
+func (s S3) Stat(ctx context.Context, key string) (int64, string, error) {
+	if err := checkKey(key); err != nil {
+		return 0, "", err
+	}
+	resp, err := s.do(ctx, http.MethodHead, key, nil, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return 0, "", ErrNotFound
+	case resp.StatusCode >= 300:
+		return 0, "", s.failure(resp, http.MethodHead, key)
+	}
+	return resp.ContentLength, resp.Header.Get("Content-Type"), nil
+}
+
+// PresignPut implements Presigner: a query-signed PUT of the key, bound to
+// the content type, valid for expires.
+func (s S3) PresignPut(_ context.Context, key, contentType string, expires time.Duration) (string, error) {
+	if err := checkKey(key); err != nil {
+		return "", err
+	}
+	req, err := http.NewRequest(http.MethodPut, s.url(key), nil)
+	if err != nil {
+		return "", fmt.Errorf("blobstore: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	return sigv4.Presign(req, s.AccessKey, s.SecretKey, s.Region, "s3", expires, s.now()), nil
+}
+
 // encodePath URI-encodes each segment of a key the way SigV4 canonicalizes
 // it (RFC 3986 unreserved characters stay, '/' separates segments).
 func encodePath(key string) string {

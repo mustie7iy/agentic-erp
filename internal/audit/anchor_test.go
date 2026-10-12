@@ -32,6 +32,7 @@ type failingStore struct{ err error }
 
 func (f failingStore) Put(context.Context, string, []byte, blobstore.PutOptions) error { return f.err }
 func (f failingStore) Get(context.Context, string) ([]byte, string, error)             { return nil, "", f.err }
+func (f failingStore) Stat(context.Context, string) (int64, string, error)             { return 0, "", f.err }
 
 func anchorer(t *testing.T, store blobstore.Store) *audit.Anchorer {
 	return &audit.Anchorer{Pool: pgtest.Pool(t), Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Retention: 10 * 365 * 24 * time.Hour,
@@ -46,6 +47,9 @@ func (existsThenFails) Put(context.Context, string, []byte, blobstore.PutOptions
 }
 func (existsThenFails) Get(context.Context, string) ([]byte, string, error) {
 	return nil, "", errors.New("store down")
+}
+func (existsThenFails) Stat(context.Context, string) (int64, string, error) {
+	return 0, "", errors.New("store down")
 }
 
 // verify runs the verification operation with the store and returns its result.

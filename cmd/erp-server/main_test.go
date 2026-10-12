@@ -264,8 +264,11 @@ func TestStartupFailures(t *testing.T) {
 		"operator issuer": func(_ map[string]string, c *config.Config) {
 			c.OperatorIssuers = []authn.Issuer{{URL: "http://127.0.0.1:1", Audience: "erp-api"}}
 		},
-		"page key":          func(_ map[string]string, c *config.Config) { c.PageTokenKey = []byte("short") },
-		"field key":         func(_ map[string]string, c *config.Config) { c.FieldKey = []byte("short") },
+		"page key":  func(_ map[string]string, c *config.Config) { c.PageTokenKey = []byte("short") },
+		"field key": func(_ map[string]string, c *config.Config) { c.FieldKey = []byte("short") },
+		"master key": func(_ map[string]string, c *config.Config) {
+			c.FieldKeys = []config.MasterKey{{ID: "k", Secret: []byte("short")}}
+		},
 		"nats":              func(_ map[string]string, c *config.Config) { c.NATSURL = "nats://127.0.0.1:1" },
 		"jetstream missing": func(_ map[string]string, c *config.Config) { c.NATSURL = natstest.Plain(t) },
 		"api port":          func(_ map[string]string, c *config.Config) { c.HTTPAddr = busy.Addr().String() },

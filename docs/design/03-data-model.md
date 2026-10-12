@@ -465,6 +465,11 @@ for non-rejected invoices makes duplicate invoices impossible at the database
 level, not just detectable. `match_result` keeps the history of every match
 evaluation with the configuration version used.
 
+`upload` (ADR-0020) records a direct upload of a document above the
+request limit: purpose, content type, size limit, the object key the bytes
+go to, until when, and its status (`open`, `received` through the API,
+`used` by the invoice in `used_by`, with size and hash once known).
+
 ## 3.10 Payments (`payments`)
 
 ```mermaid

@@ -24,6 +24,7 @@ type failingStore struct{ err error }
 
 func (f failingStore) Put(context.Context, string, []byte, blobstore.PutOptions) error { return f.err }
 func (f failingStore) Get(context.Context, string) ([]byte, string, error)             { return nil, "", f.err }
+func (f failingStore) Stat(context.Context, string) (int64, string, error)             { return 0, "", f.err }
 
 // TestCapturedDocumentsAreKept: with object storage the document is stored
 // under its hash before extraction and can be downloaded, byte for byte,
@@ -42,7 +43,7 @@ func TestCapturedDocumentsAreKept(t *testing.T) {
 	capture := func(h *payables.Endpoints, doc string) (map[string]any, error) {
 		var res gen.CaptureSupplierInvoiceRes
 		err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-			res, err = h.CaptureSupplierInvoice(ctx, &gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE, Document: doc}, gen.CaptureSupplierInvoiceParams{})
+			res, err = h.CaptureSupplierInvoice(ctx, &gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE, Document: gen.NewOptString(doc)}, gen.CaptureSupplierInvoiceParams{})
 			return err
 		})
 		if err != nil {

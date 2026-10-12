@@ -24,3 +24,4 @@ new record. Status values: proposed, accepted, superseded.
 | [0017](0017-secrets.md) | Secrets by reference (environment, mounted file, Vault), resolved per replica | proposed |
 | [0018](0018-key-management.md) | Per-tenant field-encryption keys wrapped by a master key ring; rotation re-seals | proposed |
 | [0019](0019-kms-master.md) | KMS master key in front of the ring; tenant keys move by re-wrapping | proposed |
+| [0020](0020-direct-uploads.md) | Direct uploads for documents above the request limit: presigned PUT or a signed path on the API | proposed |
