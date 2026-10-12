@@ -95,6 +95,7 @@ func init() {
 	commands = map[string]command{
 		"call":         call,
 		"capture":      captureCmd,
+		"directory":    directoryCmd,
 		"migrate":      migrate,
 		"invoices":     invoices,
 		"agent":        agentCmd,
@@ -127,6 +128,7 @@ agents (ERP_AGENT_TOKEN, Anthropic credentials):
 
 operators (ERP_CONTROL_URL, default localhost:9090; ERP_OPERATOR_TOKEN):
   tenants list | get | create | suspend | resume | offboard | rotate-key | erase   the control plane: the tenants of the cell
+  directory cells | tenants | locate | create | freeze | unfreeze | move   the global control plane (ERP_DIRECTORY_API_URL, default localhost:9091): tenants across cells
 
 local preparation:
   gen-mock-sap   write a deterministic mock SAP extract

@@ -70,6 +70,7 @@ prototype store for that context.
 | T16 (done) | **Direct uploads** | Documents above the request limit reach object storage through an upload URL (presigned on the store, or signed on the API) and are captured by id; the invoice's document is kept and served as before |
 | T17 (done) | **Offboarding lifecycle** | An offboarded tenant's data is exported to locked object storage, kept for a grace period and erased from the cell by a worker or on an operator's request; the tenant row and its audit trail remain |
 | T18 (done) | **Tenant directory and router** | A global directory maps tenants to cells and is kept current by the cells; `erp-router` verifies a request's token, looks its tenant up and forwards it to the tenant's cell, refusing unknown, suspended, offboarded and (for writes) moving tenants at the door |
+| T19 (done) | **Global control plane** | Operators see tenants and cells across the platform, provision a tenant into the emptiest accepting cell of its region (or a named one) through the cell's control plane, and move a tenant between cells in three directory steps |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1159,6 +1160,47 @@ Open points for the contract and design review:
   is the operator's choice of which cell's control plane to call.
 - The router caches lookups; a cell change reaches it within the cache
   period, which is the shortest "read-only" window a move can have.
+
+### T19 decisions and open points
+
+What T19 built: the global control plane (ADR-0023). `api/directory.yaml`
+is a third contract, served by `erp-router` on its admin listener
+(`ERP_ROUTER_ADMIN_ADDR`, with `ERP_OPERATOR_ISSUERS` and
+`ERP_PAGE_TOKEN_KEY`) by `internal/globalplane`: tenants across cells
+(filters, cursor pages), cells with their tenant counts, provisioning with
+placement (`directory.placement` remembers the cell per `Idempotency-Key`;
+the request is forwarded to the cell's control plane with the operator's
+token; the answer names the cell; the entry is in the directory at once),
+and `:freeze`, `:move`, `:unfreeze` under `If-Match` on the entry's new
+`version`. Cells register themselves each round (`ERP_CELL_REGION`,
+`ERP_CELL_CONTROL_URL`, `ERP_CELL_ACCEPTING`). `erp directory` drives it
+from the command line. The exit criteria are `TestGlobalControlPlane`
+(globalplane: placement across two fake cells, retries, refusals, a full
+move, every operation served), `TestPostgresDirectory` (cells, placement,
+versions, listing) and the admin listener in `TestRoutesToTheCell`.
+
+Decisions taken while building it:
+
+- **The cell's control plane stays the one that provisions.** The global
+  plane places and forwards; idempotency, audit and the transaction are
+  the cell's. One Idempotency-Key, one cell, recorded before the forward.
+- **Fewest tenants wins, names break ties.** Capacity is a count for now;
+  a cell stops taking tenants by setting `ERP_CELL_ACCEPTING=false`, and a
+  named cell may still be chosen while it accepts.
+- **Versions on directory entries.** An upsert that changes nothing leaves
+  the version alone, so the cells' rounds do not race operators' `If-Match`.
+- **The admin listener is the router's.** No new deployment; the router
+  already has the directory and the issuers.
+
+Open points for the contract and design review:
+
+- The copy and verification of a tenant's rows between cells (05 §5.4
+  steps 1 and 3) are outside the API; a `:verify` that compares row counts
+  and the audit chain head across two cells would close the loop.
+- Placement weighs tenants, not size or load; cell capacity (05 §5.4
+  caps) would be a registered attribute.
+- Operator roles (read-only, provisioning, moving) apply here as on the
+  cells' control planes.
 
 ## 7.4 Data from the prototype
 

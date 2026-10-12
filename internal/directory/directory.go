@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 )
 
 // Statuses of a directory entry. The cell's statuses pass through; ReadOnly
@@ -37,8 +38,24 @@ type Entry struct {
 	Cell      string    `json:"cell"`
 	APIURL    string    `json:"api_url"` // the cell's public API base URL
 	Status    string    `json:"status"`
+	Version   int32     `json:"version"` // moves on with every change; the ETag of the global control plane
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// Cell is a cell known to the directory: registered by the cell itself,
+// with how many tenants the directory places there.
+type Cell struct {
+	Name       string    `json:"name"`
+	Region     string    `json:"region"`
+	APIURL     string    `json:"api_url"`
+	ControlURL string    `json:"control_url"` // the admin listener the global control plane provisions through
+	Accepting  bool      `json:"accepting"`   // takes new tenants
+	Tenants    int       `json:"tenants"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// ErrUnknownCell means the directory knows no such cell.
+var ErrUnknownCell = errors.New("directory: unknown cell")
 
 // ErrUnknown means the directory has no entry for the tenant.
 var ErrUnknown = errors.New("directory: unknown tenant")
@@ -52,7 +69,9 @@ type Store interface {
 	Upsert(ctx context.Context, e Entry) error
 }
 
-// Schema is the directory's one table, created when the store opens.
+// Schema is the directory's tables, created when the store opens: the
+// tenants, the cells, and the placements (which cell an Idempotency-Key of
+// a global provisioning went to, so a retry goes to the same cell).
 const Schema = `
 CREATE SCHEMA IF NOT EXISTS directory;
 CREATE TABLE IF NOT EXISTS directory.tenant (
@@ -61,7 +80,22 @@ CREATE TABLE IF NOT EXISTS directory.tenant (
   cell       text NOT NULL,
   api_url    text NOT NULL,
   status     text NOT NULL CHECK (status IN ('active', 'suspended', 'offboarded', 'read_only')),
+  version    integer NOT NULL DEFAULT 1,
   updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE directory.tenant ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
+CREATE TABLE IF NOT EXISTS directory.cell (
+  name        text PRIMARY KEY,
+  region      text NOT NULL,
+  api_url     text NOT NULL,
+  control_url text NOT NULL,
+  accepting   boolean NOT NULL DEFAULT true,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS directory.placement (
+  idempotency_key text PRIMARY KEY,
+  cell            text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
 );`
 
 // Postgres keeps the directory in a database of its own (ERP_DIRECTORY_URL).
@@ -93,8 +127,7 @@ func (p *Postgres) Close() { p.Pool.Close() }
 func (p *Postgres) Lookup(ctx context.Context, tenant uuid.UUID) (Entry, error) {
 	var e Entry
 	err := p.Pool.InTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT tenant_id, region, cell, api_url, status, updated_at FROM directory.tenant WHERE tenant_id = $1`, tenant).
-			Scan(&e.TenantID, &e.Region, &e.Cell, &e.APIURL, &e.Status, &e.UpdatedAt)
+		return tx.QueryRow(ctx, `SELECT `+entryColumns+` FROM directory.tenant WHERE tenant_id = $1`, tenant).Scan(e.fields()...)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Entry{}, ErrUnknown
@@ -105,12 +138,21 @@ func (p *Postgres) Lookup(ctx context.Context, tenant uuid.UUID) (Entry, error) 
 	return e, nil
 }
 
+const entryColumns = `tenant_id, region, cell, api_url, status, version, updated_at`
+
+func (e *Entry) fields() []any {
+	return []any{&e.TenantID, &e.Region, &e.Cell, &e.APIURL, &e.Status, &e.Version, &e.UpdatedAt}
+}
+
 // Upsert implements Store.
 func (p *Postgres) Upsert(ctx context.Context, e Entry) error {
 	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO directory.tenant (tenant_id, region, cell, api_url, status) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (tenant_id) DO UPDATE SET region = EXCLUDED.region, cell = EXCLUDED.cell, api_url = EXCLUDED.api_url,
-			status = CASE WHEN directory.tenant.status = 'read_only' THEN 'read_only' ELSE EXCLUDED.status END, updated_at = now()`,
+			status = CASE WHEN directory.tenant.status = 'read_only' THEN 'read_only' ELSE EXCLUDED.status END,
+			version = directory.tenant.version + 1, updated_at = now()
+			WHERE (directory.tenant.region, directory.tenant.cell, directory.tenant.api_url) IS DISTINCT FROM (EXCLUDED.region, EXCLUDED.cell, EXCLUDED.api_url)
+			   OR (directory.tenant.status <> 'read_only' AND directory.tenant.status <> EXCLUDED.status)`,
 			e.TenantID, e.Region, e.Cell, e.APIURL, e.Status)
 		return err
 	})
@@ -120,23 +162,185 @@ func (p *Postgres) Upsert(ctx context.Context, e Entry) error {
 	return nil
 }
 
-// SetStatus sets an entry's status in the directory alone (read_only for a
-// move, and back); ErrUnknown when there is no entry.
-func (p *Postgres) SetStatus(ctx context.Context, tenant uuid.UUID, status string) error {
+// update changes an entry if its version matches (0: any), returning the
+// new entry; ErrUnknown when there is no entry, ErrVersion on a mismatch.
+func (p *Postgres) update(ctx context.Context, tenant uuid.UUID, version int32, set string, args ...any) (Entry, error) {
+	var e Entry
 	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE directory.tenant SET status = $2, updated_at = now() WHERE tenant_id = $1`, tenant, status)
-		if err == nil && tag.RowsAffected() == 0 {
-			return ErrUnknown
+		var current int32
+		if err := tx.QueryRow(ctx, `SELECT version FROM directory.tenant WHERE tenant_id = $1 FOR UPDATE`, tenant).Scan(&current); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrUnknown
+			}
+			return err
 		}
-		return err
+		if version != 0 && version != current {
+			return fmt.Errorf("%w: current version %d", ErrVersion, current)
+		}
+		args = append([]any{tenant}, args...)
+		return tx.QueryRow(ctx, `UPDATE directory.tenant SET `+set+`, version = version + 1, updated_at = now() WHERE tenant_id = $1 RETURNING `+entryColumns, args...).Scan(e.fields()...)
 	})
-	if errors.Is(err, ErrUnknown) {
-		return err
+	if errors.Is(err, ErrUnknown) || errors.Is(err, ErrVersion) {
+		return Entry{}, err
 	}
 	if err != nil {
-		return fmt.Errorf("directory: set status: %w", err)
+		return Entry{}, fmt.Errorf("directory: update: %w", err)
+	}
+	return e, nil
+}
+
+// ErrVersion means the entry changed since it was read (If-Match).
+var ErrVersion = errors.New("directory: version mismatch")
+
+// SetStatus sets an entry's status in the directory alone (read_only for a
+// move, and back), at the version given (0: any).
+func (p *Postgres) SetStatus(ctx context.Context, tenant uuid.UUID, version int32, status string) (Entry, error) {
+	return p.update(ctx, tenant, version, `status = $2`, status)
+}
+
+// ErrRegion means the cell named is in another region than the tenant.
+var ErrRegion = errors.New("directory: the cell is in another region")
+
+// Move points an entry at another registered cell of the tenant's region,
+// at the version given (0: any): ErrUnknownCell, ErrRegion otherwise.
+func (p *Postgres) Move(ctx context.Context, tenant uuid.UUID, version int32, cell string) (Entry, error) {
+	var e Entry
+	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		var current int32
+		var region string
+		if err := tx.QueryRow(ctx, `SELECT version, region FROM directory.tenant WHERE tenant_id = $1 FOR UPDATE`, tenant).Scan(&current, &region); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrUnknown
+			}
+			return err
+		}
+		if version != 0 && version != current {
+			return fmt.Errorf("%w: current version %d", ErrVersion, current)
+		}
+		var cellRegion, apiURL string
+		switch err := tx.QueryRow(ctx, `SELECT region, api_url FROM directory.cell WHERE name = $1`, cell).Scan(&cellRegion, &apiURL); {
+		case errors.Is(err, pgx.ErrNoRows):
+			return ErrUnknownCell
+		case err != nil:
+			return err
+		case cellRegion != region:
+			return fmt.Errorf("%w: %s is in %s, the tenant in %s", ErrRegion, cell, cellRegion, region)
+		}
+		return tx.QueryRow(ctx, `UPDATE directory.tenant SET cell = $2, api_url = $3, version = version + 1, updated_at = now() WHERE tenant_id = $1 RETURNING `+entryColumns, tenant, cell, apiURL).Scan(e.fields()...)
+	})
+	for _, known := range []error{ErrUnknown, ErrVersion, ErrUnknownCell, ErrRegion} {
+		if errors.Is(err, known) {
+			return Entry{}, err
+		}
+	}
+	if err != nil {
+		return Entry{}, fmt.Errorf("directory: move: %w", err)
+	}
+	return e, nil
+}
+
+// Filter narrows a tenant listing; empty fields match everything.
+type Filter struct {
+	Region, Cell, Status string
+}
+
+// Sort is the order_by a directory listing accepts.
+var Sort = pagination.Sort{Default: "updated_at", DefaultDesc: true, Fields: []pagination.Field{
+	{Name: "updated_at", Column: "updated_at", Type: "timestamptz"},
+	{Name: "cell", Column: "cell", Type: "text"},
+}}
+
+// ListTenants returns one page of entries.
+func (p *Postgres) ListTenants(ctx context.Context, f Filter, ks *pagination.Keyset) ([]Entry, string, error) {
+	var entries []Entry
+	err := p.Pool.InTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+		// The keyset breaks ties on a column named id.
+		q, args := ks.SQL(`SELECT `+entryColumns+` FROM (SELECT *, tenant_id AS id FROM directory.tenant) t WHERE ($1 = '' OR region = $1) AND ($2 = '' OR cell = $2) AND ($3 = '' OR status = $3)`,
+			[]any{f.Region, f.Cell, f.Status})
+		rows, _ := tx.Query(ctx, q, args...)
+		var err error
+		entries, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) {
+			var e Entry
+			return e, r.Scan(e.fields()...)
+		})
+		return err
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("directory: list: %w", err)
+	}
+	entries, next := pagination.Page(ks, entries, func(e Entry) (string, uuid.UUID) {
+		if ks.Field() == "cell" {
+			return e.Cell, e.TenantID
+		}
+		return e.UpdatedAt.UTC().Format(time.RFC3339Nano), e.TenantID
+	})
+	return entries, next, nil
+}
+
+// UpsertCell records a cell, as the cell itself does each round.
+func (p *Postgres) UpsertCell(ctx context.Context, c Cell) error {
+	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO directory.cell (name, region, api_url, control_url, accepting) VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (name) DO UPDATE SET region = EXCLUDED.region, api_url = EXCLUDED.api_url, control_url = EXCLUDED.control_url, accepting = EXCLUDED.accepting, updated_at = now()`,
+			c.Name, c.Region, c.APIURL, c.ControlURL, c.Accepting)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("directory: upsert cell: %w", err)
 	}
 	return nil
+}
+
+// ListCells returns the cells (of a region, when given) with their tenant
+// counts, fewest tenants first.
+func (p *Postgres) ListCells(ctx context.Context, region string) ([]Cell, error) {
+	var cells []Cell
+	err := p.Pool.InTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, _ := tx.Query(ctx, `SELECT c.name, c.region, c.api_url, c.control_url, c.accepting, (SELECT count(*) FROM directory.tenant t WHERE t.cell = c.name), c.updated_at
+			FROM directory.cell c WHERE $1 = '' OR c.region = $1 ORDER BY 6, c.name`, region)
+		var err error
+		cells, err = pgx.CollectRows(rows, pgx.RowToStructByPos[Cell])
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("directory: list cells: %w", err)
+	}
+	return cells, nil
+}
+
+// Place decides which cell a provisioning with the key goes to: the cell
+// chosen for that key before, else the accepting cell of the region with the
+// fewest tenants (or the cell named, which must accept), recorded under the
+// key so a retry goes there too. ErrUnknownCell when none fits.
+func (p *Postgres) Place(ctx context.Context, key, region, cell string) (Cell, error) {
+	var chosen Cell
+	err := p.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		var name string
+		switch err := tx.QueryRow(ctx, `SELECT cell FROM directory.placement WHERE idempotency_key = $1`, key).Scan(&name); {
+		case err == nil:
+			cell = name
+		case !errors.Is(err, pgx.ErrNoRows):
+			return err
+		}
+		err := tx.QueryRow(ctx, `SELECT c.name, c.region, c.api_url, c.control_url, c.accepting, (SELECT count(*) FROM directory.tenant t WHERE t.cell = c.name), c.updated_at
+			FROM directory.cell c WHERE ($1 = '' OR c.region = $1) AND ($2 = '' OR c.name = $2) AND (c.accepting OR $2 <> '' AND $3)
+			ORDER BY 6, c.name LIMIT 1`, region, cell, name != "").Scan(&chosen.Name, &chosen.Region, &chosen.APIURL, &chosen.ControlURL, &chosen.Accepting, &chosen.Tenants, &chosen.UpdatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUnknownCell
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO directory.placement (idempotency_key, cell) VALUES ($1, $2) ON CONFLICT (idempotency_key) DO NOTHING`, key, chosen.Name)
+		return err
+	})
+	if errors.Is(err, ErrUnknownCell) {
+		return Cell{}, err
+	}
+	if err != nil {
+		return Cell{}, fmt.Errorf("directory: place: %w", err)
+	}
+	return chosen, nil
 }
 
 // Cache answers lookups from memory for TTL, hits and misses alike, so the
@@ -209,8 +413,14 @@ type Sync struct {
 	Directory   Store
 	Cell        string
 	APIURL      string
-	Interval    time.Duration // between rounds; default 1 minute
-	Log         *slog.Logger
+	// The cell's own entry, when the directory keeps cells (Cells): its
+	// region, the admin listener the global control plane provisions
+	// through, and whether it takes new tenants.
+	Region     string
+	ControlURL string
+	Accepting  bool
+	Interval   time.Duration // between rounds; default 1 minute
+	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin func(context.Context, database.Scope) (pgx.Tx, error)
 }
@@ -231,8 +441,19 @@ func (s *Sync) Register(ctx context.Context, tenant uuid.UUID, region, status st
 	}
 }
 
-// RunOnce records every tenant of the cell and returns how many.
+// Cells is a directory that keeps cells too (the Postgres one).
+type Cells interface {
+	UpsertCell(ctx context.Context, c Cell) error
+}
+
+// RunOnce records the cell itself and every tenant of it, and returns how
+// many tenants.
 func (s *Sync) RunOnce(ctx context.Context) (int, error) {
+	if cells, ok := s.Directory.(Cells); ok && s.ControlURL != "" {
+		if err := cells.UpsertCell(ctx, Cell{Name: s.Cell, Region: s.Region, APIURL: s.APIURL, ControlURL: s.ControlURL, Accepting: s.Accepting}); err != nil {
+			return 0, err
+		}
+	}
 	tx, err := s.begin(ctx, database.Scope{Role: s.ControlRole, ReadOnly: true})
 	if err != nil {
 		return 0, err

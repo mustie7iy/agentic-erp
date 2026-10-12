@@ -42,12 +42,12 @@ jobs:
           make generate
           git diff --exit-code -- api/gen || (echo "api/gen is stale: run make generate" && exit 1)
       - name: API contract lint
-        run: go run github.com/daveshanley/vacuum@v0.32.0 lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml
+        run: go run github.com/daveshanley/vacuum@v0.32.0 lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml
       - name: API breaking-change check against main
         if: github.event_name == 'pull_request'
         run: |
           git fetch --depth=1 origin "${{ github.base_ref }}"
-          for spec in openapi control; do
+          for spec in openapi control directory; do
             if git cat-file -e "FETCH_HEAD:api/$spec.yaml" 2>/dev/null; then
               git show "FETCH_HEAD:api/$spec.yaml" > "/tmp/base-$spec.yaml"
               go run github.com/oasdiff/oasdiff@latest breaking --fail-on ERR "/tmp/base-$spec.yaml" "api/$spec.yaml"

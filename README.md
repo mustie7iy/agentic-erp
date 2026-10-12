@@ -165,13 +165,13 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 
 | Package | Role |
 |---|---|
-| `api/openapi.yaml`, `api/asyncapi.yaml`, `api/control.yaml` | The API, event and control-plane contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
+| `api/openapi.yaml`, `api/asyncapi.yaml`, `api/control.yaml`, `api/directory.yaml` | The API, event, control-plane and global control-plane contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
 | `db/migrations` | The data model as versioned PostgreSQL migrations, applied by the embedded runner (`db.Migrate`) |
 | `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `blobstore` (write-once object storage: directory or S3), `secrets` (references to the environment, mounted files or Vault), `pagination`, `etag`, `config`, `httpapi` (wiring) |
 | `internal/operations` | Long-running operations: the first context on the foundation (`/v1/operations`) |
 | `internal/provisioning`, `internal/controlplane` | Tenant provisioning in one transaction, and the operators' control plane (`/control/v1/tenants`: list, create, suspend, resume, offboard) on the admin listener |
 | `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`, `/control/v1`), outbox relay and workers (balance projector, payment proposer, configuration simulator, audit anchorer, offboarding, directory sync) |
-| `internal/directory`, `internal/router`, `cmd/erp-router` | The global tenant directory (its own database, written by the cells) and the router that verifies a request's token and forwards it to the tenant's cell (ADR-0022) |
+| `internal/directory`, `internal/router`, `internal/globalplane`, `cmd/erp-router` | The global tenant directory (its own database, written by the cells), the router that verifies a request's token and forwards it to the tenant's cell, and the global control plane over the directory (ADR-0022, ADR-0023) |
 
 ## Guardrails built in
 
@@ -219,7 +219,14 @@ uses the same references. The admin listener serves
 `ERP_DIRECTORY_URL` and `ERP_CELL_API_URL` set, the cell records its tenants
 in the global directory, and `erp-router` (same `ERP_OIDC_ISSUERS`,
 `ERP_DIRECTORY_URL`, `ERP_ROUTER_ADDR`) forwards each request to its
-tenant's cell ([ADR-0022](docs/design/adr/0022-tenant-directory-and-router.md)). Tokens must
+tenant's cell ([ADR-0022](docs/design/adr/0022-tenant-directory-and-router.md));
+with `ERP_OPERATOR_ISSUERS` and `ERP_PAGE_TOKEN_KEY` its admin listener
+(`ERP_ROUTER_ADMIN_ADDR`) serves the global control plane
+([`api/directory.yaml`](api/directory.yaml): tenants and cells across the
+platform, provisioning placed in a cell of the region, moves between cells;
+`erp directory`, [ADR-0023](docs/design/adr/0023-global-control-plane.md)).
+Each cell registers itself with `ERP_CELL_REGION`, `ERP_CELL_CONTROL_URL`
+and `ERP_CELL_ACCEPTING`. Tokens must
 carry the tenant id in the `tenant_id` claim, and the subject must be a
 provisioned principal of that tenant; operator tokens name no tenant and
 work only on the control plane. Every operation in the contract is
@@ -229,7 +236,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T18 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T19 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier

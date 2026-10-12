@@ -46,18 +46,24 @@ func tenantsCmd(ctx context.Context, args []string) error {
 	return fmt.Errorf("erp tenants %s: unknown command (list, get, create, suspend, resume, offboard, rotate-key, erase)", args[0])
 }
 
-// control performs one call of the control plane and returns the status,
-// the body and the headers; a problem answer is an error with its detail.
+// control performs one call of the control plane and returns the body and
+// the headers; a problem answer is an error with its detail.
 func control(ctx context.Context, method, path string, body []byte, headers map[string]string) (map[string]any, http.Header, error) {
-	token := getenv("ERP_OPERATOR_TOKEN")
-	if token == "" {
-		return nil, nil, errors.New("ERP_OPERATOR_TOKEN is not set (erp token -subject NAME mints one from a development issuer)")
-	}
 	base := getenv("ERP_CONTROL_URL")
 	if base == "" {
 		base = "http://localhost:9090"
 	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+"/control/v1"+path, bytes.NewReader(body))
+	return operatorCall(ctx, base, "/control/v1"+path, method, body, headers)
+}
+
+// operatorCall performs one call as the operator (ERP_OPERATOR_TOKEN) on a
+// control plane: the cell's or the global one.
+func operatorCall(ctx context.Context, base, path, method string, body []byte, headers map[string]string) (map[string]any, http.Header, error) {
+	token := getenv("ERP_OPERATOR_TOKEN")
+	if token == "" {
+		return nil, nil, errors.New("ERP_OPERATOR_TOKEN is not set (erp token -subject NAME mints one from a development issuer)")
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -74,7 +80,7 @@ func control(ctx context.Context, method, path string, body []byte, headers map[
 	raw, _ := io.ReadAll(resp.Body)
 	var m map[string]any
 	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {
-		return nil, nil, fmt.Errorf("the control plane answered %d with a body that is not JSON: is ERP_CONTROL_URL the admin listener?", resp.StatusCode)
+		return nil, nil, fmt.Errorf("the control plane answered %d with a body that is not JSON: is the URL its admin listener?", resp.StatusCode)
 	}
 	if resp.StatusCode >= 400 {
 		return nil, nil, fmt.Errorf("%d %v: %v", resp.StatusCode, m["code"], m["detail"])

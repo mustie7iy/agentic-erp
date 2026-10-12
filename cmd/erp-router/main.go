@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
+	"github.com/mustie7iy/agentic-erp/internal/globalplane"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/router"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
@@ -34,7 +36,7 @@ func main() {
 
 // cli runs the router and returns the process exit code: 2 for bad
 // configuration, 1 for a failure while running, 0 after a clean shutdown.
-func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, started func(net.Listener)) int {
+func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, started func(api, admin net.Listener)) int {
 	cfg, err := router.LoadConfig(getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "erp-router: configuration:", err)
@@ -48,7 +50,7 @@ func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, star
 	return 0
 }
 
-func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(net.Listener)) error {
+func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(api, admin net.Listener)) error {
 	verifier, err := authn.New(ctx, cfg.Issuers, cfg.Static...)
 	if err != nil {
 		return err
@@ -59,17 +61,45 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	}
 	defer dir.Close()
 	metrics := telemetry.NewMetrics()
-	handler := telemetry.Middleware(log, metrics, tracenoop.NewTracerProvider())(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: cfg.Transport})
+	traced := telemetry.Middleware(log, metrics, tracenoop.NewTracerProvider())
+	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: cfg.Transport})
+	// The admin listener: liveness, metrics, and with operator issuers the
+	// global control plane (api/directory.yaml).
+	admin := http.NewServeMux()
+	admin.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+	admin.Handle("GET /metrics", metrics.Handler())
+	if len(cfg.OperatorIssuers) > 0 {
+		operators, err := authn.New(ctx, cfg.OperatorIssuers, cfg.Static...)
+		if err != nil {
+			return err
+		}
+		pages, _ := pagination.NewCodec(cfg.PageTokenKey) // the key's length was checked with the configuration
+		admin.Handle(globalplane.Base+"/", traced(globalplane.Handler(&globalplane.Service{Directory: dir, Pages: pages}, operators, log)))
+		log.Info("global control plane served on the admin listener", "path", globalplane.Base, "operator_issuers", len(cfg.OperatorIssuers))
+	}
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ln) }()
-	log.Info("erp-router started", "addr", ln.Addr().String(), "cache", cfg.CacheTTL.String())
+	adminLn, err := net.Listen("tcp", cfg.AdminAddr)
+	if err != nil {
+		ln.Close()
+		return err
+	}
+	servers := []*http.Server{
+		{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
+		{Handler: admin, ReadHeaderTimeout: 5 * time.Second},
+	}
+	errc := make(chan error, 2)
+	for i, l := range []net.Listener{ln, adminLn} {
+		go func() { errc <- servers[i].Serve(l) }()
+	}
+	log.Info("erp-router started", "addr", ln.Addr().String(), "admin", adminLn.Addr().String(), "cache", cfg.CacheTTL.String())
 	if started != nil {
-		started(ln)
+		started(ln, adminLn)
 	}
 	var serveErr error
 	select {
@@ -78,7 +108,9 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	}
 	shutdownCtx, done := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
 	defer done()
-	srv.Shutdown(shutdownCtx)
+	for _, s := range servers {
+		s.Shutdown(shutdownCtx)
+	}
 	log.Info("erp-router stopped")
 	return serveErr
 }

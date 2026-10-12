@@ -1,5 +1,5 @@
-# vacuum ruleset for api/openapi.yaml and api/control.yaml:
-#   go run github.com/daveshanley/vacuum@latest lint -r api/vacuum-ruleset.yaml -d api/openapi.yaml api/control.yaml
+# vacuum ruleset for api/openapi.yaml, api/control.yaml and api/directory.yaml:
+#   go run github.com/daveshanley/vacuum@latest lint -r api/vacuum-ruleset.yaml -d api/openapi.yaml api/control.yaml api/directory.yaml
 # The recommended rules apply, except where they contradict docs/design/04-api-design.md.
 extends: [[vacuum:oas, recommended]]
 rules:
@@ -10,14 +10,14 @@ rules:
   # rule rejects. Replaced by the rule below, which still enforces kebab-case.
   paths-kebab-case: off
   paths-kebab-case-with-custom-methods:
-    description: Path segments are kebab-case nouns or {params}; a custom method adds one ':verb' (lowerCamelCase) at the end. The control plane (api/control.yaml) sits under /control/v1.
-    message: "Path must be /v1/ (or /control/v1/) followed by kebab-case segments or {params}, optionally ending in :verb"
+    description: Path segments are kebab-case nouns or {params}; a custom method adds one ':verb' (lowerCamelCase) at the end. The control plane (api/control.yaml) sits under /control/v1, the global control plane (api/directory.yaml) under /directory/v1.
+    message: "Path must be /v1/ (or /control/v1/, /directory/v1/) followed by kebab-case segments or {params}, optionally ending in :verb"
     severity: warn
     given: $.paths[*]~
     then:
       function: pattern
       functionOptions:
-        match: "^(/control)?/v1(/([a-z0-9]+(-[a-z0-9]+)*|\\{[a-z_]+\\}))+(:[a-z][a-zA-Z]*)?$"
+        match: "^(/control|/directory)?/v1(/([a-z0-9]+(-[a-z0-9]+)*|\\{[a-z_]+\\}))+(:[a-z][a-zA-Z]*)?$"
   # OpenAPI 3.1 allows keywords next to $ref. Properties such as
   # `amount: {$ref: Money, description: ..., readOnly: true}` take their type
   # from the referenced schema; the rule reports them as untyped.

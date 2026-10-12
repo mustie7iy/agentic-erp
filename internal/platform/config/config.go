@@ -56,6 +56,9 @@ type Config struct {
 	OffboardGrace   time.Duration   // ERP_OFFBOARD_GRACE: how long an offboarded tenant's data stays in the cell after its export before it is erased (default 720h; ADR-0021)
 	DirectoryURL    string          // ERP_DIRECTORY_URL: the global tenant directory's database; empty: a single cell, no directory (ADR-0022)
 	CellAPIURL      string          // ERP_CELL_API_URL: this cell's public API base URL, recorded in the directory for the router (required with ERP_DIRECTORY_URL)
+	CellRegion      string          // ERP_CELL_REGION: the region this cell belongs to, for placement (required with ERP_DIRECTORY_URL)
+	CellControlURL  string          // ERP_CELL_CONTROL_URL: this cell's admin listener as the global control plane reaches it (required with ERP_DIRECTORY_URL)
+	CellAccepting   bool            // ERP_CELL_ACCEPTING: whether this cell takes new tenants (default true)
 	Vault           Vault           // ERP_VAULT_*: where vault: references are resolved
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
@@ -114,6 +117,7 @@ func (o Objects) Enabled() bool { return o.Dir != "" || o.Endpoint != "" }
 var (
 	cellPattern     = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
 	masterIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	regionPattern   = regexp.MustCompile(`^[a-z]{2}(-[a-z0-9]+)*$`)
 )
 
 // Load reads and validates the configuration. The settings in
@@ -240,10 +244,16 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.OffboardGrace, err = time.ParseDuration(get("ERP_OFFBOARD_GRACE", "720h")); err != nil || c.OffboardGrace < 0 {
 		errs = append(errs, errors.New("ERP_OFFBOARD_GRACE must be a duration such as 720h (30 days); 0 erases right after the export"))
 	}
-	c.DirectoryURL, c.CellAPIURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL")
+	c.DirectoryURL, c.CellAPIURL, c.CellRegion, c.CellControlURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL"), getenv("ERP_CELL_REGION"), getenv("ERP_CELL_CONTROL_URL")
+	c.CellAccepting = get("ERP_CELL_ACCEPTING", "true") != "false"
 	if c.DirectoryURL != "" {
-		if u, err := url.Parse(c.CellAPIURL); err != nil || u.Scheme == "" || u.Host == "" {
-			errs = append(errs, errors.New("ERP_DIRECTORY_URL needs ERP_CELL_API_URL, this cell's public API base URL such as https://eu-1.api.example.com"))
+		for name, value := range map[string]string{"ERP_CELL_API_URL": c.CellAPIURL, "ERP_CELL_CONTROL_URL": c.CellControlURL} {
+			if u, err := url.Parse(value); err != nil || u.Scheme == "" || u.Host == "" {
+				errs = append(errs, errors.New("ERP_DIRECTORY_URL needs "+name+", a base URL such as https://eu-1.api.example.com"))
+			}
+		}
+		if !regionPattern.MatchString(c.CellRegion) {
+			errs = append(errs, errors.New("ERP_DIRECTORY_URL needs ERP_CELL_REGION, the cell's region such as eu-west"))
 		}
 	}
 	for name, dir := range map[string]string{"ERP_BANK_OUTBOX_DIR": c.BankOutboxDir, "ERP_EXTRACT_DIR": c.ExtractDir, "ERP_OBJECT_DIR": c.Objects.Dir} {

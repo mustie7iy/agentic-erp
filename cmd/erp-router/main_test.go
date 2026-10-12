@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
@@ -24,7 +25,9 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 func environment(t *testing.T, is *authntest.Issuer) map[string]string {
 	t.Helper()
 	issuers, _ := json.Marshal([]any{is.Config()})
-	return map[string]string{"ERP_DIRECTORY_URL": pgtest.URL(t), "ERP_OIDC_ISSUERS": string(issuers), "ERP_ROUTER_ADDR": "127.0.0.1:0", "ERP_SHUTDOWN_TIMEOUT": "5s"}
+	return map[string]string{"ERP_DIRECTORY_URL": pgtest.URL(t), "ERP_OIDC_ISSUERS": string(issuers), "ERP_OPERATOR_ISSUERS": string(issuers),
+		"ERP_PAGE_TOKEN_KEY": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32))),
+		"ERP_ROUTER_ADDR":    "127.0.0.1:0", "ERP_ROUTER_ADMIN_ADDR": "127.0.0.1:0", "ERP_SHUTDOWN_TIMEOUT": "5s"}
 }
 
 // TestRoutesToTheCell: the router serves, forwards a tenant's request to the
@@ -48,9 +51,11 @@ func TestRoutesToTheCell(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs bytes.Buffer
-	addr := make(chan string, 1)
+	addr, adminAddr := make(chan string, 1), make(chan string, 1)
 	done := make(chan int, 1)
-	go func() { done <- cli(ctx, getenv, &logs, func(ln net.Listener) { addr <- ln.Addr().String() }) }()
+	go func() {
+		done <- cli(ctx, getenv, &logs, func(ln, admin net.Listener) { addr <- ln.Addr().String(); adminAddr <- admin.Addr().String() })
+	}()
 	var base string
 	select {
 	case a := <-addr:
@@ -72,6 +77,26 @@ func TestRoutesToTheCell(t *testing.T) {
 	if resp, err := http.Get(base + "/livez"); err != nil || resp.StatusCode != 200 {
 		t.Fatalf("livez: %v %v", resp, err)
 	}
+	// The admin listener: liveness and metrics, and the global control plane for operators.
+	var adminBase string
+	select {
+	case a := <-adminAddr:
+		adminBase = "http://" + a
+	default:
+		t.Fatal("no admin listener")
+	}
+	for _, path := range []string{"/livez", "/metrics"} {
+		if resp, err := http.Get(adminBase + path); err != nil || resp.StatusCode != 200 {
+			t.Fatalf("admin %s: %v %v", path, resp, err)
+		}
+	}
+	req, _ = http.NewRequest("GET", adminBase+"/directory/v1/tenants/"+tenant.String(), nil)
+	req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil}))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("directory API: %v %v", resp, err)
+	}
+	resp.Body.Close()
 	cancel()
 	if code := <-done; code != 0 || !strings.Contains(logs.String(), "erp-router stopped") {
 		t.Fatalf("stop: %d %s", code, logs.String())
@@ -94,15 +119,22 @@ func TestExitCodes(t *testing.T) {
 		"issuer": {func(e map[string]string) {
 			e["ERP_OIDC_ISSUERS"] = `[{"issuer":"http://127.0.0.1:1","audience":"erp-api"}]`
 		}, 1, "erp-router stopped"},
-		"address in use":  {func(e map[string]string) { e["ERP_ROUTER_ADDR"] = busy.Addr().String() }, 1, "address already in use"},
+		"address in use": {func(e map[string]string) { e["ERP_ROUTER_ADDR"] = busy.Addr().String() }, 1, "address already in use"},
+		"admin in use":   {func(e map[string]string) { e["ERP_ROUTER_ADMIN_ADDR"] = busy.Addr().String() }, 1, "address already in use"},
+		"operator issuer": {func(e map[string]string) {
+			e["ERP_OPERATOR_ISSUERS"] = `[{"issuer":"http://127.0.0.1:1","audience":"erp-control"}]`
+		}, 1, "erp-router stopped"},
+		"page key": {func(e map[string]string) {
+			e["ERP_PAGE_TOKEN_KEY"] = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32))) + "x"
+		}, 2, "ERP_PAGE_TOKEN_KEY"},
 		"listener closed": {func(map[string]string) {}, 1, "closed"},
 	} {
 		env := environment(t, is)
 		c.mutate(env)
 		var logs bytes.Buffer
-		started := func(ln net.Listener) {}
+		started := func(_, _ net.Listener) {}
 		if name == "listener closed" {
-			started = func(ln net.Listener) { ln.Close() }
+			started = func(ln, _ net.Listener) { ln.Close() }
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		code := cli(ctx, func(k string) string { return env[k] }, &logs, started)

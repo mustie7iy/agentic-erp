@@ -147,7 +147,8 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 			return err
 		}
 		defer dir.Close()
-		sync = &directory.Sync{Pool: pool, ControlRole: cfg.ControlRole, Directory: dir, Cell: cfg.Cell, APIURL: cfg.CellAPIURL, Interval: directoryInterval, Log: log}
+		sync = &directory.Sync{Pool: pool, ControlRole: cfg.ControlRole, Directory: dir, Cell: cfg.Cell, APIURL: cfg.CellAPIURL,
+			Region: cfg.CellRegion, ControlURL: cfg.CellControlURL, Accepting: cfg.CellAccepting, Interval: directoryInterval, Log: log}
 	} else {
 		close(dirDone)
 	}

@@ -6,6 +6,7 @@
 package router
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,8 +25,11 @@ import (
 // Config is the router's configuration, from the environment.
 type Config struct {
 	Addr            string            // ERP_ROUTER_ADDR (default :8081)
+	AdminAddr       string            // ERP_ROUTER_ADMIN_ADDR (default :9091): liveness, metrics, and the global control plane with operator issuers
 	DirectoryURL    string            // ERP_DIRECTORY_URL (required)
 	Issuers         []authn.Issuer    // ERP_OIDC_ISSUERS, the same list the cells trust (required)
+	OperatorIssuers []authn.Issuer    // ERP_OPERATOR_ISSUERS, for the global control plane on the admin listener; empty leaves it off
+	PageTokenKey    []byte            // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required with ERP_OPERATOR_ISSUERS)
 	CacheTTL        time.Duration     // ERP_DIRECTORY_CACHE, how long a lookup is remembered (default 30s)
 	LogLevel        slog.Level        // ERP_LOG_LEVEL (default info)
 	ShutdownTimeout time.Duration     // ERP_SHUTDOWN_TIMEOUT (default 20s)
@@ -42,12 +46,21 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		}
 		return def
 	}
-	c := Config{Addr: get("ERP_ROUTER_ADDR", ":8081"), DirectoryURL: getenv("ERP_DIRECTORY_URL")}
+	c := Config{Addr: get("ERP_ROUTER_ADDR", ":8081"), AdminAddr: get("ERP_ROUTER_ADMIN_ADDR", ":9091"), DirectoryURL: getenv("ERP_DIRECTORY_URL")}
 	if c.DirectoryURL == "" {
 		errs = append(errs, errors.New("ERP_DIRECTORY_URL is required: the directory database"))
 	}
 	if err := json.Unmarshal([]byte(getenv("ERP_OIDC_ISSUERS")), &c.Issuers); err != nil || len(c.Issuers) == 0 {
 		errs = append(errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"}`))
+	}
+	if raw := getenv("ERP_OPERATOR_ISSUERS"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &c.OperatorIssuers); err != nil || len(c.OperatorIssuers) == 0 {
+			errs = append(errs, errors.New(`ERP_OPERATOR_ISSUERS must be a JSON list of {"issuer", "audience"}`))
+		}
+		var err error
+		if c.PageTokenKey, err = base64.StdEncoding.DecodeString(getenv("ERP_PAGE_TOKEN_KEY")); err != nil || len(c.PageTokenKey) < 32 {
+			errs = append(errs, errors.New("ERP_OPERATOR_ISSUERS needs ERP_PAGE_TOKEN_KEY, base64 of at least 32 random bytes, the same on every router"))
+		}
 	}
 	var err error
 	if c.CacheTTL, err = time.ParseDuration(get("ERP_DIRECTORY_CACHE", "30s")); err != nil || c.CacheTTL <= 0 {

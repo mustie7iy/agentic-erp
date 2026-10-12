@@ -271,7 +271,20 @@ func TestDirectorySettings(t *testing.T) {
 		t.Fatalf("cell URL without a scheme: %v", err)
 	}
 	m["ERP_CELL_API_URL"] = "https://eu-1.api.example.com"
-	if c, err := Load(env(m)); err != nil || c.DirectoryURL != "postgres://dir@db/directory" || c.CellAPIURL != "https://eu-1.api.example.com" {
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_CONTROL_URL") || !strings.Contains(err.Error(), "ERP_CELL_REGION") {
+		t.Fatalf("directory without the cell's control URL and region: %v", err)
+	}
+	m["ERP_CELL_CONTROL_URL"], m["ERP_CELL_REGION"] = "http://eu-1-admin.internal:9090", "eu-west"
+	c, err := Load(env(m))
+	if err != nil || c.DirectoryURL != "postgres://dir@db/directory" || c.CellAPIURL != "https://eu-1.api.example.com" || c.CellControlURL != "http://eu-1-admin.internal:9090" || c.CellRegion != "eu-west" || !c.CellAccepting {
 		t.Fatalf("%+v %v", c, err)
+	}
+	m["ERP_CELL_ACCEPTING"], m["ERP_CELL_REGION"] = "false", "EU"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_REGION") {
+		t.Fatalf("bad region: %v", err)
+	}
+	m["ERP_CELL_REGION"] = "eu-west"
+	if c, err := Load(env(m)); err != nil || c.CellAccepting {
+		t.Fatalf("not accepting: %+v %v", c, err)
 	}
 }

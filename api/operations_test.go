@@ -61,6 +61,27 @@ func TestSpec(t *testing.T) {
 	}
 }
 
+func TestDirectoryOperations(t *testing.T) {
+	ops, err := DirectoryOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"listDirectoryTenants": "GET /directory/v1/tenants", "createDirectoryTenant": "POST /directory/v1/tenants", "getDirectoryTenant": "GET /directory/v1/tenants/{id}",
+		"freezeTenant": "POST /directory/v1/tenants/{id}:freeze", "unfreezeTenant": "POST /directory/v1/tenants/{id}:unfreeze", "moveTenant": "POST /directory/v1/tenants/{id}:move",
+		"listCells": "GET /directory/v1/cells"}
+	if len(ops) != len(want) {
+		t.Fatalf("%d operations", len(ops))
+	}
+	for id, route := range want {
+		if op := ops[id]; op.Method+" "+op.Path != route || op.Permission != "" || !op.AgentAllowed {
+			t.Errorf("%s: %+v", id, op)
+		}
+	}
+	if !strings.Contains(string(DirectorySpec()), "\nopenapi: \"3.1") {
+		t.Fatal("spec")
+	}
+}
+
 func TestControlOperations(t *testing.T) {
 	ops, err := ControlOperations()
 	if err != nil {

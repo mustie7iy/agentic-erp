@@ -1,0 +1,795 @@
+# Agentic ERP global control-plane contract (OpenAPI 3.1): the operators' API across cells (T19; docs/design/04-api-design.md §4.16).
+# Served by erp-router on its admin listener under /directory/v1, never on the public API. Hand-written handlers in
+# internal/globalplane implement it; internal/globalplane/globalplane_test.go checks every operation here is served.
+# Lint with vacuum (api/vacuum-ruleset.yaml).
+openapi: "3.1.0"
+info:
+  title: Agentic ERP global control plane
+  version: "1.0.0"
+  summary: Operators' API across cells, over the tenant directory.
+  description: |-
+    The global control plane is the directory's view of the platform: which cell each tenant lives in, which cells exist and take new tenants, and the two things only the directory can do: place a new tenant in a cell of its region, and move a tenant between cells ([05-scalability.md §5.4](../docs/design/05-scalability.md), ADR-0022, ADR-0023). It is served by `erp-router` on its admin listener (`ERP_ROUTER_ADMIN_ADDR`, default `:9091`), reachable only inside the platform, and follows the rules of the public API ([04-api-design.md](../docs/design/04-api-design.md)): RFC 9457 problems, cursor pagination, `Idempotency-Key` on creation, `If-Match` on changes.
+
+    Operators authenticate as on a cell's control plane (`ERP_OPERATOR_ISSUERS`). Provisioning here places the tenant (the accepting cell of the region with the fewest tenants, or the cell named) and forwards the request to that cell's control plane with the operator's token and `Idempotency-Key`; a retry with the same key goes to the same cell, whose idempotency answers it. The cell records the tenant in its own audit trail; the directory records nothing about who did what.
+
+    A move is three steps: `:freeze` (the router lets the tenant read but not write), the copy and verification of its rows outside this API, `:move` to the new cell, then `:unfreeze`.
+  contact:
+    name: Platform API team
+    url: "https://github.com/mustie7iy/agentic-erp"
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: "http://{admin}"
+    description: "The admin listener of an erp-router replica (not exposed outside the platform)."
+    variables:
+      admin:
+        default: "localhost:9091"
+        description: "Host and port of the router's admin listener (`ERP_ROUTER_ADMIN_ADDR`)."
+security:
+  - operator: []
+tags:
+  - name: directory
+    description: Tenants across cells, their placement and moves.
+  - name: cells
+    description: The cells the directory knows.
+paths:
+  /directory/v1/tenants:
+    get:
+      operationId: listDirectoryTenants
+      tags:
+        - directory
+      summary: List tenants across cells
+      description: "Every tenant the directory knows, latest change first. Sortable by: `updated_at`, `cell`."
+      parameters:
+        - name: region
+          in: query
+          required: false
+          description: Only tenants of this region.
+          schema:
+            type: string
+            maxLength: 40
+          example: eu-west
+        - name: cell
+          in: query
+          required: false
+          description: Only tenants of this cell.
+          schema:
+            type: string
+            maxLength: 40
+          example: eu-1
+        - name: status
+          in: query
+          required: false
+          description: "Only tenants in this status: `active`, `suspended`, `offboarded` or `read_only`."
+          schema:
+            type: string
+            maxLength: 20
+          example: active
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createDirectoryTenant
+      tags:
+        - directory
+      summary: Provision a tenant in a cell of its region
+      description: "Places the tenant and forwards the request to the chosen cell's control plane (`POST /control/v1/tenants`) with the operator's token and `Idempotency-Key`. The cell's answer comes back with `cell` added and the cell named in `X-Erp-Cell`; a retry with the same key reaches the same cell. 422 `tenancy.no_cell` when no cell of the region takes new tenants, `tenancy.unknown_cell` when the cell named is not one of the region's; 502 when the cell does not answer (retry with the same key)."
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: "The cell control plane's `TenantCreate`, optionally with `cell`."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlacedTenantCreate"
+      responses:
+        "201":
+          description: "Created in the cell; the cell's answer with the cell named."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Erp-Cell:
+              $ref: "#/components/headers/XErpCell"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlacedTenant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+  /directory/v1/tenants/{id}:
+    get:
+      operationId: getDirectoryTenant
+      tags:
+        - directory
+      summary: Find a tenant's cell
+      description: Returns the tenant's directory entry.
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The entry.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  "/directory/v1/tenants/{id}:freeze":
+    post:
+      operationId: freezeTenant
+      tags:
+        - directory
+      summary: Make a tenant read-only for a move
+      description: "Sets the entry to `read_only`: the router lets the tenant's reads through and answers writes 503 with a retry. The first step of a move; applies to active tenants (409 otherwise). The cell knows nothing of it."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The entry, read-only.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/directory/v1/tenants/{id}:move":
+    post:
+      operationId: moveTenant
+      tags:
+        - directory
+      summary: Point a frozen tenant at another cell
+      description: "Switches the entry to the cell named, after its rows were copied and verified outside this API (05 §5.4). The tenant must be `read_only` (409) and the cell registered and in the tenant's region (422). The router follows within its cache period."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        description: The destination.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Move"
+      responses:
+        "200":
+          description: The entry, in its new cell and still read-only.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/directory/v1/tenants/{id}:unfreeze":
+    post:
+      operationId: unfreezeTenant
+      tags:
+        - directory
+      summary: End a move
+      description: "Sets a `read_only` entry back to `active`, in whichever cell the directory now names (409 for any other status)."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The entry, active.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /directory/v1/cells:
+    get:
+      operationId: listCells
+      tags:
+        - cells
+      summary: List cells
+      description: "The cells registered in the directory (each cell registers itself every minute), with how many tenants the directory places in each, fewest first."
+      parameters:
+        - name: region
+          in: query
+          required: false
+          description: Only cells of this region.
+          schema:
+            type: string
+            maxLength: 40
+          example: eu-west
+      responses:
+        "200":
+          description: The cells.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CellList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+components:
+  securitySchemes:
+    operator:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Bearer token issued by an operator identity provider (`ERP_OPERATOR_ISSUERS`); the same tokens the cells' control planes accept."
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: Tenant identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: "The ETag (version) the operator last read. A mismatch returns 412 and changes nothing; a missing header returns 428."
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+      example: "\"1\""
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: "Operator-chosen key, unique per logical request; decides the cell once, and the cell's control plane answers a retry with the tenant the first request created."
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 255
+      example: "4f1c2a7e-8d55-4c3b-9a0e-6b2d1e3f4a5b"
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      description: Entries per page (default 50, maximum 500).
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 500
+      example: 50
+    PageToken:
+      name: page_token
+      in: query
+      required: false
+      description: Cursor of the next page, from `next_page_token`.
+      schema:
+        type: string
+        maxLength: 2000
+      example: "eyJ2IjoiMjAyNi0xMC0xMVQwOTowMDowMFoiLCJpIjoiMDE5MjlhMWUtNGMyYi03YTEwLTliM2UtMWYyYTNiNGM1ZDAxIn0.sig"
+    OrderBy:
+      name: order_by
+      in: query
+      required: false
+      description: "Sort order: `updated_at desc` (default) or `cell asc`."
+      schema:
+        type: string
+        maxLength: 40
+      example: "cell asc"
+  headers:
+    ETag:
+      description: "Strong entity tag of the entry; equals `version`. Send it back in `If-Match`."
+      schema:
+        type: string
+      example: "\"1\""
+    Location:
+      description: URL of the created tenant on its cell's control plane.
+      schema:
+        type: string
+        format: uri-reference
+    XErpCell:
+      description: The cell that answered.
+      schema:
+        type: string
+      example: eu-1
+  schemas:
+    Entry:
+      type: object
+      description: "A tenant's directory entry: which cell serves it and whether its requests are routed there."
+      required:
+        - tenant_id
+        - region
+        - cell
+        - api_url
+        - status
+        - version
+        - updated_at
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant.
+          readOnly: true
+          example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+        region:
+          type: string
+          description: "The region the tenant's data stays in."
+          readOnly: true
+          example: eu-west
+        cell:
+          type: string
+          description: The cell serving the tenant.
+          readOnly: true
+          example: eu-1
+        api_url:
+          type: string
+          description: The cell's public API base URL, where the router forwards the tenant's requests.
+          readOnly: true
+          example: "https://eu-1.api.example.com"
+        status:
+          type: string
+          description: "`active`, `suspended` or `offboarded` as in the cell, or `read_only` while the tenant moves (open enumeration)."
+          readOnly: true
+          example: active
+        version:
+          type: integer
+          format: int32
+          description: "Moves on with every change; equals the ETag."
+          minimum: 1
+          readOnly: true
+          example: 1
+        updated_at:
+          type: string
+          format: date-time
+          description: Time of the last change (UTC).
+          readOnly: true
+          example: "2026-10-12T09:00:00Z"
+      examples:
+        - tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          region: eu-west
+          cell: eu-1
+          api_url: "https://eu-1.api.example.com"
+          status: active
+          version: 1
+          updated_at: "2026-10-12T09:00:00Z"
+    EntryPage:
+      type: object
+      description: One page of entries.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Entry"
+          description: The entries of this page.
+        next_page_token:
+          type: string
+          description: Cursor of the next page; absent on the last page.
+      examples:
+        - items:
+            - tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              region: eu-west
+              cell: eu-1
+              api_url: "https://eu-1.api.example.com"
+              status: active
+              version: 1
+              updated_at: "2026-10-12T09:00:00Z"
+    Cell:
+      type: object
+      description: A cell registered in the directory.
+      required:
+        - name
+        - region
+        - api_url
+        - control_url
+        - accepting
+        - tenants
+        - updated_at
+      properties:
+        name:
+          type: string
+          description: "The cell's name (`ERP_CELL`)."
+          readOnly: true
+          example: eu-1
+        region:
+          type: string
+          description: "The region the cell belongs to (`ERP_CELL_REGION`)."
+          readOnly: true
+          example: eu-west
+        api_url:
+          type: string
+          description: "The cell's public API base URL (`ERP_CELL_API_URL`)."
+          readOnly: true
+          example: "https://eu-1.api.example.com"
+        control_url:
+          type: string
+          description: "The cell's admin listener as the global control plane reaches it (`ERP_CELL_CONTROL_URL`)."
+          readOnly: true
+          example: "http://eu-1-admin.internal:9090"
+        accepting:
+          type: boolean
+          description: "Whether the cell takes new tenants (`ERP_CELL_ACCEPTING`)."
+          readOnly: true
+          example: true
+        tenants:
+          type: integer
+          description: Tenants the directory places in the cell.
+          readOnly: true
+          example: 42
+        updated_at:
+          type: string
+          format: date-time
+          description: When the cell last registered itself (UTC).
+          readOnly: true
+          example: "2026-10-12T09:00:00Z"
+      examples:
+        - name: eu-1
+          region: eu-west
+          api_url: "https://eu-1.api.example.com"
+          control_url: "http://eu-1-admin.internal:9090"
+          accepting: true
+          tenants: 42
+          updated_at: "2026-10-12T09:00:00Z"
+    CellList:
+      type: object
+      description: The cells.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Cell"
+          description: The cells, fewest tenants first.
+      examples:
+        - items:
+            - name: eu-1
+              region: eu-west
+              api_url: "https://eu-1.api.example.com"
+              control_url: "http://eu-1-admin.internal:9090"
+              accepting: true
+              tenants: 42
+              updated_at: "2026-10-12T09:00:00Z"
+    PlacedTenantCreate:
+      type: object
+      description: "The cell control plane's `TenantCreate` (name, region, group currency, administrator, configuration), with an optional `cell` to place the tenant in; every other field is forwarded unchanged."
+      required:
+        - name
+        - region
+        - group_currency
+        - administrator
+        - configuration
+      properties:
+        name:
+          type: string
+          description: Display name.
+          minLength: 1
+          maxLength: 200
+        region:
+          type: string
+          description: "Region the tenant's data stays in; decides the cells eligible."
+          pattern: "^[a-z]{2}(-[a-z0-9]+)*$"
+        group_currency:
+          type: string
+          description: Group currency (ISO 4217).
+          pattern: "^[A-Za-z]{3}$"
+        administrator:
+          type: object
+          description: "The tenant's first person (the cell contract's `Administrator`)."
+          additionalProperties: true
+        configuration:
+          type: object
+          description: The first configuration document.
+          additionalProperties: true
+        cell:
+          type: string
+          description: "The cell to place the tenant in (default: the accepting cell of the region with the fewest tenants)."
+          maxLength: 40
+      examples:
+        - name: Acme
+          region: eu-west
+          group_currency: EUR
+          administrator:
+            subject: "auth0|ada"
+            display_name: Ada Lovelace
+          configuration:
+            group_currency: EUR
+            companies: []
+    PlacedTenant:
+      type: object
+      description: "The cell control plane's `TenantCreated` with the cell named."
+      required:
+        - id
+        - cell
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The tenant.
+          readOnly: true
+          example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+        cell:
+          type: string
+          description: The cell the tenant was placed in.
+          readOnly: true
+          example: eu-1
+      additionalProperties: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          name: Acme
+          region: eu-west
+          group_currency: EUR
+          status: active
+          version: 1
+          cell: eu-1
+    Move:
+      type: object
+      description: Where a frozen tenant moves to.
+      required:
+        - cell
+      properties:
+        cell:
+          type: string
+          description: A registered cell of the tenant's region.
+          minLength: 1
+          maxLength: 40
+      examples:
+        - cell: eu-2
+    FieldError:
+      type: object
+      description: One invalid input field.
+      required:
+        - field
+        - code
+      properties:
+        field:
+          type: string
+          description: The field, as a path.
+          example: cell
+        code:
+          type: string
+          description: Stable code of the problem with the field.
+          example: unknown
+        message:
+          type: string
+          description: Human-readable explanation.
+          example: a registered cell of the region
+      examples:
+        - field: cell
+          code: unknown
+          message: a registered cell of the region
+    Problem:
+      type: object
+      description: "RFC 9457 problem details, as on the public API."
+      required:
+        - type
+        - title
+        - status
+        - code
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Problem type URI.
+          example: "https://errors.example.com/request/not-found"
+        title:
+          type: string
+          description: Short summary.
+          example: Not found
+        status:
+          type: integer
+          description: HTTP status.
+          example: 404
+        code:
+          type: string
+          description: Stable machine-readable code.
+          example: request.not_found
+        detail:
+          type: string
+          description: Human-readable explanation.
+          example: No cell serves this tenant.
+        instance:
+          type: string
+          description: The request path.
+          example: "/directory/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+        trace_id:
+          type: string
+          description: Trace id of the request.
+          example: "4bf92f3577b34da6a3ce929d0e0e4736"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+          description: Field errors, for 400 and 422.
+      examples:
+        - type: "https://errors.example.com/request/not-found"
+          title: Not found
+          status: 404
+          code: request.not_found
+          detail: No cell serves this tenant.
+          instance: "/directory/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+  responses:
+    BadRequest:
+      description: "Malformed request: invalid JSON, invalid parameter, bad page token or order."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/invalid-parameter"
+            title: Bad request
+            status: 400
+            code: request.invalid_parameter
+            detail: Parameter status is invalid.
+            instance: /directory/v1/tenants
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    Unauthorized:
+      description: "Missing, expired or invalid operator token."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/authn/invalid-token"
+            title: Unauthorized
+            status: 401
+            code: authn.invalid_token
+            detail: A bearer token is required.
+            instance: /directory/v1/tenants
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    NotFound:
+      description: No entry for this tenant, or no such method.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/not-found"
+            title: Not found
+            status: 404
+            code: request.not_found
+            detail: No cell serves this tenant.
+            instance: "/directory/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    Conflict:
+      description: "The entry's status does not allow the method, or it changed while the request ran."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/tenancy/invalid-transition"
+            title: Conflict
+            status: 409
+            code: tenancy.invalid_transition
+            detail: "The tenant is active; freeze it before moving it."
+            instance: "/directory/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:move"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    PreconditionFailed:
+      description: "`If-Match` does not match the entry's version."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/version-mismatch"
+            title: Precondition failed
+            status: 412
+            code: request.version_mismatch
+            detail: "The resource has changed (current ETag \"2\"); read it again and retry."
+            instance: "/directory/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:freeze"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    PreconditionRequired:
+      description: "`If-Match` or `Idempotency-Key` is missing."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/request/precondition-required"
+            title: Precondition required
+            status: 428
+            code: request.precondition_required
+            detail: The If-Match header is required.
+            instance: "/directory/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:freeze"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    Unprocessable:
+      description: "Valid request, refused by a rule: no cell of the region, an unknown cell, a cell of another region."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/tenancy/no-cell"
+            title: Unprocessable
+            status: 422
+            code: tenancy.no_cell
+            detail: No cell of eu-west takes new tenants.
+            instance: /directory/v1/tenants
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+            errors:
+              - field: region
+                code: no_cell
+                message: a region with an accepting cell
+    BadGateway:
+      description: The cell chosen did not answer; retry with the same `Idempotency-Key`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/platform/cell-unreachable"
+            title: Cell unreachable
+            status: 502
+            code: platform.cell_unreachable
+            detail: "Cell eu-1 did not answer; try again with the same Idempotency-Key."
+            instance: /directory/v1/tenants
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"

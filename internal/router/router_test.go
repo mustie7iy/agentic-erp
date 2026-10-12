@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -78,8 +79,21 @@ func TestLoadConfig(t *testing.T) {
 		m[k] = v
 	}
 	m["ERP_ROUTER_ADDR"], m["ERP_DIRECTORY_CACHE"], m["ERP_LOG_LEVEL"] = "127.0.0.1:0", "5s", "debug"
-	if c, err := router.LoadConfig(env(m)); err != nil || c.Addr != "127.0.0.1:0" || c.CacheTTL != 5*time.Second || c.LogLevel != slog.LevelDebug {
+	if c, err := router.LoadConfig(env(m)); err != nil || c.Addr != "127.0.0.1:0" || c.AdminAddr != ":9091" || c.CacheTTL != 5*time.Second || c.LogLevel != slog.LevelDebug || c.OperatorIssuers != nil {
 		t.Fatalf("%+v %v", c, err)
+	}
+	// The global control plane needs operator issuers and a page-token key.
+	m["ERP_OPERATOR_ISSUERS"], m["ERP_ROUTER_ADMIN_ADDR"] = `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "127.0.0.1:0"
+	if _, err := router.LoadConfig(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_PAGE_TOKEN_KEY") {
+		t.Fatalf("operators without a page key: %v", err)
+	}
+	m["ERP_PAGE_TOKEN_KEY"] = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
+	if c, err := router.LoadConfig(env(m)); err != nil || len(c.OperatorIssuers) != 1 || len(c.PageTokenKey) != 32 || c.AdminAddr != "127.0.0.1:0" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	m["ERP_OPERATOR_ISSUERS"] = "[]"
+	if _, err := router.LoadConfig(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OPERATOR_ISSUERS") {
+		t.Fatalf("empty operators: %v", err)
 	}
 }
 

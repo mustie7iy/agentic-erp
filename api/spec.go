@@ -14,6 +14,9 @@ var openapiYAML []byte
 //go:embed control.yaml
 var controlYAML []byte
 
+//go:embed directory.yaml
+var directoryYAML []byte
+
 // Operation is what the request pipeline needs to know about an operation
 // beyond what the generated server enforces.
 type Operation struct {
@@ -94,4 +97,16 @@ func ControlSpec() []byte { return controlYAML }
 // principals, and any operator the verifier accepts may call any of them.
 func ControlOperations() (map[string]Operation, error) {
 	return parseOperations(controlYAML, false)
+}
+
+// DirectorySpec is the embedded global control-plane contract
+// (directory.yaml): the operators' API across cells, served by erp-router
+// on its admin listener by hand-written handlers (internal/globalplane).
+func DirectorySpec() []byte { return directoryYAML }
+
+// DirectoryOperations returns every operation of the global control-plane
+// contract by operationId; like the control plane's, they declare no
+// x-permission.
+func DirectoryOperations() (map[string]Operation, error) {
+	return parseOperations(directoryYAML, false)
 }

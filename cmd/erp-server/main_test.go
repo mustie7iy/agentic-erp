@@ -666,7 +666,7 @@ func countKeys(t *testing.T, master string) int {
 func TestDirectorySync(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
-	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"] = pgtest.URL(t), "https://test.api.example.com"
+	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = pgtest.URL(t), "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
 	ten := pgtest.NewTenant(t)
 	directoryInterval = 20 * time.Millisecond
 	defer func() { directoryInterval = time.Minute }()
@@ -696,6 +696,17 @@ func TestDirectorySync(t *testing.T) {
 	}
 	if entry.Cell != "test" || entry.APIURL != "https://test.api.example.com" || entry.Status != directory.Active {
 		t.Fatalf("directory entry: %+v", entry)
+	}
+	cells, err := dir.ListCells(context.Background(), "eu-west")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered := false
+	for _, c := range cells {
+		registered = registered || c.Name == "test" && c.ControlURL == "http://test-admin.internal:9090" && c.Accepting
+	}
+	if !registered {
+		t.Fatalf("the cell did not register itself: %+v", cells)
 	}
 	// A directory that cannot be opened stops the start.
 	env["ERP_DIRECTORY_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"

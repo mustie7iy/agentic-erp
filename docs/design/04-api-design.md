@@ -314,3 +314,20 @@ idempotency, concurrency) with these differences:
   period; `:erase` does it earlier. The tenant row and its audit trail
   stay (ADR-0021).
 
+## 4.16 Global control plane
+
+Across cells, operators use a third small contract,
+[`api/directory.yaml`](../../api/directory.yaml), served by `erp-router` on
+its admin listener under `/directory/v1` (ADR-0023) with the same operator
+tokens as the cells' control planes:
+
+| Operation | Method | Notes |
+|---|---|---|
+| `listDirectoryTenants` | `GET /directory/v1/tenants` | `region`, `cell`, `status` filters; `order_by` `updated_at` (default, latest first) or `cell`; cursor pages |
+| `getDirectoryTenant` | `GET /directory/v1/tenants/{id}` | The entry; `ETag` = version |
+| `createDirectoryTenant` | `POST /directory/v1/tenants` | The cell contract's `TenantCreate` plus an optional `cell`; placed in the emptiest accepting cell of the region and forwarded to that cell's control plane with the operator's token and `Idempotency-Key`; the answer names the cell (`X-Erp-Cell`) |
+| `freezeTenant`, `moveTenant`, `unfreezeTenant` | `POST /directory/v1/tenants/{id}:verb` | `If-Match` required; the directory steps of a move (05 §5.4): read-only at the router, the entry switched to a registered cell of the same region, active again |
+| `listCells` | `GET /directory/v1/cells` | The cells that registered themselves, with tenant counts, fewest first |
+
+The global plane keeps no audit trail: what it forwards is recorded by the
+cell that serves it, and what it changes is the directory's routing state.

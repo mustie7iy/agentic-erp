@@ -15,6 +15,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -71,36 +72,117 @@ func TestPostgresDirectory(t *testing.T) {
 	if _, err := dir.Lookup(ctx, tenant); !errors.Is(err, directory.ErrUnknown) {
 		t.Fatalf("unknown: %v", err)
 	}
-	if err := dir.SetStatus(ctx, tenant, directory.ReadOnly); !errors.Is(err, directory.ErrUnknown) {
+	if _, err := dir.SetStatus(ctx, tenant, 0, directory.ReadOnly); !errors.Is(err, directory.ErrUnknown) {
 		t.Fatalf("status of nobody: %v", err)
 	}
 	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active}); err != nil {
 		t.Fatal(err)
 	}
 	e, err := dir.Lookup(ctx, tenant)
-	if err != nil || e.Cell != "eu-1" || e.Status != directory.Active || e.APIURL != "https://eu-1.api.example.com" || e.UpdatedAt.IsZero() {
+	if err != nil || e.Cell != "eu-1" || e.Status != directory.Active || e.APIURL != "https://eu-1.api.example.com" || e.UpdatedAt.IsZero() || e.Version != 1 {
 		t.Fatalf("%+v %v", e, err)
+	}
+	// An upsert that changes nothing leaves the version alone; one that changes something moves it on.
+	dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active})
+	if e, _ := dir.Lookup(ctx, tenant); e.Version != 1 {
+		t.Fatalf("version moved without a change: %+v", e)
 	}
 	// The cell's status changes pass through; a read_only set in the directory survives the cell's upserts.
 	dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Suspended})
-	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.Suspended {
+	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.Suspended || e.Version != 2 {
 		t.Fatalf("suspended: %+v", e)
 	}
-	if err := dir.SetStatus(ctx, tenant, directory.ReadOnly); err != nil {
-		t.Fatal(err)
+	// Status changes and moves check the version they were read at (0: any).
+	if _, err := dir.SetStatus(ctx, tenant, 1, directory.ReadOnly); !errors.Is(err, directory.ErrVersion) {
+		t.Fatalf("stale version: %v", err)
+	}
+	frozen, err := dir.SetStatus(ctx, tenant, 2, directory.ReadOnly)
+	if err != nil || frozen.Status != directory.ReadOnly || frozen.Version != 3 {
+		t.Fatalf("%+v %v", frozen, err)
 	}
 	dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-2", APIURL: "https://eu-2.api.example.com", Status: directory.Active})
 	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.ReadOnly || e.Cell != "eu-2" {
 		t.Fatalf("moving: %+v", e)
 	}
-	if err := dir.SetStatus(ctx, tenant, directory.Active); err != nil {
+	// Moves go to registered cells of the tenant's region only, at the version read.
+	dir.UpsertCell(ctx, directory.Cell{Name: "eu-3", Region: "eu-west", APIURL: "https://eu-3.api.example.com", ControlURL: "http://eu-3:9090", Accepting: false})
+	dir.UpsertCell(ctx, directory.Cell{Name: "us-1", Region: "us-east", APIURL: "https://us-1.api.example.com", ControlURL: "http://us-1:9090", Accepting: true})
+	if _, err := dir.Move(ctx, tenant, 0, "eu-9"); !errors.Is(err, directory.ErrUnknownCell) {
+		t.Fatalf("move to nowhere: %v", err)
+	}
+	if _, err := dir.Move(ctx, tenant, 0, "us-1"); !errors.Is(err, directory.ErrRegion) {
+		t.Fatalf("move across regions: %v", err)
+	}
+	if _, err := dir.Move(ctx, tenant, 1, "eu-3"); !errors.Is(err, directory.ErrVersion) {
+		t.Fatalf("move at a stale version: %v", err)
+	}
+	moved, err := dir.Move(ctx, tenant, 0, "eu-3")
+	if err != nil || moved.Cell != "eu-3" || moved.APIURL != "https://eu-3.api.example.com" || moved.Status != directory.ReadOnly {
+		t.Fatalf("%+v %v", moved, err)
+	}
+	if _, err := dir.Move(ctx, uuid.New(), 0, "eu-3"); !errors.Is(err, directory.ErrUnknown) {
+		t.Fatalf("move of nobody: %v", err)
+	}
+	if _, err := dir.SetStatus(ctx, tenant, 0, directory.Active); err != nil {
 		t.Fatal(err)
 	}
 	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Status: "bogus"}); err == nil {
 		t.Fatal("bogus status stored")
 	}
-	if err := dir.SetStatus(ctx, tenant, "bogus"); err == nil {
-		t.Fatal("bogus status set")
+	if _, err := dir.SetStatus(ctx, tenant, 0, "bogus"); err == nil || errors.Is(err, directory.ErrUnknown) || errors.Is(err, directory.ErrVersion) {
+		t.Fatalf("bogus status set: %v", err)
+	}
+	// Cells register themselves; listing orders by load; placement picks the emptiest accepting cell of the region, once per key.
+	for _, c := range []directory.Cell{
+		{Name: "eu-1", Region: "eu-west", APIURL: "https://eu-1.api.example.com", ControlURL: "http://eu-1:9090", Accepting: true},
+		{Name: "eu-2", Region: "eu-west", APIURL: "https://eu-2.api.example.com", ControlURL: "http://eu-2:9090", Accepting: true},
+	} {
+		if err := dir.UpsertCell(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir.UpsertCell(ctx, directory.Cell{Name: "us-1", Region: "us-east", APIURL: "https://us-1.api.example.com", ControlURL: "http://us-1:9090", Accepting: false}) // updated
+	cells, err := dir.ListCells(ctx, "eu-west")
+	if err != nil || len(cells) != 3 || cells[0].Name != "eu-1" || cells[0].Tenants != 0 || cells[2].Name != "eu-3" || cells[2].Tenants != 1 {
+		t.Fatalf("%+v %v", cells, err)
+	}
+	if all, _ := dir.ListCells(ctx, ""); len(all) != 4 || all[3].Accepting {
+		t.Fatalf("all cells: %+v", all)
+	}
+	placed, err := dir.Place(ctx, "key-1", "eu-west", "")
+	if err != nil || placed.Name != "eu-1" {
+		t.Fatalf("placed: %+v %v", placed, err)
+	}
+	dir.Upsert(ctx, directory.Entry{TenantID: uuid.New(), Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active})
+	dir.Upsert(ctx, directory.Entry{TenantID: uuid.New(), Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active})
+	if again, _ := dir.Place(ctx, "key-1", "eu-west", ""); again.Name != "eu-1" { // the same key, the same cell, however full
+		t.Fatalf("retry placed elsewhere: %+v", again)
+	}
+	if next, _ := dir.Place(ctx, "key-2", "eu-west", ""); next.Name != "eu-2" {
+		t.Fatalf("second placement: %+v", next)
+	}
+	if named, _ := dir.Place(ctx, "key-3", "eu-west", "eu-1"); named.Name != "eu-1" {
+		t.Fatalf("named placement: %+v", named)
+	}
+	for name, c := range map[string][2]string{"full cell named": {"eu-west", "eu-3"}, "other region's cell": {"eu-west", "us-1"}, "region without cells": {"ap-south", ""}, "unknown cell": {"eu-west", "eu-9"}} {
+		if _, err := dir.Place(ctx, "key-"+name, c[0], c[1]); !errors.Is(err, directory.ErrUnknownCell) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// Listing tenants: filters, order and pages.
+	pages, _ := pagination.NewCodec([]byte(strings.Repeat("k", 32)))
+	ks, _ := pages.Keyset(directory.Sort, "list", pagination.Request{PageSize: 1, PageSizeSet: true})
+	first, next, err := dir.ListTenants(ctx, directory.Filter{Cell: "eu-1"}, ks)
+	if err != nil || len(first) != 1 || next == "" {
+		t.Fatalf("%+v %q %v", first, next, err)
+	}
+	ks, _ = pages.Keyset(directory.Sort, "list", pagination.Request{OrderBy: "cell asc", PageSize: 1, PageSizeSet: true})
+	if byCell, next, err := dir.ListTenants(ctx, directory.Filter{Region: "eu-west"}, ks); err != nil || len(byCell) != 1 || next == "" {
+		t.Fatalf("by cell: %+v %q %v", byCell, next, err)
+	}
+	ks, _ = pages.Keyset(directory.Sort, "list", pagination.Request{})
+	if none, _, err := dir.ListTenants(ctx, directory.Filter{Status: directory.Offboarded}, ks); err != nil || len(none) != 0 {
+		t.Fatalf("none: %+v %v", none, err)
 	}
 	// Opening fails on a bad URL, and on a database where the schema cannot be created.
 	if _, err := directory.Open(ctx, "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"); err == nil {
@@ -123,8 +205,23 @@ func TestPostgresDirectory(t *testing.T) {
 	if err := closed.Upsert(ctx, directory.Entry{TenantID: tenant, Status: directory.Active}); err == nil {
 		t.Fatal("closed upsert")
 	}
-	if err := closed.SetStatus(ctx, tenant, directory.Active); err == nil || errors.Is(err, directory.ErrUnknown) {
+	if _, err := closed.SetStatus(ctx, tenant, 0, directory.Active); err == nil || errors.Is(err, directory.ErrUnknown) {
 		t.Fatalf("closed set status: %v", err)
+	}
+	if err := closed.UpsertCell(ctx, directory.Cell{Name: "x"}); err == nil {
+		t.Fatal("closed upsert cell")
+	}
+	if _, err := closed.Move(ctx, tenant, 0, "eu-1"); err == nil || errors.Is(err, directory.ErrUnknown) {
+		t.Fatalf("closed move: %v", err)
+	}
+	if _, err := closed.ListCells(ctx, ""); err == nil {
+		t.Fatal("closed list cells")
+	}
+	if _, err := closed.Place(ctx, "k", "eu-west", ""); err == nil || errors.Is(err, directory.ErrUnknownCell) {
+		t.Fatalf("closed place: %v", err)
+	}
+	if _, _, err := closed.ListTenants(ctx, directory.Filter{}, mustKeyset(t)); err == nil {
+		t.Fatal("closed list")
 	}
 }
 
@@ -189,7 +286,27 @@ func TestSync(t *testing.T) {
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'provisioning', version = version + 1 WHERE id = $1`, fresh.ID)
 	store := &memory{}
 	var logs bytes.Buffer
-	s := &directory.Sync{Pool: pgtest.Pool(t), ControlRole: "erp_control", Directory: store, Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	pool := pgtest.Pool(t)
+	s := &directory.Sync{Pool: pool, ControlRole: "erp_control", Directory: store, Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	// With a Postgres directory the cell registers itself first, and a directory refusing that stops the round.
+	dir, err := directory.Open(ctx, pgtest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	withCells := &directory.Sync{Pool: pool, ControlRole: "erp_control", Directory: dir, Cell: "sync-cell", APIURL: "https://sync.api.example.com", Region: "eu-west", ControlURL: "http://sync:9090", Accepting: true, Log: s.Log}
+	if _, err := withCells.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if cells, _ := dir.ListCells(ctx, "eu-west"); len(cells) == 0 || cells[len(cells)-1].Name != "sync-cell" && cells[0].Name != "sync-cell" {
+		t.Fatalf("the cell did not register itself: %+v", cells)
+	}
+	broken, _ := directory.Open(ctx, pgtest.URL(t))
+	broken.Close()
+	withCells.Directory = broken
+	if _, err := withCells.RunOnce(ctx); err == nil {
+		t.Fatal("round with a closed directory")
+	}
 	n, err := s.RunOnce(ctx)
 	if err != nil || n < 3 {
 		t.Fatalf("%d %v", n, err)
@@ -215,7 +332,7 @@ func TestSync(t *testing.T) {
 	store.err = nil
 	// Database failures: the statement and the transaction.
 	s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
-		tx, err := pgtest.Pool(t).Begin(ctx, scope)
+		tx, err := pool.Begin(ctx, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -243,4 +360,14 @@ func TestSync(t *testing.T) {
 	stopped, cancelNow := context.WithCancel(ctx)
 	cancelNow()
 	s.Run(stopped) // the default interval, one round, then the stop
+}
+
+func mustKeyset(t *testing.T) *pagination.Keyset {
+	t.Helper()
+	pages, _ := pagination.NewCodec([]byte(strings.Repeat("k", 32)))
+	ks, err := pages.Keyset(directory.Sort, "list", pagination.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ks
 }
