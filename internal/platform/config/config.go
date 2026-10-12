@@ -60,6 +60,7 @@ type Config struct {
 	CellControlURL  string          // ERP_CELL_CONTROL_URL: this cell's admin listener as the global control plane reaches it (required with ERP_DIRECTORY_URL)
 	CellAccepting   bool            // ERP_CELL_ACCEPTING: whether this cell takes new tenants (default true)
 	Vault           Vault           // ERP_VAULT_*: where vault: references are resolved
+	AWS             AWS             // ambient AWS credentials for S3 and KMS when no access keys are set (ADR-0024)
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
 	Secrets secrets.Resolver
@@ -84,6 +85,16 @@ type KMS struct {
 
 // Enabled reports whether a KMS master is configured.
 func (k KMS) Enabled() bool { return k.Key != "" }
+
+// AWS is where ambient credentials come from when the S3 store or the KMS
+// master has no access keys of its own: the AWS_* environment, a web
+// identity (AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN, exchanged at
+// STS) or the instance metadata service.
+type AWS struct {
+	Getenv       func(string) string // the environment the AWS_* variables are read from
+	STSEndpoint  string              // ERP_AWS_STS_ENDPOINT (default https://sts.amazonaws.com)
+	IMDSEndpoint string              // ERP_AWS_IMDS_ENDPOINT (default http://169.254.169.254)
+}
 
 // Vault is the HashiCorp Vault connection for vault: references.
 type Vault struct {
@@ -223,8 +234,8 @@ func Load(getenv func(string) string) (Config, error) {
 		if c.KMS.Key == "" || !masterIDPattern.MatchString(c.KMS.Name) {
 			errs = append(errs, errors.New(`ERP_FIELD_KMS_KEY must be a KMS key id, ARN or alias, or "name=key" with a name of 1-64 letters, digits, - or _`))
 		}
-		if c.KMS.AccessKey == "" || c.KMS.SecretKey == "" {
-			errs = append(errs, errors.New("ERP_FIELD_KMS_KEY needs ERP_FIELD_KMS_ACCESS_KEY and ERP_FIELD_KMS_SECRET_KEY"))
+		if (c.KMS.AccessKey == "") != (c.KMS.SecretKey == "") {
+			errs = append(errs, errors.New("ERP_FIELD_KMS_ACCESS_KEY and ERP_FIELD_KMS_SECRET_KEY go together; leave both unset for the deployment's ambient AWS credentials"))
 		}
 		if c.KMS.Endpoint == "" {
 			c.KMS.Endpoint = "https://kms." + c.KMS.Region + ".amazonaws.com"
@@ -235,8 +246,10 @@ func Load(getenv func(string) string) (Config, error) {
 	switch {
 	case c.Objects.Dir != "" && c.Objects.Endpoint != "":
 		errs = append(errs, errors.New("ERP_OBJECT_DIR and ERP_OBJECT_S3_ENDPOINT exclude each other: one object store"))
-	case c.Objects.Endpoint != "" && (c.Objects.Bucket == "" || c.Objects.AccessKey == "" || c.Objects.SecretKey == ""):
-		errs = append(errs, errors.New("ERP_OBJECT_S3_ENDPOINT needs ERP_OBJECT_S3_BUCKET, ERP_OBJECT_S3_ACCESS_KEY and ERP_OBJECT_S3_SECRET_KEY"))
+	case c.Objects.Endpoint != "" && c.Objects.Bucket == "":
+		errs = append(errs, errors.New("ERP_OBJECT_S3_ENDPOINT needs ERP_OBJECT_S3_BUCKET"))
+	case c.Objects.Endpoint != "" && (c.Objects.AccessKey == "") != (c.Objects.SecretKey == ""):
+		errs = append(errs, errors.New("ERP_OBJECT_S3_ACCESS_KEY and ERP_OBJECT_S3_SECRET_KEY go together; leave both unset for the deployment's ambient AWS credentials"))
 	}
 	if c.Objects.Retention, err = time.ParseDuration(get("ERP_OBJECT_RETENTION", "87600h")); err != nil || c.Objects.Retention < 0 {
 		errs = append(errs, errors.New("ERP_OBJECT_RETENTION must be a duration such as 87600h (10 years), or 0 for no lock"))
@@ -244,6 +257,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.OffboardGrace, err = time.ParseDuration(get("ERP_OFFBOARD_GRACE", "720h")); err != nil || c.OffboardGrace < 0 {
 		errs = append(errs, errors.New("ERP_OFFBOARD_GRACE must be a duration such as 720h (30 days); 0 erases right after the export"))
 	}
+	c.AWS = AWS{Getenv: raw, STSEndpoint: get("ERP_AWS_STS_ENDPOINT", "https://sts.amazonaws.com"), IMDSEndpoint: get("ERP_AWS_IMDS_ENDPOINT", "http://169.254.169.254")}
 	c.DirectoryURL, c.CellAPIURL, c.CellRegion, c.CellControlURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL"), getenv("ERP_CELL_REGION"), getenv("ERP_CELL_CONTROL_URL")
 	c.CellAccepting = get("ERP_CELL_ACCEPTING", "true") != "false"
 	if c.DirectoryURL != "" {

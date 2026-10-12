@@ -234,7 +234,7 @@ func TestKMSSettings(t *testing.T) {
 		for k, v := range bad {
 			mm[k] = v
 		}
-		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KMS_KEY") {
+		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KMS_") {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -286,5 +286,29 @@ func TestDirectorySettings(t *testing.T) {
 	m["ERP_CELL_REGION"] = "eu-west"
 	if c, err := Load(env(m)); err != nil || c.CellAccepting {
 		t.Fatalf("not accepting: %+v %v", c, err)
+	}
+}
+
+func TestAmbientAWSCredentials(t *testing.T) {
+	m := valid()
+	delete(m, "ERP_OBJECT_DIR")
+	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"] = "http://localhost:9000", "erp"
+	c, err := Load(env(m)) // no access keys: the ambient chain
+	if err != nil || c.Objects.AccessKey != "" || c.AWS.STSEndpoint != "https://sts.amazonaws.com" || c.AWS.IMDSEndpoint != "http://169.254.169.254" || c.AWS.Getenv == nil {
+		t.Fatalf("%+v %v", c.AWS, err)
+	}
+	m["ERP_OBJECT_S3_ACCESS_KEY"] = "AK"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "go together") {
+		t.Fatalf("half the S3 keys: %v", err)
+	}
+	delete(m, "ERP_OBJECT_S3_ACCESS_KEY")
+	m["ERP_FIELD_KMS_KEY"], m["ERP_FIELD_KMS_SECRET_KEY"] = "alias/erp", "SK"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "go together") {
+		t.Fatalf("half the KMS keys: %v", err)
+	}
+	delete(m, "ERP_FIELD_KMS_SECRET_KEY")
+	m["ERP_AWS_STS_ENDPOINT"], m["ERP_AWS_IMDS_ENDPOINT"], m["AWS_ROLE_ARN"] = "http://localhost:4566", "http://localhost:1338", "arn:aws:iam::1:role/erp"
+	if c, err := Load(env(m)); err != nil || c.KMS.AccessKey != "" || c.AWS.STSEndpoint != "http://localhost:4566" || c.AWS.IMDSEndpoint != "http://localhost:1338" || c.AWS.Getenv("AWS_ROLE_ARN") != "arn:aws:iam::1:role/erp" {
+		t.Fatalf("%+v %v", c.AWS, err)
 	}
 }

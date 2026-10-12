@@ -122,3 +122,23 @@ func TestPresign(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionToken: temporary credentials sign and send their token, in the
+// header for header auth and in the query for a presigned URL.
+func TestSessionToken(t *testing.T) {
+	creds := sigv4.Credentials{AccessKey: accessKey, SecretKey: secretKey, SessionToken: "FwoGZXIvYXdzEBYaD"}
+	req, _ := http.NewRequest("GET", "https://example.amazonaws.com/", nil)
+	sigv4.SignWith(req, creds, "us-east-1", "service", emptyHash, at)
+	if req.Header.Get("X-Amz-Security-Token") != creds.SessionToken || !strings.Contains(req.Header.Get("Authorization"), "SignedHeaders=host;x-amz-date;x-amz-security-token") {
+		t.Fatalf("%v", req.Header)
+	}
+	req, _ = http.NewRequest("PUT", "https://s3.example.com/bucket/key", nil)
+	u := sigv4.PresignWith(req, creds, "us-east-1", "s3", time.Minute, at)
+	if !strings.Contains(u, "X-Amz-Security-Token=FwoGZXIvYXdzEBYaD") {
+		t.Fatalf("%s", u)
+	}
+	sent, _ := http.NewRequest("PUT", u, nil)
+	if ok, _, _ := sigv4.Verify(sent, accessKey, secretKey, "us-east-1", "s3"); !ok {
+		t.Fatal("a presigned URL with a session token did not verify")
+	}
+}

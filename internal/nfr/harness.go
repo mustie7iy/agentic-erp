@@ -323,9 +323,15 @@ func (s *Stack) Consistent(ctx context.Context) error {
 	}
 	var created []uuid.UUID
 	for _, p := range s.Posted() {
-		if p.Status == http.StatusCreated {
-			created = append(created, uuid.MustParse(p.ID))
+		if p.Status != http.StatusCreated {
+			continue
 		}
+		id, err := uuid.Parse(p.ID)
+		if err != nil { // a 201 whose body was lost with the connection: counted, not fatal to the check
+			errs = append(errs, fmt.Sprintf("an entry answered 201 without a readable id (%q)", p.ID))
+			continue
+		}
+		created = append(created, id)
 	}
 	if missing := s.Count(`SELECT count(*) FROM unnest($2::uuid[]) AS c(id) WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.id = c.id)`,
 		ten, created); missing > 0 {

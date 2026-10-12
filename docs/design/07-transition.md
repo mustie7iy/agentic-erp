@@ -71,6 +71,7 @@ prototype store for that context.
 | T17 (done) | **Offboarding lifecycle** | An offboarded tenant's data is exported to locked object storage, kept for a grace period and erased from the cell by a worker or on an operator's request; the tenant row and its audit trail remain |
 | T18 (done) | **Tenant directory and router** | A global directory maps tenants to cells and is kept current by the cells; `erp-router` verifies a request's token, looks its tenant up and forwards it to the tenant's cell, refusing unknown, suspended, offboarded and (for writes) moving tenants at the door |
 | T19 (done) | **Global control plane** | Operators see tenants and cells across the platform, provision a tenant into the emptiest accepting cell of its region (or a named one) through the cell's control plane, and move a tenant between cells in three directory steps |
+| T20 (done) | **Ambient cloud credentials** | The S3 store and the KMS master sign with the deployment's role credentials (environment, web identity, instance metadata) when no access keys are set; session tokens are signed; temporary credentials are renewed before they expire |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1201,6 +1202,40 @@ Open points for the contract and design review:
   caps) would be a registered attribute.
 - Operator roles (read-only, provisioning, moving) apply here as on the
   cells' control planes.
+
+### T20 decisions and open points
+
+What T20 built: ambient AWS credentials (ADR-0024).
+`internal/platform/awscreds` is a provider chain without the SDK: static
+keys, the `AWS_*` environment, a web identity exchanged at STS
+(`AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`), the instance metadata
+service (v2), with a cache that renews temporary credentials five minutes
+before expiry. The S3 store and the KMS master take a provider; the signer
+signs session tokens (`SignWith`, `PresignWith`). `ERP_OBJECT_S3_*` and
+`ERP_FIELD_KMS_*` access keys are optional (both or neither);
+`ERP_AWS_STS_ENDPOINT` and `ERP_AWS_IMDS_ENDPOINT` point tests and
+emulators elsewhere. The exit criteria are the `awscreds` suite (every
+provider against a double, the chain, the cache), `TestAmbientCredentials`
+(blobstore) and `TestKMSAmbientCredentials` (fieldcrypt), and the ambient
+case of `TestObjectStores` (a server anchoring through the S3 double with
+the `AWS_*` environment and no keys in settings).
+
+Decisions taken while building it:
+
+- **Static first, then ambient.** Settings keep working unchanged; a
+  deployment on roles leaves them unset.
+- **The metadata service is absent, not broken, when unreachable.** The
+  chain ends with ErrNone and the first signed call reports it; the other
+  providers' failures (a denied STS exchange) are errors.
+- **One cache per client.** The store and the master hold their own
+  credentials; both renew early.
+
+Open points for the contract and design review:
+
+- An ECS task role (the container credentials endpoint) and a process
+  credential provider are further providers behind the same interface.
+- A credentials check at start would fail fast; today the first store or
+  master call does.
 
 ## 7.4 Data from the prototype
 

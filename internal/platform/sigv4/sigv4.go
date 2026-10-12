@@ -22,15 +22,32 @@ import (
 // not known when the URL is made.
 const UnsignedPayload = "UNSIGNED-PAYLOAD"
 
+// Credentials sign a request; SessionToken is set for temporary credentials
+// (a role's) and is sent and signed as X-Amz-Security-Token.
+type Credentials struct {
+	AccessKey    string
+	SecretKey    string
+	SessionToken string
+}
+
 // Sign signs a request (header auth): the host, every x-amz-* header and
 // Content-Type present are signed, and X-Amz-Date is set from now. For the
 // s3 service X-Amz-Content-Sha256 carries payloadHash too. Exported so a
 // test double of a service can check signatures.
 func Sign(req *http.Request, accessKey, secretKey, region, service, payloadHash string, now time.Time) {
+	SignWith(req, Credentials{AccessKey: accessKey, SecretKey: secretKey}, region, service, payloadHash, now)
+}
+
+// SignWith is Sign with credentials that may carry a session token.
+func SignWith(req *http.Request, c Credentials, region, service, payloadHash string, now time.Time) {
+	accessKey, secretKey := c.AccessKey, c.SecretKey
 	amzDate := now.UTC().Format("20060102T150405Z")
 	req.Header.Set("X-Amz-Date", amzDate)
 	if service == "s3" {
 		req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	}
+	if c.SessionToken != "" {
+		req.Header.Set("X-Amz-Security-Token", c.SessionToken)
 	}
 	canon := map[string]string{}
 	for name, values := range req.Header {
@@ -50,6 +67,13 @@ func Sign(req *http.Request, accessKey, secretKey, region, service, payloadHash 
 // must send that same Content-Type. It returns the URL with the signature,
 // valid for expires from now. Exported so a test double can check it.
 func Presign(req *http.Request, accessKey, secretKey, region, service string, expires time.Duration, now time.Time) string {
+	return PresignWith(req, Credentials{AccessKey: accessKey, SecretKey: secretKey}, region, service, expires, now)
+}
+
+// PresignWith is Presign with credentials that may carry a session token,
+// which goes into the query as X-Amz-Security-Token.
+func PresignWith(req *http.Request, c Credentials, region, service string, expires time.Duration, now time.Time) string {
+	accessKey, secretKey := c.AccessKey, c.SecretKey
 	amzDate := now.UTC().Format("20060102T150405Z")
 	scope := amzDate[:8] + "/" + region + "/" + service + "/aws4_request"
 	canon := map[string]string{}
@@ -62,6 +86,9 @@ func Presign(req *http.Request, accessKey, secretKey, region, service string, ex
 	q.Set("X-Amz-Date", amzDate)
 	q.Set("X-Amz-Expires", strconv.Itoa(int(expires/time.Second)))
 	q.Set("X-Amz-SignedHeaders", signedNames(req, canon))
+	if c.SessionToken != "" {
+		q.Set("X-Amz-Security-Token", c.SessionToken)
+	}
 	_, signature := sign(req, canon, q, UnsignedPayload, secretKey, scope, amzDate)
 	q.Set("X-Amz-Signature", signature)
 	u := *req.URL

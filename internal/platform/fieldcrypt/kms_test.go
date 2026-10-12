@@ -1,6 +1,7 @@
 package fieldcrypt_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 )
@@ -94,4 +96,32 @@ func TestKMSMaster(t *testing.T) {
 		t.Fatalf("unsigned: %v %v", resp, err)
 	}
 	resp.Body.Close()
+}
+
+type provider struct {
+	c   awscreds.Credentials
+	err error
+}
+
+func (p provider) Credentials(context.Context) (awscreds.Credentials, error) { return p.c, p.err }
+
+// TestKMSAmbientCredentials: the master signs with a credentials provider,
+// session token included, and reports a provider with nothing to give.
+func TestKMSAmbientCredentials(t *testing.T) {
+	srv := kmstest.New(t)
+	m := srv.Master("")
+	m.AccessKey, m.SecretKey = "", ""
+	m.Credentials = provider{c: awscreds.Credentials{AccessKey: kmstest.AccessKey, SecretKey: kmstest.SecretKey, SessionToken: "session"}}
+	tenant := uuid.New()
+	wrapped, err := m.Wrap(tenant, []byte(strings.Repeat("k", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := m.Unwrap(tenant, wrapped); err != nil || len(got) != 32 {
+		t.Fatalf("%v %v", got, err)
+	}
+	m.Credentials = provider{err: awscreds.ErrNone}
+	if _, err := m.Wrap(tenant, []byte("k")); err == nil || !strings.Contains(err.Error(), "credentials") {
+		t.Fatalf("without credentials: %v", err)
+	}
 }

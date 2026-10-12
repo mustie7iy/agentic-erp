@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 )
@@ -363,5 +364,49 @@ func TestListAndDelete(t *testing.T) {
 	bad.Put(ctx, "tenants/y/audit/anchors/1", []byte("x"), blobstore.PutOptions{RetainUntil: time.Now().Add(-time.Hour)})
 	if err := bad.Delete(ctx, "tenants/y/audit/anchors/1"); err != nil {
 		t.Fatalf("delete after retention without a clock: %v", err)
+	}
+}
+
+// provider yields fixed credentials, or fails.
+type provider struct {
+	c   awscreds.Credentials
+	err error
+}
+
+func (p provider) Credentials(context.Context) (awscreds.Credentials, error) { return p.c, p.err }
+
+// TestAmbientCredentials: an S3 store signing with a credentials provider,
+// session token included, and one whose provider has nothing to give.
+func TestAmbientCredentials(t *testing.T) {
+	ctx := context.Background()
+	srv := blobstoretest.New(t)
+	s3 := srv.Store()
+	s3.AccessKey, s3.SecretKey = "", ""
+	s3.Credentials = provider{c: awscreds.Credentials{AccessKey: blobstoretest.AccessKey, SecretKey: blobstoretest.SecretKey, SessionToken: "session"}}
+	if err := s3.Put(ctx, "tenants/x/documents/a", []byte("x"), blobstore.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s3.Get(ctx, "tenants/x/documents/a"); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s3.PresignPut(ctx, "tenants/x/uploads/u", "application/pdf", time.Minute)
+	if err != nil || !strings.Contains(u, "X-Amz-Security-Token=session") {
+		t.Fatalf("%s %v", u, err)
+	}
+	s3.Credentials = provider{err: awscreds.ErrNone}
+	for name, call := range map[string]func() error{
+		"put":    func() error { return s3.Put(ctx, "tenants/x/documents/b", []byte("x"), blobstore.PutOptions{}) },
+		"get":    func() error { _, _, err := s3.Get(ctx, "tenants/x/documents/a"); return err },
+		"stat":   func() error { _, _, err := s3.Stat(ctx, "tenants/x/documents/a"); return err },
+		"list":   func() error { _, err := s3.List(ctx, "tenants/x/"); return err },
+		"delete": func() error { return s3.Delete(ctx, "tenants/x/documents/a") },
+		"presign": func() error {
+			_, err := s3.PresignPut(ctx, "tenants/x/uploads/u", "application/pdf", time.Minute)
+			return err
+		},
+	} {
+		if err := call(); err == nil || !strings.Contains(err.Error(), "credentials") {
+			t.Errorf("%s without credentials: %v", name, err)
+		}
 	}
 }

@@ -28,3 +28,4 @@ new record. Status values: proposed, accepted, superseded.
 | [0021](0021-offboarding-lifecycle.md) | Offboarding lifecycle: export to locked storage, grace period, erasure; the tenant row and audit trail stay | proposed |
 | [0022](0022-tenant-directory-and-router.md) | Global tenant directory in its own database, written by the cells; a router verifies, looks up and forwards | proposed |
 | [0023](0023-global-control-plane.md) | Global control plane over the directory: cells register, placement forwards provisioning, moves in three steps | proposed |
+| [0024](0024-ambient-aws-credentials.md) | Ambient AWS credentials (environment, web identity, instance metadata) for the S3 store and the KMS master; static keys optional | proposed |

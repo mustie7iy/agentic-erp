@@ -580,6 +580,30 @@ func TestObjectStores(t *testing.T) {
 	if o, ok := s3.Object(key); !ok || o.LockMode != "COMPLIANCE" || o.ContentType != "application/json" {
 		t.Fatalf("anchor in S3: %+v (%v)", o, s3.Keys())
 	}
+	// The same store reached with the deployment's ambient credentials (the AWS_* environment), no keys in settings.
+	ten2 := pgtest.NewTenant(t)
+	pgtest.Exec(t, `INSERT INTO audit.chain_head (tenant_id, seq, hash) VALUES ($1, 1, decode(repeat('cd', 32), 'hex'))`, ten2.ID)
+	delete(env, "ERP_OBJECT_S3_ACCESS_KEY")
+	delete(env, "ERP_OBJECT_S3_SECRET_KEY")
+	env["AWS_ACCESS_KEY_ID"], env["AWS_SECRET_ACCESS_KEY"], env["AWS_SESSION_TOKEN"] = blobstoretest.AccessKey, blobstoretest.SecretKey, "ambient-session"
+	cfg = load(t, env)
+	runCtx, cancel = context.WithCancel(ctx)
+	done = make(chan error, 1)
+	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
+	key = "tenants/" + ten2.ID.String() + "/audit/anchors/000000000001.json"
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		if _, ok := s3.Object(key); ok || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s3.Object(key); !ok {
+		t.Fatalf("anchor with ambient credentials: %v", s3.Keys())
+	}
 }
 
 // TestRewrapCommand puts a KMS master in front of the ring and moves a

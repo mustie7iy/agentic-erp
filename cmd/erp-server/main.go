@@ -32,6 +32,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -124,7 +125,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err != nil {
 		return err
 	}
-	store := objects(cfg.Objects)
+	store := objects(cfg.Objects, cfg.AWS)
 	if store == nil {
 		log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported")
 	}
@@ -292,7 +293,7 @@ func keyring(cfg config.Config, pool *database.Pool) (*fieldcrypt.Keyring, error
 	ring := &fieldcrypt.Keyring{Pool: pool, AppRole: cfg.AppRole}
 	if cfg.KMS.Enabled() {
 		ring.Masters = append(ring.Masters, fieldcrypt.KMS{Name: cfg.KMS.Name, KeyID: cfg.KMS.Key, Endpoint: cfg.KMS.Endpoint, Region: cfg.KMS.Region,
-			AccessKey: cfg.KMS.AccessKey, SecretKey: cfg.KMS.SecretKey})
+			Credentials: credentials(cfg.AWS, cfg.KMS.AccessKey, cfg.KMS.SecretKey)})
 	}
 	for _, mk := range cfg.FieldKeys {
 		m, err := fieldcrypt.NewLocalMaster(mk.ID, mk.Secret)
@@ -321,13 +322,19 @@ func uploadKey(pageTokenKey []byte) []byte {
 	return h.Sum(nil)
 }
 
+// credentials are an AWS client's: the access keys from settings when set,
+// else the deployment's ambient ones (ADR-0024), cached.
+func credentials(aws config.AWS, accessKey, secretKey string) awscreds.Provider {
+	return awscreds.Default(awscreds.Static{AccessKey: accessKey, SecretKey: secretKey}, aws.Getenv, aws.STSEndpoint, aws.IMDSEndpoint)
+}
+
 // objects opens the configured object store, or nil without one.
-func objects(o config.Objects) blobstore.Store {
+func objects(o config.Objects, aws config.AWS) blobstore.Store {
 	switch {
 	case o.Dir != "":
 		return blobstore.Dir{Root: o.Dir}
 	case o.Endpoint != "":
-		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, AccessKey: o.AccessKey, SecretKey: o.SecretKey}
+		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey)}
 	}
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
@@ -30,8 +31,22 @@ type KMS struct {
 	Region    string
 	AccessKey string
 	SecretKey string
-	Client    *http.Client     // nil: a client with a 10 s timeout
-	Now       func() time.Time // nil: time.Now
+	// Credentials, when set, sign instead of AccessKey and SecretKey: the
+	// ambient credentials of the deployment (awscreds.Default).
+	Credentials awscreds.Provider
+	Client      *http.Client     // nil: a client with a 10 s timeout
+	Now         func() time.Time // nil: time.Now
+}
+
+func (k KMS) creds(ctx context.Context) (sigv4.Credentials, error) {
+	if k.Credentials == nil {
+		return sigv4.Credentials{AccessKey: k.AccessKey, SecretKey: k.SecretKey}, nil
+	}
+	c, err := k.Credentials.Credentials(ctx)
+	if err != nil {
+		return sigv4.Credentials{}, fmt.Errorf("fieldcrypt: kms credentials: %w", err)
+	}
+	return sigv4.Credentials{AccessKey: c.AccessKey, SecretKey: c.SecretKey, SessionToken: c.SessionToken}, nil
 }
 
 // ID implements Master.
@@ -110,7 +125,11 @@ func (k KMS) call(action string, in map[string]any, out any) error {
 	}
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "TrentService."+action)
-	sigv4.Sign(req, k.AccessKey, k.SecretKey, k.Region, "kms", sigv4.PayloadHash(body), k.now())
+	creds, err := k.creds(req.Context())
+	if err != nil {
+		return err
+	}
+	sigv4.SignWith(req, creds, k.Region, "kms", sigv4.PayloadHash(body), k.now())
 	resp, err := k.client().Do(req)
 	if err != nil {
 		return fmt.Errorf("fieldcrypt: kms %s: %w", action, err)

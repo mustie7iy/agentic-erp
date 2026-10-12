@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
@@ -25,8 +26,23 @@ type S3 struct {
 	Region    string // us-east-1 when the service does not care
 	AccessKey string
 	SecretKey string
-	Client    *http.Client     // nil: http.DefaultClient
-	Now       func() time.Time // nil: time.Now
+	// Credentials, when set, sign instead of AccessKey and SecretKey: the
+	// ambient credentials of the deployment (awscreds.Default).
+	Credentials awscreds.Provider
+	Client      *http.Client     // nil: http.DefaultClient
+	Now         func() time.Time // nil: time.Now
+}
+
+// creds are the credentials to sign with.
+func (s S3) creds(ctx context.Context) (sigv4.Credentials, error) {
+	if s.Credentials == nil {
+		return sigv4.Credentials{AccessKey: s.AccessKey, SecretKey: s.SecretKey}, nil
+	}
+	c, err := s.Credentials.Credentials(ctx)
+	if err != nil {
+		return sigv4.Credentials{}, fmt.Errorf("blobstore: credentials: %w", err)
+	}
+	return sigv4.Credentials{AccessKey: c.AccessKey, SecretKey: c.SecretKey, SessionToken: c.SessionToken}, nil
 }
 
 func (s S3) client() *http.Client {
@@ -61,7 +77,11 @@ func (s S3) do(ctx context.Context, method, key string, body []byte, headers map
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	sigv4.Sign(req, s.AccessKey, s.SecretKey, s.Region, "s3", sigv4.PayloadHash(body), s.now())
+	creds, err := s.creds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sigv4.SignWith(req, creds, s.Region, "s3", sigv4.PayloadHash(body), s.now())
 	resp, err := s.client().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("blobstore: %s %s: %w", method, key, err)
@@ -152,7 +172,11 @@ func (s S3) List(ctx context.Context, prefix string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("blobstore: %w", err)
 		}
-		sigv4.Sign(req, s.AccessKey, s.SecretKey, s.Region, "s3", sigv4.PayloadHash(nil), s.now())
+		creds, err := s.creds(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sigv4.SignWith(req, creds, s.Region, "s3", sigv4.PayloadHash(nil), s.now())
 		resp, err := s.client().Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("blobstore: LIST %s: %w", prefix, err)
@@ -218,7 +242,7 @@ func (s S3) Stat(ctx context.Context, key string) (int64, string, error) {
 
 // PresignPut implements Presigner: a query-signed PUT of the key, bound to
 // the content type, valid for expires.
-func (s S3) PresignPut(_ context.Context, key, contentType string, expires time.Duration) (string, error) {
+func (s S3) PresignPut(ctx context.Context, key, contentType string, expires time.Duration) (string, error) {
 	if err := checkKey(key); err != nil {
 		return "", err
 	}
@@ -226,8 +250,12 @@ func (s S3) PresignPut(_ context.Context, key, contentType string, expires time.
 	if err != nil {
 		return "", fmt.Errorf("blobstore: %w", err)
 	}
+	creds, err := s.creds(ctx)
+	if err != nil {
+		return "", err
+	}
 	req.Header.Set("Content-Type", contentType)
-	return sigv4.Presign(req, s.AccessKey, s.SecretKey, s.Region, "s3", expires, s.now()), nil
+	return sigv4.PresignWith(req, creds, s.Region, "s3", expires, s.now()), nil
 }
 
 // encodePath URI-encodes each segment of a key the way SigV4 canonicalizes

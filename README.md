@@ -202,7 +202,7 @@ the pool size (`ERP_DB_MAX_CONNS`) and object storage (`ERP_OBJECT_DIR` or
 `ERP_OBJECT_S3_*`: captured documents, bank files and the audit anchors the
 server writes, locked for `ERP_OBJECT_RETENTION`). Field encryption uses a key per tenant,
 wrapped by a master key: one in AWS KMS (`ERP_FIELD_KMS_KEY` with its
-region, endpoint and credentials, [ADR-0019](docs/design/adr/0019-kms-master.md))
+region and endpoint, [ADR-0019](docs/design/adr/0019-kms-master.md))
 or the local masters in `ERP_FIELD_KEYS` (`id=base64,...`, the first for
 new keys; `ERP_FIELD_KEY` alone is one master); operators rotate a
 tenant's key through the control plane, and `erp-server rewrap` moves every
@@ -211,7 +211,10 @@ secrets (`DATABASE_URL`, the keys, the S3 and KMS credentials) may name where th
 secret lives instead: `env:NAME`, `file:/run/secrets/name` or
 `vault:secret/erp/db#url` with `ERP_VAULT_ADDR` and a token or a Kubernetes
 role ([ADR-0017](docs/design/adr/0017-secrets.md)); connectors' `secret_ref`
-uses the same references. The admin listener serves
+uses the same references. The S3 store and the KMS master need no access
+keys at all on a deployment with roles: unset, they sign with the ambient
+credentials (the `AWS_*` environment, a web identity exchanged at STS, the
+instance metadata service; [ADR-0024](docs/design/adr/0024-ambient-aws-credentials.md)). The admin listener serves
 `/livez`, `/readyz` (schema version and partition horizon), `/metrics`
 (request latency per operation, worker backlogs) and, with
 `ERP_OPERATOR_ISSUERS` set, the operators' control plane under
@@ -236,7 +239,7 @@ onto the foundation ([docs/design/07-transition.md](docs/design/07-transition.md
 ## Status
 
 Phases 0 and 1 are built, and the prototype has moved onto the API platform
-(transition steps T1 to T19 in [docs/design/07-transition.md](docs/design/07-transition.md)):
+(transition steps T1 to T20 in [docs/design/07-transition.md](docs/design/07-transition.md)):
 configuration as code with change requests and tiered approvals, the
 configuration, migration and test agents, procure-to-pay (requisitions with
 configured approvals, POs, goods receipts, governed supplier changes, supplier
