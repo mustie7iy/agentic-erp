@@ -12,12 +12,14 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -48,6 +50,7 @@ type env struct {
 	bank      uuid.UUID // house bank MAIN of company 2000
 	expense   uuid.UUID // account 520000 of company 2000
 	connector *connector
+	objects   blobstore.Store // the API's object store, when a test gives it one
 }
 
 func setup(t *testing.T) env {
@@ -71,6 +74,50 @@ func endpoints(c payments.Connector) *payments.Endpoints {
 // proposer is the worker on the package database.
 func proposer(t *testing.T) *payments.Proposer {
 	return &payments.Proposer{Endpoints: endpoints(nil), Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker"}
+}
+
+// releaser is the in-process release worker on the package database, wired
+// like the API (its connector and object store).
+func (e env) releaser(t *testing.T) *workflows.Releaser {
+	t.Helper()
+	h := endpoints(e.connector)
+	h.Objects = e.objects
+	return &workflows.Releaser{Payments: &workflows.Payments{Pool: pgtest.Pool(t), AppRole: "erp_app", Endpoints: h}, Pool: pgtest.Pool(t), WorkerRole: "erp_worker"}
+}
+
+// release asks for the run's release as the approver (202, an operation),
+// lets the release worker do it and returns the run as released.
+func (e env) release(t *testing.T, run map[string]any, body string) map[string]any {
+	t.Helper()
+	op := e.decide(t, 202, run, "release", body)
+	if op["kind"] != "payments.release" || op["status"] != "queued" || op["resource"] != "/v1/payment-runs/"+id(run) {
+		t.Fatalf("release operation: %v", op)
+	}
+	if _, err := e.releaser(t).RunOnce(context.Background()); err != nil {
+		t.Fatalf("release worker: %v", err)
+	}
+	got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
+	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
+	if got["status"] != "released" || done["status"] != "succeeded" || got["release_operation_id"] != id(op) {
+		t.Fatalf("released: %v\noperation: %v", got, done)
+	}
+	return got
+}
+
+// releaseFails asks for the run's release and lets the worker fail it with
+// the problem code expected; it returns the operation and the run after.
+func (e env) releaseFails(t *testing.T, run map[string]any, code string) (op, after map[string]any) {
+	t.Helper()
+	op = e.decide(t, 202, run, "release", "")
+	if _, err := e.releaser(t).RunOnce(context.Background()); err != nil {
+		t.Fatalf("release worker: %v", err)
+	}
+	op, _ = e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
+	if op["status"] != "failed" || op["error"].(map[string]any)["code"] != code {
+		t.Fatalf("release operation after the failure: %v", op)
+	}
+	after, _ = e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
+	return op, after
 }
 
 // work runs the proposal worker until no job is left.

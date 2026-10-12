@@ -6637,7 +6637,7 @@ paths:
       tags:
         - payments
       summary: Release a payment run
-      description: "The F110 release step, a direct human transition (not an approval request): payments are posted and a bank file is produced. Human-only. Segregation of duties: the proposer can never release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`."
+      description: "The F110 release step, a direct human transition (not an approval request), as an operation (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its items (one transaction per payment, progress on the operation), and the bank file is produced; the run is `released` when the operation succeeds. Every supplier is checked again before anything is posted (409 `payments.proposal_outdated`). Human-only. Segregation of duties: the proposer can never release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release operation, which resumes it."
       x-permission: payments.run.release
       x-agent: false
       parameters:
@@ -6652,11 +6652,11 @@ paths:
             schema:
               $ref: "#/components/schemas/DecisionInput"
       responses:
-        "200":
-          description: The payment run after releasePaymentRun.
+        "202":
+          description: "Accepted; releasePaymentRun continues as a long-running operation. Poll the Operation at `Location`; the run is visible in `releasing` meanwhile."
           headers:
-            ETag:
-              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
             RateLimit-Limit:
@@ -6668,7 +6668,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PaymentRun"
+                $ref: "#/components/schemas/Operation"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -15428,6 +15428,7 @@ components:
               x-extensible-enum:
                 - proposing
                 - proposed
+                - releasing
                 - released
                 - rejected
                 - failed
@@ -15451,6 +15452,11 @@ components:
               type: string
               format: uuid
               description: Operation that built the proposal.
+              readOnly: true
+            release_operation_id:
+              type: string
+              format: uuid
+              description: "The latest release operation (ADR-0012), once a release was asked for: its status says whether the release is under way, done or failed; a failed one is resumed by `:release` again."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"

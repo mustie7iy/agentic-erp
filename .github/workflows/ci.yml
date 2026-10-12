@@ -72,7 +72,7 @@ jobs:
           for spec in openapi control directory; do
             if git cat-file -e "FETCH_HEAD:api/$spec.yaml" 2>/dev/null; then
               git show "FETCH_HEAD:api/$spec.yaml" > "/tmp/base-$spec.yaml"
-              go run github.com/oasdiff/oasdiff@latest breaking --fail-on ERR "/tmp/base-$spec.yaml" "api/$spec.yaml"
+              go run github.com/oasdiff/oasdiff@latest breaking --fail-on ERR --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
             fi
           done
       - name: Schema tests (migrations and database-enforced rules)

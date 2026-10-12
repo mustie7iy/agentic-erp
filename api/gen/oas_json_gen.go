@@ -22509,9 +22509,15 @@ func (s *PaymentRun) encodeFields(e *jx.Encoder) {
 			s.OperationID.Encode(e)
 		}
 	}
+	{
+		if s.ReleaseOperationID.Set {
+			e.FieldStart("release_operation_id")
+			s.ReleaseOperationID.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfPaymentRun = [17]string{
+var jsonFieldsNameOfPaymentRun = [18]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -22529,6 +22535,7 @@ var jsonFieldsNameOfPaymentRun = [17]string{
 	14: "decided_by",
 	15: "decided_at",
 	16: "operation_id",
+	17: "release_operation_id",
 }
 
 // Decode decodes PaymentRun from json.
@@ -22733,6 +22740,16 @@ func (s *PaymentRun) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"operation_id\"")
+			}
+		case "release_operation_id":
+			if err := func() error {
+				s.ReleaseOperationID.Reset()
+				if err := s.ReleaseOperationID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"release_operation_id\"")
 			}
 		default:
 			return d.Skip()

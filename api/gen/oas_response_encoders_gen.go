@@ -73149,27 +73149,12 @@ func encodeReleaseContractResponse(response ReleaseContractRes, w http.ResponseW
 
 func encodeReleasePaymentRunResponse(response ReleasePaymentRunRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *RejectPaymentRunOKHeaders:
+	case *OperationHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Access-Control-Expose-Headers", "Etag,Idempotent-Replayed,Ratelimit-Limit,Ratelimit-Remaining,Ratelimit-Reset")
+		w.Header().Set("Access-Control-Expose-Headers", "Idempotent-Replayed,Location,Ratelimit-Limit,Ratelimit-Remaining,Ratelimit-Reset")
 		// Encoding response headers.
 		{
 			h := uri.NewHeaderEncoder(w.Header())
-			// Encode "ETag" header.
-			{
-				cfg := uri.HeaderParameterEncodingConfig{
-					Name:    "ETag",
-					Explode: false,
-				}
-				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-					if val, ok := response.ETag.Get(); ok {
-						return e.EncodeValue(conv.StringToString(val))
-					}
-					return nil
-				}); err != nil {
-					return errors.Wrap(err, "encode ETag header")
-				}
-			}
 			// Encode "Idempotent-Replayed" header.
 			{
 				cfg := uri.HeaderParameterEncodingConfig{
@@ -73183,6 +73168,21 @@ func encodeReleasePaymentRunResponse(response ReleasePaymentRunRes, w http.Respo
 					return nil
 				}); err != nil {
 					return errors.Wrap(err, "encode Idempotent-Replayed header")
+				}
+			}
+			// Encode "Location" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Location",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.Location.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Location header")
 				}
 			}
 			// Encode "RateLimit-Limit" header.
@@ -73231,7 +73231,7 @@ func encodeReleasePaymentRunResponse(response ReleasePaymentRunRes, w http.Respo
 				}
 			}
 		}
-		w.WriteHeader(200)
+		w.WriteHeader(202)
 
 		e := new(jx.Encoder)
 		response.Response.Encode(e)

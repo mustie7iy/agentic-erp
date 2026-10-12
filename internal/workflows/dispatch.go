@@ -41,17 +41,35 @@ func (d *Dispatcher) begin(ctx context.Context, s database.Scope) (pgx.Tx, error
 	return d.Pool.Begin(ctx, s)
 }
 
-// pending is a queued (or cancelled before it started) proposal with the
-// business key its workflow id derives from.
+// pending is a queued operation (or a proposal cancelled before it started)
+// with the business key its workflow id derives from.
 type pending struct {
+	kind                                string
 	tenant, operation, run, legalEntity uuid.UUID
 	number                              string
+	attempt                             int // of a release: its number among the run's release operations
 }
 
 // WorkflowID is the id of a payment run's proposal workflow:
 // {tenant}-{legal entity}-payment_run-{document number} (ADR-0012).
 func WorkflowID(tenant, legalEntity uuid.UUID, number string) string {
 	return fmt.Sprintf("%s-%s-payment_run-%s", tenant, legalEntity, number)
+}
+
+// ReleaseWorkflowID is the id of a run's release workflow: the run's key
+// plus the attempt, since a failed release is resumed by a new operation.
+func ReleaseWorkflowID(tenant, legalEntity uuid.UUID, number string, attempt int) string {
+	return fmt.Sprintf("%s-release-%d", WorkflowID(tenant, legalEntity, number), attempt)
+}
+
+// start is what the dispatcher starts for a pending operation.
+func (p pending) start(queue string) workflow.Start {
+	if p.kind == payments.ReleaseKind {
+		return workflow.Start{ID: ReleaseWorkflowID(p.tenant, p.legalEntity, p.number, p.attempt), Queue: queue, Name: ReleaseWorkflow,
+			Args: []any{ReleaseInput{TenantID: p.tenant, RunID: p.run, OperationID: p.operation}}}
+	}
+	return workflow.Start{ID: WorkflowID(p.tenant, p.legalEntity, p.number), Queue: queue, Name: ProposeWorkflow,
+		Args: []any{ProposeInput{TenantID: p.tenant, RunID: p.run, OperationID: p.operation}}}
 }
 
 // RunOnce dispatches every pending proposal and returns how many it started.
@@ -61,12 +79,19 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT o.tenant_id, o.id, r.id, r.legal_entity_id, r.document_number FROM platform.operation o
-		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
-		WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing' AND o.workflow_id IS NULL ORDER BY o.id`, payments.ProposeKind)
+	rows, _ := tx.Query(ctx, `SELECT o.kind, o.tenant_id, o.id, r.id, r.legal_entity_id, r.document_number, 0 FROM platform.operation o
+			JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
+			WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing' AND o.workflow_id IS NULL
+		UNION ALL
+		SELECT o.kind, o.tenant_id, o.id, r.id, r.legal_entity_id, r.document_number,
+			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.resource = o.resource AND x.id <= o.id)
+			FROM platform.operation o
+			JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.release_operation_id = o.id
+			WHERE o.kind = $2 AND o.status = 'queued' AND r.status = 'releasing' AND o.workflow_id IS NULL
+		ORDER BY 3`, payments.ProposeKind, payments.ReleaseKind)
 	jobs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (pending, error) {
 		var p pending
-		err := r.Scan(&p.tenant, &p.operation, &p.run, &p.legalEntity, &p.number)
+		err := r.Scan(&p.kind, &p.tenant, &p.operation, &p.run, &p.legalEntity, &p.number, &p.attempt)
 		return p, err
 	})
 	if err != nil {
@@ -75,9 +100,9 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 	n := 0
 	var errs []error
 	for _, j := range jobs {
-		id := WorkflowID(j.tenant, j.legalEntity, j.number)
-		started, err := d.Client.Start(ctx, workflow.Start{ID: id, Queue: d.Queue, Name: ProposeWorkflow,
-			Args: []any{ProposeInput{TenantID: j.tenant, RunID: j.run, OperationID: j.operation}}})
+		s := j.start(d.Queue)
+		id := s.ID
+		started, err := d.Client.Start(ctx, s)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -118,5 +143,6 @@ func (d *Dispatcher) Run(ctx context.Context) {
 // Register registers the workflows and activities a cell's worker hosts.
 func Register(r workflow.Registry, p *Payments) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
+	r.RegisterWorkflowWithOptions(ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: ReleaseWorkflow})
 	r.RegisterActivity(p)
 }

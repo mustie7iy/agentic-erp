@@ -95,13 +95,15 @@ func TestForeignExchange(t *testing.T) {
 	work(t)
 	run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
 	// The invoice is booked at 90.00 EUR and paid at 95.00 EUR: a loss in group currency, which needs an account.
-	if got := e.decide(t, 422, run, "release", ""); got["code"] != "ledger.no_fx_account" {
-		t.Fatalf("no fx account: %v", got)
+	// The release operation fails with the ledger's problem; nothing was posted, so the run is proposed again.
+	if _, after := e.releaseFails(t, run, "ledger.no_fx_account"); after["status"] != "proposed" || after["decided_by"] != nil {
+		t.Fatalf("after the failed release: %v", after)
 	}
 	loss := e.Account(t, "1000", "510000")
 	pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, 'fx_loss', $3, $4)`,
 		e.Tenant.ID, e.US, loss, e.Tenant.Human.ID)
-	e.decide(t, 200, run, "release", "")
+	run, _ = e.Must(200, "GET", op["resource"].(string), "", "")
+	e.release(t, run, "")
 	pay := e.payments(t, run)[0].(map[string]any)
 	je, _ := e.Must(200, "GET", "/v1/journal-entries/"+pay["journal_entry_id"].(string), "", "")
 	lines := je["lines"].([]any)
@@ -117,7 +119,7 @@ func TestTransmitFailures(t *testing.T) {
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
 	run := e.run(t, "2026-04-15", "2026-04-15")
-	e.decide(t, 200, run, "release", "")
+	e.release(t, run, "")
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := files["items"].([]any)[0].(map[string]any)
 	path := "/v1/bank-files/" + id(file) + ":transmit"
@@ -154,8 +156,20 @@ func TestTransmitFailures(t *testing.T) {
 	e.bankAccount(t, e.Vendor, "DE89370400440532013000", " ", "2026-01-01", "", "create")
 	e.invoice(t, e.Vendor, "V-1", "10.00", "2026-03-01")
 	second := e.run(t, "2026-04-16", "2026-04-16")
-	if got := e.decide(t, 422, second, "release", ""); got["code"] != "payments.bank_file_invalid" {
-		t.Fatalf("invalid file: %v", got)
+	// The payment posts, then the file is refused: the operation fails and the run stays releasing with its posting, to be resumed once the data is fixed.
+	if _, after := e.releaseFails(t, second, "payments.bank_file_invalid"); after["status"] != "releasing" {
+		t.Fatalf("after the refused file: %v", after)
+	}
+	if pay := e.payments(t, second)[0].(map[string]any); pay["journal_entry_id"] == nil {
+		t.Fatalf("posting undone: %v", pay)
+	}
+	// Resumed after the fix: the posted payment is left alone, the file is written.
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+		UPDATE partner.bank_account SET holder_name = 'Vendor' WHERE partner_id = '%s'; END $$`, e.Vendor)) // the data fixed behind the immutability rule, as a correction would
+	second, _ = e.Must(200, "GET", "/v1/payment-runs/"+id(second), "", "")
+	released := e.release(t, second, "")
+	if e.payments(t, released)[0].(map[string]any)["journal_entry_id"] == nil {
+		t.Fatal("payment posted twice or lost")
 	}
 }
 
@@ -166,7 +180,7 @@ func TestListsAndAccess(t *testing.T) {
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
 	e.invoice(t, e.Vendor, "INV-2", "50.00", "2026-03-01")
 	first := e.run(t, "2026-04-15", "2026-04-15")
-	e.decide(t, 200, first, "release", "")
+	e.release(t, first, "")
 	none := e.NewSupplier(t, "BP90000003")
 	e.invoice(t, none, "INV-3", "5.00", "2026-03-01")
 	e.invoice(t, e.NewSupplier(t, "BP90000004"), "INV-4", "6.00", "2026-03-01")
@@ -231,7 +245,7 @@ func TestListsAndAccess(t *testing.T) {
 	// Two bank files page by creation time.
 	e.invoice(t, e.Supplier, "INV-5", "7.00", "2026-03-01")
 	third := e.run(t, "2026-04-21", "2026-04-21")
-	e.decide(t, 200, third, "release", "")
+	e.release(t, third, "")
 	files := list("/v1/bank-files?page_size=1")
 	if files["next_page_token"] == nil {
 		t.Fatalf("files page: %v", files)

@@ -2,6 +2,9 @@ package payments_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -25,7 +29,7 @@ func TestDatabaseFailures(t *testing.T) {
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
 	e.credit(t, e.Supplier, "10.00", "2026-03-01")
 	released := e.run(t, "2026-04-15", "2026-04-15")
-	e.decide(t, 200, released, "release", "")
+	e.release(t, released, "")
 	files, _ := e.Must(200, "GET", "/v1/bank-files", "", "")
 	file := uuidOf(id(files["items"].([]any)[0].(map[string]any)))
 	transmitted := func(number, invoice string) uuid.UUID { // a released run of one invoice, its file transmitted
@@ -33,13 +37,62 @@ func TestDatabaseFailures(t *testing.T) {
 		e.bankAccount(t, s, "DE89370400440532013000", "S", "2026-01-01", "", "create")
 		e.invoice(t, s, invoice, "7.00", "2026-03-01")
 		r := e.run(t, "2026-04-15", "2026-04-15")
-		e.decide(t, 200, r, "release", "")
+		e.release(t, r, "")
 		fs, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(r), "", "")
 		f := id(fs["items"].([]any)[0].(map[string]any))
 		e.Must(202, "POST", "/v1/bank-files/"+f+":transmit", "", `"1"`)
 		return uuidOf(f)
 	}
 	toAck, toReject := transmitted("BP90000004", "INV-4"), transmitted("BP90000005", "INV-5")
+	// Two runs under release: A has its payment posted and its release failed
+	// (to be resumed), B is releasing with nothing posted yet.
+	e.invoice(t, e.Supplier, "INV-RA", "9.00", "2026-03-01")
+	relA := e.run(t, "2026-04-21", "2026-04-21")
+	e.decide(t, 202, relA, "release", "")
+	payA := uuidOf(id(e.payments(t, relA)[0].(map[string]any)))
+	if err := apitest.Committed(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		r, err := payments.GetRun(ctx, uuidOf(id(relA)))
+		if err != nil {
+			return err
+		}
+		if _, err := h.PostPayment(ctx, r, payA); err != nil {
+			return err
+		}
+		if _, err := h.PostPayment(ctx, r, uuid.New()); err == nil || !strings.Contains(err.Error(), "has no payment") {
+			return fmt.Errorf("unknown payment: %v", err)
+		}
+		_, err = h.FailRelease(ctx, r, problem.Conflict("payments.bank_file_invalid", "test"))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(relA), "", ""); got["status"] != "releasing" {
+		t.Fatalf("run A after a failed release with a posting: %v", got)
+	}
+	sB := e.NewSupplier(t, "BP90000006")
+	e.bankAccount(t, sB, "DE89370400440532013000", "B", "2026-01-01", "", "create")
+	e.invoice(t, sB, "INV-RB", "4.00", "2026-03-01")
+	relB := e.run(t, "2026-04-22", "2026-04-22")
+	e.decide(t, 202, relB, "release", "")
+	sC := e.NewSupplier(t, "BP90000007")
+	e.bankAccount(t, sC, "DE89370400440532013000", "C", "2026-01-01", "", "create")
+	e.invoice(t, sC, "INV-RC", "6.00", "2026-03-01")
+	relC := e.run(t, "2026-04-23", "2026-04-23") // releasing, its payment still to post
+	e.decide(t, 202, relC, "release", "")
+	payC := uuidOf(id(e.payments(t, relC)[0].(map[string]any)))
+	relCID := uuidOf(id(relC))
+	for name, err := range map[string]error{
+		"post payment":   func() error { _, err := h.PostPayment(context.Background(), payments.Run{}, payC); return err }(),
+		"finish release": func() error { _, err := h.FinishRelease(context.Background(), payments.Run{}); return err }(),
+		"fail release": func() error {
+			_, err := h.FailRelease(context.Background(), payments.Run{}, problem.Conflict("x", "y"))
+			return err
+		}(),
+	} {
+		if err == nil {
+			t.Errorf("%s outside a unit of work", name)
+		}
+	}
 	e.invoice(t, e.Vendor, "INV-2", "50.00", "2026-03-01")
 	e.invoice(t, e.NewSupplier(t, "BP90000003"), "INV-3", "5.00", "2026-03-01")
 	proposed := e.run(t, "2026-04-16", "2026-04-16")
@@ -62,6 +115,23 @@ func TestDatabaseFailures(t *testing.T) {
 	inv, _ := e.Must(200, "GET", "/v1/supplier-invoices?supplier_id="+e.Vendor.String(), "", "")
 	vendorEntry := uuidOf(inv["items"].([]any)[0].(map[string]any)["journal_entry_id"].(string))
 	yes := func(int32) error { return nil }
+	if err := apitest.InRequest(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		tx, _ := reqctx.TxFrom(ctx)
+		if _, _, err := h.Releaser(ctx, tx, run); err == nil || !strings.Contains(err.Error(), "not releasing") {
+			return fmt.Errorf("releaser of a proposed run: %v", err)
+		}
+		r, err := payments.GetRun(ctx, uuidOf(id(relB)))
+		if err != nil {
+			return err
+		}
+		if _, err := h.FinishRelease(ctx, r); err == nil || !strings.Contains(err.Error(), "not posted yet") {
+			return fmt.Errorf("finish before posting: %v", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	relAID, relBID := uuidOf(id(relA)), uuidOf(id(relB))
 
 	calls := map[string]func(ctx context.Context) error{
 		"propose": func(ctx context.Context) error {
@@ -95,6 +165,54 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"bank files": func(ctx context.Context) error {
 			_, err := h.ListBankFiles(ctx, gen.ListBankFilesParams{})
+			return err
+		},
+		"releaser": func(ctx context.Context) error {
+			tx, ok := reqctx.TxFrom(ctx)
+			if !ok {
+				return errors.New("outside a unit of work")
+			}
+			_, _, err := h.Releaser(ctx, tx, relBID)
+			return err
+		},
+		"payments to post": func(ctx context.Context) error {
+			tx, ok := reqctx.TxFrom(ctx)
+			if !ok {
+				return errors.New("outside a unit of work")
+			}
+			_, _, err := payments.PaymentsToPost(ctx, tx, relBID)
+			return err
+		},
+		"post payment": func(ctx context.Context) error {
+			r, err := payments.GetRun(ctx, relCID)
+			if err != nil {
+				return err
+			}
+			_, err = h.PostPayment(ctx, r, payC)
+			return err
+		},
+		"post payment again": func(ctx context.Context) error {
+			r, err := payments.GetRun(ctx, relAID)
+			if err != nil {
+				return err
+			}
+			_, err = h.PostPayment(ctx, r, payA)
+			return err
+		},
+		"finish release": func(ctx context.Context) error {
+			r, err := payments.GetRun(ctx, relAID)
+			if err != nil {
+				return err
+			}
+			_, err = h.FinishRelease(ctx, r)
+			return err
+		},
+		"fail release": func(ctx context.Context) error {
+			r, err := payments.GetRun(ctx, relBID)
+			if err != nil {
+				return err
+			}
+			_, err = h.FailRelease(ctx, r, problem.Unprocessable("payments.bank_file_invalid", "test"))
 			return err
 		},
 		"transmit": func(ctx context.Context) error {
@@ -132,6 +250,10 @@ func TestDatabaseFailures(t *testing.T) {
 		"release": func(ctx context.Context) error {
 			_, err := h.ReleasePaymentRun(ctx, gen.NewOptDecisionInput(gen.DecisionInput{Comment: gen.NewOptString("ok")}),
 				gen.ReleasePaymentRunParams{ID: run, IfMatch: "*"})
+			return err
+		},
+		"release resume": func(ctx context.Context) error {
+			_, err := h.StartRelease(ctx, relAID, yes, "again")
 			return err
 		},
 		"reject": func(ctx context.Context) error {
@@ -190,7 +312,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"release mismatch": func(ctx context.Context) error {
-			_, err := h.ReleaseRun(ctx, run, func(int32) error { return errMismatch }, "")
+			_, err := h.StartRelease(ctx, run, func(int32) error { return errMismatch }, "")
 			return err
 		},
 		"reject mismatch": func(ctx context.Context) error {
@@ -198,7 +320,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"release unknown": func(ctx context.Context) error {
-			_, err := h.ReleaseRun(ctx, uuid.New(), yes, "")
+			_, err := h.StartRelease(ctx, uuid.New(), yes, "")
 			return err
 		},
 		"reject unknown": func(ctx context.Context) error {

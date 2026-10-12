@@ -15,7 +15,7 @@ they need to decide, and what the implementation found out on the way.
 | Decision records | 30, all `proposed` | [adr/](adr/README.md) |
 | API contract | 165 operations (OpenAPI 3.1), 82 event types (AsyncAPI 3.0) | [`api/openapi.yaml`](../../api/openapi.yaml), [`api/asyncapi.yaml`](../../api/asyncapi.yaml) |
 | Operator contracts | 9 cell operations, 8 global operations | [`api/control.yaml`](../../api/control.yaml), [`api/directory.yaml`](../../api/directory.yaml) |
-| Physical model | 28 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
+| Physical model | 29 migrations, PostgreSQL 17, row-level security on every table | [`db/migrations/`](../../db/migrations/) |
 | Tests | 443 test functions across 68 packages, 100% statement coverage, race detector in CI; load, soak and resilience suites | [docs/testing.md](../testing.md) |
 | Transition | 25 steps done, each with its decisions and open points | [07-transition.md](07-transition.md) |
 
@@ -82,9 +82,9 @@ Every step recorded its open points (07-transition, "decisions and open points")
 - The administrator holds every permission including approvals until real roles are provisioned; a tenant's first SoD rules could ship with the configuration (T8).
 - Operator roles are coarse; per-cell or per-region scoping would be a further claim (T23).
 
-### Decided: work that outgrows one transaction (ADR-0012 accepted on 2026-10-12: Temporal; T26 done, T27 to T29 scheduled)
+### Decided: work that outgrows one transaction (ADR-0012 accepted on 2026-10-12: Temporal; T26 and T27 done, T28 and T29 scheduled)
 
-- Payment release answers synchronously and takes about 26 s for 2,000 payments over 100,000 items locally; proposals report progress only on completion; migration runs and simulations run within the request or one worker transaction (T5, T6, T9).
+- ~~Payment release answers synchronously~~ Done in T27: the release is an operation, one posting per activity with progress, resumable. Proposals report progress only on completion (their selection is one snapshot); migration runs and simulations run within the request or one worker transaction (T6, T9), scheduled for T28.
 - A connector should confirm a sent bank file before commit once integration messages exist (T5).
 - Incremental audit verification with checkpoints for chains too long to read hourly (T21).
 - A `:migrate` operation driving the five steps of a tenant move, once the import can be called on a cell (T25).

@@ -78,7 +78,7 @@ prototype store for that context.
 | T24 (done) | **Re-onboarding from export** | `erp-server import` brings an exported tenant back into a cell, row for row and chain head and all, every part checked against the manifest; the row copy a move between cells needs |
 | T25 (done) | **Cross-cell verification** | Each cell answers a tenant's fingerprint (rows per table, audit chain head); the global control plane compares the tenant's cell with the destination and names every difference, the evidence a move waits for before switching the entry |
 | T26 (done) | **Temporal runtime** (ADR-0012, accepted) | `erp-server` runs a Temporal worker; the `Operation` resource is the API's view of a workflow (id from the business key, status, progress, result, error, `:cancel`); one existing operation runs end to end as a workflow whose activities are the application services in the unit of work; a dev server in tests and CI |
-| T27 | **Payment proposals and releases as workflows** | A proposal is chunked and resumable, reporting progress; a release over any number of items is an operation; each posting is one idempotent activity; a failed workflow raises an exception-queue item |
+| T27 (done) | **Payment release as a workflow** | `:release` answers 202 with an Operation; the run is `releasing` while each payment is posted as one idempotent activity (progress on the operation) and the bank file is written at the end; a business problem fails the operation and a run with postings is resumed by `:release` again; the proposal stays one activity (its selection is one snapshot) |
 | T28 | **Simulations, regression and migration runs as workflows** | Chunked replays and migration runs resume after a restart; evidence is recorded by activities; the in-process workers are deleted |
 | T29 | **Human waits and timers** | Approval requests and period close run as workflows that wait on decisions and deadlines; escalation timers; workflow versioning and the payload codec in place; namespaces per environment and tenant isolation by task queue |
 
@@ -1449,6 +1449,51 @@ Open points for the contract and design review:
   workflow versioning (ADR-0012's engineering rules) come with T29.
 - The dispatcher polls every second; a start from the request after its
   commit would remove the poll once the unit of work has an after-commit hook.
+
+### T27 decisions and open points
+
+What T27 built: the payment release as a workflow (ADR-0012).
+`POST /v1/payment-runs/{id}:release` keeps its checks synchronous (status,
+segregation of duties, something to pay, every supplier rechecked on the
+run date) and then answers `202` with an Operation (the one accepted
+breaking change of v1, recorded in `api/breaking-accepted.txt`): the run
+moves to `releasing`, with `release_operation_id`. `ReleasePaymentRun`
+lists the payments still to post and posts each in its own activity
+(`payments.PostPayment`: one settlement entry, idempotent by the payment's
+`journal_entry_id`, progress on the operation), then `FinishRelease` writes
+the bank file, releases the run and publishes the events. A business
+problem (the ledger refusing a posting, the bank file invalid, the store
+unavailable) is a non-retryable activity error the workflow records through
+`FailRelease`: the operation fails with the problem; a run with nothing
+posted goes back to `proposed`, one with postings stays `releasing` and is
+resumed by `:release` again (a new operation, workflow id
+`…-release-{attempt}`), which skips what was posted. A failure of the
+machinery is retried by the policy and, past it, leaves the run `releasing`
+for the same resume. Without an engine, `workflows.Releaser` runs the same
+steps in process (migration 000029). The exit criteria are
+`TestReleaseWorkflow`, the payments suite's `release` and `releaseFails`
+helpers through the releaser, and `TestDispatcher`'s release attempts.
+
+Decisions taken while building it:
+
+- **One posting per activity, the proposal stays one.** A posting is the
+  integrity unit the ADR names; a proposal's selection is one snapshot of
+  the open items, which chunking across transactions would break.
+- **Problems fail the operation; failures leave it resumable.** The
+  distinction is the problem's status: below 500 the business refused,
+  otherwise the machinery did.
+- **Resume by the same call.** No separate `:resume`: a release of a
+  `releasing` run whose operation failed is the resume.
+
+Open points for the contract and design review:
+
+- A run whose release fails after some postings has paid some suppliers and
+  not others until it is resumed; the exception-queue item (T29) is where
+  treasury sees it.
+- `payments.payment_run.complete` is the audit action of the finish; the
+  `PaymentRunReleased` event fires then, as before.
+- The proposal's progress is reported once, at the end; chunked progress
+  would need the selection persisted first.
 
 ## 7.4 Data from the prototype
 

@@ -50,6 +50,7 @@ import (
 const (
 	Proposing = "proposing"
 	Proposed  = "proposed"
+	Releasing = "releasing"
 	Released  = "released"
 	Rejected  = "rejected"
 	Failed    = "failed"
@@ -73,6 +74,9 @@ const (
 	Format = "pain.001.001.03"
 	// ProposeKind is the operation kind of proposals.
 	ProposeKind = "payments.propose"
+	// ReleaseKind is the operation of a release: one posting per payment,
+	// then the bank file (T27, ADR-0012).
+	ReleaseKind = "payments.release"
 )
 
 // LegalEntities is what payments reads about legal entities (tenancy context).
@@ -143,7 +147,8 @@ type Run struct {
 	ProposedBy     uuid.UUID
 	DecidedBy      *uuid.UUID
 	DecidedAt      *time.Time
-	OperationID    *uuid.UUID
+	OperationID    *uuid.UUID // the proposal's operation
+	ReleaseOpID    *uuid.UUID // the latest release operation, once a release was asked for
 	Version        int32
 	CreatedAt      time.Time
 	CreatedBy      uuid.UUID
@@ -152,13 +157,13 @@ type Run struct {
 }
 
 const runSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.house_bank_id, r.run_date, r.due_by, r.currency, c.exponent, r.total_amount,
-		r.status, r.proposed_by, r.decided_by, r.decided_at, r.operation_id, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
+		r.status, r.proposed_by, r.decided_by, r.decided_at, r.operation_id, r.release_operation_id, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM payments.payment_run r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.HouseBankID, &r.RunDate, &r.DueBy, &r.Currency, &r.Exponent, &r.Total,
-		&r.Status, &r.ProposedBy, &r.DecidedBy, &r.DecidedAt, &r.OperationID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.Status, &r.ProposedBy, &r.DecidedBy, &r.DecidedAt, &r.OperationID, &r.ReleaseOpID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, err
 }
 

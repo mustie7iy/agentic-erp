@@ -14002,6 +14002,7 @@ func (s *OperationHeaders) SetResponse(val Operation) {
 func (*OperationHeaders) captureSupplierInvoiceRes() {}
 func (*OperationHeaders) proposePaymentRunRes()      {}
 func (*OperationHeaders) reconcileMigrationRunRes()  {}
+func (*OperationHeaders) releasePaymentRunRes()      {}
 func (*OperationHeaders) simulateChangeRequestRes()  {}
 func (*OperationHeaders) startMigrationRunRes()      {}
 func (*OperationHeaders) transmitBankFileRes()       {}
@@ -16828,6 +16829,9 @@ type PaymentRun struct {
 	DecidedAt OptDateTime `json:"decided_at"`
 	// Operation that built the proposal.
 	OperationID OptUUID `json:"operation_id"`
+	// The latest release operation (ADR-0012), once a release was asked for: its status says whether the
+	// release is under way, done or failed; a failed one is resumed by `:release` again.
+	ReleaseOperationID OptUUID `json:"release_operation_id"`
 }
 
 // GetID returns the value of ID.
@@ -16915,6 +16919,11 @@ func (s *PaymentRun) GetOperationID() OptUUID {
 	return s.OperationID
 }
 
+// GetReleaseOperationID returns the value of ReleaseOperationID.
+func (s *PaymentRun) GetReleaseOperationID() OptUUID {
+	return s.ReleaseOperationID
+}
+
 // SetID sets the value of ID.
 func (s *PaymentRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -16998,6 +17007,11 @@ func (s *PaymentRun) SetDecidedAt(val OptDateTime) {
 // SetOperationID sets the value of OperationID.
 func (s *PaymentRun) SetOperationID(val OptUUID) {
 	s.OperationID = val
+}
+
+// SetReleaseOperationID sets the value of ReleaseOperationID.
+func (s *PaymentRun) SetReleaseOperationID(val OptUUID) {
+	s.ReleaseOperationID = val
 }
 
 // PaymentRunHeaders wraps PaymentRun with response headers.
@@ -19786,8 +19800,7 @@ func (s *RejectPaymentRunOKHeaders) SetResponse(val PaymentRun) {
 	s.Response = val
 }
 
-func (*RejectPaymentRunOKHeaders) rejectPaymentRunRes()  {}
-func (*RejectPaymentRunOKHeaders) releasePaymentRunRes() {}
+func (*RejectPaymentRunOKHeaders) rejectPaymentRunRes() {}
 
 // ReportBankFileStatusOKHeaders wraps BankFile with response headers.
 type ReportBankFileStatusOKHeaders struct {

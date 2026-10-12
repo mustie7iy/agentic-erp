@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,82 +15,236 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// ReleaseRun is the F110 release, by a person other than the proposer:
-// every supplier is checked again on the run date, each payment is posted
-// with the entry that clears its items, and the bank file is produced. A
-// supplier that can no longer be paid stops the whole release, so a run is
-// posted completely or not at all.
-func (e *Endpoints) ReleaseRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, comment string) (Run, error) {
+// StartRelease is the F110 release, by a person other than the proposer,
+// as an operation (ADR-0012): every supplier is checked again on the run
+// date here, then the run moves to releasing and the operation is queued;
+// the release workflow posts each payment with the entry that clears its
+// items, one transaction per payment, and writes the bank file, after which
+// the run is released. A run whose release operation failed (nothing or
+// some payments posted) is released again by the same call, which resumes
+// the work: payments already posted are skipped.
+func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, comment string) (operations.Operation, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
-		return Run{}, err
+		return operations.Operation{}, err
 	}
 	r, err := get(ctx, tx, id, true)
 	if err != nil {
-		return Run{}, err
+		return operations.Operation{}, err
 	}
 	if err := ifMatch(r.Version); err != nil {
-		return Run{}, err
+		return operations.Operation{}, err
 	}
-	if err := requireProposed(r, "released"); err != nil {
-		return Run{}, err
+	if err := releasable(ctx, tx, r); err != nil {
+		return operations.Operation{}, err
 	}
 	if err := decider(r, p); err != nil {
+		return operations.Operation{}, err
+	}
+	pays, err := paymentsOf(ctx, tx, r.ID)
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	if len(pays) == 0 {
+		return operations.Operation{}, problem.Conflict("payments.nothing_to_pay", "The run has no payments; reject it.")
+	}
+	if err := e.recheck(ctx, r, pays); err != nil {
+		return operations.Operation{}, err
+	}
+	op, err := operations.StartFor(ctx, ReleaseKind, map[string]any{"payment_run_id": r.ID, "comment": comment}, "/v1/payment-runs/"+r.ID.String())
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'releasing', decided_by = $2, decided_at = coalesce(decided_at, now()), release_operation_id = $3,
+		version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID, op.ID); err != nil {
+		return operations.Operation{}, err
+	}
+	return op, record(ctx, "payments.payment_run.release", r.ID, map[string]any{"comment": comment, "payments": len(pays), "operation_id": op.ID, "resumed": r.Status == Releasing})
+}
+
+// releasable: a proposed run, or a releasing one whose release operation
+// failed (the work resumes); a release under way or done is refused.
+func releasable(ctx context.Context, tx pgx.Tx, r Run) error {
+	switch {
+	case r.Status == Proposed:
+		return nil
+	case r.Status != Releasing:
+		return problem.Conflict("payments.invalid_status", "Only a proposed payment run can be released; this one is "+r.Status+".")
+	}
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status FROM platform.operation WHERE id = $1`, r.ReleaseOpID).Scan(&status); err != nil {
+		return err
+	}
+	if status != operations.Failed {
+		return problem.Conflict("payments.release_in_progress", "The run is being released (operation "+r.ReleaseOpID.String()+" is "+status+").")
+	}
+	return nil
+}
+
+// Releaser is who posts a run's payments: the person who released it.
+func (e *Endpoints) Releaser(ctx context.Context, tx pgx.Tx, run uuid.UUID) (reqctx.Principal, Run, error) {
+	r, err := load(ctx, tx, run, false)
+	if err != nil {
+		return reqctx.Principal{}, Run{}, err
+	}
+	if r.Status != Releasing || r.DecidedBy == nil {
+		return reqctx.Principal{}, Run{}, fmt.Errorf("payments: run %s is %s, not releasing", run, r.Status)
+	}
+	var kind string
+	var tenant uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT tenant_id, kind FROM identity.principal WHERE id = $1`, *r.DecidedBy).Scan(&tenant, &kind); err != nil {
+		return reqctx.Principal{}, Run{}, err
+	}
+	return reqctx.Principal{ID: *r.DecidedBy, Kind: kind, TenantID: tenant}, r, nil
+}
+
+// PaymentsToPost lists the run's payments without a posting yet, in
+// end-to-end id order, and how many there are in all.
+func PaymentsToPost(ctx context.Context, tx pgx.Tx, run uuid.UUID) (todo []uuid.UUID, total int, err error) {
+	pays, err := paymentsOf(ctx, tx, run)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, pay := range pays {
+		if pay.JournalEntryID == nil {
+			todo = append(todo, pay.ID)
+		}
+	}
+	return todo, len(pays), nil
+}
+
+// PostPayment posts one payment of a releasing run: the entry that clears
+// its items, as the releaser, in the request's transaction; a payment
+// already posted is left alone (posted = false), so a retry posts nothing
+// twice. Progress is recorded on the release operation.
+func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (posted bool, err error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return false, err
+	}
+	var p Payment
+	for _, candidate := range mustPayments(ctx, tx, r.ID, &err) {
+		if candidate.ID == pay {
+			p = candidate
+		}
+	}
+	if err != nil {
+		return false, err
+	}
+	if p.ID == uuid.Nil {
+		return false, fmt.Errorf("payments: run %s has no payment %s", r.ID, pay)
+	}
+	if p.JournalEntryID != nil {
+		return false, nil
+	}
+	items := make([]ledger.ItemRef, len(p.Items))
+	for i, it := range p.Items {
+		items[i] = ledger.ItemRef{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo}
+	}
+	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
+	if err != nil {
+		return false, err
+	}
+	text := "Payment run " + r.DocumentNumber
+	entry, err := e.Postings.Settle(ctx, ledger.Settlement{LegalEntityID: r.LegalEntityID, DocumentType: DocumentType, PostingDate: r.RunDate,
+		Currency: r.Currency, BankAccountID: hb.GLAccountID, Reference: &p.EndToEndID, HeaderText: &text, SourceContext: "payments",
+		SourceDocumentID: p.ID, Items: items})
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payments.payment SET journal_entry_year = $2, journal_entry_id = $3 WHERE id = $1`, p.ID, entry.FiscalYear, entry.ID); err != nil {
+		return false, err
+	}
+	var done, total int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE journal_entry_id IS NOT NULL), count(*) FROM payments.payment WHERE payment_run_id = $1`, r.ID).Scan(&done, &total); err != nil {
+		return false, err
+	}
+	return true, operations.Report(ctx, *r.ReleaseOpID, done, total)
+}
+
+func mustPayments(ctx context.Context, tx pgx.Tx, run uuid.UUID, err *error) []Payment {
+	pays, e := paymentsOf(ctx, tx, run)
+	if e != nil {
+		*err = e
+	}
+	return pays
+}
+
+// FinishRelease ends a release whose payments are all posted: the bank file
+// is produced, the run is released, the operation succeeds and the events
+// go out, in the request's transaction.
+func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
 		return Run{}, err
 	}
 	pays, err := paymentsOf(ctx, tx, r.ID)
 	if err != nil {
 		return Run{}, err
 	}
-	if len(pays) == 0 {
-		return Run{}, problem.Conflict("payments.nothing_to_pay", "The run has no payments; reject it.")
+	for _, pay := range pays {
+		if pay.JournalEntryID == nil {
+			return Run{}, fmt.Errorf("payments: run %s: payment %s is not posted yet", r.ID, pay.ID)
+		}
 	}
 	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
 	if err != nil {
 		return Run{}, err
 	}
-	if err := e.recheck(ctx, r, pays); err != nil {
-		return Run{}, err
-	}
-	text := "Payment run " + r.DocumentNumber
-	for _, pay := range pays {
-		items := make([]ledger.ItemRef, len(pay.Items))
-		for i, it := range pay.Items {
-			items[i] = ledger.ItemRef{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo}
-		}
-		entry, err := e.Postings.Settle(ctx, ledger.Settlement{LegalEntityID: r.LegalEntityID, DocumentType: DocumentType, PostingDate: r.RunDate,
-			Currency: r.Currency, BankAccountID: hb.GLAccountID, Reference: &pay.EndToEndID, HeaderText: &text, SourceContext: "payments",
-			SourceDocumentID: pay.ID, Items: items})
-		if err != nil {
-			return Run{}, err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE payments.payment SET journal_entry_year = $2, journal_entry_id = $3 WHERE id = $1`,
-			pay.ID, entry.FiscalYear, entry.ID); err != nil {
-			return Run{}, err
-		}
-	}
 	file, err := e.createFile(ctx, tx, r, hb, pays)
 	if err != nil {
 		return Run{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'released', decided_by = $2, decided_at = now(), version = version + 1,
-		updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'released', version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
 		return Run{}, err
 	}
 	released, err := load(ctx, tx, r.ID, false)
 	if err != nil {
 		return Run{}, err
 	}
-	return released, record(ctx, "payments.payment_run.release", r.ID, map[string]any{"comment": comment, "payments": len(pays), "bank_file_id": file.ID},
+	if _, err := operations.Succeed(ctx, *r.ReleaseOpID, "/v1/payment-runs/"+r.ID.String(), map[string]any{"payment_run_id": r.ID, "status": Released,
+		"payment_count": len(pays), "bank_file_id": file.ID, "total_amount": amount(released.Total, released.Currency, released.Exponent)}); err != nil {
+		return Run{}, err
+	}
+	return released, record(ctx, "payments.payment_run.complete", r.ID, map[string]any{"payments": len(pays), "bank_file_id": file.ID},
 		fileEvent(file, "bank_file_created", map[string]any{"format": file.Format, "sha256": hex.EncodeToString(file.SHA256), "status": file.Status}),
 		runEvent(released, "payment_run_released", map[string]any{"house_bank_id": released.HouseBankID, "run_date": released.RunDate.Format(time.DateOnly),
 			"total_amount": amount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": nil,
 			"released_at": released.DecidedAt.UTC().Format(time.RFC3339Nano)}))
+}
+
+// FailRelease records a release that could not be done: the operation fails
+// with the problem; a run with nothing posted goes back to proposed for
+// another decision, one with payments posted stays releasing, to be
+// resumed by :release once the cause is fixed (posted payments stand).
+func (e *Endpoints) FailRelease(ctx context.Context, r Run, why *problem.Problem) (Run, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Run{}, err
+	}
+	if _, err := operations.Fail(ctx, *r.ReleaseOpID, why); err != nil {
+		return Run{}, err
+	}
+	var posted int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM payments.payment WHERE payment_run_id = $1 AND journal_entry_id IS NOT NULL`, r.ID).Scan(&posted); err != nil {
+		return Run{}, err
+	}
+	if posted == 0 {
+		if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'proposed', decided_by = NULL, decided_at = NULL, version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
+			return Run{}, err
+		}
+	}
+	after, err := load(ctx, tx, r.ID, false)
+	if err != nil {
+		return Run{}, err
+	}
+	return after, record(ctx, "payments.payment_run.fail", r.ID, map[string]any{"stage": "release", "code": why.Code, "detail": why.Detail, "posted": posted, "status": after.Status})
 }
 
 // recheck refuses a release when a supplier can no longer be paid as

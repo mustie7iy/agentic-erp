@@ -62,9 +62,13 @@ func TestProposeReleaseTransmit(t *testing.T) {
 	e.Problem(403, "identity.sod_conflict", "POST", path+":reject", `{"reason": "no"}`, tag)
 	e.As(e.Tenant.Agent).Problem(403, "identity.agent_not_allowed", "POST", path+":release", "", tag)
 
-	released := e.decide(t, 200, run, "release", `{"comment": "checked"}`)
-	if released["status"] != "released" || released["decided_by"] != e.Approver.ID.String() || released["decided_at"] == nil {
+	released := e.release(t, run, `{"comment": "checked"}`)
+	if released["decided_by"] != e.Approver.ID.String() || released["decided_at"] == nil {
 		t.Fatalf("released: %v", released)
+	}
+	if done, _ := e.Must(200, "GET", "/v1/operations/"+released["release_operation_id"].(string), "", ""); done["progress"].(map[string]any)["done"] != float64(1) ||
+		done["result"].(map[string]any)["bank_file_id"] == nil {
+		t.Fatalf("release operation: %v", done)
 	}
 	pay = e.payments(t, run)[0].(map[string]any)
 	je, _ := e.Must(200, "GET", "/v1/journal-entries/"+pay["journal_entry_id"].(string), "", "")

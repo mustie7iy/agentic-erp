@@ -267142,8 +267142,8 @@ func decodeReleaseContractResponse(resp *http.Response) (res ReleaseContractRes,
 
 func decodeReleasePaymentRunResponse(resp *http.Response) (res ReleasePaymentRunRes, _ error) {
 	switch resp.StatusCode {
-	case 200:
-		// Code 200.
+	case 202:
+		// Code 202.
 		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil {
 			return res, errors.Wrap(err, "parse media type")
@@ -267156,7 +267156,7 @@ func decodeReleasePaymentRunResponse(resp *http.Response) (res ReleasePaymentRun
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response PaymentRun
+			var response Operation
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -267182,46 +267182,9 @@ func decodeReleasePaymentRunResponse(resp *http.Response) (res ReleasePaymentRun
 			}(); err != nil {
 				return res, errors.Wrap(err, "validate")
 			}
-			var wrapper RejectPaymentRunOKHeaders
+			var wrapper OperationHeaders
 			wrapper.Response = response
 			h := uri.NewHeaderDecoder(resp.Header)
-			// Parse "ETag" header.
-			{
-				cfg := uri.HeaderParameterDecodingConfig{
-					Name:    "ETag",
-					Explode: false,
-				}
-				if err := func() error {
-					if err := h.HasParam(cfg); err == nil {
-						if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
-							var wrapperDotETagVal string
-							if err := func() error {
-								val, err := d.DecodeValue()
-								if err != nil {
-									return err
-								}
-
-								c, err := conv.ToString(val)
-								if err != nil {
-									return err
-								}
-
-								wrapperDotETagVal = c
-								return nil
-							}(); err != nil {
-								return err
-							}
-							wrapper.ETag.SetTo(wrapperDotETagVal)
-							return nil
-						}); err != nil {
-							return err
-						}
-					}
-					return nil
-				}(); err != nil {
-					return res, errors.Wrap(err, "parse ETag header")
-				}
-			}
 			// Parse "Idempotent-Replayed" header.
 			{
 				cfg := uri.HeaderParameterDecodingConfig{
@@ -267257,6 +267220,43 @@ func decodeReleasePaymentRunResponse(resp *http.Response) (res ReleasePaymentRun
 					return nil
 				}(); err != nil {
 					return res, errors.Wrap(err, "parse Idempotent-Replayed header")
+				}
+			}
+			// Parse "Location" header.
+			{
+				cfg := uri.HeaderParameterDecodingConfig{
+					Name:    "Location",
+					Explode: false,
+				}
+				if err := func() error {
+					if err := h.HasParam(cfg); err == nil {
+						if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+							var wrapperDotLocationVal string
+							if err := func() error {
+								val, err := d.DecodeValue()
+								if err != nil {
+									return err
+								}
+
+								c, err := conv.ToString(val)
+								if err != nil {
+									return err
+								}
+
+								wrapperDotLocationVal = c
+								return nil
+							}(); err != nil {
+								return err
+							}
+							wrapper.Location.SetTo(wrapperDotLocationVal)
+							return nil
+						}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}(); err != nil {
+					return res, errors.Wrap(err, "parse Location header")
 				}
 			}
 			// Parse "RateLimit-Limit" header.

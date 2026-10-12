@@ -44,7 +44,7 @@ func runToAPI(r Run) gen.PaymentRun {
 	out := gen.PaymentRun{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, HouseBankID: r.HouseBankID,
 		RunDate: r.RunDate, DueBy: r.DueBy, TotalAmount: moneyOf(r.Total, r.Currency, r.Exponent), Status: r.Status, ProposedBy: r.ProposedBy,
-		DecidedBy: optUUID(r.DecidedBy), OperationID: optUUID(r.OperationID)}
+		DecidedBy: optUUID(r.DecidedBy), OperationID: optUUID(r.OperationID), ReleaseOperationID: optUUID(r.ReleaseOpID)}
 	if r.DecidedAt != nil {
 		out.DecidedAt.SetTo(*r.DecidedAt)
 	}
@@ -136,11 +136,11 @@ func (e *Endpoints) ListPaymentRuns(ctx context.Context, params gen.ListPaymentR
 
 // ReleasePaymentRun implements POST /v1/payment-runs/{id}:release.
 func (e *Endpoints) ReleasePaymentRun(ctx context.Context, req gen.OptDecisionInput, params gen.ReleasePaymentRunParams) (gen.ReleasePaymentRunRes, error) {
-	r, err := e.ReleaseRun(ctx, params.ID, ifMatch(params.IfMatch), req.Value.Comment.Value)
+	op, err := e.StartRelease(ctx, params.ID, ifMatch(params.IfMatch), req.Value.Comment.Value)
 	if err != nil {
 		return nil, err
 	}
-	return runOK(r), nil
+	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: operations.ToAPI(op)}, nil
 }
 
 // RejectPaymentRun implements POST /v1/payment-runs/{id}:reject.

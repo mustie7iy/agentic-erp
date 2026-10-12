@@ -15,12 +15,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/testsuite"
 
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
@@ -292,6 +294,46 @@ func TestDispatcher(t *testing.T) {
 		t.Fatalf("retry round: %d %v", n, err)
 	}
 	_ = op2
+	// A release operation is dispatched under the run's key and attempt; a
+	// resumed release is the next attempt.
+	e.invoice(t, "INV-D", "3.00")
+	built, builtRun := e.propose(t, "2026-04-21")
+	engine.fail = ""
+	if _, err := d.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := execute(t, activities(t), input(e, built, builtRun), false); err != nil {
+		t.Fatal(err)
+	}
+	rel := e.releaseAsked(t, builtRun)
+	if n, err := d.RunOnce(ctx); err != nil || n != 1 {
+		t.Fatalf("release dispatch: %d %v", n, err)
+	}
+	var relNumber string
+	pgtest.Admin(t).QueryRow(ctx, `SELECT document_number FROM payments.payment_run WHERE id = $1`, rel.RunID).Scan(&relNumber)
+	wantRel := workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 1)
+	last := engine.started[len(engine.started)-1]
+	if last.ID != wantRel || last.Name != workflows.ReleaseWorkflow || last.Args[0].(workflows.ReleaseInput) != rel {
+		t.Fatalf("release start: %+v, want id %s", last, wantRel)
+	}
+	if err := apitest.Committed(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		r, err := payments.GetRun(ctx, rel.RunID)
+		if err != nil {
+			return err
+		}
+		_, err = activities(t).Endpoints.FailRelease(ctx, r, problem.Unprocessable("payments.bank_file_invalid", "test"))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing posted: the run is proposed again; the next release is attempt 2.
+	rel2 := e.releaseAsked(t, builtRun)
+	if n, err := d.RunOnce(ctx); err != nil || n != 1 {
+		t.Fatalf("second release dispatch: %d %v", n, err)
+	}
+	if last := engine.started[len(engine.started)-1]; last.ID != workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 2) || last.Args[0].(workflows.ReleaseInput) != rel2 {
+		t.Fatalf("second release start: %+v", last)
+	}
 	// Database failures are reported.
 	pool := pgtest.Pool(t)
 	e.propose(t, "2026-04-19")
@@ -364,4 +406,198 @@ func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+// releaseAsked asks for the run's release as the approver and returns the
+// release input the workflow takes.
+func (e env) releaseAsked(t *testing.T, run string) workflows.ReleaseInput {
+	t.Helper()
+	_, tag := e.Must(200, "GET", "/v1/payment-runs/"+run, "", "")
+	op, _ := e.As(e.Approver).Must(202, "POST", "/v1/payment-runs/"+run+":release", "", tag)
+	return workflows.ReleaseInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(run), OperationID: uuid.MustParse(id(op))}
+}
+
+func executeRelease(t *testing.T, a *workflows.Payments, in workflows.ReleaseInput) error {
+	t.Helper()
+	var s testsuite.WorkflowTestSuite
+	env := s.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.ReleasePaymentRun)
+	env.RegisterActivity(a)
+	env.ExecuteWorkflow(workflows.ReleasePaymentRun, in)
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	return env.GetWorkflowError()
+}
+
+// TestReleaseWorkflow: the release posts one payment per activity and
+// writes the bank file; a business problem fails the operation through the
+// workflow; a failure of the machinery is retried and then left for a
+// resumed release; the in-process releaser does the same steps.
+func TestReleaseWorkflow(t *testing.T) {
+	e := setup(t)
+	a := activities(t)
+	e.invoice(t, "INV-1", "100.00")
+	op, run := e.propose(t, "2026-04-15")
+	if err := execute(t, a, input(e, op, run), false); err != nil {
+		t.Fatal(err)
+	}
+	in := e.releaseAsked(t, run)
+	if err := executeRelease(t, a, in); err != nil {
+		t.Fatal(err)
+	}
+	released, _ := e.Must(200, "GET", "/v1/payment-runs/"+run, "", "")
+	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+	if released["status"] != "released" || done["status"] != "succeeded" || done["progress"].(map[string]any)["done"] != float64(1) || done["result"].(map[string]any)["bank_file_id"] == nil {
+		t.Fatalf("released: %v %v", released, done)
+	}
+	// A business problem: the vendor's bank account has no holder, so the file is refused after the posting.
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = ' ' WHERE partner_id = '%s'; END $$`, e.Supplier))
+	e.invoice(t, "INV-2", "50.00")
+	op2, run2 := e.propose(t, "2026-04-16")
+	if err := execute(t, a, input(e, op2, run2), false); err != nil {
+		t.Fatal(err)
+	}
+	in2 := e.releaseAsked(t, run2)
+	if err := executeRelease(t, a, in2); err != nil {
+		t.Fatal(err)
+	}
+	failed, _ := e.Must(200, "GET", "/v1/operations/"+in2.OperationID.String(), "", "")
+	after, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", "")
+	if failed["status"] != "failed" || failed["error"].(map[string]any)["code"] != "payments.bank_file_invalid" || after["status"] != "releasing" {
+		t.Fatalf("refused file: %v %v", failed, after)
+	}
+	// The machinery failing: the activities are retried, then the workflow fails and the run stays releasing for a resumed release.
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = 'Supplier' WHERE partner_id = '%s'; END $$`, e.Supplier))
+	in3 := e.releaseAsked(t, run2)
+	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	if err := executeRelease(t, a, in3); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Fatalf("with the database down: %v", err)
+	}
+	a.Begin = nil
+	if still, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", ""); still["status"] != "releasing" {
+		t.Fatalf("after the machinery failed: %v", still)
+	}
+	// The in-process releaser finishes it: the posted payment is left alone, the file is written.
+	logs := &syncBuffer{}
+	w := &workflows.Releaser{Payments: a, Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil))}
+	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 { // other tests' releasing runs are the worker's too
+		t.Fatalf("releaser: %d %v", n, err)
+	}
+	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", ""); got["status"] != "released" {
+		t.Fatalf("resumed by the releaser: %v", got)
+	}
+	// Activities outside a release: a proposed run has no releaser.
+	e.invoice(t, "INV-3", "25.00")
+	op4, run4 := e.propose(t, "2026-04-17")
+	if err := execute(t, a, input(e, op4, run4), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.PaymentsToPost(context.Background(), workflows.ReleaseInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(run4)}); err == nil || !strings.Contains(err.Error(), "not releasing") {
+		t.Fatalf("payments to post of a proposed run: %v", err)
+	}
+	// The releaser's problem path and its loop: a refused file is recorded, a dead database is logged, the loop stops with the context.
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = ' ' WHERE partner_id = '%s'; END $$`, e.Supplier))
+	in4 := e.releaseAsked(t, run4)
+	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 {
+		t.Fatalf("releaser with a refused file: %d %v", n, err)
+	}
+	if failed, _ := e.Must(200, "GET", "/v1/operations/"+in4.OperationID.String(), "", ""); failed["status"] != "failed" {
+		t.Fatalf("releaser did not record the problem: %v", failed)
+	}
+	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	runCtx, cancel := context.WithCancel(context.Background())
+	go func() { w.Run(runCtx) }()
+	for !strings.Contains(logs.String(), "payment release failed") {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	w.Begin = nil
+	// A pending release whose steps fail is reported and left for the next round.
+	e.releaseAsked(t, run4)
+	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	if _, err := w.RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Fatalf("releaser with the database down: %v", err)
+	}
+	a.Begin = nil
+	// Every statement of the release activities failing in turn is reported and leaves nothing half done; a run of two payments walks the loop.
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = 'Supplier' WHERE partner_id = '%s'; END $$`, e.Supplier))
+	e.payableVendor(t)
+	e.invoice(t, "INV-6", "11.00")
+	e.vendorInvoice(t, "INV-7", "13.00")
+	op5, run5 := e.propose(t, "2026-04-18")
+	if err := execute(t, a, input(e, op5, run5), false); err != nil {
+		t.Fatal(err)
+	}
+	if pays, _ := e.Must(200, "GET", "/v1/payment-runs/"+run5+"/payments", "", ""); len(pays["items"].([]any)) != 2 {
+		t.Fatalf("two payments expected: %v", pays)
+	}
+	in5 := e.releaseAsked(t, run5)
+	pool := pgtest.Pool(t)
+	// The first posting failing stops the loop before the second, in the workflow and in the releaser alike.
+	secondCall := func(onwards bool) func(context.Context, database.Scope) (pgx.Tx, error) { // the second transaction fails, once or (for the retrying workflow) from then on
+		calls := 0
+		return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			if calls++; calls == 2 || onwards && calls > 2 {
+				return nil, errors.New("database down")
+			}
+			return pool.Begin(ctx, s)
+		}
+	}
+	a.Begin = secondCall(false)
+	if err := w.Release(context.Background(), in5); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Fatalf("releaser with the first posting failing: %v", err)
+	}
+	a.Begin = secondCall(true)
+	if err := executeRelease(t, a, in5); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Fatalf("workflow with the first posting failing: %v", err)
+	}
+	a.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) } // the activities' clock, on the audit entries
+	for n := 1; n < 120; n++ {
+		count := 0
+		a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
+		}
+		err := w.Release(context.Background(), in5)
+		if err == nil {
+			if n == 1 {
+				t.Fatal("released without a statement to fail")
+			}
+			break
+		}
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("statement %d: %v", n, err)
+		}
+	}
+	a.Begin = nil
+	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+run5, "", ""); got["status"] != "released" {
+		t.Fatalf("two-payment run after the failures: %v", got)
+	}
+}
+
+// payableVendor gives the fixture's second supplier a bank account.
+func (e env) payableVendor(t *testing.T) {
+	t.Helper()
+	change, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	iban := "DE02120300000000202051"
+	pgtest.Exec(t, `INSERT INTO partner.partner_change (tenant_id, id, number, kind, partner_id, payload, reason, status, requested_by, applied_at,
+		created_by, updated_by) VALUES ($1, $2, $3, 'create', $4, '{}', 'test', 'applied', $5, now(), $5, $5)`, e.Tenant.ID, change, change.String(), e.Vendor, e.Tenant.Human.ID)
+	pgtest.Exec(t, `INSERT INTO partner.bank_account (tenant_id, id, partner_id, account_cipher, account_fingerprint, account_last4, account_scheme, bic,
+		bank_country_code, holder_name, valid_from, valid_to, partner_change_id, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, 'iban', 'COBADEFFXXX', 'DE', 'Vendor', '2026-01-01', NULL, $7, $8)`, e.Tenant.ID, id, e.Vendor, apitest.Seal(t, e.Tenant.ID, iban),
+		apitest.Fingerprint(t, e.Tenant.ID, iban), iban[len(iban)-4:], change, e.Tenant.Human.ID)
+}
+
+// vendorInvoice posts an invoice of the second supplier.
+func (e env) vendorInvoice(t *testing.T, ref, gross string) {
+	t.Helper()
+	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": %q,
+		"invoice_date": "2026-03-01", "gross_amount": {"amount": %q, "currency": "EUR"}, "tax_amount": {"amount": "0.00", "currency": "EUR"},
+		"items": [{"account_id": %q, "description": "Fees", "quantity": {"value": "1", "unit": "EA"}, "amount": {"amount": %q, "currency": "EUR"}}]}`,
+		e.DE, e.Vendor, ref, gross, e.expense, gross), "")
+	e.Must(200, "POST", "/v1/supplier-invoices/"+id(inv)+":post", `{"posting_date": "2026-03-01"}`, `"1"`)
 }

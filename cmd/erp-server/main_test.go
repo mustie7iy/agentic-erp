@@ -869,7 +869,7 @@ func TestWorkflowEngine(t *testing.T) {
 	env["ERP_TEMPORAL_TASK_QUEUE"] = "erp-test-" + uuid.NewString()[:8]
 	dispatchInterval = 50 * time.Millisecond
 	defer func() { dispatchInterval = time.Second }()
-	f := fixture.New(t, "payments.run.read", "payments.run.propose", "platform.operation.read")
+	f := fixture.New(t, "payments.run.read", "payments.run.propose", "payments.run.release", "platform.operation.read")
 	var bank uuid.UUID
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id FROM payments.house_bank WHERE legal_entity_id = $1`, f.DE).Scan(&bank); err != nil {
 		t.Fatal(err)
@@ -927,6 +927,23 @@ func TestWorkflowEngine(t *testing.T) {
 	pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(op["id"].(string))).Scan(&workflowID)
 	if workflowID == nil || !strings.Contains(*workflowID, "payment_run") {
 		t.Fatalf("workflow id: %v", workflowID)
+	}
+	// The release, by the approver, is a workflow too: the run has nothing to pay here, which the API says at once.
+	approver := is.Token(t, f.Tenant.ID, f.Approver.Subject, nil)
+	req, _ := http.NewRequest("POST", "http://"+addr+op["resource"].(string)+":release", strings.NewReader(""))
+	req.Header.Set("Authorization", "Bearer "+approver)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", uuid.NewString())
+	req.Header.Set("If-Match", "*")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refused map[string]any
+	json.NewDecoder(resp.Body).Decode(&refused)
+	resp.Body.Close()
+	if resp.StatusCode != 409 || refused["code"] != "payments.nothing_to_pay" {
+		t.Fatalf("release of an empty run: %d %v", resp.StatusCode, refused)
 	}
 	cancel()
 	if err := <-done; err != nil {

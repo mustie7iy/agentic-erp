@@ -217,7 +217,8 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if engine == nil {
 		proposer := &payments.Proposer{Endpoints: httpapi.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 		go func() { proposer.Run(runCtx); close(proposerDone) }()
-		close(workerDone)
+		releaser := &workflows.Releaser{Payments: &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}, Pool: pool, WorkerRole: cfg.WorkerRole, Log: log}
+		go func() { releaser.Run(runCtx); close(workerDone) }()
 		close(dispatchDone)
 		workerErr <- nil
 	} else {

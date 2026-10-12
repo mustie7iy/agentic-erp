@@ -31,10 +31,11 @@ func TestBankFilesAreKept(t *testing.T) {
 	root := t.TempDir()
 	store := blobstore.Dir{Root: root}
 	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Connector, cfg.Objects = e.connector, store })
+	e.objects = store
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
 	run := e.run(t, "2026-04-15", "2026-04-15")
-	e.decide(t, 200, run, "release", "")
+	e.release(t, run, "")
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := files["items"].([]any)[0].(map[string]any)
 	first := uuidOf(id(file))
@@ -62,7 +63,7 @@ func TestBankFilesAreKept(t *testing.T) {
 	// A second run: the stored object is altered, so neither download nor transmission hands it out.
 	e.invoice(t, e.Supplier, "INV-2", "50.00", "2026-03-02")
 	second := e.run(t, "2026-04-16", "2026-04-16")
-	e.decide(t, 200, second, "release", "")
+	e.release(t, second, "")
 	files, _ = e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(second), "", "")
 	file = files["items"].([]any)[0].(map[string]any)
 	path := filepath.Join(root, filepath.FromSlash(blobstore.Key(e.Tenant.ID, blobstore.KindBankFiles, id(file)+".xml")))
@@ -87,10 +88,28 @@ func TestBankFilesAreKept(t *testing.T) {
 	}
 	// A release whose file the store refuses does not go through.
 	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Connector, cfg.Objects = e.connector, broken })
+	e.objects = broken
 	e.invoice(t, e.Supplier, "INV-3", "25.00", "2026-03-03")
 	third := e.run(t, "2026-04-17", "2026-04-17")
-	if got := e.decide(t, 503, third, "release", ""); got["code"] != "platform.unavailable" {
-		t.Fatalf("release with a broken store: %v", got)
+	// The store's failure is the machinery's, not a business problem: the worker reports it and the run stays releasing, its payment posted, for the next attempt.
+	op := e.decide(t, 202, third, "release", "")
+	if _, err := e.releaser(t).RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "store") {
+		t.Fatalf("release with a broken store: %v", err)
+	}
+	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(third), "", ""); got["status"] != "releasing" {
+		t.Fatalf("run with a broken store: %v", got)
+	}
+	if got, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", ""); got["status"] != "running" {
+		t.Fatalf("operation with a broken store: %v", got)
+	}
+	e.Problem(409, "payments.release_in_progress", "POST", "/v1/payment-runs/"+id(third)+":release", "", "*")
+	// With the store back, the worker finishes it.
+	e.objects = store
+	if _, err := e.releaser(t).RunOnce(context.Background()); err != nil {
+		t.Fatalf("resumed release: %v", err)
+	}
+	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(third), "", ""); got["status"] != "released" {
+		t.Fatalf("resumed run: %v", got)
 	}
 	if _, err := endpoints(nil).FileContent(context.Background(), uuidOf(id(file))); err == nil {
 		t.Error("content outside a unit of work")
