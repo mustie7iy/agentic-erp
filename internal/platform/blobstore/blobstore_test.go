@@ -45,8 +45,14 @@ func exercise(t *testing.T, s blobstore.Store) {
 	ctx := context.Background()
 	ten := uuid.New()
 	key := blobstore.Key(ten, blobstore.KindDocuments, "abc")
-	if !blobstore.IsKey(key) || blobstore.IsKey("sha256:abc") || !strings.HasPrefix(key, "tenants/"+ten.String()+"/documents/") {
-		t.Fatalf("key %s", key)
+	if !blobstore.IsKey(key) {
+		t.Fatalf("IsKey(%s): got false, want true", key)
+	}
+	if blobstore.IsKey("sha256:abc") {
+		t.Fatalf("IsKey(sha256:abc): got true, want false")
+	}
+	if want := "tenants/" + ten.String() + "/documents/"; !strings.HasPrefix(key, want) {
+		t.Fatalf("key: got %s, want prefix %s", key, want)
 	}
 	if err := s.Put(ctx, key, []byte("%PDF-1"), blobstore.PutOptions{ContentType: "application/pdf"}); err != nil {
 		t.Fatal(err)
@@ -55,8 +61,14 @@ func exercise(t *testing.T, s blobstore.Store) {
 		t.Fatalf("second put: %v", err)
 	}
 	content, ct, err := s.Get(ctx, key)
-	if err != nil || string(content) != "%PDF-1" || ct != "application/pdf" {
-		t.Fatalf("get: %s %s %v", content, ct, err)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if string(content) != "%PDF-1" {
+		t.Fatalf("get content: got %s, want %%PDF-1", content)
+	}
+	if ct != "application/pdf" {
+		t.Fatalf("get content type: got %s, want application/pdf", ct)
 	}
 	if _, _, err := s.Get(ctx, blobstore.Key(ten, blobstore.KindDocuments, "nope")); !errors.Is(err, blobstore.ErrNotFound) {
 		t.Fatalf("missing: %v", err)
@@ -69,13 +81,16 @@ func exercise(t *testing.T, s blobstore.Store) {
 	if _, ct, err := s.Get(ctx, locked); err != nil || ct != "application/octet-stream" {
 		t.Fatalf("locked: %s %v", ct, err)
 	}
-	for _, bad := range []string{"", "/abs", "tenants/../x", "tenants//x", "a b", "trailing/", strings.Repeat("k", 1025)} {
-		if err := s.Put(ctx, bad, nil, blobstore.PutOptions{}); err == nil || errors.Is(err, blobstore.ErrExists) {
-			t.Errorf("put %q: %v", bad, err)
-		}
-		if _, _, err := s.Get(ctx, bad); err == nil || errors.Is(err, blobstore.ErrNotFound) {
-			t.Errorf("get %q: %v", bad, err)
-		}
+	for name, bad := range map[string]string{"empty": "", "absolute": "/abs", "dot-dot": "tenants/../x", "empty segment": "tenants//x",
+		"space": "a b", "trailing slash": "trailing/", "too long": strings.Repeat("k", 1025)} {
+		t.Run("bad key "+name, func(t *testing.T) {
+			if err := s.Put(ctx, bad, nil, blobstore.PutOptions{}); err == nil || errors.Is(err, blobstore.ErrExists) {
+				t.Errorf("put %q: got %v, want an invalid-key error", bad, err)
+			}
+			if _, _, err := s.Get(ctx, bad); err == nil || errors.Is(err, blobstore.ErrNotFound) {
+				t.Errorf("get %q: got %v, want an invalid-key error", bad, err)
+			}
+		})
 	}
 }
 
@@ -195,18 +210,27 @@ func TestStatAndPresignedUploads(t *testing.T) {
 	srv := blobstoretest.New(t)
 	s3 := srv.Store()
 	for name, store := range map[string]blobstore.Store{"dir": dir, "s3": s3} {
-		if _, _, err := store.Stat(ctx, "tenants/x/documents/none"); !errors.Is(err, blobstore.ErrNotFound) {
-			t.Fatalf("%s: stat of nothing: %v", name, err)
-		}
-		if _, _, err := store.Stat(ctx, "../etc"); err == nil {
-			t.Fatalf("%s: stat of a bad key", name)
-		}
-		if err := store.Put(ctx, "tenants/x/documents/a", []byte("hello"), blobstore.PutOptions{ContentType: "text/plain"}); err != nil {
-			t.Fatal(err)
-		}
-		if size, ct, err := store.Stat(ctx, "tenants/x/documents/a"); err != nil || size != 5 || ct != "text/plain" {
-			t.Fatalf("%s: stat: %d %q %v", name, size, ct, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := store.Stat(ctx, "tenants/x/documents/none"); !errors.Is(err, blobstore.ErrNotFound) {
+				t.Fatalf("stat of nothing: got %v, want %v", err, blobstore.ErrNotFound)
+			}
+			if _, _, err := store.Stat(ctx, "../etc"); err == nil {
+				t.Fatalf("stat of a bad key: got nil error, want an error")
+			}
+			if err := store.Put(ctx, "tenants/x/documents/a", []byte("hello"), blobstore.PutOptions{ContentType: "text/plain"}); err != nil {
+				t.Fatal(err)
+			}
+			size, ct, err := store.Stat(ctx, "tenants/x/documents/a")
+			if err != nil {
+				t.Fatalf("stat: %v", err)
+			}
+			if size != 5 {
+				t.Errorf("stat size: got %d, want 5", size)
+			}
+			if ct != "text/plain" {
+				t.Errorf("stat content type: got %q, want text/plain", ct)
+			}
+		})
 	}
 	// A directory store does not presign; S3 does.
 	if _, ok := blobstore.Store(dir).(blobstore.Presigner); ok {
@@ -236,8 +260,10 @@ func TestStatAndPresignedUploads(t *testing.T) {
 	if code := put(u, "application/pdf"); code != http.StatusOK {
 		t.Fatalf("presigned put: %d", code)
 	}
-	if size, ct, err := s3.Stat(ctx, key); err != nil || size != 8 || ct != "application/pdf" {
-		t.Fatalf("uploaded: %d %q %v", size, ct, err)
+	if size, ct, err := s3.Stat(ctx, key); err != nil {
+		t.Fatalf("uploaded: %v", err)
+	} else if size != 8 || ct != "application/pdf" {
+		t.Fatalf("uploaded: got %d bytes of %q, want 8 bytes of application/pdf", size, ct)
 	}
 	// Past its validity the URL is refused; a URL made with other credentials too.
 	srv.Now = func() time.Time { return time.Now().Add(16 * time.Minute) }
@@ -283,66 +309,76 @@ func TestListAndDelete(t *testing.T) {
 	srv.PageSize = 2
 	s3 := srv.Store()
 	for name, store := range map[string]blobstore.Eraser{"dir": dir, "s3": s3} {
-		st := store.(blobstore.Store)
-		tenant := "tenants/" + uuid.NewString()
-		for _, k := range []string{"/documents/a", "/documents/b", "/bank-files/f.xml", "/uploads/u1", "/audit/anchors/000000000001.json"} {
-			opts := blobstore.PutOptions{ContentType: "text/plain"}
-			if strings.Contains(k, "anchors") {
-				opts.RetainUntil = clock.Add(time.Hour)
+		if !t.Run(name, func(t *testing.T) {
+			st := store.(blobstore.Store)
+			tenant := "tenants/" + uuid.NewString()
+			for _, k := range []string{"/documents/a", "/documents/b", "/bank-files/f.xml", "/uploads/u1", "/audit/anchors/000000000001.json"} {
+				opts := blobstore.PutOptions{ContentType: "text/plain"}
+				if strings.Contains(k, "anchors") {
+					opts.RetainUntil = clock.Add(time.Hour)
+				}
+				if err := st.Put(ctx, tenant+k, []byte("x"), opts); err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
 			}
-			if err := st.Put(ctx, tenant+k, []byte("x"), opts); err != nil {
+			// Another tenant whose id starts the same.
+			if err := st.Put(ctx, tenant+"-other/documents/c", []byte("y"), blobstore.PutOptions{}); err != nil {
 				t.Fatalf("%s: %v", name, err)
 			}
-		}
-		// Another tenant whose id starts the same.
-		if err := st.Put(ctx, tenant+"-other/documents/c", []byte("y"), blobstore.PutOptions{}); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		keys, err := store.List(ctx, tenant+"/")
-		if err != nil || len(keys) != 5 || keys[0] != tenant+"/audit/anchors/000000000001.json" || keys[4] != tenant+"/uploads/u1" {
-			t.Fatalf("%s: list: %v %v", name, keys, err)
-		}
-		if keys, err := store.List(ctx, tenant+"/documents/"); err != nil || len(keys) != 2 {
-			t.Fatalf("%s: list documents: %v %v", name, keys, err)
-		}
-		if keys, err := store.List(ctx, tenant); err != nil || len(keys) != 6 { // a key prefix, not a directory
-			t.Fatalf("%s: list by key prefix: %v %v", name, keys, err)
-		}
-		if keys, err := store.List(ctx, "tenants/none/"); err != nil || len(keys) != 0 {
-			t.Fatalf("%s: list nothing: %v %v", name, keys, err)
-		}
-		if _, err := store.List(ctx, "../"); err == nil {
-			t.Fatalf("%s: listed a bad prefix", name)
-		}
-		err = store.Delete(ctx, tenant+"/audit/anchors/000000000001.json")
-		if !errors.Is(err, blobstore.ErrLocked) {
-			t.Fatalf("%s: deleted a locked object: %v", name, err)
-		}
-		// From S3, the store's refusal stays in the chain behind ErrLocked.
-		var both interface{ Unwrap() []error }
-		if name == "s3" && (!errors.As(err, &both) || len(both.Unwrap()) != 2) {
-			t.Errorf("%s: got %v, want ErrLocked wrapping the store's refusal", name, err)
-		}
-		for _, k := range []string{"/documents/a", "/documents/b", "/bank-files/f.xml", "/uploads/u1", "/uploads/u1"} { // the last one twice: nothing to do
-			if err := store.Delete(ctx, tenant+k); err != nil {
-				t.Fatalf("%s: delete %s: %v", name, k, err)
+			keys, err := store.List(ctx, tenant+"/")
+			if err != nil || len(keys) != 5 {
+				t.Fatalf("list: got %v %v, want 5 keys", keys, err)
 			}
+			if want := tenant + "/audit/anchors/000000000001.json"; keys[0] != want {
+				t.Errorf("list first key: got %s, want %s", keys[0], want)
+			}
+			if want := tenant + "/uploads/u1"; keys[4] != want {
+				t.Errorf("list last key: got %s, want %s", keys[4], want)
+			}
+			if keys, err := store.List(ctx, tenant+"/documents/"); err != nil || len(keys) != 2 {
+				t.Fatalf("%s: list documents: %v %v", name, keys, err)
+			}
+			if keys, err := store.List(ctx, tenant); err != nil || len(keys) != 6 { // a key prefix, not a directory
+				t.Fatalf("%s: list by key prefix: %v %v", name, keys, err)
+			}
+			if keys, err := store.List(ctx, "tenants/none/"); err != nil || len(keys) != 0 {
+				t.Fatalf("%s: list nothing: %v %v", name, keys, err)
+			}
+			if _, err := store.List(ctx, "../"); err == nil {
+				t.Fatalf("%s: listed a bad prefix", name)
+			}
+			err = store.Delete(ctx, tenant+"/audit/anchors/000000000001.json")
+			if !errors.Is(err, blobstore.ErrLocked) {
+				t.Fatalf("%s: deleted a locked object: %v", name, err)
+			}
+			// From S3, the store's refusal stays in the chain behind ErrLocked.
+			var both interface{ Unwrap() []error }
+			if name == "s3" && (!errors.As(err, &both) || len(both.Unwrap()) != 2) {
+				t.Errorf("%s: got %v, want ErrLocked wrapping the store's refusal", name, err)
+			}
+			for _, k := range []string{"/documents/a", "/documents/b", "/bank-files/f.xml", "/uploads/u1", "/uploads/u1"} { // the last one twice: nothing to do
+				if err := store.Delete(ctx, tenant+k); err != nil {
+					t.Fatalf("%s: delete %s: %v", name, k, err)
+				}
+			}
+			if err := store.Delete(ctx, "../x"); err == nil {
+				t.Fatalf("%s: deleted a bad key", name)
+			}
+			keys, _ = store.List(ctx, tenant+"/")
+			if len(keys) != 1 || !strings.Contains(keys[0], "anchors") {
+				t.Fatalf("%s: after deletes: %v", name, keys)
+			}
+			if _, _, err := st.Get(ctx, tenant+"-other/documents/c"); err != nil {
+				t.Fatalf("%s: the other tenant's object went: %v", name, err)
+			}
+			clock = clock.Add(2 * time.Hour) // the retention ends
+			if err := store.Delete(ctx, tenant+"/audit/anchors/000000000001.json"); err != nil {
+				t.Fatalf("%s: delete after retention: %v", name, err)
+			}
+			clock = clock.Add(-2 * time.Hour)
+		}) {
+			t.FailNow() // a failed store leaves the clock moved on
 		}
-		if err := store.Delete(ctx, "../x"); err == nil {
-			t.Fatalf("%s: deleted a bad key", name)
-		}
-		keys, _ = store.List(ctx, tenant+"/")
-		if len(keys) != 1 || !strings.Contains(keys[0], "anchors") {
-			t.Fatalf("%s: after deletes: %v", name, keys)
-		}
-		if _, _, err := st.Get(ctx, tenant+"-other/documents/c"); err != nil {
-			t.Fatalf("%s: the other tenant's object went: %v", name, err)
-		}
-		clock = clock.Add(2 * time.Hour) // the retention ends
-		if err := store.Delete(ctx, tenant+"/audit/anchors/000000000001.json"); err != nil {
-			t.Fatalf("%s: delete after retention: %v", name, err)
-		}
-		clock = clock.Add(-2 * time.Hour)
 	}
 	// Failures: the service refuses, the transport fails, a listing that is not XML.
 	srv.Fail = http.StatusInternalServerError
@@ -434,8 +470,10 @@ func TestAmbientCredentials(t *testing.T) {
 			return err
 		},
 	} {
-		if err := call(); err == nil || !strings.Contains(err.Error(), "credentials") {
-			t.Errorf("%s without credentials: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := call(); err == nil || !strings.Contains(err.Error(), "credentials") {
+				t.Errorf("without credentials: got %v, want an error naming the credentials", err)
+			}
+		})
 	}
 }
