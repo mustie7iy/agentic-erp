@@ -163,49 +163,14 @@ func (w *SimulationWorker) process(ctx context.Context, j job) error {
 	if err := requireStatus(c, "simulate", AwaitingEvidence); err != nil {
 		return failOrRetry(err, fail)
 	}
-	var baseDoc []byte
-	if err := tx.QueryRow(ctx, `SELECT document FROM config.config_version WHERE number = $1`, c.BaseVersion).Scan(&baseDoc); err != nil {
+	passed, detail, err := w.evidence(ctx, tx, actor, c, fail)
+	if err != nil || detail == nil { // no detail: a problem failed the operation, the job is done
 		return err
 	}
-	base, _ := config.Parse(baseDoc)        // activated documents always parse
-	proposed, _ := config.Parse(c.Proposed) // validated on submission
-	sim, err := w.Dependencies.Simulator.Simulate(ctx, base, proposed)
+	detail["operation_id"] = j.OperationID
+	status, events, err := w.advance(ctx, tx, actor, c, passed)
 	if err != nil {
-		return failOrRetry(err, fail)
-	}
-	if err := recordEvidence(ctx, tx, actor, id, "simulation", sim); err != nil {
 		return err
-	}
-	// The simulation and the regression suite are the evidence a tier needs
-	// (config.RequiredEvidence); when both pass the request moves on to
-	// approval. Tiers that need evidence always have approval steps, so it
-	// never goes straight to approved here.
-	passed := sim.Passed
-	detail := map[string]any{"kind": "simulation", "passed": sim.Passed, "summary": sim.Summary, "operation_id": j.OperationID}
-	if slices.Contains(config.RequiredEvidence(config.Tier(c.Tier)), "regression") {
-		reg, err := regression(ctx, tx, w.Dependencies, c, base, proposed)
-		if err != nil {
-			return failOrRetry(err, fail)
-		}
-		if err := recordEvidence(ctx, tx, actor, id, "regression", reg); err != nil {
-			return err
-		}
-		passed = passed && reg.Passed
-		detail["regression_passed"], detail["regression_summary"] = reg.Passed, reg.Summary
-	}
-	status := c.Status
-	var request *uuid.UUID
-	var events []outbox.Event
-	if passed {
-		if status, request, err = route(ctx, w.Dependencies, c, config.Tier(c.Tier)); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE config.change_request SET status = $2, workflow_request_id = $3, version = version + 1, updated_by = $4 WHERE id = $1`,
-			id, status, request, actor.ID); err != nil {
-			return err
-		}
-		events = append(events, crEvent(id, "change_request_validated", map[string]any{"change_request_id": id, "number": c.Number, "tier": int(c.Tier),
-			"workflow_request_id": request, "outcome": status, "status": status}))
 	}
 	detail["status"] = status
 	if err := record(ctx, "config.change_request.evidence", id, detail, events...); err != nil {
@@ -214,6 +179,61 @@ func (w *SimulationWorker) process(ctx context.Context, j job) error {
 	delete(detail, "operation_id")
 	_, err = operations.Succeed(ctx, j.OperationID, "/v1/change-requests/"+id.String(), detail)
 	return err
+}
+
+// evidence simulates the change request and, when its tier asks for it,
+// replays the regression suite, recording both, and reports whether all
+// passed with the detail for the audit entry. The simulation and the
+// regression suite are the evidence a tier needs (config.RequiredEvidence).
+// A problem fails the operation and returns no detail: the job is done.
+func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest, fail func(*problem.Problem) error) (bool, map[string]any, error) {
+	var baseDoc []byte
+	if err := tx.QueryRow(ctx, `SELECT document FROM config.config_version WHERE number = $1`, c.BaseVersion).Scan(&baseDoc); err != nil {
+		return false, nil, fmt.Errorf("configuration: read base version %d of change request %s: %w", c.BaseVersion, c.ID, err)
+	}
+	base, _ := config.Parse(baseDoc)        // activated documents always parse
+	proposed, _ := config.Parse(c.Proposed) // validated on submission
+	sim, err := w.Dependencies.Simulator.Simulate(ctx, base, proposed)
+	if err != nil {
+		return false, nil, failOrRetry(err, fail)
+	}
+	if err := recordEvidence(ctx, tx, actor, c.ID, "simulation", sim); err != nil {
+		return false, nil, err
+	}
+	passed := sim.Passed
+	detail := map[string]any{"kind": "simulation", "passed": sim.Passed, "summary": sim.Summary}
+	if slices.Contains(config.RequiredEvidence(config.Tier(c.Tier)), "regression") {
+		reg, err := regression(ctx, tx, w.Dependencies, c, base, proposed)
+		if err != nil {
+			return false, nil, failOrRetry(err, fail)
+		}
+		if err := recordEvidence(ctx, tx, actor, c.ID, "regression", reg); err != nil {
+			return false, nil, err
+		}
+		passed = passed && reg.Passed
+		detail["regression_passed"], detail["regression_summary"] = reg.Passed, reg.Summary
+	}
+	return passed, detail, nil
+}
+
+// advance moves a change request whose evidence passed on to approval and
+// returns its status with the event to publish; one that failed keeps its
+// status. Tiers that need evidence always have approval steps, so it never
+// goes straight to approved here.
+func (w *SimulationWorker) advance(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest, passed bool) (string, []outbox.Event, error) {
+	if !passed {
+		return c.Status, nil, nil
+	}
+	status, request, err := route(ctx, w.Dependencies, c, config.Tier(c.Tier))
+	if err != nil {
+		return "", nil, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE config.change_request SET status = $2, workflow_request_id = $3, version = version + 1, updated_by = $4 WHERE id = $1`,
+		c.ID, status, request, actor.ID); err != nil {
+		return "", nil, fmt.Errorf("configuration: advance change request %s: %w", c.ID, err)
+	}
+	return status, []outbox.Event{crEvent(c.ID, "change_request_validated", map[string]any{"change_request_id": c.ID, "number": c.Number, "tier": int(c.Tier),
+		"workflow_request_id": request, "outcome": status, "status": status})}, nil
 }
 
 // recordEvidence adds a result as evidence of the given kind.

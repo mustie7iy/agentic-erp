@@ -185,69 +185,90 @@ func (e *Endpoints) build(ctx context.Context, r Run) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	var payIDs, suppliers, banks, exSuppliers []uuid.UUID
-	var amounts, exAmounts []int64
-	var e2e, exReasons []string
-	var itemPays, itemEntries []uuid.UUID
-	var itemYears []int16
-	var itemLines []int32
-	var itemAmounts []int64
-	var itemDue []time.Time
-	var total int64
-	for _, c := range cands {
-		payee, found := payees[c.supplier]
-		reason := exclusion(payee, found, r.RunDate, doc.Payments.BankChangeHoldDays)
-		if reason == "" && c.total <= 0 {
-			reason = DebitBalance
-		}
-		if reason != "" {
-			exSuppliers, exReasons, exAmounts = append(exSuppliers, c.supplier), append(exReasons, reason), append(exAmounts, c.total)
-			continue
-		}
-		id := uuid.Must(uuid.NewV7())
-		payIDs, suppliers, banks, amounts = append(payIDs, id), append(suppliers, c.supplier), append(banks, *payee.BankAccountID), append(amounts, c.total)
-		e2e = append(e2e, fmt.Sprintf("%s-%s-%06d", le.Code, r.DocumentNumber, len(payIDs)))
-		total += c.total
-		for _, it := range c.items {
-			itemPays, itemYears, itemEntries, itemLines = append(itemPays, id), append(itemYears, it.FiscalYear), append(itemEntries, it.EntryID), append(itemLines, it.LineNo)
-			itemAmounts, itemDue = append(itemAmounts, it.Amount), append(itemDue, it.DueDate.Time)
-		}
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, currency, end_to_end_id, created_by)
-		SELECT $1, i, $2, s, b, a, $3, x, $4 FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::text[]) AS t(i, s, b, a, x)`,
-		p.TenantID, r.ID, r.Currency, p.ID, payIDs, suppliers, banks, amounts, e2e); err != nil {
-		return Run{}, err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
-		SELECT $1, p, y, je, n, a, d FROM unnest($2::uuid[], $3::smallint[], $4::uuid[], $5::int[], $6::bigint[], $7::date[]) AS t(p, y, je, n, a, d)`,
-		p.TenantID, itemPays, itemYears, itemEntries, itemLines, itemAmounts, itemDue); err != nil {
-		return Run{}, err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
-		SELECT $1, $2, s, c, a FROM unnest($3::uuid[], $4::text[], $5::bigint[]) AS t(s, c, a)`,
-		p.TenantID, r.ID, exSuppliers, exReasons, exAmounts); err != nil {
+	pr := propose(cands, payees, r, le.Code, doc.Payments.BankChangeHoldDays)
+	if err := pr.insert(ctx, tx, p, r); err != nil {
 		return Run{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'proposed', total_amount = $2, version = version + 1, updated_by = $3 WHERE id = $1`,
-		r.ID, total, p.ID); err != nil {
-		return Run{}, err
+		r.ID, pr.total, p.ID); err != nil {
+		return Run{}, fmt.Errorf("payments: propose run %s: %w", r.ID, err)
 	}
-	n := int64(len(itemPays))
+	n := int64(len(pr.itemPays))
 	if err := operations.Report(ctx, *r.OperationID, n, n); err != nil {
 		return Run{}, err
 	}
 	if _, err := operations.Succeed(ctx, *r.OperationID, "/v1/payment-runs/"+r.ID.String(), map[string]any{"payment_run_id": r.ID, "status": Proposed,
-		"payment_count": len(payIDs), "exclusion_count": len(exSuppliers), "item_count": n, "total_amount": amount(total, r.Currency, r.Exponent)}); err != nil {
+		"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "item_count": n, "total_amount": amount(pr.total, r.Currency, r.Exponent)}); err != nil {
 		return Run{}, err
 	}
 	proposed, err := load(ctx, tx, r.ID, false)
 	if err != nil {
 		return Run{}, err
 	}
-	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(payIDs), "exclusions": len(exSuppliers), "items": n},
+	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(pr.payIDs), "exclusions": len(pr.exSuppliers), "items": n},
 		runEvent(proposed, "payment_run_proposed", map[string]any{"house_bank_id": proposed.HouseBankID, "run_date": proposed.RunDate.Format(time.DateOnly),
-			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": amount(total, proposed.Currency, proposed.Exponent),
-			"payment_count": len(payIDs), "exclusion_count": len(exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
+			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": amount(pr.total, proposed.Currency, proposed.Exponent),
+			"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
+}
+
+// proposal is a run's payments, their items and its exclusions, as the
+// columns they are inserted from.
+type proposal struct {
+	payIDs, suppliers, banks, exSuppliers []uuid.UUID
+	amounts, exAmounts                    []int64
+	e2e, exReasons                        []string
+	itemPays, itemEntries                 []uuid.UUID
+	itemYears                             []int16
+	itemLines                             []int32
+	itemAmounts                           []int64
+	itemDue                               []time.Time
+	total                                 int64
+}
+
+// propose pays each candidate supplier its open items in one payment, or
+// excludes it with the reason.
+func propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) proposal {
+	var pr proposal
+	for _, c := range cands {
+		payee, found := payees[c.supplier]
+		reason := exclusion(payee, found, r.RunDate, holdDays)
+		if reason == "" && c.total <= 0 {
+			reason = DebitBalance
+		}
+		if reason != "" {
+			pr.exSuppliers, pr.exReasons, pr.exAmounts = append(pr.exSuppliers, c.supplier), append(pr.exReasons, reason), append(pr.exAmounts, c.total)
+			continue
+		}
+		id := uuid.Must(uuid.NewV7())
+		pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, c.supplier), append(pr.banks, *payee.BankAccountID), append(pr.amounts, c.total)
+		pr.e2e = append(pr.e2e, fmt.Sprintf("%s-%s-%06d", entityCode, r.DocumentNumber, len(pr.payIDs)))
+		pr.total += c.total
+		for _, it := range c.items {
+			pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines = append(pr.itemPays, id), append(pr.itemYears, it.FiscalYear), append(pr.itemEntries, it.EntryID), append(pr.itemLines, it.LineNo)
+			pr.itemAmounts, pr.itemDue = append(pr.itemAmounts, it.Amount), append(pr.itemDue, it.DueDate.Time)
+		}
+	}
+	return pr
+}
+
+// insert stores the proposal's payments, items and exclusions.
+func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, currency, end_to_end_id, created_by)
+		SELECT $1, i, $2, s, b, a, $3, x, $4 FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::text[]) AS t(i, s, b, a, x)`,
+		p.TenantID, r.ID, r.Currency, p.ID, pr.payIDs, pr.suppliers, pr.banks, pr.amounts, pr.e2e); err != nil {
+		return fmt.Errorf("payments: insert the payments of run %s: %w", r.ID, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
+		SELECT $1, p, y, je, n, a, d FROM unnest($2::uuid[], $3::smallint[], $4::uuid[], $5::int[], $6::bigint[], $7::date[]) AS t(p, y, je, n, a, d)`,
+		p.TenantID, pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines, pr.itemAmounts, pr.itemDue); err != nil {
+		return fmt.Errorf("payments: insert the payment items of run %s: %w", r.ID, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
+		SELECT $1, $2, s, c, a FROM unnest($3::uuid[], $4::text[], $5::bigint[]) AS t(s, c, a)`,
+		p.TenantID, r.ID, pr.exSuppliers, pr.exReasons, pr.exAmounts); err != nil {
+		return fmt.Errorf("payments: insert the exclusions of run %s: %w", r.ID, err)
+	}
+	return nil
 }
 
 // fail moves a run that could not be proposed, or whose operation was

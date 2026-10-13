@@ -27,6 +27,7 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   would stall the context's ordered queue; ADR-0007). TestRelayPublishesAnUnversionedType: the
   old code panicked at relay.go:111. Lint outbox 11 → 11. Reviewer: APPROVE.
 - [ ] R4 reqctx.Request errors returned, not discarded
+- [ ] R4b reqctx.PrincipalFrom / TxFrom ok flags not discarded (found in R4)
 - [ ] R5 Fail closed in production (codec key, dev token issuer)
 - [ ] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero
 
@@ -51,6 +52,8 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
 - [ ] R20 cmd/erp-server run() split into named steps
 - [ ] R21 analytics Execute, config Load, integration quality checks, payables validate
 - [ ] R22 Remaining funlen and gocognit to zero
+  - [x] R22a (pulled forward for R4) configuration SimulationWorker.process → process/evidence/
+    advance; payments build → build/propose/proposal.insert. funlen −2. Reviewer: APPROVE.
 - [ ] R23 Unowned findings to zero: errcheck, forbidigo (production float/panic), gocritic
   (added at the end of Phase 0 with the user's agreement)
 
