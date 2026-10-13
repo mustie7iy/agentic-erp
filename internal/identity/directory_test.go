@@ -19,11 +19,19 @@ func TestDirectory(t *testing.T) {
 		if err != nil || !ok {
 			t.Fatalf("role: %v %v", ok, err)
 		}
-		if _, ok, err := d.RoleByCode(ctx, "none"); ok || err != nil {
-			t.Errorf("unknown role: %v %v", ok, err)
+		_, ok, err = d.RoleByCode(ctx, "none")
+		if err != nil {
+			t.Errorf("unknown role: %v", err)
 		}
-		if holds, err := d.HoldsRole(ctx, ten.Human.ID, role); !holds || err != nil {
-			t.Errorf("human: %v %v", holds, err)
+		if ok {
+			t.Errorf("unknown role: got found, want not found")
+		}
+		holds, err := d.HoldsRole(ctx, ten.Human.ID, role)
+		if err != nil {
+			t.Errorf("human: %v", err)
+		}
+		if !holds {
+			t.Errorf("human: got not holding the role, want holding it")
 		}
 		if holds, _ := d.HoldsRole(ctx, ten.Agent.ID, role); holds {
 			t.Error("the agent holds the human role")
@@ -37,9 +45,11 @@ func TestDirectory(t *testing.T) {
 		"role":  func(ctx context.Context) error { _, _, err := d.RoleByCode(ctx, "all"); return err },
 		"holds": func(ctx context.Context) error { _, err := d.HoldsRole(ctx, ten.Human.ID, uuid.New()); return err },
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, ten, ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, ten, ten.Human, name, call)
+		})
 	}
 }

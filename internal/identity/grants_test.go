@@ -28,8 +28,17 @@ func TestRoleAssignments(t *testing.T) {
 	c, ten := admin(t)
 	clerk := role(t, c, "CLERK", "payables.invoice.read")
 	code, a, tag := assign(c, ten.Agent.ID, clerk, "")
-	if code != 201 || a["principal_id"] != ten.Agent.ID.String() || a["valid_from"] != day(0) || tag == "" {
-		t.Fatalf("assign: %d %v", code, a)
+	if code != 201 {
+		t.Fatalf("assign status: got %d, want 201: %v", code, a)
+	}
+	if a["principal_id"] != ten.Agent.ID.String() {
+		t.Errorf("assign principal: got %v, want %v", a["principal_id"], ten.Agent.ID)
+	}
+	if a["valid_from"] != day(0) {
+		t.Errorf("assign valid from: got %v, want %s", a["valid_from"], day(0))
+	}
+	if tag == "" {
+		t.Fatal("assign ETag: got none, want one")
 	}
 	// The agent now passes authorization for reading invoices.
 	agent := apitest.Client{T: t, API: c.API, Tenant: ten, As: ten.Agent}
@@ -39,9 +48,11 @@ func TestRoleAssignments(t *testing.T) {
 		"unknown principal": fmt.Sprintf(`{"principal_id": %q, "role_id": %q}`, uuid.New(), clerk),
 		"unknown role":      fmt.Sprintf(`{"principal_id": %q, "role_id": %q}`, ten.Agent.ID, uuid.New()),
 	} {
-		if code, m, _ := c.Do("POST", "/v1/role-assignments", body, ""); code != 422 || m["code"] != "request.reference_not_found" {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			api := c
+			api.T = t
+			api.Problem(422, "request.reference_not_found", "POST", "/v1/role-assignments", body, "")
+		})
 	}
 	c.Problem(422, "identity.backdated_grant", "POST", "/v1/role-assignments",
 		fmt.Sprintf(`{"principal_id": %q, "role_id": %q, "valid_from": %q}`, ten.Service.ID, clerk, day(-3)), "")
@@ -92,10 +103,32 @@ func TestRoleAssignments(t *testing.T) {
 
 	assigned := events(t, ten, "role_assigned")
 	revoked := events(t, ten, "access_revoked")
-	if len(assigned) != 2 || assigned[0]["principal_kind"] != "agent" || assigned[0]["role_code"] != "CLERK" || assigned[1]["valid_to"] != day(9) ||
-		len(revoked) != 2 || revoked[0]["assignment_kind"] != "role_assignment" || revoked[0]["role_id"] != clerk || revoked[0]["legal_entity_id"] != nil ||
-		revoked[1]["valid_from"] != day(-3) {
-		t.Fatalf("events: %v %v", assigned, revoked)
+	if len(assigned) != 2 {
+		t.Fatalf("assigned events: got %d, want 2: %v", len(assigned), assigned)
+	}
+	if assigned[0]["principal_kind"] != "agent" {
+		t.Errorf("first assigned event principal kind: got %v, want agent", assigned[0]["principal_kind"])
+	}
+	if assigned[0]["role_code"] != "CLERK" {
+		t.Errorf("first assigned event role: got %v, want CLERK", assigned[0]["role_code"])
+	}
+	if assigned[1]["valid_to"] != day(9) {
+		t.Errorf("second assigned event valid to: got %v, want %s", assigned[1]["valid_to"], day(9))
+	}
+	if len(revoked) != 2 {
+		t.Fatalf("revoked events: got %d, want 2: %v", len(revoked), revoked)
+	}
+	if revoked[0]["assignment_kind"] != "role_assignment" {
+		t.Errorf("first revoked event kind: got %v, want role_assignment", revoked[0]["assignment_kind"])
+	}
+	if revoked[0]["role_id"] != clerk {
+		t.Errorf("first revoked event role: got %v, want %s", revoked[0]["role_id"], clerk)
+	}
+	if revoked[0]["legal_entity_id"] != nil {
+		t.Errorf("first revoked event legal entity: got %v, want none", revoked[0]["legal_entity_id"])
+	}
+	if revoked[1]["valid_from"] != day(-3) {
+		t.Errorf("second revoked event valid from: got %v, want %s", revoked[1]["valid_from"], day(-3))
 	}
 }
 
@@ -105,16 +138,21 @@ func TestCompanyAccessGrants(t *testing.T) {
 	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 		VALUES ($1, $2, 'DE01', 'Muster GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $3, $3)`, ten.ID, le, ten.Human.ID)
 	g, tag := c.Must(201, "POST", "/v1/company-access", fmt.Sprintf(`{"principal_id": %q, "legal_entity_id": %q}`, ten.Agent.ID, le), "")
-	if g["legal_entity_id"] != le.String() || g["valid_to"] != nil {
-		t.Fatal(g)
+	if g["legal_entity_id"] != le.String() {
+		t.Errorf("grant legal entity: got %v, want %v", g["legal_entity_id"], le)
+	}
+	if g["valid_to"] != nil {
+		t.Errorf("grant valid to: got %v, want none", g["valid_to"])
 	}
 	for name, body := range map[string]string{
 		"unknown principal":    fmt.Sprintf(`{"principal_id": %q, "legal_entity_id": %q}`, uuid.New(), le),
 		"unknown legal entity": fmt.Sprintf(`{"principal_id": %q, "legal_entity_id": %q}`, ten.Agent.ID, uuid.New()),
 	} {
-		if code, m, _ := c.Do("POST", "/v1/company-access", body, ""); code != 422 || m["code"] != "request.reference_not_found" {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			api := c
+			api.T = t
+			api.Problem(422, "request.reference_not_found", "POST", "/v1/company-access", body, "")
+		})
 	}
 	c.Problem(409, "identity.grant_overlaps", "POST", "/v1/company-access", fmt.Sprintf(`{"principal_id": %q, "legal_entity_id": %q}`, ten.Agent.ID, le), "")
 	c.Problem(422, "identity.invalid_validity", "POST", "/v1/company-access",
@@ -143,9 +181,23 @@ func TestCompanyAccessGrants(t *testing.T) {
 
 	granted := events(t, ten, "company_access_granted")
 	revoked := events(t, ten, "access_revoked")
-	if len(granted) != 2 || granted[1]["valid_from"] != day(1) ||
-		len(revoked) != 1 || revoked[0]["assignment_kind"] != "company_access" || revoked[0]["legal_entity_id"] != le.String() || revoked[0]["role_id"] != nil {
-		t.Fatalf("events: %v %v", granted, revoked)
+	if len(granted) != 2 {
+		t.Fatalf("granted events: got %d, want 2: %v", len(granted), granted)
+	}
+	if granted[1]["valid_from"] != day(1) {
+		t.Errorf("second granted event valid from: got %v, want %s", granted[1]["valid_from"], day(1))
+	}
+	if len(revoked) != 1 {
+		t.Fatalf("revoked events: got %d, want 1: %v", len(revoked), revoked)
+	}
+	if revoked[0]["assignment_kind"] != "company_access" {
+		t.Errorf("revoked event kind: got %v, want company_access", revoked[0]["assignment_kind"])
+	}
+	if revoked[0]["legal_entity_id"] != le.String() {
+		t.Errorf("revoked event legal entity: got %v, want %v", revoked[0]["legal_entity_id"], le)
+	}
+	if revoked[0]["role_id"] != nil {
+		t.Errorf("revoked event role: got %v, want none", revoked[0]["role_id"])
 	}
 }
 
@@ -155,8 +207,12 @@ func TestSegregationOfDuties(t *testing.T) {
 	post := role(t, c, "POST", "payables.invoice.post")
 	rule, tag := c.Must(201, "POST", "/v1/sod-rules", `{"permission_a": "payables.invoice.post", "permission_b": "payables.invoice.capture",
 		"description": "Who captures an invoice does not post it"}`, "")
-	if rule["permission_a"] != "payables.invoice.capture" || rule["permission_b"] != "payables.invoice.post" { // canonical order
-		t.Fatalf("rule: %v", rule)
+	// The permissions are stored in canonical order.
+	if rule["permission_a"] != "payables.invoice.capture" {
+		t.Errorf("rule permission a: got %v, want payables.invoice.capture", rule["permission_a"])
+	}
+	if rule["permission_b"] != "payables.invoice.post" {
+		t.Errorf("rule permission b: got %v, want payables.invoice.post", rule["permission_b"])
 	}
 	for name, tc := range map[string]struct {
 		body   string
@@ -168,9 +224,17 @@ func TestSegregationOfDuties(t *testing.T) {
 		"overlapping rule":   {`{"permission_a": "payables.invoice.capture", "permission_b": "payables.invoice.post", "description": "d"}`, 409, "identity.grant_overlaps"},
 		"backdated":          {fmt.Sprintf(`{"permission_a": "payables.invoice.read", "permission_b": "payables.invoice.post", "description": "d", "valid_from": %q}`, day(-1)), 422, "identity.backdated_grant"},
 	} {
-		if code, m, _ := c.Do("POST", "/v1/sod-rules", tc.body, ""); code != tc.status || m["code"] != tc.code {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			api := c
+			api.T = t
+			code, m, _ := api.Do("POST", "/v1/sod-rules", tc.body, "")
+			if code != tc.status {
+				t.Errorf("status: got %d, want %d: %v", code, tc.status, m)
+			}
+			if m["code"] != tc.code {
+				t.Errorf("problem code: got %v, want %s", m["code"], tc.code)
+			}
+		})
 	}
 
 	// Assignments that would combine the two permissions are refused, even when one starts later.
@@ -229,8 +293,22 @@ func TestSegregationOfDuties(t *testing.T) {
 	c.Must(200, "GET", "/v1/sod-rules?page_size=1&page_token="+page["next_page_token"].(string), "", "")
 
 	changes := events(t, ten, "sod_rule_changed")
-	if len(changes) != 3 || changes[0]["change"] != "created" || changes[0]["ended_at"] != nil || changes[1]["change"] != "ended" ||
-		changes[1]["ended_at"] == nil || changes[1]["valid_to"] != day(1) {
-		t.Fatalf("events: %v", changes)
+	if len(changes) != 3 {
+		t.Fatalf("rule events: got %d, want 3: %v", len(changes), changes)
+	}
+	if changes[0]["change"] != "created" {
+		t.Errorf("first rule event: got %v, want created", changes[0]["change"])
+	}
+	if changes[0]["ended_at"] != nil {
+		t.Errorf("first rule event ended at: got %v, want none", changes[0]["ended_at"])
+	}
+	if changes[1]["change"] != "ended" {
+		t.Errorf("second rule event: got %v, want ended", changes[1]["change"])
+	}
+	if changes[1]["ended_at"] == nil {
+		t.Errorf("second rule event ended at: got none, want a time")
+	}
+	if changes[1]["valid_to"] != day(1) {
+		t.Errorf("second rule event valid to: got %v, want %s", changes[1]["valid_to"], day(1))
 	}
 }

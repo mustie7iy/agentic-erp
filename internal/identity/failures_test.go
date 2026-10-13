@@ -157,7 +157,9 @@ func TestDatabaseFailures(t *testing.T) {
 	r, _ := c.Must(201, "POST", "/v1/sod-rules", `{"permission_a": "partner.bank.change", "permission_b": "payments.run.propose", "description": "d"}`, "")
 	f.sod = uuid.MustParse(id(r))
 	for name, call := range endpointCalls(f) {
-		apitest.EveryFailure(t, ten, ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			apitest.EveryFailure(t, ten, ten.Human, name, call)
+		})
 	}
 	// Page sizes are checked by the handlers too, for callers other than the generated router.
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
@@ -189,8 +191,10 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, ten, ten.Human, call); err == nil {
-			t.Errorf("%s: page_size 0 accepted", name)
-		}
+		t.Run("page size 0 "+name, func(t *testing.T) {
+			if err := apitest.InRequest(t, ten, ten.Human, call); err == nil {
+				t.Error("got nil error, want page_size 0 refused")
+			}
+		})
 	}
 }
