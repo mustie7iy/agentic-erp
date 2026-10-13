@@ -319,20 +319,26 @@ func TestDesignRules(t *testing.T) {
 	}
 }
 
+// TestMigrationsRevertCleanly runs every migration up, down and up again in a
+// database of its own: the shared one holds rows other tests inserted, which
+// the constraints a down migration restores may rightly refuse.
 func TestMigrationsRevertCleanly(t *testing.T) {
-	need(t)
 	ctx := context.Background()
-	if err := applyAll(ctx, testDB, false); err != nil {
+	conn := emptyDatabase(t)
+	if err := applyAll(ctx, conn, true); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	if err := applyAll(ctx, conn, false); err != nil {
 		t.Fatalf("down: %v", err)
 	}
 	var schemas int
-	if err := testDB.QueryRow(ctx, "SELECT count(*) FROM pg_namespace WHERE nspname IN ('ledger','partner','payables')").Scan(&schemas); err != nil {
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM pg_namespace WHERE nspname IN ('ledger','partner','payables')").Scan(&schemas); err != nil {
 		t.Fatal(err)
 	}
 	if schemas != 0 {
-		t.Fatal("down migrations left schemas behind")
+		t.Fatalf("down migrations left %d schemas behind, want 0", schemas)
 	}
-	if err := applyAll(ctx, testDB, true); err != nil {
+	if err := applyAll(ctx, conn, true); err != nil {
 		t.Fatalf("up again: %v", err)
 	}
 }
