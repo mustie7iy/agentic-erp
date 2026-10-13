@@ -50,6 +50,7 @@ func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)
 
 // environment is a valid configuration on the package database.
 func environment(t *testing.T, is *authntest.Issuer, natsURL string) map[string]string {
+	t.Helper()
 	issuers, _ := json.Marshal([]any{is.Config()})
 	return map[string]string{
 		"DATABASE_URL":         pgtest.URL(t),
@@ -103,7 +104,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	defer stop()
 	a := <-addrs
 	get := func(u, token string) (int, map[string]any) {
-		req, _ := http.NewRequest("GET", u, nil)
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", u, nil)
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -123,7 +124,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	// scrape, so the test scrapes until every backlog is there).
 	var scraped []byte
 	pgtest.Eventually(t, 30*time.Second, func() bool {
-		mresp, err := http.Get("http://" + a[1] + "/metrics")
+		mresp, err := http.DefaultClient.Do(request(t, "GET", "http://"+a[1]+"/metrics", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +147,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	op := page["items"].([]any)[0].(map[string]any)
 
 	// Cancelling publishes OperationCompleted through the relay to JetStream.
-	req, _ := http.NewRequest("POST", "http://"+a[0]+"/v1/operations/"+op["id"].(string)+":cancel", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), "POST", "http://"+a[0]+"/v1/operations/"+op["id"].(string)+":cancel", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Idempotency-Key", "key-server-test-1")
 	req.Header.Set("If-Match", `"1"`)
@@ -266,7 +267,7 @@ func TestMaintenanceRetries(t *testing.T) {
 func TestStartupFailures(t *testing.T) {
 	is := authntest.New(t)
 	ctx := context.Background()
-	busy, _ := net.Listen("tcp", "127.0.0.1:0")
+	busy, _ := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	defer func() { _ = busy.Close() }() // best-effort cleanup of the port the cases collide with
 	cases := map[string]func(env map[string]string, cfg *config.Config){
 		"otlp endpoint": func(_ map[string]string, c *config.Config) { c.OTLPEndpoint = "not a url" },
@@ -287,7 +288,9 @@ func TestStartupFailures(t *testing.T) {
 		"api port":          func(_ map[string]string, c *config.Config) { c.HTTPAddr = busy.Addr().String() },
 		"admin port":        func(_ map[string]string, c *config.Config) { c.AdminAddr = busy.Addr().String() },
 		"migrations":        func(_ map[string]string, c *config.Config) { c.DatabaseURL = limitedUser(t) },
-		"partitions":        func(_ map[string]string, c *config.Config) { c.DatabaseURL, c.MigrateOnStart = pgtest.EmptyDatabase(t), false },
+		"partitions": func(_ map[string]string, c *config.Config) {
+			c.DatabaseURL, c.MigrateOnStart = pgtest.EmptyDatabase(t), false
+		},
 	}
 	for name, mutate := range cases {
 		env := environment(t, is, "")
@@ -491,7 +494,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	case code := <-done:
 		t.Fatalf("the server stopped with %d before serving:\n%s", code, logs.String())
 	}
-	mint, err := http.Post("http://"+a[1]+"/dev/token", "application/json", strings.NewReader(`{"tenant_id": "`+created.TenantID+`", "subject": "idp|ada"}`))
+	mint, err := http.DefaultClient.Do(request(t, "POST", "http://"+a[1]+"/dev/token", `{"tenant_id": "`+created.TenantID+`", "subject": "idp|ada"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +503,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if mint.StatusCode != 200 || minted.Token == "" {
 		t.Fatalf("mint: %d", mint.StatusCode)
 	}
-	req, _ := http.NewRequest("GET", "http://"+a[0]+"/v1/config-versions?is_active=true", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/config-versions?is_active=true", nil)
 	req.Header.Set("Authorization", "Bearer "+minted.Token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -513,14 +516,14 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	}
 	// An operator token (no tenant) works on the control plane and nowhere else: the tenant is
 	// suspended, refused at the API's door, and resumed.
-	mint, err = http.Post("http://"+a[1]+"/dev/token", "application/json", strings.NewReader(`{"subject": "ops|root"}`))
+	mint, err = http.DefaultClient.Do(request(t, "POST", "http://"+a[1]+"/dev/token", `{"subject": "ops|root"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var operator struct{ Token string }
 	readJSON(t, mint, &operator)
 	control := func(method, path, ifMatch string) (int, map[string]any) {
-		req, _ := http.NewRequest(method, "http://"+a[1]+"/control/v1"+path, nil)
+		req, _ := http.NewRequestWithContext(t.Context(), method, "http://"+a[1]+"/control/v1"+path, nil)
 		req.Header.Set("Authorization", "Bearer "+operator.Token)
 		if ifMatch != "" {
 			req.Header.Set("If-Match", ifMatch)
@@ -536,7 +539,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if code, m := control("GET", "/tenants/"+created.TenantID, ""); code != 200 || m["status"] != "active" {
 		t.Fatalf("control get: %d %v", code, m)
 	}
-	req, _ = http.NewRequest("GET", "http://"+a[0]+"/v1/roles", nil)
+	req, _ = http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/roles", nil)
 	req.Header.Set("Authorization", "Bearer "+operator.Token)
 	if code := status(t, req); code != 401 {
 		t.Fatalf("operator on the public API: got %d, want 401", code)
@@ -544,7 +547,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if code, m := control("POST", "/tenants/"+created.TenantID+":suspend", `"1"`); code != 200 || m["status"] != "suspended" {
 		t.Fatalf("suspend: %d %v", code, m)
 	}
-	req, _ = http.NewRequest("GET", "http://"+a[0]+"/v1/roles", nil)
+	req, _ = http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/roles", nil)
 	req.Header.Set("Authorization", "Bearer "+minted.Token)
 	if code := status(t, req); code != 403 {
 		t.Fatalf("suspended tenant on the public API: got %d, want 403", code)
@@ -934,7 +937,7 @@ func TestWorkflowEngine(t *testing.T) {
 	}
 	token := is.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)
 	call := func(method, path, body string) (int, map[string]any) {
-		req, _ := http.NewRequest(method, "http://"+addr+path, strings.NewReader(body))
+		req, _ := http.NewRequestWithContext(t.Context(), method, "http://"+addr+path, strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 		if method == "POST" {
@@ -972,7 +975,7 @@ func TestWorkflowEngine(t *testing.T) {
 	}
 	// The release, by the approver, is a workflow too: the run has nothing to pay here, which the API says at once.
 	approver := is.Token(t, f.Tenant.ID, f.Approver.Subject, nil)
-	req, _ := http.NewRequest("POST", "http://"+addr+op["resource"].(string)+":release", strings.NewReader(""))
+	req, _ := http.NewRequestWithContext(t.Context(), "POST", "http://"+addr+op["resource"].(string)+":release", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+approver)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", uuid.NewString())
@@ -1017,6 +1020,19 @@ func status(t *testing.T, req *http.Request) int {
 // readJSON decodes the response's JSON body into v and closes it; a body that is
 // not the JSON the test asserts on fails the test here rather than as a confusing
 // zero value later.
+// request builds a request bound to the test's context; a body is sent as JSON.
+func request(t *testing.T, method, url, body string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), method, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request %s %s: %v", method, url, err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req
+}
+
 func readJSON(t *testing.T, resp *http.Response, v any) {
 	t.Helper()
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {

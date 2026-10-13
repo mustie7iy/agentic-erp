@@ -79,7 +79,7 @@ func (p *plane) operator(subject string) string {
 // present) and returns the status, the decoded body and the headers.
 func (p *plane) do(method, path, body string, headers map[string]string) (int, map[string]any, http.Header) {
 	p.t.Helper()
-	req, err := http.NewRequest(method, p.srv.URL+path, strings.NewReader(body))
+	req, err := http.NewRequestWithContext(p.t.Context(), method, p.srv.URL+path, strings.NewReader(body))
 	if err != nil {
 		p.t.Fatal(err)
 	}
