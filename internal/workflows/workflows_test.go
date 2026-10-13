@@ -155,8 +155,14 @@ func TestProposalWorkflow(t *testing.T) {
 	}
 	built, _ := e.Must(200, "GET", "/v1/payment-runs/"+run, "", "")
 	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if built["status"] != "proposed" || built["total_amount"].(map[string]any)["amount"] != "100.00" || done["status"] != "succeeded" {
-		t.Fatalf("built: %v %v", built, done)
+	if built["status"] != "proposed" {
+		t.Fatalf("built run status: got %v, want proposed", built["status"])
+	}
+	if amount := built["total_amount"].(map[string]any)["amount"]; amount != "100.00" {
+		t.Fatalf("built run total: got %v, want 100.00", amount)
+	}
+	if done["status"] != "succeeded" {
+		t.Fatalf("operation status: got %v, want succeeded", done["status"])
 	}
 	// Again: nothing left to do, nothing done twice.
 	if err := execute(t, a, input(e, op, run), false); err != nil {
@@ -323,8 +329,11 @@ func TestDispatcher(t *testing.T) {
 	}
 	engine.fail = number4
 	n, err = d.RunOnce(ctx)
-	if n != 1 || err == nil || !strings.Contains(err.Error(), "engine refused") {
-		t.Fatalf("round with a refusal: %d %v", n, err)
+	if err == nil || !strings.Contains(err.Error(), "engine refused") {
+		t.Fatalf("round with a refusal: got %v, want the engine's refusal", err)
+	}
+	if n != 1 {
+		t.Fatalf("round with a refusal: got %d dispatched, want 1", n)
 	}
 	var id3 *string
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(id(op3))).Scan(&id3); err != nil {
@@ -359,8 +368,14 @@ func TestDispatcher(t *testing.T) {
 	}
 	wantRel := workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 1)
 	last := engine.started[len(engine.started)-1]
-	if last.ID != wantRel || last.Name != workflows.ReleaseWorkflow || last.Args[0].(workflows.ReleaseInput) != rel {
-		t.Fatalf("release start: %+v, want id %s", last, wantRel)
+	if last.ID != wantRel {
+		t.Fatalf("release start id: got %s, want %s", last.ID, wantRel)
+	}
+	if last.Name != workflows.ReleaseWorkflow {
+		t.Fatalf("release start workflow: got %s, want %s", last.Name, workflows.ReleaseWorkflow)
+	}
+	if got := last.Args[0].(workflows.ReleaseInput); got != rel {
+		t.Fatalf("release start input: got %+v, want %+v", got, rel)
 	}
 	if err := apitest.Committed(t, e.Tenant, e.Approver, func(ctx context.Context) error {
 		r, err := payments.GetRun(ctx, rel.RunID)
@@ -481,8 +496,17 @@ func TestReleaseWorkflow(t *testing.T) {
 	}
 	released, _ := e.Must(200, "GET", "/v1/payment-runs/"+run, "", "")
 	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
-	if released["status"] != "released" || done["status"] != "succeeded" || done["progress"].(map[string]any)["done"] != float64(1) || done["result"].(map[string]any)["bank_file_id"] == nil {
-		t.Fatalf("released: %v %v", released, done)
+	if released["status"] != "released" {
+		t.Fatalf("run status: got %v, want released", released["status"])
+	}
+	if done["status"] != "succeeded" {
+		t.Fatalf("operation status: got %v, want succeeded", done["status"])
+	}
+	if progress := done["progress"].(map[string]any)["done"]; progress != float64(1) {
+		t.Fatalf("operation progress done: got %v, want 1", progress)
+	}
+	if done["result"].(map[string]any)["bank_file_id"] == nil {
+		t.Fatalf("operation result bank_file_id: got nil, want the bank file: %v", done["result"])
 	}
 	// A business problem: the vendor's bank account has no holder, so the file is refused after the posting.
 	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = ' ' WHERE partner_id = '%s'; END $$`, e.Supplier))
@@ -497,8 +521,14 @@ func TestReleaseWorkflow(t *testing.T) {
 	}
 	failed, _ := e.Must(200, "GET", "/v1/operations/"+in2.OperationID.String(), "", "")
 	after, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", "")
-	if failed["status"] != "failed" || failed["error"].(map[string]any)["code"] != "payments.bank_file_invalid" || after["status"] != "releasing" {
-		t.Fatalf("refused file: %v %v", failed, after)
+	if failed["status"] != "failed" {
+		t.Fatalf("refused file operation status: got %v, want failed", failed["status"])
+	}
+	if code := failed["error"].(map[string]any)["code"]; code != "payments.bank_file_invalid" {
+		t.Fatalf("refused file operation error: got %v, want payments.bank_file_invalid", code)
+	}
+	if after["status"] != "releasing" {
+		t.Fatalf("refused file run status: got %v, want releasing", after["status"])
 	}
 	// The machinery failing: the activities are retried, then the workflow fails and the run stays releasing for a resumed release.
 	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = 'Supplier' WHERE partner_id = '%s'; END $$`, e.Supplier))
@@ -704,8 +734,15 @@ func TestSimulationWorkflow(t *testing.T) {
 	}
 	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
 	cr, _ := e.Must(200, "GET", path, "", "")
-	if done["status"] != "succeeded" || done["result"].(map[string]any)["kind"] != "simulation" || done["result"].(map[string]any)["passed"] != true {
-		t.Fatalf("simulated: %v %v", done, cr)
+	if done["status"] != "succeeded" {
+		t.Fatalf("simulated operation status: got %v, want succeeded: %v", done["status"], cr)
+	}
+	result := done["result"].(map[string]any)
+	if result["kind"] != "simulation" {
+		t.Fatalf("simulated result kind: got %v, want simulation", result["kind"])
+	}
+	if result["passed"] != true {
+		t.Fatalf("simulated result passed: got %v, want true", result["passed"])
 	}
 	if err := run(); err != nil { // nothing left to do
 		t.Fatal(err)
@@ -799,8 +836,14 @@ func TestMigrationWorkflow(t *testing.T) {
 	}
 	loaded, _ := e.Must(200, "GET", path, "", "")
 	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
-	if loaded["status"] != "loaded" || done["status"] != "succeeded" || loaded["report"].(map[string]any)["loaded"].(map[string]any)["journal_entries"] != float64(43) {
-		t.Fatalf("loaded by the workflow: %v %v", loaded, done)
+	if loaded["status"] != "loaded" {
+		t.Fatalf("run status: got %v, want loaded", loaded["status"])
+	}
+	if done["status"] != "succeeded" {
+		t.Fatalf("operation status: got %v, want succeeded", done["status"])
+	}
+	if n := loaded["report"].(map[string]any)["loaded"].(map[string]any)["journal_entries"]; n != float64(43) {
+		t.Fatalf("loaded journal entries: got %v, want 43", n)
 	}
 	if err := executeMigration(t, m, in); err != nil { // the operation is done: nothing happens
 		t.Fatal(err)
@@ -835,8 +878,14 @@ func TestMigrationWorkflow(t *testing.T) {
 	}
 	failed, _ := e3.Must(200, "GET", "/v1/operations/"+in3.OperationID.String(), "", "")
 	back, _ := e3.Must(200, "GET", path3, "", "")
-	if failed["status"] != "failed" || failed["error"].(map[string]any)["code"] != "platform.unavailable" || back["status"] != "queued" {
-		t.Fatalf("unreadable extract: %v %v", failed, back)
+	if failed["status"] != "failed" {
+		t.Fatalf("unreadable extract operation status: got %v, want failed", failed["status"])
+	}
+	if code := failed["error"].(map[string]any)["code"]; code != "platform.unavailable" {
+		t.Fatalf("unreadable extract operation error: got %v, want platform.unavailable", code)
+	}
+	if back["status"] != "queued" {
+		t.Fatalf("unreadable extract run status: got %v, want queued", back["status"])
 	}
 	// Started again: the next attempt.
 	_, tag = e3.Must(200, "GET", path3, "", "")
@@ -930,8 +979,23 @@ func TestApprovalDeadline(t *testing.T) {
 	}
 	got, _ := e.Must(200, "GET", "/v1/approval-requests/"+id(pending), "", "")
 	ev := apitest.Published(t, e.Tenant, outbox.Event{Context: "workflow", Name: "approval_escalated"})
-	if got["escalations"] != float64(2) || got["escalated_at"] == nil || got["status"] != "pending" || len(ev) != 2 || ev[1]["escalations"] != float64(2) || ev[0]["current_step"] != float64(1) {
-		t.Fatalf("escalated: %v %v", got, ev)
+	if got["escalations"] != float64(2) {
+		t.Errorf("escalations: got %v, want 2", got["escalations"])
+	}
+	if got["escalated_at"] == nil {
+		t.Errorf("escalated_at: got nil, want a time")
+	}
+	if got["status"] != "pending" {
+		t.Errorf("status: got %v, want pending", got["status"])
+	}
+	if len(ev) != 2 {
+		t.Fatalf("approval_escalated events: got %d, want 2: %v", len(ev), ev)
+	}
+	if ev[1]["escalations"] != float64(2) {
+		t.Errorf("second event escalations: got %v, want 2", ev[1]["escalations"])
+	}
+	if ev[0]["current_step"] != float64(1) {
+		t.Errorf("first event current_step: got %v, want 1", ev[0]["current_step"])
 	}
 	var actor uuid.UUID
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT actor_id FROM audit.audit_event WHERE tenant_id = $1 AND action = 'workflow.approval_request.escalate' LIMIT 1`, e.Tenant.ID).Scan(&actor); err != nil {
@@ -969,8 +1033,11 @@ func TestApprovalDeadline(t *testing.T) {
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM workflow.approval_request WHERE id = $1`, uuid.MustParse(id(pending2))).Scan(&recorded); err != nil {
 		t.Fatalf("read the recorded workflow id: %v", err)
 	}
-	if !found || recorded == nil || *recorded != want {
-		t.Fatalf("deadline dispatch: %v %+v", recorded, engine.started)
+	if !found {
+		t.Fatalf("deadline dispatch: got starts %+v, want %s", engine.started, want)
+	}
+	if recorded == nil || *recorded != want {
+		t.Fatalf("deadline dispatch recorded: got %v, want %s", recorded, want)
 	}
 	before := len(engine.started)
 	if _, err := d.RunOnce(context.Background()); err != nil || len(engine.started) != before {
