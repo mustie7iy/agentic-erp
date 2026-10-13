@@ -247,13 +247,6 @@ func TestProposalWorkflow(t *testing.T) {
 	}
 }
 
-type brokenCommit struct{ pgx.Tx }
-
-func (b *brokenCommit) Commit(ctx context.Context) error {
-	_ = b.Rollback(ctx)
-	return errors.New("commit failed")
-}
-
 // fakeEngine records starts and refuses what it is told to.
 type fakeEngine struct {
 	mu      sync.Mutex
@@ -419,10 +412,10 @@ func TestDispatcher(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &brokenCommit{Tx: tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
-	if _, err := d.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("commit failing: %v", err)
+	if _, err := d.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("commit failing: got %v, want %v", err, pgtest.ErrInjected)
 	}
 	// Run logs a failed round, then a quiet one, and stops with the context.
 	// Each loop is waited for before the dispatcher is changed: a loop still
