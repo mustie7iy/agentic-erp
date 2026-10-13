@@ -15,8 +15,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
+	sdkworkflow "go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
@@ -1000,6 +1003,63 @@ func TestEscalateTwice(t *testing.T) {
 	}
 	if n := escalationAudits(t, e.Tenant.ID); n != 1 {
 		t.Errorf("audit entries: got %d, want 1", n)
+	}
+}
+
+// TestApprovalDeadlineReplay: a history recorded under the first version
+// of the escalation loop (testdata, recorded from the T29 code at 18c4f10 on
+// a development server: escalated once, then found decided) replays on the
+// current code without a nondeterminism error.
+func TestApprovalDeadlineReplay(t *testing.T) {
+	r := worker.NewWorkflowReplayer()
+	r.RegisterWorkflowWithOptions(workflows.ApprovalDeadline, sdkworkflow.RegisterOptions{Name: workflows.DeadlineWorkflow})
+	if err := r.ReplayWorkflowHistoryFromJSONFile(nil, filepath.Join("testdata", "approval_deadline_v1.json")); err != nil {
+		t.Fatalf("replay of the version 1 history: %v", err)
+	}
+}
+
+// TestApprovalDeadlineVersions: histories without the version marker and
+// those recorded under version 1 escalate without the prior count, as they
+// did; version 2, the one new workflows record, passes it.
+func TestApprovalDeadlineVersions(t *testing.T) {
+	cases := []struct {
+		name    string
+		version sdkworkflow.Version
+		guarded bool
+	}{
+		{"no marker", sdkworkflow.DefaultVersion, false},
+		{"version 1", 1, false},
+		{"version 2", 2, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var s testsuite.WorkflowTestSuite
+			env := s.NewTestWorkflowEnvironment()
+			env.RegisterWorkflow(workflows.ApprovalDeadline)
+			var got []*int16
+			env.RegisterActivityWithOptions(func(_ context.Context, in workflows.EscalateInput) (bool, error) {
+				got = append(got, in.Prior)
+				return len(got) < 2, nil // escalated once, then decided
+			}, activity.RegisterOptions{Name: "Escalate"})
+			env.OnGetVersion("escalation-loop", sdkworkflow.DefaultVersion, 2).Return(c.version)
+			env.ExecuteWorkflow(workflows.ApprovalDeadline, workflows.DeadlineInput{TenantID: uuid.New(), RequestID: uuid.New(), After: time.Hour, Max: 3})
+			if err := env.GetWorkflowError(); err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 2 {
+				t.Fatalf("activity runs: got %d, want 2", len(got))
+			}
+			for i, prior := range got {
+				switch {
+				case !c.guarded && prior != nil:
+					t.Errorf("run %d: got prior %d, want none", i, *prior)
+				case c.guarded && prior == nil:
+					t.Errorf("run %d: got no prior, want %d", i, i)
+				case c.guarded && int(*prior) != i:
+					t.Errorf("run %d: got prior %d, want %d", i, *prior, i)
+				}
+			}
+		})
 	}
 }
 

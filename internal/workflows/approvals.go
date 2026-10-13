@@ -31,12 +31,25 @@ type DeadlineInput struct {
 // DeadlineWorkflow is the registered name of ApprovalDeadline.
 const DeadlineWorkflow = "ApprovalDeadline"
 
-// ApprovalDeadline sleeps the period and escalates the request while it
-// stays pending. Its logic is versioned (ADR-0012: workflow versioning is
-// mandatory): a change to the loop adds a version, and histories recorded
+// Versions of the escalation loop (ADR-0012: workflow versioning is
+// mandatory). A change to the loop adds a version, and histories recorded
 // under an earlier one replay the earlier path.
+const (
+	// unguardedEscalation (T29) escalates without telling the activity how
+	// many escalations came before; histories without the marker run it too.
+	// It must stay unguarded: a workflow that ran it may already have been
+	// escalated twice by a retried activity, so its count can exceed the loop
+	// index, and the guard would fail it for good (ErrEscalationCount).
+	unguardedEscalation workflow.Version = 1
+	// guardedEscalation passes the escalations made so far, which guards the
+	// activity's update so a retried activity escalates once (ADR-0008).
+	guardedEscalation workflow.Version = 2
+)
+
+// ApprovalDeadline sleeps the period and escalates the request while it
+// stays pending.
 func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
-	_ = workflow.GetVersion(ctx, "escalation-loop", workflow.DefaultVersion, 1)
+	v := workflow.GetVersion(ctx, "escalation-loop", workflow.DefaultVersion, guardedEscalation)
 	ao := workflow.ActivityOptions{StartToCloseTimeout: time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute}}
 	ctx = workflow.WithActivityOptions(ctx, ao)
@@ -45,9 +58,13 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 		if err := workflow.Sleep(ctx, in.After); err != nil {
 			return err
 		}
+		input := EscalateInput{DeadlineInput: in}
+		if v > unguardedEscalation { // guardedEscalation or later
+			prior := int16(i) // escalations so far: one per earlier pass, none reset
+			input.Prior = &prior
+		}
 		var pending bool
-		prior := int16(i) // escalations so far: one per earlier pass, none reset
-		if err := workflow.ExecuteActivity(ctx, a.Escalate, EscalateInput{DeadlineInput: in, Prior: &prior}).Get(ctx, &pending); err != nil {
+		if err := workflow.ExecuteActivity(ctx, a.Escalate, input).Get(ctx, &pending); err != nil {
 			return err
 		}
 		if !pending {
@@ -59,9 +76,10 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 
 // EscalateInput is the escalation activity's input: the watched request
 // and the escalations the workflow made before this one, which guards the
-// update so a retried activity escalates once. Prior is nil in activities
-// scheduled before it existed (the fields of DeadlineInput are inlined, so
-// their payloads still decode).
+// update so a retried activity escalates once. Prior is nil under the
+// unguarded version of the loop and in activities scheduled before it
+// existed (the fields of DeadlineInput are inlined, so their payloads still
+// decode).
 type EscalateInput struct {
 	DeadlineInput
 	Prior *int16 `json:"prior,omitempty"`

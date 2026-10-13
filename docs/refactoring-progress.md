@@ -18,7 +18,11 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   count fails the activity non-retryably. No GetVersion bump: commands unchanged (reviewer agreed).
   Lint approvals+workflows 51 → 51 (new code clean; one justified nolint:wrapcheck on a
   Temporal error constructor). Reviewer: APPROVE.
-- [ ] R2 approvals workflow branches on GetVersion
+- [x] R2 approvals workflow branches on GetVersion. Version 2 passes the R1 guard's count;
+  Default/1 replay the T29 input (kept unguarded: their count may already be inflated).
+  TestApprovalDeadlineReplay replays a history recorded from T29 (18c4f10) on a dev server;
+  TestApprovalDeadlineVersions fails on the pre-R2 code. R1 and R2 must ship together.
+  Lint approvals+workflows 51 → 51. Reviewer: APPROVE.
 - [ ] R3 outbox relay: event type without a dot
 - [ ] R4 reqctx.Request errors returned, not discarded
 - [ ] R5 Fail closed in production (codec key, dev token issuer)

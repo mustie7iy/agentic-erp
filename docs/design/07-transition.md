@@ -1553,7 +1553,12 @@ whose completion was lost escalates once (ADR-0008); it stops after
 `ERP_APPROVAL_ESCALATIONS` (default 3) or at the first check that finds
 the request decided. Decisions stay synchronous human transitions on the
 API: the workflow owns only the clock. The workflow's loop is versioned
-with `workflow.GetVersion`, the rule every later change follows.
+with `workflow.GetVersion`, the rule every later change follows: version 2
+passes the escalation guard's count, histories recorded under version 1
+replay without it (`TestApprovalDeadlineReplay` replays a recorded one).
+Version 1 stays unguarded on purpose: a retried activity may already have
+escalated such a workflow twice, so its count can exceed the loop's and the
+guard would fail it.
 `workflow.Codec` seals every payload with AES-256-GCM
 (`ERP_TEMPORAL_CODEC_KEY`) before it reaches the engine; payloads written
 without a key are read as they are, so a key can be introduced on a running
