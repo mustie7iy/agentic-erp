@@ -58,7 +58,9 @@ func TestAFailedStartIsCleanedUp(t *testing.T) {
 }
 
 // servingTestServers counts the goroutines serving an httptest server: one
-// per server started and not yet closed.
+// per server started and not yet closed. It counts across the process, so
+// it relies on this package's tests running one at a time (none uses
+// t.Parallel).
 func servingTestServers() int {
 	buf := make([]byte, 1<<22)
 	return strings.Count(string(buf[:runtime.Stack(buf, true)]), "net/http/httptest.(*Server).goServe")

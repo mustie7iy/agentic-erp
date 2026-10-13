@@ -111,21 +111,23 @@ single-return path whose failure no test can provoke from becoming its own branc
 - [ ] R23 Unowned findings to zero: errcheck, forbidigo (production float/panic), gocritic
   (added at the end of Phase 0 with the user's agreement)
 
-### Bug fixes found during Phases 3–4 (user: "fix all identified bugs first", before R23)
+### Bug fixes found during Phases 3–4 (user: "fix all identified bugs first", before R23) — done
+Four worktree agents, each fix with a failing-first test, every merge reviewed on the branch.
+Final: make test passes with -race, coverage 16899 of 16899 statements, all 7 fuzz targets clean.
 Each a separate Fix commit with a test that fails before the fix.
-- [ ] B1 SECURITY offboarding import: manifest table names checked and quoted
-- [ ] B2 analytics: Count sum over several currencies divided by a map-order currency
-- [ ] B3 analytics: nondeterministic default and commentary errors; dead aggCell.seen
-- [ ] B4 erp-server: workers stopped before the pool closes when the bus fails at startup
-- [ ] B5 config: ERP_APPROVAL_ESCALATIONS capped to what the smallint count holds
-- [ ] B6 config: directory setting errors in a fixed order
-- [ ] B7 cmd/erp: CSV close/flush and token decode errors reported
-- [ ] B8 nfr harness: cleanup registered before workers start
-- [ ] B9 ledger createClearing: deterministic partner in the net-zero error
-- [ ] B10 apitools: malformed contract refused instead of panicking
-- [ ] B11 sap: OData $filter values quote-escaped
-- [ ] B12 sapconfig: unparseable tolerance and payment-term numbers reported
-- [ ] B13 sapconfig: all-zero account conversion consistent with integration
+- [x] B1 SECURITY offboarding import: manifest table names checked and quoted. a41300f, 23ab2d6; reviewed as security: no manifest string reaches SQL.
+- [x] B2 analytics: Count sum over several currencies divided by a map-order currency. ed80ceb, b4fd1a7 and a count-only-ratio follow-up: a sum over several currencies is refused for every metric type; count ratios may span currencies; money columns labelled from their sums.
+- [x] B3 analytics: nondeterministic default and commentary errors; dead aggCell.seen. 01000be.
+- [x] B4 erp-server: workers stopped before the pool closes when the bus fails at startup. 6f37e39, 6f0e32c, c435017 (listener-failure twin found in review), 172901b.
+- [x] B5 config: ERP_APPROVAL_ESCALATIONS capped to what the smallint count holds. 84898b8.
+- [x] B6 config: directory setting errors in a fixed order. e3e01bf.
+- [x] B7 cmd/erp: CSV close/flush and token decode errors reported. 7d15587, 35deea1.
+- [x] B8 nfr harness: cleanup registered before workers start. 9a9463c, c754f71, d1efd35, b326467.
+- [x] B9 ledger createClearing: deterministic partner in the net-zero error. 2fec07b.
+- [x] B10 apitools: malformed contract refused instead of panicking. 04f37e2, 82d15c9 ($ref cycle), 5044241 (dangling $ref).
+- [x] B11 sap: OData $filter values quote-escaped. 4e35fc5, FuzzODataString in make fuzz.
+- [x] B12 sapconfig: unparseable tolerance and payment-term numbers reported. fa59178, 8234aa4, d988a6c, baca448 (an unreadable payment term now fails validation instead of becoming due at once).
+- [x] B13 sapconfig: all-zero account conversion consistent with integration. 02e80e4, a25ace9 (one sap.Alpha).
 
 ### Phase 5 — Test quality
 - [ ] R30 Polling helper; no time.Sleep in tests
