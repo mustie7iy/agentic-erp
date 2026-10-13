@@ -108,7 +108,8 @@ func checkKey(key string) error {
 }
 
 // Dir stores objects as files below Root, with the content type in a
-// sidecar file. Writes are exclusive creates, so a key is written once;
+// sidecar file. Writes are exclusive links of a whole temporary file, so a
+// key is written once and never holds part of an object;
 // RetainUntil is recorded but not enforced (the filesystem cannot).
 type Dir struct {
 	Root string
@@ -121,14 +122,25 @@ func (d Dir) now() time.Time {
 
 func (d Dir) path(key string) string { return filepath.Join(d.Root, filepath.FromSlash(key)) }
 
-// openFile and writeFile are the filesystem calls Put makes; tests replace
-// them to fail a write.
+// createTemp, writeContent, link and writeFile are the filesystem calls Put
+// makes; tests replace them to fail a write.
 var (
-	openFile  = os.OpenFile
-	writeFile = os.WriteFile
+	createTemp   = os.CreateTemp
+	writeContent = (*os.File).Write
+	link         = os.Link
+	writeFile    = os.WriteFile
 )
 
-// Put implements Store.
+// tempMark separates a key from the random suffix of the temporary file its
+// content is written to. Keys cannot contain it (keyPattern), so a
+// temporary file never collides with a key and List skips it.
+const tempMark = "#"
+
+// Put implements Store. The content is written to a temporary file and
+// linked under the key only once it is whole and synced: a failed write, a
+// failed cleanup or a crash leaves the key free, never holding part of an
+// object that a later Put would answer ErrExists for. A link, unlike a
+// rename, fails when the key is taken, which keeps objects write-once.
 func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions) error {
 	if err := checkKey(key); err != nil {
 		return err
@@ -137,20 +149,16 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return fmt.Errorf("blobstore: %w", err)
 	}
-	f, err := openFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return ErrExists
-	}
+	tmp, err := writeTemp(p, content)
+	// Once linked, or after a failed write, the temporary name is not needed.
+	// A failed remove leaves a file List skips; the key stays free.
+	defer func() { _ = os.Remove(tmp) }()
 	if err != nil {
 		return fmt.Errorf("blobstore: %w", err)
 	}
-	_, werr := f.Write(content)
-	if err := errors.Join(werr, f.Close()); err != nil {
-		// Best effort on a path that already fails, whose write error is the
-		// one reported. Should the remove fail too, a partial file stays under
-		// the key and a later Put of it answers ErrExists; writing to a
-		// temporary file and renaming it into place would close that gap.
-		_ = os.Remove(p)
+	if err := link(tmp, p); errors.Is(err, os.ErrExist) {
+		return ErrExists
+	} else if err != nil {
 		return fmt.Errorf("blobstore: %w", err)
 	}
 	meta := contentType(opts) + "\n"
@@ -163,6 +171,18 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 		return fmt.Errorf("blobstore: %w", err)
 	}
 	return nil
+}
+
+// writeTemp writes content to a new temporary file next to p, synced so the
+// object a link publishes survives a crash whole, and returns its name ("" when
+// none was created).
+func writeTemp(p string, content []byte) (string, error) {
+	f, err := createTemp(filepath.Dir(p), filepath.Base(p)+tempMark+"*")
+	if err != nil {
+		return "", err
+	}
+	_, werr := writeContent(f, content)
+	return f.Name(), errors.Join(werr, f.Sync(), f.Close())
 }
 
 // Get implements Store.
@@ -227,7 +247,7 @@ func (d Dir) List(_ context.Context, prefix string) ([]string, error) {
 	}
 	var keys []string
 	err := filepath.WalkDir(base, func(p string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || strings.HasSuffix(p, ".meta") {
+		if err != nil || entry.IsDir() || strings.HasSuffix(p, ".meta") || strings.Contains(entry.Name(), tempMark) {
 			return err
 		}
 		rel, _ := filepath.Rel(d.Root, p) // p is below Root
