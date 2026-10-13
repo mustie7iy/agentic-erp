@@ -64,7 +64,9 @@ func id(m map[string]any) string { return m["id"].(string) }
 func (e env) payable(t *testing.T) {
 	t.Helper()
 	var n int
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM partner.bank_account WHERE partner_id = $1`, e.Supplier).Scan(&n)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM partner.bank_account WHERE partner_id = $1`, e.Supplier).Scan(&n); err != nil {
+		t.Fatalf("count bank accounts: %v", err)
+	}
 	if n > 0 {
 		return
 	}
@@ -221,7 +223,9 @@ func TestProposalWorkflow(t *testing.T) {
 		t.Fatalf("with a clock: %v", err)
 	}
 	var at time.Time
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT max(occurred_at) FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2`, e.Tenant.ID, uuid.MustParse(run5)).Scan(&at)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT max(occurred_at) FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2`, e.Tenant.ID, uuid.MustParse(run5)).Scan(&at); err != nil {
+		t.Fatalf("read the audit time: %v", err)
+	}
 	if !at.Equal(a.Now()) {
 		t.Fatalf("audit time %v, want the activity's clock", at)
 	}
@@ -277,10 +281,14 @@ func TestDispatcher(t *testing.T) {
 		t.Fatalf("round: %d %v", n, err)
 	}
 	var number string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT document_number FROM payments.payment_run WHERE id = $1`, uuid.MustParse(run1)).Scan(&number)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT document_number FROM payments.payment_run WHERE id = $1`, uuid.MustParse(run1)).Scan(&number); err != nil {
+		t.Fatalf("read run 1 number: %v", err)
+	}
 	want := workflows.WorkflowID(e.Tenant.ID, e.DE, number)
 	var workflowID *string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(id(op1))).Scan(&workflowID)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(id(op1))).Scan(&workflowID); err != nil {
+		t.Fatalf("read the workflow id: %v", err)
+	}
 	if workflowID == nil || *workflowID != want {
 		t.Fatalf("workflow id on the operation: %v, want %s", workflowID, want)
 	}
@@ -301,14 +309,18 @@ func TestDispatcher(t *testing.T) {
 	e.Must(200, "POST", "/v1/operations/"+id(op3)+":cancel", "", `"1"`)
 	op4, _ := e.propose(t, "2026-04-18")
 	var number4 string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT document_number FROM payments.payment_run WHERE operation_id = $1`, uuid.MustParse(id(op4))).Scan(&number4)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT document_number FROM payments.payment_run WHERE operation_id = $1`, uuid.MustParse(id(op4))).Scan(&number4); err != nil {
+		t.Fatalf("read run 4 number: %v", err)
+	}
 	engine.fail = number4
 	n, err = d.RunOnce(ctx)
 	if n != 1 || err == nil || !strings.Contains(err.Error(), "engine refused") {
 		t.Fatalf("round with a refusal: %d %v", n, err)
 	}
 	var id3 *string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(id(op3))).Scan(&id3)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(id(op3))).Scan(&id3); err != nil {
+		t.Fatalf("read the workflow id: %v", err)
+	}
 	if id3 == nil || !strings.Contains(*id3, run3[:0]+e.DE.String()) {
 		t.Fatalf("cancelled operation not dispatched: %v", id3)
 	}
@@ -333,7 +345,9 @@ func TestDispatcher(t *testing.T) {
 		t.Fatalf("release dispatch: %d %v", n, err)
 	}
 	var relNumber string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT document_number FROM payments.payment_run WHERE id = $1`, rel.RunID).Scan(&relNumber)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT document_number FROM payments.payment_run WHERE id = $1`, rel.RunID).Scan(&relNumber); err != nil {
+		t.Fatalf("read the released run number: %v", err)
+	}
 	wantRel := workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 1)
 	last := engine.started[len(engine.started)-1]
 	if last.ID != wantRel || last.Name != workflows.ReleaseWorkflow || last.Args[0].(workflows.ReleaseInput) != rel {
@@ -712,7 +726,9 @@ func TestSimulationWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var number string
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT number FROM config.change_request WHERE id = $1`, uuid.MustParse(strings.TrimPrefix(path2, "/v1/change-requests/"))).Scan(&number)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT number FROM config.change_request WHERE id = $1`, uuid.MustParse(strings.TrimPrefix(path2, "/v1/change-requests/"))).Scan(&number); err != nil {
+		t.Fatalf("read the change request number: %v", err)
+	}
 	found := false
 	for _, st := range engine.started {
 		found = found || st.ID == workflows.SimulateWorkflowID(e2.Tenant.ID, number, 1) && st.Name == workflows.SimulateWorkflow && st.Args[0].(workflows.SimulateInput) == in2
@@ -919,7 +935,9 @@ func TestApprovalDeadline(t *testing.T) {
 		t.Fatalf("escalated: %v %v", got, ev)
 	}
 	var actor uuid.UUID
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT actor_id FROM audit.audit_event WHERE tenant_id = $1 AND action = 'workflow.approval_request.escalate' LIMIT 1`, e.Tenant.ID).Scan(&actor)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT actor_id FROM audit.audit_event WHERE tenant_id = $1 AND action = 'workflow.approval_request.escalate' LIMIT 1`, e.Tenant.ID).Scan(&actor); err != nil {
+		t.Fatalf("read the escalating actor: %v", err)
+	}
 	if actor != approvals.EscalatorActor {
 		t.Fatalf("escalated by %v", actor)
 	}
@@ -949,7 +967,9 @@ func TestApprovalDeadline(t *testing.T) {
 		found = found || st.ID == want && st.Name == workflows.DeadlineWorkflow && in.(workflows.DeadlineInput).After == time.Hour && in.(workflows.DeadlineInput).Max == 3
 	}
 	var recorded *string
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM workflow.approval_request WHERE id = $1`, uuid.MustParse(id(pending2))).Scan(&recorded)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM workflow.approval_request WHERE id = $1`, uuid.MustParse(id(pending2))).Scan(&recorded); err != nil {
+		t.Fatalf("read the recorded workflow id: %v", err)
+	}
 	if !found || recorded == nil || *recorded != want {
 		t.Fatalf("deadline dispatch: %v %+v", recorded, engine.started)
 	}
