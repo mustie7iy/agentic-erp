@@ -20,40 +20,103 @@ func TestProposeReleaseTransmit(t *testing.T) {
 	later := e.invoice(t, e.Supplier, "INV-3", "250.00", "2026-03-20") // due 19 April, after the due date
 
 	op := e.propose(t, "2026-04-15", "2026-04-15")
-	if op["kind"] != "payments.propose" || op["status"] != "queued" || !strings.HasPrefix(op["resource"].(string), "/v1/payment-runs/") {
-		t.Fatalf("operation: %v", op)
+	if op["kind"] != "payments.propose" {
+		t.Errorf("operation kind: got %v, want payments.propose", op["kind"])
+	}
+	if op["status"] != "queued" {
+		t.Errorf("operation status: got %v, want queued", op["status"])
+	}
+	if got := op["resource"].(string); !strings.HasPrefix(got, "/v1/payment-runs/") {
+		t.Fatalf("operation resource: got %s, want a payment run", got)
 	}
 	run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
-	if run["status"] != "proposing" || run["operation_id"] != op["id"] || run["proposed_by"] != e.Tenant.Human.ID.String() ||
-		!strings.HasPrefix(run["document_number"].(string), "PR") || run["total_amount"].(map[string]any)["amount"] != "0.00" {
-		t.Fatalf("proposing: %v", run)
+	if run["status"] != "proposing" {
+		t.Errorf("run status: got %v, want proposing", run["status"])
+	}
+	if run["operation_id"] != op["id"] {
+		t.Errorf("run operation: got %v, want %v", run["operation_id"], op["id"])
+	}
+	if run["proposed_by"] != e.Tenant.Human.ID.String() {
+		t.Errorf("run proposed by: got %v, want %v", run["proposed_by"], e.Tenant.Human.ID)
+	}
+	if got := run["document_number"].(string); !strings.HasPrefix(got, "PR") {
+		t.Errorf("run document number: got %s, want prefix PR", got)
+	}
+	if got := run["total_amount"].(map[string]any)["amount"]; got != "0.00" {
+		t.Errorf("run total while proposing: got %v, want 0.00", got)
 	}
 	if n := work(t); n != 1 {
 		t.Fatalf("worker did %d jobs", n)
 	}
 	run, tag := e.Must(200, "GET", op["resource"].(string), "", "")
-	if run["status"] != "proposed" || run["total_amount"].(map[string]any)["amount"] != "120.00" || tag != `"2"` {
-		t.Fatalf("proposed: %v %s", run, tag)
+	if run["status"] != "proposed" {
+		t.Errorf("run status: got %v, want proposed", run["status"])
+	}
+	if got := run["total_amount"].(map[string]any)["amount"]; got != "120.00" {
+		t.Errorf("run total: got %v, want 120.00", got)
+	}
+	if tag != `"2"` {
+		t.Errorf("run etag: got %s, want \"2\"", tag)
 	}
 	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if done["status"] != "succeeded" || done["progress"].(map[string]any)["done"] != float64(3) || done["progress"].(map[string]any)["total"] != float64(3) ||
-		done["result"].(map[string]any)["payment_count"] != float64(1) {
-		t.Fatalf("operation done: %v", done)
+	if done["status"] != "succeeded" {
+		t.Errorf("operation status: got %v, want succeeded", done["status"])
+	}
+	if got := done["progress"].(map[string]any)["done"]; got != float64(3) {
+		t.Errorf("operation progress done: got %v, want 3", got)
+	}
+	if got := done["progress"].(map[string]any)["total"]; got != float64(3) {
+		t.Errorf("operation progress total: got %v, want 3", got)
+	}
+	if got := done["result"].(map[string]any)["payment_count"]; got != float64(1) {
+		t.Errorf("operation payment count: got %v, want 1", got)
 	}
 	pays := e.payments(t, run)
 	pay := pays[0].(map[string]any)
 	items := pay["items"].([]any)
-	if len(pays) != 1 || pay["supplier_id"] != e.Supplier.String() || pay["amount"].(map[string]any)["amount"] != "120.00" ||
-		pay["end_to_end_id"] != "2000-"+run["document_number"].(string)+"-000001" || len(items) != 3 || pay["journal_entry_id"] != nil {
-		t.Fatalf("payments: %v", pays)
+	if len(pays) != 1 {
+		t.Errorf("payments: got %d, want 1", len(pays))
 	}
-	if first, memo := items[0].(map[string]any), items[1].(map[string]any); first["journal_entry_id"] != inv1["journal_entry_id"] ||
-		first["due_date"] != "2026-03-31" || first["amount"].(map[string]any)["amount"] != "100.00" || first["is_active"] != true ||
-		memo["amount"].(map[string]any)["amount"] != "-30.00" {
-		t.Fatalf("items: %v", items)
+	if pay["supplier_id"] != e.Supplier.String() {
+		t.Errorf("payment supplier: got %v, want %v", pay["supplier_id"], e.Supplier)
 	}
-	if ev := events(t, e.Tenant, "payment_run_proposed"); len(ev) != 1 || ev[0]["payment_count"] != float64(1) || ev[0]["exclusion_count"] != float64(0) {
-		t.Fatalf("proposed events: %v", ev)
+	if got := pay["amount"].(map[string]any)["amount"]; got != "120.00" {
+		t.Errorf("payment amount: got %v, want 120.00", got)
+	}
+	if want := "2000-" + run["document_number"].(string) + "-000001"; pay["end_to_end_id"] != want {
+		t.Errorf("payment end-to-end id: got %v, want %s", pay["end_to_end_id"], want)
+	}
+	if pay["journal_entry_id"] != nil {
+		t.Errorf("payment journal entry before release: got %v, want none", pay["journal_entry_id"])
+	}
+	if len(items) != 3 {
+		t.Fatalf("payment items: got %d, want 3: %v", len(items), items)
+	}
+	first, memo := items[0].(map[string]any), items[1].(map[string]any)
+	if first["journal_entry_id"] != inv1["journal_entry_id"] {
+		t.Errorf("first item entry: got %v, want %v", first["journal_entry_id"], inv1["journal_entry_id"])
+	}
+	if first["due_date"] != "2026-03-31" {
+		t.Errorf("first item due date: got %v, want 2026-03-31", first["due_date"])
+	}
+	if got := first["amount"].(map[string]any)["amount"]; got != "100.00" {
+		t.Errorf("first item amount: got %v, want 100.00", got)
+	}
+	if first["is_active"] != true {
+		t.Errorf("first item active: got %v, want true", first["is_active"])
+	}
+	if got := memo["amount"].(map[string]any)["amount"]; got != "-30.00" {
+		t.Errorf("credit memo amount: got %v, want -30.00", got)
+	}
+	ev := events(t, e.Tenant, "payment_run_proposed")
+	if len(ev) != 1 {
+		t.Fatalf("proposed events: got %d, want 1: %v", len(ev), ev)
+	}
+	if ev[0]["payment_count"] != float64(1) {
+		t.Errorf("proposed event payment count: got %v, want 1", ev[0]["payment_count"])
+	}
+	if ev[0]["exclusion_count"] != float64(0) {
+		t.Errorf("proposed event exclusion count: got %v, want 0", ev[0]["exclusion_count"])
 	}
 
 	// The proposer can never decide the run; agents never release.
@@ -63,47 +126,92 @@ func TestProposeReleaseTransmit(t *testing.T) {
 	e.As(e.Tenant.Agent).Problem(403, "identity.agent_not_allowed", "POST", path+":release", "", tag)
 
 	released := e.release(t, run, `{"comment": "checked"}`)
-	if released["decided_by"] != e.Approver.ID.String() || released["decided_at"] == nil {
-		t.Fatalf("released: %v", released)
+	if released["decided_by"] != e.Approver.ID.String() {
+		t.Errorf("released decided by: got %v, want %v", released["decided_by"], e.Approver.ID)
 	}
-	if done, _ := e.Must(200, "GET", "/v1/operations/"+released["release_operation_id"].(string), "", ""); done["progress"].(map[string]any)["done"] != float64(1) ||
-		done["result"].(map[string]any)["bank_file_id"] == nil {
-		t.Fatalf("release operation: %v", done)
+	if released["decided_at"] == nil {
+		t.Errorf("released decided at: got none, want a time")
+	}
+	done, _ = e.Must(200, "GET", "/v1/operations/"+released["release_operation_id"].(string), "", "")
+	if got := done["progress"].(map[string]any)["done"]; got != float64(1) {
+		t.Errorf("release operation progress: got %v, want 1", got)
+	}
+	if done["result"].(map[string]any)["bank_file_id"] == nil {
+		t.Errorf("release operation bank file: got none, want one: %v", done)
 	}
 	pay = e.payments(t, run)[0].(map[string]any)
 	je, _ := e.Must(200, "GET", "/v1/journal-entries/"+pay["journal_entry_id"].(string), "", "")
 	lines := je["lines"].([]any)
-	if je["document_type"] != "ZP" || je["source_context"] != "payments" || je["reference"] != pay["end_to_end_id"] || len(lines) != 4 ||
-		lines[3].(map[string]any)["account_id"] != e.Account(t, "2000", "100000").String() ||
-		lines[3].(map[string]any)["amount"].(map[string]any)["amount"] != "-120.00" {
-		t.Fatalf("payment entry: %v", je)
+	if je["document_type"] != "ZP" {
+		t.Errorf("payment entry document type: got %v, want ZP", je["document_type"])
+	}
+	if je["source_context"] != "payments" {
+		t.Errorf("payment entry source context: got %v, want payments", je["source_context"])
+	}
+	if je["reference"] != pay["end_to_end_id"] {
+		t.Errorf("payment entry reference: got %v, want %v", je["reference"], pay["end_to_end_id"])
+	}
+	if len(lines) != 4 {
+		t.Fatalf("payment entry lines: got %d, want 4: %v", len(lines), je)
+	}
+	bank := lines[3].(map[string]any)
+	if want := e.Account(t, "2000", "100000").String(); bank["account_id"] != want {
+		t.Errorf("bank line account: got %v, want %s", bank["account_id"], want)
+	}
+	if got := bank["amount"].(map[string]any)["amount"]; got != "-120.00" {
+		t.Errorf("bank line amount: got %v, want -120.00", got)
 	}
 	open, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+e.Supplier.String(), "", "")
 	if items := open["items"].([]any); len(items) != 1 || items[0].(map[string]any)["journal_entry_id"] != later["journal_entry_id"] {
 		t.Fatalf("open items after payment: %v", open)
 	}
 	e.Problem(409, "payables.invoice_cleared", "POST", "/v1/supplier-invoices/"+id(inv1)+":reverse", `{"reason": "r"}`, `"2"`)
-	if ev := events(t, e.Tenant, "payment_run_released"); len(ev) != 1 || ev[0]["payment_count"] != float64(1) || ev[0]["workflow_request_id"] != nil {
-		t.Fatalf("released events: %v", ev)
+	ev = events(t, e.Tenant, "payment_run_released")
+	if len(ev) != 1 {
+		t.Fatalf("released events: got %d, want 1: %v", len(ev), ev)
+	}
+	if ev[0]["payment_count"] != float64(1) {
+		t.Errorf("released event payment count: got %v, want 1", ev[0]["payment_count"])
+	}
+	if ev[0]["workflow_request_id"] != nil {
+		t.Errorf("released event workflow request: got %v, want none", ev[0]["workflow_request_id"])
 	}
 	e.decide(t, 409, run, "release", "")
 
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := files["items"].([]any)[0].(map[string]any)
 	created := events(t, e.Tenant, "bank_file_created")
-	if file["status"] != "created" || file["format"] != "pain.001.001.03" || len(created) != 1 || created[0]["bank_file_id"] != file["id"] {
-		t.Fatalf("bank file: %v %v", file, created)
+	if file["status"] != "created" {
+		t.Errorf("bank file status: got %v, want created", file["status"])
+	}
+	if file["format"] != "pain.001.001.03" {
+		t.Errorf("bank file format: got %v, want pain.001.001.03", file["format"])
+	}
+	if len(created) != 1 {
+		t.Fatalf("bank file created events: got %d, want 1: %v", len(created), created)
+	}
+	if created[0]["bank_file_id"] != file["id"] {
+		t.Errorf("bank file created event: got %v, want %v", created[0]["bank_file_id"], file["id"])
 	}
 	sent, _ := e.Must(202, "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
-	if sent["status"] != "succeeded" || sent["kind"] != "payments.transmit" || sent["resource"] != "/v1/bank-files/"+id(file) {
-		t.Fatalf("transmit: %v", sent)
+	if sent["status"] != "succeeded" {
+		t.Errorf("transmit status: got %v, want succeeded", sent["status"])
+	}
+	if sent["kind"] != "payments.transmit" {
+		t.Errorf("transmit kind: got %v, want payments.transmit", sent["kind"])
+	}
+	if want := "/v1/bank-files/" + id(file); sent["resource"] != want {
+		t.Errorf("transmit resource: got %v, want %s", sent["resource"], want)
 	}
 	got := e.connector.files[0]
 	xml := string(got.Content)
-	if got.Name != "2000-"+run["document_number"].(string)+"-"+id(file)+".xml" || !strings.Contains(xml, "<IBAN>DE89370400440532013000</IBAN>") ||
-		!strings.Contains(xml, `<InstdAmt Ccy="EUR">120.00</InstdAmt>`) || !strings.Contains(xml, "<Ustrd>INV-1 CM-1 INV-2</Ustrd>") ||
-		!strings.Contains(xml, "<Nm>Supplier GmbH</Nm>") || !strings.Contains(xml, "<IBAN>DE89370400440532013000</IBAN>") {
-		t.Fatalf("file %s:\n%s", got.Name, xml)
+	if want := "2000-" + run["document_number"].(string) + "-" + id(file) + ".xml"; got.Name != want {
+		t.Errorf("file name: got %s, want %s", got.Name, want)
+	}
+	for _, want := range []string{"<IBAN>DE89370400440532013000</IBAN>", `<InstdAmt Ccy="EUR">120.00</InstdAmt>`, "<Ustrd>INV-1 CM-1 INV-2</Ustrd>", "<Nm>Supplier GmbH</Nm>"} {
+		if !strings.Contains(xml, want) {
+			t.Errorf("file %s: got\n%s\nwant it to contain %s", got.Name, xml, want)
+		}
 	}
 	file, _ = e.Must(200, "GET", "/v1/bank-files/"+id(file), "", "")
 	if file["status"] != "transmitted" {
@@ -120,11 +228,24 @@ func TestProposeReleaseTransmit(t *testing.T) {
 	e.Problem(422, "payments.invalid_outcome", "POST", report, `{"outcome": "lost"}`, `"2"`)
 	e.Problem(422, "payments.reason_required", "POST", report, `{"outcome": "rejected"}`, `"2"`)
 	acked, tag := e.Must(200, "POST", report, `{"outcome": "accepted", "reference": "pain.002-0001"}`, `"2"`)
-	if acked["status"] != "acknowledged" || tag != `"3"` {
-		t.Fatalf("acknowledged: %v %v", acked, tag)
+	if acked["status"] != "acknowledged" {
+		t.Errorf("acknowledged status: got %v, want acknowledged", acked["status"])
 	}
-	if ev := events(t, e.Tenant, "bank_file_acknowledged"); len(ev) != 1 || ev[0]["previous_status"] != "transmitted" || ev[0]["status"] != "acknowledged" || ev[0]["report_reference"] != "pain.002-0001" {
-		t.Fatalf("acknowledged event: %v", ev)
+	if tag != `"3"` {
+		t.Errorf("acknowledged etag: got %s, want \"3\"", tag)
+	}
+	ev = events(t, e.Tenant, "bank_file_acknowledged")
+	if len(ev) != 1 {
+		t.Fatalf("acknowledged events: got %d, want 1: %v", len(ev), ev)
+	}
+	if ev[0]["previous_status"] != "transmitted" {
+		t.Errorf("acknowledged event previous status: got %v, want transmitted", ev[0]["previous_status"])
+	}
+	if ev[0]["status"] != "acknowledged" {
+		t.Errorf("acknowledged event status: got %v, want acknowledged", ev[0]["status"])
+	}
+	if ev[0]["report_reference"] != "pain.002-0001" {
+		t.Errorf("acknowledged event report reference: got %v, want pain.002-0001", ev[0]["report_reference"])
 	}
 	e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "accepted"}`, `"3"`)
 	e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "rejected", "reason": "AC01"}`, `"3"`)
@@ -170,8 +291,12 @@ func TestExclusions(t *testing.T) {
 	if pays := e.payments(t, run); len(pays) != 1 || pays[0].(map[string]any)["supplier_id"] != afterHold {
 		t.Fatalf("payments: %v", pays)
 	}
-	if ev := events(t, e.Tenant, "payment_run_proposed"); ev[0]["exclusion_count"] != float64(6) || ev[0]["total_amount"].(map[string]any)["amount"] != "10.00" {
-		t.Fatalf("event: %v", ev)
+	ev := events(t, e.Tenant, "payment_run_proposed")
+	if ev[0]["exclusion_count"] != float64(6) {
+		t.Errorf("proposed event exclusion count: got %v, want 6", ev[0]["exclusion_count"])
+	}
+	if got := ev[0]["total_amount"].(map[string]any)["amount"]; got != "10.00" {
+		t.Errorf("proposed event total: got %v, want 10.00", got)
 	}
 }
 
@@ -182,16 +307,22 @@ func TestRejectFreesItems(t *testing.T) {
 	first := e.run(t, "2026-04-15", "2026-04-15")
 	// Items in a live run are reserved: another run does not pay them, and the invoice cannot be reversed.
 	second := e.run(t, "2026-04-16", "2026-04-16")
-	if pays := e.payments(t, second); len(pays) != 0 || len(e.exclusions(t, second)) != 0 {
-		t.Fatalf("second run pays reserved items: %v", pays)
+	if pays := e.payments(t, second); len(pays) != 0 {
+		t.Errorf("second run payments: got %v, want none for reserved items", pays)
+	}
+	if exs := e.exclusions(t, second); len(exs) != 0 {
+		t.Errorf("second run exclusions: got %v, want none for reserved items", exs)
 	}
 	e.decide(t, 409, second, "release", "")
 	e.Problem(409, "payables.invoice_in_payment_run", "POST", "/v1/supplier-invoices/"+id(inv)+":reverse", `{"reason": "r"}`, `"2"`)
 
 	e.decide(t, 400, first, "reject", `{}`)
 	rejected := e.decide(t, 200, first, "reject", `{"reason": "Wrong due date"}`)
-	if rejected["status"] != "rejected" || rejected["decided_by"] != e.Approver.ID.String() {
-		t.Fatalf("rejected: %v", rejected)
+	if rejected["status"] != "rejected" {
+		t.Errorf("rejected status: got %v, want rejected", rejected["status"])
+	}
+	if rejected["decided_by"] != e.Approver.ID.String() {
+		t.Errorf("rejected decided by: got %v, want %v", rejected["decided_by"], e.Approver.ID)
 	}
 	if item := e.payments(t, first)[0].(map[string]any)["items"].([]any)[0].(map[string]any); item["is_active"] != false {
 		t.Fatalf("item still active: %v", item)
@@ -216,8 +347,11 @@ func TestProposalOutdated(t *testing.T) {
 		UPDATE partner.bank_account SET valid_to = '2026-02-01' WHERE partner_id = '%s'; END $$`, e.Supplier))
 	e.bankAccount(t, e.Supplier, "DE02120300000000202051", "Supplier", "2026-02-01", "", "create")
 	got := e.decide(t, 409, run, "release", "")
-	if got["code"] != "payments.proposal_outdated" || !strings.Contains(got["detail"].(string), "bank_account_changed") {
-		t.Fatalf("bank account changed: %v", got)
+	if got["code"] != "payments.proposal_outdated" {
+		t.Errorf("bank account changed code: got %v, want payments.proposal_outdated", got["code"])
+	}
+	if detail := got["detail"].(string); !strings.Contains(detail, "bank_account_changed") {
+		t.Errorf("bank account changed detail: got %q, want it to name bank_account_changed", detail)
 	}
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_payment_blocked = true, version = version + 1 WHERE partner_id = $1`, e.Supplier)
 	if got := e.decide(t, 409, run, "release", ""); !strings.Contains(got["detail"].(string), "payment_blocked") {
