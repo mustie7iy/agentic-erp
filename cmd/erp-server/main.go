@@ -157,7 +157,7 @@ func (s *server) abort(cancel context.CancelFunc, err error) error {
 	cancel()
 	close(s.relayDone)
 	s.wait()
-	return err
+	return errors.Join(err, <-s.workerErr) // the workflow worker's failure, when it had one, as serve reports it
 }
 
 // server is what run wires together, one step after the other, before it
