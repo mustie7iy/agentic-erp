@@ -9,38 +9,64 @@ func TestMoneyEdges(t *testing.T) {
 	if Minor(-1234).Format(0) != "-1,234" {
 		t.Fatalf("zero decimals: %s", Minor(-1234).Format(0))
 	}
-	if Qty(-12500).String() != "-12.5" || Qty(3000).String() != "3" {
-		t.Fatal("qty strings")
+	if got := Qty(-12500).String(); got != "-12.5" {
+		t.Errorf("Qty(-12500).String() = %q, want %q", got, "-12.5")
 	}
-	if Extend(2_000, 150, 0) != 300 || Extend(2_000, 150, -5) != 300 {
-		t.Fatal("price unit defaults to 1")
+	if got := Qty(3000).String(); got != "3" {
+		t.Errorf("Qty(3000).String() = %q, want %q", got, "3")
 	}
-	if Percent(1_000, 8) != 80 || Percent(-125, 10) != -13 {
-		t.Fatal("percent rounding")
+	// The price unit defaults to 1 when it is not positive.
+	if got := Extend(2_000, 150, 0); got != 300 {
+		t.Errorf("Extend with price unit 0 = %d, want 300", got)
 	}
-	if divRound(7, -2) != -4 || divRound(-7, -2) != 4 {
-		t.Fatal("negative denominator")
+	if got := Extend(2_000, 150, -5); got != 300 {
+		t.Errorf("Extend with price unit -5 = %d, want 300", got)
 	}
-	if Minor(-5).Abs() != 5 || Minor(5).Abs() != 5 {
-		t.Fatal("abs")
+	if got := Percent(1_000, 8); got != 80 {
+		t.Errorf("Percent(1000, 8) = %d, want 80", got)
+	}
+	if got := Percent(-125, 10); got != -13 {
+		t.Errorf("Percent(-125, 10) = %d, want -13", got)
+	}
+	if got := divRound(7, -2); got != -4 {
+		t.Errorf("divRound(7, -2) = %d, want -4", got)
+	}
+	if got := divRound(-7, -2); got != 4 {
+		t.Errorf("divRound(-7, -2) = %d, want 4", got)
+	}
+	if got := Minor(-5).Abs(); got != 5 {
+		t.Errorf("Minor(-5).Abs() = %d, want 5", got)
+	}
+	if got := Minor(5).Abs(); got != 5 {
+		t.Errorf("Minor(5).Abs() = %d, want 5", got)
 	}
 	for in, want := range map[string]Minor{"1080.00": 108000, "-0.05": -5, "0.00": 0} {
-		if v, err := ParseAmount(in, 2); err != nil || v != want {
-			t.Errorf("ParseAmount(%q) = %d, %v", in, v, err)
-		}
+		t.Run("parse "+in, func(t *testing.T) {
+			if got, err := ParseAmount(in, 2); err != nil || got != want {
+				t.Errorf("ParseAmount(%q) = %d, %v; want %d, nil", in, got, err, want)
+			}
+		})
 	}
 	if v, err := ParseAmount("100", 0); err != nil || v != 100 {
 		t.Errorf("JPY: %d %v", v, err)
 	}
 	for _, in := range []string{"1080.0", "1080", "1080.000", "-", "-.50", "1.0a", ""} {
-		if _, err := ParseAmount(in, 2); err == nil {
-			t.Errorf("ParseAmount(%q, 2) accepted", in)
-		}
+		t.Run("reject "+in, func(t *testing.T) {
+			if _, err := ParseAmount(in, 2); err == nil {
+				t.Errorf("ParseAmount(%q, 2) accepted, want an error", in)
+			}
+		})
 	}
 	if _, err := ParseAmount("100.0", 0); err == nil {
 		t.Error("decimals on a zero-digit currency accepted")
 	}
-	if Minor(-123456789).Plain(2) != "-1234567.89" || Minor(1000).Plain(0) != "1000" || Minor(5).Plain(3) != "0.005" {
-		t.Errorf("plain: %s %s %s", Minor(-123456789).Plain(2), Minor(1000).Plain(0), Minor(5).Plain(3))
+	for _, c := range []struct {
+		m    Minor
+		dec  int
+		want string
+	}{{-123456789, 2, "-1234567.89"}, {1000, 0, "1000"}, {5, 3, "0.005"}} {
+		if got := c.m.Plain(c.dec); got != c.want {
+			t.Errorf("Minor(%d).Plain(%d) = %q, want %q", c.m, c.dec, got, c.want)
+		}
 	}
 }

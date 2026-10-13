@@ -23,10 +23,15 @@ func TestParseDecimal(t *testing.T) {
 		{"-1-", 2, 0, true},
 	}
 	for _, c := range cases {
-		got, err := ParseDecimal(c.in, c.dec)
-		if (err != nil) != c.err || got != c.want {
-			t.Errorf("ParseDecimal(%q,%d) = %d, %v; want %d, err=%v", c.in, c.dec, got, err, c.want, c.err)
-		}
+		t.Run(c.in, func(t *testing.T) {
+			got, err := ParseDecimal(c.in, c.dec)
+			if (err != nil) != c.err {
+				t.Errorf("ParseDecimal(%q,%d) error = %v, want error %v", c.in, c.dec, err, c.err)
+			}
+			if got != c.want {
+				t.Errorf("ParseDecimal(%q,%d) = %d, want %d", c.in, c.dec, got, c.want)
+			}
+		})
 	}
 }
 
