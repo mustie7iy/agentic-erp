@@ -63,7 +63,7 @@ func TestRoutesToTheCell(t *testing.T) {
 	case code := <-done:
 		t.Fatalf("stopped before serving: %d %s", code, logs.String())
 	}
-	req, _ := http.NewRequest("GET", base+"/v1/balances", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", base+"/v1/balances", nil)
 	req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestRoutesToTheCell(t *testing.T) {
 			t.Fatalf("admin %s: got %d, want 200", path, code)
 		}
 	}
-	req, _ = http.NewRequest("GET", adminBase+"/directory/v1/tenants/"+tenant.String(), nil)
+	req, _ = http.NewRequestWithContext(t.Context(), "GET", adminBase+"/directory/v1/tenants/"+tenant.String(), nil)
 	req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil}))
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
@@ -105,7 +105,7 @@ func TestRoutesToTheCell(t *testing.T) {
 
 func TestExitCodes(t *testing.T) {
 	is := authntest.New(t)
-	busy, _ := net.Listen("tcp", "127.0.0.1:0")
+	busy, _ := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	defer func() { _ = busy.Close() }() // best-effort cleanup of the port the cases collide with
 	for name, c := range map[string]struct {
 		mutate func(env map[string]string)

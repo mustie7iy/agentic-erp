@@ -67,11 +67,12 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", cfg.Addr)
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("erp-router: listen on %s: %w", cfg.Addr, err)
 	}
-	adminLn, err := net.Listen("tcp", cfg.AdminAddr)
+	adminLn, err := lc.Listen(ctx, "tcp", cfg.AdminAddr)
 	if err != nil {
 		_ = ln.Close() // the admin listener's failure is the one reported
 		return fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
