@@ -84,12 +84,16 @@ func TestPostgresDirectory(t *testing.T) {
 		t.Fatalf("%+v %v", e, err)
 	}
 	// An upsert that changes nothing leaves the version alone; one that changes something moves it on.
-	dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active})
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active}); err != nil {
+		t.Fatalf("unchanged upsert: %v", err)
+	}
 	if e, _ := dir.Lookup(ctx, tenant); e.Version != 1 {
 		t.Fatalf("version moved without a change: %+v", e)
 	}
 	// The cell's status changes pass through; a read_only set in the directory survives the cell's upserts.
-	dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Suspended})
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Suspended}); err != nil {
+		t.Fatalf("suspending upsert: %v", err)
+	}
 	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.Suspended || e.Version != 2 {
 		t.Fatalf("suspended: %+v", e)
 	}
@@ -101,13 +105,19 @@ func TestPostgresDirectory(t *testing.T) {
 	if err != nil || frozen.Status != directory.ReadOnly || frozen.Version != 3 {
 		t.Fatalf("%+v %v", frozen, err)
 	}
-	dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-2", APIURL: "https://eu-2.api.example.com", Status: directory.Active})
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-2", APIURL: "https://eu-2.api.example.com", Status: directory.Active}); err != nil {
+		t.Fatalf("upsert from eu-2: %v", err)
+	}
 	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.ReadOnly || e.Cell != "eu-2" {
 		t.Fatalf("moving: %+v", e)
 	}
 	// Moves go to registered cells of the tenant's region only, at the version read.
-	dir.UpsertCell(ctx, directory.Cell{Name: "eu-3", Region: "eu-west", APIURL: "https://eu-3.api.example.com", ControlURL: "http://eu-3:9090", Accepting: false})
-	dir.UpsertCell(ctx, directory.Cell{Name: "us-1", Region: "us-east", APIURL: "https://us-1.api.example.com", ControlURL: "http://us-1:9090", Accepting: true})
+	if err := dir.UpsertCell(ctx, directory.Cell{Name: "eu-3", Region: "eu-west", APIURL: "https://eu-3.api.example.com", ControlURL: "http://eu-3:9090", Accepting: false}); err != nil {
+		t.Fatalf("register eu-3: %v", err)
+	}
+	if err := dir.UpsertCell(ctx, directory.Cell{Name: "us-1", Region: "us-east", APIURL: "https://us-1.api.example.com", ControlURL: "http://us-1:9090", Accepting: true}); err != nil {
+		t.Fatalf("register us-1: %v", err)
+	}
 	if _, err := dir.Move(ctx, tenant, 0, "eu-9"); !errors.Is(err, directory.ErrUnknownCell) {
 		t.Fatalf("move to nowhere: %v", err)
 	}
@@ -142,7 +152,9 @@ func TestPostgresDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	dir.UpsertCell(ctx, directory.Cell{Name: "us-1", Region: "us-east", APIURL: "https://us-1.api.example.com", ControlURL: "http://us-1:9090", Accepting: false}) // updated
+	if err := dir.UpsertCell(ctx, directory.Cell{Name: "us-1", Region: "us-east", APIURL: "https://us-1.api.example.com", ControlURL: "http://us-1:9090", Accepting: false}); err != nil { // updated
+		t.Fatalf("update us-1: %v", err)
+	}
 	cells, err := dir.ListCells(ctx, "eu-west")
 	if err != nil || len(cells) != 3 || cells[0].Name != "eu-1" || cells[0].Tenants != 0 || cells[2].Name != "eu-3" || cells[2].Tenants != 1 {
 		t.Fatalf("%+v %v", cells, err)
@@ -154,8 +166,12 @@ func TestPostgresDirectory(t *testing.T) {
 	if err != nil || placed.Name != "eu-1" {
 		t.Fatalf("placed: %+v %v", placed, err)
 	}
-	dir.Upsert(ctx, directory.Entry{TenantID: uuid.New(), Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active})
-	dir.Upsert(ctx, directory.Entry{TenantID: uuid.New(), Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active})
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: uuid.New(), Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active}); err != nil {
+		t.Fatalf("fill eu-1: %v", err)
+	}
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: uuid.New(), Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active}); err != nil {
+		t.Fatalf("fill eu-1: %v", err)
+	}
 	if again, _ := dir.Place(ctx, "key-1", "eu-west", ""); again.Name != "eu-1" { // the same key, the same cell, however full
 		t.Fatalf("retry placed elsewhere: %+v", again)
 	}
@@ -233,7 +249,9 @@ func TestCache(t *testing.T) {
 	store := &memory{}
 	cache := &directory.Cache{Store: store, TTL: time.Minute, Now: func() time.Time { return clock }}
 	tenant := uuid.New()
-	store.Upsert(ctx, directory.Entry{TenantID: tenant, Cell: "eu-1", Status: directory.Active})
+	if err := store.Upsert(ctx, directory.Entry{TenantID: tenant, Cell: "eu-1", Status: directory.Active}); err != nil {
+		t.Fatalf("seed the store: %v", err)
+	}
 	for i := 0; i < 3; i++ {
 		if e, err := cache.Lookup(ctx, tenant); err != nil || e.Cell != "eu-1" {
 			t.Fatalf("%+v %v", e, err)
@@ -250,7 +268,9 @@ func TestCache(t *testing.T) {
 	}
 	// After the TTL the store is asked again; a write through the cache forgets the tenant at once.
 	clock = clock.Add(2 * time.Minute)
-	cache.Lookup(ctx, tenant)
+	if _, err := cache.Lookup(ctx, tenant); err != nil {
+		t.Fatalf("lookup after the TTL: %v", err)
+	}
 	if store.lookups != 3 {
 		t.Fatalf("%d lookups after the TTL", store.lookups)
 	}
@@ -384,9 +404,15 @@ func TestDirectoryStatementFailures(t *testing.T) {
 	}
 	defer dir.Close()
 	tenant := uuid.New()
-	dir.UpsertCell(ctx, directory.Cell{Name: "sf-1", Region: "sf-west", APIURL: "https://sf-1", ControlURL: "http://sf-1:9090", Accepting: true})
-	dir.UpsertCell(ctx, directory.Cell{Name: "sf-2", Region: "sf-west", APIURL: "https://sf-2", ControlURL: "http://sf-2:9090", Accepting: true})
-	dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "sf-west", Cell: "sf-1", APIURL: "https://sf-1", Status: directory.ReadOnly})
+	if err := dir.UpsertCell(ctx, directory.Cell{Name: "sf-1", Region: "sf-west", APIURL: "https://sf-1", ControlURL: "http://sf-1:9090", Accepting: true}); err != nil {
+		t.Fatalf("register sf-1: %v", err)
+	}
+	if err := dir.UpsertCell(ctx, directory.Cell{Name: "sf-2", Region: "sf-west", APIURL: "https://sf-2", ControlURL: "http://sf-2:9090", Accepting: true}); err != nil {
+		t.Fatalf("register sf-2: %v", err)
+	}
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "sf-west", Cell: "sf-1", APIURL: "https://sf-1", Status: directory.ReadOnly}); err != nil {
+		t.Fatalf("place the tenant on sf-1: %v", err)
+	}
 	pool := dir.Pool
 	for name, op := range map[string]func() error{
 		"lookup": func() error { _, err := dir.Lookup(ctx, tenant); return err },
