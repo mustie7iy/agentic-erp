@@ -82,8 +82,8 @@ single-return path whose failure no test can provoke from becoming its own branc
 - [x] R14 wrapcheck: internal/payables 25 → 0 (worktree agent, 098db94; match insert named in the review follow-up). Reviewer: APPROVE.
 - [x] R15 wrapcheck: internal/partner 36 → 0 (worktree agent, b72cd60; date parse error no longer echoes input). Reviewer: APPROVE.
 - [x] R16 wrapcheck: internal/configuration 31 → 0 (worktree agent, a5af3f3; failed-commit test asserts the job stays queued). Reviewer: APPROVE.
-- [ ] R17 wrapcheck: internal/integration
-- [ ] R18 wrapcheck: internal/analytics
+- [x] R17 wrapcheck: internal/integration 15 → 0 (worktree agent, 82375bd; write paths named in the review follow-up). Reviewer: APPROVE after fixes.
+- [x] R18 wrapcheck: internal/analytics 11 → 0 (worktree agent, 72218e0; render and page-save failures tested in the review follow-up). Reviewer: APPROVE after fixes.
 - [ ] R19 wrapcheck: remaining internal packages and cmd/*
 
 ### Phase 4 — Long and complex functions
@@ -224,6 +224,9 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
 - R1: `ERP_APPROVAL_ESCALATIONS` has no upper bound (internal/platform/config); above 32767 the
   workflow's int16 count wraps and the smallint column overflows. Fix: cap it in config (own
   step, behaviour change).
+- R19c: cmd/erp queryCmd ignores tw.Flush() and closes the -csv file with a plain defer, so a
+  failed close (truncated CSV) goes unreported; token loses the JSON decode error behind "answered
+  %d". Both are errcheck/R23 work.
 - R3: the same `x[:strings.LastIndex(x, ".")]` pattern derives ObjectType in
   internal/payments/payments.go:305 and internal/integration/integration.go:137 (only literal
   inputs today, so no panic is reachable): a copied helper for R9 / Phase 2.

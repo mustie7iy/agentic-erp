@@ -9,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // Session holds the results of one conversation with the analytics agent,
@@ -193,9 +191,12 @@ func (rep *Report) Save(dir string, results map[string]*Result) (htmlPath string
 		return "", fmt.Errorf("analytics: save report %s definition: %w", rep.ID, err)
 	}
 	var page bytes.Buffer
-	Render(&page, &rep.Spec, results, rep.Principal)
+	_ = Render(&page, &rep.Spec, results, rep.Principal) // into memory: cannot fail, see above
 	htmlPath = filepath.Join(dir, rep.ID+".html")
-	return htmlPath, errs.Wrapf(os.WriteFile(htmlPath, page.Bytes(), 0o600), "analytics: save report %s page", rep.ID)
+	if err := os.WriteFile(htmlPath, page.Bytes(), 0o600); err != nil {
+		return htmlPath, fmt.Errorf("analytics: save report %s page: %w", rep.ID, err)
+	}
+	return htmlPath, nil
 }
 
 func LoadReport(path string) (*Report, error) {

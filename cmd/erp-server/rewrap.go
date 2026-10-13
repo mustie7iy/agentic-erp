@@ -71,7 +71,7 @@ func rewrap(ctx context.Context, cfg platformconfig.Config) (rewrapResult, error
 			tenants = append(tenants, id)
 			return nil
 		})
-		return errs.Wrapf(err, "scan tenant")
+		return errs.Wrapf(err, "read tenants")
 	})
 	if err != nil {
 		return rewrapResult{}, fmt.Errorf("listing tenants: %w", err)

@@ -10,8 +10,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // Render writes the dashboard as a self-contained HTML page (inline CSS and
@@ -70,7 +68,10 @@ func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal) error
 		}
 		v.Definitions = append(v.Definitions, defView{Name: name, Text: line})
 	}
-	return errs.Wrapf(pageTmpl.Execute(w, v), "analytics: render page")
+	if err := pageTmpl.Execute(w, v); err != nil {
+		return fmt.Errorf("analytics: render page: %w", err)
+	}
+	return nil
 }
 
 type view struct {
@@ -448,7 +449,10 @@ func WriteCSV(w io.Writer, r *Result) error {
 		}
 	}
 	cw.Flush()
-	return errs.Wrapf(cw.Error(), "analytics: flush csv")
+	if err := cw.Error(); err != nil {
+		return fmt.Errorf("analytics: flush csv: %w", err)
+	}
+	return nil
 }
 
 var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>

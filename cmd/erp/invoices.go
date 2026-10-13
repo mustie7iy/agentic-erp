@@ -16,7 +16,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 type parkedInvoice struct {
@@ -259,7 +258,9 @@ func agentTest(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(out, "Recommendation recorded: %t\n\n%s\n", rev.Recommended, rev.Scripts)
 	if *outFile != "" {
-		return errs.Wrapf(os.WriteFile(*outFile, []byte(rev.Scripts), 0o600), "agent test: write scripts")
+		if err := os.WriteFile(*outFile, []byte(rev.Scripts), 0o600); err != nil {
+			return fmt.Errorf("agent test: write scripts: %w", err)
+		}
 	}
 	return nil
 }

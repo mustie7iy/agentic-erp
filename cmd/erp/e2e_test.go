@@ -160,6 +160,8 @@ func TestEndToEnd(t *testing.T) {
 	}
 	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
 	must(t, "agent", "test", "-change-request", cr["id"].(string))
+	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
+	fails(t, "agent test: write scripts", "agent", "test", "-change-request", cr["id"].(string), "-out", filepath.Join(t.TempDir(), "missing", "uat.md"))
 
 	// Analytics reads what the person may see through the API.
 	if got := must(t, "metrics"); !strings.Contains(got, "revenue") {

@@ -513,8 +513,18 @@ func TestSessionErrorPaths(t *testing.T) {
 	}
 	jsonDir := t.TempDir()
 	os.Mkdir(filepath.Join(jsonDir, rep.ID+".json"), 0o755)
-	if _, err := rep.Save(jsonDir, ok.Results); err == nil {
-		t.Fatal("unwritable report file")
+	if _, err := rep.Save(jsonDir, ok.Results); err == nil || !strings.Contains(err.Error(), "analytics: save report "+rep.ID+" definition") {
+		t.Fatalf("unwritable report file: got %v", err)
+	}
+	htmlDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(htmlDir, rep.ID+".html"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rep.Save(htmlDir, ok.Results); err == nil || !strings.Contains(err.Error(), "analytics: save report "+rep.ID+" page") {
+		t.Fatalf("unwritable report page: got %v", err)
+	}
+	if err := Render(failWriter{}, &rep.Spec, ok.Results, rep.Principal); err == nil || !strings.Contains(err.Error(), "analytics: render page") {
+		t.Fatalf("render to a failing writer: got %v", err)
 	}
 
 	// Rerun: a query that no longer runs, and a spec that no longer validates.
