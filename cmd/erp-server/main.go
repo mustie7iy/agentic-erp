@@ -233,7 +233,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}
 		go func() {
 			workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
-				workflows.Register(r, activities, &workflows.Simulations{Worker: simulator})
+				workflows.Register(r, activities, &workflows.Simulations{Worker: simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Integration(apiCfg)})
 			})
 			close(workerDone)
 		}()

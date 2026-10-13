@@ -79,7 +79,7 @@ prototype store for that context.
 | T25 (done) | **Cross-cell verification** | Each cell answers a tenant's fingerprint (rows per table, audit chain head); the global control plane compares the tenant's cell with the destination and names every difference, the evidence a move waits for before switching the entry |
 | T26 (done) | **Temporal runtime** (ADR-0012, accepted) | `erp-server` runs a Temporal worker; the `Operation` resource is the API's view of a workflow (id from the business key, status, progress, result, error, `:cancel`); one existing operation runs end to end as a workflow whose activities are the application services in the unit of work; a dev server in tests and CI |
 | T27 (done) | **Payment release as a workflow** | `:release` answers 202 with an Operation; the run is `releasing` while each payment is posted as one idempotent activity (progress on the operation) and the bank file is written at the end; a business problem fails the operation and a run with postings is resumed by `:release` again; the proposal stays one activity (its selection is one snapshot) |
-| T28 | **Simulations, regression and migration runs as workflows** | Simulations (with their regression replays) run as workflows (done); migration and reconciliation runs leave the request and run as workflows, the CLI and the agent following the operation (open); the in-process workers stay as the fallback of a cell without an engine, which production does not run |
+| T28 (done) | **Simulations, regression and migration runs as workflows** | Simulations (with their regression replays) run as workflows; with an engine, migration and reconciliation runs leave the request (the run is `running` under its operation) and run as workflows, the CLI waiting for the operation; without one they complete within the request as before, and the in-process workers stay as that cell's fallback |
 | T29 | **Human waits and timers** | Approval requests and period close run as workflows that wait on decisions and deadlines; escalation timers; workflow versioning and the payload codec in place; namespaces per environment and tenant isolation by task queue |
 
 The prototype stayed runnable as a demo until T6, which removed
@@ -1494,6 +1494,49 @@ Open points for the contract and design review:
   `PaymentRunReleased` event fires then, as before.
 - The proposal's progress is reported once, at the end; chunked progress
   would need the selection persisted first.
+
+### T28 decisions and open points
+
+What T28 built: the remaining in-process work as workflows (ADR-0012).
+`SimulateChange` runs a change request's simulation (with its regression
+replay) as one activity, `SimulationWorker.Simulate` for the named
+operation, dispatched under the request's number and attempt (migration
+000030). `MigrateRun` runs a migration run's start (extract, quality gate,
+load) or its reconciliation as one activity, `integration.Endpoints.Execute`
+as the operation's requester: with an engine (`Workflows` on the
+integration endpoints, set when `ERP_TEMPORAL_ADDRESS` is), `:start` and
+`:reconcile` check the run and its connector, create the operation and
+move the run to `running`; the activity does the work, and a problem
+preparing it (the connector's secret, the source not answering) fails the
+operation and puts the run back where it was, to be started again (the
+next attempt in the workflow id; migration 000031). `erp migrate` waits for
+an operation still running. Without an engine the runs complete within the
+request as before, which is what the integration suite, the migration agent
+and the end-to-end test exercise.
+
+Decisions taken while building it:
+
+- **The engine decides the shape of a run.** The same request is
+  synchronous without one and queued with one; the contract was 202 with an
+  Operation already, so clients that poll the operation see no difference.
+- **The data's outcome is the run's report, the machinery's is the
+  operation's failure.** A quality gate or a reconciliation that fails is a
+  `failed` run with a report, as before; an extract that cannot be read is
+  a failed operation and a run to start again.
+- **In-process workers stay as the fallback** of a cell without an engine
+  (development, tests); production runs the engine, and the server says so
+  at start.
+
+Open points for the contract and design review:
+
+- The migration agent reads the run after starting it; with an engine it
+  would find it `running` and must poll the operation (its tools have
+  `getOperation`), which its scripted tests do not yet exercise.
+- The server does not refuse to start in production without an engine; a
+  deployment flag (`ERP_ENV=production`) could make the engine required.
+- Regression suites are captured and replayed inside the simulation
+  activity; a long replay would benefit from its own activity with
+  progress, as the release has.
 
 ## 7.4 Data from the prototype
 

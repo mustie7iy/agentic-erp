@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
@@ -171,11 +172,24 @@ func TestMigrateErrors(t *testing.T) {
 		"reconcile refused":  {routes{"GET " + runPath: {ok(`{}`), loaded, {404, `{"code": "gone"}`}}}, "gone"},
 		"reconciled aborted": {routes{"GET " + runPath: {ok(`{}`), loaded, ok(`{}`), aborted}}, "EOF"},
 		"failed":             {routes{"GET " + runPath: {ok(`{}`), failed}}, "do not cut over"},
+		"start refused":      {routes{"POST " + runPath + ":start": {{409, `{"code": "integration.invalid_status"}`}}}, "invalid_status"},
+		"poll aborted":       {routes{"POST " + runPath + ":start": {ok(`{"id": "op1", "status": "queued"}`)}, "GET /v1/operations/op1": {aborted}}, "EOF"},
+		"poll refused":       {routes{"POST " + runPath + ":start": {ok(`{"id": "op1", "status": "queued"}`)}, "GET /v1/operations/op1": {{404, `{"code": "not_found"}`}}}, "not_found"},
+		"poll unreadable":    {routes{"POST " + runPath + ":start": {ok(`{"id": "op1", "status": "queued"}`)}, "GET /v1/operations/op1": {ok(`not json`)}}, "invalid"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fakeAPI(t, migration(c.r))
 			fails(t, c.want, "migrate", "-connector", "c", "-legal-entities", "le")
 		})
+	}
+	// A cell with a workflow engine answers an operation still running: the command waits for it.
+	pollInterval = time.Millisecond
+	defer func() { pollInterval = 500 * time.Millisecond }()
+	fakeAPI(t, migration(routes{"POST " + runPath + ":start": {ok(`{"id": "op1", "status": "queued"}`)},
+		"GET /v1/operations/op1": {ok(`{"id": "op1", "status": "running"}`), ok(`{"id": "op1", "status": "succeeded"}`)},
+		"GET " + runPath:         {ok(`{}`), ok(`{"id": "r1", "status": "reconciled"}`)}}))
+	if code, got := cli(t, "migrate", "-connector", "c", "-legal-entities", "le"); code != 0 || !strings.Contains(got, "reconciled") {
+		t.Fatalf("waiting for the operation: %d %s", code, got)
 	}
 	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), failed}}))
 	_, got := cli(t, "migrate")

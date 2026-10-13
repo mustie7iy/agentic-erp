@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
 
@@ -687,4 +689,143 @@ func TestSimulationWorkflow(t *testing.T) {
 	if last := engine.started[len(engine.started)-1]; last.ID != workflows.SimulateWorkflowID(e2.Tenant.ID, number, 2) || last.Args[0].(workflows.SimulateInput).OperationID != uuid.MustParse(id(op3)) {
 		t.Fatalf("second attempt: %+v", last)
 	}
+}
+
+// migrationAsked sets up a tenant with a file connector, asks for a run's
+// start through an API that hands runs to a workflow engine, and returns
+// the environment, the run's path and the workflow input.
+func migrationAsked(t *testing.T, file string) (env, string, workflows.MigrateInput, *workflows.Migrations) {
+	t.Helper()
+	f := fixture.New(t, "integration.connector.read", "integration.connector.manage", "integration.migration.read", "integration.migration.run",
+		"platform.operation.read", "ledger.entry.read", "ledger.entry.post", "payables.invoice.read", "procurement.order.read")
+	dir := t.TempDir()
+	if err := sap.WriteExtract(filepath.Join(dir, "extract.json"), sap.GenerateMock(42, "2026")); err != nil {
+		t.Fatal(err)
+	}
+	f.API = apitest.NewWith(t, func(c *httpapi.Config) { c.ExtractDir = dir; c.Workflows = &fakeEngine{} })
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2025-01-01', 0.9, 'ECB', $2)`, f.Tenant.ID, f.Tenant.Human.ID)
+	e := env{Env: f}
+	c, _ := e.Must(201, "POST", "/v1/connectors", fmt.Sprintf(`{"kind": "sap_file", "name": "SAP", "settings": {"path": %q}}`, file), "")
+	r, _ := e.Must(201, "POST", "/v1/migration-runs", fmt.Sprintf(`{"connector_id": %q, "scope": {"legal_entity_ids": [%q], "fiscal_year": 2026}, "mode": "documents", "is_rehearsal": false}`, id(c), e.US), "")
+	path := "/v1/migration-runs/" + id(r)
+	_, tag := e.Must(200, "GET", path, "", "")
+	op, _ := e.Must(202, "POST", path+":start", "", tag)
+	if op["status"] != "queued" {
+		t.Fatalf("start with an engine: %v", op)
+	}
+	if running, _ := e.Must(200, "GET", path, "", ""); running["status"] != "running" || running["operation_id"] != id(op) {
+		t.Fatalf("run handed to the engine: %v", running)
+	}
+	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	m := &workflows.Migrations{Pool: pgtest.Pool(t), AppRole: "erp_app",
+		Endpoints: httpapi.Integration(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: dir, Workflows: &fakeEngine{}})}
+	return e, path, workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(id(r)), OperationID: uuid.MustParse(id(op))}, m
+}
+
+func executeMigration(t *testing.T, m *workflows.Migrations, in workflows.MigrateInput) error {
+	t.Helper()
+	var s testsuite.WorkflowTestSuite
+	env := s.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.MigrateRun)
+	env.RegisterActivity(m)
+	env.ExecuteWorkflow(workflows.MigrateRun, in)
+	return env.GetWorkflowError()
+}
+
+// TestMigrationWorkflow: with an engine a run's start and reconciliation
+// are workflows whose activity does the integration context's work; a run
+// whose extract cannot be read goes back to queued with the problem on its
+// operation; an operation already done is left alone; failures are reported.
+func TestMigrationWorkflow(t *testing.T) {
+	e, path, in, m := migrationAsked(t, "extract.json")
+	if err := executeMigration(t, m, in); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := e.Must(200, "GET", path, "", "")
+	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+	if loaded["status"] != "loaded" || done["status"] != "succeeded" || loaded["report"].(map[string]any)["loaded"].(map[string]any)["journal_entries"] != float64(43) {
+		t.Fatalf("loaded by the workflow: %v %v", loaded, done)
+	}
+	if err := executeMigration(t, m, in); err != nil { // the operation is done: nothing happens
+		t.Fatal(err)
+	}
+	// Reconciliation the same way.
+	_, tag := e.Must(200, "GET", path, "", "")
+	rec, _ := e.Must(202, "POST", path+":reconcile", "", tag)
+	in2 := workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: in.RunID, OperationID: uuid.MustParse(id(rec))}
+	if err := executeMigration(t, m, in2); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.Must(200, "GET", path, "", ""); got["status"] != "reconciled" {
+		t.Fatalf("reconciled by the workflow: %v", got)
+	}
+	// Dispatched under the run and the operation's kind and attempt.
+	engine := &fakeEngine{}
+	d := &workflows.Dispatcher{Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}
+	e3, path3, in3, m3 := migrationAsked(t, "nowhere.json")
+	if n, err := d.RunOnce(context.Background()); err != nil || n < 1 {
+		t.Fatalf("dispatch: %d %v", n, err)
+	}
+	found := false
+	for _, st := range engine.started {
+		found = found || st.ID == workflows.MigrateWorkflowID(e3.Tenant.ID, in3.RunID, "integration.migrate", 1) && st.Name == workflows.MigrateWorkflow && st.Args[0].(workflows.MigrateInput) == in3
+	}
+	if !found {
+		t.Fatalf("migration start: %+v", engine.started)
+	}
+	// The extract cannot be read: the operation fails with the problem and the run is queued again.
+	if err := executeMigration(t, m3, in3); err != nil {
+		t.Fatal(err)
+	}
+	failed, _ := e3.Must(200, "GET", "/v1/operations/"+in3.OperationID.String(), "", "")
+	back, _ := e3.Must(200, "GET", path3, "", "")
+	if failed["status"] != "failed" || failed["error"].(map[string]any)["code"] != "platform.unavailable" || back["status"] != "queued" {
+		t.Fatalf("unreadable extract: %v %v", failed, back)
+	}
+	// Started again: the next attempt.
+	_, tag = e3.Must(200, "GET", path3, "", "")
+	again, _ := e3.Must(202, "POST", path3+":start", "", tag)
+	if n, err := d.RunOnce(context.Background()); err != nil || n != 1 {
+		t.Fatalf("second dispatch: %d %v", n, err)
+	}
+	if last := engine.started[len(engine.started)-1]; last.ID != workflows.MigrateWorkflowID(e3.Tenant.ID, in3.RunID, "integration.migrate", 2) || last.Args[0].(workflows.MigrateInput).OperationID != uuid.MustParse(id(again)) {
+		t.Fatalf("second attempt: %+v", last)
+	}
+	// Failures of the machinery are reported, and a run that is not running is refused.
+	m3.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	if err := m3.Execute(context.Background(), in3); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Fatalf("database down: %v", err)
+	}
+	m3.Begin = nil
+	if err := m.Execute(context.Background(), workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: in.RunID, OperationID: in2.OperationID}); err != nil {
+		t.Fatalf("executing a finished run does nothing: %v", err)
+	}
+	if err := m.Execute(context.Background(), workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: in.RunID, OperationID: uuid.New()}); err == nil {
+		t.Fatal("unknown operation")
+	}
+	pool := pgtest.Pool(t)
+	in4 := workflows.MigrateInput{TenantID: e3.Tenant.ID, RunID: in3.RunID, OperationID: uuid.MustParse(id(again))}
+	m3.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) }
+	for n := 1; n < 60; n++ {
+		count := 0
+		m3.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
+		}
+		err := m3.Execute(context.Background(), in4)
+		if err == nil {
+			if n == 1 {
+				t.Fatal("executed without a statement to fail")
+			}
+			break
+		}
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("statement %d: %v", n, err)
+		}
+	}
+	m3.Begin = nil
 }

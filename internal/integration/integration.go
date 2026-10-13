@@ -123,6 +123,7 @@ type Endpoints struct {
 	Secrets       Secrets
 	ExtractDir    string       // sap_file connectors read extracts below it; empty: they cannot be used
 	HTTP          *http.Client // for sap_odata connectors; nil: the reader's default
+	Workflows     bool         // runs leave the request and run as workflows (ADR-0012); false: they complete within it
 }
 
 // record publishes the events and adds the audit entry of a change; the

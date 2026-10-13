@@ -233,7 +233,7 @@ func Integration(cfg Config) *integration.Endpoints {
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: orders, OrderValues: procurement.Orders{},
 		Invoices: invoices, InvoiceCounts: payables.Invoices{}, Postings: postings, Reports: ledger.Reports{}, Secrets: resolver(cfg.Secrets),
-		ExtractDir: cfg.ExtractDir}
+		ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil}
 }
 
 // resolver is the configured secret resolver, or the replica's own

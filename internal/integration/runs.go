@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -31,6 +32,7 @@ import (
 // Migration run statuses.
 const (
 	Queued     = "queued"
+	Running    = "running"
 	Loaded     = "loaded"
 	Reconciled = "reconciled"
 	Failed     = "failed"
@@ -293,9 +295,11 @@ func finish(ctx context.Context, r Run, op operations.Operation, status, action 
 // StartRun extracts the scope, checks it and loads it: the run becomes
 // loaded, or failed when the quality gate or the load refused something
 // (nothing stays loaded then). A rehearsal also reconciles and is rolled
-// back, keeping only its report: reconciled or failed.
+// back, keeping only its report: reconciled or failed. With a workflow
+// engine (Workflows, ADR-0012) the run moves to running and the work is the
+// migration workflow's; without one it completes within the request.
 func (e *Endpoints) StartRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
-	tx, p, err := reqctx.Request(ctx)
+	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -309,6 +313,12 @@ func (e *Endpoints) StartRun(ctx context.Context, id uuid.UUID, ifMatch func(int
 	if r.Status != Queued {
 		return operations.Operation{}, problem.Conflict("integration.invalid_status", "Only a queued migration run can be started; this one is "+r.Status+".")
 	}
+	if e.Workflows {
+		if _, err := activeConnector(ctx, tx, r); err != nil {
+			return operations.Operation{}, err
+		}
+		return e.hand(ctx, r, "integration.migrate", "integration.migration_run.start")
+	}
 	t, ext, c, err := e.prepare(ctx, tx, r)
 	if err != nil {
 		return operations.Operation{}, err
@@ -317,6 +327,89 @@ func (e *Endpoints) StartRun(ctx context.Context, id uuid.UUID, ifMatch func(int
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	return e.load(ctx, r, op, t, ext, c)
+}
+
+// activeConnector is the run's connector, active.
+func activeConnector(ctx context.Context, tx pgx.Tx, r Run) (Connector, error) {
+	c, err := getConnector(ctx, tx, r.ConnectorID, false)
+	if err != nil {
+		return c, err
+	}
+	if c.Status != "active" {
+		return c, problem.Conflict("integration.connector_disabled", "The run's connector is disabled.")
+	}
+	return c, nil
+}
+
+// hand queues the run's work for the workflow engine: the operation is
+// created, the run moves to running under it, and the dispatcher takes it
+// from there.
+func (e *Endpoints) hand(ctx context.Context, r Run, kind, action string) (operations.Operation, error) {
+	tx, p, _ := reqctx.Request(ctx) // callers run in a request
+	op, err := operations.StartFor(ctx, kind, map[string]any{"migration_run_id": r.ID}, "/v1/migration-runs/"+r.ID.String())
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE integration.migration_run SET status = 'running', operation_id = $2, started_at = coalesce(started_at, now()), version = version + 1 WHERE id = $1`, r.ID, op.ID); err != nil {
+		return operations.Operation{}, err
+	}
+	return op, record(ctx, action, r.ID, map[string]any{"status": Running, "operation_id": op.ID, "by": p.ID, "workflow": true})
+}
+
+// Execute does a running run's work in the request's transaction, as the
+// activity of the migration workflow: the start (extract, check, load) or
+// the reconciliation, by the operation's kind. A problem preparing the run
+// (the connector's secret, the source not answering) fails the operation
+// and puts the run back where it was, to be started again; the load's and
+// reconciliation's own outcomes are the run's report, as in the request.
+func (e *Endpoints) Execute(ctx context.Context, id uuid.UUID) (operations.Operation, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	r, err := getRun(ctx, tx, id, true)
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	if r.Status != Running || r.OperationID == nil {
+		return operations.Operation{}, nil // finished or handed back: nothing to do twice
+	}
+	op, err := operations.Get(ctx, *r.OperationID)
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	if op.Status != operations.Queued && op.Status != operations.Running {
+		return op, nil // done, or cancelled: nothing to do twice
+	}
+	reconcile := op.Kind == "integration.reconcile"
+	t, ext, c, err := e.prepare(ctx, tx, r)
+	if err != nil {
+		var why *problem.Problem
+		if !errors.As(err, &why) || why.Status >= 500 && why.Code != "platform.unavailable" {
+			return operations.Operation{}, err
+		}
+		back := Queued
+		if reconcile {
+			back = Loaded
+		}
+		if _, err := tx.Exec(ctx, `UPDATE integration.migration_run SET status = $2, version = version + 1 WHERE id = $1`, r.ID, back); err != nil {
+			return operations.Operation{}, err
+		}
+		if err := record(ctx, "integration.migration_run.fail", r.ID, map[string]any{"operation_id": op.ID, "code": why.Code, "detail": why.Detail, "status": back}); err != nil {
+			return operations.Operation{}, err
+		}
+		return operations.Fail(ctx, op.ID, why)
+	}
+	if reconcile {
+		return e.reconcileRun(ctx, r, op, t, ext, c)
+	}
+	return e.load(ctx, r, op, t, ext, c)
+}
+
+// load checks the extract and loads it under the operation.
+func (e *Endpoints) load(ctx context.Context, r Run, op operations.Operation, t target, ext *sap.Extract, c Connector) (operations.Operation, error) {
+	tx, p, _ := reqctx.Request(ctx) // callers run in a request
 	quality := checkQuality(ext, t)
 	report := map[string]any{"extract": ext.Counts(), "quality": asList(quality)}
 	if hasErrors(quality) {
@@ -373,7 +466,8 @@ func asList(issues []Issue) []Issue {
 }
 
 // ReconcileRun compares a loaded run's scope, extracted again, with the
-// platform and writes the report: reconciled or failed.
+// platform and writes the report: reconciled or failed. With a workflow
+// engine the run moves to running and the work is the workflow's.
 func (e *Endpoints) ReconcileRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -389,6 +483,12 @@ func (e *Endpoints) ReconcileRun(ctx context.Context, id uuid.UUID, ifMatch func
 	if r.Status != Loaded {
 		return operations.Operation{}, problem.Conflict("integration.invalid_status", "Only a loaded migration run can be reconciled; this one is "+r.Status+".")
 	}
+	if e.Workflows {
+		if _, err := activeConnector(ctx, tx, r); err != nil {
+			return operations.Operation{}, err
+		}
+		return e.hand(ctx, r, "integration.reconcile", "integration.migration_run.reconcile")
+	}
 	t, ext, c, err := e.prepare(ctx, tx, r)
 	if err != nil {
 		return operations.Operation{}, err
@@ -397,6 +497,12 @@ func (e *Endpoints) ReconcileRun(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	return e.reconcileRun(ctx, r, op, t, ext, c)
+}
+
+// reconcileRun compares the extract with the platform under the operation.
+func (e *Endpoints) reconcileRun(ctx context.Context, r Run, op operations.Operation, t target, ext *sap.Extract, c Connector) (operations.Operation, error) {
+	tx, _, _ := reqctx.Request(ctx) // callers run in a request
 	existing, err := loadRefs(ctx, tx, system(c))
 	if err != nil {
 		return operations.Operation{}, err

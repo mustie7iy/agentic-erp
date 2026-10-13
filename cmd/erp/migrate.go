@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 )
@@ -35,7 +36,9 @@ type migrationRun struct {
 	}
 }
 
-// act posts a custom method of a resource with its current ETag.
+// act posts a custom method of a resource with its current ETag and, when
+// the answer is an operation still running (a cell with a workflow engine,
+// ADR-0012), waits for it to finish.
 func act(ctx context.Context, c *apitools.Client, path, method string) error {
 	got, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
 	if err != nil {
@@ -48,8 +51,34 @@ func act(ctx context.Context, c *apitools.Client, path, method string) error {
 	if err != nil {
 		return err
 	}
-	return resp.Err()
+	if err := resp.Err(); err != nil {
+		return err
+	}
+	var op struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := resp.Decode(&op); err != nil || op.ID == "" {
+		return nil // not an operation: nothing to wait for
+	}
+	for op.Status == "queued" || op.Status == "running" {
+		time.Sleep(pollInterval)
+		resp, err := c.Do(ctx, http.MethodGet, "/v1/operations/"+op.ID, nil, nil, "")
+		if err != nil {
+			return err
+		}
+		if err := resp.Err(); err != nil {
+			return err
+		}
+		if err := resp.Decode(&op); err != nil {
+			return err
+		}
+	}
+	return nil
 }
+
+// pollInterval is how often a running operation is read; tests shorten it.
+var pollInterval = 500 * time.Millisecond
 
 // migrate runs a migration scope through the integration API: define the
 // run, start it, reconcile it when it loaded, and print the report. It

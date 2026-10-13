@@ -96,6 +96,15 @@ func start(ctx context.Context, kind string, req any, resource *string) (Operati
 		VALUES ($1, $2, $3, 'queued', $4, $5, $6, $6) RETURNING `+columns, p.TenantID, uuid.Must(uuid.NewV7()), kind, body, resource, p.ID))
 }
 
+// Get reads an operation in the request's transaction.
+func Get(ctx context.Context, id uuid.UUID) (Operation, error) {
+	tx, _, err := request(ctx)
+	if err != nil {
+		return Operation{}, err
+	}
+	return get(ctx, tx, id, false)
+}
+
 // get loads an operation; lock takes the row lock for a change.
 func get(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Operation, error) {
 	q := `SELECT ` + columns + ` FROM platform.operation WHERE id = $1`
