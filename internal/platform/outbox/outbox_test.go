@@ -339,3 +339,52 @@ func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 		t.Fatal("unreadable outbox not reported")
 	}
 }
+
+// TestRelayPublishesAnUnversionedType: an event type without the version
+// suffix, which the outbox's CHECK refuses and only a bypassed constraint
+// could store, is published under the name it has instead of stopping the
+// relay (a panic) or the context's queue behind it (ADR-0007).
+func TestRelayPublishesAnUnversionedType(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	ctx := context.Background()
+	admin := pgtest.Admin(t)
+	var check, def string
+	if err := admin.QueryRow(ctx, `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+		WHERE conrelid = 'platform.outbox'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%event_type%'`).Scan(&check, &def); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `ALTER TABLE platform.outbox DROP CONSTRAINT `+pgx.Identifier{check}.Sanitize())
+	id := uuid.New()
+	t.Cleanup(func() {
+		// The lock timeout ends a failed run instead of hanging on a
+		// transaction the failure left open.
+		pgtest.Exec(t, `DELETE FROM platform.outbox WHERE id = $1`, id)
+		pgtest.Exec(t, `SET lock_timeout = '10s'; ALTER TABLE platform.outbox ADD CONSTRAINT `+pgx.Identifier{check}.Sanitize()+` `+def)
+	})
+	if _, err := admin.Exec(ctx, `INSERT INTO platform.outbox (tenant_id, id, aggregate_type, aggregate_id, event_type, payload, actor_id)
+		VALUES ($1, $2, 'platform.operation', $3, 'com.example.erp.platform.operation_completed', '{}', $4)`, ten.ID, id, uuid.New(), ten.Human.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("the relay panicked: %v", r)
+			}
+		}()
+		if _, err := (&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}).RunOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	msgs := rec.forTenant(ten.ID)
+	if len(msgs) != 1 {
+		t.Fatalf("published: got %d messages, want 1", len(msgs))
+	}
+	if want := "erp.eu1.platform." + ten.ID.String() + ".operation_completed"; msgs[0].Subject != want {
+		t.Errorf("subject: got %q, want %q", msgs[0].Subject, want)
+	}
+	if got := msgs[0].Header["ce-type"]; got != "com.example.erp.platform.operation_completed" {
+		t.Errorf("ce-type: got %q, want the stored type", got)
+	}
+}

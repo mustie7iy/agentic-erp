@@ -23,7 +23,9 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   TestApprovalDeadlineReplay replays a history recorded from T29 (18c4f10) on a dev server;
   TestApprovalDeadlineVersions fails on the pre-R2 code. R1 and R2 must ship together.
   Lint approvals+workflows 51 → 51. Reviewer: APPROVE.
-- [ ] R3 outbox relay: event type without a dot
+- [x] R3 outbox relay: event type without a dot. Published under the name it has (rejecting
+  would stall the context's ordered queue; ADR-0007). TestRelayPublishesAnUnversionedType: the
+  old code panicked at relay.go:111. Lint outbox 11 → 11. Reviewer: APPROVE.
 - [ ] R4 reqctx.Request errors returned, not discarded
 - [ ] R5 Fail closed in production (codec key, dev token issuer)
 - [ ] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero
@@ -178,3 +180,9 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
 - R1: `ERP_APPROVAL_ESCALATIONS` has no upper bound (internal/platform/config); above 32767 the
   workflow's int16 count wraps and the smallint column overflows. Fix: cap it in config (own
   step, behaviour change).
+- R3: the same `x[:strings.LastIndex(x, ".")]` pattern derives ObjectType in
+  internal/payments/payments.go:305 and internal/integration/integration.go:137 (only literal
+  inputs today, so no panic is reachable): a copied helper for R9 / Phase 2.
+- R4: `p, _ := reqctx.PrincipalFrom(ctx)` / `tx, _ := reqctx.TxFrom(ctx)` discard the ok flag in
+  payments/release.go (2), procurement/receipts.go, procurement/requisitions.go,
+  payables/invoices.go, approvals/approvals.go, platform/authz/authz.go: step R4b.

@@ -108,7 +108,13 @@ func (r *Relay) message(schema string, e row) Message {
 	ctxName := PublicContext(schema)
 	// com.example.erp.<context>.<event>.v<n> → <event>
 	name := strings.TrimPrefix(e.eventType, "com.example.erp."+ctxName+".")
-	name = name[:strings.LastIndex(name, ".")]
+	// The outbox's CHECK refuses a type without the version suffix. Should
+	// one get past it, it is published under the name it has: refusing it
+	// would leave the row at the head of the context's ordered queue and
+	// stop every event behind it, and ADR-0007 promises delivery.
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		name = name[:i]
+	}
 	h := map[string]string{
 		"ce-specversion":     "1.0",
 		"ce-id":              e.id.String(),
