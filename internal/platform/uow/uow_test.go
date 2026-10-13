@@ -62,23 +62,26 @@ func newApp(t *testing.T, pool *database.Pool) *app {
 			problem.Write(w, r, problem.From(err))
 			return
 		}
-		audit.Add(r.Context(), audit.Entry{Action: "test.create", ObjectType: "platform.operation", ObjectID: id, Outcome: "succeeded"})
+		a.check(audit.Add(r.Context(), audit.Entry{Action: "test.create", ObjectType: "platform.operation", ObjectID: id, Outcome: "succeeded"}))
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("ETag", `"1"`)
 		w.Header().Set("Location", "/v1/operations/"+id.String())
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]string{"id": id.String()})
+		a.check(json.NewEncoder(w).Encode(map[string]string{"id": id.String()}))
 	})
 	mux.HandleFunc("POST /conflict", func(w http.ResponseWriter, r *http.Request) {
-		create(w, r) // undone by the 4xx
+		_, err := create(w, r) // undone by the 4xx
+		a.check(err)
 		problem.Write(w, r, problem.Conflict("test.conflict", "no"))
 	})
 	mux.HandleFunc("POST /stale", func(w http.ResponseWriter, r *http.Request) {
-		create(w, r)
+		_, err := create(w, r)
+		a.check(err)
 		problem.Write(w, r, problem.PreconditionFailed("re-read"))
 	})
 	mux.HandleFunc("POST /crash", func(w http.ResponseWriter, r *http.Request) {
-		create(w, r)
+		_, err := create(w, r)
+		a.check(err)
 		problem.Write(w, r, problem.Internal(errors.New("boom")))
 	})
 	mux.HandleFunc("POST /slow", func(w http.ResponseWriter, r *http.Request) {
@@ -89,12 +92,14 @@ func newApp(t *testing.T, pool *database.Pool) *app {
 		w.Write([]byte("plain text"))
 	})
 	mux.HandleFunc("POST /bad-audit", func(w http.ResponseWriter, r *http.Request) {
-		audit.Add(r.Context(), audit.Entry{Action: "Not Valid", ObjectType: "x", Outcome: "x"})
+		// Buffered without validation; the trail rejects it when the unit of work flushes.
+		a.check(audit.Add(r.Context(), audit.Entry{Action: "Not Valid", ObjectType: "x", Outcome: "x"}))
 		w.WriteHeader(204)
 	})
 	mux.HandleFunc("POST /sabotage", func(w http.ResponseWriter, r *http.Request) {
 		tx, _ := reqctx.TxFrom(r.Context())
-		tx.Exec(r.Context(), "RELEASE SAVEPOINT uow")
+		_, err := tx.Exec(r.Context(), "RELEASE SAVEPOINT uow")
+		a.check(err)
 		problem.Write(w, r, problem.Conflict("test.conflict", "no"))
 	})
 	mux.HandleFunc("POST /deferred", func(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +118,7 @@ func newApp(t *testing.T, pool *database.Pool) *app {
 	mux.HandleFunc("GET /read", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := reqctx.PrincipalFrom(r.Context())
 		info := reqctx.InfoFrom(r.Context())
-		json.NewEncoder(w).Encode(map[string]string{"principal": p.ID.String(), "kind": p.Kind, "info": info.PrincipalID.String()})
+		a.check(json.NewEncoder(w).Encode(map[string]string{"principal": p.ID.String(), "kind": p.Kind, "info": info.PrincipalID.String()}))
 	})
 	mux.HandleFunc("GET /missing", func(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, r, problem.NotFound("nothing here"))
@@ -134,6 +139,16 @@ type call struct {
 	method, path, key, body string
 	tenant                  uuid.UUID
 	subject                 string
+}
+
+// check reports an error from a step a handler relies on. It runs inside
+// the handler, below the unit of work, so it marks the test failed rather
+// than stopping it.
+func (a *app) check(err error) {
+	a.t.Helper()
+	if err != nil {
+		a.t.Errorf("handler step: %v", err)
+	}
 }
 
 func (a *app) do(c call) *httptest.ResponseRecorder {
@@ -175,8 +190,12 @@ func TestIdempotentCreate(t *testing.T) {
 		t.Fatalf("replay %d %v", replay.Code, replay.Header())
 	}
 	var x, y map[string]string
-	json.Unmarshal(first.Body.Bytes(), &x)
-	json.Unmarshal(replay.Body.Bytes(), &y)
+	if err := json.Unmarshal(first.Body.Bytes(), &x); err != nil {
+		t.Fatalf("first body %s: %v", first.Body, err)
+	}
+	if err := json.Unmarshal(replay.Body.Bytes(), &y); err != nil {
+		t.Fatalf("replayed body %s: %v", replay.Body, err)
+	}
 	if x["id"] == "" || x["id"] != y["id"] {
 		t.Fatalf("replayed body %v vs %v", y, x)
 	}
@@ -248,7 +267,9 @@ func TestSafeRequests(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	r := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: ten.Agent.Subject})
 	var got map[string]string
-	json.Unmarshal(r.Body.Bytes(), &got)
+	if err := json.Unmarshal(r.Body.Bytes(), &got); err != nil {
+		t.Fatalf("%d %s: %v", r.Code, r.Body, err)
+	}
 	if r.Code != 200 || got["principal"] != ten.Agent.ID.String() || got["kind"] != "agent" || got["info"] != ten.Agent.ID.String() {
 		t.Fatalf("%d %v", r.Code, got)
 	}
