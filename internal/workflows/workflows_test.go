@@ -108,12 +108,27 @@ func input(e env, op map[string]any, run string) workflows.ProposeInput {
 	return workflows.ProposeInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(run), OperationID: uuid.MustParse(id(op))}
 }
 
+// workflowTestTimeout bounds one workflow run in the SDK's test environment.
+// The environment's default is 3 s of wall-clock time, and the activities
+// here do real work against PostgreSQL (a migration loads 43 entries): on a
+// machine busy with the rest of the suite under -race a run outlives 3 s and
+// the environment fails it as timed out although nothing is wrong. A minute
+// is far above a run's normal time and still ends a run that truly hangs.
+const workflowTestTimeout = time.Minute
+
+// workflowEnv is a test workflow environment with workflowTestTimeout.
+func workflowEnv(s *testsuite.WorkflowTestSuite) *testsuite.TestWorkflowEnvironment {
+	env := s.NewTestWorkflowEnvironment()
+	env.SetTestTimeout(workflowTestTimeout)
+	return env
+}
+
 // execute runs the proposal workflow in the SDK's test environment with the
 // real activities against the package database.
 func execute(t *testing.T, a *workflows.Payments, in workflows.ProposeInput, cancel bool) error {
 	t.Helper()
 	var s testsuite.WorkflowTestSuite
-	env := s.NewTestWorkflowEnvironment()
+	env := workflowEnv(&s)
 	env.RegisterWorkflow(workflows.ProposePaymentRun)
 	env.RegisterActivity(a)
 	if cancel {
@@ -409,21 +424,23 @@ func TestDispatcher(t *testing.T) {
 		t.Fatalf("commit failing: %v", err)
 	}
 	// Run logs a failed round, then a quiet one, and stops with the context.
+	// Each loop is waited for before the dispatcher is changed: a loop still
+	// running would read Begin and Interval while they are written.
 	runCtx, cancel := context.WithCancel(ctx)
-	go func() { d.Run(runCtx) }()
-	for !strings.Contains(logs.String(), "workflow dispatch failed") {
-		time.Sleep(5 * time.Millisecond)
-	}
+	stopped := make(chan struct{})
+	go func() { d.Run(runCtx); close(stopped) }()
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "workflow dispatch failed") },
+		"the dispatcher did not log its failed round: %s", logs.String())
 	cancel()
+	<-stopped
 	d.Begin = nil
 	d.Interval = time.Hour
 	e.propose(t, "2026-04-20")
 	runCtx, cancel = context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { d.Run(runCtx); close(done) }()
-	for !strings.Contains(logs.String(), "workflows started") {
-		time.Sleep(5 * time.Millisecond)
-	}
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "workflows started") },
+		"the dispatcher did not log the workflows it started: %s", logs.String())
 	cancel()
 	<-done
 }
@@ -457,7 +474,7 @@ func (e env) releaseAsked(t *testing.T, run string) workflows.ReleaseInput {
 func executeRelease(t *testing.T, a *workflows.Payments, in workflows.ReleaseInput) error {
 	t.Helper()
 	var s testsuite.WorkflowTestSuite
-	env := s.NewTestWorkflowEnvironment()
+	env := workflowEnv(&s)
 	env.RegisterWorkflow(workflows.ReleasePaymentRun)
 	env.RegisterActivity(a)
 	env.ExecuteWorkflow(workflows.ReleasePaymentRun, in)
@@ -544,11 +561,12 @@ func TestReleaseWorkflow(t *testing.T) {
 	}
 	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	runCtx, cancel := context.WithCancel(context.Background())
-	go func() { w.Run(runCtx) }()
-	for !strings.Contains(logs.String(), "payment release failed") {
-		time.Sleep(5 * time.Millisecond)
-	}
+	stopped := make(chan struct{})
+	go func() { w.Run(runCtx); close(stopped) }()
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "payment release failed") },
+		"the releaser did not log its failed round: %s", logs.String())
 	cancel()
+	<-stopped // before Begin is replaced: the loop reads it
 	pool := pgtest.Pool(t)
 	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, s)
@@ -694,7 +712,7 @@ func TestSimulationWorkflow(t *testing.T) {
 	s := simulations(t)
 	var suite testsuite.WorkflowTestSuite
 	run := func() error {
-		env := suite.NewTestWorkflowEnvironment()
+		env := workflowEnv(&suite)
 		env.RegisterWorkflow(workflows.SimulateChange)
 		env.RegisterActivity(s)
 		env.ExecuteWorkflow(workflows.SimulateChange, in)
@@ -782,7 +800,7 @@ func migrationAsked(t *testing.T, file string) (env, string, workflows.MigrateIn
 func executeMigration(t *testing.T, m *workflows.Migrations, in workflows.MigrateInput) error {
 	t.Helper()
 	var s testsuite.WorkflowTestSuite
-	env := s.NewTestWorkflowEnvironment()
+	env := workflowEnv(&s)
 	env.RegisterWorkflow(workflows.MigrateRun)
 	env.RegisterActivity(m)
 	env.ExecuteWorkflow(workflows.MigrateRun, in)
@@ -920,7 +938,7 @@ func TestApprovalDeadline(t *testing.T) {
 	in := workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: uuid.MustParse(id(pending)), After: 48 * time.Hour, Max: 2}
 	var s testsuite.WorkflowTestSuite
 	run := func() error {
-		env := s.NewTestWorkflowEnvironment()
+		env := workflowEnv(&s)
 		env.RegisterWorkflow(workflows.ApprovalDeadline)
 		env.RegisterActivity(a)
 		env.ExecuteWorkflow(workflows.ApprovalDeadline, in)
@@ -1032,7 +1050,7 @@ func TestApprovalDeadline(t *testing.T) {
 	d.Begin = nil
 	// A failing workflow: the activity's error ends it.
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	env := s.NewTestWorkflowEnvironment()
+	env := workflowEnv(&s)
 	env.RegisterWorkflow(workflows.ApprovalDeadline)
 	env.RegisterActivity(a)
 	env.ExecuteWorkflow(workflows.ApprovalDeadline, workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: in.RequestID, After: time.Minute, Max: 1})
@@ -1098,7 +1116,7 @@ func TestApprovalDeadlineVersions(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var s testsuite.WorkflowTestSuite
-			env := s.NewTestWorkflowEnvironment()
+			env := workflowEnv(&s)
 			env.RegisterWorkflow(workflows.ApprovalDeadline)
 			var got []*int16
 			env.RegisterActivityWithOptions(func(_ context.Context, in workflows.EscalateInput) (bool, error) {
@@ -1213,7 +1231,7 @@ func TestEscalateGuard(t *testing.T) {
 // waits ends as cancelled, its error wrapped with the request.
 func TestApprovalDeadlineCancelled(t *testing.T) {
 	var s testsuite.WorkflowTestSuite
-	env := s.NewTestWorkflowEnvironment()
+	env := workflowEnv(&s)
 	env.RegisterWorkflow(workflows.ApprovalDeadline)
 	env.RegisterDelayedCallback(env.CancelWorkflow, time.Minute)
 	request := uuid.New()
