@@ -277,7 +277,10 @@ func token(ctx context.Context, args []string) error {
 	var answer struct {
 		Token string
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil || resp.StatusCode != http.StatusOK || answer.Token == "" {
+	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+		return fmt.Errorf("the admin listener answered %d with no readable token (is the server running with ERP_DEV_ISSUER=true?): %w", resp.StatusCode, err)
+	}
+	if resp.StatusCode != http.StatusOK || answer.Token == "" {
 		return fmt.Errorf("the admin listener answered %d: is the server running with ERP_DEV_ISSUER=true?", resp.StatusCode)
 	}
 	fmt.Fprintln(out, answer.Token)

@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -384,6 +388,60 @@ func TestTokenCommand(t *testing.T) {
 	fails(t, "missing protocol scheme", "token", "-tenant", "x", "-subject", "ada")
 	delete(env, "ERP_ADMIN_URL") // the default admin listener is not running here
 	fails(t, "connection refused", "token", "-tenant", "x", "-subject", "ada")
+}
+
+// TestTokenReportsAMalformedAnswer: an answer that is not JSON is reported
+// with the decode error, not only its status.
+func TestTokenReportsAMalformedAnswer(t *testing.T) {
+	minted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"token": `))
+	}))
+	defer minted.Close()
+	getenv = func(k string) string { return map[string]string{"ERP_ADMIN_URL": minted.URL}[k] }
+	t.Cleanup(func() { getenv = os.Getenv })
+	fails(t, "unexpected EOF", "token", "-subject", "ada")
+}
+
+// failing is a writer whose writes and close fail.
+type failing struct{}
+
+func (failing) Write([]byte) (int, error) { return 0, errors.New("device full") }
+func (failing) Close() error              { return errors.New("close failed") }
+
+// closeFails writes and fails only on close, as a file whose last buffered
+// data could not be stored.
+type closeFails struct{ bytes.Buffer }
+
+func (*closeFails) Close() error { return errors.New("close failed") }
+
+// TestQueryReportsLostOutput: a table that cannot be printed and a CSV file
+// that cannot be closed (so it may be truncated) fail the command.
+func TestQueryReportsLostOutput(t *testing.T) {
+	t.Chdir(t.TempDir())
+	fakeAPI(t, facts())
+	t.Cleanup(func() {
+		out, createFile = os.Stdout, func(name string) (io.WriteCloser, error) { return os.Create(name) }
+	})
+	t.Run("print", func(t *testing.T) {
+		out = failing{}
+		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count"}); err == nil || !strings.Contains(err.Error(), "device full") {
+			t.Errorf("got %v, want the print failure", err)
+		}
+	})
+	t.Run("close", func(t *testing.T) {
+		out = io.Discard
+		createFile = func(string) (io.WriteCloser, error) { return &closeFails{}, nil }
+		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}); err == nil || !strings.Contains(err.Error(), "close failed") {
+			t.Errorf("got %v, want the close failure", err)
+		}
+	})
+	t.Run("write and close", func(t *testing.T) {
+		out = io.Discard
+		createFile = func(string) (io.WriteCloser, error) { return failing{}, nil }
+		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}); err == nil || !strings.Contains(err.Error(), "device full") {
+			t.Errorf("got %v, want the write failure, reported first", err)
+		}
+	})
 }
 
 func TestTenantsCommand(t *testing.T) {

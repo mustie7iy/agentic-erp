@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,18 +108,33 @@ func queryCmd(ctx context.Context, args []string) error {
 	}
 	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', tabwriter.AlignRight)
 	printResult(tw, r)
-	tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return fmt.Errorf("query: print: %w", err)
+	}
 	fmt.Fprintf(out, "\n%s · %d rows · data through %s\n", r.ID, len(r.Rows), r.DataThrough)
 	if *csvOut != "" {
-		f, err := os.Create(*csvOut)
-		if err != nil {
-			return fmt.Errorf("query: create CSV: %w", err)
-		}
-		defer f.Close()
-		return analytics.WriteCSV(f, r)
+		return writeCSV(*csvOut, r)
 	}
 	return nil
 }
+
+// writeCSV writes r to the file name. A failed close can mean the file was
+// truncated, so it is reported when the write itself succeeded.
+func writeCSV(name string, r *analytics.Result) (err error) {
+	f, err := createFile(name)
+	if err != nil {
+		return fmt.Errorf("query: create CSV: %w", err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("query: close CSV %s: %w", name, cerr)
+		}
+	}()
+	return analytics.WriteCSV(f, r)
+}
+
+// createFile creates a file the command writes; tests replace it.
+var createFile = func(name string) (io.WriteCloser, error) { return os.Create(name) }
 
 // newAgent makes the analytics agent; tests replace it.
 var newAgent = analytics.NewAgent
