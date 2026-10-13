@@ -287,9 +287,21 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 		t.Fatalf("%d directory writes", recorded.writes)
 	}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":suspend", "", "If-Match", `"4"`)
-	filtered, _ := p.must(200, "ops|alice", "GET", tenants+"?status=offboarded", "")
-	if items := filtered["items"].([]any); len(items) != 1 || items[0].(map[string]any)["id"] != id {
-		t.Fatalf("offboarded: %v", filtered)
+	// Other tests offboard tenants in the same database: every item must be
+	// offboarded, and of this test's two tenants only the offboarded one listed.
+	filtered, _ := p.must(200, "ops|alice", "GET", tenants+"?status=offboarded&page_size=500", "")
+	ours := []string{}
+	for _, it := range filtered["items"].([]any) {
+		item := it.(map[string]any)
+		if item["status"] != "offboarded" {
+			t.Errorf("status filter listed %v, want only offboarded tenants", item)
+		}
+		if item["id"] == id || item["id"] == second["id"] {
+			ours = append(ours, item["id"].(string))
+		}
+	}
+	if len(ours) != 1 || ours[0] != id {
+		t.Fatalf("offboarded tenants of this test: got %v, want [%s]", ours, id)
 	}
 
 	// Every change was published and recorded in the tenant's chain as the operator, kind system.
@@ -338,8 +350,14 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	store := blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}
 	p.s.Offboarding = &offboarding.Worker{Pool: p.s.Pool, Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Grace: time.Hour, Now: func() time.Time { return clock }}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
-	if ex, _, err := p.s.Offboarding.RunOnce(ctx); err != nil || ex != 1 {
-		t.Fatalf("export: %d %v", ex, err)
+	// The round exports every offboarded tenant still unexported, which
+	// includes ones other tests in this database left: this one and those.
+	var pending int
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant WHERE status = 'offboarded' AND exported_at IS NULL`).Scan(&pending); err != nil {
+		t.Fatalf("count tenants to export: %v", err)
+	}
+	if ex, _, err := p.s.Offboarding.RunOnce(ctx); err != nil || ex != pending {
+		t.Fatalf("export: got %d %v, want %d exported", ex, err, pending)
 	}
 	after, afterH := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	off := after["offboarding"].(map[string]any)
@@ -495,7 +513,8 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		return provisioning.Request{Name: "Acme", Region: "eu-west", GroupCurrency: "EUR", Document: doc,
 			Administrator: provisioning.Administrator{Subject: "idp|ada", DisplayName: "Ada"}, Idempotency: &provisioning.Idempotency{Key: key, RequestHash: []byte("h")}}
 	}
-	created, replayed, err := s.Create(ctx, op, request("key-first"))
+	first := "key-first-" + uuid.NewString() // a key of this run's: an earlier run's would replay its tenant
+	created, replayed, err := s.Create(ctx, op, request(first))
 	if err != nil || replayed || created.Status != controlplane.Active {
 		t.Fatalf("%+v %v %v", created, replayed, err)
 	}
@@ -508,7 +527,7 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		return err
 	})
 	everyFailure(t, s, "replay", func(ctx context.Context) error {
-		_, _, err := s.Create(ctx, op, request("key-first"))
+		_, _, err := s.Create(ctx, op, request(first))
 		return err
 	})
 	everyFailure(t, s, "create", func(ctx context.Context) error {
@@ -520,7 +539,7 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		return err
 	})
 	// Erasure spans the control plane's and the worker's transactions; an exported, offboarded tenant is needed.
-	gone, _, err := s.Create(ctx, op, request("key-gone"))
+	gone, _, err := s.Create(ctx, op, request("key-gone-"+uuid.NewString()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +564,7 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 	for name, call := range map[string]func() error{
 		"list":   func() error { _, _, err := s.List(ctx, "", pagination.Request{}); return err },
 		"get":    func() error { _, err := s.Get(ctx, created.ID); return err },
-		"replay": func() error { _, _, err := s.Create(ctx, op, request("key-first")); return err },
+		"replay": func() error { _, _, err := s.Create(ctx, op, request(first)); return err },
 		"resume": func() error { _, err := s.Transition(ctx, op, created.ID, "resume", "*"); return err },
 		"erase":  func() error { _, _, err := s.Erase(ctx, op, gone.ID, "*"); return err },
 	} {
