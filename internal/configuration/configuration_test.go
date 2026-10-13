@@ -67,7 +67,9 @@ func setup(t *testing.T, bare bool) env {
 			ten.ID, r, ten.Human.ID)
 	}
 	if !bare {
-		e.bootstrap(t, jsonOf(t, document(t)))
+		if err := e.bootstrap(t, jsonOf(t, document(t))); err != nil {
+			t.Fatalf("bootstrap the configuration: %v", err)
+		}
 	}
 	return e
 }

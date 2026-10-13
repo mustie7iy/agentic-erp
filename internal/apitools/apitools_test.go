@@ -43,7 +43,9 @@ func schemaOf(t *testing.T, tool *apitools.Tool) map[string]any {
 	t.Helper()
 	b, _ := json.Marshal(tool.InputSchema())
 	var m map[string]any
-	json.Unmarshal(b, &m)
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("decode the input schema: %v", err)
+	}
 	return m
 }
 
@@ -214,7 +216,9 @@ func TestRun(t *testing.T) {
 	// A session that cannot be ended is an error even after a good run.
 	srv := llmtest.New(t, llmtest.Final("done"))
 	s, _ = apitools.StartSession(ctx, e.agent, "Run", "m")
-	s.End(ctx, "completed", anthropic.BetaUsage{})
+	if err := s.End(ctx, "completed", anthropic.BetaUsage{}); err != nil {
+		t.Fatalf("end the session: %v", err)
+	}
 	r := srv.Runner()
 	if _, err := apitools.Run(ctx, r, s, nil, r.Params("system", anthropic.NewBetaTextBlock("go")), 2); err == nil {
 		t.Fatal("ended an ended session")

@@ -21,9 +21,13 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 // fromLast reads a field of the body of the last tool result.
-func fromLast(body, field string) string {
+// It runs in the model server's handler, so it reports with Errorf, not Fatal.
+func fromLast(t *testing.T, body, field string) string {
+	t.Helper()
 	var r struct{ Body map[string]any }
-	json.Unmarshal([]byte(llmtest.LastToolResult(body)), &r)
+	if err := json.Unmarshal([]byte(llmtest.LastToolResult(body)), &r); err != nil {
+		t.Errorf("last tool result: %v", err)
+	}
 	s, _ := r.Body[field].(string)
 	return s
 }
@@ -48,9 +52,9 @@ func TestAssess(t *testing.T) {
 	model := llmtest.New(t,
 		llmtest.Tool("createMigrationRun", run(false)),
 		llmtest.Step{Tool: "createMigrationRun", Input: func(string) any { return run(true) }, Expect: "only rehearses"},
-		llmtest.ToolFn("startMigrationRun", func(body string) any { return map[string]any{"id": fromLast(body, "id"), "if_match": `"1"`} }),
+		llmtest.ToolFn("startMigrationRun", func(body string) any { return map[string]any{"id": fromLast(t, body, "id"), "if_match": `"1"`} }),
 		llmtest.ToolFn("getMigrationRun", func(body string) any {
-			return map[string]any{"id": strings.TrimPrefix(fromLast(body, "resource"), "/v1/migration-runs/")}
+			return map[string]any{"id": strings.TrimPrefix(fromLast(t, body, "resource"), "/v1/migration-runs/")}
 		}),
 		llmtest.Final("Company 2000 reconciles; it can be cut over."))
 	got, err := (&migrationagent.Agent{LLM: model.Runner(), API: api}).Assess(context.Background(), conn["id"].(string), []string{f.DE.String()}, 2026, "documents")

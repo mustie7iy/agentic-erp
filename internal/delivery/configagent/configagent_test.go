@@ -25,7 +25,9 @@ func TestHandle(t *testing.T) {
 	doc.PaymentTerms[0].NetDays = 21
 	b, _ := json.Marshal(doc)
 	var proposed map[string]any
-	json.Unmarshal(b, &proposed)
+	if err := json.Unmarshal(b, &proposed); err != nil {
+		t.Fatalf("decode the proposed configuration: %v", err)
+	}
 	model := llmtest.New(t,
 		llmtest.Tool("listConfigVersions", map[string]any{"is_active": true}),
 		llmtest.Tool("createChangeRequest", map[string]any{"body": map[string]any{"title": "NT14 to 21 days", "rationale": "Asked by AP",
