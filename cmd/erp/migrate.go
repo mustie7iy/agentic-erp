@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -132,11 +133,11 @@ func migrate(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	printRun(run)
+	printed := printRun(run)
 	if run.Status != "reconciled" {
-		return fmt.Errorf("migration run %s is %s: do not cut over this scope", run.ID, run.Status)
+		return errors.Join(fmt.Errorf("migration run %s is %s: do not cut over this scope", run.ID, run.Status), printed)
 	}
-	return nil
+	return printed
 }
 
 func readRun(ctx context.Context, c *apitools.Client, path string) (migrationRun, error) {
@@ -148,7 +149,9 @@ func readRun(ctx context.Context, c *apitools.Client, path string) (migrationRun
 	return run, err
 }
 
-func printRun(run migrationRun) {
+// printRun prints the run's report. Its error is a checks table that could
+// not be written, so the operator never decides on a partial report.
+func printRun(run migrationRun) error {
 	r := run.Report
 	loaded, _ := json.Marshal(r.Loaded)
 	fmt.Fprintf(out, "Migration run %s: %s\nLoaded: %s\n", run.ID, run.Status, loaded)
@@ -174,7 +177,9 @@ func printRun(run migrationRun) {
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", c.CompanyCode, c.Name, c.SAP, c.Platform, res)
 		}
-		tw.Flush()
+		if err := tw.Flush(); err != nil {
+			return fmt.Errorf("migrate: print checks: %w", err)
+		}
 	}
 	for _, d := range r.Diffs {
 		fmt.Fprintf(out, "  difference %s %s: SAP %s, platform %s\n", d.CompanyCode, d.Key, d.SAP, d.Platform)
@@ -182,4 +187,5 @@ func printRun(run migrationRun) {
 	if len(r.Missing) > 0 {
 		fmt.Fprintf(out, "  %d SAP documents are not on the platform, for example %s\n", len(r.Missing), r.Missing[0])
 	}
+	return nil
 }

@@ -228,6 +228,14 @@ func TestMigrateErrors(t *testing.T) {
 			t.Errorf("report lacks %q:\n%s", want, got)
 		}
 	}
+	// A reconciled run whose checks table cannot be printed fails the command.
+	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), ok(`{"id": "r1", "status": "reconciled", "report": {"checks": [{"company_code": "1000", "name": "balance", "pass": true}]}}`)}}))
+	out = failing{}
+	err := migrate(context.Background(), []string{"-connector", "c", "-legal-entities", "le"})
+	out = os.Stdout
+	if err == nil || !strings.Contains(err.Error(), "device full") {
+		t.Errorf("unprintable report: got %v, want the print failure", err)
+	}
 	fails(t, "flag provided", "migrate", "-x")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN", "migrate")
