@@ -61,8 +61,12 @@ func Main(m *testing.M) {
 		os.Exit(1)
 	}
 	code := m.Run()
-	conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
-	conn.Close(ctx)
+	// A database left behind does not change this run's result, but it
+	// piles up on the server unnoticed: say so, with its name.
+	if _, err := conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+		fmt.Fprintf(os.Stderr, "pgtest: dropping the package database %s (drop it by hand): %v\n", name, err)
+	}
+	_ = conn.Close(ctx) // the process exits next, which ends the session anyway
 	os.Exit(code)
 }
 
