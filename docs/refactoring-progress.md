@@ -98,9 +98,14 @@ single-return path whose failure no test can provoke from becoming its own branc
   Phase 3 total: wrapcheck 490 → 0 across the tree.
 
 ### Phase 4 — Long and complex functions
-- [ ] R20 cmd/erp-server run() split into named steps
-- [ ] R21 analytics Execute, config Load, integration quality checks, payables validate
-- [ ] R22 Remaining funlen and gocognit to zero
+- [x] R20 cmd/erp-server run() split into named steps: a server value with openPool, prepareSchema,
+  authenticate, openObjects, openDirectory, controlPlane, dialEngine, newAPI, startWorkers, connectBus,
+  startRelay, listen, serve, wait (complexity 49 → 13); startup and close order unchanged, tests
+  unchanged.
+- [x] R21 analytics Execute 127 → 2, config Load 96 → a loader of named steps, integration
+  checkQuality 84 → one function per table, payables validate 81 → 11.
+- [x] R22 Remaining funlen and gocognit to zero (64 findings; four worktree agents, each merge
+  reviewed twice for the money and startup paths). Coverage 16784 of 16784 statements.
   - [x] R22a (pulled forward for R4) configuration SimulationWorker.process → process/evidence/
     advance; payments build → build/propose/proposal.insert. funlen −2. Reviewer: APPROVE.
 - [ ] R23 Unowned findings to zero: errcheck, forbidigo (production float/panic), gocritic
@@ -269,6 +274,19 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
     non-number 0%, with no note.
   - sapconfig alpha turns an all-zero account into "", integration's alpha into "0".
   - integration reconcile recomputes duplicateInvoices(ext) for every company code (slow only).
+- Phase 4 (offboarding, startup, found while splitting; not fixed):
+  - SECURITY: offboarding import puts a manifest-supplied table name into SQL unquoted, in
+    checkEmpty (`SELECT count(*) FROM `+name) and in insert (INSERT INTO %s ... NULL::%s); the
+    manifest is not hash-checked and only the .outbox suffix is filtered, so a crafted name runs
+    SQL as the app role inside the import transaction. Keep only names tables(ctx, tx) returns
+    and render them with pgx.Identifier{schema, table}.Sanitize().
+  - erp-server: when the bus connection or EnsureStreams fails, run returns and the pool closes
+    while the already-started workers may still use it.
+  - nfr harness: tb.Fatal on a failed NATS start happens before t.Cleanup(s.Stop), leaking the
+    test server and goroutines.
+  - config: the directory step reports its errors in map order.
+  - ledger createClearing names whichever partner map iteration reaches first when several fail
+    to net to zero.
 - R8a: TestResilienceWorkerRestarts failed once in the full -race suite ("an entry answered 201
   without a readable id"); it passed 4× alone with and 4× without the change. The harness
   (internal/nfr/harness.go Consistent) comments that such a 201 is "counted, not fatal" yet adds
