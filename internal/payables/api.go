@@ -22,10 +22,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func ptr[T any](o interface{ Get() (T, bool) }) *T {
 	if v, ok := o.Get(); ok {
 		return &v
@@ -262,7 +258,7 @@ func (e *Endpoints) UpdateSupplierInvoice(ctx context.Context, req *gen.Supplier
 	if t, ok := req.TaxAmount.Get(); ok {
 		ch.Tax = &Amount{t.Amount, t.Currency}
 	}
-	v, err := e.UpdateInvoice(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	v, err := e.UpdateInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +267,7 @@ func (e *Endpoints) UpdateSupplierInvoice(ctx context.Context, req *gen.Supplier
 
 // MatchSupplierInvoice implements POST /v1/supplier-invoices/{id}:match.
 func (e *Endpoints) MatchSupplierInvoice(ctx context.Context, params gen.MatchSupplierInvoiceParams) (gen.MatchSupplierInvoiceRes, error) {
-	m, err := e.MatchInvoice(ctx, params.ID, ifMatch(params.IfMatch))
+	m, err := e.MatchInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +277,7 @@ func (e *Endpoints) MatchSupplierInvoice(ctx context.Context, params gen.MatchSu
 
 // PostSupplierInvoice implements POST /v1/supplier-invoices/{id}:post.
 func (e *Endpoints) PostSupplierInvoice(ctx context.Context, req gen.OptSupplierInvoicePost, params gen.PostSupplierInvoiceParams) (gen.PostSupplierInvoiceRes, error) {
-	v, err := e.PostInvoice(ctx, params.ID, ifMatch(params.IfMatch), ptr[time.Time](req.Value.PostingDate))
+	v, err := e.PostInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), ptr[time.Time](req.Value.PostingDate))
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +286,7 @@ func (e *Endpoints) PostSupplierInvoice(ctx context.Context, req gen.OptSupplier
 
 // HoldSupplierInvoice implements POST /v1/supplier-invoices/{id}:hold.
 func (e *Endpoints) HoldSupplierInvoice(ctx context.Context, req *gen.ReasonInput, params gen.HoldSupplierInvoiceParams) (gen.HoldSupplierInvoiceRes, error) {
-	v, err := HoldInvoice(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	v, err := HoldInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +295,7 @@ func (e *Endpoints) HoldSupplierInvoice(ctx context.Context, req *gen.ReasonInpu
 
 // ReleaseSupplierInvoice implements POST /v1/supplier-invoices/{id}:release.
 func (e *Endpoints) ReleaseSupplierInvoice(ctx context.Context, req gen.OptDecisionInput, params gen.ReleaseSupplierInvoiceParams) (gen.ReleaseSupplierInvoiceRes, error) {
-	v, err := e.ReleaseInvoice(ctx, params.ID, ifMatch(params.IfMatch), req.Value.Comment.Value)
+	v, err := e.ReleaseInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Value.Comment.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +304,7 @@ func (e *Endpoints) ReleaseSupplierInvoice(ctx context.Context, req gen.OptDecis
 
 // CancelSupplierInvoice implements POST /v1/supplier-invoices/{id}:cancel.
 func (e *Endpoints) CancelSupplierInvoice(ctx context.Context, req *gen.ReasonInput, params gen.CancelSupplierInvoiceParams) (gen.CancelSupplierInvoiceRes, error) {
-	v, err := e.CancelInvoice(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	v, err := e.CancelInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +313,7 @@ func (e *Endpoints) CancelSupplierInvoice(ctx context.Context, req *gen.ReasonIn
 
 // ReverseSupplierInvoice implements POST /v1/supplier-invoices/{id}:reverse.
 func (e *Endpoints) ReverseSupplierInvoice(ctx context.Context, req *gen.SupplierInvoiceReverse, params gen.ReverseSupplierInvoiceParams) (gen.ReverseSupplierInvoiceRes, error) {
-	v, err := e.ReverseInvoice(ctx, params.ID, ifMatch(params.IfMatch), req.Reason, ptr[time.Time](req.PostingDate))
+	v, err := e.ReverseInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason, ptr[time.Time](req.PostingDate))
 	if err != nil {
 		return nil, err
 	}

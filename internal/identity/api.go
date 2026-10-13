@@ -20,10 +20,6 @@ type Endpoints struct {
 	LegalEntities LegalEntities
 }
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func optDate(d gen.OptDate) *time.Time {
 	if !d.Set {
 		return nil
@@ -242,7 +238,7 @@ func (e *Endpoints) UpdatePrincipal(ctx context.Context, req *gen.PrincipalUpdat
 	if req.AgentProfile.Set {
 		ch.Profile = profileInput(req.AgentProfile.Value)
 	}
-	p, err := UpdatePrincipal(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	p, err := UpdatePrincipal(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +247,7 @@ func (e *Endpoints) UpdatePrincipal(ctx context.Context, req *gen.PrincipalUpdat
 
 // BlockPrincipal implements POST /v1/principals/{id}:block.
 func (e *Endpoints) BlockPrincipal(ctx context.Context, req *gen.ReasonInput, params gen.BlockPrincipalParams) (gen.BlockPrincipalRes, error) {
-	p, err := BlockPrincipal(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	p, err := BlockPrincipal(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +309,7 @@ func (e *Endpoints) ListRoles(ctx context.Context, params gen.ListRolesParams) (
 
 // UpdateRole implements PATCH /v1/roles/{id}.
 func (e *Endpoints) UpdateRole(ctx context.Context, req *gen.RoleUpdate, params gen.UpdateRoleParams) (gen.UpdateRoleRes, error) {
-	r, err := UpdateRole(ctx, params.ID, ifMatch(params.IfMatch), optString(req.Name), optNilString(req.Description))
+	r, err := UpdateRole(ctx, params.ID, etag.IfMatch(params.IfMatch), optString(req.Name), optNilString(req.Description))
 	if err != nil {
 		return nil, err
 	}

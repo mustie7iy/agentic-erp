@@ -611,7 +611,7 @@ func operationOK(op operations.Operation) *gen.OperationHeaders {
 
 // StartMigrationRun implements POST /v1/migration-runs/{id}:start.
 func (e *Endpoints) StartMigrationRun(ctx context.Context, params gen.StartMigrationRunParams) (gen.StartMigrationRunRes, error) {
-	op, err := e.StartRun(ctx, params.ID, ifMatch(params.IfMatch))
+	op, err := e.StartRun(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -620,7 +620,7 @@ func (e *Endpoints) StartMigrationRun(ctx context.Context, params gen.StartMigra
 
 // ReconcileMigrationRun implements POST /v1/migration-runs/{id}:reconcile.
 func (e *Endpoints) ReconcileMigrationRun(ctx context.Context, params gen.ReconcileMigrationRunParams) (gen.ReconcileMigrationRunRes, error) {
-	op, err := e.ReconcileRun(ctx, params.ID, ifMatch(params.IfMatch))
+	op, err := e.ReconcileRun(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}

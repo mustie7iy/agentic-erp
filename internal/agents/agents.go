@@ -358,10 +358,6 @@ func recommendationToAPI(r Recommendation) gen.Recommendation {
 	return out
 }
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func optUUID(o gen.OptUUID) *uuid.UUID {
 	if v, ok := o.Get(); ok {
 		return &v
@@ -432,7 +428,7 @@ func (e *Endpoints) EndAgentSession(ctx context.Context, req *gen.AgentSessionEn
 	if c, ok := req.Cost.Get(); ok {
 		u.Cost, u.Currency = c.Amount, c.Currency
 	}
-	s, err := EndSession(ctx, params.ID, ifMatch(params.IfMatch), u)
+	s, err := EndSession(ctx, params.ID, etag.IfMatch(params.IfMatch), u)
 	if err != nil {
 		return nil, err
 	}
@@ -559,7 +555,7 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 
 // DecideRecommendation implements POST /v1/recommendations/{id}:decide.
 func (e *Endpoints) DecideRecommendation(ctx context.Context, req *gen.RecommendationDecide, params gen.DecideRecommendationParams) (gen.DecideRecommendationRes, error) {
-	r, err := Decide(ctx, params.ID, ifMatch(params.IfMatch), req.Outcome, req.Comment.Value)
+	r, err := Decide(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Outcome, req.Comment.Value)
 	if err != nil {
 		return nil, err
 	}

@@ -29,3 +29,28 @@ func TestCheck(t *testing.T) {
 		}
 	}
 }
+
+// TestIfMatch: the bound check answers as Check does for the header.
+func TestIfMatch(t *testing.T) {
+	cases := []struct {
+		name    string
+		header  string
+		version int32
+		want    int // HTTP status; 0 means it matches
+	}{
+		{"matching version", `"3"`, 3, 0},
+		{"other version", `"3"`, 4, 412},
+		{"no header", "", 3, 428},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := 0
+			if err := IfMatch(c.header)(c.version); err != nil {
+				got = problem.From(err).Status
+			}
+			if got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
+	}
+}

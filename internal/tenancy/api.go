@@ -21,10 +21,6 @@ type Endpoints struct {
 	Pages *pagination.Codec
 }
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func fromExtensions(x gen.Extensions) map[string]any {
 	if x == nil {
 		return nil
@@ -150,7 +146,7 @@ func (e *Endpoints) UpdateLegalEntity(ctx context.Context, req *gen.LegalEntityU
 	if req.Name.Set {
 		ch.Name = &req.Name.Value
 	}
-	le, err := UpdateLegalEntity(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	le, err := UpdateLegalEntity(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +155,7 @@ func (e *Endpoints) UpdateLegalEntity(ctx context.Context, req *gen.LegalEntityU
 
 // ActivateLegalEntity implements POST /v1/legal-entities/{id}:activate.
 func (e *Endpoints) ActivateLegalEntity(ctx context.Context, params gen.ActivateLegalEntityParams) (gen.ActivateLegalEntityRes, error) {
-	le, err := changeLegalEntityStatus(ctx, params.ID, ifMatch(params.IfMatch), activateLE, "")
+	le, err := changeLegalEntityStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), activateLE, "")
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +164,7 @@ func (e *Endpoints) ActivateLegalEntity(ctx context.Context, params gen.Activate
 
 // BlockLegalEntity implements POST /v1/legal-entities/{id}:block.
 func (e *Endpoints) BlockLegalEntity(ctx context.Context, req *gen.ReasonInput, params gen.BlockLegalEntityParams) (gen.BlockLegalEntityRes, error) {
-	le, err := changeLegalEntityStatus(ctx, params.ID, ifMatch(params.IfMatch), blockLE, req.Reason)
+	le, err := changeLegalEntityStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), blockLE, req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +173,7 @@ func (e *Endpoints) BlockLegalEntity(ctx context.Context, req *gen.ReasonInput, 
 
 // UnblockLegalEntity implements POST /v1/legal-entities/{id}:unblock.
 func (e *Endpoints) UnblockLegalEntity(ctx context.Context, params gen.UnblockLegalEntityParams) (gen.UnblockLegalEntityRes, error) {
-	le, err := changeLegalEntityStatus(ctx, params.ID, ifMatch(params.IfMatch), unblockLE, "")
+	le, err := changeLegalEntityStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), unblockLE, "")
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +269,7 @@ func (e *Endpoints) UpdateOrgUnit(ctx context.Context, req *gen.OrgUnitUpdate, p
 			ch.ParentID = &req.ParentID.Value
 		}
 	}
-	u, err := UpdateOrgUnit(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	u, err := UpdateOrgUnit(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +278,7 @@ func (e *Endpoints) UpdateOrgUnit(ctx context.Context, req *gen.OrgUnitUpdate, p
 
 // ActivateOrgUnit implements POST /v1/org-units/{id}:activate.
 func (e *Endpoints) ActivateOrgUnit(ctx context.Context, params gen.ActivateOrgUnitParams) (gen.ActivateOrgUnitRes, error) {
-	u, err := changeOrgUnitStatus(ctx, params.ID, ifMatch(params.IfMatch), activateOU, "")
+	u, err := changeOrgUnitStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), activateOU, "")
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +287,7 @@ func (e *Endpoints) ActivateOrgUnit(ctx context.Context, params gen.ActivateOrgU
 
 // BlockOrgUnit implements POST /v1/org-units/{id}:block.
 func (e *Endpoints) BlockOrgUnit(ctx context.Context, req *gen.ReasonInput, params gen.BlockOrgUnitParams) (gen.BlockOrgUnitRes, error) {
-	u, err := changeOrgUnitStatus(ctx, params.ID, ifMatch(params.IfMatch), blockOU, req.Reason)
+	u, err := changeOrgUnitStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), blockOU, req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +296,7 @@ func (e *Endpoints) BlockOrgUnit(ctx context.Context, req *gen.ReasonInput, para
 
 // UnblockOrgUnit implements POST /v1/org-units/{id}:unblock.
 func (e *Endpoints) UnblockOrgUnit(ctx context.Context, params gen.UnblockOrgUnitParams) (gen.UnblockOrgUnitRes, error) {
-	u, err := changeOrgUnitStatus(ctx, params.ID, ifMatch(params.IfMatch), unblockOU, "")
+	u, err := changeOrgUnitStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), unblockOU, "")
 	if err != nil {
 		return nil, err
 	}

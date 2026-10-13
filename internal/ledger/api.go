@@ -17,10 +17,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func tag[T any](v T) gen.OptString { return gen.NewOptString(etag.Of(&v)) }
 
 func optUUID(v *uuid.UUID) gen.OptUUID {
@@ -206,7 +202,7 @@ func (e *Endpoints) ListFiscalPeriods(ctx context.Context, params gen.ListFiscal
 
 // OpenFiscalPeriod implements POST /v1/fiscal-periods/{id}:open.
 func (e *Endpoints) OpenFiscalPeriod(ctx context.Context, params gen.OpenFiscalPeriodParams) (gen.OpenFiscalPeriodRes, error) {
-	p, err := OpenPeriod(ctx, params.ID, ifMatch(params.IfMatch))
+	p, err := OpenPeriod(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +211,7 @@ func (e *Endpoints) OpenFiscalPeriod(ctx context.Context, params gen.OpenFiscalP
 
 // CloseFiscalPeriod implements POST /v1/fiscal-periods/{id}:close.
 func (e *Endpoints) CloseFiscalPeriod(ctx context.Context, params gen.CloseFiscalPeriodParams) (gen.CloseFiscalPeriodRes, error) {
-	p, err := ClosePeriod(ctx, params.ID, ifMatch(params.IfMatch))
+	p, err := ClosePeriod(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}

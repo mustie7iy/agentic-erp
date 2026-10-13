@@ -27,10 +27,6 @@ type Endpoints struct {
 	Dependencies
 }
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 // rawObject turns a generated free-form object into JSON.
 func rawObject[M ~map[string]jx.Raw](m M) json.RawMessage {
 	out := make(map[string]json.RawMessage, len(m))
@@ -160,7 +156,7 @@ func (e *Endpoints) UpdateChangeRequest(ctx context.Context, req *gen.ChangeRequ
 	if req.Proposed.Set {
 		ch.Proposed = rawObject(req.Proposed.Value)
 	}
-	c, err := UpdateChangeRequest(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	c, err := UpdateChangeRequest(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +165,7 @@ func (e *Endpoints) UpdateChangeRequest(ctx context.Context, req *gen.ChangeRequ
 
 // SubmitChangeRequest implements POST /v1/change-requests/{id}:submit.
 func (e *Endpoints) SubmitChangeRequest(ctx context.Context, params gen.SubmitChangeRequestParams) (gen.SubmitChangeRequestRes, error) {
-	c, err := SubmitChangeRequest(ctx, e.Dependencies, params.ID, ifMatch(params.IfMatch))
+	c, err := SubmitChangeRequest(ctx, e.Dependencies, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +174,7 @@ func (e *Endpoints) SubmitChangeRequest(ctx context.Context, params gen.SubmitCh
 
 // WithdrawChangeRequest implements POST /v1/change-requests/{id}:withdraw.
 func (e *Endpoints) WithdrawChangeRequest(ctx context.Context, req *gen.ReasonInput, params gen.WithdrawChangeRequestParams) (gen.WithdrawChangeRequestRes, error) {
-	c, err := WithdrawChangeRequest(ctx, e.Dependencies, params.ID, ifMatch(params.IfMatch), req.Reason)
+	c, err := WithdrawChangeRequest(ctx, e.Dependencies, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +183,7 @@ func (e *Endpoints) WithdrawChangeRequest(ctx context.Context, req *gen.ReasonIn
 
 // ActivateChangeRequest implements POST /v1/change-requests/{id}:activate.
 func (e *Endpoints) ActivateChangeRequest(ctx context.Context, params gen.ActivateChangeRequestParams) (gen.ActivateChangeRequestRes, error) {
-	c, err := ActivateChangeRequest(ctx, e.Dependencies, params.ID, ifMatch(params.IfMatch))
+	c, err := ActivateChangeRequest(ctx, e.Dependencies, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}

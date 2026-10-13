@@ -30,6 +30,12 @@ func Check(ifMatch string, version int32) error {
 	return Match(ifMatch, Format(version))
 }
 
+// IfMatch binds an If-Match header to Check, for the application services
+// that take the check as a function of the version they read.
+func IfMatch(header string) func(int32) error {
+	return func(version int32) error { return Check(header, version) }
+}
+
 // Match compares an If-Match header with the current entity tag.
 func Match(ifMatch, want string) error {
 	if strings.TrimSpace(ifMatch) == "" {

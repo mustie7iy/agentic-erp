@@ -18,10 +18,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func ptr[T any](o interface{ Get() (T, bool) }) *T {
 	if v, ok := o.Get(); ok {
 		return &v
@@ -136,7 +132,7 @@ func (e *Endpoints) ListPaymentRuns(ctx context.Context, params gen.ListPaymentR
 
 // ReleasePaymentRun implements POST /v1/payment-runs/{id}:release.
 func (e *Endpoints) ReleasePaymentRun(ctx context.Context, req gen.OptDecisionInput, params gen.ReleasePaymentRunParams) (gen.ReleasePaymentRunRes, error) {
-	op, err := e.StartRelease(ctx, params.ID, ifMatch(params.IfMatch), req.Value.Comment.Value)
+	op, err := e.StartRelease(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Value.Comment.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +141,7 @@ func (e *Endpoints) ReleasePaymentRun(ctx context.Context, req gen.OptDecisionIn
 
 // RejectPaymentRun implements POST /v1/payment-runs/{id}:reject.
 func (e *Endpoints) RejectPaymentRun(ctx context.Context, req *gen.ReasonInput, params gen.RejectPaymentRunParams) (gen.RejectPaymentRunRes, error) {
-	r, err := RejectRun(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	r, err := RejectRun(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +286,7 @@ func (e *Endpoints) GetBankFileContent(ctx context.Context, params gen.GetBankFi
 
 // ReportBankFileStatus implements POST /v1/bank-files/{id}:report.
 func (e *Endpoints) ReportBankFileStatus(ctx context.Context, req *gen.BankStatusReport, params gen.ReportBankFileStatusParams) (gen.ReportBankFileStatusRes, error) {
-	f, err := ReportFile(ctx, params.ID, ifMatch(params.IfMatch), string(req.Outcome), req.Reference.Value, req.Reason.Value)
+	f, err := ReportFile(ctx, params.ID, etag.IfMatch(params.IfMatch), string(req.Outcome), req.Reference.Value, req.Reason.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +295,7 @@ func (e *Endpoints) ReportBankFileStatus(ctx context.Context, req *gen.BankStatu
 
 // TransmitBankFile implements POST /v1/bank-files/{id}:transmit.
 func (e *Endpoints) TransmitBankFile(ctx context.Context, params gen.TransmitBankFileParams) (gen.TransmitBankFileRes, error) {
-	op, err := e.TransmitFile(ctx, params.ID, ifMatch(params.IfMatch))
+	op, err := e.TransmitFile(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}

@@ -20,10 +20,6 @@ type Endpoints struct {
 	Decider
 }
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func toAPI(r Request) gen.ApprovalRequest {
 	out := gen.ApprovalRequest{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		ObjectType: r.ObjectType, ObjectID: r.ObjectID, Title: r.Title, RequesterID: r.RequesterID, Status: r.Status,
@@ -106,7 +102,7 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 
 // ApproveApprovalRequest implements POST /v1/approval-requests/{id}:approve.
 func (e *Endpoints) ApproveApprovalRequest(ctx context.Context, req gen.OptDecisionInput, params gen.ApproveApprovalRequestParams) (gen.ApproveApprovalRequestRes, error) {
-	r, err := e.Approve(ctx, params.ID, ifMatch(params.IfMatch), req.Value.Comment.Value)
+	r, err := e.Approve(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Value.Comment.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +111,7 @@ func (e *Endpoints) ApproveApprovalRequest(ctx context.Context, req gen.OptDecis
 
 // RejectApprovalRequest implements POST /v1/approval-requests/{id}:reject.
 func (e *Endpoints) RejectApprovalRequest(ctx context.Context, req *gen.CommentRequiredInput, params gen.RejectApprovalRequestParams) (gen.RejectApprovalRequestRes, error) {
-	r, err := e.Reject(ctx, params.ID, ifMatch(params.IfMatch), req.Comment)
+	r, err := e.Reject(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Comment)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +120,7 @@ func (e *Endpoints) RejectApprovalRequest(ctx context.Context, req *gen.CommentR
 
 // CancelApprovalRequest implements POST /v1/approval-requests/{id}:cancel.
 func (e *Endpoints) CancelApprovalRequest(ctx context.Context, req *gen.CommentRequiredInput, params gen.CancelApprovalRequestParams) (gen.CancelApprovalRequestRes, error) {
-	r, err := e.Cancel(ctx, params.ID, ifMatch(params.IfMatch), req.Comment)
+	r, err := e.Cancel(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Comment)
 	if err != nil {
 		return nil, err
 	}

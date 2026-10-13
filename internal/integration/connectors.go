@@ -236,10 +236,6 @@ func connectorOK(c Connector) *gen.UpdateConnectorOKHeaders {
 	return &gen.UpdateConnectorOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: connectorToAPI(c)}
 }
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 // CreateConnector implements POST /v1/connectors.
 func (e *Endpoints) CreateConnector(ctx context.Context, req *gen.ConnectorCreate, _ gen.CreateConnectorParams) (gen.CreateConnectorRes, error) {
 	in := NewConnector{Kind: req.Kind, Name: req.Name, Settings: fromSettings(req.Settings)}
@@ -313,7 +309,7 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 		}
 		ch.SecretRef = &ref
 	}
-	c, err := UpdateConnector(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	c, err := UpdateConnector(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +318,7 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 
 // EnableConnector implements POST /v1/connectors/{id}:enable.
 func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnectorParams) (gen.EnableConnectorRes, error) {
-	c, err := SetConnectorStatus(ctx, params.ID, ifMatch(params.IfMatch), "active", "")
+	c, err := SetConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", "")
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +327,7 @@ func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnec
 
 // DisableConnector implements POST /v1/connectors/{id}:disable.
 func (e *Endpoints) DisableConnector(ctx context.Context, req *gen.ReasonInput, params gen.DisableConnectorParams) (gen.DisableConnectorRes, error) {
-	c, err := SetConnectorStatus(ctx, params.ID, ifMatch(params.IfMatch), "disabled", req.Reason)
+	c, err := SetConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "disabled", req.Reason)
 	if err != nil {
 		return nil, err
 	}

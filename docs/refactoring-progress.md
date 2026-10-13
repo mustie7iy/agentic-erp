@@ -49,7 +49,9 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   assertion kept strict with errors.Is plus not-a-problem).
 
 ### Phase 2 — Shared helpers
-- [ ] R7 etag.IfMatch replaces the per-package ifMatch copies
+- [x] R7 etag.IfMatch replaces the per-package ifMatch copies: 11 copies deleted, 51 calls
+  moved; parameters named ifMatch untouched. Lint unchanged (one-liners were below dupl's
+  threshold). Reviewer: APPROVE.
 - [ ] R8 One helper for injectable Begin / Now
 - [ ] R9 Remaining dupl findings
 

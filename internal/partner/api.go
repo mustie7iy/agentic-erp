@@ -17,10 +17,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func optString(s gen.OptString) *string {
 	if !s.Set {
 		return nil
@@ -267,7 +263,7 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 
 // BlockBusinessPartner implements POST /v1/business-partners/{id}:block.
 func (e *Endpoints) BlockBusinessPartner(ctx context.Context, req *gen.ReasonInput, params gen.BlockBusinessPartnerParams) (gen.BlockBusinessPartnerRes, error) {
-	c, err := Block(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	c, err := Block(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +272,7 @@ func (e *Endpoints) BlockBusinessPartner(ctx context.Context, req *gen.ReasonInp
 
 // UnblockBusinessPartner implements POST /v1/business-partners/{id}:unblock.
 func (e *Endpoints) UnblockBusinessPartner(ctx context.Context, req *gen.ReasonInput, params gen.UnblockBusinessPartnerParams) (gen.UnblockBusinessPartnerRes, error) {
-	c, err := Unblock(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	c, err := Unblock(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err == nil {
 		c, err = RequestApproval(ctx, e.Approvals, c)
 	}
