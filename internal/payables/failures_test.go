@@ -159,8 +159,10 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	for action, body := range map[string]string{"hold": `{"reason": "r"}`, "release": "", "cancel": `{"reason": "r"}`, "match": "", "post": "",
 		"reverse": `{"reason": "r"}`} {
-		t.Run("stale "+action, func(*testing.T) {
-			e.Problem(412, "request.version_mismatch", "POST", "/v1/supplier-invoices/"+id(parked)+":"+action, body, `"99"`)
+		t.Run("stale "+action, func(t *testing.T) {
+			api := e.Client
+			api.T = t
+			api.Problem(412, "request.version_mismatch", "POST", "/v1/supplier-invoices/"+id(parked)+":"+action, body, `"99"`)
 		})
 	}
 	if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: "supplier_invoice_capture_once"}); p.Code != "payables.already_captured" {

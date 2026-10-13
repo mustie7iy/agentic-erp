@@ -262,7 +262,9 @@ func TestEntryRefusals(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			code, m, _ := e.Do("POST", "/v1/supplier-invoices", c.body, "")
+			api := e.Client
+			api.T = t
+			code, m, _ := api.Do("POST", "/v1/supplier-invoices", c.body, "")
 			if code != c.status {
 				t.Errorf("status: got %d, want %d: %v", code, c.status, m)
 			}
