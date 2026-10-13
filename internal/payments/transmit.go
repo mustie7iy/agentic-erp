@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -38,9 +39,12 @@ type DirConnector struct {
 func (d DirConnector) Transmit(_ context.Context, f File) error {
 	tmp := filepath.Join(d.Dir, ".partial-"+f.Name)
 	if err := os.WriteFile(tmp, f.Content, 0o600); err != nil {
-		return err
+		return fmt.Errorf("payments: write bank file %s: %w", f.ID, err)
 	}
-	return os.Rename(tmp, filepath.Join(d.Dir, f.Name))
+	if err := os.Rename(tmp, filepath.Join(d.Dir, f.Name)); err != nil {
+		return fmt.Errorf("payments: publish bank file %s: %w", f.ID, err)
+	}
+	return nil
 }
 
 func fileNotFound() error { return problem.NotFound("No bank file with this id.") }
@@ -115,7 +119,7 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 		return operations.Operation{}, problem.Unavailable("The bank connector did not take the file; transmit it again.", 30).WithCause(err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = 'transmitted', version = version + 1 WHERE id = $1`, f.ID); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("payments: mark bank file %s transmitted: %w", f.ID, err)
 	}
 	if err := record(ctx, "payments.bank_file.transmit", f.ID, map[string]any{"bank_file_id": f.ID, "operation_id": op.ID},
 		fileEvent(f, "bank_file_transmitted", map[string]any{"format": f.Format, "sha256": hex.EncodeToString(f.SHA256), "connector_id": nil,
@@ -169,7 +173,7 @@ func ReportFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ou
 		return BankFile{}, problem.Conflict("payments.invalid_status", "Only a transmitted bank file can be "+r.to+"; this one is "+f.Status+".")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = $2, version = version + 1 WHERE id = $1`, f.ID, r.to); err != nil {
-		return BankFile{}, err
+		return BankFile{}, fmt.Errorf("payments: mark bank file %s %s: %w", f.ID, r.to, err)
 	}
 	updated, err := getFile(ctx, tx, id, false)
 	if err != nil {

@@ -25,6 +25,7 @@ package payments
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -163,7 +164,7 @@ func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.HouseBankID, &r.RunDate, &r.DueBy, &r.Currency, &r.Exponent, &r.Total,
 		&r.Status, &r.ProposedBy, &r.DecidedBy, &r.DecidedAt, &r.OperationID, &r.ReleaseOpID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
-	return r, err
+	return r, wrapf(err, "payments: scan payment run")
 }
 
 // load reads a run without company access; lock takes the row lock for a
@@ -238,14 +239,25 @@ func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
 	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
 		&p.Items, &p.CreatedAt, &p.CreatedBy)
-	return p, err
+	return p, wrapf(err, "payments: scan payment")
+}
+
+// wrapf adds context to err and leaves nil alone, so a function that
+// returns its result together with the error keeps that single return
+// instead of a branch only a failing database reaches.
+func wrapf(err error, format string, args ...any) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf(format+": %w", append(args, err)...)
 }
 
 // paymentsOf reads every payment of a run in end-to-end id order, the
 // order of the bank file.
 func paymentsOf(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Payment, error) {
 	rows, _ := tx.Query(ctx, paymentSelect+` WHERE p.payment_run_id = $1 ORDER BY p.end_to_end_id`, run)
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Payment, error) { return scanPayment(r) })
+	pays, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Payment, error) { return scanPayment(r) })
+	return pays, wrapf(err, "payments: read the payments of run %s", run)
 }
 
 // Exclusion is a supplier left out of a run.
@@ -274,7 +286,7 @@ func loadHouseBank(ctx context.Context, tx pgx.Tx, id uuid.UUID) (houseBank, boo
 	if errors.Is(err, pgx.ErrNoRows) {
 		return h, false, nil
 	}
-	return h, err == nil, err
+	return h, err == nil, wrapf(err, "payments: read house bank %s", id)
 }
 
 func requireProposed(r Run, done string) error {
@@ -333,5 +345,5 @@ func (Reservations) RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UU
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
-	return number, err == nil, err
+	return number, err == nil, wrapf(err, "payments: find the run holding entry %d/%s", fiscalYear, entryID)
 }

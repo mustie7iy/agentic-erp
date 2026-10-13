@@ -49,7 +49,8 @@ func (w *Proposer) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT o.tenant_id FROM platform.operation o
 		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
 		WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing'`, ProposeKind)
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	return tenants, wrapf(err, "payments: list the tenants with proposal jobs")
 }
 
 // one does the tenant's next job and reports whether there was one.
@@ -65,7 +66,7 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 	}
 	// A proposal over 100,000 items outlasts a request's statement timeout.
 	if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
-		return false, err
+		return false, fmt.Errorf("payments: set the proposal statement timeout: %w", err)
 	}
 	job, ok, err := Next(ctx, tx)
 	if err != nil || !ok {
@@ -82,7 +83,7 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 	if err := buf.Flush(ctx, tx, p, "", clock.Now(w.Now)); err != nil {
 		return false, err
 	}
-	return true, tx.Commit(ctx)
+	return true, wrapf(tx.Commit(ctx), "payments: commit the proposal of run %s", job.RunID)
 }
 
 // RunOnce does every job there is and returns how many it did. A tenant

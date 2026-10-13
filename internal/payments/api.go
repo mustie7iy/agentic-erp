@@ -112,7 +112,7 @@ func (e *Endpoints) ListPaymentRuns(ctx context.Context, params gen.ListPaymentR
 	rows, _ := tx.Query(ctx, q, args...)
 	runs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Run, error) { return scanRun(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("payments: list payment runs: %w", err)
 	}
 	runs, next := pagination.Page(ks, runs, func(r Run) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
@@ -179,7 +179,7 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 	rows, _ := tx.Query(ctx, q, args...)
 	pays, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Payment, error) { return scanPayment(row) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
 	pays, next := pagination.Page(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }))
 	page := gen.PaymentPage{Items: make([]gen.Payment, len(pays))}
@@ -211,11 +211,10 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	rows, _ := tx.Query(ctx, q, args...)
 	exs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Exclusion, error) {
 		var x Exclusion
-		err := row.Scan(&x.SupplierID, &x.Reason, &x.Amount)
-		return x, err
+		return x, wrapf(row.Scan(&x.SupplierID, &x.Reason, &x.Amount), "payments: scan exclusion")
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
 	exs, next := pagination.Page(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.SupplierID }))
 	page := gen.PaymentExclusionPage{Items: make([]gen.PaymentExclusion, len(exs))}
@@ -260,7 +259,7 @@ func (e *Endpoints) ListBankFiles(ctx context.Context, params gen.ListBankFilesP
 	rows, _ := tx.Query(ctx, q, args...)
 	files, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (BankFile, error) { return scanFile(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("payments: list bank files: %w", err)
 	}
 	files, next := pagination.Page(ks, files, func(f BankFile) (string, uuid.UUID) {
 		return f.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), f.ID

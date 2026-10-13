@@ -91,7 +91,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 			currency, total_amount, status, proposed_by, operation_id, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 'proposing', $9, $10, $9, $9)`,
 		p.TenantID, id, number, le.ID, hb.ID, in.RunDate, in.DueBy, hb.Currency, p.ID, op.ID); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("payments: insert run %s: %w", id, err)
 	}
 	return op, audit.Add(ctx, audit.Entry{Action: "payments.payment_run.propose", ObjectType: "payments.payment_run", ObjectID: id, Outcome: "succeeded",
 		Detail: map[string]any{"document_number": number, "operation_id": op.ID, "run_date": in.RunDate.Format(time.DateOnly),
@@ -136,7 +136,7 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 	reserved := map[ledger.ItemRef]bool{}
 	var ref ledger.ItemRef
 	if _, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo}, func() error { reserved[ref] = true; return nil }); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("payments: read the reserved items of legal entity %s: %w", r.LegalEntityID, err)
 	}
 	var suppliers []uuid.UUID
 	for i, it := range open {
@@ -170,7 +170,7 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 // are serialized, so two runs never reserve the same item.
 func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) (Run, error) {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "payments.propose."+r.LegalEntityID.String()); err != nil {
-		return Run{}, err
+		return Run{}, fmt.Errorf("payments: lock the proposals of legal entity %s: %w", r.LegalEntityID, err)
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
 	if err != nil {
@@ -280,7 +280,7 @@ func fail(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, why *proble
 		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'failed', version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
-		return err
+		return fmt.Errorf("payments: fail run %s: %w", r.ID, err)
 	}
 	failed, err := load(ctx, tx, r.ID, false)
 	if err != nil {
@@ -317,7 +317,7 @@ func Next(ctx context.Context, tx pgx.Tx) (Job, bool, error) {
 		return Job{}, false, nil
 	}
 	j.Cancelled = status == operations.Cancelled
-	return j, err == nil, err
+	return j, err == nil, wrapf(err, "payments: find the next proposal job")
 }
 
 // JobFor finds and locks one run's job: the run still proposing with its
@@ -334,7 +334,7 @@ func JobFor(ctx context.Context, tx pgx.Tx, run uuid.UUID) (Job, bool, error) {
 		return Job{}, false, nil
 	}
 	j.Cancelled = status == operations.Cancelled
-	return j, err == nil, err
+	return j, err == nil, wrapf(err, "payments: find the proposal job of run %s", run)
 }
 
 // Process does a job as its proposer: it builds the run, or fails it when
@@ -353,7 +353,7 @@ func (e *Endpoints) Process(ctx context.Context, j Job) error {
 		return fail(ctx, tx, p, r, nil)
 	}
 	if _, err := tx.Exec(ctx, `SAVEPOINT propose`); err != nil {
-		return err
+		return fmt.Errorf("payments: savepoint before building run %s: %w", r.ID, err)
 	}
 	_, err = e.build(ctx, tx, p, r)
 	var why *problem.Problem
@@ -361,7 +361,7 @@ func (e *Endpoints) Process(ctx context.Context, j Job) error {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT propose`); err != nil {
-		return err
+		return fmt.Errorf("payments: roll back the build of run %s: %w", r.ID, err)
 	}
 	audit.Discard(ctx)
 	return fail(ctx, tx, p, r, why)

@@ -63,7 +63,7 @@ func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'releasing', decided_by = $2, decided_at = coalesce(decided_at, now()), release_operation_id = $3,
 		version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID, op.ID); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("payments: release run %s: %w", r.ID, err)
 	}
 	return op, record(ctx, "payments.payment_run.release", r.ID, map[string]any{"comment": comment, "payments": len(pays), "operation_id": op.ID, "resumed": r.Status == Releasing})
 }
@@ -79,7 +79,7 @@ func releasable(ctx context.Context, tx pgx.Tx, r Run) error {
 	}
 	var status string
 	if err := tx.QueryRow(ctx, `SELECT status FROM platform.operation WHERE id = $1`, r.ReleaseOpID).Scan(&status); err != nil {
-		return err
+		return fmt.Errorf("payments: read release operation %s of run %s: %w", r.ReleaseOpID, r.ID, err)
 	}
 	if status != operations.Failed {
 		return problem.Conflict("payments.release_in_progress", "The run is being released (operation "+r.ReleaseOpID.String()+" is "+status+").")
@@ -99,7 +99,7 @@ func (e *Endpoints) Releaser(ctx context.Context, tx pgx.Tx, run uuid.UUID) (req
 	var kind string
 	var tenant uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT tenant_id, kind FROM identity.principal WHERE id = $1`, *r.DecidedBy).Scan(&tenant, &kind); err != nil {
-		return reqctx.Principal{}, Run{}, err
+		return reqctx.Principal{}, Run{}, fmt.Errorf("payments: read releaser %s of run %s: %w", *r.DecidedBy, run, err)
 	}
 	return reqctx.Principal{ID: *r.DecidedBy, Kind: kind, TenantID: tenant}, r, nil
 }
@@ -159,11 +159,11 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 		return false, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment SET journal_entry_year = $2, journal_entry_id = $3 WHERE id = $1`, p.ID, entry.FiscalYear, entry.ID); err != nil {
-		return false, err
+		return false, fmt.Errorf("payments: record the posting of payment %s: %w", p.ID, err)
 	}
 	var done, total int64
 	if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE journal_entry_id IS NOT NULL), count(*) FROM payments.payment WHERE payment_run_id = $1`, r.ID).Scan(&done, &total); err != nil {
-		return false, err
+		return false, fmt.Errorf("payments: count the posted payments of run %s: %w", r.ID, err)
 	}
 	return true, operations.Report(ctx, *r.ReleaseOpID, done, total)
 }
@@ -202,7 +202,7 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 		return Run{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'released', version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
-		return Run{}, err
+		return Run{}, fmt.Errorf("payments: complete the release of run %s: %w", r.ID, err)
 	}
 	released, err := load(ctx, tx, r.ID, false)
 	if err != nil {
@@ -233,11 +233,11 @@ func (e *Endpoints) FailRelease(ctx context.Context, r Run, why *problem.Problem
 	}
 	var posted int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM payments.payment WHERE payment_run_id = $1 AND journal_entry_id IS NOT NULL`, r.ID).Scan(&posted); err != nil {
-		return Run{}, err
+		return Run{}, fmt.Errorf("payments: count the posted payments of run %s: %w", r.ID, err)
 	}
 	if posted == 0 {
 		if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'proposed', decided_by = NULL, decided_at = NULL, version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
-			return Run{}, err
+			return Run{}, fmt.Errorf("payments: return run %s to proposed: %w", r.ID, err)
 		}
 	}
 	after, err := load(ctx, tx, r.ID, false)
@@ -299,11 +299,11 @@ func RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, rea
 	tag, err := tx.Exec(ctx, `UPDATE payments.payment_item i SET is_active = false FROM payments.payment p
 		WHERE p.tenant_id = i.tenant_id AND p.id = i.payment_id AND p.payment_run_id = $1 AND i.is_active`, r.ID)
 	if err != nil {
-		return Run{}, err
+		return Run{}, fmt.Errorf("payments: free the items of run %s: %w", r.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'rejected', decided_by = $2, decided_at = now(), version = version + 1,
 		updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
-		return Run{}, err
+		return Run{}, fmt.Errorf("payments: reject run %s: %w", r.ID, err)
 	}
 	rejected, err := load(ctx, tx, r.ID, false)
 	if err != nil {
@@ -335,7 +335,7 @@ const fileSelect = `SELECT f.id, f.payment_run_id, r.legal_entity_id, f.format, 
 func scanFile(row pgx.Row) (BankFile, error) {
 	var f BankFile
 	err := row.Scan(&f.ID, &f.RunID, &f.LegalEntityID, &f.Format, &f.ObjectRef, &f.SHA256, &f.Status, &f.Version, &f.CreatedAt, &f.CreatedBy, &f.UpdatedAt)
-	return f, err
+	return f, wrapf(err, "payments: scan bank file")
 }
 
 // createFile renders the run's pain.001 file and records it with its hash.
@@ -346,7 +346,7 @@ func scanFile(row pgx.Row) (BankFile, error) {
 func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, hb houseBank, pays []Payment) (BankFile, error) {
 	var created time.Time
 	if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&created); err != nil {
-		return BankFile{}, err
+		return BankFile{}, fmt.Errorf("payments: read the time of the bank file of run %s: %w", r.ID, err)
 	}
 	content, err := e.render(ctx, p.TenantID, r, hb, pays, created)
 	if err != nil {
