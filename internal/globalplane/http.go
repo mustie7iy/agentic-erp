@@ -132,28 +132,20 @@ func (h *handler) tenant(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.Method == http.MethodPost && custom && verb == "move":
 		h.serve(w, r, "moveTenant", func(w http.ResponseWriter, r *http.Request) error {
-			var in struct {
-				Cell string `json:"cell"`
+			cell, err := cellBody(w, r)
+			if err != nil {
+				return err
 			}
-			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&in); err != nil || in.Cell == "" {
-				return problem.BadRequest("request.invalid_body", "The request body does not match the contract: a cell is required.")
-			}
-			e, err := h.s.Move(r.Context(), id, ifMatch, in.Cell)
+			e, err := h.s.Move(r.Context(), id, ifMatch, cell)
 			return h.entry(w, e, err)
 		})
 	case r.Method == http.MethodPost && custom && verb == "verify":
 		h.serve(w, r, "verifyTenant", func(w http.ResponseWriter, r *http.Request) error {
-			var in struct {
-				Cell string `json:"cell"`
+			cell, err := cellBody(w, r)
+			if err != nil {
+				return err
 			}
-			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&in); err != nil || in.Cell == "" {
-				return problem.BadRequest("request.invalid_body", "The request body does not match the contract: a cell is required.")
-			}
-			v, err := h.s.Verify(r.Context(), id, in.Cell, r.Header.Get("Authorization"))
+			v, err := h.s.Verify(r.Context(), id, cell, r.Header.Get("Authorization"))
 			if err != nil {
 				return err
 			}
@@ -169,6 +161,19 @@ func (h *handler) tenant(w http.ResponseWriter, r *http.Request) {
 	default:
 		notAllowed(w, r, "GET")
 	}
+}
+
+// cellBody reads the body of move and verify: the cell, required.
+func cellBody(w http.ResponseWriter, r *http.Request) (string, error) {
+	var in struct {
+		Cell string `json:"cell"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil || in.Cell == "" {
+		return "", problem.BadRequest("request.invalid_body", "The request body does not match the contract: a cell is required.")
+	}
+	return in.Cell, nil
 }
 
 func (h *handler) entry(w http.ResponseWriter, e directory.Entry, err error) error {

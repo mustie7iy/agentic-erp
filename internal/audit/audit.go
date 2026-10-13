@@ -64,14 +64,9 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 	if err != nil {
 		return nil, err
 	}
-	cmp, dir := "<", "DESC"
-	switch strings.Join(strings.Fields(params.OrderBy.Value), " ") {
-	case "", "occurred_at desc":
-	case "occurred_at", "occurred_at asc":
-		cmp, dir = ">", "ASC"
-	default:
-		return nil, problem.BadRequest("request.invalid_order_by", "order_by accepts occurred_at asc or occurred_at desc.",
-			problem.FieldError{Field: "order_by", Code: "unsupported", Message: "occurred_at asc|desc"})
+	cmp, dir, err := auditOrder(params.OrderBy.Value)
+	if err != nil {
+		return nil, err
 	}
 	var objectID *uuid.UUID
 	if id, ok := params.ObjectID.Get(); ok {
@@ -114,20 +109,40 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 		page.NextPageToken.SetTo(tok)
 	}
 	for _, v := range events {
-		item := gen.AuditEvent{Seq: v.Seq, OccurredAt: v.OccurredAt, ActorID: v.ActorID, ActorKind: v.ActorKind, Action: v.Action,
-			ObjectType: v.ObjectType, Outcome: v.Outcome, Detail: gen.AuditEventDetail{}}
-		if v.ObjectID != nil {
-			item.ObjectID.SetTo(*v.ObjectID)
-		}
-		if v.TraceID != nil {
-			item.TraceID.SetTo(*v.TraceID)
-		}
-		for k, raw := range v.Detail {
-			item.Detail[k] = jx.Raw(raw)
-		}
-		page.Items = append(page.Items, item)
+		page.Items = append(page.Items, auditEventItem(v))
 	}
 	return &gen.AuditEventPageHeaders{Response: page}, nil
+}
+
+// auditOrder is the comparison and direction that order_by asks for:
+// newest first by default.
+func auditOrder(orderBy string) (cmp, dir string, err error) {
+	cmp, dir = "<", "DESC"
+	switch strings.Join(strings.Fields(orderBy), " ") {
+	case "", "occurred_at desc":
+	case "occurred_at", "occurred_at asc":
+		cmp, dir = ">", "ASC"
+	default:
+		return "", "", problem.BadRequest("request.invalid_order_by", "order_by accepts occurred_at asc or occurred_at desc.",
+			problem.FieldError{Field: "order_by", Code: "unsupported", Message: "occurred_at asc|desc"})
+	}
+	return cmp, dir, nil
+}
+
+// auditEventItem is an event as the API answers it.
+func auditEventItem(v Event) gen.AuditEvent {
+	item := gen.AuditEvent{Seq: v.Seq, OccurredAt: v.OccurredAt, ActorID: v.ActorID, ActorKind: v.ActorKind, Action: v.Action,
+		ObjectType: v.ObjectType, Outcome: v.Outcome, Detail: gen.AuditEventDetail{}}
+	if v.ObjectID != nil {
+		item.ObjectID.SetTo(*v.ObjectID)
+	}
+	if v.TraceID != nil {
+		item.TraceID.SetTo(*v.TraceID)
+	}
+	for k, raw := range v.Detail {
+		item.Detail[k] = jx.Raw(raw)
+	}
+	return item
 }
 
 // VerifyChain recomputes the tenant's hash chain from from (default the

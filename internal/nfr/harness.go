@@ -111,7 +111,16 @@ func Start(t testing.TB, o Options) *Stack {
 	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
 	s.Server.Start()
 	s.Client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 4 * o.Users, MaxIdleConnsPerHost: 4 * o.Users}}
+	s.startWorkers(t, o)
+	t.Cleanup(s.Stop)
+	return s
+}
 
+// startWorkers starts the stack's projector and, with Events, its outbox
+// relay to NATS (a restartable test server unless the options bring a
+// publisher); Stop stops them.
+func (s *Stack) startWorkers(tb testing.TB, o Options) {
+	tb.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	log := telemetry.NewLogger(io.Discard, 0)
@@ -123,13 +132,13 @@ func Start(t testing.TB, o Options) *Stack {
 	if o.Events {
 		publisher := o.Publisher
 		if publisher == nil {
-			s.NATS = natstest.NewRestartable(t)
+			s.NATS = natstest.NewRestartable(tb)
 			bus, err := natsbus.Connect(s.NATS.URL)
 			if err != nil {
-				t.Fatal(err)
+				tb.Fatal(err)
 			}
 			if err := bus.EnsureStreams(ctx, Cell); err != nil {
-				t.Fatal(err)
+				tb.Fatal(err)
 			}
 			s.Bus, publisher = bus, bus
 		}
@@ -137,8 +146,6 @@ func Start(t testing.TB, o Options) *Stack {
 		s.workers.Add(1)
 		go func() { defer s.workers.Done(); s.Relay.Run(ctx) }()
 	}
-	t.Cleanup(s.Stop)
-	return s
 }
 
 // Stop stops the server, then the workers.

@@ -415,11 +415,8 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 		return ChangeRequest{}, problem.Unprocessable("config.no_changes", "The proposed configuration does not change the base version.")
 	}
 	tier := config.MaxTier(changes)
-	for i, ch := range changes {
-		if _, err := tx.Exec(ctx, `INSERT INTO config.change_item (tenant_id, change_request_id, item_no, path, old_value, new_value, tier)
-			VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), $7)`, actor.TenantID, id, i+1, ch.Path, ch.Old, ch.New, int(ch.Tier)); err != nil {
-			return ChangeRequest{}, fmt.Errorf("configuration: insert item %d of change request %s: %w", i+1, id, err)
-		}
+	if err := insertItems(ctx, tx, actor.TenantID, id, changes); err != nil {
+		return ChangeRequest{}, err
 	}
 	status := AwaitingEvidence
 	var request *uuid.UUID
@@ -446,6 +443,17 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 		events = append(events, crEvent(id, "change_request_approved", common, map[string]any{"base_version": c.BaseVersion, "status": Approved}))
 	}
 	return updated, record(ctx, "config.change_request.submit", id, map[string]any{"tier": int(tier), "items": len(changes), "status": status}, events...)
+}
+
+// insertItems stores the change request's items, numbered from 1.
+func insertItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, changes []config.Change) error {
+	for i, ch := range changes {
+		if _, err := tx.Exec(ctx, `INSERT INTO config.change_item (tenant_id, change_request_id, item_no, path, old_value, new_value, tier)
+			VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), $7)`, tenant, id, i+1, ch.Path, ch.Old, ch.New, int(ch.Tier)); err != nil {
+			return fmt.Errorf("configuration: insert item %d of change request %s: %w", i+1, id, err)
+		}
+	}
+	return nil
 }
 
 func crEvent(id uuid.UUID, name string, parts ...map[string]any) outbox.Event {
