@@ -26,6 +26,25 @@ linters:
     - noctx        # HTTP requests without a context
     - misspell
   settings:
+    errcheck:
+      exclude-functions:
+        # Every call site writes console output (stdout/stderr, tabwriters) or
+        # into an in-memory buffer: a failed console write has nowhere better
+        # to be reported, and a buffer write cannot fail. The exclusion covers
+        # any io.Writer, so an Fprint* to a file or the network must check its
+        # error by hand (or write through a value whose Close is checked).
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # Writing a response body: the status and headers are already sent,
+        # so a failed write (client gone) cannot be answered differently.
+        - (net/http.ResponseWriter).Write
+        # Rollback runs deferred after Commit (where it is a no-op), on a
+        # transaction that already failed (the error that matters is the one
+        # already being returned), or ends a read-only transaction, which has
+        # nothing to lose. Close is deliberately not excluded: closing a
+        # writer can lose data.
+        - (github.com/jackc/pgx/v5.Tx).Rollback
     funlen:
       lines: 60
       statements: 40
