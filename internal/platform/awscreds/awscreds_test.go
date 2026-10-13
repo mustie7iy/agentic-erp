@@ -22,15 +22,31 @@ func TestStaticAndEnv(t *testing.T) {
 	if _, err := (awscreds.Static{}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("empty static: %v", err)
 	}
-	if c, err := (awscreds.Static{AccessKey: "AK", SecretKey: "SK"}).Credentials(ctx); err != nil || c.AccessKey != "AK" || c.SessionToken != "" {
-		t.Fatalf("%+v %v", c, err)
+	static, err := (awscreds.Static{AccessKey: "AK", SecretKey: "SK"}).Credentials(ctx)
+	if err != nil {
+		t.Fatalf("static: %v", err)
+	}
+	if static.AccessKey != "AK" {
+		t.Errorf("static access key: got %q, want %q", static.AccessKey, "AK")
+	}
+	if static.SessionToken != "" {
+		t.Errorf("static session token: got %q, want none", static.SessionToken)
 	}
 	if _, err := (awscreds.Env{Getenv: env(map[string]string{"AWS_ACCESS_KEY_ID": "AK"})}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("half an environment: %v", err)
 	}
 	c, err := (awscreds.Env{Getenv: env(map[string]string{"AWS_ACCESS_KEY_ID": "AK", "AWS_SECRET_ACCESS_KEY": "SK", "AWS_SESSION_TOKEN": "ST"})}).Credentials(ctx)
-	if err != nil || c.AccessKey != "AK" || c.SecretKey != "SK" || c.SessionToken != "ST" {
-		t.Fatalf("%+v %v", c, err)
+	if err != nil {
+		t.Fatalf("environment: %v", err)
+	}
+	if c.AccessKey != "AK" {
+		t.Errorf("access key: got %q, want %q", c.AccessKey, "AK")
+	}
+	if c.SecretKey != "SK" {
+		t.Errorf("secret key: got %q, want %q", c.SecretKey, "SK")
+	}
+	if c.SessionToken != "ST" {
+		t.Errorf("session token: got %q, want %q", c.SessionToken, "ST")
 	}
 	t.Setenv("AWS_ACCESS_KEY_ID", "")
 	if _, err := (awscreds.Env{}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
@@ -67,8 +83,20 @@ func TestWebIdentity(t *testing.T) {
 	defer sts.Close()
 	w := awscreds.WebIdentity{TokenFile: token, RoleARN: "arn:aws:iam::1:role/erp", Endpoint: sts.URL}
 	c, err := w.Credentials(ctx)
-	if err != nil || c.AccessKey != "ASIA1" || c.SecretKey != "secret" || c.SessionToken != "session" || c.Expires.Year() != 2030 {
-		t.Fatalf("%+v %v", c, err)
+	if err != nil {
+		t.Fatalf("web identity: %v", err)
+	}
+	if c.AccessKey != "ASIA1" {
+		t.Errorf("access key: got %q, want %q", c.AccessKey, "ASIA1")
+	}
+	if c.SecretKey != "secret" {
+		t.Errorf("secret key: got %q, want %q", c.SecretKey, "secret")
+	}
+	if c.SessionToken != "session" {
+		t.Errorf("session token: got %q, want %q", c.SessionToken, "session")
+	}
+	if c.Expires.Year() != 2030 {
+		t.Errorf("expiry year: got %d, want 2030", c.Expires.Year())
 	}
 	mode.Store("denied")
 	if _, err := w.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "403 AccessDenied Not authorized") {
@@ -150,8 +178,17 @@ func TestIMDS(t *testing.T) {
 	defer imds.Close()
 	m := awscreds.IMDS{Endpoint: imds.URL}
 	c, err := m.Credentials(ctx)
-	if err != nil || c.AccessKey != "ASIA2" || c.SessionToken != "session2" || c.Expires.Year() != 2030 {
-		t.Fatalf("%+v %v", c, err)
+	if err != nil {
+		t.Fatalf("imds: %v", err)
+	}
+	if c.AccessKey != "ASIA2" {
+		t.Errorf("access key: got %q, want %q", c.AccessKey, "ASIA2")
+	}
+	if c.SessionToken != "session2" {
+		t.Errorf("session token: got %q, want %q", c.SessionToken, "session2")
+	}
+	if c.Expires.Year() != 2030 {
+		t.Errorf("expiry year: got %d, want 2030", c.Expires.Year())
 	}
 	mode.Store("v1only")
 	if _, err := m.Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
@@ -218,8 +255,11 @@ func TestChainCachedAndDefault(t *testing.T) {
 	none := &fixed{err: awscreds.ErrNone}
 	broken := &fixed{err: errors.New("provider down")}
 	good := &fixed{c: awscreds.Credentials{AccessKey: "AK"}}
-	if c, err := (awscreds.Chain{none, good, broken}).Credentials(ctx); err != nil || c.AccessKey != "AK" || broken.calls != 0 {
-		t.Fatalf("%+v %v", c, err)
+	if c, err := (awscreds.Chain{none, good, broken}).Credentials(ctx); err != nil || c.AccessKey != "AK" {
+		t.Fatalf("chain: got %+v, %v, want access key AK", c, err)
+	}
+	if broken.calls != 0 {
+		t.Fatalf("provider after the first answer: got %d calls, want 0", broken.calls)
 	}
 	if _, err := (awscreds.Chain{none, broken}).Credentials(ctx); err == nil || errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("broken provider: %v", err)
