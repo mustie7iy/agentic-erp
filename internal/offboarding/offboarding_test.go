@@ -231,6 +231,7 @@ func TestOffboardingLifecycle(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { w.Run(runCtx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		return count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1 AND exported_at IS NOT NULL`, third.Tenant.ID) > 0
 	}, "the running worker did not export the tenant")
@@ -468,6 +469,7 @@ func TestOffboardingFailures(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() { w.Run(runCtx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool { return begun.Load() >= 2 }, "the running worker did not begin a second round")
 	cancel()
 	<-done
