@@ -104,6 +104,36 @@ func TestAlphaMatchesTheMigration(t *testing.T) {
 
 // SAP numbers that do not parse, or that the configuration cannot hold
 // exactly, are reported for the reviewer instead of silently defaulted.
+// A tolerance percentage without a leading zero reads like one with it,
+// and one too large to hold is reported as such, not as "not a number".
+func TestTolerancePercentageForms(t *testing.T) {
+	cases := map[string]struct {
+		proz string
+		pct  int
+		note string
+	}{
+		"leading zero":    {"0.5", 0, `"0.5" is not a whole percent; used 0%`},
+		"no leading zero": {".5", 0, `".5" is not a whole percent; used 0%`},
+		"only a point":    {".", 2, `"." is not a number; used 2%`},
+		"out of range":    {"99999999999999999999", 2, `"99999999999999999999" is out of range; used 2%`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := sap.GenerateMock(42, "2026")
+			for i := range e.T169G {
+				e.T169G[i].PROZ = tc.proz
+			}
+			c, notes := Generate(e, DefaultOptions())
+			if got := c.Company("1000").InvoiceTolerance.PricePercent; got != tc.pct {
+				t.Errorf("got price percent %d, want %d", got, tc.pct)
+			}
+			if all := notesText(notes); !strings.Contains(all, "companies[1000].invoice_tolerance.price_percent: T169G key PP percentage "+tc.note) {
+				t.Errorf("got notes\n%s\nwant one ending %s", all, tc.note)
+			}
+		})
+	}
+}
+
 func TestUnparseableNumbersAreNoted(t *testing.T) {
 	cases := map[string]struct {
 		proz, ztag1 string

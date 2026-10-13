@@ -7,6 +7,7 @@
 package sapconfig
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -128,17 +129,27 @@ func (g *gen) paymentTerms() []config.PaymentTerm {
 	return out
 }
 
-// wholePercent parses an SAP percentage ("2", "2.0", "2.5") to the whole
-// percent the configuration holds, dropping any fraction (a lower price
-// tolerance sends more invoices to a person, never fewer). exact is false
-// when a fraction was dropped, ok false when s is not a percentage.
-func wholePercent(s string) (pct int, exact, ok bool) {
+// wholePercent parses an SAP percentage ("2", "2.0", "2.5", ".5") to the
+// whole percent the configuration holds, dropping any fraction (a lower
+// price tolerance sends more invoices to a person, never fewer). exact is
+// false when a fraction was dropped; problem says why s is not a usable
+// percentage ("is not a number", "is out of range") and is "" when it is.
+func wholePercent(s string) (pct int, exact bool, problem string) {
 	whole, frac, _ := strings.Cut(strings.TrimSpace(s), ".")
-	pct, err := strconv.Atoi(whole)
-	if err != nil || strings.Trim(frac, "0123456789") != "" {
-		return 0, false, false
+	if strings.Trim(frac, "0123456789") != "" || whole == "" && frac == "" {
+		return 0, false, "is not a number"
 	}
-	return pct, strings.Trim(frac, "0") == "", true
+	if whole == "" {
+		whole = "0" // ".5" is how some systems write 0.5
+	}
+	pct, err := strconv.Atoi(whole)
+	switch {
+	case errors.Is(err, strconv.ErrRange):
+		return 0, false, "is out of range"
+	case err != nil:
+		return 0, false, "is not a number"
+	}
+	return pct, strings.Trim(frac, "0") == "", ""
 }
 
 func (g *gen) company(t sap.T001) config.Company {
@@ -231,10 +242,10 @@ func (g *gen) invoiceTolerance(p, company string) config.Tolerance {
 			continue
 		}
 		tolerance, found = config.Tolerance{PricePercent: 2, PriceAbsolute: tol.WERTO}, true
-		pct, exact, ok := wholePercent(tol.PROZ)
+		pct, exact, problem := wholePercent(tol.PROZ)
 		switch {
-		case !ok:
-			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q is not a number; used 2%%", tol.PROZ))
+		case problem != "":
+			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q %s; used 2%%", tol.PROZ, problem))
 			continue
 		case !exact:
 			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q is not a whole percent; used %d%%", tol.PROZ, pct))
