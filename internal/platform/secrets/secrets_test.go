@@ -22,14 +22,22 @@ func TestLocal(t *testing.T) {
 	}
 	l := secrets.Local{Getenv: func(k string) string { return map[string]string{"X": "from-env"}[k] }}
 	for ref, want := range map[string]string{"env:X": "from-env", "file:" + filepath.Join(dir, "key"): "from-file"} {
-		if got, err := l.Resolve(ctx, ref); err != nil || got != want {
-			t.Errorf("%s: %q %v", ref, got, err)
-		}
+		t.Run(ref, func(t *testing.T) {
+			got, err := l.Resolve(ctx, ref)
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 	for _, missing := range []string{"env:Y", "env:", "file:" + filepath.Join(dir, "nope")} {
-		if _, err := l.Resolve(ctx, missing); !errors.Is(err, secrets.ErrNotFound) {
-			t.Errorf("%s: %v", missing, err)
-		}
+		t.Run(missing, func(t *testing.T) {
+			if _, err := l.Resolve(ctx, missing); !errors.Is(err, secrets.ErrNotFound) {
+				t.Errorf("got %v, want %v", err, secrets.ErrNotFound)
+			}
+		})
 	}
 	if _, err := l.Resolve(ctx, "file:"+dir); err == nil || errors.Is(err, secrets.ErrNotFound) {
 		t.Errorf("directory: %v", err)
@@ -57,8 +65,10 @@ func TestLocal(t *testing.T) {
 	if got, err := secrets.Value(ctx, l, "env:X"); err != nil || got != "from-env" {
 		t.Fatalf("%q %v", got, err)
 	}
-	if secrets.IsRef("postgres://u:p@h/db") || secrets.IsRef("abc") || !secrets.IsRef("vault:x/y#z") {
-		t.Fatal("IsRef")
+	for in, want := range map[string]bool{"postgres://u:p@h/db": false, "abc": false, "vault:x/y#z": true} {
+		if got := secrets.IsRef(in); got != want {
+			t.Errorf("IsRef(%q): got %v, want %v", in, got, want)
+		}
 	}
 	m := secrets.Multi{secrets.SchemeEnv: l}
 	if got, err := m.Resolve(ctx, "env:X"); err != nil || got != "from-env" {
@@ -87,9 +97,11 @@ func TestVault(t *testing.T) {
 		"vault:secret/#value":               "vault:<mount>/<path>#<field>",
 		"env:X":                             "vault:<mount>/<path>#<field>",
 	} {
-		if _, err := v.Resolve(ctx, ref); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: %v", ref, err)
-		}
+		t.Run(ref, func(t *testing.T) {
+			if _, err := v.Resolve(ctx, ref); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("got %v, want an error containing %q", err, want)
+			}
+		})
 	}
 	if _, err := (&secrets.Vault{Address: srv.URL, Token: "wrong"}).Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Fatalf("wrong token: %v", err)
@@ -109,15 +121,18 @@ func TestVault(t *testing.T) {
 	k := &secrets.Vault{Address: srv.URL, K8sRole: vaulttest.K8sRole, K8sJWT: vaulttest.K8sJWT}
 	for range 2 {
 		if got, err := k.Resolve(ctx, "vault:secret/erp/field-key#value"); err != nil || got != "the-key" {
-			t.Fatalf("%q %v", got, err)
+			t.Fatalf("got %q, %v, want %q", got, err, "the-key")
 		}
 	}
 	if srv.Logins != 1 {
-		t.Fatalf("%d logins", srv.Logins)
+		t.Fatalf("got %d logins, want 1", srv.Logins)
 	}
 	srv.Revoke("hvs.login-x")
-	if got, err := k.Resolve(ctx, "vault:secret/erp/field-key#value"); err != nil || got != "the-key" || srv.Logins != 2 {
-		t.Fatalf("after revocation: %q %v (%d logins)", got, err, srv.Logins)
+	if got, err := k.Resolve(ctx, "vault:secret/erp/field-key#value"); err != nil || got != "the-key" {
+		t.Fatalf("after revocation: got %q, %v, want %q", got, err, "the-key")
+	}
+	if srv.Logins != 2 {
+		t.Fatalf("after revocation: got %d logins, want 2", srv.Logins)
 	}
 	srv.Revoke("hvs.login-xx")
 	srv.Revoke("hvs.login-xxx")
@@ -139,11 +154,16 @@ func TestVault(t *testing.T) {
 		t.Fatalf("sealed login: %v", err)
 	}
 	srv.Fail = 0
-	for _, bad := range []*secrets.Vault{{Address: "http://127.0.0.1:1", Token: "t"}, {Address: "://bad", Token: "t"},
-		{Address: "http://127.0.0.1:1", K8sRole: vaulttest.K8sRole, K8sJWT: vaulttest.K8sJWT}} {
-		if _, err := bad.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil {
-			t.Errorf("%s: resolved", bad.Address)
-		}
+	for name, bad := range map[string]*secrets.Vault{
+		"unreachable":       {Address: "http://127.0.0.1:1", Token: "t"},
+		"bad address":       {Address: "://bad", Token: "t"},
+		"unreachable login": {Address: "http://127.0.0.1:1", K8sRole: vaulttest.K8sRole, K8sJWT: vaulttest.K8sJWT},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := bad.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil {
+				t.Errorf("got nil error resolving via %s, want an error", bad.Address)
+			}
+		})
 	}
 	nonsense := &secrets.Vault{Address: srv.URL, Token: vaulttest.Token, Client: &http.Client{Transport: fixed{body: "not json"}}}
 	if _, err := nonsense.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "not a KV v2 secret") {
