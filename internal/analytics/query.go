@@ -276,12 +276,12 @@ func fillRows(m *Model, q Query, agg *aggregation, res *Result, measureCol map[s
 // to add amounts in different currencies, and records the currencies seen
 // for the column.
 func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int, colCurrency map[string]map[string]bool) error {
-	ev := &cellEval{m: m, base: agg.base, key: key, curs: map[string]bool{}}
+	ev := &cellEval{m: m, base: agg.base, key: key, curs: map[string]bool{}, summed: map[string]bool{}}
 	v, ok := ev.eval(name)
 	met := m.Metric(name)
-	if len(ev.curs) > 1 && met.Type != Count {
+	if mixed := ev.mixedCurrencies(met); mixed != nil {
 		return fmt.Errorf("%s would add amounts in %s together; break down by company or filter to one company",
-			name, strings.Join(sortedSet(ev.curs), " and "))
+			name, strings.Join(sortedSet(mixed), " and "))
 	}
 	if colCurrency[name] == nil {
 		colCurrency[name] = map[string]bool{}
@@ -301,11 +301,29 @@ func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int,
 
 // cellEval evaluates a metric for one group, collecting the currencies of
 // every base metric it reads so the caller can refuse mixed currencies.
+// summed holds only the currencies of sum aggregates: fact amounts are
+// minor units of the fact's currency (facts.go), so a sum is an amount
+// whatever the metric's type, while a distinct count is not.
 type cellEval struct {
-	m    *Model
-	base map[string]map[string]*aggCell
-	key  string
-	curs map[string]bool
+	m      *Model
+	base   map[string]map[string]*aggCell
+	key    string
+	curs   map[string]bool
+	summed map[string]bool
+}
+
+// mixedCurrencies returns the currencies the cell would add together, or
+// nil. A sum over facts in several currencies is refused for every metric
+// type, a Count included; otherwise a Count is exempt, since counting
+// documents across currencies is meaningful.
+func (ev *cellEval) mixedCurrencies(met *Metric) map[string]bool {
+	if len(ev.summed) > 1 {
+		return ev.summed
+	}
+	if len(ev.curs) > 1 && met.Type != Count {
+		return ev.curs
+	}
+	return nil
 }
 
 func (ev *cellEval) eval(n string) (float64, bool) {
@@ -323,10 +341,12 @@ func (ev *cellEval) eval(n string) (float64, bool) {
 	if met.Aggregate == "count_distinct" {
 		return float64(len(c.ids)), true
 	}
-	scale := 100.0
 	for cur := range c.currencies {
-		scale = math.Pow(10, float64(currencyDecimals(cur)))
+		ev.summed[cur] = true
 	}
+	// With several currencies the caller refuses the cell, so the scale of
+	// the first one only keeps the value deterministic.
+	scale := math.Pow(10, float64(currencyDecimals(sortedSet(c.currencies)[0])))
 	return float64(c.sum) / scale, true
 }
 

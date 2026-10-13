@@ -385,6 +385,59 @@ func TestZeroDecimalCurrency(t *testing.T) {
 	}
 }
 
+// A count metric that sums fact amounts sums minor units of each fact's
+// currency, so facts in JPY (exponent 0) and USD (exponent 2) cannot be
+// added; the refusal must not depend on map order, so it is repeated.
+func TestCountSumRefusesMixedCurrencies(t *testing.T) {
+	m, err := ParseModel([]byte("dimensions: [{name: company}]\nmetrics:\n" +
+		"  - {name: units, type: count, source: t, aggregate: sum, dimensions: [company]}\n" +
+		"  - {name: docs, type: count, source: t, aggregate: count_distinct, dimensions: [company]}\n" +
+		"  - {name: docs_share, type: ratio, derived: {op: divide, left: docs, right: docs}}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fact := func(id, company, cur string) Fact {
+		return Fact{ID: id, Dims: map[string]string{"company": company}, Amount: 500, Currency: cur}
+	}
+	f := &Facts{Tables: map[string][]Fact{"t": {fact("A", "3000", "JPY"), fact("B", "1000", "USD")}}}
+	for i := range 50 {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"units"}})
+		if err == nil {
+			t.Fatalf("run %d: got rows %v, want a mixed-currency refusal", i, r.Rows)
+		}
+		if want := "units would add amounts in JPY and USD together"; !strings.Contains(err.Error(), want) {
+			t.Fatalf("run %d: got %v, want %q", i, err, want)
+		}
+	}
+	t.Run("a distinct count spans currencies", func(t *testing.T) {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"docs"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Rows[0][0], 2.0; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+	t.Run("a ratio over currencies is still refused", func(t *testing.T) {
+		_, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"docs_share"}})
+		if want := "docs_share would add amounts in JPY and USD together"; err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("got %v, want %q", err, want)
+		}
+	})
+	t.Run("one currency per group", func(t *testing.T) {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"units"}, By: []string{"company"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Rows[0][1], 5.0; got != want { // USD 500 minor units
+			t.Errorf("company 1000: got %v, want %v", got, want)
+		}
+		if got, want := r.Rows[1][1], 500.0; got != want { // JPY has no minor unit
+			t.Errorf("company 3000: got %v, want %v", got, want)
+		}
+	})
+}
+
 // --- narrative ------------------------------------------------------------------
 
 func TestNarrativeEdgeCases(t *testing.T) {
