@@ -43,8 +43,14 @@ func TestKMSMaster(t *testing.T) {
 		"tampered":       {tenant, append(append([]byte(nil), wrapped[:len(wrapped)-1]...), wrapped[len(wrapped)-1]^1)},
 		"truncated":      {tenant, wrapped[:3]},
 	} {
-		if _, err := m.Unwrap(bad.tenant, bad.blob); !errors.Is(err, fieldcrypt.ErrCorrupt) {
+		_, err := m.Unwrap(bad.tenant, bad.blob)
+		if !errors.Is(err, fieldcrypt.ErrCorrupt) {
 			t.Errorf("%s: %v", name, err)
+		}
+		// The service's refusal stays in the chain behind ErrCorrupt.
+		var both interface{ Unwrap() []error }
+		if !errors.As(err, &both) || len(both.Unwrap()) != 2 {
+			t.Errorf("%s: got %v, want ErrCorrupt wrapping the service's refusal", name, err)
 		}
 	}
 	// The service's refusals are reported with their type; nothing is mistaken for a corrupt key.

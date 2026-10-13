@@ -101,7 +101,6 @@ func Start(t testing.TB, o Options) *Stack {
 		c.Limits, c.RequestTimeout, c.Metrics = o.Limits, o.Timeout, s.Metrics
 		s.Config = *c
 	})
-	s.Env.Client.API = s.Env.API
 	s.Pool = pgtest.Pool(t)
 	s.admin = pgtest.Admin(t)
 	s.Expense, s.Bank, s.Office = s.Env.Account(t, "2000", "520000"), s.Env.Account(t, "2000", "100000"), s.Env.Account(t, "2000", "510000")

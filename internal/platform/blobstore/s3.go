@@ -214,7 +214,7 @@ func (s S3) Delete(ctx context.Context, key string) error {
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusForbidden:
-		return fmt.Errorf("%w: %v", ErrLocked, s.failure(resp, http.MethodDelete, key))
+		return fmt.Errorf("%w: %w", ErrLocked, s.failure(resp, http.MethodDelete, key))
 	case resp.StatusCode >= 300 && resp.StatusCode != http.StatusNotFound:
 		return s.failure(resp, http.MethodDelete, key)
 	}

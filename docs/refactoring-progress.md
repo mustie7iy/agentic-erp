@@ -42,7 +42,7 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   production); production refuses ERP_DEV_ISSUER and an engine without ERP_TEMPORAL_CODEC_KEY.
   TestProductionFailsClosed (9 cases); its refusal cases fail with the check disabled. Lint
   config unchanged. Reviewer: APPROVE.
-- [ ] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero
+- [~] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero (R6a production, R6b tests)
 
 ### Phase 2 — Shared helpers
 - [ ] R7 etag.IfMatch replaces the per-package ifMatch copies

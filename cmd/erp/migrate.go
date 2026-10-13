@@ -54,11 +54,8 @@ func act(ctx context.Context, c *apitools.Client, path, method string) error {
 	if err := resp.Err(); err != nil {
 		return err
 	}
-	var op struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}
-	if err := resp.Decode(&op); err != nil || op.ID == "" {
+	op, ok := operationOf(resp)
+	if !ok {
 		return nil // not an operation: nothing to wait for
 	}
 	for op.Status == "queued" || op.Status == "running" {
@@ -75,6 +72,19 @@ func act(ctx context.Context, c *apitools.Client, path, method string) error {
 		}
 	}
 	return nil
+}
+
+// operation is the part of an Operation resource act waits on.
+type operation struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+// operationOf reads an answer as an operation; an answer that is not one
+// (the action completed within the request) is not an error.
+func operationOf(resp apitools.Response) (operation, bool) {
+	var op operation
+	return op, resp.Decode(&op) == nil && op.ID != ""
 }
 
 // pollInterval is how often a running operation is read; tests shorten it.

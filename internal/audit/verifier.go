@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -96,7 +97,7 @@ func (v *Verifier) Verify(ctx context.Context, tenant uuid.UUID) (Verification, 
 	}
 	ver := Verification{TenantID: tenant, VerifiedAt: v.now(), HeadSeq: res.LastSeq, Checked: res.Checked, AnchorsChecked: anchors, BrokenAt: res.BrokenAt, OK: res.BrokenAt == 0}
 	var previouslyOK *bool
-	if err := tx.QueryRow(ctx, `SELECT ok FROM audit.verification WHERE tenant_id = $1 ORDER BY verified_at DESC LIMIT 1`, tenant).Scan(&previouslyOK); err != nil && err != pgx.ErrNoRows {
+	if err := tx.QueryRow(ctx, `SELECT ok FROM audit.verification WHERE tenant_id = $1 ORDER BY verified_at DESC LIMIT 1`, tenant).Scan(&previouslyOK); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Verification{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit.verification (tenant_id, verified_at, head_seq, checked, anchors_checked, broken_at, ok) VALUES ($1, $2, $3, $4, $5, $6, $7)`,

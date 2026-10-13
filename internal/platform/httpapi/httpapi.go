@@ -168,7 +168,7 @@ func New(cfg Config) (http.Handler, error) {
 		return nil, err
 	}
 	unit := &uow.Middleware{Pool: cfg.Pool, Role: cfg.AppRole, Log: cfg.Log, Now: cfg.Now}
-	var chain http.Handler = unit.Wrap(srv)
+	chain := unit.Wrap(srv)
 	if cfg.Limits != nil {
 		chain = cfg.Limits.Middleware(chain)
 	}

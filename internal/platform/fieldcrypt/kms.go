@@ -77,7 +77,7 @@ func (k KMS) Unwrap(tenant uuid.UUID, wrapped []byte) ([]byte, error) {
 	err := k.call("Decrypt", map[string]any{"KeyId": k.KeyID, "CiphertextBlob": wrapped, "EncryptionContext": k.context(tenant)}, &out)
 	var kmsErr *kmsError
 	if errors.As(err, &kmsErr) && kmsErr.Type == "InvalidCiphertextException" {
-		return nil, fmt.Errorf("%w: %v", ErrCorrupt, err)
+		return nil, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
 	if err != nil {
 		return nil, err

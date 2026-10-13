@@ -292,8 +292,14 @@ func TestListAndDelete(t *testing.T) {
 		if _, err := store.List(ctx, "../"); err == nil {
 			t.Fatalf("%s: listed a bad prefix", name)
 		}
-		if err := store.Delete(ctx, tenant+"/audit/anchors/000000000001.json"); !errors.Is(err, blobstore.ErrLocked) {
+		err = store.Delete(ctx, tenant+"/audit/anchors/000000000001.json")
+		if !errors.Is(err, blobstore.ErrLocked) {
 			t.Fatalf("%s: deleted a locked object: %v", name, err)
+		}
+		// From S3, the store's refusal stays in the chain behind ErrLocked.
+		var both interface{ Unwrap() []error }
+		if name == "s3" && (!errors.As(err, &both) || len(both.Unwrap()) != 2) {
+			t.Errorf("%s: got %v, want ErrLocked wrapping the store's refusal", name, err)
 		}
 		for _, k := range []string{"/documents/a", "/documents/b", "/bank-files/f.xml", "/uploads/u1", "/uploads/u1"} { // the last one twice: nothing to do
 			if err := store.Delete(ctx, tenant+k); err != nil {

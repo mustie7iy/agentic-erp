@@ -204,6 +204,7 @@ func formatValue(v float64, c Column) string {
 		return fmt.Sprintf("%.1f%%", v*100)
 	case Count:
 		return groupThousands(fmt.Sprintf("%.0f", v))
+	case Money: // with the currency's symbol, below
 	}
 	prefix := currencySymbol(c.Currency)
 	av := math.Abs(v)
@@ -229,6 +230,7 @@ func formatFull(v float64, c Column) string {
 		return fmt.Sprintf("%.1f%%", v*100)
 	case Count:
 		return groupThousands(fmt.Sprintf("%.0f", v))
+	case Money: // with the currency's symbol, below
 	}
 	s := groupThousands(fmt.Sprintf("%.2f", math.Abs(v)))
 	if v < 0 {

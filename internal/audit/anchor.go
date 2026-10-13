@@ -204,12 +204,18 @@ func checkAnchors(ctx context.Context, tx pgx.Tx, store blobstore.Store, tenant 
 		if err != nil {
 			return i, 0, fmt.Errorf("audit: anchor %s: %w", s.ObjectRef, err)
 		}
-		var obj Anchor
-		if json.Unmarshal(stored, &obj) != nil || obj.Seq != s.Seq || obj.Hash != hex.EncodeToString(s.Hash) {
+		if !holds(stored, s.Seq, s.Hash) {
 			return i, s.Seq, nil
 		}
 	}
 	return len(anchors), 0, nil
+}
+
+// holds reports whether a stored anchor object records the sequence and
+// hash; an unreadable object does not, which is a finding, not an error.
+func holds(stored []byte, seq int64, hash []byte) bool {
+	var obj Anchor
+	return json.Unmarshal(stored, &obj) == nil && obj.Seq == seq && obj.Hash == hex.EncodeToString(hash)
 }
 
 // lastAnchor is the sequence of the tenant's newest anchor, 0 without one.
