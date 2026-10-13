@@ -335,6 +335,10 @@ func TestConcurrentRetryWaitsThenGets409(t *testing.T) {
 	wg.Add(1)
 	var first *httptest.ResponseRecorder
 	go func() { defer wg.Done(); first = a.do(c) }()
+	// Lets the first request finish; deferred too, so that a failed wait
+	// does not leave it holding its connection while pool.Close waits.
+	finish := sync.OnceFunc(func() { close(a.release); wg.Wait() })
+	defer finish()
 	// Wait until the first request holds the key.
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		return count(t, "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity s USING (pid) WHERE s.query LIKE '%SAVEPOINT uow%'") > 0
@@ -343,8 +347,7 @@ func TestConcurrentRetryWaitsThenGets409(t *testing.T) {
 	if second.Code != 409 || second.Header().Get("Retry-After") == "" {
 		t.Fatalf("concurrent retry: %d %v", second.Code, second.Header())
 	}
-	close(a.release)
-	wg.Wait()
+	finish()
 	if first.Code != 204 {
 		t.Fatal(first.Code)
 	}
