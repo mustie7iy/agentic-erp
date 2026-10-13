@@ -208,7 +208,7 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 		config_version, evaluated_by) VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7) RETURNING `+matchColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), id, len(issues) == 0, issues, version, p.ID))
 	if err != nil {
-		return Match{}, err
+		return Match{}, fmt.Errorf("payables: record the match of invoice %s: %w", id, err)
 	}
 	events := []outbox.Event{{Context: "payables", Name: "supplier_invoice_matched", AggregateType: "payables.match_result", AggregateID: m.ID,
 		Payload: map[string]any{"match_result_id": m.ID, "supplier_invoice_id": id, "evaluated_at": m.EvaluatedAt.UTC().Format(time.RFC3339Nano),

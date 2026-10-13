@@ -79,9 +79,9 @@ single-return path whose failure no test can provoke from becoming its own branc
   then fixed.
 - [x] R13 wrapcheck: internal/procurement 42 → 0 (worktree agent; cherry-picked as a99637e, re-verified
   on the branch; expiry message de-duplicated). Reviewer: APPROVE.
-- [ ] R14 wrapcheck: internal/payables
-- [ ] R15 wrapcheck: internal/partner
-- [ ] R16 wrapcheck: internal/configuration
+- [x] R14 wrapcheck: internal/payables 25 → 0 (worktree agent, 098db94; match insert named in the review follow-up). Reviewer: APPROVE.
+- [x] R15 wrapcheck: internal/partner 36 → 0 (worktree agent, b72cd60; date parse error no longer echoes input). Reviewer: APPROVE.
+- [x] R16 wrapcheck: internal/configuration 31 → 0 (worktree agent, a5af3f3; failed-commit test asserts the job stays queued). Reviewer: APPROVE.
 - [ ] R17 wrapcheck: internal/integration
 - [ ] R18 wrapcheck: internal/analytics
 - [ ] R19 wrapcheck: remaining internal packages and cmd/*

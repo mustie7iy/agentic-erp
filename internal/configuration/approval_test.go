@@ -144,7 +144,11 @@ func TestSettings(t *testing.T) {
 		return err
 	})
 	ranges, _ := f.Must(200, "GET", "/v1/number-ranges", "", "")
-	r := ranges["items"].([]any)[0].(map[string]any)
+	items, _ := ranges["items"].([]any)
+	if len(items) == 0 {
+		t.Fatal("the fixture has no number ranges")
+	}
+	r := items[0].(map[string]any)
 	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "next number", func(ctx context.Context) error {
 		_, err := configuration.Numbers{}.Next(ctx, uuid.MustParse(r["legal_entity_id"].(string)), r["document_type"].(string), int16(r["fiscal_year"].(float64)))
 		return err

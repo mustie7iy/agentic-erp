@@ -109,7 +109,7 @@ func (d *Date) UnmarshalJSON(b []byte) error {
 	t, err := time.Parse(`"2006-01-02"`, string(b))
 	d.Time = t
 	if err != nil {
-		return fmt.Errorf("partner: parse date %s: %w", b, err)
+		return fmt.Errorf("partner: parse date: %w", err) // the parse error quotes the input
 	}
 	return nil
 }

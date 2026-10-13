@@ -277,7 +277,7 @@ func TestSimulationWorkerFailures(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	s.tier3(t, "3")
+	_, op3 := s.tier3(t, "3")
 	begun := 0
 	w := worker(t, fake)
 	w.Begin = func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
@@ -289,17 +289,20 @@ func TestSimulationWorkerFailures(t *testing.T) {
 	if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) || begun < 2 {
 		t.Fatalf("tenant transaction: %v after %d", err, begun)
 	}
-	// A lost commit leaves the job queued for another attempt.
-	lost := worker(t, fake)
-	lost.Begin = func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
+	// A failed commit leaves the job queued for another attempt.
+	failed := worker(t, fake)
+	failed.Begin = func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, sc)
 		if err != nil || sc.TenantID == uuid.Nil {
 			return tx, err
 		}
 		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
-	if _, err := lost.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
-		t.Fatalf("lost commit: got %v, want %v", err, pgtest.ErrInjected)
+	if _, err := failed.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("failed commit: got %v, want %v", err, pgtest.ErrInjected)
+	}
+	if got := s.status(t, "/v1/operations/"+op3["id"].(string))["status"]; got != "queued" {
+		t.Fatalf("after a failed commit: got %v, want queued", got)
 	}
 
 	// Run logs failed rounds and stops with its context.
