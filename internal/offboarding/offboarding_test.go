@@ -81,8 +81,12 @@ func TestOffboardingLifecycle(t *testing.T) {
 	tenant := e.Tenant.ID
 	prefix := "tenants/" + tenant.String() + "/"
 	// A document of the tenant, and an anchor locked for years.
-	store.Put(ctx, prefix+"documents/abc", []byte("%PDF"), blobstore.PutOptions{ContentType: "application/pdf"})
-	store.Put(ctx, prefix+"audit/anchors/000000000001.json", []byte("{}"), blobstore.PutOptions{ContentType: "application/json", RetainUntil: clock.Add(24 * time.Hour)})
+	if err := store.Put(ctx, prefix+"documents/abc", []byte("%PDF"), blobstore.PutOptions{ContentType: "application/pdf"}); err != nil {
+		t.Fatalf("store a document: %v", err)
+	}
+	if err := store.Put(ctx, prefix+"audit/anchors/000000000001.json", []byte("{}"), blobstore.PutOptions{ContentType: "application/json", RetainUntil: clock.Add(24 * time.Hour)}); err != nil {
+		t.Fatalf("store an anchor: %v", err)
+	}
 	// Nothing to do while the tenant is active; an active tenant is not exported or erased on request either.
 	if ex, er, err := w.RunOnce(ctx); err != nil || ex != 0 || er != 0 {
 		t.Fatalf("active: %d %d %v", ex, er, err)
@@ -107,7 +111,9 @@ func TestOffboardingLifecycle(t *testing.T) {
 	var exportedAt, eraseAfter time.Time
 	var ref string
 	var erasedAt *time.Time
-	pgtest.Admin(t).QueryRow(ctx, `SELECT exported_at, export_ref, erase_after, erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&exportedAt, &ref, &eraseAfter, &erasedAt)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT exported_at, export_ref, erase_after, erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&exportedAt, &ref, &eraseAfter, &erasedAt); err != nil {
+		t.Fatalf("read the tenant after export: %v", err)
+	}
 	if !exportedAt.Equal(clock) || !eraseAfter.Equal(clock.Add(time.Hour)) || erasedAt != nil || !strings.HasPrefix(ref, prefix+"exports/") || !strings.HasSuffix(ref, "/manifest.json") {
 		t.Fatalf("tenant after export: %v %s %v %v", exportedAt, ref, eraseAfter, erasedAt)
 	}
@@ -184,7 +190,9 @@ func TestOffboardingLifecycle(t *testing.T) {
 	if n := count(t, `SELECT count(*) FROM tenancy.outbox WHERE tenant_id = $1`, tenant); n != 1 { // the erasure's own event, after the rest went
 		t.Fatalf("%d events left", n)
 	}
-	pgtest.Admin(t).QueryRow(ctx, `SELECT erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&erasedAt)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&erasedAt); err != nil {
+		t.Fatalf("read erased_at: %v", err)
+	}
 	if erasedAt == nil || !erasedAt.Equal(clock) {
 		t.Fatalf("erased_at %v", erasedAt)
 	}
@@ -282,7 +290,9 @@ func TestOffboardingFailures(t *testing.T) {
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET exported_at = NULL, export_ref = NULL, erase_after = NULL, version = version + 1 WHERE id = $1`, tenant)
 	// Objects of an earlier attempt that did not get to record itself are kept, and described as stored.
 	var offboardedAt time.Time
-	pgtest.Admin(t).QueryRow(ctx, `SELECT updated_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&offboardedAt)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT updated_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&offboardedAt); err != nil {
+		t.Fatalf("read the offboarding time: %v", err)
+	}
 	stale := "tenants/" + tenant.String() + "/exports/" + strconv.FormatInt(offboardedAt.Unix(), 10) + "/identity.principal.00001.jsonl"
 	if err := store.Put(ctx, stale, []byte("{\"stale\":true}\n"), blobstore.PutOptions{ContentType: "application/x-ndjson"}); err != nil {
 		t.Fatal(err)
@@ -348,9 +358,13 @@ func TestOffboardingFailures(t *testing.T) {
 		Tables []struct{ Name, SHA256 string }
 	}
 	var ref string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT export_ref FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&ref)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT export_ref FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&ref); err != nil {
+		t.Fatalf("read the export reference: %v", err)
+	}
 	body, _, _ := store.Get(ctx, ref)
-	json.Unmarshal(body, &manifest)
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatalf("decode the manifest: %v", err)
+	}
 	sum := sha256.Sum256(content)
 	described := false
 	for _, tb := range manifest.Tables {

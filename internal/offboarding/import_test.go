@@ -58,7 +58,9 @@ func TestReonboarding(t *testing.T) {
 		} `json:"audit_chain_head"`
 	}
 	body, _, _ := store.Get(ctx, ref)
-	json.Unmarshal(body, &manifest)
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatalf("decode the manifest: %v", err)
+	}
 	want := map[string]int64{}
 	outboxes := 0
 	for _, tb := range manifest.Tables {
@@ -99,12 +101,16 @@ func TestReonboarding(t *testing.T) {
 	}
 	var status string
 	var erased *time.Time
-	pgtest.Admin(t).QueryRow(ctx, `SELECT status, erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&status, &erased)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT status, erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&status, &erased); err != nil {
+		t.Fatalf("read the tenant: %v", err)
+	}
 	if status != "active" || erased != nil {
 		t.Fatalf("tenant after the import: %s %v", status, erased)
 	}
 	var hash []byte
-	pgtest.Admin(t).QueryRow(ctx, `SELECT hash FROM audit.chain_head WHERE tenant_id = $1`, tenant).Scan(&hash)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT hash FROM audit.chain_head WHERE tenant_id = $1`, tenant).Scan(&hash); err != nil {
+		t.Fatalf("read the chain head: %v", err)
+	}
 	if hex.EncodeToString(hash) != manifest.ChainHead.Hash {
 		t.Fatal("chain head differs after the import")
 	}
@@ -138,7 +144,9 @@ func TestImportRefusals(t *testing.T) {
 	if _, err := im.Import(ctx, "tenants/none/exports/1/manifest.json"); err == nil || !strings.Contains(err.Error(), "reading the manifest") {
 		t.Fatalf("missing manifest: %v", err)
 	}
-	store.Put(ctx, "tenants/x/exports/1/manifest.json", []byte(`{"not":"a manifest"}`), blobstore.PutOptions{})
+	if err := store.Put(ctx, "tenants/x/exports/1/manifest.json", []byte(`{"not":"a manifest"}`), blobstore.PutOptions{}); err != nil {
+		t.Fatalf("store a garbage manifest: %v", err)
+	}
 	if _, err := im.Import(ctx, "tenants/x/exports/1/manifest.json"); err == nil || !strings.Contains(err.Error(), "not an export manifest") {
 		t.Fatalf("garbage manifest: %v", err)
 	}
