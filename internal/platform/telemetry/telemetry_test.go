@@ -40,7 +40,9 @@ func TestMiddlewareTracesLogsAndMeasures(t *testing.T) {
 		t.Fatalf("incoming trace not continued: %q", seen)
 	}
 	var line map[string]any
-	json.Unmarshal(logs.Bytes(), &line)
+	if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
+		t.Fatalf("log line %s: %v", logs.Bytes(), err)
+	}
 	if line["operation"] != "getOperation" || line["status"] != float64(200) || line["trace_id"] != seen {
 		t.Fatalf("log line %v", line)
 	}

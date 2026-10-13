@@ -120,7 +120,9 @@ func TestWrite(t *testing.T) {
 		t.Fatal(rec.Code, rec.Header())
 	}
 	var got map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &got)
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %s: %v", rec.Body, err)
+	}
 	if got["instance"] != "/v1/operations/x" || got["trace_id"] != "trace-9" || got["code"] != "authn.invalid_token" || got["status"] != float64(401) {
 		t.Fatal(got)
 	}

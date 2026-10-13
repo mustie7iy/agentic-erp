@@ -17,7 +17,9 @@ import (
 func TestLocal(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "key"), []byte("from-file\n"), 0o600)
+	if err := os.WriteFile(filepath.Join(dir, "key"), []byte("from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	l := secrets.Local{Getenv: func(k string) string { return map[string]string{"X": "from-env"}[k] }}
 	for ref, want := range map[string]string{"env:X": "from-env", "file:" + filepath.Join(dir, "key"): "from-file"} {
 		if got, err := l.Resolve(ctx, ref); err != nil || got != want {

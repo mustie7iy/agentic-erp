@@ -41,12 +41,13 @@ func TestStaticAndEnv(t *testing.T) {
 func TestWebIdentity(t *testing.T) {
 	ctx := context.Background()
 	token := filepath.Join(t.TempDir(), "token")
-	os.WriteFile(token, []byte("jwt-token\n"), 0o600)
+	if err := os.WriteFile(token, []byte("jwt-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var mode atomic.Value
 	mode.Store("ok")
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
-		if r.Form.Get("Action") != "AssumeRoleWithWebIdentity" || r.Form.Get("WebIdentityToken") != "jwt-token" || r.Form.Get("RoleArn") != "arn:aws:iam::1:role/erp" || r.Form.Get("RoleSessionName") != "erp" {
+		if r.ParseForm() != nil || r.Form.Get("Action") != "AssumeRoleWithWebIdentity" || r.Form.Get("WebIdentityToken") != "jwt-token" || r.Form.Get("RoleArn") != "arn:aws:iam::1:role/erp" || r.Form.Get("RoleSessionName") != "erp" {
 			w.WriteHeader(400)
 			w.Write([]byte(`<ErrorResponse><Error><Code>InvalidParameter</Code><Message>bad request</Message></Error></ErrorResponse>`))
 			return
@@ -203,6 +204,15 @@ func (f *fixed) Credentials(context.Context) (awscreds.Credentials, error) {
 	return f.c, f.err
 }
 
+// mustCredentials fetches credentials where the test counts provider calls
+// and relies on each fetch succeeding.
+func mustCredentials(t *testing.T, p awscreds.Provider) {
+	t.Helper()
+	if _, err := p.Credentials(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestChainCachedAndDefault(t *testing.T) {
 	ctx := context.Background()
 	none := &fixed{err: awscreds.ErrNone}
@@ -222,19 +232,19 @@ func TestChainCachedAndDefault(t *testing.T) {
 	temp := &fixed{c: awscreds.Credentials{AccessKey: "T", Expires: clock.Add(time.Hour)}}
 	cached := &awscreds.Cached{Provider: temp, Now: func() time.Time { return clock }}
 	for i := 0; i < 3; i++ {
-		cached.Credentials(ctx)
+		mustCredentials(t, cached)
 	}
 	if temp.calls != 1 {
 		t.Fatalf("%d calls within validity", temp.calls)
 	}
 	clock = clock.Add(56 * time.Minute) // within 5 minutes of expiry
-	cached.Credentials(ctx)
+	mustCredentials(t, cached)
 	if temp.calls != 2 {
 		t.Fatalf("%d calls near expiry", temp.calls)
 	}
 	long := &awscreds.Cached{Provider: good, Early: time.Minute}
-	long.Credentials(ctx)
-	long.Credentials(ctx)
+	mustCredentials(t, long)
+	mustCredentials(t, long)
 	if good.calls != 2 { // one from the chain above, one here
 		t.Fatalf("%d calls for long-lived credentials", good.calls)
 	}

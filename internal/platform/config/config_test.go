@@ -142,8 +142,12 @@ func TestEveryProblemIsReported(t *testing.T) {
 // secret lives (env:, file:, vault:) instead of carrying it.
 func TestSecretReferences(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "field-key"), []byte(key+"\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "jwt"), []byte(vaulttest.K8sJWT), 0o600)
+	if err := os.WriteFile(filepath.Join(dir, "field-key"), []byte(key+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "jwt"), []byte(vaulttest.K8sJWT), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	vault := vaulttest.New(t)
 	vault.Secrets["secret/erp/db"] = map[string]any{"url": "postgres://erp:pw@db/erp"}
 	vault.Secrets["secret/erp/s3"] = map[string]any{"access": "AK", "secret": "SK"}

@@ -48,7 +48,9 @@ func TestDevelopmentIssuer(t *testing.T) {
 		Token     string
 		ExpiresIn int `json:"expires_in"`
 	}
-	json.Unmarshal(rec.Body.Bytes(), &answer)
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("decode %s: %v", rec.Body, err)
+	}
 	if rec.Code != 200 || answer.ExpiresIn != 3600 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
@@ -62,7 +64,9 @@ func TestDevelopmentIssuer(t *testing.T) {
 	}
 	// Without a tenant the token is an operator's.
 	rec = post(`{"subject": "ops"}`)
-	json.Unmarshal(rec.Body.Bytes(), &answer)
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("decode %s: %v", rec.Body, err)
+	}
 	if rec.Code != 200 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
