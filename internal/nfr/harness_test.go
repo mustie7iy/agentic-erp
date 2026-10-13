@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
+	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 )
 
 // abortingTB is a test whose Fatal ends the goroutine, as testing's does,
@@ -52,5 +54,37 @@ func TestAFailedStartIsCleanedUp(t *testing.T) {
 	}
 	if workers.Err() == nil {
 		t.Error("got the workers' context still live after the cleanups, want it cancelled")
+	}
+}
+
+// servingTestServers counts the goroutines serving an httptest server: one
+// per server started and not yet closed.
+func servingTestServers() int {
+	buf := make([]byte, 1<<22)
+	return strings.Count(string(buf[:runtime.Stack(buf, true)]), "net/http/httptest.(*Server).goServe")
+}
+
+// TestAFailedNATSStartLeavesNoServer: when the stack's NATS server cannot
+// start, Start fails the test without leaving its API server serving.
+func TestAFailedNATSStartLeavesNoServer(t *testing.T) {
+	newRestartable = func(tb testing.TB) *natstest.Restartable {
+		tb.Helper()
+		tb.Fatal("no nats")
+		return nil
+	}
+	t.Cleanup(func() { newRestartable = natstest.NewRestartable })
+	before := servingTestServers()
+	tb := &abortingTB{TB: t}
+	done := make(chan struct{})
+	go func() { defer close(done); Start(tb, Options{Users: 1, Events: true}) }()
+	<-done
+	for i := len(tb.cleanups) - 1; i >= 0; i-- {
+		tb.cleanups[i]()
+	}
+	if tb.fatal != "no nats" {
+		t.Errorf("got fatal %q, want %q", tb.fatal, "no nats")
+	}
+	if after := servingTestServers(); after > before {
+		t.Errorf("got %d test servers serving after the cleanups, want at most %d", after, before)
 	}
 }

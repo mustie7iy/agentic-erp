@@ -109,13 +109,15 @@ func Start(t testing.TB, o Options) *Stack {
 	}
 	s.Server = httptest.NewUnstartedServer(s.Env.API.Handler)
 	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
+	if o.Events && o.Publisher == nil {
+		// Before Stop is registered, so its cleanup (stopping the NATS server)
+		// runs after Stop has stopped the relay, as cleanups run last first;
+		// and before the API server starts, which only Stop closes, so a NATS
+		// server that fails to start leaves nothing serving.
+		s.NATS = newRestartable(t)
+	}
 	s.Server.Start()
 	s.Client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 4 * o.Users, MaxIdleConnsPerHost: 4 * o.Users}}
-	if o.Events && o.Publisher == nil {
-		// Before Stop is registered, so its cleanup (stopping the server) runs
-		// after Stop has stopped the relay, as cleanups run last first.
-		s.NATS = natstest.NewRestartable(t)
-	}
 	// Before the workers start: a start that fails half way (tb.Fatal) still
 	// stops the server and whatever workers did start.
 	t.Cleanup(s.Stop)
@@ -153,6 +155,10 @@ func (s *Stack) startWorkers(tb testing.TB, o Options) {
 		go func() { defer s.workers.Done(); s.Relay.Run(ctx) }()
 	}
 }
+
+// newRestartable starts the stack's NATS server; tests replace it to fail
+// the start.
+var newRestartable = natstest.NewRestartable
 
 // ensureStreams makes the stack's streams on its bus; tests replace it to
 // fail the start.
