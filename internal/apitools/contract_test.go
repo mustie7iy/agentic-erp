@@ -156,6 +156,37 @@ func TestMalformedContract(t *testing.T) {
 	})
 }
 
+// A reference cycle is a malformed contract, refused with the path where it
+// was met instead of being followed forever.
+func TestReferenceCycle(t *testing.T) {
+	const cycle = "components:\n  schemas:\n    A: {$ref: '#/components/schemas/B'}\n    B: {$ref: '#/components/schemas/A'}\n" +
+		"  parameters:\n    P: {$ref: '#/components/parameters/P'}\n  requestBodies:\n    R: {$ref: '#/components/requestBodies/R'}\n" +
+		"paths:\n  /v1/x:\n    post:\n      operationId: makeX\n"
+	cases := map[string]struct{ fragment, want string }{
+		"schema": {"      parameters:\n        - {name: q, in: query, schema: {$ref: '#/components/schemas/A'}}\n",
+			"paths./v1/x.post.parameters[0].schema"},
+		"property": {"      requestBody:\n        content:\n          application/json:\n            schema: {properties: {a: {$ref: '#/components/schemas/A'}}}\n",
+			"paths./v1/x.post.requestBody.content.application/json.schema.properties.a"},
+		"parameter":    {"      parameters:\n        - {$ref: '#/components/parameters/P'}\n", "paths./v1/x.post.parameters[0]"},
+		"request body": {"      requestBody: {$ref: '#/components/requestBodies/R'}\n", "paths./v1/x.post.requestBody"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c, err := load([]byte(cycle + tc.fragment))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = c.tool("makeX")
+			if err == nil {
+				t.Fatal("got no error, want one")
+			}
+			if !strings.Contains(err.Error(), "contract "+tc.want+" ") || !strings.Contains(err.Error(), "resolvable reference") {
+				t.Errorf("got %v, want an unresolvable reference at %s", err, tc.want)
+			}
+		})
+	}
+}
+
 // Every operation of the embedded contract builds a tool.
 func TestEveryOperationBuilds(t *testing.T) {
 	c := embedded()

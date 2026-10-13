@@ -195,12 +195,20 @@ func load(src []byte) (contract, error) {
 	return contract{spec: spec}, nil
 }
 
-// resolve follows local references.
-func (c contract) resolve(n map[string]any) map[string]any {
-	for {
+// maxRefHops bounds a chain of references: real contracts follow one or
+// two, so a longer chain is a cycle.
+const maxRefHops = 32
+
+// resolve follows local references from the node at at; a chain longer
+// than maxRefHops is a cycle and an error rather than an endless loop.
+func (c contract) resolve(n map[string]any, at string) (map[string]any, error) {
+	for hops := 0; ; hops++ {
 		ref, ok := n["$ref"].(string)
 		if !ok {
-			return n
+			return n, nil
+		}
+		if hops == maxRefHops {
+			return nil, malformed(at, "a resolvable reference (a cycle through "+ref+")")
 		}
 		var cur any = c.spec
 		for _, part := range strings.Split(strings.TrimPrefix(ref, "#/"), "/") {
@@ -209,7 +217,7 @@ func (c contract) resolve(n map[string]any) map[string]any {
 		}
 		target, ok := cur.(map[string]any)
 		if !ok {
-			return map[string]any{}
+			return map[string]any{}, nil
 		}
 		n = target
 	}
@@ -231,7 +239,11 @@ func (c contract) schema(v any, at string, depth int) (any, error) {
 		if depth > 12 {
 			return map[string]any{}, nil
 		}
-		return c.schemaObject(c.resolve(n), at, depth)
+		resolved, err := c.resolve(n, at)
+		if err != nil {
+			return nil, err
+		}
+		return c.schemaObject(resolved, at, depth)
 	case []any:
 		out := make([]any, len(n))
 		for i, x := range n {
@@ -324,11 +336,18 @@ func (c contract) schemaProperties(properties map[string]any, at string, depth i
 	props := map[string]any{}
 	var readOnly []string
 	for name, p := range properties {
-		if pm, ok := p.(map[string]any); ok && (pm["readOnly"] == true || c.resolve(pm)["readOnly"] == true) {
-			readOnly = append(readOnly, name)
-			continue
+		pat := at + "." + name
+		if pm, ok := p.(map[string]any); ok {
+			resolved, err := c.resolve(pm, pat)
+			if err != nil {
+				return nil, nil, err
+			}
+			if pm["readOnly"] == true || resolved["readOnly"] == true {
+				readOnly = append(readOnly, name)
+				continue
+			}
 		}
-		s, err := c.schema(p, at+"."+name, depth+1)
+		s, err := c.schema(p, pat, depth+1)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -380,8 +399,11 @@ func (c contract) buildTool(id, method, path string, op map[string]any) (*Tool, 
 		if !ok {
 			return nil, malformed(pat, "an object")
 		}
-		var err error
-		if required, err = c.parameter(t, c.resolve(p), pat, props, required); err != nil {
+		resolved, err := c.resolve(p, pat)
+		if err != nil {
+			return nil, err
+		}
+		if required, err = c.parameter(t, resolved, pat, props, required); err != nil {
 			return nil, err
 		}
 	}
@@ -405,7 +427,10 @@ func (c contract) requestBody(t *Tool, op map[string]any, at string, props map[s
 	if !ok {
 		return false, nil
 	}
-	rb = c.resolve(rb)
+	rb, err := c.resolve(rb, at+".requestBody")
+	if err != nil {
+		return false, err
+	}
 	content, _ := rb["content"].(map[string]any)
 	for mediaType, media := range content {
 		mat := at + ".requestBody.content." + mediaType
