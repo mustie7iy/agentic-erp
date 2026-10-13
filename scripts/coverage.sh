@@ -35,6 +35,10 @@ grep -v -E "$excluded" "$profile" > "$profile.prod"
 read -r covered statements < <(awk 'NR > 1 { split($0, f, " "); k = f[1]; n[k] = f[2]; if (f[3] > 0) hit[k] = 1 }
   END { for (k in n) { s += n[k]; if (k in hit) c += n[k] }; print c + 0, s + 0 }' "$profile.prod")
 echo "statement coverage: ${covered} of ${statements} statements (minimum ${MIN}%)"
+if [ "$statements" -eq 0 ]; then
+  echo "coverage: the profile has no production statements; check the excluded paths" >&2
+  exit 1
+fi
 if awk -v c="$covered" -v s="$statements" -v m="$MIN" 'BEGIN { exit !(c * 100 < m * s) }'; then
   echo "uncovered blocks:"
   awk 'NR > 1 { split($0, f, " "); k = f[1]; n[k] = f[2]; if (f[3] > 0) hit[k] = 1 }
