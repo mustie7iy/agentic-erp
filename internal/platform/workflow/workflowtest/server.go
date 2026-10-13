@@ -81,6 +81,6 @@ func freePort(t testing.TB) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }() // it only finds a free port; were the port still bound, the server start would fail and say so
 	return l.Addr().(*net.TCPAddr).Port
 }

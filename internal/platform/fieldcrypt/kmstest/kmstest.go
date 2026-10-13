@@ -51,7 +51,7 @@ type Server struct {
 func New(t testing.TB) *Server {
 	t.Helper()
 	key := make([]byte, 32)
-	rand.Read(key)
+	_, _ = rand.Read(key) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 	block, _ := aes.NewCipher(key)
 	aead, _ := cipher.NewGCM(block)
 	s := &Server{aead: aead}
@@ -119,7 +119,7 @@ func (s *Server) operate(w http.ResponseWriter, r *http.Request, in request, aad
 	switch r.Header.Get("X-Amz-Target") {
 	case "TrentService.Encrypt":
 		nonce := make([]byte, s.aead.NonceSize())
-		rand.Read(nonce)
+		_, _ = rand.Read(nonce) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 		s.Encrypts++
 		s.answer(w, map[string]any{"CiphertextBlob": s.aead.Seal(nonce, nonce, in.Plaintext, aad), "KeyId": KeyARN})
 	case "TrentService.Decrypt":
@@ -170,11 +170,11 @@ func (s *Server) authentic(r *http.Request, body []byte) bool {
 
 func (s *Server) answer(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v) // a failed response write means the client is gone: no one is left to tell
 }
 
 func (s *Server) fail(w http.ResponseWriter, status int, typ, message string) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"__type": typ, "message": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{"__type": typ, "message": message}) // a failed response write means the client is gone: no one is left to tell
 }

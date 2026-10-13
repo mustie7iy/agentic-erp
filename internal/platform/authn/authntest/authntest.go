@@ -46,14 +46,15 @@ func New(t testing.TB) *Issuer {
 	t.Cleanup(srv.Close)
 	is.URL = srv.URL
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		// A failed response write means the client is gone: no one is left to tell.
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"issuer": is.URL, "jwks_uri": is.URL + "/keys",
 			"authorization_endpoint": is.URL + "/auth", "token_endpoint": is.URL + "/token",
 			"id_token_signing_alg_values_supported": []string{"RS256"},
 		})
 	})
 	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "k1", Algorithm: "RS256", Use: "sig"}}})
+		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "k1", Algorithm: "RS256", Use: "sig"}}}) // a failed response write means the client is gone: no one is left to tell
 	})
 	return is
 }

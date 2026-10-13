@@ -95,7 +95,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		resp["stop_details"] = map[string]any{"type": "refusal", "category": "cyber", "explanation": "declined in test"}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp) // a failed response write means the client is gone: no one is left to tell
 }
 
 // Runner returns an llm.Runner pointed at the fake server.
@@ -125,7 +125,7 @@ func (s *Server) ToolNames() []string {
 			Name string `json:"name"`
 		} `json:"tools"`
 	}
-	json.Unmarshal([]byte(s.Requests[0]), &req)
+	_ = json.Unmarshal([]byte(s.Requests[0]), &req) // the SDK's own JSON; an unreadable body offers no tools, which the caller's check reports
 	names := make([]string, len(req.Tools))
 	for i, t := range req.Tools {
 		names[i] = t.Name
@@ -140,7 +140,7 @@ func LastToolResult(body string) string {
 			Content json.RawMessage `json:"content"`
 		} `json:"messages"`
 	}
-	json.Unmarshal([]byte(body), &req)
+	_ = json.Unmarshal([]byte(body), &req) // an unreadable body has no tool result: "", which the caller's check reports
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		var blocks []struct {
 			Type    string          `json:"type"`
@@ -160,7 +160,7 @@ func LastToolResult(body string) string {
 				return parts[0].Text
 			}
 			var s string
-			json.Unmarshal(blocks[j].Content, &s)
+			_ = json.Unmarshal(blocks[j].Content, &s) // content that is neither text parts nor a string has no text: ""
 			return s
 		}
 	}

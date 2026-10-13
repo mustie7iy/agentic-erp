@@ -50,7 +50,7 @@ func NewRestartable(t testing.TB) *Restartable {
 		t.Fatal(err)
 	}
 	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	_ = l.Close() // it only found a free port; were the port still bound, Start would fail and say so
 	r := &Restartable{t: t, port: port, store: t.TempDir()}
 	r.Start()
 	t.Cleanup(r.Stop)

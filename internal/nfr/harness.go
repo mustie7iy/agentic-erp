@@ -177,7 +177,7 @@ func (s *Stack) Stop() {
 		s.Bus.Close()
 		s.Bus = nil
 	}
-	s.admin.Close(context.Background())
+	_ = s.admin.Close(context.Background()) // teardown of a fixture connection: the suite is over and closing loses nothing
 }
 
 // Token is a bearer token of the actor, refreshed every 30 minutes (the
@@ -243,7 +243,7 @@ func (s *Stack) Call(ctx context.Context, r Req) Result {
 	if err != nil {
 		return Result{Took: time.Since(start), Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	body, err := io.ReadAll(resp.Body)
 	res := Result{Status: resp.StatusCode, Body: body, ETag: resp.Header.Get("ETag"), Took: time.Since(start), Err: err}
 	if err == nil && len(body) > 0 && !json.Valid(body) {
@@ -704,6 +704,7 @@ func Setting(name string, def time.Duration) time.Duration {
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
+		//nolint:forbidigo // test support read in a suite's setup: a malformed knob is the operator's mistake and stops the run before it measures anything
 		panic(fmt.Sprintf("%s=%q: want a duration such as 30s or a number", name, v))
 	}
 	return time.Duration(n)
@@ -721,6 +722,7 @@ func BudgetScale() float64 {
 	}
 	f, err := strconv.ParseFloat(v, 64)
 	if err != nil || f <= 0 {
+		//nolint:forbidigo // test support read by the suites' budgets: a malformed scale is the operator's mistake and stops the run rather than judge latencies by it
 		panic(fmt.Sprintf("ERP_BUDGET_SCALE=%q: want a positive number such as 4", v))
 	}
 	return f

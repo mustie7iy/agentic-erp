@@ -45,7 +45,7 @@ func Main(m *testing.M) {
 			if _, err = conn.Exec(ctx, "CREATE DATABASE "+name); err == nil {
 				break
 			}
-			conn.Close(ctx)
+			_ = conn.Close(ctx) // the CREATE failure is the one reported if every attempt fails
 		}
 		if attempt == 20 {
 			fmt.Fprintln(os.Stderr, "pgtest: setting up the package database:", err)
@@ -71,7 +71,7 @@ func migrate(ctx context.Context, u string) error {
 	if err != nil {
 		return fmt.Errorf("pgtest: connect: %w", err)
 	}
-	defer c.Close(ctx)
+	defer func() { _ = c.Close(ctx) }() // the work on it is done or has failed; closing loses nothing
 	_, err = db.Migrate(ctx, c)
 	return err
 }
@@ -104,7 +104,7 @@ func Admin(t testing.TB) *pgx.Conn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { c.Close(context.Background()) })
+	t.Cleanup(func() { _ = c.Close(context.Background()) }) // the test is over; closing loses nothing
 	return c
 }
 
@@ -117,7 +117,7 @@ func Exec(t testing.TB, sql string, args ...any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close(ctx)
+	defer func() { _ = c.Close(ctx) }() // the work on it is done or has failed; closing loses nothing
 	if _, err := c.Exec(ctx, sql, args...); err != nil {
 		t.Fatalf("pgtest: %v\n%s", err, sql)
 	}
