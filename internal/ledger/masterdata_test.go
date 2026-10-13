@@ -27,24 +27,43 @@ func TestFiscalPeriods(t *testing.T) {
 		return len(out), out, tok
 	}
 	de := "legal_entity_id=" + e.de.String()
-	if n, ps, _ := list(de + "&fiscal_year=2026&order_by=period&page_size=50"); n != 16 || ps[12]["is_special"] != true ||
-		ps[12]["start_date"] != "2026-12-01" || ps[15]["end_date"] != "2026-12-31" || ps[0]["status"] != "open" || ps[12]["status"] != "closed" {
-		t.Fatalf("periods: %d %v", n, ps)
+	n, ps, _ := list(de + "&fiscal_year=2026&order_by=period&page_size=50")
+	if n != 16 {
+		t.Fatalf("periods: got %d %v, want 16", n, ps)
+	}
+	for _, c := range []struct {
+		period int
+		field  string
+		want   any
+	}{{12, "is_special", true}, {12, "start_date", "2026-12-01"}, {15, "end_date", "2026-12-31"}, {0, "status", "open"}, {12, "status", "closed"}} {
+		if got := ps[c.period][c.field]; got != c.want {
+			t.Errorf("periods[%d] %s: got %v, want %v", c.period, c.field, got, c.want)
+		}
 	}
 	if n, _, _ := list(de + "&status=closed"); n != 4 {
 		t.Fatalf("closed: %d", n)
 	}
 	n, first, tok := list(de + "&order_by=period%20desc&page_size=10")
-	if n != 10 || first[0]["period"] != float64(16) || tok == "" {
-		t.Fatalf("page 1: %d %v", n, first)
+	if n != 10 {
+		t.Fatalf("page 1: got %d %v, want 10", n, first)
 	}
-	if n, _, tok := list(de + "&order_by=period%20desc&page_size=10&page_token=" + tok); n != 6 || tok != "" {
-		t.Fatalf("page 2: %d", n)
+	if first[0]["period"] != float64(16) {
+		t.Errorf("page 1 first period: got %v, want 16", first[0]["period"])
 	}
-	if n, _, tok := list("page_size=20&fiscal_year=2026"); n != 20 || tok == "" {
-		t.Fatalf("by year, all entities: %d", n)
+	if tok == "" {
+		t.Fatal("page 1: got no next page token, want one")
 	}
-	_, ps, _ := list(de + "&order_by=period&page_size=1")
+	if n, _, tok := list(de + "&order_by=period%20desc&page_size=10&page_token=" + tok); n != 6 {
+		t.Errorf("page 2: got %d, want 6", n)
+	} else if tok != "" {
+		t.Errorf("page 2 next page token: got %q, want none", tok)
+	}
+	if n, _, tok := list("page_size=20&fiscal_year=2026"); n != 20 {
+		t.Errorf("by year, all entities: got %d, want 20", n)
+	} else if tok == "" {
+		t.Error("by year, all entities: got no next page token, want one")
+	}
+	_, ps, _ = list(de + "&order_by=period&page_size=1")
 	ledgerID := ps[0]["ledger_id"].(string)
 	if n, _, _ := list("ledger_id=" + ledgerID + "&page_size=100"); n != 32 {
 		t.Fatalf("by ledger: %d", n)
@@ -55,27 +74,45 @@ func TestFiscalPeriods(t *testing.T) {
 
 	id := ps[0]["id"].(string)
 	got, tag := e.Must(200, "GET", "/v1/fiscal-periods/"+id, "", "")
-	if got["period"] != float64(1) || tag != `"2"` {
-		t.Fatalf("get: %v %s", got, tag)
+	if got["period"] != float64(1) {
+		t.Errorf("get period: got %v, want 1", got["period"])
+	}
+	if tag != `"2"` {
+		t.Fatalf("get tag: got %s, want \"2\"", tag)
 	}
 	e.Problem(409, "ledger.invalid_period_status", "POST", "/v1/fiscal-periods/"+id+":open", "", tag)
 	e.Problem(412, "request.version_mismatch", "POST", "/v1/fiscal-periods/"+id+":close", "", `"1"`)
 	closed, tag := e.Must(200, "POST", "/v1/fiscal-periods/"+id+":close", "", tag)
-	if closed["status"] != "closed" || tag != `"3"` {
-		t.Fatalf("closed: %v", closed)
+	if closed["status"] != "closed" {
+		t.Errorf("closed status: got %v, want closed", closed["status"])
+	}
+	if tag != `"3"` {
+		t.Fatalf("closed tag: got %s, want \"3\"", tag)
 	}
 	e.Problem(409, "ledger.invalid_period_status", "POST", "/v1/fiscal-periods/"+id+":close", "", tag)
 	opened, _ := e.Must(200, "POST", "/v1/fiscal-periods/"+id+":open", "", tag)
-	if opened["status"] != "open" || opened["updated_by"] != e.ten.Human.ID.String() {
-		t.Fatalf("opened: %v", opened)
+	if opened["status"] != "open" {
+		t.Errorf("opened status: got %v, want open", opened["status"])
+	}
+	if opened["updated_by"] != e.ten.Human.ID.String() {
+		t.Errorf("opened updated_by: got %v, want %s", opened["updated_by"], e.ten.Human.ID)
 	}
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'locked', version = version + 1 WHERE id = $1`, id)
 	e.Problem(409, "ledger.invalid_period_status", "POST", "/v1/fiscal-periods/"+id+":open", "", "*")
 	e.Problem(404, "request.not_found", "GET", "/v1/fiscal-periods/"+uuid.NewString(), "", "")
 	e.Problem(404, "request.not_found", "POST", "/v1/fiscal-periods/"+uuid.NewString()+":open", "", "*")
 	o, c := events(t, e.ten, "period_opened"), events(t, e.ten, "period_closed")
-	if len(o) != 1 || len(c) != 1 || c[0]["previous_status"] != "open" || c[0]["start_date"] != "2026-01-01" {
-		t.Fatalf("events: %v %v", o, c)
+	if len(o) != 1 {
+		t.Errorf("period_opened events: got %d %v, want 1", len(o), o)
+	}
+	if len(c) != 1 {
+		t.Fatalf("period_closed events: got %d %v, want 1", len(c), c)
+	}
+	if c[0]["previous_status"] != "open" {
+		t.Errorf("period_closed previous_status: got %v, want open", c[0]["previous_status"])
+	}
+	if c[0]["start_date"] != "2026-01-01" {
+		t.Errorf("period_closed start_date: got %v, want 2026-01-01", c[0]["start_date"])
 	}
 	agent := e.Client
 	agent.As = e.ten.Agent
@@ -85,8 +122,11 @@ func TestFiscalPeriods(t *testing.T) {
 func TestExchangeRates(t *testing.T) {
 	e := setup(t)
 	r, tag := e.Must(201, "POST", "/v1/exchange-rates", `{"rate_type": "average", "from_currency": "USD", "to_currency": "EUR", "valid_from": "2026-01-01", "rate": "0.92", "source": "ECB"}`, "")
-	if r["rate"] != "0.920000000000" || len(tag) < 10 {
-		t.Fatalf("rate: %v", r)
+	if r["rate"] != "0.920000000000" {
+		t.Errorf("rate: got %v, want 0.920000000000", r["rate"])
+	}
+	if len(tag) < 10 {
+		t.Errorf("rate tag: got %q, want at least 10 characters", tag)
 	}
 	e.rate(t, "USD", "EUR", "2026-02-01", "0.93")
 	e.rate(t, "GBP", "EUR", "2026-01-15", "1.17")
@@ -98,14 +138,22 @@ func TestExchangeRates(t *testing.T) {
 		"zero":          {`{"rate_type": "average", "from_currency": "USD", "to_currency": "GBP", "valid_from": "2026-01-01", "rate": "0", "source": "x"}`, "ledger.invalid_rate"},
 		"type":          {`{"rate_type": "spot", "from_currency": "USD", "to_currency": "GBP", "valid_from": "2026-01-01", "rate": "1", "source": "x"}`, "ledger.unknown_rate_type"},
 	} {
-		code, m, _ := e.Do("POST", "/v1/exchange-rates", c.body, "")
-		if m["code"] != c.code || (code != 409 && code != 422) {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			code, m, _ := e.in(t).Do("POST", "/v1/exchange-rates", c.body, "")
+			if m["code"] != c.code {
+				t.Errorf("code: got %v, want %s", m["code"], c.code)
+			}
+			if code != 409 && code != 422 {
+				t.Errorf("status: got %d, want 409 or 422 (%v)", code, m)
+			}
+		})
 	}
 	got, gotTag := e.Must(200, "GET", "/v1/exchange-rates/"+r["id"].(string), "", "")
-	if got["source"] != "ECB" || gotTag != tag {
-		t.Fatalf("get: %v %s %s", got, gotTag, tag)
+	if got["source"] != "ECB" {
+		t.Errorf("get source: got %v, want ECB", got["source"])
+	}
+	if gotTag != tag {
+		t.Errorf("get tag: got %s, want %s", gotTag, tag)
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/exchange-rates/"+uuid.NewString(), "", "")
 	rates := func(q string) string {
@@ -133,8 +181,10 @@ func TestExchangeRates(t *testing.T) {
 	if got := rates("page_size=2&page_token=" + strings.TrimPrefix(parts[2], "next:")); got != "0.93" {
 		t.Fatalf("page 2: %s", got)
 	}
-	if m := events(t, e.ten, "exchange_rate_maintained"); len(m) != 3 || m[0]["rate"] != "0.920000000000" {
-		t.Fatalf("events: %v", m)
+	if m := events(t, e.ten, "exchange_rate_maintained"); len(m) != 3 {
+		t.Fatalf("exchange_rate_maintained events: got %d %v, want 3", len(m), m)
+	} else if m[0]["rate"] != "0.920000000000" {
+		t.Errorf("first event rate: got %v, want 0.920000000000", m[0]["rate"])
 	}
 }
 
@@ -143,9 +193,19 @@ func TestAccounts(t *testing.T) {
 	ap := e.account(t, "2000", "211000")
 	a, tag := e.Must(200, "GET", "/v1/accounts/"+ap, "", "")
 	s := a["company_settings"].([]any)
-	if a["reconciliation_kind"] != "supplier" || a["is_balance_sheet"] != true || a["status"] != "active" || len(s) != 1 ||
-		s[0].(map[string]any)["is_open_item_managed"] != true || tag != `"1"` {
-		t.Fatalf("account: %v", a)
+	for field, want := range map[string]any{"reconciliation_kind": "supplier", "is_balance_sheet": true, "status": "active"} {
+		if a[field] != want {
+			t.Errorf("account %s: got %v, want %v", field, a[field], want)
+		}
+	}
+	if tag != `"1"` {
+		t.Errorf("account tag: got %s, want \"1\"", tag)
+	}
+	if len(s) != 1 {
+		t.Fatalf("company settings: got %d %v, want 1", len(s), s)
+	}
+	if got := s[0].(map[string]any)["is_open_item_managed"]; got != true {
+		t.Errorf("is_open_item_managed: got %v, want true", got)
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/accounts/"+uuid.NewString(), "", "")
 	count := func(q string) (int, string) {
@@ -160,11 +220,16 @@ func TestAccounts(t *testing.T) {
 		t.Fatalf("filtered: %d", n)
 	}
 	n, tok := count("page_size=15")
-	if n != 15 || tok == "" {
-		t.Fatalf("page 1: %d", n)
+	if n != 15 {
+		t.Errorf("page 1: got %d, want 15", n)
 	}
-	if n, tok := count("page_size=15&page_token=" + tok); n != 5 || tok != "" {
-		t.Fatalf("page 2: %d", n)
+	if tok == "" {
+		t.Fatal("page 1: got no next page token, want one")
+	}
+	if n, tok := count("page_size=15&page_token=" + tok); n != 5 {
+		t.Errorf("page 2: got %d, want 5", n)
+	} else if tok != "" {
+		t.Errorf("page 2 next page token: got %q, want none", tok)
 	}
 	agent := e.Client
 	agent.As = e.ten.Agent
@@ -276,8 +341,14 @@ func TestSetup(t *testing.T) {
 	if err := admin.QueryRow(context.Background(), `SELECT string_agg(code, ',' ORDER BY code) FROM ledger.fiscal_calendar WHERE tenant_id = $1`, e.ten.ID).Scan(&calendars); err != nil {
 		t.Fatalf("list calendars: %v", err)
 	}
-	if periods2027 != "16" || ukStart != "2025-04-01" || calendars != "C001,C002,C003" {
-		t.Errorf("periods %s, UK start %s, calendars %s", periods2027, ukStart, calendars)
+	if periods2027 != "16" {
+		t.Errorf("2027 periods: got %s, want 16", periods2027)
+	}
+	if ukStart != "2025-04-01" {
+		t.Errorf("UK start: got %s, want 2025-04-01", ukStart)
+	}
+	if calendars != "C001,C002,C003" {
+		t.Errorf("calendars: got %s, want C001,C002,C003", calendars)
 	}
 	apply(document(t)) // the removed account comes back
 	noRanges := document(t)
