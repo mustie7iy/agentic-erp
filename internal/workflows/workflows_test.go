@@ -290,7 +290,7 @@ func TestDispatcher(t *testing.T) {
 	op1, run1 := e.propose(t, "2026-04-15")
 	op2, _ := e.propose(t, "2026-04-16")
 	engine := &fakeEngine{}
-	logs := &syncBuffer{}
+	logs := &pgtest.SyncBuffer{}
 	d := &workflows.Dispatcher{Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(logs, nil))}
 	n, err := d.RunOnce(ctx)
 	if err != nil || n < 2 {
@@ -427,40 +427,25 @@ func TestDispatcher(t *testing.T) {
 	// Run logs a failed round, then a quiet one, and stops with the context.
 	// Each loop is waited for before the dispatcher is changed: a loop still
 	// running would read Begin and Interval while they are written.
-	runCtx, cancel := context.WithCancel(ctx)
+	failCtx, stopFailing := context.WithCancel(ctx)
 	stopped := make(chan struct{})
-	go func() { d.Run(runCtx); close(stopped) }()
+	go func() { d.Run(failCtx); close(stopped) }()
+	t.Cleanup(func() { stopFailing(); <-stopped }) // stops the dispatcher should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "workflow dispatch failed") },
 		"the dispatcher did not log its failed round: %s", logs)
-	cancel()
+	stopFailing()
 	<-stopped
 	d.Begin = nil
 	d.Interval = time.Hour
 	e.propose(t, "2026-04-20")
-	runCtx, cancel = context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { d.Run(runCtx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done }) // stops the dispatcher should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "workflows started") },
 		"the dispatcher did not log the workflows it started: %s", logs)
 	cancel()
 	<-done
-}
-
-type syncBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
 }
 
 // releaseAsked asks for the run's release as the approver and returns the
@@ -534,7 +519,7 @@ func TestReleaseWorkflow(t *testing.T) {
 		t.Fatalf("after the machinery failed: %v", still)
 	}
 	// The in-process releaser finishes it: the posted payment is left alone, the file is written.
-	logs := &syncBuffer{}
+	logs := &pgtest.SyncBuffer{}
 	w := &workflows.Releaser{Payments: a, Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil))}
 	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 { // other tests' releasing runs are the worker's too
 		t.Fatalf("releaser: %d %v", n, err)
@@ -564,6 +549,7 @@ func TestReleaseWorkflow(t *testing.T) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() { w.Run(runCtx); close(stopped) }()
+	t.Cleanup(func() { cancel(); <-stopped }) // stops the releaser should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "payment release failed") },
 		"the releaser did not log its failed round: %s", logs)
 	cancel()
