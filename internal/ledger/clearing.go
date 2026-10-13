@@ -1,9 +1,11 @@
 package ledger
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -192,8 +194,9 @@ func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, e
 		s.tc, s.lc, s.gc = s.tc+it.tc, s.lc+it.lc, s.gc+it.gc
 		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text}
 	}
-	for partner, s := range perPartner {
-		if *s != (sums{}) {
+	// Partners in id order: the refusal names the same partner on every run.
+	for _, partner := range slices.SortedFunc(maps.Keys(perPartner), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }) {
+		if *perPartner[partner] != (sums{}) {
 			return nil, problem.Unprocessable("ledger.clearing_not_balanced",
 				"The items of partner "+partner.String()+" do not net to zero in every currency; settle the difference with a posting first.",
 				problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that net to zero per partner"})
