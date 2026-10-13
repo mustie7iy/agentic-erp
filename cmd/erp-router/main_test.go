@@ -70,7 +70,7 @@ func TestRoutesToTheCell(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close() // the body is already read; a close error cannot change what is asserted
 	if resp.StatusCode != 200 || !strings.Contains(string(body), `"cell":"eu-1"`) || resp.Header.Get("X-Erp-Cell") != "eu-1" {
 		t.Fatalf("%d %s %v", resp.StatusCode, body, resp.Header)
 	}
@@ -96,7 +96,7 @@ func TestRoutesToTheCell(t *testing.T) {
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("directory API: %v %v", resp, err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close() // only the status is asserted; the body is not needed
 	cancel()
 	if code := <-done; code != 0 || !strings.Contains(logs.String(), "erp-router stopped") {
 		t.Fatalf("stop: %d %s", code, logs.String())
@@ -106,7 +106,7 @@ func TestRoutesToTheCell(t *testing.T) {
 func TestExitCodes(t *testing.T) {
 	is := authntest.New(t)
 	busy, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer busy.Close()
+	defer func() { _ = busy.Close() }() // best-effort cleanup of the port the cases collide with
 	for name, c := range map[string]struct {
 		mutate func(env map[string]string)
 		code   int
@@ -134,7 +134,10 @@ func TestExitCodes(t *testing.T) {
 		var logs bytes.Buffer
 		started := func(_, _ net.Listener) {}
 		if name == "listener closed" {
-			started = func(ln, _ net.Listener) { ln.Close() }
+			started = func(ln, _ net.Listener) {
+				// Closing provokes the serve error under test; a failed close shows as a wrong exit code.
+				_ = ln.Close()
+			}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		code := cli(ctx, func(k string) string { return env[k] }, &logs, started)
