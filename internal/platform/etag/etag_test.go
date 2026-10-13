@@ -19,14 +19,15 @@ func TestCheck(t *testing.T) {
 		`W/"3"`:    412, // weak tags never match a strong comparison
 		`3`:        412,
 	} {
-		err := Check(header, 3)
-		got := 0
-		if err != nil {
-			got = problem.From(err).Status
-		}
-		if got != want {
-			t.Errorf("%q: %d, want %d", header, got, want)
-		}
+		t.Run(header, func(t *testing.T) {
+			got := 0
+			if err := Check(header, 3); err != nil {
+				got = problem.From(err).Status
+			}
+			if got != want {
+				t.Errorf("Check(%q, 3): got %d, want %d", header, got, want)
+			}
+		})
 	}
 }
 

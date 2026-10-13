@@ -36,9 +36,17 @@ func TestConstructors(t *testing.T) {
 		{Internal(errors.New("boom")), 500, "platform.internal"},
 	}
 	for _, c := range cases {
-		if c.p.Status != c.status || c.p.Code != c.code || !strings.HasPrefix(c.p.Type, TypeBase) {
-			t.Errorf("%+v", c.p)
-		}
+		t.Run(c.code, func(t *testing.T) {
+			if c.p.Status != c.status {
+				t.Errorf("status: got %d, want %d", c.p.Status, c.status)
+			}
+			if c.p.Code != c.code {
+				t.Errorf("code: got %q, want %q", c.p.Code, c.code)
+			}
+			if !strings.HasPrefix(c.p.Type, TypeBase) {
+				t.Errorf("type: got %q, want a prefix of %q", c.p.Type, TypeBase)
+			}
+		})
 	}
 	if p := New(409, "payables.duplicate_invoice", "t", "d"); p.Type != TypeBase+"payables/duplicate-invoice" {
 		t.Fatal(p.Type)
@@ -51,11 +59,21 @@ func TestConstructors(t *testing.T) {
 func TestErrorAndCause(t *testing.T) {
 	cause := errors.New("disk on fire")
 	p := Internal(cause)
-	if !errors.Is(p, cause) || Cause(p) != cause || !strings.Contains(p.Error(), "disk on fire") { //nolint:errorlint // Cause must return the cause itself, not an error that wraps it
-		t.Fatal(p.Error())
+	if !errors.Is(p, cause) {
+		t.Errorf("errors.Is(%v, cause) = false, want true", p)
 	}
-	if q := NotFound("missing"); strings.Contains(q.Error(), "<nil>") || Cause(q) != nil {
-		t.Fatal(q.Error())
+	if got := Cause(p); got != cause { //nolint:errorlint // Cause must return the cause itself, not an error that wraps it
+		t.Errorf("Cause: got %v, want %v", got, cause)
+	}
+	if got := p.Error(); !strings.Contains(got, "disk on fire") {
+		t.Errorf("Error() = %q, want it to contain %q", got, "disk on fire")
+	}
+	q := NotFound("missing")
+	if got := q.Error(); strings.Contains(got, "<nil>") {
+		t.Errorf("Error() = %q, want no <nil>", got)
+	}
+	if got := Cause(q); got != nil {
+		t.Errorf("Cause of a problem without one: got %v, want nil", got)
 	}
 }
 
@@ -92,19 +110,34 @@ func TestFromTranslatesDatabaseErrors(t *testing.T) {
 		Conflict("own.code", "kept"): {409, "own.code"},
 	}
 	for err, want := range cases {
-		p := From(err)
-		if p.Status != want.status || p.Code != want.code {
-			t.Errorf("%v → %d %s, want %d %s", err, p.Status, p.Code, want.status, want.code)
+		// The name comes from the SQLSTATE or the type: a bare ConnectError's
+		// Error method dereferences its nil cause.
+		name := fmt.Sprintf("%T", err)
+		if pe := (*pgconn.PgError)(nil); errors.As(err, &pe) {
+			name = pe.Code
 		}
-		if strings.Contains(p.Detail, "secret internals") {
-			t.Errorf("database message leaked: %s", p.Detail)
-		}
+		t.Run(name, func(t *testing.T) {
+			p := From(err)
+			if p.Status != want.status {
+				t.Errorf("status: got %d, want %d", p.Status, want.status)
+			}
+			if p.Code != want.code {
+				t.Errorf("code: got %q, want %q", p.Code, want.code)
+			}
+			if strings.Contains(p.Detail, "secret internals") {
+				t.Errorf("database message leaked: %s", p.Detail)
+			}
+		})
 	}
 	if p := From(pgErr("55P03", "")); p.RetryAfter != 1 {
 		t.Fatal("lock timeouts must ask the client to retry")
 	}
-	if p := From(pgErr("57P01", "")); p.RetryAfter != 1 || !strings.Contains(p.Detail, "connection was lost") {
-		t.Fatal("a lost connection must ask the client to retry")
+	lost := From(pgErr("57P01", ""))
+	if lost.RetryAfter != 1 {
+		t.Errorf("a lost connection must ask the client to retry: RetryAfter got %d, want 1", lost.RetryAfter)
+	}
+	if !strings.Contains(lost.Detail, "connection was lost") {
+		t.Errorf("lost connection detail: got %q, want it to contain %q", lost.Detail, "connection was lost")
 	}
 }
 
@@ -115,23 +148,38 @@ func TestWrite(t *testing.T) {
 	p := Unauthorized("token expired")
 	p.RetryAfter = 3
 	Write(rec, r, p)
-	if rec.Code != 401 || rec.Header().Get("Content-Type") != "application/problem+json" ||
-		rec.Header().Get("Retry-After") != "3" || !strings.Contains(rec.Header().Get("WWW-Authenticate"), "invalid_token") {
-		t.Fatal(rec.Code, rec.Header())
+	if rec.Code != 401 {
+		t.Errorf("status: got %d, want 401", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Errorf("Content-Type: got %q, want %q", got, "application/problem+json")
+	}
+	if got := rec.Header().Get("Retry-After"); got != "3" {
+		t.Errorf("Retry-After: got %q, want %q", got, "3")
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); !strings.Contains(got, "invalid_token") {
+		t.Errorf("WWW-Authenticate: got %q, want it to contain %q", got, "invalid_token")
 	}
 	var got map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode %s: %v", rec.Body, err)
 	}
-	if got["instance"] != "/v1/operations/x" || got["trace_id"] != "trace-9" || got["code"] != "authn.invalid_token" || got["status"] != float64(401) {
-		t.Fatal(got)
+	for field, want := range map[string]any{
+		"instance": "/v1/operations/x", "trace_id": "trace-9", "code": "authn.invalid_token", "status": float64(401),
+	} {
+		if got[field] != want {
+			t.Errorf("%s: got %v, want %v", field, got[field], want)
+		}
 	}
 	// Without a request the instance is left as set.
 	rec = httptest.NewRecorder()
 	q := NotFound("x")
 	q.Instance = "/given"
 	Write(rec, nil, q)
-	if !strings.Contains(rec.Body.String(), "/given") || rec.Header().Get("Retry-After") != "" {
-		t.Fatal(rec.Body.String())
+	if got := rec.Body.String(); !strings.Contains(got, "/given") {
+		t.Errorf("body: got %s, want the instance /given", got)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "" {
+		t.Errorf("Retry-After: got %q, want none", got)
 	}
 }
