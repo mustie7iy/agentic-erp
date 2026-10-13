@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -59,7 +60,7 @@ func scan(row pgx.Row) (Operation, error) {
 	var o Operation
 	err := row.Scan(&o.ID, &o.Kind, &o.Status, &o.ProgressDone, &o.ProgressTotal, &o.Resource, &o.Result, &o.Error,
 		&o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy, &o.WorkflowID)
-	return o, err
+	return o, errs.Wrapf(err, "scan operation")
 }
 
 func request(ctx context.Context) (pgx.Tx, reqctx.Principal, error) {
@@ -92,8 +93,12 @@ func start(ctx context.Context, kind string, req any, resource *string) (Operati
 	if err != nil {
 		return Operation{}, fmt.Errorf("operations: request: %w", err)
 	}
-	return scan(tx.QueryRow(ctx, `INSERT INTO platform.operation (tenant_id, id, kind, status, request, resource, created_by, updated_by)
+	o, err := scan(tx.QueryRow(ctx, `INSERT INTO platform.operation (tenant_id, id, kind, status, request, resource, created_by, updated_by)
 		VALUES ($1, $2, $3, 'queued', $4, $5, $6, $6) RETURNING `+columns, p.TenantID, uuid.Must(uuid.NewV7()), kind, body, resource, p.ID))
+	if err != nil {
+		return o, fmt.Errorf("operations: start %s: %w", kind, err)
+	}
+	return o, nil
 }
 
 // Get reads an operation in the request's transaction.
@@ -115,7 +120,10 @@ func get(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Operation, er
 	if errors.Is(err, pgx.ErrNoRows) {
 		return o, problem.NotFound("No operation with this id.")
 	}
-	return o, err
+	if err != nil {
+		return o, fmt.Errorf("operations: read operation %s: %w", id, err)
+	}
+	return o, nil
 }
 
 // filter selects operations for a list.
@@ -141,7 +149,11 @@ func list(ctx context.Context, tx pgx.Tx, f filter) ([]Operation, error) {
 		after = &f.After
 	}
 	rows, _ := tx.Query(ctx, q, f.Status, f.Kind, after, f.Limit)
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Operation, error) { return scan(r) })
+	ops, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Operation, error) { return scan(r) })
+	if err != nil {
+		return nil, fmt.Errorf("operations: list operations: %w", err)
+	}
+	return ops, nil
 }
 
 // cancel moves a running or queued operation to cancelled and publishes its
@@ -153,7 +165,7 @@ func cancel(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o Operation) (Op
 	updated, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET status = 'cancelled', version = version + 1,
 		updated_by = $2 WHERE id = $1 RETURNING `+columns, o.ID, p.ID))
 	if err != nil {
-		return o, err
+		return o, fmt.Errorf("operations: cancel operation %s: %w", o.ID, err)
 	}
 	if _, err := outbox.Add(ctx, completedEvent(updated)); err != nil {
 		return o, err
@@ -210,7 +222,7 @@ func finish(ctx context.Context, set string, id uuid.UUID, args ...any) (Operati
 	o, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET `+set+fmt.Sprintf(`, version = version + 1, updated_by = $%d WHERE id = $1 RETURNING `, len(args)+2)+columns,
 		append(append([]any{id}, args...), p.ID)...))
 	if err != nil {
-		return Operation{}, err
+		return Operation{}, fmt.Errorf("operations: finish operation %s: %w", id, err)
 	}
 	if _, err := outbox.Add(ctx, completedEvent(o)); err != nil {
 		return Operation{}, err
@@ -224,7 +236,9 @@ func Report(ctx context.Context, id uuid.UUID, done, total int64) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `UPDATE platform.operation SET status = 'running', progress_done = $2, progress_total = $3, version = version + 1,
-		updated_by = $4 WHERE id = $1`, id, done, total, p.ID)
-	return err
+	if _, err := tx.Exec(ctx, `UPDATE platform.operation SET status = 'running', progress_done = $2, progress_total = $3, version = version + 1,
+		updated_by = $4 WHERE id = $1`, id, done, total, p.ID); err != nil {
+		return fmt.Errorf("operations: report progress of operation %s: %w", id, err)
+	}
+	return nil
 }

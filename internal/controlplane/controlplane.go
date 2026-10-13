@@ -28,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -160,7 +161,7 @@ func scan(row pgx.Row) (Tenant, error) {
 		t.Verification = &Verified{}
 		_ = json.Unmarshal(verified, t.Verification)
 	}
-	return t, err
+	return t, errs.Wrapf(err, "scan tenant")
 }
 
 // Sort is the order_by a tenant listing accepts.
@@ -189,7 +190,7 @@ func (s *Service) List(ctx context.Context, status string, page pagination.Reque
 	rows, _ := tx.Query(ctx, q, args...)
 	tenants, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Tenant, error) { return scan(r) })
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("controlplane: list tenants: %w", err)
 	}
 	tenants, next := pagination.Page(ks, tenants, func(t Tenant) (string, uuid.UUID) {
 		if ks.Field() == "name" {
@@ -211,7 +212,10 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Tenant, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Tenant{}, problem.NotFound("No tenant with this id.")
 	}
-	return t, err
+	if err != nil {
+		return t, fmt.Errorf("controlplane: read tenant %s: %w", id, err)
+	}
+	return t, nil
 }
 
 // Fingerprint reads the tenant and its fingerprint (ADR-0030): every
@@ -229,7 +233,7 @@ func (s *Service) Fingerprint(ctx context.Context, id uuid.UUID) (Tenant, offboa
 		return Tenant{}, offboarding.Fingerprint{}, problem.NotFound("No tenant with this id.")
 	}
 	if err != nil {
-		return Tenant{}, offboarding.Fingerprint{}, err
+		return Tenant{}, offboarding.Fingerprint{}, fmt.Errorf("controlplane: read tenant %s: %w", id, err)
 	}
 	fp, err := offboarding.TakeFingerprint(ctx, tx, id, s.now())
 	return t, fp, err
@@ -286,7 +290,7 @@ func (s *Service) replay(ctx context.Context, k *provisioning.Idempotency) (prov
 		return provisioning.Result{}, false, nil
 	}
 	if err != nil {
-		return provisioning.Result{}, false, err
+		return provisioning.Result{}, false, fmt.Errorf("controlplane: read idempotency key of operator %s: %w", k.ActorID, err)
 	}
 	if owner != k.ActorID || !bytes.Equal(hash, k.RequestHash) {
 		return provisioning.Result{}, false, problem.Unprocessable("request.idempotency_key_reused", "This Idempotency-Key was already used for a different request.")
@@ -329,7 +333,7 @@ func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, ver
 		return Tenant{}, problem.NotFound("No tenant with this id.")
 	}
 	if err != nil {
-		return Tenant{}, err
+		return Tenant{}, fmt.Errorf("controlplane: lock tenant %s: %w", id, err)
 	}
 	if err := etag.Check(ifMatch, t.Version); err != nil {
 		return Tenant{}, err
@@ -343,7 +347,7 @@ func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, ver
 		return Tenant{}, err
 	}
 	if t, err = scan(tx.QueryRow(ctx, `UPDATE tenancy.tenant SET status = $2, version = version + 1 WHERE id = $1 RETURNING `+columns, id, tr.to)); err != nil {
-		return Tenant{}, err
+		return Tenant{}, fmt.Errorf("controlplane: %s tenant %s: %w", verb, id, err)
 	}
 	trace := reqctx.TraceID(ctx)
 	if _, err := outbox.Write(ctx, tx, id, op.ID, trace, outbox.Event{Context: "tenancy", Name: "tenant_status_changed", AggregateType: "tenancy.tenant", AggregateID: id,
@@ -356,7 +360,7 @@ func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, ver
 		return Tenant{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Tenant{}, err
+		return Tenant{}, fmt.Errorf("controlplane: commit %s of tenant %s: %w", verb, id, err)
 	}
 	s.register(ctx, t)
 	return t, nil
@@ -379,7 +383,7 @@ func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMa
 		return Tenant{}, fieldcrypt.Rotation{}, problem.NotFound("No tenant with this id.")
 	}
 	if err != nil {
-		return Tenant{}, fieldcrypt.Rotation{}, err
+		return Tenant{}, fieldcrypt.Rotation{}, fmt.Errorf("controlplane: lock tenant %s: %w", id, err)
 	}
 	if err := etag.Check(ifMatch, t.Version); err != nil {
 		return Tenant{}, fieldcrypt.Rotation{}, err
@@ -395,7 +399,7 @@ func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMa
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
 	if t, err = scan(tx.QueryRow(ctx, `UPDATE tenancy.tenant SET version = version + 1 WHERE id = $1 RETURNING `+columns, id)); err != nil {
-		return Tenant{}, fieldcrypt.Rotation{}, err
+		return Tenant{}, fieldcrypt.Rotation{}, fmt.Errorf("controlplane: update tenant %s: %w", id, err)
 	}
 	actor := reqctx.Principal{ID: op.ID, Kind: reqctx.KindSystem, TenantID: id}
 	if err := audit.Write(ctx, tx, actor, reqctx.TraceID(ctx), s.now(), audit.Entry{Action: "tenancy.tenant.rotate_key", ObjectType: "tenancy.tenant", ObjectID: id, Outcome: "succeeded",
@@ -403,7 +407,7 @@ func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMa
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Tenant{}, fieldcrypt.Rotation{}, err
+		return Tenant{}, fieldcrypt.Rotation{}, fmt.Errorf("controlplane: commit key rotation of tenant %s: %w", id, err)
 	}
 	return t, rot, nil
 }
@@ -425,7 +429,7 @@ func (s *Service) Erase(ctx context.Context, op Operator, id uuid.UUID, ifMatch 
 		return Tenant{}, offboarding.Erasure{}, problem.NotFound("No tenant with this id.")
 	}
 	if err != nil {
-		return Tenant{}, offboarding.Erasure{}, err
+		return Tenant{}, offboarding.Erasure{}, fmt.Errorf("controlplane: read tenant %s: %w", id, err)
 	}
 	if err := etag.Check(ifMatch, t.Version); err != nil {
 		return Tenant{}, offboarding.Erasure{}, err

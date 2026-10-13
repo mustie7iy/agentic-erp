@@ -148,7 +148,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 		return Result{}, fmt.Errorf("provisioning: tenant: %w", problem.From(err))
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{p.AppRole}.Sanitize()); err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("provisioning: tenant %s: set role %s: %w", res.TenantID, p.AppRole, err)
 	}
 	if err := database.SetActor(ctx, tx, res.AdministratorID); err != nil {
 		return Result{}, err
@@ -178,7 +178,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	tag, err := tx.Exec(ctx, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
 		SELECT $1, gen_random_uuid(), $2, code, current_date, $3 FROM ref.permission`, res.TenantID, role.ID, res.AdministratorID)
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("provisioning: tenant %s: grant every permission to role %s: %w", res.TenantID, role.ID, err)
 	}
 	// The audit buffer is in ctx, so Add cannot fail.
 	_ = audit.Add(ctx, audit.Entry{Action: "identity.role_permission.grant", ObjectType: "identity.role", ObjectID: role.ID, Outcome: "succeeded",

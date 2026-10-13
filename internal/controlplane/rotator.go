@@ -52,7 +52,11 @@ func (k *KeyRotator) due(ctx context.Context) ([]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT t.id FROM tenancy.tenant t
 		LEFT JOIN tenancy.tenant_key k ON k.tenant_id = t.id AND k.status = 'active'
 		WHERE t.status = 'active' AND (k.created_at IS NULL OR k.created_at < $1) ORDER BY t.id`, time.Now().Add(-k.Age))
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("controlplane: list tenants due for key rotation: %w", err)
+	}
+	return tenants, nil
 }
 
 // Rotate gives one tenant a new key and re-seals its fields, recorded in
@@ -65,7 +69,7 @@ func (k *KeyRotator) Rotate(ctx context.Context, tenant uuid.UUID) (fieldcrypt.R
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	var status string
 	if err := tx.QueryRow(ctx, `SELECT status FROM tenancy.tenant WHERE id = $1 FOR UPDATE`, tenant).Scan(&status); err != nil {
-		return fieldcrypt.Rotation{}, err
+		return fieldcrypt.Rotation{}, fmt.Errorf("controlplane: lock tenant %s: %w", tenant, err)
 	}
 	if status != Active {
 		return fieldcrypt.Rotation{}, fmt.Errorf("tenant %s is %s", tenant, status)
@@ -83,7 +87,7 @@ func (k *KeyRotator) Rotate(ctx context.Context, tenant uuid.UUID) (fieldcrypt.R
 		return fieldcrypt.Rotation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fieldcrypt.Rotation{}, err
+		return fieldcrypt.Rotation{}, fmt.Errorf("controlplane: commit key rotation of tenant %s: %w", tenant, err)
 	}
 	return rot, nil
 }

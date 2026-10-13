@@ -299,6 +299,9 @@ func TestDatabaseFailures(t *testing.T) {
 	if _, err := e.CancelOperation(dead, gen.CancelOperationParams{ID: uuid.New(), IfMatch: `"1"`}); err == nil {
 		t.Error("cancel on a dead transaction")
 	}
+	if err := operations.Report(dead, uuid.New(), 1, 2); err == nil {
+		t.Error("report on a dead transaction")
+	}
 	// Failures injected with triggers: the update, the outbox write, and a missing audit buffer.
 	pgtest.Exec(t, `CREATE OR REPLACE FUNCTION public.fail_kind() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN IF NEW.kind = 'test.fail_update' THEN RAISE EXCEPTION 'injected'; END IF; RETURN NEW; END $$`)

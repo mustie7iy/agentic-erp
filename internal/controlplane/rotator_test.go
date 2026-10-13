@@ -101,6 +101,16 @@ func TestKeyRotationPolicy(t *testing.T) {
 	if _, err := k.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "pool down") {
 		t.Fatalf("due: %v", err)
 	}
+	k.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
+	}
+	if _, err := k.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("due query: got %v, want %v", err, pgtest.ErrInjected)
+	}
 	calls := 0
 	k.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		calls++
