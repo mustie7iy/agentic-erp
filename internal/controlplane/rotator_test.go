@@ -28,12 +28,13 @@ func TestKeyRotationPolicy(t *testing.T) {
 	created, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Aging"), "Idempotency-Key", "key-"+uuid.NewString())
 	id := uuid.MustParse(created["id"].(string))
 	pool := p.s.Pool
-	var logs bytes.Buffer
+	var logs pgtest.SyncBuffer // Run logs on its goroutine while the test polls
 	k := &controlplane.KeyRotator{Pool: pool, Keys: apitest.FieldKeys(), AppRole: "erp_app", WorkerRole: "erp_worker", Age: 24 * time.Hour,
 		Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	admin := pgtest.Admin(t)
 	keys := func() int {
 		var n int
-		if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, id).Scan(&n); err != nil {
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, id).Scan(&n); err != nil {
 			t.Fatalf("count tenant keys: %v", err)
 		}
 		return n
@@ -132,24 +133,21 @@ func TestKeyRotationPolicy(t *testing.T) {
 	age()
 	k.Interval = time.Millisecond
 	runCtx, cancel := context.WithCancel(ctx)
+	defer func() { cancel() }() // a failed wait below still stops the worker running then
 	done := make(chan struct{})
 	go func() { k.Run(runCtx); close(done) }()
-	time.Sleep(50 * time.Millisecond)
+	pgtest.Eventually(t, 30*time.Second, func() bool { return strings.Contains(logs.String(), `msg="key rotation round" rotated=`) },
+		"no round logged its work; logs: %s", &logs)
 	cancel()
 	<-done
-	if !strings.Contains(logs.String(), "key rotation round") {
-		t.Fatalf("logs: %s", logs.String())
-	}
 	k.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
 	runCtx, cancel = context.WithCancel(ctx)
 	done = make(chan struct{})
 	go func() { k.Run(runCtx); close(done) }()
-	time.Sleep(5 * time.Millisecond)
+	pgtest.Eventually(t, 30*time.Second, func() bool { return strings.Contains(logs.String(), "key rotation round failed") },
+		"no failing round logged; logs: %s", &logs)
 	cancel()
 	<-done
-	if !strings.Contains(logs.String(), "key rotation round failed") {
-		t.Fatalf("logs: %s", logs.String())
-	}
 	k.Begin, k.Interval = nil, 0
 	stopped, cancelNow := context.WithCancel(ctx)
 	cancelNow()
