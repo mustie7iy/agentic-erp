@@ -150,7 +150,7 @@ func list[R, A any](ctx context.Context, tx pgx.Tx, ks *pagination.Keyset, query
 	rows, _ := tx.Query(ctx, q, args...) // CollectRows returns the query's error
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (R, error) { return scan(r) })
 	if err != nil {
-		return nil, gen.OptString{}, err
+		return nil, gen.OptString{}, fmt.Errorf("identity: list %T rows: %w", *new(R), err)
 	}
 	items, next := pagination.Page(ks, items, key)
 	out := make([]A, 0, len(items))

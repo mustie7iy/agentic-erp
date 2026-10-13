@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -84,7 +85,7 @@ func (g *Grant) fields() []any {
 func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
 	var d time.Time
 	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	return d, err
+	return d, errs.Wrapf(err, "identity: read current date")
 }
 
 // Validity is the requested period of a new grant.
@@ -170,7 +171,7 @@ func sodConflict(ctx context.Context, tx pgx.Tx, principal, role, rule uuid.UUID
 		return nil
 	}
 	if err != nil {
-		return err
+		return errs.Wrapf(err, "identity: check segregation of duties")
 	}
 	return problem.Conflict("identity.sod_conflict", "Segregation of duties: principal "+c.Principal.String()+" would hold both "+
 		c.PermissionA+" and "+c.PermissionB+".")
@@ -188,7 +189,7 @@ func nilIfZero(id uuid.UUID) *uuid.UUID {
 // commit.
 func agentApprovalsNow(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, `SET CONSTRAINTS identity.principal_role_agent_approvals, identity.role_permission_agent_approvals IMMEDIATE`)
-	return err
+	return errs.Wrapf(err, "identity: check agent approvals")
 }
 
 func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }

@@ -3,12 +3,14 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -25,7 +27,7 @@ const assignmentColumns = grantColumns + `, principal_id, role_id`
 func scanAssignment(row pgx.Row) (RoleAssignment, error) {
 	var g RoleAssignment
 	err := row.Scan(append(g.fields(), &g.PrincipalID, &g.RoleID)...)
-	return g, err
+	return g, errs.Wrapf(err, "scan role assignment")
 }
 
 func getAssignment(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (RoleAssignment, error) {
@@ -37,7 +39,7 @@ func getAssignment(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Rol
 	if errors.Is(err, pgx.ErrNoRows) {
 		return g, notFound("role assignment")
 	}
-	return g, err
+	return g, errs.Wrapf(err, "identity: read role assignment %s", id)
 }
 
 // AssignRole grants a role to a principal for a period.
@@ -69,7 +71,7 @@ func AssignRole(ctx context.Context, principal, role uuid.UUID, from, to *time.T
 		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+assignmentColumns,
 		actor.TenantID, uuid.Must(uuid.NewV7()), principal, role, v.From, v.To, actor.ID))
 	if err != nil {
-		return RoleAssignment{}, err
+		return RoleAssignment{}, fmt.Errorf("identity: assign role %s to principal %s: %w", role, principal, err)
 	}
 	if err := agentApprovalsNow(ctx, tx); err != nil {
 		return RoleAssignment{}, err
@@ -107,7 +109,7 @@ func EndAssignment(ctx context.Context, id uuid.UUID, ifMatch func(RoleAssignmen
 	ended, err := scanAssignment(tx.QueryRow(ctx, `UPDATE identity.principal_role SET valid_to = $2, ended_by = $3 WHERE id = $1 RETURNING `+assignmentColumns,
 		id, to, actor.ID))
 	if err != nil {
-		return RoleAssignment{}, err
+		return RoleAssignment{}, fmt.Errorf("identity: end role assignment %s: %w", id, err)
 	}
 	return ended, audit.Record(ctx, "identity.role_assignment.end", "identity.role_assignment", id,
 		map[string]any{"principal_id": g.PrincipalID, "role_id": g.RoleID, "valid_to": date(to)},
@@ -133,7 +135,7 @@ const accessColumns = grantColumns + `, principal_id, legal_entity_id`
 func scanAccess(row pgx.Row) (CompanyAccess, error) {
 	var g CompanyAccess
 	err := row.Scan(append(g.fields(), &g.PrincipalID, &g.LegalEntityID)...)
-	return g, err
+	return g, errs.Wrapf(err, "scan company access")
 }
 
 func getAccess(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (CompanyAccess, error) {
@@ -145,7 +147,7 @@ func getAccess(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Company
 	if errors.Is(err, pgx.ErrNoRows) {
 		return g, notFound("company access grant")
 	}
-	return g, err
+	return g, errs.Wrapf(err, "identity: read company access %s", id)
 }
 
 // GrantAccess lets a principal act in a legal entity for a period.
@@ -175,7 +177,7 @@ func GrantAccess(ctx context.Context, les LegalEntities, principal, legalEntity 
 		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+accessColumns,
 		actor.TenantID, uuid.Must(uuid.NewV7()), principal, legalEntity, v.From, v.To, actor.ID))
 	if err != nil {
-		return CompanyAccess{}, err
+		return CompanyAccess{}, fmt.Errorf("identity: grant company %s to principal %s: %w", legalEntity, principal, err)
 	}
 	return g, audit.Record(ctx, "identity.company_access.create", "identity.company_access", g.ID,
 		map[string]any{"principal_id": principal, "legal_entity_id": legalEntity, "valid_from": date(g.ValidFrom), "valid_to": nullableDate(g.ValidTo)},
@@ -207,7 +209,7 @@ func EndAccess(ctx context.Context, id uuid.UUID, ifMatch func(CompanyAccess) er
 	ended, err := scanAccess(tx.QueryRow(ctx, `UPDATE identity.company_access SET valid_to = $2, ended_by = $3 WHERE id = $1 RETURNING `+accessColumns,
 		id, to, actor.ID))
 	if err != nil {
-		return CompanyAccess{}, err
+		return CompanyAccess{}, fmt.Errorf("identity: end company access %s: %w", id, err)
 	}
 	return ended, audit.Record(ctx, "identity.company_access.end", "identity.company_access", id,
 		map[string]any{"principal_id": g.PrincipalID, "legal_entity_id": g.LegalEntityID, "valid_to": date(to)},
@@ -225,7 +227,7 @@ const sodColumns = grantColumns + `, permission_a, permission_b, description`
 func scanSod(row pgx.Row) (SodRule, error) {
 	var r SodRule
 	err := row.Scan(append(r.fields(), &r.PermissionA, &r.PermissionB, &r.Description)...)
-	return r, err
+	return r, errs.Wrapf(err, "scan segregation-of-duties rule")
 }
 
 func getSod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (SodRule, error) {
@@ -237,7 +239,7 @@ func getSod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (SodRule, e
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, notFound("segregation-of-duties rule")
 	}
-	return r, err
+	return r, errs.Wrapf(err, "identity: read segregation-of-duties rule %s", id)
 }
 
 // CreateSodRule adds a rule, stored with its pair in canonical order. It is
@@ -257,7 +259,7 @@ func CreateSodRule(ctx context.Context, a, b, description string, from, to *time
 	}
 	var known int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM ref.permission WHERE code IN ($1, $2)`, a, b).Scan(&known); err != nil {
-		return SodRule{}, err
+		return SodRule{}, fmt.Errorf("identity: check permissions %s and %s: %w", a, b, err)
 	}
 	if known != 2 {
 		return SodRule{}, unknownPermission("permission_a")
@@ -274,7 +276,7 @@ func CreateSodRule(ctx context.Context, a, b, description string, from, to *time
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING `+sodColumns,
 		actor.TenantID, uuid.Must(uuid.NewV7()), a, b, description, v.From, v.To, actor.ID))
 	if err != nil {
-		return SodRule{}, err
+		return SodRule{}, fmt.Errorf("identity: create segregation-of-duties rule %s/%s: %w", a, b, err)
 	}
 	if err := sodConflict(ctx, tx, uuid.Nil, uuid.Nil, r.ID); err != nil {
 		return SodRule{}, err
@@ -316,7 +318,7 @@ func EndSodRule(ctx context.Context, id uuid.UUID, ifMatch func(SodRule) error, 
 	}
 	ended, err := scanSod(tx.QueryRow(ctx, `UPDATE identity.sod_rule SET valid_to = $2, ended_by = $3 WHERE id = $1 RETURNING `+sodColumns, id, to, actor.ID))
 	if err != nil {
-		return SodRule{}, err
+		return SodRule{}, fmt.Errorf("identity: end segregation-of-duties rule %s: %w", id, err)
 	}
 	return ended, audit.Record(ctx, "identity.sod_rule.end", "identity.sod_rule", id,
 		map[string]any{"permission_a": r.PermissionA, "permission_b": r.PermissionB, "valid_to": date(to)}, sodEvent(ended, "ended"))
