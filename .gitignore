@@ -8,3 +8,7 @@ bin/
 /erp-server
 /erp-router
 /erp
+
+# per-user Claude Code state; .claude/settings.json, agents/ and hooks/ are shared
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

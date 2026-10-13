@@ -47,6 +47,17 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: Vet
         run: go vet ./...
+      - name: Structural lint of changed code (.golangci.yml, CLAUDE.md)
+        # Only code changed by this push or pull request is held to the rules,
+        # so existing code is tightened as it is touched.
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            base="origin/${{ github.base_ref }}"; git fetch --no-tags origin "${{ github.base_ref }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          git cat-file -e "$base^{commit}" 2>/dev/null || base=HEAD~1
+          make lint LINT_BASE="$base"
       - name: Static analysis
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: Vulnerabilities
