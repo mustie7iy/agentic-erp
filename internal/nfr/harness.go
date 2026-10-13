@@ -111,6 +111,11 @@ func Start(t testing.TB, o Options) *Stack {
 	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
 	s.Server.Start()
 	s.Client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 4 * o.Users, MaxIdleConnsPerHost: 4 * o.Users}}
+	if o.Events && o.Publisher == nil {
+		// Before Stop is registered, so its cleanup (stopping the server) runs
+		// after Stop has stopped the relay, as cleanups run last first.
+		s.NATS = natstest.NewRestartable(t)
+	}
 	// Before the workers start: a start that fails half way (tb.Fatal) still
 	// stops the server and whatever workers did start.
 	t.Cleanup(s.Stop)
@@ -134,7 +139,6 @@ func (s *Stack) startWorkers(tb testing.TB, o Options) {
 	if o.Events {
 		publisher := o.Publisher
 		if publisher == nil {
-			s.NATS = natstest.NewRestartable(tb)
 			bus, err := natsbus.Connect(s.NATS.URL)
 			if err != nil {
 				tb.Fatal(err)
@@ -155,12 +159,12 @@ func (s *Stack) startWorkers(tb testing.TB, o Options) {
 var ensureStreams = (*natsbus.Bus).EnsureStreams
 
 // Stop stops the server, then the workers; it also ends a stack whose start
-// failed before every worker was running.
+// failed before every worker was running (the workers' context is made
+// before anything in startWorkers can fail, and the bus is closed when it
+// was connected).
 func (s *Stack) Stop() {
 	s.Server.Close()
-	if s.cancel != nil {
-		s.cancel()
-	}
+	s.cancel()
 	s.workers.Wait()
 	if s.Bus != nil {
 		s.Bus.Close()
