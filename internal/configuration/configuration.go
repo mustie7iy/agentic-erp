@@ -620,16 +620,11 @@ func applyRanges(ctx context.Context, tx pgx.Tx, les LegalEntities, actor reqctx
 
 // record publishes the events and adds the audit entry of a change.
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
 	objectType := "config.change_request"
 	if action == "config.version.activate" {
 		objectType = "config.config_version"
 	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, objectType, id, detail, events...)
 }
 
 // Approvals moves change requests on when their approval requests

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -76,7 +77,7 @@ func AssignRole(ctx context.Context, principal, role uuid.UUID, from, to *time.T
 	if err := sodConflict(ctx, tx, principal, uuid.Nil, uuid.Nil); err != nil {
 		return RoleAssignment{}, err
 	}
-	return g, record(ctx, "identity.role_assignment.create", "identity.role_assignment", g.ID,
+	return g, audit.Record(ctx, "identity.role_assignment.create", "identity.role_assignment", g.ID,
 		map[string]any{"principal_id": principal, "role_id": role, "role_code": r.Code, "valid_from": date(g.ValidFrom), "valid_to": nullableDate(g.ValidTo)},
 		outbox.Event{Context: "identity", Name: "role_assigned", AggregateType: "identity.role_assignment", AggregateID: g.ID,
 			Payload: map[string]any{"role_assignment_id": g.ID, "principal_id": principal, "principal_kind": p.Kind, "role_id": role,
@@ -108,7 +109,7 @@ func EndAssignment(ctx context.Context, id uuid.UUID, ifMatch func(RoleAssignmen
 	if err != nil {
 		return RoleAssignment{}, err
 	}
-	return ended, record(ctx, "identity.role_assignment.end", "identity.role_assignment", id,
+	return ended, audit.Record(ctx, "identity.role_assignment.end", "identity.role_assignment", id,
 		map[string]any{"principal_id": g.PrincipalID, "role_id": g.RoleID, "valid_to": date(to)},
 		revoked(ended.Grant, "role_assignment", g.PrincipalID, &g.RoleID, nil))
 }
@@ -176,7 +177,7 @@ func GrantAccess(ctx context.Context, les LegalEntities, principal, legalEntity 
 	if err != nil {
 		return CompanyAccess{}, err
 	}
-	return g, record(ctx, "identity.company_access.create", "identity.company_access", g.ID,
+	return g, audit.Record(ctx, "identity.company_access.create", "identity.company_access", g.ID,
 		map[string]any{"principal_id": principal, "legal_entity_id": legalEntity, "valid_from": date(g.ValidFrom), "valid_to": nullableDate(g.ValidTo)},
 		outbox.Event{Context: "identity", Name: "company_access_granted", AggregateType: "identity.company_access", AggregateID: g.ID,
 			Payload: map[string]any{"company_access_id": g.ID, "principal_id": principal, "legal_entity_id": legalEntity,
@@ -208,7 +209,7 @@ func EndAccess(ctx context.Context, id uuid.UUID, ifMatch func(CompanyAccess) er
 	if err != nil {
 		return CompanyAccess{}, err
 	}
-	return ended, record(ctx, "identity.company_access.end", "identity.company_access", id,
+	return ended, audit.Record(ctx, "identity.company_access.end", "identity.company_access", id,
 		map[string]any{"principal_id": g.PrincipalID, "legal_entity_id": g.LegalEntityID, "valid_to": date(to)},
 		revoked(ended.Grant, "company_access", g.PrincipalID, nil, &g.LegalEntityID))
 }
@@ -278,7 +279,7 @@ func CreateSodRule(ctx context.Context, a, b, description string, from, to *time
 	if err := sodConflict(ctx, tx, uuid.Nil, uuid.Nil, r.ID); err != nil {
 		return SodRule{}, err
 	}
-	return r, record(ctx, "identity.sod_rule.create", "identity.sod_rule", r.ID,
+	return r, audit.Record(ctx, "identity.sod_rule.create", "identity.sod_rule", r.ID,
 		map[string]any{"permission_a": a, "permission_b": b, "valid_from": date(r.ValidFrom), "valid_to": nullableDate(r.ValidTo)},
 		sodEvent(r, "created"))
 }
@@ -317,6 +318,6 @@ func EndSodRule(ctx context.Context, id uuid.UUID, ifMatch func(SodRule) error, 
 	if err != nil {
 		return SodRule{}, err
 	}
-	return ended, record(ctx, "identity.sod_rule.end", "identity.sod_rule", id,
+	return ended, audit.Record(ctx, "identity.sod_rule.end", "identity.sod_rule", id,
 		map[string]any{"permission_a": r.PermissionA, "permission_b": r.PermissionB, "valid_to": date(to)}, sodEvent(ended, "ended"))
 }

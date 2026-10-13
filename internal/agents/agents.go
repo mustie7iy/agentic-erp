@@ -321,10 +321,7 @@ func event(r Recommendation, name string, payload map[string]any) outbox.Event {
 }
 
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, ev outbox.Event) error {
-	if _, err := outbox.Add(ctx, ev); err != nil {
-		return err
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: "agents.recommendation", ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, "agents.recommendation", id, detail, ev)
 }
 
 func sessionToAPI(s Session) gen.AgentSession {

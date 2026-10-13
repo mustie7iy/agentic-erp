@@ -332,12 +332,7 @@ func complete(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, 
 }
 
 func record(ctx context.Context, action string, r Request, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: "workflow.approval_request", ObjectID: r.ID, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, "workflow.approval_request", r.ID, detail, events...)
 }
 
 // Decider records decisions and calls the owning contexts back.

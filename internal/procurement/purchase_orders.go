@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -331,7 +332,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	return o, record(ctx, "procurement.purchase_order.create", "procurement.purchase_order", id, map[string]any{"document_number": number,
+	return o, audit.Record(ctx, "procurement.purchase_order.create", "procurement.purchase_order", id, map[string]any{"document_number": number,
 		"items": len(items), "requisition_id": in.RequisitionID})
 }
 
@@ -434,7 +435,7 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	return updated, record(ctx, "procurement.purchase_order.update", "procurement.purchase_order", id, map[string]any{"items": len(updated.Items)})
+	return updated, audit.Record(ctx, "procurement.purchase_order.update", "procurement.purchase_order", id, map[string]any{"items": len(updated.Items)})
 }
 
 func orderEvent(o PurchaseOrder, extra map[string]any) map[string]any {
@@ -494,7 +495,7 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 			"unit_price": moneyOf(it.UnitPrice, o.Currency, o.Exponent), "price_unit": it.PriceUnit, "account_id": it.AccountID,
 			"tax_code": it.TaxCode, "contract_item_no": it.ContractItemNo}
 	}
-	return released, record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", id, map[string]any{"value": value},
+	return released, audit.Record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", id, map[string]any{"value": value},
 		event("purchase_order_released", "purchase_order", id, orderEvent(o, map[string]any{"purchasing_org_id": o.PurchasingOrgID,
 			"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
 			"contract_id": o.ContractID, "total_amount": moneyOf(value, o.Currency, o.Exponent), "items": items})))
@@ -520,7 +521,7 @@ func (e *Endpoints) closeOrder(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	return closed, record(ctx, "procurement.purchase_order.close", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
+	return closed, audit.Record(ctx, "procurement.purchase_order.close", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
 		event("purchase_order_closed", "purchase_order", id, orderEvent(o, map[string]any{"previous_status": o.Status, "status": Closed})))
 }
 
@@ -576,7 +577,7 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	return cancelled, record(ctx, "procurement.purchase_order.cancel", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
+	return cancelled, audit.Record(ctx, "procurement.purchase_order.cancel", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
 		event("purchase_order_cancelled", "purchase_order", id, orderEvent(o, map[string]any{"requisition_id": o.RequisitionID,
 			"contract_id": o.ContractID, "released_value": releasedValue, "previous_status": o.Status, "status": Cancelled})))
 }

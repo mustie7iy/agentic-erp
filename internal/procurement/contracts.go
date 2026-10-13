@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -192,7 +193,7 @@ func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contrac
 	if err != nil {
 		return Contract{}, err
 	}
-	return c, record(ctx, "procurement.contract.create", "procurement.contract", id, map[string]any{"document_number": number, "items": len(items)})
+	return c, audit.Record(ctx, "procurement.contract.create", "procurement.contract", id, map[string]any{"document_number": number, "items": len(items)})
 }
 
 // ContractChange is a merge patch of a draft contract.
@@ -258,7 +259,7 @@ func (e *Endpoints) updateContract(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err != nil {
 		return Contract{}, err
 	}
-	return updated, record(ctx, "procurement.contract.update", "procurement.contract", id, map[string]any{"items": len(updated.Items)})
+	return updated, audit.Record(ctx, "procurement.contract.update", "procurement.contract", id, map[string]any{"items": len(updated.Items)})
 }
 
 // contractTransition is a status change of a contract and its event.
@@ -303,5 +304,5 @@ func changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	if reason != "" {
 		detail["reason"] = reason
 	}
-	return updated, record(ctx, "procurement.contract."+t.action, "procurement.contract", id, detail, event(t.event, "contract", id, payload))
+	return updated, audit.Record(ctx, "procurement.contract."+t.action, "procurement.contract", id, detail, event(t.event, "contract", id, payload))
 }

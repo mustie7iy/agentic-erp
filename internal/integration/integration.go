@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -129,12 +128,7 @@ type Endpoints struct {
 // record publishes the events and adds the audit entry of a change; the
 // action names the object type (integration.connector.create).
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, ev := range events {
-		if _, err := outbox.Add(ctx, ev); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: action[:strings.LastIndex(action, ".")], ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, audit.ObjectTypeOf(action), id, detail, events...)
 }
 
 func invalid(code, field, message string) error {

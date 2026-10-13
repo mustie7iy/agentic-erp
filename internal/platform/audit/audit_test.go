@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -237,5 +238,60 @@ func TestErrors(t *testing.T) {
 	tx.Rollback(context.Background())
 	if _, err := audit.Verify(context.Background(), tx, ten.ID); err == nil {
 		t.Fatal("closed transaction accepted")
+	}
+}
+
+// TestRecord: the events go to the outbox and the entry to the buffer, in
+// the request's transaction; an event outside a request is refused before
+// anything is audited.
+func TestRecord(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	id := uuid.New()
+	t.Run("in a request", func(t *testing.T) {
+		err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+			ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor(ten)))
+			err := audit.Record(ctx, "platform.operation.cancel", "platform.operation", id, map[string]any{"n": 1},
+				outbox.Event{Context: "platform", Name: "operation_completed", AggregateType: "platform.operation", AggregateID: id, Payload: map[string]any{}})
+			if err != nil {
+				return err
+			}
+			if buf.Len() != 1 {
+				t.Errorf("buffered entries: got %d, want 1", buf.Len())
+			}
+			var events int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM platform.outbox WHERE aggregate_id = $1`, id).Scan(&events); err != nil {
+				return err
+			}
+			if events != 1 {
+				t.Errorf("outbox rows: got %d, want 1", events)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("outside a request", func(t *testing.T) {
+		ctx, buf := audit.WithBuffer(context.Background())
+		err := audit.Record(ctx, "platform.operation.cancel", "platform.operation", id, nil, outbox.Event{Context: "platform", Name: "operation_completed"})
+		if !errors.Is(err, outbox.ErrOutsideRequest) {
+			t.Errorf("got %v, want outbox.ErrOutsideRequest", err)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("buffered entries: got %d, want none", buf.Len())
+		}
+	})
+}
+
+// TestObjectTypeOf: the action without its verb; an action without one is
+// its own type.
+func TestObjectTypeOf(t *testing.T) {
+	for action, want := range map[string]string{"payments.payment_run.release": "payments.payment_run", "summary": "summary"} {
+		t.Run(action, func(t *testing.T) {
+			if got := audit.ObjectTypeOf(action); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 }

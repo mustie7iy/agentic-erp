@@ -201,7 +201,7 @@ func CreateLegalEntity(ctx context.Context, in NewLegalEntity) (LegalEntity, err
 	if err != nil {
 		return LegalEntity{}, err
 	}
-	return e, record(ctx, "tenancy.legal_entity.create", "tenancy.legal_entity", e.ID, map[string]any{"code": e.Code},
+	return e, audit.Record(ctx, "tenancy.legal_entity.create", "tenancy.legal_entity", e.ID, map[string]any{"code": e.Code},
 		outbox.Event{Context: "tenancy", Name: "legal_entity_created", AggregateType: "tenancy.legal_entity", AggregateID: e.ID,
 			Payload: map[string]any{
 				"legal_entity_id": e.ID, "code": e.Code, "name": e.Name, "country_code": e.CountryCode,
@@ -243,7 +243,7 @@ func UpdateLegalEntity(ctx context.Context, id uuid.UUID, ifMatch func(int32) er
 	if err != nil {
 		return LegalEntity{}, err
 	}
-	return updated, record(ctx, "tenancy.legal_entity.update", "tenancy.legal_entity", id, changed(e.Name != name, "name", jsonDiffers(e.Extensions, ext), "extensions"))
+	return updated, audit.Record(ctx, "tenancy.legal_entity.update", "tenancy.legal_entity", id, changed(e.Name != name, "name", jsonDiffers(e.Extensions, ext), "extensions"))
 }
 
 // transition is a status change: allowed from one status, to another, with
@@ -304,7 +304,7 @@ func changeLegalEntityStatus(ctx context.Context, id uuid.UUID, ifMatch func(int
 		events = append(events, outbox.Event{Context: "tenancy", Name: t.event, AggregateType: "tenancy.legal_entity", AggregateID: id,
 			Payload: map[string]any{"legal_entity_id": id, "code": e.Code, "previous_status": e.Status, "status": t.to}})
 	}
-	return updated, record(ctx, "tenancy.legal_entity."+t.action, "tenancy.legal_entity", id,
+	return updated, audit.Record(ctx, "tenancy.legal_entity."+t.action, "tenancy.legal_entity", id,
 		withReason(map[string]any{"from_status": e.Status}, reason), events...)
 }
 
@@ -339,7 +339,7 @@ func CreateOrgUnit(ctx context.Context, in NewOrgUnit) (OrgUnit, error) {
 	if err != nil {
 		return OrgUnit{}, err
 	}
-	return u, record(ctx, "tenancy.org_unit.create", "tenancy.org_unit", u.ID, map[string]any{"code": u.Code, "kind": u.Kind},
+	return u, audit.Record(ctx, "tenancy.org_unit.create", "tenancy.org_unit", u.ID, map[string]any{"code": u.Code, "kind": u.Kind},
 		outbox.Event{Context: "tenancy", Name: "org_unit_created", AggregateType: "tenancy.org_unit", AggregateID: u.ID,
 			Payload: map[string]any{
 				"org_unit_id": u.ID, "legal_entity_id": u.LegalEntityID, "kind": u.Kind, "code": u.Code, "name": u.Name,
@@ -419,7 +419,7 @@ func UpdateOrgUnit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error,
 	if err != nil {
 		return OrgUnit{}, err
 	}
-	return updated, record(ctx, "tenancy.org_unit.update", "tenancy.org_unit", id,
+	return updated, audit.Record(ctx, "tenancy.org_unit.update", "tenancy.org_unit", id,
 		changed(u.Name != name, "name", !sameParent(u.ParentID, parent), "parent_id"))
 }
 
@@ -454,18 +454,8 @@ func changeOrgUnitStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 			Payload: map[string]any{"org_unit_id": id, "legal_entity_id": u.LegalEntityID, "kind": u.Kind, "code": u.Code,
 				"previous_status": u.Status, "status": t.to}})
 	}
-	return updated, record(ctx, "tenancy.org_unit."+t.action, "tenancy.org_unit", id,
+	return updated, audit.Record(ctx, "tenancy.org_unit."+t.action, "tenancy.org_unit", id,
 		withReason(map[string]any{"from_status": u.Status}, reason), events...)
-}
-
-// record publishes the events and adds the audit entry of a change.
-func record(ctx context.Context, action, objectType string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
 }
 
 func withReason(detail map[string]any, reason string) map[string]any {

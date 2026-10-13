@@ -2,7 +2,9 @@
 // event extends its tenant's SHA-256 hash chain, in the same transaction as
 // the change it records. Handlers add entries during the request; the unit of
 // work flushes them last, so the tenant's chain-head lock is held only for
-// the end of the transaction (ADR-0014).
+// the end of the transaction (ADR-0014). Record pairs a change's outbox
+// events (ADR-0007) with its entry, so audit depends on outbox; outbox must
+// never import audit.
 package audit
 
 import (
@@ -19,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -53,6 +56,28 @@ func Add(ctx context.Context, e Entry) error {
 	}
 	b.entries = append(b.entries, e)
 	return nil
+}
+
+// Record publishes a change's events through the outbox (ADR-0007) and adds
+// its succeeded audit entry, both in the request's transaction: the record
+// every context's application services write for a state change.
+func Record(ctx context.Context, action, objectType string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
+	for _, e := range events {
+		if _, err := outbox.Add(ctx, e); err != nil {
+			return fmt.Errorf("audit: record %s: %w", action, err)
+		}
+	}
+	return Add(ctx, Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
+}
+
+// ObjectTypeOf is the object type an action names, the action without its
+// verb: payments.payment_run.release is about payments.payment_run. An
+// action without a verb names its own type.
+func ObjectTypeOf(action string) string {
+	if i := strings.LastIndex(action, "."); i >= 0 {
+		return action[:i]
+	}
+	return action
 }
 
 // Discard drops the entries buffered so far, for work rolled back to a

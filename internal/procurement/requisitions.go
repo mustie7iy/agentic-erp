@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -259,7 +260,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	if err != nil {
 		return Requisition{}, err
 	}
-	return r, record(ctx, "procurement.requisition.create", "procurement.requisition", id, map[string]any{"document_number": number, "items": len(items)})
+	return r, audit.Record(ctx, "procurement.requisition.create", "procurement.requisition", id, map[string]any{"document_number": number, "items": len(items)})
 }
 
 // RequisitionChange is a merge patch of a draft requisition.
@@ -352,7 +353,7 @@ func (e *Endpoints) updateRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	return updated, record(ctx, "procurement.requisition.update", "procurement.requisition", id, map[string]any{"items": len(updated.Items)})
+	return updated, audit.Record(ctx, "procurement.requisition.update", "procurement.requisition", id, map[string]any{"items": len(updated.Items)})
 }
 
 func requisitionEvent(name string, r Requisition, extra map[string]any) map[string]any {
@@ -375,13 +376,13 @@ func setStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Requisition
 	}
 	detail := map[string]any{"from_status": r.Status, "status": status}
 	if name == "" {
-		return updated, record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail)
+		return updated, audit.Record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail)
 	}
 	extra["status"] = status
 	if name != "requisition_submitted" { // submission has no previous status in the event contract
 		extra["previous_status"] = r.Status
 	}
-	return updated, record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail,
+	return updated, audit.Record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail,
 		event(name, "requisition", r.ID, requisitionEvent(name, r, extra)))
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -498,7 +499,7 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	return bp, c, record(ctx, "partner.business_partner.create", "partner.business_partner", id,
+	return bp, c, audit.Record(ctx, "partner.business_partner.create", "partner.business_partner", id,
 		map[string]any{"number": number, "partner_change_id": c.ID, "warnings": len(warns)},
 		event("business_partner_created", id, "partner.business_partner", map[string]any{
 			"partner_id": id, "number": number, "kind": in.Kind, "name": in.Name, "country_code": in.CountryCode, "roles": bp.Roles,
@@ -529,7 +530,7 @@ func Block(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason 
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.business_partner.block", "partner.business_partner", id, map[string]any{"partner_change_id": c.ID, "reason": reason},
+	return c, audit.Record(ctx, "partner.business_partner.block", "partner.business_partner", id, map[string]any{"partner_change_id": c.ID, "reason": reason},
 		event("partner_blocked", id, "partner.business_partner", map[string]any{
 			"partner_id": id, "scope": "all", "legal_entity_id": nil, "partner_change_id": c.ID, "reason": reason}))
 }
@@ -554,7 +555,7 @@ func Unblock(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reaso
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": id})
+	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": id})
 }
 
 // Changes is the input of RequestUpdate (merge-patch semantics).
@@ -643,7 +644,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID})
+	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID})
 }
 
 // RequestBankAccount opens a bank change that adds an account on approval.
@@ -674,7 +675,7 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID, "action": "add"})
+	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID, "action": "add"})
 }
 
 // RequestBankAccountEnd opens a bank change that ends an account on
@@ -708,7 +709,7 @@ func RequestBankAccountEnd(ctx context.Context, partnerID, bankID uuid.UUID, ifM
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.change.request", "partner.partner_change", c.ID,
+	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID,
 		map[string]any{"kind": c.Kind, "partner_id": partnerID, "action": "end", "bank_account_id": bankID})
 }
 
@@ -762,7 +763,7 @@ func ApplyChange(ctx context.Context, id uuid.UUID) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	return applied, record(ctx, "partner.change.apply", "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID}, events...)
+	return applied, audit.Record(ctx, "partner.change.apply", "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID}, events...)
 }
 
 func later(a, b time.Time) time.Time {
@@ -951,7 +952,7 @@ func closeChange(ctx context.Context, id uuid.UUID, status, action, name string)
 	if err != nil {
 		return Change{}, err
 	}
-	return closed, record(ctx, "partner.change."+action, "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID},
+	return closed, audit.Record(ctx, "partner.change."+action, "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID},
 		event(name, id, "partner.partner_change", map[string]any{"partner_change_id": id, "number": c.Number, "kind": c.Kind,
 			"partner_id": c.PartnerID, "workflow_request_id": c.WorkflowRequestID, "previous_status": ChangePending, "status": status}))
 }

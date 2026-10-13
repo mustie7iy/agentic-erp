@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -67,7 +68,7 @@ func CreateRole(ctx context.Context, code, name string, description *string) (Ro
 	if err != nil {
 		return Role{}, err
 	}
-	return r, record(ctx, "identity.role.create", "identity.role", id, map[string]any{"code": code},
+	return r, audit.Record(ctx, "identity.role.create", "identity.role", id, map[string]any{"code": code},
 		outbox.Event{Context: "identity", Name: "role_created", AggregateType: "identity.role", AggregateID: id,
 			Payload: map[string]any{"role_id": id, "code": r.Code, "name": r.Name, "status": r.Status}})
 }
@@ -101,7 +102,7 @@ func UpdateRole(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, na
 	if err != nil {
 		return Role{}, err
 	}
-	return updated, record(ctx, "identity.role.update", "identity.role", id,
+	return updated, audit.Record(ctx, "identity.role.update", "identity.role", id,
 		map[string]any{"changed_fields": changedFields(r.Name != newName, "name", !sameString(r.Description, newDesc), "description")})
 }
 
@@ -168,7 +169,7 @@ func GrantPermission(ctx context.Context, role uuid.UUID, permission string, fro
 	if err := sodConflict(ctx, tx, uuid.Nil, role, uuid.Nil); err != nil {
 		return RolePermission{}, err
 	}
-	return g, record(ctx, "identity.role_permission.grant", "identity.role_permission", g.ID,
+	return g, audit.Record(ctx, "identity.role_permission.grant", "identity.role_permission", g.ID,
 		map[string]any{"role_id": role, "permission_code": permission, "valid_from": date(g.ValidFrom), "valid_to": nullableDate(g.ValidTo)},
 		outbox.Event{Context: "identity", Name: "role_permission_granted", AggregateType: "identity.role_permission", AggregateID: g.ID,
 			Payload: map[string]any{"role_permission_id": g.ID, "role_id": role, "permission_code": permission,
@@ -205,7 +206,7 @@ func EndPermission(ctx context.Context, role, id uuid.UUID, ifMatch func(RolePer
 	if err != nil {
 		return RolePermission{}, err
 	}
-	return ended, record(ctx, "identity.role_permission.end", "identity.role_permission", id,
+	return ended, audit.Record(ctx, "identity.role_permission.end", "identity.role_permission", id,
 		map[string]any{"role_id": role, "permission_code": g.PermissionCode, "valid_to": date(to)},
 		outbox.Event{Context: "identity", Name: "role_permission_ended", AggregateType: "identity.role_permission", AggregateID: id,
 			Payload: map[string]any{"role_permission_id": id, "role_id": role, "permission_code": g.PermissionCode,

@@ -59,8 +59,11 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
     variants (awscreds, blobstoretest, payables simulate) replaced; no `.Now != nil` left.
     Reviewer: APPROVE. Noted: some code reads time.Now() with no Now field (controlplane
     rotator, procurement expiry, fieldcrypt keyring, analytics session/render): R30 candidates.
-- [~] R9 Remaining dupl findings
+- [x] R9 Remaining dupl findings
   - [x] R9a identity listGrants, integration runStep: dupl 4 → 0. Reviewer: APPROVE.
+  - [x] R9b audit.Record and audit.ObjectTypeOf replace ten copied record helpers (four deleted,
+    41 calls moved; six delegate with their object-type rule); the panicking LastIndex copies
+    from R3's note are gone. Reviewer: APPROVE.
 
 ### Phase 3 — Error context
 - [ ] R10 wrapcheck: internal/platform/*

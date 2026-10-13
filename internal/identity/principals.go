@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -183,7 +184,7 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 	events = append([]outbox.Event{{Context: "identity", Name: "principal_created", AggregateType: "identity.principal", AggregateID: id,
 		Payload: map[string]any{"principal_id": id, "kind": p.Kind, "display_name": p.DisplayName, "all_companies": p.AllCompanies, "status": p.Status}}},
 		events...)
-	return p, record(ctx, "identity.principal.create", "identity.principal", id, map[string]any{"kind": p.Kind}, events...)
+	return p, audit.Record(ctx, "identity.principal.create", "identity.principal", id, map[string]any{"kind": p.Kind}, events...)
 }
 
 func profileEvent(id uuid.UUID, change string, fields []string, in *ProfileInput) outbox.Event {
@@ -260,7 +261,7 @@ func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 	if err != nil {
 		return Principal{}, err
 	}
-	return updated, record(ctx, "identity.principal.update", "identity.principal", id, map[string]any{"changed_fields": fields}, events...)
+	return updated, audit.Record(ctx, "identity.principal.update", "identity.principal", id, map[string]any{"changed_fields": fields}, events...)
 }
 
 // BlockPrincipal blocks an active principal; the pipeline refuses its
@@ -291,7 +292,7 @@ func BlockPrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	if err != nil {
 		return Principal{}, err
 	}
-	return updated, record(ctx, "identity.principal.block", "identity.principal", id, map[string]any{"reason": reason},
+	return updated, audit.Record(ctx, "identity.principal.block", "identity.principal", id, map[string]any{"reason": reason},
 		outbox.Event{Context: "identity", Name: "principal_blocked", AggregateType: "identity.principal", AggregateID: id,
 			Payload: map[string]any{"principal_id": id, "kind": p.Kind, "previous_status": p.Status, "status": Blocked}})
 }

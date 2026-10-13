@@ -25,7 +25,6 @@ package payments
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -297,12 +296,7 @@ func decider(r Run, p reqctx.Principal) error {
 // record publishes the events and adds the audit entry of a change; the
 // action names the object type (payments.payment_run.release).
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, ev := range events {
-		if _, err := outbox.Add(ctx, ev); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: action[:strings.LastIndex(action, ".")], ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, audit.ObjectTypeOf(action), id, detail, events...)
 }
 
 func runEvent(r Run, name string, payload map[string]any) outbox.Event {

@@ -26,8 +26,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -191,16 +189,6 @@ func nilIfZero(id uuid.UUID) *uuid.UUID {
 func agentApprovalsNow(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, `SET CONSTRAINTS identity.principal_role_agent_approvals, identity.role_permission_agent_approvals IMMEDIATE`)
 	return err
-}
-
-// record publishes the events and adds the audit entry of a change.
-func record(ctx context.Context, action, objectType string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
 }
 
 func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }

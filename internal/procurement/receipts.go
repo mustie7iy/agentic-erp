@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -223,7 +224,7 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	return g, record(ctx, "procurement.goods_receipt.post", "procurement.goods_movement", g.ID, map[string]any{"document_number": g.DocumentNumber,
+	return g, audit.Record(ctx, "procurement.goods_receipt.post", "procurement.goods_movement", g.ID, map[string]any{"document_number": g.DocumentNumber,
 		"items": len(g.Items)}, event("goods_received", "goods_movement", g.ID, map[string]any{"goods_receipt_id": g.ID,
 		"document_number": g.DocumentNumber, "legal_entity_id": g.LegalEntityID, "plant_id": g.PlantID, "movement_type": Receipt,
 		"document_date": g.DocumentDate.Format(time.DateOnly), "posting_date": g.PostingDate.Format(time.DateOnly), "reference": g.Reference,
@@ -286,7 +287,7 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	return rev, record(ctx, "procurement.goods_receipt.reverse", "procurement.goods_movement", orig.ID, map[string]any{"reversal_id": rev.ID},
+	return rev, audit.Record(ctx, "procurement.goods_receipt.reverse", "procurement.goods_movement", orig.ID, map[string]any{"reversal_id": rev.ID},
 		event("goods_receipt_reversed", "goods_movement", orig.ID, map[string]any{"goods_receipt_id": orig.ID, "reversal_id": rev.ID,
 			"document_number": rev.DocumentNumber, "legal_entity_id": rev.LegalEntityID, "movement_type": Reversal,
 			"posting_date": rev.PostingDate.Format(time.DateOnly), "items": movementItems(rev)}))
