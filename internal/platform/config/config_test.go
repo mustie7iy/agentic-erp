@@ -240,10 +240,17 @@ func TestSecretReferences(t *testing.T) {
 	m["ERP_OBJECT_S3_ACCESS_KEY"], m["ERP_OBJECT_S3_SECRET_KEY"] = "vault:secret/erp/s3#access", "vault:secret/erp/s3#secret"
 	m["ERP_VAULT_ADDR"], m["ERP_VAULT_TOKEN"] = vault.URL, "env:VAULT_TOKEN"
 	m["VAULT_TOKEN"] = vaulttest.Token
-	c, err := Load(env(m))
-	if err != nil || c.DatabaseURL != "postgres://erp:pw@db/erp" || len(c.FieldKey) != 32 || len(c.PageTokenKey) != 32 || c.Objects.AccessKey != "AK" ||
-		c.Objects.SecretKey != "SK" || c.Vault.Token != vaulttest.Token || c.Secrets == nil {
-		t.Fatalf("%+v %v", c, err)
+	c := mustLoad(t, m)
+	checkFields(t, []field{
+		{"DatabaseURL", c.DatabaseURL, "postgres://erp:pw@db/erp"},
+		{"FieldKey length", len(c.FieldKey), 32},
+		{"PageTokenKey length", len(c.PageTokenKey), 32},
+		{"Objects access key", c.Objects.AccessKey, "AK"},
+		{"Objects secret key", c.Objects.SecretKey, "SK"},
+		{"Vault token", c.Vault.Token, vaulttest.Token},
+	})
+	if c.Secrets == nil {
+		t.Fatal("Secrets: got nil, want a resolver")
 	}
 	// The resolver serves connectors too.
 	if got, err := c.Secrets.Resolve(context.Background(), "vault:secret/erp/s3#access"); err != nil || got != "AK" {
@@ -252,9 +259,8 @@ func TestSecretReferences(t *testing.T) {
 	// Kubernetes login with the service account token from a file.
 	delete(m, "ERP_VAULT_TOKEN")
 	m["ERP_VAULT_K8S_ROLE"], m["ERP_VAULT_K8S_JWT_FILE"] = vaulttest.K8sRole, filepath.Join(dir, "jwt")
-	if c, err := Load(env(m)); err != nil || c.Vault.K8sJWT != vaulttest.K8sJWT || c.DatabaseURL != "postgres://erp:pw@db/erp" {
-		t.Fatalf("kubernetes: %+v %v", c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"kubernetes JWT", c.Vault.K8sJWT, vaulttest.K8sJWT}, {"kubernetes DatabaseURL", c.DatabaseURL, "postgres://erp:pw@db/erp"}})
 	for name, change := range map[string]func(){
 		"missing env":        func() { m["ERP_PAGE_TOKEN_KEY"] = "env:NOPE" },
 		"missing field":      func() { m["DATABASE_URL"] = "vault:secret/erp/db#nope" },
@@ -263,21 +269,27 @@ func TestSecretReferences(t *testing.T) {
 		"bad token ref":      func() { m["ERP_VAULT_TOKEN"] = "env:NOPE" },
 		"vault unreachable":  func() { m["ERP_VAULT_ADDR"] = "http://127.0.0.1:1" },
 	} {
-		saved := map[string]string{}
-		for k, v := range m {
-			saved[k] = v
-		}
-		change()
-		if _, err := Load(env(m)); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
-		m = saved
+		t.Run(name, func(t *testing.T) {
+			saved := copyOf(m)
+			defer func() { m = saved }()
+			change()
+			if _, err := Load(env(m)); err == nil {
+				t.Error("got no error, want the settings refused")
+			}
+		})
 	}
 	// Without a vault, vault: references cannot be resolved and say so.
 	m = valid()
 	m["DATABASE_URL"] = "vault:secret/erp/db#url"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "DATABASE_URL") || !strings.Contains(err.Error(), "no resolver") {
-		t.Fatalf("vault reference without a vault: %v", err)
+	_, err := Load(env(m))
+	if err == nil {
+		t.Fatal("vault reference without a vault: got no error, want one")
+	}
+	if !strings.Contains(err.Error(), "DATABASE_URL") {
+		t.Errorf("vault reference without a vault: got %v, want it to name DATABASE_URL", err)
+	}
+	if !strings.Contains(err.Error(), "no resolver") {
+		t.Errorf("vault reference without a vault: got %v, want it to say no resolver", err)
 	}
 	// The default service account token path is used when none is given.
 	if DefaultK8sJWTFile != "/var/run/secrets/kubernetes.io/serviceaccount/token" {
@@ -303,25 +315,28 @@ func TestKMSSettings(t *testing.T) {
 	// A name for the master, a region and an endpoint; the legacy key is optional with a KMS.
 	m["ERP_FIELD_KMS_KEY"], m["ERP_FIELD_KMS_REGION"], m["ERP_FIELD_KMS_ENDPOINT"] = "eu=arn:aws:kms:eu-west-1:111122223333:key/abc", "eu-west-1", "http://localhost:4566"
 	delete(m, "ERP_FIELD_KEY")
-	c, err = Load(env(m))
-	if err != nil || c.KMS.Name != "eu" || c.KMS.Key != "arn:aws:kms:eu-west-1:111122223333:key/abc" || c.KMS.Region != "eu-west-1" || c.KMS.Endpoint != "http://localhost:4566" || len(c.FieldKeys) != 0 {
-		t.Fatalf("%+v %v", c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{
+		{"KMS name", c.KMS.Name, "eu"},
+		{"KMS key", c.KMS.Key, "arn:aws:kms:eu-west-1:111122223333:key/abc"},
+		{"KMS region", c.KMS.Region, "eu-west-1"},
+		{"KMS endpoint", c.KMS.Endpoint, "http://localhost:4566"},
+		{"FieldKeys", len(c.FieldKeys), 0},
+	})
 	for name, bad := range map[string]map[string]string{
 		"no credentials": {"ERP_FIELD_KMS_ACCESS_KEY": ""},
 		"bad name":       {"ERP_FIELD_KMS_KEY": "no name!=alias/x"},
 		"no key":         {"ERP_FIELD_KMS_KEY": "kms="},
 	} {
-		mm := map[string]string{}
-		for k, v := range m {
-			mm[k] = v
-		}
-		for k, v := range bad {
-			mm[k] = v
-		}
-		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KMS_") {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			mm := copyOf(m)
+			for k, v := range bad {
+				mm[k] = v
+			}
+			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KMS_") {
+				t.Errorf("got %v, want an error naming ERP_FIELD_KMS_", err)
+			}
+		})
 	}
 }
 
@@ -335,10 +350,13 @@ func TestOffboardGrace(t *testing.T) {
 		t.Fatal(c.OffboardGrace, err)
 	}
 	for _, bad := range []string{"-1h", "soon"} {
-		m["ERP_OFFBOARD_GRACE"] = bad
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OFFBOARD_GRACE") {
-			t.Fatalf("%s: %v", bad, err)
-		}
+		t.Run(bad, func(t *testing.T) {
+			mm := copyOf(m)
+			mm["ERP_OFFBOARD_GRACE"] = bad
+			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_OFFBOARD_GRACE") {
+				t.Errorf("got %v, want an error naming ERP_OFFBOARD_GRACE", err)
+			}
+		})
 	}
 }
 
@@ -356,14 +374,25 @@ func TestDirectorySettings(t *testing.T) {
 		t.Fatalf("cell URL without a scheme: %v", err)
 	}
 	m["ERP_CELL_API_URL"] = "https://eu-1.api.example.com"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_CONTROL_URL") || !strings.Contains(err.Error(), "ERP_CELL_REGION") {
-		t.Fatalf("directory without the cell's control URL and region: %v", err)
+	_, err := Load(env(m))
+	if err == nil {
+		t.Fatal("directory without the cell's control URL and region: got no error, want one")
+	}
+	if !strings.Contains(err.Error(), "ERP_CELL_CONTROL_URL") {
+		t.Errorf("directory without the cell's control URL: got %v, want it to name ERP_CELL_CONTROL_URL", err)
+	}
+	if !strings.Contains(err.Error(), "ERP_CELL_REGION") {
+		t.Errorf("directory without the cell's region: got %v, want it to name ERP_CELL_REGION", err)
 	}
 	m["ERP_CELL_CONTROL_URL"], m["ERP_CELL_REGION"] = "http://eu-1-admin.internal:9090", "eu-west"
-	c, err := Load(env(m))
-	if err != nil || c.DirectoryURL != "postgres://dir@db/directory" || c.CellAPIURL != "https://eu-1.api.example.com" || c.CellControlURL != "http://eu-1-admin.internal:9090" || c.CellRegion != "eu-west" || !c.CellAccepting {
-		t.Fatalf("%+v %v", c, err)
-	}
+	c := mustLoad(t, m)
+	checkFields(t, []field{
+		{"DirectoryURL", c.DirectoryURL, "postgres://dir@db/directory"},
+		{"CellAPIURL", c.CellAPIURL, "https://eu-1.api.example.com"},
+		{"CellControlURL", c.CellControlURL, "http://eu-1-admin.internal:9090"},
+		{"CellRegion", c.CellRegion, "eu-west"},
+		{"CellAccepting", c.CellAccepting, true},
+	})
 	m["ERP_CELL_ACCEPTING"], m["ERP_CELL_REGION"] = "false", "EU"
 	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_REGION") {
 		t.Fatalf("bad region: %v", err)
@@ -378,9 +407,14 @@ func TestAmbientAWSCredentials(t *testing.T) {
 	m := valid()
 	delete(m, "ERP_OBJECT_DIR")
 	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"] = "http://localhost:9000", "erp"
-	c, err := Load(env(m)) // no access keys: the ambient chain
-	if err != nil || c.Objects.AccessKey != "" || c.AWS.STSEndpoint != "https://sts.amazonaws.com" || c.AWS.IMDSEndpoint != "http://169.254.169.254" || c.AWS.Getenv == nil {
-		t.Fatalf("%+v %v", c.AWS, err)
+	c := mustLoad(t, m) // no access keys: the ambient chain
+	checkFields(t, []field{
+		{"Objects access key", c.Objects.AccessKey, ""},
+		{"STS endpoint", c.AWS.STSEndpoint, "https://sts.amazonaws.com"},
+		{"IMDS endpoint", c.AWS.IMDSEndpoint, "http://169.254.169.254"},
+	})
+	if c.AWS.Getenv == nil {
+		t.Error("AWS Getenv: got nil, want the environment")
 	}
 	m["ERP_OBJECT_S3_ACCESS_KEY"] = "AK"
 	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "go together") {
@@ -393,9 +427,16 @@ func TestAmbientAWSCredentials(t *testing.T) {
 	}
 	delete(m, "ERP_FIELD_KMS_SECRET_KEY")
 	m["ERP_AWS_STS_ENDPOINT"], m["ERP_AWS_IMDS_ENDPOINT"], m["AWS_ROLE_ARN"] = "http://localhost:4566", "http://localhost:1338", "arn:aws:iam::1:role/erp"
-	if c, err := Load(env(m)); err != nil || c.KMS.AccessKey != "" || c.AWS.STSEndpoint != "http://localhost:4566" || c.AWS.IMDSEndpoint != "http://localhost:1338" || c.AWS.Getenv("AWS_ROLE_ARN") != "arn:aws:iam::1:role/erp" {
-		t.Fatalf("%+v %v", c.AWS, err)
+	c = mustLoad(t, m)
+	if c.AWS.Getenv == nil {
+		t.Fatal("AWS Getenv: got nil, want the environment")
 	}
+	checkFields(t, []field{
+		{"KMS access key", c.KMS.AccessKey, ""},
+		{"STS endpoint", c.AWS.STSEndpoint, "http://localhost:4566"},
+		{"IMDS endpoint", c.AWS.IMDSEndpoint, "http://localhost:1338"},
+		{"AWS_ROLE_ARN", c.AWS.Getenv("AWS_ROLE_ARN"), "arn:aws:iam::1:role/erp"},
+	})
 }
 
 func TestAuditVerifyInterval(t *testing.T) {
@@ -408,56 +449,62 @@ func TestAuditVerifyInterval(t *testing.T) {
 		t.Fatal(c.AuditVerify, err)
 	}
 	for _, bad := range []string{"-1h", "often"} {
-		m["ERP_AUDIT_VERIFY_INTERVAL"] = bad
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_AUDIT_VERIFY_INTERVAL") {
-			t.Fatalf("%s: %v", bad, err)
-		}
+		t.Run(bad, func(t *testing.T) {
+			mm := copyOf(m)
+			mm["ERP_AUDIT_VERIFY_INTERVAL"] = bad
+			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_AUDIT_VERIFY_INTERVAL") {
+				t.Errorf("got %v, want an error naming ERP_AUDIT_VERIFY_INTERVAL", err)
+			}
+		})
 	}
 }
 
 func TestRotationPolicyAndPublicURL(t *testing.T) {
 	m := valid()
-	if c, err := Load(env(m)); err != nil || c.KeyRotationAge != 0 || c.PublicURL != "" {
-		t.Fatal(c.KeyRotationAge, c.PublicURL, err)
-	}
+	c := mustLoad(t, m)
+	checkFields(t, []field{{"KeyRotationAge", c.KeyRotationAge, time.Duration(0)}, {"PublicURL", c.PublicURL, ""}})
 	m["ERP_KEY_ROTATION_AGE"], m["ERP_PUBLIC_URL"] = "8760h", "https://api.example.com/"
-	if c, err := Load(env(m)); err != nil || c.KeyRotationAge != 8760*time.Hour || c.PublicURL != "https://api.example.com" {
-		t.Fatal(c.KeyRotationAge, c.PublicURL, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"KeyRotationAge", c.KeyRotationAge, 8760 * time.Hour}, {"PublicURL", c.PublicURL, "https://api.example.com"}})
 	for name, bad := range map[string][2]string{"negative age": {"ERP_KEY_ROTATION_AGE", "-1h"}, "words": {"ERP_KEY_ROTATION_AGE", "yearly"}, "relative url": {"ERP_PUBLIC_URL", "api.example.com"}} {
-		mm := map[string]string{}
-		for k, v := range m {
-			mm[k] = v
-		}
-		mm[bad[0]] = bad[1]
-		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			mm := copyOf(m)
+			mm[bad[0]] = bad[1]
+			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
+				t.Errorf("got %v, want an error naming %s", err, bad[0])
+			}
+		})
 	}
 }
 
 func TestWorkflowEngineSettings(t *testing.T) {
 	m := valid()
-	c, err := Load(env(m))
-	if err != nil || c.Temporal.Address != "" || c.Temporal.CodecKey != nil || c.Temporal.EscalateAfter != 48*time.Hour || c.Temporal.Escalations != 3 || c.Temporal.TaskQueue != "erp" {
-		t.Fatalf("%+v %v", c.Temporal, err)
-	}
+	c := mustLoad(t, m)
+	checkFields(t, []field{
+		{"Temporal address", c.Temporal.Address, ""},
+		{"Temporal codec key is nil", c.Temporal.CodecKey == nil, true},
+		{"Temporal escalate after", c.Temporal.EscalateAfter, 48 * time.Hour},
+		{"Temporal escalations", c.Temporal.Escalations, 3},
+		{"Temporal task queue", c.Temporal.TaskQueue, "erp"},
+	})
 	key := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
 	m["ERP_TEMPORAL_ADDRESS"], m["ERP_TEMPORAL_CODEC_KEY"], m["ERP_APPROVAL_ESCALATE_AFTER"], m["ERP_APPROVAL_ESCALATIONS"] = "localhost:7233", key, "0", "1"
-	if c, err := Load(env(m)); err != nil || len(c.Temporal.CodecKey) != 32 || c.Temporal.EscalateAfter != 0 || c.Temporal.Escalations != 1 {
-		t.Fatalf("%+v %v", c.Temporal, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{
+		{"Temporal codec key length", len(c.Temporal.CodecKey), 32},
+		{"Temporal escalate after", c.Temporal.EscalateAfter, time.Duration(0)},
+		{"Temporal escalations", c.Temporal.Escalations, 1},
+	})
 	for name, bad := range map[string][2]string{"short key": {"ERP_TEMPORAL_CODEC_KEY", base64.StdEncoding.EncodeToString([]byte("short"))},
 		"not base64": {"ERP_TEMPORAL_CODEC_KEY", "%%%"}, "negative period": {"ERP_APPROVAL_ESCALATE_AFTER", "-1h"}, "words": {"ERP_APPROVAL_ESCALATE_AFTER", "soon"},
 		"zero escalations": {"ERP_APPROVAL_ESCALATIONS", "0"}, "not a number": {"ERP_APPROVAL_ESCALATIONS", "many"}} {
-		mm := map[string]string{}
-		for k, v := range m {
-			mm[k] = v
-		}
-		mm[bad[0]] = bad[1]
-		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			mm := copyOf(m)
+			mm[bad[0]] = bad[1]
+			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
+				t.Errorf("got %v, want an error naming %s", err, bad[0])
+			}
+		})
 	}
 }
 
