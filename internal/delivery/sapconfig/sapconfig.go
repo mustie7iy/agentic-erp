@@ -136,13 +136,18 @@ func (g *gen) paymentTerms() []config.PaymentTerm {
 	return out
 }
 
-// wholePercent parses an SAP percentage ("2", "2.0", "2.5", ".5") to the
+// wholePercent parses an SAP percentage ("2", "2.0", "2.5", ".5", or
+// "0,50" with the decimal comma of locale-formatted file extracts) to the
 // whole percent the configuration holds, dropping any fraction (a lower
 // price tolerance sends more invoices to a person, never fewer). exact is
 // false when a fraction was dropped; problem says why s is not a usable
 // percentage ("is not a number", "is out of range") and is "" when it is.
 func wholePercent(s string) (pct int, exact bool, problem string) {
-	whole, frac, _ := strings.Cut(strings.TrimSpace(s), ".")
+	s = strings.TrimSpace(s)
+	if !strings.Contains(s, ".") {
+		s = strings.Replace(s, ",", ".", 1) // a lone comma is the decimal separator
+	}
+	whole, frac, _ := strings.Cut(s, ".")
 	if strings.Trim(frac, "0123456789") != "" || whole == "" && frac == "" {
 		return 0, false, "is not a number"
 	}

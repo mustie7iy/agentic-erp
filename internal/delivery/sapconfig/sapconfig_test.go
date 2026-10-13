@@ -113,6 +113,8 @@ func TestTolerancePercentageForms(t *testing.T) {
 		"leading zero":    {"0.5", 0, `"0.5" is not a whole percent; used 0%`},
 		"no leading zero": {".5", 0, `".5" is not a whole percent; used 0%`},
 		"only a point":    {".", 2, `"." is not a number; used 2%`},
+		"decimal comma":   {"0,50", 0, `"0,50" is not a whole percent; used 0%`},
+		"two commas":      {"1,2,3", 2, `"1,2,3" is not a number; used 2%`},
 		"out of range":    {"99999999999999999999", 2, `"99999999999999999999" is out of range; used 2%`},
 	}
 	for name, tc := range cases {
