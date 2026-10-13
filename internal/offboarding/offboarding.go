@@ -182,24 +182,28 @@ func (w *Worker) Export(ctx context.Context, tenant uuid.UUID) (Export, error) {
 	if w.Store == nil {
 		return Export{}, problem.Unavailable("This server has no object storage; offboarded tenants are not exported.", 0)
 	}
+	ex, err := w.writeExport(ctx, tenant)
+	if err != nil {
+		return Export{}, err
+	}
+	if err := w.recordExport(ctx, tenant, ex); err != nil {
+		return Export{}, err
+	}
+	return ex, nil
+}
+
+// writeExport writes the tables and the manifest of an offboarded tenant
+// that has not been exported, in one read-only transaction, and describes
+// the export.
+func (w *Worker) writeExport(ctx context.Context, tenant uuid.UUID) (Export, error) {
 	tx, err := w.begin(ctx, database.Scope{Role: w.AppRole, TenantID: tenant, ReadOnly: true})
 	if err != nil {
 		return Export{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	var row json.RawMessage
-	var status string
-	var offboardedAt time.Time
-	var exportedAt *time.Time
-	err = tx.QueryRow(ctx, `SELECT row_to_json(t), status, updated_at, exported_at FROM tenancy.tenant t WHERE id = $1`, tenant).Scan(&row, &status, &offboardedAt, &exportedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Export{}, problem.NotFound("No tenant with this id.")
-	}
+	row, offboardedAt, err := readExportable(ctx, tx, tenant)
 	if err != nil {
-		return Export{}, fmt.Errorf("offboarding: read tenant %s: %w", tenant, err)
-	}
-	if status != "offboarded" || exportedAt != nil {
-		return Export{}, problem.Conflict("tenancy.invalid_transition", "Only an offboarded tenant that has not been exported is exported.")
+		return Export{}, err
 	}
 	names, err := tables(ctx, tx)
 	if err != nil {
@@ -231,35 +235,61 @@ func (w *Worker) Export(ctx context.Context, tenant uuid.UUID) (Export, error) {
 	}
 	tx.Rollback(context.WithoutCancel(ctx)) // the read-only transaction is done
 	ex.Ref, ex.Tables, ex.ExportedAt, ex.EraseAfter = dir+"/manifest.json", len(m.Tables), now, now.Add(w.Grace)
-	// Record the export on the tenant, in its audit trail and its events.
-	tx, err = w.begin(ctx, database.Scope{Role: w.AppRole, TenantID: tenant})
+	return ex, nil
+}
+
+// readExportable reads the tenant row as JSON and its offboarding time,
+// when the tenant is offboarded and not exported yet.
+func readExportable(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (json.RawMessage, time.Time, error) {
+	var row json.RawMessage
+	var status string
+	var offboardedAt time.Time
+	var exportedAt *time.Time
+	err := tx.QueryRow(ctx, `SELECT row_to_json(t), status, updated_at, exported_at FROM tenancy.tenant t WHERE id = $1`, tenant).Scan(&row, &status, &offboardedAt, &exportedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, time.Time{}, problem.NotFound("No tenant with this id.")
+	}
 	if err != nil {
-		return Export{}, err
+		return nil, time.Time{}, fmt.Errorf("offboarding: read tenant %s: %w", tenant, err)
+	}
+	if status != "offboarded" || exportedAt != nil {
+		return nil, time.Time{}, problem.Conflict("tenancy.invalid_transition", "Only an offboarded tenant that has not been exported is exported.")
+	}
+	return row, offboardedAt, nil
+}
+
+// recordExport records the export on the tenant, in its audit trail and
+// its events.
+func (w *Worker) recordExport(ctx context.Context, tenant uuid.UUID, ex Export) error {
+	now := ex.ExportedAt
+	tx, err := w.begin(ctx, database.Scope{Role: w.AppRole, TenantID: tenant})
+	if err != nil {
+		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	tag, err := tx.Exec(ctx, `UPDATE tenancy.tenant SET exported_at = $2, export_ref = $3, erase_after = $4, version = version + 1 WHERE id = $1 AND exported_at IS NULL`,
 		tenant, now, ex.Ref, ex.EraseAfter)
 	if err != nil {
-		return Export{}, fmt.Errorf("offboarding: record export of tenant %s: %w", tenant, err)
+		return fmt.Errorf("offboarding: record export of tenant %s: %w", tenant, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return Export{}, problem.Conflict("tenancy.invalid_transition", "The tenant was exported by another round.")
+		return problem.Conflict("tenancy.invalid_transition", "The tenant was exported by another round.")
 	}
 	if err := database.SetActor(ctx, tx, Actor); err != nil {
-		return Export{}, err
+		return err
 	}
 	payload := map[string]any{"tenant_id": tenant, "export_ref": ex.Ref, "tables": ex.Tables, "rows": ex.Rows, "erase_after": ex.EraseAfter}
 	if _, err := outbox.Write(ctx, tx, tenant, Actor, "", outbox.Event{Context: "tenancy", Name: "tenant_exported", AggregateType: "tenancy.tenant", AggregateID: tenant, Payload: payload}); err != nil {
-		return Export{}, err
+		return err
 	}
 	actor := reqctx.Principal{ID: Actor, Kind: reqctx.KindSystem, TenantID: tenant}
 	if err := audit.Write(ctx, tx, actor, "", now, audit.Entry{Action: "tenancy.tenant.export", ObjectType: "tenancy.tenant", ObjectID: tenant, Outcome: "succeeded", Detail: payload}); err != nil {
-		return Export{}, err
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Export{}, fmt.Errorf("offboarding: commit export of tenant %s: %w", tenant, err)
+		return fmt.Errorf("offboarding: commit export of tenant %s: %w", tenant, err)
 	}
-	return ex, nil
+	return nil
 }
 
 // exportTable streams a table's rows into objects of ChunkRows each, so a
@@ -337,51 +367,72 @@ func (w *Worker) put(ctx context.Context, key string, content []byte, opts blobs
 // erased; the actor is the worker or the operator who asked, with detail
 // for the audit entry.
 func (w *Worker) Erase(ctx context.Context, tenant, actor uuid.UUID, detail map[string]any) (Erasure, error) {
-	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole})
+	counts, ref, err := w.eraseRows(ctx, tenant)
 	if err != nil {
 		return Erasure{}, err
+	}
+	er := Erasure{Rows: counts, ErasedAt: w.now()}
+	if er.Objects, er.Kept, err = w.eraseObjects(ctx, tenant); err != nil {
+		return Erasure{}, err
+	}
+	if err := w.recordErasure(ctx, tenant, actor, detail, ref, er); err != nil {
+		return Erasure{}, err
+	}
+	return er, nil
+}
+
+// eraseRows deletes the rows of an exported tenant that has not been
+// erased, in one committed transaction, and returns the rows deleted per
+// table and the export's reference.
+func (w *Worker) eraseRows(ctx context.Context, tenant uuid.UUID) (map[string]int64, string, error) {
+	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole})
+	if err != nil {
+		return nil, "", err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	var status, ref string
 	var exportedAt, erasedAt *time.Time
 	err = tx.QueryRow(ctx, `SELECT status, coalesce(export_ref, ''), exported_at, erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&status, &ref, &exportedAt, &erasedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Erasure{}, problem.NotFound("No tenant with this id.")
+		return nil, "", problem.NotFound("No tenant with this id.")
 	}
 	if err != nil {
-		return Erasure{}, fmt.Errorf("offboarding: read tenant %s: %w", tenant, err)
+		return nil, "", fmt.Errorf("offboarding: read tenant %s: %w", tenant, err)
 	}
 	switch {
 	case status != "offboarded" || exportedAt == nil:
-		return Erasure{}, problem.Conflict("tenancy.invalid_transition", "Only an offboarded tenant whose export is complete is erased.")
+		return nil, "", problem.Conflict("tenancy.invalid_transition", "Only an offboarded tenant whose export is complete is erased.")
 	case erasedAt != nil:
-		return Erasure{}, problem.Conflict("tenancy.invalid_transition", "The tenant has already been erased.")
+		return nil, "", problem.Conflict("tenancy.invalid_transition", "The tenant has already been erased.")
 	}
 	var counts map[string]int64
 	if err := tx.QueryRow(ctx, `SELECT platform.erase_tenant($1)`, tenant).Scan(&counts); err != nil {
-		return Erasure{}, fmt.Errorf("offboarding: erase rows of tenant %s: %w", tenant, err)
+		return nil, "", fmt.Errorf("offboarding: erase rows of tenant %s: %w", tenant, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Erasure{}, fmt.Errorf("offboarding: commit erasure of tenant %s: %w", tenant, err)
+		return nil, "", fmt.Errorf("offboarding: commit erasure of tenant %s: %w", tenant, err)
 	}
-	er := Erasure{Rows: counts, ErasedAt: w.now()}
-	if er.Objects, er.Kept, err = w.eraseObjects(ctx, tenant); err != nil {
-		return Erasure{}, err
-	}
-	tx, err = w.begin(ctx, database.Scope{Role: w.AppRole, TenantID: tenant})
+	return counts, ref, nil
+}
+
+// recordErasure records the erasure on the tenant row, in its audit trail
+// (which starts over after this entry) and its events.
+func (w *Worker) recordErasure(ctx context.Context, tenant, actor uuid.UUID, detail map[string]any, ref string, er Erasure) error {
+	counts := er.Rows
+	tx, err := w.begin(ctx, database.Scope{Role: w.AppRole, TenantID: tenant})
 	if err != nil {
-		return Erasure{}, err
+		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	tag, err := tx.Exec(ctx, `UPDATE tenancy.tenant SET erased_at = $2, version = version + 1 WHERE id = $1 AND erased_at IS NULL`, tenant, er.ErasedAt)
 	if err != nil {
-		return Erasure{}, fmt.Errorf("offboarding: record erasure of tenant %s: %w", tenant, err)
+		return fmt.Errorf("offboarding: record erasure of tenant %s: %w", tenant, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return Erasure{}, problem.Conflict("tenancy.invalid_transition", "The tenant was erased by another round.")
+		return problem.Conflict("tenancy.invalid_transition", "The tenant was erased by another round.")
 	}
 	if err := database.SetActor(ctx, tx, actor); err != nil {
-		return Erasure{}, err
+		return err
 	}
 	var rows int64
 	for _, n := range counts {
@@ -389,7 +440,7 @@ func (w *Worker) Erase(ctx context.Context, tenant, actor uuid.UUID, detail map[
 	}
 	payload := map[string]any{"tenant_id": tenant, "export_ref": ref, "rows": rows, "objects": er.Objects}
 	if _, err := outbox.Write(ctx, tx, tenant, actor, "", outbox.Event{Context: "tenancy", Name: "tenant_erased", AggregateType: "tenancy.tenant", AggregateID: tenant, Payload: payload}); err != nil {
-		return Erasure{}, err
+		return err
 	}
 	entry := map[string]any{"export_ref": ref, "rows": counts, "objects": er.Objects, "objects_kept": er.Kept}
 	for k, v := range detail {
@@ -397,12 +448,12 @@ func (w *Worker) Erase(ctx context.Context, tenant, actor uuid.UUID, detail map[
 	}
 	principal := reqctx.Principal{ID: actor, Kind: reqctx.KindSystem, TenantID: tenant}
 	if err := audit.Write(ctx, tx, principal, "", er.ErasedAt, audit.Entry{Action: "tenancy.tenant.erase", ObjectType: "tenancy.tenant", ObjectID: tenant, Outcome: "succeeded", Detail: entry}); err != nil {
-		return Erasure{}, err
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Erasure{}, fmt.Errorf("offboarding: commit erasure record of tenant %s: %w", tenant, err)
+		return fmt.Errorf("offboarding: commit erasure record of tenant %s: %w", tenant, err)
 	}
-	return er, nil
+	return nil
 }
 
 // eraseObjects deletes the tenant's objects, keeping those whose retention

@@ -63,14 +63,37 @@ func (im *Importer) Import(ctx context.Context, ref string) (Imported, error) {
 	if im.Store == nil {
 		return Imported{}, errors.New("offboarding: no object store to import from")
 	}
+	m, err := im.readManifest(ctx, ref)
+	if err != nil {
+		return Imported{}, err
+	}
+	parts, order := tableParts(m)
+	out := Imported{TenantID: m.TenantID, ExportedAt: m.ExportedAt, Rows: map[string]int64{}, ChainHead: m.ChainHead}
+	err = im.inTx(ctx, database.Scope{Role: im.AppRole, TenantID: m.TenantID}, func(ctx context.Context, tx pgx.Tx) error {
+		return im.importTenant(ctx, tx, m, order, parts, &out)
+	})
+	if err != nil {
+		return Imported{}, err
+	}
+	return out, nil
+}
+
+// readManifest reads and decodes the export manifest at ref.
+func (im *Importer) readManifest(ctx context.Context, ref string) (manifest, error) {
 	body, _, err := im.Store.Get(ctx, ref)
 	if err != nil {
-		return Imported{}, fmt.Errorf("offboarding: reading the manifest %s: %w", ref, err)
+		return manifest{}, fmt.Errorf("offboarding: reading the manifest %s: %w", ref, err)
 	}
 	var m manifest
 	if err := json.Unmarshal(body, &m); err != nil || m.TenantID == uuid.Nil {
-		return Imported{}, fmt.Errorf("offboarding: %s is not an export manifest", ref)
+		return manifest{}, fmt.Errorf("offboarding: %s is not an export manifest", ref)
 	}
+	return m, nil
+}
+
+// tableParts groups the manifest's parts by table, in the order the
+// tables first appear, without the skipped tables.
+func tableParts(m manifest) (map[string][]exportedTable, []string) {
 	parts := map[string][]exportedTable{}
 	order := []string{}
 	for _, p := range m.Tables {
@@ -82,95 +105,151 @@ func (im *Importer) Import(ctx context.Context, ref string) (Imported, error) {
 		}
 		parts[p.Name] = append(parts[p.Name], p)
 	}
-	out := Imported{TenantID: m.TenantID, ExportedAt: m.ExportedAt, Rows: map[string]int64{}, ChainHead: m.ChainHead}
-	err = im.inTx(ctx, database.Scope{Role: im.AppRole, TenantID: m.TenantID}, func(ctx context.Context, tx pgx.Tx) error {
-		if err := im.tenantRow(ctx, tx, m); err != nil {
-			return err
-		}
-		for _, name := range order {
-			var n int64
-			if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+name+` WHERE tenant_id = $1`, m.TenantID).Scan(&n); err != nil {
-				return fmt.Errorf("offboarding: count rows of %s: %w", name, err)
-			}
-			if n > 0 {
-				return fmt.Errorf("offboarding: %s already holds %d rows of the tenant; import into an empty or erased tenant", name, n)
-			}
-		}
-		rows := map[string][]json.RawMessage{}
-		cols := map[string][]string{}
-		for _, name := range order {
-			var err error
-			if cols[name], err = columns(ctx, tx, name); err != nil {
-				return fmt.Errorf("offboarding: columns of %s: %w", name, err)
-			}
-			for _, p := range parts[name] {
-				content, _, err := im.Store.Get(ctx, p.Key)
-				if err != nil {
-					return fmt.Errorf("offboarding: reading %s: %w", p.Key, err)
-				}
-				if sum := sha256.Sum256(content); hex.EncodeToString(sum[:]) != p.SHA256 {
-					return fmt.Errorf("offboarding: %s does not match the manifest's hash", p.Key)
-				}
-				var count int64
-				for _, line := range strings.Split(strings.TrimRight(string(content), "\n"), "\n") {
-					rows[name] = append(rows[name], json.RawMessage(line)) // one JSON object per line, as the export writes them
-					count++
-				}
-				if count != p.Rows {
-					return fmt.Errorf("offboarding: %s holds %d rows, the manifest says %d", p.Key, count, p.Rows)
-				}
-			}
-		}
-		// Tables whose rows still reference rows not yet inserted wait for the
-		// next pass; each table's insert runs under a savepoint so a foreign
-		// key violation does not end the transaction.
-		todo := order
-		for pass := 1; len(todo) > 0; pass++ {
-			var next []string
-			for _, name := range todo {
-				sp, err := tx.Begin(ctx)
-				if err != nil {
-					return fmt.Errorf("offboarding: open savepoint for %s: %w", name, err)
-				}
-				n, err := im.insert(ctx, sp, name, cols[name], rows[name])
-				var pg *pgconn.PgError
-				if errors.As(err, &pg) && pg.Code == "23503" { // foreign_key_violation
-					if err := sp.Rollback(ctx); err != nil {
-						return fmt.Errorf("offboarding: roll back savepoint for %s: %w", name, err)
-					}
-					next = append(next, name)
-					continue
-				}
-				if err != nil {
-					return fmt.Errorf("offboarding: inserting into %s: %w", name, err)
-				}
-				if err := sp.Commit(ctx); err != nil {
-					return fmt.Errorf("offboarding: release savepoint for %s: %w", name, err)
-				}
-				out.Rows[name] = n
-				out.Tables++
-			}
-			if len(next) == len(todo) {
-				return fmt.Errorf("offboarding: rows of %s stay referenced after %d passes", strings.Join(next, ", "), pass)
-			}
-			todo = next
-		}
-		if m.ChainHead != nil {
-			var seq int64
-			var hash []byte
-			if err := tx.QueryRow(ctx, `SELECT seq, hash FROM audit.chain_head WHERE tenant_id = $1`, m.TenantID).Scan(&seq, &hash); err != nil {
-				return fmt.Errorf("offboarding: the audit chain head was not imported: %w", err)
-			}
-			if seq != m.ChainHead.Seq || hex.EncodeToString(hash) != m.ChainHead.Hash {
-				return fmt.Errorf("offboarding: the audit chain head (%d) differs from the export's (%d)", seq, m.ChainHead.Seq)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return Imported{}, err
+	return parts, order
+}
+
+// importTenant writes the tenant into the cell within tx: its row, then
+// its tables' rows once each table is found empty, then checks the audit
+// chain head.
+func (im *Importer) importTenant(ctx context.Context, tx pgx.Tx, m manifest, order []string, parts map[string][]exportedTable, out *Imported) error {
+	if err := im.tenantRow(ctx, tx, m); err != nil {
+		return err
 	}
-	return out, nil
+	if err := checkEmpty(ctx, tx, m.TenantID, order); err != nil {
+		return err
+	}
+	rows, cols, err := im.readTables(ctx, tx, order, parts)
+	if err != nil {
+		return err
+	}
+	if err := im.insertInPasses(ctx, tx, order, cols, rows, out); err != nil {
+		return err
+	}
+	return checkChainHead(ctx, tx, m)
+}
+
+// checkEmpty refuses the import when a table already holds rows of the
+// tenant.
+func checkEmpty(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, order []string) error {
+	for _, name := range order {
+		var n int64
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+name+` WHERE tenant_id = $1`, tenant).Scan(&n); err != nil {
+			return fmt.Errorf("offboarding: count rows of %s: %w", name, err)
+		}
+		if n > 0 {
+			return fmt.Errorf("offboarding: %s already holds %d rows of the tenant; import into an empty or erased tenant", name, n)
+		}
+	}
+	return nil
+}
+
+// readTables reads every table's insertable columns and its rows from the
+// store, each part checked against the manifest.
+func (im *Importer) readTables(ctx context.Context, tx pgx.Tx, order []string, parts map[string][]exportedTable) (map[string][]json.RawMessage, map[string][]string, error) {
+	rows := map[string][]json.RawMessage{}
+	cols := map[string][]string{}
+	for _, name := range order {
+		var err error
+		if cols[name], err = columns(ctx, tx, name); err != nil {
+			return nil, nil, fmt.Errorf("offboarding: columns of %s: %w", name, err)
+		}
+		for _, p := range parts[name] {
+			if err := im.readPart(ctx, name, p, rows); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return rows, cols, nil
+}
+
+// readPart appends a part's rows to the table's in rows, after checking
+// the part's hash and, once read, its row count.
+func (im *Importer) readPart(ctx context.Context, name string, p exportedTable, rows map[string][]json.RawMessage) error {
+	content, _, err := im.Store.Get(ctx, p.Key)
+	if err != nil {
+		return fmt.Errorf("offboarding: reading %s: %w", p.Key, err)
+	}
+	if sum := sha256.Sum256(content); hex.EncodeToString(sum[:]) != p.SHA256 {
+		return fmt.Errorf("offboarding: %s does not match the manifest's hash", p.Key)
+	}
+	var count int64
+	for _, line := range strings.Split(strings.TrimRight(string(content), "\n"), "\n") {
+		rows[name] = append(rows[name], json.RawMessage(line)) // one JSON object per line, as the export writes them
+		count++
+	}
+	if count != p.Rows {
+		return fmt.Errorf("offboarding: %s holds %d rows, the manifest says %d", p.Key, count, p.Rows)
+	}
+	return nil
+}
+
+// insertInPasses inserts the tables' rows. Tables whose rows still
+// reference rows not yet inserted wait for the next pass; each table's
+// insert runs under a savepoint so a foreign key violation does not end
+// the transaction.
+func (im *Importer) insertInPasses(ctx context.Context, tx pgx.Tx, order []string, cols map[string][]string, rows map[string][]json.RawMessage, out *Imported) error {
+	todo := order
+	for pass := 1; len(todo) > 0; pass++ {
+		var next []string
+		for _, name := range todo {
+			n, wait, err := im.insertTable(ctx, tx, name, cols[name], rows[name])
+			if err != nil {
+				return err
+			}
+			if wait {
+				next = append(next, name)
+				continue
+			}
+			out.Rows[name] = n
+			out.Tables++
+		}
+		if len(next) == len(todo) {
+			return fmt.Errorf("offboarding: rows of %s stay referenced after %d passes", strings.Join(next, ", "), pass)
+		}
+		todo = next
+	}
+	return nil
+}
+
+// insertTable inserts a table's rows under a savepoint. When they
+// reference rows not inserted yet, the savepoint is rolled back and wait
+// is set: the table waits for the next pass.
+func (im *Importer) insertTable(ctx context.Context, tx pgx.Tx, name string, cols []string, rows []json.RawMessage) (n int64, wait bool, err error) {
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("offboarding: open savepoint for %s: %w", name, err)
+	}
+	n, err = im.insert(ctx, sp, name, cols, rows)
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) && pg.Code == "23503" { // foreign_key_violation
+		if err := sp.Rollback(ctx); err != nil {
+			return 0, false, fmt.Errorf("offboarding: roll back savepoint for %s: %w", name, err)
+		}
+		return 0, true, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("offboarding: inserting into %s: %w", name, err)
+	}
+	if err := sp.Commit(ctx); err != nil {
+		return 0, false, fmt.Errorf("offboarding: release savepoint for %s: %w", name, err)
+	}
+	return n, false, nil
+}
+
+// checkChainHead compares the imported audit chain head with the one the
+// export recorded, when it recorded one.
+func checkChainHead(ctx context.Context, tx pgx.Tx, m manifest) error {
+	if m.ChainHead != nil {
+		var seq int64
+		var hash []byte
+		if err := tx.QueryRow(ctx, `SELECT seq, hash FROM audit.chain_head WHERE tenant_id = $1`, m.TenantID).Scan(&seq, &hash); err != nil {
+			return fmt.Errorf("offboarding: the audit chain head was not imported: %w", err)
+		}
+		if seq != m.ChainHead.Seq || hex.EncodeToString(hash) != m.ChainHead.Hash {
+			return fmt.Errorf("offboarding: the audit chain head (%d) differs from the export's (%d)", seq, m.ChainHead.Seq)
+		}
+	}
+	return nil
 }
 
 // tenantRow writes the tenant's own row: created when the cell has none,
