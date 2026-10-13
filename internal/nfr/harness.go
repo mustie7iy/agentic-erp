@@ -345,6 +345,29 @@ func (s *Stack) Drain(timeout time.Duration) error {
 	}
 }
 
+// created sorts the posts answered 201: the ids of those whose answer was
+// read, the keys of those whose body was cut off (the run ended while it was
+// read, so the id is unknown but the key is the entry's reference), and a
+// problem for each complete answer that carries no id.
+func (s *Stack) created() (ids []uuid.UUID, keys, problems []string) {
+	for _, p := range s.Posted() {
+		if p.Status != http.StatusCreated {
+			continue
+		}
+		if p.Err != nil {
+			keys = append(keys, p.Key)
+			continue
+		}
+		id, err := uuid.Parse(p.ID)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("an entry answered 201 without a readable id (%q)", p.ID))
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, keys, problems
+}
+
 // Consistent checks the ledger after a run: every reference posted exactly
 // once, every entry the users were told about present, the projected
 // balances equal to the journal, and the audit chain intact.
@@ -355,20 +378,11 @@ func (s *Stack) Consistent(ctx context.Context) error {
 		GROUP BY reference HAVING count(*) > 1) d`, ten); n > 0 {
 		errs = append(errs, fmt.Sprintf("%d references posted more than once", n))
 	}
-	var created []uuid.UUID
-	for _, p := range s.Posted() {
-		if p.Status != http.StatusCreated {
-			continue
-		}
-		id, err := uuid.Parse(p.ID)
-		if err != nil { // a 201 whose body was lost with the connection: counted, not fatal to the check
-			errs = append(errs, fmt.Sprintf("an entry answered 201 without a readable id (%q)", p.ID))
-			continue
-		}
-		created = append(created, id)
-	}
+	created, lost, unreadable := s.created()
+	errs = append(errs, unreadable...)
 	if missing := s.Count(`SELECT count(*) FROM unnest($2::uuid[]) AS c(id) WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.id = c.id)`,
-		ten, created); missing > 0 {
+		ten, created) + s.Count(`SELECT count(*) FROM unnest($2::text[]) AS c(reference)
+			WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.reference = c.reference)`, ten, lost); missing > 0 {
 		errs = append(errs, fmt.Sprintf("%d entries answered 201 are not in the journal", missing))
 	}
 	if s.Projector != nil {

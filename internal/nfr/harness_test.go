@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
@@ -88,5 +92,34 @@ func TestAFailedNATSStartLeavesNoServer(t *testing.T) {
 	}
 	if after := servingTestServers(); after > before {
 		t.Errorf("got %d test servers serving after the cleanups, want at most %d", after, before)
+	}
+}
+
+// TestConsistentChecksALostAnswerByItsKey: a post answered 201 whose body
+// was cut off (the run ended while it was read) has no id, but its key is
+// its reference: Consistent finds the entry by it rather than reporting the
+// lost body, and still reports such an entry that is not in the journal and
+// a complete 201 that has no id.
+func TestConsistentChecksALostAnswerByItsKey(t *testing.T) {
+	s := Start(t, Options{Users: 1})
+	ctx := context.Background()
+	key := uuid.NewString()
+	s.Must(ctx, Req{Method: "POST", Path: "/v1/journal-entries", Body: s.Entry(2, key), As: s.Users[0].Actor, Key: key})
+	lost := errors.New("unexpected EOF")
+	s.record(Posted{Key: key, Status: http.StatusCreated, Err: lost})
+	if err := s.Drain(30 * time.Second); err != nil { // Consistent compares the projected balances too
+		t.Fatal(err)
+	}
+	if err := s.Consistent(ctx); err != nil {
+		t.Fatalf("got %v, want the entry found by its key", err)
+	}
+	s.record(Posted{Key: uuid.NewString(), Status: http.StatusCreated, Err: lost})
+	if err := s.Consistent(ctx); err == nil || !strings.Contains(err.Error(), "1 entries answered 201 are not in the journal") {
+		t.Errorf("got %v, want the missing entry reported", err)
+	}
+	s.posted = s.posted[:1]
+	s.record(Posted{Key: uuid.NewString(), Status: http.StatusCreated})
+	if err := s.Consistent(ctx); err == nil || !strings.Contains(err.Error(), "an entry answered 201 without a readable id") {
+		t.Errorf("got %v, want the complete answer without an id reported", err)
 	}
 }
