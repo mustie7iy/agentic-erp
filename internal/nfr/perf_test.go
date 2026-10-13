@@ -77,6 +77,8 @@ func BenchmarkSemanticQuery(b *testing.B) {
 	q := analytics.Query{Measures: []string{"expenses"}, By: []string{"fiscal_month"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		analytics.Execute(m, facts, analytics.Principal{ID: "u"}, q)
+		if _, err := analytics.Execute(m, facts, analytics.Principal{ID: "u"}, q); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

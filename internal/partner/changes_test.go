@@ -257,7 +257,9 @@ func TestPorts(t *testing.T) {
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error { return terms.Apply(ctx, proposed) }); err != nil {
 		t.Fatal(err)
 	}
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT version FROM partner.payment_term WHERE tenant_id = $1 AND code = 'NT30'`, e.ten.ID).Scan(&version)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT version FROM partner.payment_term WHERE tenant_id = $1 AND code = 'NT30'`, e.ten.ID).Scan(&version); err != nil {
+		t.Fatalf("read the term version: %v", err)
+	}
 	if version != 2 {
 		t.Fatalf("an unchanged term was updated: version %d", version)
 	}

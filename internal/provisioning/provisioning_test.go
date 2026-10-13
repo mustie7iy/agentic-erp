@@ -84,8 +84,12 @@ func TestProvisionedTenantIsManagedThroughTheAPI(t *testing.T) {
 	}
 	// The tenant has its own field-encryption key, and its house banks are sealed with it.
 	var keyed, format int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1 AND status = 'active'`, res.TenantID).Scan(&keyed)
-	pgtest.Admin(t).QueryRow(ctx, `SELECT get_byte(iban_cipher, 0) FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, res.TenantID).Scan(&format)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1 AND status = 'active'`, res.TenantID).Scan(&keyed); err != nil {
+		t.Fatalf("count active tenant keys: %v", err)
+	}
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT get_byte(iban_cipher, 0) FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, res.TenantID).Scan(&format); err != nil {
+		t.Fatalf("read the house bank seal format: %v", err)
+	}
 	if keyed != 1 || format != 2 {
 		t.Fatalf("tenant key: %d keys, house banks sealed with format %d", keyed, format)
 	}

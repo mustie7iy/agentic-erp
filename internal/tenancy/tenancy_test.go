@@ -104,7 +104,9 @@ func TestLegalEntityLifecycle(t *testing.T) {
 		WHERE tenant_id = $1 AND object_id = $2 ORDER BY seq`, ten.ID, uuid.MustParse(id))
 	for rows.Next() {
 		var a string
-		rows.Scan(&a)
+		if err := rows.Scan(&a); err != nil {
+			t.Fatalf("scan audit action: %v", err)
+		}
 		actions = append(actions, a)
 	}
 	want := "tenancy.legal_entity.create tenancy.legal_entity.update tenancy.legal_entity.update tenancy.legal_entity.activate " +

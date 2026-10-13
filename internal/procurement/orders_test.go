@@ -314,8 +314,10 @@ func TestGoodsReceipts(t *testing.T) {
 		t.Fatalf("latest: %v", page)
 	}
 	var second2 string
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT id::text FROM procurement.goods_movement WHERE tenant_id = $1 AND movement_type = '101'
-		AND posting_date = '2026-03-16'`, e.Tenant.ID).Scan(&second2)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id::text FROM procurement.goods_movement WHERE tenant_id = $1 AND movement_type = '101'
+		AND posting_date = '2026-03-16'`, e.Tenant.ID).Scan(&second2); err != nil {
+		t.Fatalf("read the second goods receipt: %v", err)
+	}
 	extra := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, movement_type, document_date, posting_date,
 		reversal_of_id, posted_by) VALUES ($1, $2, 'X1', $3, '102', '2026-03-17', '2026-03-17', $4, $5)`, e.Tenant.ID, extra, e.DE, uuid.MustParse(id(gr)), e.Tenant.Human.ID)
