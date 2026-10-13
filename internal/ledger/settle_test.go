@@ -49,19 +49,51 @@ func TestSettlePort(t *testing.T) {
 
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		items, err := ledger.OpenItems{}.Payable(ctx, e.de, "EUR", date("2026-03-01"))
-		if err != nil || len(items) != 1 || items[0].ItemRef != eur || items[0].Amount != -10000 || items[0].PartnerID != e.supplier {
-			t.Errorf("payable: %+v %v", items, err)
+		switch {
+		case err != nil:
+			t.Errorf("payable: %v", err)
+		case len(items) != 1:
+			t.Errorf("payable: got %d items %+v, want 1", len(items), items)
+		default:
+			if items[0].ItemRef != eur {
+				t.Errorf("payable item: got %+v, want %+v", items[0].ItemRef, eur)
+			}
+			if items[0].Amount != -10000 {
+				t.Errorf("payable amount: got %d, want -10000", items[0].Amount)
+			}
+			if items[0].PartnerID != e.supplier {
+				t.Errorf("payable partner: got %s, want %s", items[0].PartnerID, e.supplier)
+			}
 		}
 		if items, _ := (ledger.OpenItems{}).Payable(ctx, e.de, "EUR", date("2026-02-28")); len(items) != 0 {
 			t.Errorf("documents after the date: %+v", items)
 		}
 		refs, err := ledger.OpenItems{}.References(ctx, []uuid.UUID{eur.EntryID, usd.EntryID})
-		if err != nil || refs[eur.EntryID] != "INV-1" || refs[usd.EntryID] != "INV-3" {
-			t.Errorf("references: %v %v", refs, err)
+		if err != nil {
+			t.Errorf("references: %v", err)
+		}
+		if refs[eur.EntryID] != "INV-1" {
+			t.Errorf("reference of the EUR item: got %q, want INV-1", refs[eur.EntryID])
+		}
+		if refs[usd.EntryID] != "INV-3" {
+			t.Errorf("reference of the USD item: got %q, want INV-3", refs[usd.EntryID])
 		}
 		entry, err := postings().Settle(ctx, settlement(e.de, "2000", "EUR", "2026-04-15", eur))
-		if err != nil || entry.DocumentType != "SA" || len(entry.Lines) != 2 || entry.Lines[0].TC != 10000 || entry.Lines[1].TC != -10000 {
-			t.Errorf("settled: %+v %v", entry, err)
+		switch {
+		case err != nil:
+			t.Errorf("settled: %v", err)
+		case len(entry.Lines) != 2:
+			t.Errorf("settled: got %d lines %+v, want 2", len(entry.Lines), entry.Lines)
+		default:
+			if entry.DocumentType != "SA" {
+				t.Errorf("settled document type: got %s, want SA", entry.DocumentType)
+			}
+			if entry.Lines[0].TC != 10000 {
+				t.Errorf("settled line 1: got %d, want 10000", entry.Lines[0].TC)
+			}
+			if entry.Lines[1].TC != -10000 {
+				t.Errorf("settled line 2: got %d, want -10000", entry.Lines[1].TC)
+			}
 		}
 		if items, _ := (ledger.OpenItems{}).Payable(ctx, e.de, "EUR", date("2026-12-31")); len(items) != 0 {
 			t.Errorf("open after settling: %+v", items)
@@ -81,9 +113,11 @@ func TestSettlePort(t *testing.T) {
 			{"no fx account", settlement(e.us, "1000", "USD", "2026-04-15", usd), "ledger.no_fx_account"},
 		}
 		for _, c := range cases {
-			if _, err := postings().Settle(ctx, c.in); problem.From(err).Code != c.code {
-				t.Errorf("%s: %v", c.name, err)
-			}
+			t.Run(c.name, func(t *testing.T) {
+				if _, err := postings().Settle(ctx, c.in); problem.From(err).Code != c.code {
+					t.Errorf("got %v, want %s", err, c.code)
+				}
+			})
 		}
 		return nil
 	})
@@ -97,11 +131,26 @@ func TestSettlePort(t *testing.T) {
 		e.ten.ID, e.us, gain, e.ten.Human.ID)
 	err = apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		entry, err := postings().Settle(ctx, settlement(e.us, "1000", "USD", "2026-04-15", usd))
-		if err == nil && (len(entry.Lines) != 3 || entry.Lines[2].AccountID != gain || entry.Lines[2].TC != 0 || entry.Lines[2].GC != -1000 ||
-			entry.Lines[1].GC != -8000) {
-			t.Errorf("gain: %+v", entry.Lines)
+		if err != nil {
+			return err
 		}
-		return err
+		if len(entry.Lines) != 3 {
+			t.Errorf("gain: got %d lines %+v, want 3", len(entry.Lines), entry.Lines)
+			return nil
+		}
+		if entry.Lines[2].AccountID != gain {
+			t.Errorf("gain account: got %s, want %s", entry.Lines[2].AccountID, gain)
+		}
+		if entry.Lines[2].TC != 0 {
+			t.Errorf("gain amount: got %d, want 0", entry.Lines[2].TC)
+		}
+		if entry.Lines[2].GC != -1000 {
+			t.Errorf("gain group amount: got %d, want -1000", entry.Lines[2].GC)
+		}
+		if entry.Lines[1].GC != -8000 {
+			t.Errorf("bank group amount: got %d, want -8000", entry.Lines[1].GC)
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -119,8 +168,18 @@ func TestSettlePort(t *testing.T) {
 		post(e.de, "2000", "GBP", 10_000_000_000_000, "INV-6")
 	err = apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		entry, err := postings().Settle(ctx, settlement(e.us, "1000", "USD", "2026-05-15", dear))
-		if err != nil || len(entry.Lines) != 3 || entry.Lines[2].AccountID != loss || entry.Lines[2].GC != 1000 {
-			t.Errorf("loss: %+v %v", entry.Lines, err)
+		switch {
+		case err != nil:
+			t.Errorf("loss: %v", err)
+		case len(entry.Lines) != 3:
+			t.Errorf("loss: got %d lines %+v, want 3", len(entry.Lines), entry.Lines)
+		default:
+			if entry.Lines[2].AccountID != loss {
+				t.Errorf("loss account: got %s, want %s", entry.Lines[2].AccountID, loss)
+			}
+			if entry.Lines[2].GC != 1000 {
+				t.Errorf("loss group amount: got %d, want 1000", entry.Lines[2].GC)
+			}
 		}
 		if _, err := postings().Settle(ctx, settlement(e.us, "1000", "USD", "2026-06-15", bigUSD)); err == nil {
 			t.Error("group amount overflowed")
@@ -148,10 +207,12 @@ func TestSettlePort(t *testing.T) {
 			return err
 		},
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
 	}
 }
 
@@ -185,16 +246,34 @@ func TestMigrationPorts(t *testing.T) {
 	}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		chart, err := ledger.Accounts{}.Chart(ctx, e.de)
-		if err != nil || chart["211000"].ReconciliationKind != "supplier" || chart["100000"].Type != "asset" {
-			t.Errorf("chart: %v %v", chart, err)
+		if err != nil {
+			t.Errorf("chart: %v", err)
+		}
+		if got := chart["211000"].ReconciliationKind; got != "supplier" {
+			t.Errorf("211000 reconciliation kind: got %s, want supplier", got)
+		}
+		if got := chart["100000"].Type; got != "asset" {
+			t.Errorf("100000 type: got %s, want asset", got)
 		}
 		totals, err := ledger.Reports{}.Totals(ctx, e.de, 2026)
-		if err != nil || totals.ByAccount["211000"] != -500 || totals.Debits != 20500 {
-			t.Errorf("totals: %+v %v", totals, err)
+		if err != nil {
+			t.Errorf("totals: %v", err)
+		}
+		if got := totals.ByAccount["211000"]; got != -500 {
+			t.Errorf("211000 total: got %d, want -500", got)
+		}
+		if totals.Debits != 20500 {
+			t.Errorf("debits: got %d, want 20500", totals.Debits)
 		}
 		open, err := ledger.Reports{}.OpenPayables(ctx, e.de, 2026)
-		if err != nil || open[e.supplier] != 0 || open[e.vendor] != -500 {
-			t.Errorf("open payables: %v %v", open, err)
+		if err != nil {
+			t.Errorf("open payables: %v", err)
+		}
+		if got := open[e.supplier]; got != 0 {
+			t.Errorf("open payables of the supplier: got %d, want 0", got)
+		}
+		if got := open[e.vendor]; got != -500 {
+			t.Errorf("open payables of the vendor: got %d, want -500", got)
 		}
 		for name, c := range map[string]struct {
 			items []ledger.ItemRef
@@ -203,9 +282,11 @@ func TestMigrationPorts(t *testing.T) {
 			"unknown":    {[]ledger.ItemRef{{FiscalYear: 2026, EntryID: uuid.New(), LineNo: 1}}, "ledger.not_an_open_item"},
 			"unbalanced": {[]ledger.ItemRef{item(invoice), item(other)}, "ledger.clearing_not_balanced"},
 		} {
-			if err := clear(c.items...)(ctx); problem.From(err).Code != c.code {
-				t.Errorf("%s: %v", name, err)
-			}
+			t.Run(name, func(t *testing.T) {
+				if err := clear(c.items...)(ctx); problem.From(err).Code != c.code {
+					t.Errorf("got %v, want %s", err, c.code)
+				}
+			})
 		}
 		if err := clear(item(invoice), item(payment))(ctx); err != nil {
 			return err
@@ -228,9 +309,11 @@ func TestMigrationPorts(t *testing.T) {
 		"open payables": func(ctx context.Context) error { _, err := ledger.Reports{}.OpenPayables(ctx, e.de, 2026); return err },
 		"clear":         clear(item(invoice), item(payment)),
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
 	}
 }

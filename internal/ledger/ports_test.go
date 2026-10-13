@@ -37,8 +37,17 @@ func TestPostingsPort(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if entry.SourceContext != "payables" || *entry.SourceDocumentID != invoice || entry.Lines[1].TC != -11900 {
-		t.Fatalf("entry: %+v", entry)
+	if entry.SourceContext != "payables" {
+		t.Errorf("entry source context: got %s, want payables", entry.SourceContext)
+	}
+	if entry.SourceDocumentID == nil || *entry.SourceDocumentID != invoice {
+		t.Errorf("entry source document: got %v, want %s", entry.SourceDocumentID, invoice)
+	}
+	if len(entry.Lines) != 2 {
+		t.Fatalf("entry lines: got %d %+v, want 2", len(entry.Lines), entry.Lines)
+	}
+	if entry.Lines[1].TC != -11900 {
+		t.Errorf("entry line 2 amount: got %d, want -11900", entry.Lines[1].TC)
 	}
 	got, _ := e.Must(200, "GET", "/v1/journal-entries?source_context=payables&source_document_id="+invoice.String(), "", "")
 	if len(got["items"].([]any)) != 1 {
@@ -51,10 +60,19 @@ func TestPostingsPort(t *testing.T) {
 		}
 		day := date("2026-03-05")
 		rev, err := postings().Reverse(ctx, entry.ID, &day, nil)
-		if err == nil && (rev.ReversalOfID == nil || rev.PostingDate != day || rev.SourceContext != "payables") {
-			t.Errorf("reversal: %+v", rev)
+		if err != nil {
+			return err
 		}
-		return err
+		if rev.ReversalOfID == nil {
+			t.Error("reversal of: got nil, want the original entry")
+		}
+		if rev.PostingDate != day {
+			t.Errorf("reversal posting date: got %v, want %v", rev.PostingDate, day)
+		}
+		if rev.SourceContext != "payables" {
+			t.Errorf("reversal source context: got %s, want payables", rev.SourceContext)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +85,12 @@ func TestPostingsPort(t *testing.T) {
 		},
 		"cleared": func(ctx context.Context) error { _, err := postings().IsCleared(ctx, 2026, entry.ID); return err },
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
 	}
 }
 
@@ -79,8 +99,10 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 	ap, bank := uuid.MustParse(e.account(t, "2000", "211000")), uuid.MustParse(e.account(t, "2000", "100000"))
 	a, c := ledger.Accounts{}, ledger.Calendar{LegalEntities: tenancy.Directory{}}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		if id, ok, err := a.Determination(ctx, e.de, "ap_reconciliation"); err != nil || !ok || id != ap {
-			t.Errorf("determination: %v %v %v", id, ok, err)
+		if id, ok, err := a.Determination(ctx, e.de, "ap_reconciliation"); err != nil || !ok {
+			t.Errorf("determination: got %v %v, want found", ok, err)
+		} else if id != ap {
+			t.Errorf("determination: got %s, want %s", id, ap)
 		}
 		if _, ok, err := a.Determination(ctx, e.de, "fx_gain"); ok || err != nil {
 			t.Errorf("missing determination: %v %v", ok, err)
@@ -92,8 +114,14 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 			t.Error("a reconciliation account is postable directly")
 		}
 		tc, ok, err := a.TaxCode(ctx, e.de, "V1", date("2026-03-01"))
-		if err != nil || !ok || tc.RatePct != "19.000000" || tc.Direction != "input" {
-			t.Errorf("V1: %+v %v %v", tc, ok, err)
+		if err != nil || !ok {
+			t.Errorf("V1: got %v %v, want found", ok, err)
+		}
+		if tc.RatePct != "19.000000" {
+			t.Errorf("V1 rate: got %s, want 19.000000", tc.RatePct)
+		}
+		if tc.Direction != "input" {
+			t.Errorf("V1 direction: got %s, want input", tc.Direction)
 		}
 		if _, ok, err := a.TaxCode(ctx, e.de, "V1", date("2025-12-31")); ok || err != nil {
 			t.Errorf("before the first fiscal year: %v %v", ok, err)
@@ -121,10 +149,12 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 		},
 		"fiscal year": func(ctx context.Context) error { _, err := c.FiscalYear(ctx, e.de, date("2026-07-01")); return err },
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
 	}
 }
 
