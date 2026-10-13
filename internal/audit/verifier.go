@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 )
 
@@ -67,7 +68,8 @@ func (v *Verifier) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT tenant_id FROM audit.chain_head ORDER BY tenant_id`)
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	return tenants, errs.Wrapf(err, "audit: list tenants with a chain")
 }
 
 // Verify recomputes one tenant's whole chain, checks every anchor, records
@@ -93,11 +95,11 @@ func (v *Verifier) Verify(ctx context.Context, tenant uuid.UUID) (Verification, 
 	ver := Verification{TenantID: tenant, VerifiedAt: v.now(), HeadSeq: res.LastSeq, Checked: res.Checked, AnchorsChecked: anchors, BrokenAt: res.BrokenAt, OK: res.BrokenAt == 0}
 	var previouslyOK *bool
 	if err := tx.QueryRow(ctx, `SELECT ok FROM audit.verification WHERE tenant_id = $1 ORDER BY verified_at DESC LIMIT 1`, tenant).Scan(&previouslyOK); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return Verification{}, err
+		return Verification{}, fmt.Errorf("audit: read last verification of tenant %s: %w", tenant, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit.verification (tenant_id, verified_at, head_seq, checked, anchors_checked, broken_at, ok) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		tenant, ver.VerifiedAt, ver.HeadSeq, ver.Checked, ver.AnchorsChecked, nullable(ver.BrokenAt), ver.OK); err != nil {
-		return Verification{}, err
+		return Verification{}, fmt.Errorf("audit: record verification of tenant %s: %w", tenant, err)
 	}
 	if !ver.OK && (previouslyOK == nil || *previouslyOK) {
 		// The alarm: once, when a chain that verified stops doing so.
@@ -108,7 +110,7 @@ func (v *Verifier) Verify(ctx context.Context, tenant uuid.UUID) (Verification, 
 		v.Log.ErrorContext(ctx, "audit chain does not verify", "tenant_id", tenant, "broken_at", ver.BrokenAt, "head_seq", ver.HeadSeq)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Verification{}, err
+		return Verification{}, fmt.Errorf("audit: commit verification of tenant %s: %w", tenant, err)
 	}
 	return ver, nil
 }

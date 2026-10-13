@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // Anchor is a chain head written to write-once storage (ADR-0011): the
@@ -66,7 +67,8 @@ func (a *Anchorer) pending(ctx context.Context) ([]uuid.UUID, error) {
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT h.tenant_id FROM audit.chain_head h
 		WHERE h.seq > coalesce((SELECT max(x.seq) FROM audit.anchor x WHERE x.tenant_id = h.tenant_id), 0) ORDER BY h.tenant_id`)
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	return tenants, errs.Wrapf(err, "list tenants to anchor")
 }
 
 // ObjectName is the name of a tenant's anchor at seq within KindAnchors.
@@ -83,12 +85,12 @@ func (a *Anchorer) anchor(ctx context.Context, tenant uuid.UUID) (Anchor, error)
 	var hash []byte
 	// The head is locked so a round never races a second replica on the same tenant.
 	if err := tx.QueryRow(ctx, `SELECT tenant_id, seq, hash FROM audit.chain_head WHERE tenant_id = $1 FOR UPDATE`, tenant).Scan(&head.TenantID, &head.Seq, &hash); err != nil {
-		return Anchor{}, err
+		return Anchor{}, fmt.Errorf("read chain head: %w", err)
 	}
 	head.Hash, head.AnchoredAt = hex.EncodeToString(hash), a.now().UTC().Truncate(time.Second)
 	var last int64
 	if err := tx.QueryRow(ctx, `SELECT coalesce(max(seq), 0) FROM audit.anchor WHERE tenant_id = $1`, tenant).Scan(&last); err != nil {
-		return Anchor{}, err
+		return Anchor{}, fmt.Errorf("read last anchor: %w", err)
 	}
 	if head.Seq <= last {
 		return head, nil // anchored by another replica meanwhile
@@ -116,9 +118,9 @@ func (a *Anchorer) anchor(ctx context.Context, tenant uuid.UUID) (Anchor, error)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit.anchor (tenant_id, seq, hash, object_ref, anchored_at) VALUES ($1, $2, $3, $4, $5)`,
 		tenant, head.Seq, hash, key, head.AnchoredAt); err != nil {
-		return Anchor{}, err
+		return Anchor{}, fmt.Errorf("record anchor %d: %w", head.Seq, err)
 	}
-	return head, tx.Commit(ctx)
+	return head, errs.Wrapf(tx.Commit(ctx), "commit anchor %d", head.Seq)
 }
 
 // RunOnce anchors every tenant whose head moved and returns how many.
@@ -162,11 +164,12 @@ func anchorsIn(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, from, to int64)
 	rows, _ := tx.Query(ctx, `SELECT a.seq, a.hash, a.object_ref, a.anchored_at, e.hash FROM audit.anchor a
 		LEFT JOIN audit.audit_event e ON e.tenant_id = a.tenant_id AND e.seq = a.seq
 		WHERE a.tenant_id = $1 AND a.seq >= $2 AND ($3 = 0 OR a.seq <= $3) ORDER BY a.seq`, tenant, from, to)
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (storedAnchor, error) {
+	anchors, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (storedAnchor, error) {
 		var s storedAnchor
 		err := r.Scan(&s.Seq, &s.Hash, &s.ObjectRef, &s.AnchoredAt, &s.EventHash)
-		return s, err
+		return s, errs.Wrapf(err, "scan anchor")
 	})
+	return anchors, errs.Wrapf(err, "audit: read anchors of tenant %s", tenant)
 }
 
 type storedAnchor struct {
@@ -217,5 +220,5 @@ func holds(stored []byte, seq int64, hash []byte) bool {
 func lastAnchor(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (int64, error) {
 	var seq int64
 	err := tx.QueryRow(ctx, `SELECT coalesce(max(seq), 0) FROM audit.anchor WHERE tenant_id = $1`, tenant).Scan(&seq)
-	return seq, err
+	return seq, errs.Wrapf(err, "audit: read last anchor of tenant %s", tenant)
 }

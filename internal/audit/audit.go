@@ -8,6 +8,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -100,10 +102,10 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 	events, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Event, error) {
 		var v Event
 		err := r.Scan(&v.Seq, &v.OccurredAt, &v.ActorID, &v.ActorKind, &v.Action, &v.ObjectType, &v.ObjectID, &v.Outcome, &v.Detail, &v.TraceID)
-		return v, err
+		return v, errs.Wrapf(err, "scan audit event")
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("audit: list audit events: %w", err)
 	}
 	page := gen.AuditEventPage{Items: []gen.AuditEvent{}}
 	if len(events) > size {
@@ -140,7 +142,7 @@ func VerifyChain(ctx context.Context, store blobstore.Store, from, to *int64) (o
 	}
 	var head int64
 	if err := tx.QueryRow(ctx, `SELECT coalesce((SELECT seq FROM audit.chain_head WHERE tenant_id = $1), 0)`, p.TenantID).Scan(&head); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("audit: read chain head of tenant %s: %w", p.TenantID, err)
 	}
 	first, last := int64(1), int64(0)
 	if from != nil {
