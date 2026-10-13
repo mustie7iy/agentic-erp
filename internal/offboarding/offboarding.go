@@ -183,7 +183,6 @@ func tenantTables(ctx context.Context, tx pgx.Tx) ([]tenantTable, error) {
 	return list, nil
 }
 
-
 // Export writes the tenant's data to the store, one JSON Lines object per
 // table and a manifest, all locked for Retention, and records the export
 // on the tenant with the time its data may be erased. An export keyed by
