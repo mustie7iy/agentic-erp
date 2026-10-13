@@ -73,8 +73,13 @@ func TestReonboarding(t *testing.T) {
 	if outboxes == 0 {
 		t.Fatal("the export holds no outbox rows to skip")
 	}
-	if len(want) < 5 || want["identity.principal"] == 0 || want["audit.audit_event"] == 0 {
-		t.Fatalf("export: %v", want)
+	if len(want) < 5 {
+		t.Fatalf("exported tables: got %d, want at least 5: %v", len(want), want)
+	}
+	for _, table := range []string{"identity.principal", "audit.audit_event"} {
+		if want[table] == 0 {
+			t.Fatalf("exported %s rows: got 0, want some: %v", table, want)
+		}
 	}
 	// Gone: principals erased, the tenant a tombstone, the audit trail kept (with the export and erasure entries).
 	if n := count(t, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, tenant); n != 0 {
@@ -88,15 +93,24 @@ func TestReonboarding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.TenantID != tenant || res.Tables != len(want) || res.ChainHead == nil || res.ChainHead.Seq != manifest.ChainHead.Seq {
-		t.Fatalf("%+v", res)
+	if res.TenantID != tenant {
+		t.Errorf("imported tenant: got %v, want %v", res.TenantID, tenant)
+	}
+	if res.Tables != len(want) {
+		t.Errorf("imported tables: got %d, want %d", res.Tables, len(want))
+	}
+	if res.ChainHead == nil {
+		t.Fatalf("imported chain head: got nil, want seq %d", manifest.ChainHead.Seq)
+	}
+	if res.ChainHead.Seq != manifest.ChainHead.Seq {
+		t.Errorf("imported chain head seq: got %d, want %d", res.ChainHead.Seq, manifest.ChainHead.Seq)
 	}
 	for name, n := range want {
 		if res.Rows[name] != n {
-			t.Errorf("%s: %d imported, %d exported", name, res.Rows[name], n)
+			t.Errorf("%s imported: got %d rows, want the %d exported", name, res.Rows[name], n)
 		}
 		if got := count(t, `SELECT count(*) FROM `+name+` WHERE tenant_id = $1`, tenant); got != n {
-			t.Errorf("%s: %d rows in the cell, %d exported", name, got, n)
+			t.Errorf("%s in the cell: got %d rows, want the %d exported", name, got, n)
 		}
 	}
 	var status string
@@ -194,8 +208,17 @@ func TestImportRefusals(t *testing.T) {
 	sumR := put(d+"/identity.role.00001.jsonl", roleLine)
 	put(d+"/tenancy.outbox.00001.jsonl", `{"anything":true}`+"\n")
 	res, err := im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumR+`"},{"name":"tenancy.outbox","part":1,"key":"`+d+`/tenancy.outbox.00001.jsonl","rows":1,"bytes":1,"sha256":"x"}`))
-	if err != nil || res.Tables != 1 || res.Rows["identity.role"] != 1 || res.ChainHead != nil {
-		t.Fatalf("outbox skipped: %+v %v", res, err)
+	if err != nil {
+		t.Fatalf("outbox skipped: %v", err)
+	}
+	if res.Tables != 1 {
+		t.Errorf("outbox skipped: got %d tables, want 1", res.Tables)
+	}
+	if res.Rows["identity.role"] != 1 {
+		t.Errorf("outbox skipped: got %d roles, want 1", res.Rows["identity.role"])
+	}
+	if res.ChainHead != nil {
+		t.Errorf("outbox skipped: got chain head %+v, want nil", res.ChainHead)
 	}
 	if n := count(t, `SELECT count(*) FROM identity.role WHERE tenant_id = $1`, tenant); n != 1 {
 		t.Fatalf("%d roles imported", n)
@@ -239,12 +262,14 @@ func TestImportRefusals(t *testing.T) {
 	sumF := put(dFK+"/identity.principal_role.00001.jsonl", assignment)
 	keyFK := manifest(dFK, `{"name":"identity.principal_role","part":1,"key":"`+dFK+`/identity.principal_role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumF+`"}`)
 	for mode, key := range map[string]string{"begin": keyOK, "commit": keyOK, "rollback": keyFK} {
-		im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
-			return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, savepointFails{Tx: tx, mode: mode}) })
-		}
-		if _, err := im.Import(ctx, key); err == nil || !strings.Contains(err.Error(), "savepoint "+mode) {
-			t.Errorf("savepoint %s failing: %v", mode, err)
-		}
+		t.Run("savepoint "+mode+" failing", func(t *testing.T) {
+			im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+				return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, savepointFails{Tx: tx, mode: mode}) })
+			}
+			if _, err := im.Import(ctx, key); err == nil || !strings.Contains(err.Error(), "savepoint "+mode) {
+				t.Errorf("got %v, want an error naming savepoint %s", err, mode)
+			}
+		})
 	}
 	im.InTx = nil
 	// A manifest whose tenant row is unreadable.

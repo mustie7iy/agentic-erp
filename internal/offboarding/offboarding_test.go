@@ -61,6 +61,19 @@ func count(t *testing.T, sql string, args ...any) int64 {
 	return n
 }
 
+// round runs one round of w and fails unless it exported and erased as many
+// tenants as wanted.
+func round(t *testing.T, w *offboarding.Worker, what string, wantExported, wantErased int) {
+	t.Helper()
+	ex, er, err := w.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("%s round: %v", what, err)
+	}
+	if ex != wantExported || er != wantErased {
+		t.Fatalf("%s round: got %d exported, %d erased, want %d, %d", what, ex, er, wantExported, wantErased)
+	}
+}
+
 func worker(t *testing.T, pool *database.Pool, store blobstore.Store, clock *time.Time) *offboarding.Worker {
 	t.Helper()
 	return &offboarding.Worker{Pool: pool, Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Grace: time.Hour, Retention: 24 * time.Hour,
@@ -89,9 +102,7 @@ func TestOffboardingLifecycle(t *testing.T) {
 		t.Fatalf("store an anchor: %v", err)
 	}
 	// Nothing to do while the tenant is active; an active tenant is not exported or erased on request either.
-	if ex, er, err := w.RunOnce(ctx); err != nil || ex != 0 || er != 0 {
-		t.Fatalf("active: %d %d %v", ex, er, err)
-	}
+	round(t, w, "active", 0, 0)
 	if _, err := w.Export(ctx, tenant); problem.From(err).Code != "tenancy.invalid_transition" {
 		t.Fatalf("export of an active tenant: %v", err)
 	}
@@ -105,18 +116,24 @@ func TestOffboardingLifecycle(t *testing.T) {
 		t.Fatalf("fixture: %d principals, %d audit events", principals, events)
 	}
 	// The round exports: locked objects per table and a manifest describing them; the tenant records it.
-	ex, er, err := w.RunOnce(ctx)
-	if err != nil || ex != 1 || er != 0 {
-		t.Fatalf("export round: %d %d %v", ex, er, err)
-	}
+	round(t, w, "export", 1, 0)
 	var exportedAt, eraseAfter time.Time
 	var ref string
 	var erasedAt *time.Time
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT exported_at, export_ref, erase_after, erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&exportedAt, &ref, &eraseAfter, &erasedAt); err != nil {
 		t.Fatalf("read the tenant after export: %v", err)
 	}
-	if !exportedAt.Equal(clock) || !eraseAfter.Equal(clock.Add(time.Hour)) || erasedAt != nil || !strings.HasPrefix(ref, prefix+"exports/") || !strings.HasSuffix(ref, "/manifest.json") {
-		t.Fatalf("tenant after export: %v %s %v %v", exportedAt, ref, eraseAfter, erasedAt)
+	if !exportedAt.Equal(clock) {
+		t.Errorf("exported_at: got %v, want %v", exportedAt, clock)
+	}
+	if !eraseAfter.Equal(clock.Add(time.Hour)) {
+		t.Errorf("erase_after: got %v, want %v", eraseAfter, clock.Add(time.Hour))
+	}
+	if erasedAt != nil {
+		t.Errorf("erased_at: got %v, want nil", erasedAt)
+	}
+	if !strings.HasPrefix(ref, prefix+"exports/") || !strings.HasSuffix(ref, "/manifest.json") {
+		t.Fatalf("export_ref: got %s, want %sexports/.../manifest.json", ref, prefix)
 	}
 	body, ct, err := store.Get(ctx, ref)
 	if err != nil || ct != "application/json" {
@@ -133,8 +150,19 @@ func TestOffboardingLifecycle(t *testing.T) {
 			Rows              int64
 		}
 	}
-	if err := json.Unmarshal(body, &m); err != nil || m.TenantID != tenant || m.ChainHead == nil || m.ChainHead.Seq != events || len(m.Tables) < 5 {
+	if err := json.Unmarshal(body, &m); err != nil {
 		t.Fatalf("manifest: %s %v", body, err)
+	}
+	if m.TenantID != tenant {
+		t.Errorf("manifest tenant: got %v, want %v", m.TenantID, tenant)
+	}
+	if m.ChainHead == nil {
+		t.Errorf("manifest chain head: got nil, want seq %d", events)
+	} else if m.ChainHead.Seq != events {
+		t.Errorf("manifest chain head seq: got %d, want %d", m.ChainHead.Seq, events)
+	}
+	if len(m.Tables) < 5 {
+		t.Fatalf("manifest tables: got %d, want at least 5: %s", len(m.Tables), body)
 	}
 	found := false
 	var principalRows int64
@@ -142,8 +170,20 @@ func TestOffboardingLifecycle(t *testing.T) {
 		if tb.Name == "identity.principal" {
 			found = true
 			lines, ct, err := store.Get(ctx, tb.Key)
-			if err != nil || ct != "application/x-ndjson" || int64(strings.Count(string(lines), "\n")) != tb.Rows || tb.Rows != 1 || !strings.HasSuffix(tb.Key, fmt.Sprintf(".%05d.jsonl", tb.Part)) {
-				t.Fatalf("principal export part %d: %q %d %v", tb.Part, ct, tb.Rows, err)
+			if err != nil {
+				t.Fatalf("principal export part %d: %v", tb.Part, err)
+			}
+			if ct != "application/x-ndjson" {
+				t.Errorf("principal export part %d content type: got %q, want application/x-ndjson", tb.Part, ct)
+			}
+			if n := int64(strings.Count(string(lines), "\n")); n != tb.Rows {
+				t.Errorf("principal export part %d: got %d lines, want the manifest's %d", tb.Part, n, tb.Rows)
+			}
+			if tb.Rows != 1 {
+				t.Errorf("principal export part %d: got %d rows, want 1", tb.Part, tb.Rows)
+			}
+			if want := fmt.Sprintf(".%05d.jsonl", tb.Part); !strings.HasSuffix(tb.Key, want) {
+				t.Errorf("principal export part %d key: got %s, want suffix %s", tb.Part, tb.Key, want)
 			}
 			principalRows += tb.Rows
 			if err := store.Delete(ctx, tb.Key); !errors.Is(err, blobstore.ErrLocked) {
@@ -164,18 +204,13 @@ func TestOffboardingLifecycle(t *testing.T) {
 		t.Fatalf("%d export events", n)
 	}
 	// Within the grace period nothing more happens; exporting again is refused.
-	if ex, er, err := w.RunOnce(ctx); err != nil || ex != 0 || er != 0 {
-		t.Fatalf("grace: %d %d %v", ex, er, err)
-	}
+	round(t, w, "grace", 0, 0)
 	if _, err := w.Export(ctx, tenant); problem.From(err).Code != "tenancy.invalid_transition" {
 		t.Fatalf("second export: %v", err)
 	}
 	// After it the tenant is erased: rows gone but the audit trail, objects gone but the locked ones.
 	clock = clock.Add(2 * time.Hour)
-	ex, er, err = w.RunOnce(ctx)
-	if err != nil || ex != 0 || er != 1 {
-		t.Fatalf("erase round: %d %d %v", ex, er, err)
-	}
+	round(t, w, "erase", 0, 1)
 	if n := count(t, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, tenant); n != 0 {
 		t.Fatalf("%d principals left", n)
 	}
@@ -200,7 +235,7 @@ func TestOffboardingLifecycle(t *testing.T) {
 	keys, _ := store.List(ctx, prefix)
 	for _, k := range keys {
 		if !strings.Contains(k, "/exports/") && !strings.Contains(k, "/audit/anchors/") {
-			t.Fatalf("object left: %s", k)
+			t.Fatalf("got object %s left, want only exports and anchors", k)
 		}
 	}
 	if len(keys) < 3 {
@@ -210,9 +245,7 @@ func TestOffboardingLifecycle(t *testing.T) {
 		t.Fatal("the other tenant lost its principals")
 	}
 	// Nothing left to do; erasing again is refused.
-	if ex, er, err := w.RunOnce(ctx); err != nil || ex != 0 || er != 0 {
-		t.Fatalf("after: %d %d %v", ex, er, err)
-	}
+	round(t, w, "after", 0, 0)
 	if _, err := w.Erase(ctx, tenant, offboarding.Actor, nil); problem.From(err).Code != "tenancy.invalid_transition" {
 		t.Fatalf("second erasure: %v", err)
 	}
@@ -303,12 +336,24 @@ func TestOffboardingFailures(t *testing.T) {
 	// A store that takes the first part of a table but not the second.
 	partial := worker(t, pool, secondPartFails{store}, &clock)
 	partial.ChunkRows = 1
-	if _, err := partial.Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "storing") || !strings.Contains(err.Error(), ".00002.jsonl") {
-		t.Fatalf("second part failing: %v", err)
+	if _, err := partial.Export(ctx, tenant); err == nil {
+		t.Fatal("second part failing: got nil error, want a storing error")
+	} else {
+		for _, want := range []string{"storing", ".00002.jsonl"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("second part failing: got %v, want it to mention %q", err, want)
+			}
+		}
 	}
 	// A store that takes the tables but not the manifest.
-	if _, err := worker(t, pool, manifestless{store}, &clock).Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "storing") || !strings.Contains(err.Error(), "manifest.json") {
-		t.Fatalf("manifest failure: %v", err)
+	if _, err := worker(t, pool, manifestless{store}, &clock).Export(ctx, tenant); err == nil {
+		t.Fatal("manifest failure: got nil error, want a storing error")
+	} else {
+		for _, want := range []string{"storing", "manifest.json"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("manifest failure: got %v, want it to mention %q", err, want)
+			}
+		}
 	}
 	// A commit that fails.
 	w = worker(t, pool, store, &clock)
@@ -319,9 +364,13 @@ func TestOffboardingFailures(t *testing.T) {
 	// Each database statement of an export failing in turn is reported.
 	// The transactions themselves failing to start, the first and the second.
 	for k := 1; k <= 2; k++ {
-		w.Begin = beginFailing(pool, k)
-		if _, err := w.Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "pool down") {
-			t.Fatalf("begin %d: %v", k, err)
+		if !t.Run(fmt.Sprintf("export begin %d failing", k), func(t *testing.T) {
+			w.Begin = beginFailing(pool, k)
+			if _, err := w.Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "pool down") {
+				t.Fatalf("got %v, want pool down", err)
+			}
+		}) {
+			t.FailNow()
 		}
 	}
 	for n := 1; n < 200; n++ {
@@ -390,9 +439,13 @@ func TestOffboardingFailures(t *testing.T) {
 	// Each database statement of an erasure failing in turn is reported; a store without an eraser keeps its objects.
 	plain := worker(t, pool, plainStore{store}, &clock)
 	for k := 1; k <= 2; k++ {
-		plain.Begin = beginFailing(pool, k)
-		if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "pool down") {
-			t.Fatalf("begin %d: %v", k, err)
+		if !t.Run(fmt.Sprintf("erase begin %d failing", k), func(t *testing.T) {
+			plain.Begin = beginFailing(pool, k)
+			if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "pool down") {
+				t.Fatalf("got %v, want pool down", err)
+			}
+		}) {
+			t.FailNow()
 		}
 	}
 	// A round whose erasure fails reports it.
@@ -401,9 +454,13 @@ func TestOffboardingFailures(t *testing.T) {
 	}
 	// Commits that fail, and a tenant erased by another round between the transactions.
 	for k := 1; k <= 2; k++ {
-		plain.Begin = brokenCommitAt(pool, k)
-		if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); !errors.Is(err, pgtest.ErrInjected) {
-			t.Fatalf("erase commit %d: got %v, want %v", k, err, pgtest.ErrInjected)
+		if !t.Run(fmt.Sprintf("erase commit %d failing", k), func(t *testing.T) {
+			plain.Begin = brokenCommitAt(pool, k)
+			if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); !errors.Is(err, pgtest.ErrInjected) {
+				t.Fatalf("got %v, want %v", err, pgtest.ErrInjected)
+			}
+		}) {
+			t.FailNow()
 		}
 	}
 	plain.Begin = interfering(pool, 2, func() {
@@ -441,15 +498,19 @@ func TestOffboardingFailures(t *testing.T) {
 	}
 	// The pending queries themselves failing, and the transaction not starting.
 	for n := 1; n <= 2; n++ {
-		w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pool.Begin(ctx, s)
-			if err != nil {
-				return nil, err
+		if !t.Run(fmt.Sprintf("pending statement %d failing", n), func(t *testing.T) {
+			w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+				tx, err := pool.Begin(ctx, s)
+				if err != nil {
+					return nil, err
+				}
+				return &pgtest.FailingTx{Tx: tx, FailAt: n}, nil
 			}
-			return &pgtest.FailingTx{Tx: tx, FailAt: n}, nil
-		}
-		if _, _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
-			t.Fatalf("pending statement %d: %v", n, err)
+			if _, _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+				t.Fatalf("got %v, want %v", err, pgtest.ErrInjected)
+			}
+		}) {
+			t.FailNow()
 		}
 	}
 	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
