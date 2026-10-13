@@ -31,7 +31,9 @@ func TestScopeSetsRoleTenantAndTimeouts(t *testing.T) {
 		}
 		// Row-level security: only this tenant's principals are visible.
 		var n int
-		tx.QueryRow(ctx, "SELECT count(*) FROM identity.principal WHERE tenant_id = $1", other.ID).Scan(&n)
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM identity.principal WHERE tenant_id = $1", other.ID).Scan(&n); err != nil {
+			return err
+		}
 		if n != 0 {
 			t.Error("other tenant visible")
 		}
@@ -39,7 +41,9 @@ func TestScopeSetsRoleTenantAndTimeouts(t *testing.T) {
 			return err
 		}
 		var actor string
-		tx.QueryRow(ctx, "SELECT current_setting('app.actor_id')").Scan(&actor)
+		if err := tx.QueryRow(ctx, "SELECT current_setting('app.actor_id')").Scan(&actor); err != nil {
+			return err
+		}
 		if actor != ten.Human.ID.String() {
 			t.Error("actor not set")
 		}
@@ -57,14 +61,18 @@ func TestScopeSetsRoleTenantAndTimeouts(t *testing.T) {
 		t.Fatal("write in read-only transaction")
 	}
 	// The setting does not leak to the next transaction on the same pool.
-	pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+	if err := pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		var tenant string
-		tx.QueryRow(ctx, "SELECT coalesce(current_setting('app.tenant_id', true), '')").Scan(&tenant)
+		if err := tx.QueryRow(ctx, "SELECT coalesce(current_setting('app.tenant_id', true), '')").Scan(&tenant); err != nil {
+			return err
+		}
 		if tenant != "" {
 			t.Errorf("tenant leaked: %q", tenant)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestInTxCommitsAndRollsBack(t *testing.T) {
@@ -80,13 +88,17 @@ func TestInTxCommitsAndRollsBack(t *testing.T) {
 	}
 	sentinel := errors.New("abort")
 	if err := pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
-		tx.Exec(ctx, "INSERT INTO public.tx_probe VALUES ($1)", drop)
+		if _, err := tx.Exec(ctx, "INSERT INTO public.tx_probe VALUES ($1)", drop); err != nil {
+			return err // not the sentinel: the rollback below would prove nothing
+		}
 		return sentinel
 	}); !errors.Is(err, sentinel) {
 		t.Fatal(err)
 	}
 	var n int
-	pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM public.tx_probe WHERE id IN ($1, $2)", keep, drop).Scan(&n)
+	if err := pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM public.tx_probe WHERE id IN ($1, $2)", keep, drop).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 1 {
 		t.Fatalf("rows %d", n)
 	}

@@ -210,7 +210,9 @@ func TestRotationResealsEveryColumn(t *testing.T) {
 		t.Fatalf("rotation without the legacy key: %v", err)
 	}
 	var before []byte
-	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, e.Tenant.ID).Scan(&before)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, e.Tenant.ID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
 	if before[0] != 1 {
 		t.Fatalf("house bank not on the legacy key: %v", before[0])
 	}
@@ -226,7 +228,9 @@ func TestRotationResealsEveryColumn(t *testing.T) {
 	var cipher []byte
 	var print string
 	var taxVersion int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT value_cipher, value_fingerprint, version FROM partner.tax_identifier WHERE tenant_id = $1`, e.Tenant.ID).Scan(&cipher, &print, &taxVersion)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT value_cipher, value_fingerprint, version FROM partner.tax_identifier WHERE tenant_id = $1`, e.Tenant.ID).Scan(&cipher, &print, &taxVersion); err != nil {
+		t.Fatal(err)
+	}
 	if want, _ := r.Fingerprint(ctx, e.Tenant.ID, "DE123456789"); print != want || print == legacyPrint || taxVersion != 2 {
 		t.Fatalf("tax identifier after rotation: %s (legacy %s), version %d", print, legacyPrint, taxVersion)
 	}
@@ -235,7 +239,9 @@ func TestRotationResealsEveryColumn(t *testing.T) {
 	}
 	var after []byte
 	var version int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher, version FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, e.Tenant.ID).Scan(&after, &version)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher, version FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, e.Tenant.ID).Scan(&after, &version); err != nil {
+		t.Fatal(err)
+	}
 	if after[0] != 2 || version != 2 {
 		t.Fatalf("after: version byte %d, row version %d", after[0], version)
 	}
@@ -306,7 +312,9 @@ func TestKMSMasterWrapsTenantKeys(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error { return r.Provision(ctx, tx, ten.ID) })
 	var masterID string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT master_key_id FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&masterID)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT master_key_id FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&masterID); err != nil {
+		t.Fatal(err)
+	}
 	if masterID != "kms" {
 		t.Fatalf("wrapped by %q", masterID)
 	}
@@ -361,7 +369,9 @@ func TestRewrap(t *testing.T) {
 		t.Fatalf("%+v", done)
 	}
 	var n, bumped int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FILTER (WHERE master_key_id = 'kms'), count(*) FILTER (WHERE version > 1) FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&n, &bumped)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FILTER (WHERE master_key_id = 'kms'), count(*) FILTER (WHERE version > 1) FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&n, &bumped); err != nil {
+		t.Fatal(err)
+	}
 	if n != 2 || bumped != 2 {
 		t.Fatalf("%d keys on kms, %d versions bumped", n, bumped)
 	}

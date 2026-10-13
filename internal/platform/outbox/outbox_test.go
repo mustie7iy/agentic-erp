@@ -110,7 +110,9 @@ func TestRelayPublishesInOrderOnce(t *testing.T) {
 	for _, m := range msgs {
 		if m.Header["ce-type"] == "com.example.erp.platform.operation_completed.v1" {
 			var p map[string]float64
-			json.Unmarshal(m.Data, &p)
+			if err := json.Unmarshal(m.Data, &p); err != nil {
+				t.Fatalf("payload %s: %v", m.Data, err)
+			}
 			order = append(order, p["i"])
 			if m.Subject != "erp.eu1.platform."+ten.ID.String()+".operation_completed" || m.Header["ce-source"] != "/erp/eu1/platform" ||
 				m.Header["ce-subject"] != agg.String() || m.Header["ce-actorid"] != ten.Human.ID.String() ||
@@ -125,7 +127,9 @@ func TestRelayPublishesInOrderOnce(t *testing.T) {
 		t.Fatalf("order %v", order)
 	}
 	var unpublished int
-	pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&unpublished)
+	if err := pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&unpublished); err != nil {
+		t.Fatal(err)
+	}
 	if unpublished != 0 {
 		t.Fatal("rows left unpublished")
 	}
@@ -145,7 +149,9 @@ func TestRelayRetriesAfterPublishFailure(t *testing.T) {
 	}
 	rec.fail = nil
 	for i := 0; i < 3 && len(rec.forTenant(ten.ID)) == 0; i++ {
-		relay.RunOnce(context.Background())
+		if _, err := relay.RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(rec.forTenant(ten.ID)) != 1 {
 		t.Fatal("event lost after a failed publish")
@@ -177,7 +183,9 @@ func TestRelayToJetStream(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		var n int
-		pgtest.Admin(t).QueryRow(context.Background(), "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&n)
+		if err := pgtest.Admin(t).QueryRow(context.Background(), "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
 		if n == 0 {
 			break
 		}
@@ -298,15 +306,21 @@ func TestRelayWaitsForTheContextLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('erp.outbox.platform'))")
+	if _, err := other.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('erp.outbox.platform'))"); err != nil {
+		t.Fatal(err)
+	}
 	rec := &recorder{}
 	relay := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}
-	relay.RunOnce(ctx)
+	if _, err := relay.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if len(rec.forTenant(ten.ID)) != 0 {
 		t.Fatal("published while another relay held the context")
 	}
 	other.Rollback(ctx)
-	relay.RunOnce(ctx)
+	if _, err := relay.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if len(rec.forTenant(ten.ID)) != 1 {
 		t.Fatal("not published after the lock was released")
 	}
@@ -329,7 +343,9 @@ func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 	if _, err := ro.RunOnce(context.Background()); err == nil {
 		t.Fatal("marking failure not reported")
 	}
-	(&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}).RunOnce(context.Background())
+	if _, err := (&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	msgs := rec.forTenant(ten.ID)
 	if len(msgs) != 2 || msgs[0].ID != msgs[1].ID {
 		t.Fatalf("want the same event published twice, got %d", len(msgs))

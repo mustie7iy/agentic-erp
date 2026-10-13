@@ -51,9 +51,13 @@ func TestBufferedEntriesExtendTheChain(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
 			ctx, buf := audit.WithBuffer(ctx)
-			audit.Add(ctx, audit.Entry{Action: "platform.operation.cancel", ObjectType: "platform.operation", ObjectID: obj, Outcome: "succeeded",
-				Detail: map[string]any{"from": "running", "n": 1.5, "big": 1e21, "nested": map[string]any{"b": 2, "a": []any{true, nil}}}})
-			audit.Add(ctx, audit.Entry{Action: "platform.request.summary", ObjectType: "platform.request", Outcome: "succeeded"})
+			if err := audit.Add(ctx, audit.Entry{Action: "platform.operation.cancel", ObjectType: "platform.operation", ObjectID: obj, Outcome: "succeeded",
+				Detail: map[string]any{"from": "running", "n": 1.5, "big": 1e21, "nested": map[string]any{"b": 2, "a": []any{true, nil}}}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := audit.Add(ctx, audit.Entry{Action: "platform.request.summary", ObjectType: "platform.request", Outcome: "succeeded"}); err != nil {
+				t.Fatal(err)
+			}
 			if buf.Len() != 2 {
 				t.Fatal("buffer")
 			}
@@ -89,7 +93,9 @@ func TestTamperingIsDetected(t *testing.T) {
 	tamper := func(sql string, args ...any) {
 		c := pgtest.Admin(t)
 		ctx := context.Background()
-		c.Exec(ctx, "SET session_replication_role = replica")
+		if _, err := c.Exec(ctx, "SET session_replication_role = replica"); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := c.Exec(ctx, sql, args...); err != nil {
 			t.Fatal(err)
 		}
@@ -228,7 +234,10 @@ func TestErrors(t *testing.T) {
 	pgtest.Exec(t, `CREATE TRIGGER fail_head BEFORE UPDATE ON audit.chain_head FOR EACH ROW EXECUTE FUNCTION public.fail_head()`)
 	t.Cleanup(func() { pgtest.Exec(t, `DROP TRIGGER fail_head ON audit.chain_head`) })
 	if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
-		tx.Exec(ctx, "SELECT set_config('test.fail_tenant', $1, true)", ten.ID.String())
+		// Checked so the injected trigger, not a failed set_config, is what fails the write.
+		if _, err := tx.Exec(ctx, "SELECT set_config('test.fail_tenant', $1, true)", ten.ID.String()); err != nil {
+			t.Fatal(err)
+		}
 		return audit.Write(ctx, tx, actor(ten), "", time.Now(), entry)
 	}); err == nil {
 		t.Fatal("head failure not reported")

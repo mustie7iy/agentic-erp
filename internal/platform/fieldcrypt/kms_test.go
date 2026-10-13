@@ -101,7 +101,7 @@ func TestKMSMaster(t *testing.T) {
 	if err != nil || resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("unsigned: %v %v", resp, err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close() // the body is not read; the status code is the answer
 }
 
 type provider struct {
