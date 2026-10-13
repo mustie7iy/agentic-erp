@@ -101,7 +101,7 @@ func migrate(ctx context.Context, args []string) error {
 	year := fs.Int("year", 2026, "fiscal year")
 	mode := fs.String("mode", "documents", "documents or balances")
 	rehearsal := fs.Bool("rehearsal", false, "load, reconcile and roll back, keeping only the report")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := client("ERP_TOKEN")

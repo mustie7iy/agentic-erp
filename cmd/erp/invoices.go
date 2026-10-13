@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 type parkedInvoice struct {
@@ -86,7 +87,7 @@ func limits(ctx context.Context, c *apitools.Client) (map[string]int64, error) {
 func invoices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("invoices", flag.ContinueOnError)
 	withAgent := fs.Bool("agent", false, "let the exceptions agent investigate held invoices")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := client("ERP_TOKEN")
@@ -194,7 +195,7 @@ func agentCmd(ctx context.Context, args []string) error {
 func agentConfig(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("agent config", flag.ContinueOnError)
 	draftFile := fs.String("draft", "", "configuration draft (erp config generate) to start from")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	request := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -205,7 +206,7 @@ func agentConfig(ctx context.Context, args []string) error {
 	if *draftFile != "" {
 		var err error
 		if draft, err = os.ReadFile(*draftFile); err != nil {
-			return err
+			return fmt.Errorf("agent config: read draft: %w", err)
 		}
 	}
 	c, err := client("ERP_AGENT_TOKEN")
@@ -226,7 +227,7 @@ func agentMigration(ctx context.Context, args []string) error {
 	entities := fs.String("legal-entities", "", "comma-separated legal entity ids")
 	year := fs.Int("year", 2026, "fiscal year")
 	mode := fs.String("mode", "documents", "documents or balances")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := client("ERP_AGENT_TOKEN")
@@ -245,7 +246,7 @@ func agentTest(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("agent test", flag.ContinueOnError)
 	cr := fs.String("change-request", "", "change request id")
 	outFile := fs.String("out", "", "also write the test scripts to this file")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := client("ERP_AGENT_TOKEN")
@@ -258,7 +259,7 @@ func agentTest(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(out, "Recommendation recorded: %t\n\n%s\n", rev.Recommended, rev.Scripts)
 	if *outFile != "" {
-		return os.WriteFile(*outFile, []byte(rev.Scripts), 0o600)
+		return errs.Wrapf(os.WriteFile(*outFile, []byte(rev.Scripts), 0o600), "agent test: write scripts")
 	}
 	return nil
 }

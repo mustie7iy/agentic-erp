@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 const defaultReports = "data/reports"
@@ -59,7 +60,7 @@ func (f analyticsFlags) session(ctx context.Context) (*analytics.Session, error)
 func metricsCmd(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("metrics", flag.ContinueOnError)
 	semantic := fs.String("semantic", "", "semantic model YAML (default: built-in governed model)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	m, err := loadModel(*semantic)
@@ -71,7 +72,7 @@ func metricsCmd(_ context.Context, args []string) error {
 	for _, met := range m.Metrics {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", met.Name, met.Type, met.Description, strings.Join(m.AllowedDimensions(met.Name), ", "))
 	}
-	return tw.Flush()
+	return errs.Wrapf(tw.Flush(), "metrics: print")
 }
 
 // queryCmd runs a semantic query directly, without the agent.
@@ -85,7 +86,7 @@ func queryCmd(ctx context.Context, args []string) error {
 	var where multiFlag
 	fs.Var(&where, "where", `filter, repeatable: "dim in a,b", "dim not_in a", "dim <= v", "dim >= v", "dim between a,b"`)
 	csvOut := fs.String("csv", "", "also write the result as CSV to this file")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	q := analytics.Query{Measures: splitList(*measures), By: splitList(*by)}
@@ -131,7 +132,7 @@ func queryCmd(ctx context.Context, args []string) error {
 	if *csvOut != "" {
 		f, err := os.Create(*csvOut)
 		if err != nil {
-			return err
+			return fmt.Errorf("query: create CSV: %w", err)
 		}
 		defer f.Close()
 		return analytics.WriteCSV(f, r)
@@ -147,7 +148,7 @@ func askCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	af := addAnalyticsFlags(fs)
 	outDir := fs.String("out", defaultReports, "directory for generated reports")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	question := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -179,7 +180,7 @@ func reportCmd(ctx context.Context, args []string) error {
 	id := fs.String("id", "", "saved report id (from erp ask)")
 	file := fs.String("file", "", "report definition JSON (instead of -id)")
 	outDir := fs.String("out", defaultReports, "directory for generated reports")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	path := *file

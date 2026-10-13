@@ -13,6 +13,7 @@ import (
 
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 )
 
@@ -70,7 +71,7 @@ func rewrap(ctx context.Context, cfg platformconfig.Config) (rewrapResult, error
 			tenants = append(tenants, id)
 			return nil
 		})
-		return err
+		return errs.Wrapf(err, "scan tenant")
 	})
 	if err != nil {
 		return rewrapResult{}, fmt.Errorf("listing tenants: %w", err)

@@ -53,7 +53,7 @@ func tenantsCmd(ctx context.Context, args []string) error {
 func tenantsFingerprint(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("tenants fingerprint", flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" {
@@ -87,7 +87,7 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+path, bytes.NewReader(body)) // #nosec G704 -- the operator's own control plane, from settings
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("control plane URL %q: %w", base, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
@@ -96,7 +96,7 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	}
 	resp, err := http.DefaultClient.Do(req) // #nosec G704 -- see above
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("control plane %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -121,7 +121,7 @@ func tenantsList(ctx context.Context, args []string) error {
 	orderBy := fs.String("order-by", "", `sort order: "created_at desc" (default) or "name asc"`)
 	size := fs.Int("page-size", 0, "tenants per page (default 50, max 500)")
 	token := fs.String("page-token", "", "next_page_token of the previous page")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	q := url.Values{}
@@ -148,7 +148,7 @@ func tenantsList(ctx context.Context, args []string) error {
 func tenantsGet(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("tenants get", flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" {
@@ -173,7 +173,7 @@ func tenantsCreate(ctx context.Context, args []string) error {
 	email := fs.String("admin-email", "", "the administrator's email (optional)")
 	file := fs.String("config", "", "the first configuration (YAML; erp config generate writes one)")
 	key := fs.String("idempotency-key", "", "Idempotency-Key of the request (default: a new UUID; reuse it to retry safely)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *file == "" {
@@ -206,7 +206,7 @@ func tenantsTransition(ctx context.Context, verb string, args []string) error {
 	fs := flag.NewFlagSet("tenants "+verb, flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
 	ifMatch := fs.String("if-match", "", "the tenant's ETag (default: read it first)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" {

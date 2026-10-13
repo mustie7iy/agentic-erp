@@ -36,7 +36,7 @@ func captureCmd(ctx context.Context, args []string) error {
 	file := fs.String("file", "", "the document: PDF, PNG, JPEG or e-invoice XML")
 	ct := fs.String("content-type", "", "content type of the document (default: by extension)")
 	force := fs.Bool("upload", false, "upload first even for a small document")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *le == "" || *file == "" {
@@ -47,7 +47,7 @@ func captureCmd(ctx context.Context, args []string) error {
 	}
 	doc, err := os.ReadFile(*file)
 	if err != nil {
-		return err
+		return fmt.Errorf("capture: read document: %w", err)
 	}
 	if *ct == "" {
 		*ct = contentTypeOf(*file)
@@ -116,7 +116,7 @@ func upload(ctx context.Context, c *apitools.Client, doc []byte, contentType str
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("capture: upload %s: %w", up.ID, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
@@ -145,7 +145,7 @@ func capture(ctx context.Context, c *apitools.Client, fields map[string]string, 
 	req.Header.Set("Idempotency-Key", uuid.NewString())
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("capture: send: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)

@@ -82,12 +82,12 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	}
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("erp-router: listen on %s: %w", cfg.Addr, err)
 	}
 	adminLn, err := net.Listen("tcp", cfg.AdminAddr)
 	if err != nil {
 		ln.Close()
-		return err
+		return fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
 	}
 	servers := []*http.Server{
 		{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},

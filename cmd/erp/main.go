@@ -40,6 +40,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/sapconfig"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
@@ -152,6 +153,16 @@ func client(tokenVar string) (*apitools.Client, error) {
 	return &apitools.Client{BaseURL: base, Token: token}, nil
 }
 
+// parseFlags parses a command's flags, naming the command in the error. The
+// flag package has already printed the problem and the usage; a -h request
+// stays flag.ErrHelp underneath, which run treats as success.
+func parseFlags(fs *flag.FlagSet, args []string) error {
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("%s: %w", fs.Name(), err)
+	}
+	return nil
+}
+
 type multiFlag []string
 
 func (m *multiFlag) String() string     { return strings.Join(*m, "; ") }
@@ -168,7 +179,7 @@ func call(ctx context.Context, args []string) error {
 	fs.Var(&params, "p", "parameter name=value, repeatable (lists are comma-separated)")
 	body := fs.String("body", "", "request body: JSON, or @file")
 	ifMatch := fs.String("if-match", "", "ETag of the resource as last read")
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := parseFlags(fs, args[1:]); err != nil {
 		return err
 	}
 	c, err := client("ERP_TOKEN")
@@ -197,7 +208,7 @@ func call(ctx context.Context, args []string) error {
 		raw := []byte(*body)
 		if path, ok := strings.CutPrefix(*body, "@"); ok {
 			if raw, err = os.ReadFile(path); err != nil { // #nosec G703 -- a file the user names on the command line
-				return err
+				return fmt.Errorf("call %s: read body: %w", args[0], err)
 			}
 		}
 		var b any
@@ -231,7 +242,7 @@ func token(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("token", flag.ContinueOnError)
 	tenant := fs.String("tenant", "", "tenant id; without it the token is an operator's")
 	subject := fs.String("subject", "", "the principal's (or operator's) subject at the identity provider")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *subject == "" {
@@ -244,12 +255,12 @@ func token(ctx context.Context, args []string) error {
 	body, _ := json.Marshal(map[string]string{"tenant_id": *tenant, "subject": *subject})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(admin, "/")+"/dev/token", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("token: ERP_ADMIN_URL %q: %w", admin, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("token: ask the admin listener: %w", err)
 	}
 	defer resp.Body.Close()
 	var answer struct {
@@ -268,7 +279,7 @@ func genMock(_ context.Context, args []string) error {
 	seed := fs.Uint64("seed", 42, "random seed")
 	year := fs.String("year", "2026", "fiscal year")
 	through := fs.Int("through", 12, "last month with revenue postings, for a year in progress")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	// Without an explicit seed, vary the random stream by year so that two
@@ -295,7 +306,7 @@ func genMock(_ context.Context, args []string) error {
 	for _, t := range tables {
 		fmt.Fprintf(tw, "  %s\t%d\n", t, counts[t])
 	}
-	return tw.Flush()
+	return errs.Wrapf(tw.Flush(), "gen-mock-sap: print counts")
 }
 
 func configCmd(ctx context.Context, args []string) error {
@@ -330,7 +341,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	companies := fs.String("company", "1000", "comma-separated company codes")
 	year := fs.String("year", "2026", "fiscal year (for the extract)")
 	outPath := fs.String("out", "data/config-draft.yaml", "where to write the draft")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	src, err := parseSource(*source)
@@ -344,7 +355,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	cfg, notes := sapconfig.Generate(e, sapconfig.DefaultOptions())
 	doc, _ := cfg.Marshal() // Config.Marshal cannot fail
 	if err := os.WriteFile(*outPath, doc, 0o600); err != nil {
-		return err
+		return fmt.Errorf("config generate: write draft %s: %w", *outPath, err)
 	}
 	fmt.Fprintf(out, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)
 	for _, n := range notes {
@@ -356,7 +367,7 @@ func configGenerate(ctx context.Context, args []string) error {
 func configValidate(args []string) error {
 	fs := flag.NewFlagSet("config validate", flag.ContinueOnError)
 	file := fs.String("file", "", "configuration YAML")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := config.Load(*file)

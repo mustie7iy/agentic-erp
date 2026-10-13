@@ -306,12 +306,12 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 
 	apiLn, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {
-		return err
+		return fmt.Errorf("erp-server: listen on %s: %w", cfg.HTTPAddr, err)
 	}
 	adminLn, err := net.Listen("tcp", cfg.AdminAddr)
 	if err != nil {
 		apiLn.Close()
-		return err
+		return fmt.Errorf("erp-server: admin listen on %s: %w", cfg.AdminAddr, err)
 	}
 	servers := []*http.Server{
 		{Handler: apiHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
