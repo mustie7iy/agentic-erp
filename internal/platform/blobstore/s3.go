@@ -111,7 +111,7 @@ func (s S3) Put(ctx context.Context, key string, content []byte, opts PutOptions
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	switch {
 	case resp.StatusCode == http.StatusPreconditionFailed:
 		return ErrExists
@@ -130,7 +130,7 @@ func (s S3) Get(ctx context.Context, key string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, "", ErrNotFound
@@ -185,7 +185,7 @@ func (s S3) List(ctx context.Context, prefix string) ([]string, error) {
 		} else if derr := xml.NewDecoder(resp.Body).Decode(&page); derr != nil {
 			err = fmt.Errorf("blobstore: LIST %s: %w", prefix, derr)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close() // the page has been decoded; closing frees the connection and cannot change it
 		if err != nil {
 			return nil, err
 		}
@@ -209,7 +209,7 @@ func (s S3) Delete(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	switch {
 	case resp.StatusCode == http.StatusForbidden:
 		return fmt.Errorf("%w: %w", ErrLocked, s.failure(resp, http.MethodDelete, key))
@@ -228,7 +228,7 @@ func (s S3) Stat(ctx context.Context, key string) (int64, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return 0, "", ErrNotFound

@@ -64,7 +64,7 @@ func (m *LocalMaster) ID() string { return m.id }
 // Wrap implements Master.
 func (m *LocalMaster) Wrap(tenant uuid.UUID, key []byte) ([]byte, error) {
 	nonce := make([]byte, m.aead.NonceSize())
-	rand.Read(nonce) // never fails (crypto/rand)
+	_, _ = rand.Read(nonce) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 	return m.aead.Seal(nonce, nonce, key, tenant[:]), nil
 }
 
@@ -284,7 +284,7 @@ func (r *Keyring) Seal(ctx context.Context, tenant uuid.UUID, value string) ([]b
 
 func seal(k *tenantKey, tenant uuid.UUID, value string) []byte {
 	nonce := make([]byte, k.aead.NonceSize())
-	rand.Read(nonce) // never fails (crypto/rand)
+	_, _ = rand.Read(nonce) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 	out := append([]byte{versionTenantKey}, k.id[:]...)
 	out = append(out, nonce...)
 	return k.aead.Seal(out, nonce, []byte(Normalize(value)), tenant[:])
@@ -350,8 +350,8 @@ func (r *Keyring) generate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*t
 		return nil, errors.New("fieldcrypt: no master key to wrap tenant keys with (ERP_FIELD_KEYS)")
 	}
 	data, mac := make([]byte, 32), make([]byte, 32)
-	rand.Read(data) // never fails (crypto/rand)
-	rand.Read(mac)
+	_, _ = rand.Read(data) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
+	_, _ = rand.Read(mac)  // as above
 	primary := r.Masters[0]
 	wrappedData, err := primary.Wrap(tenant, data)
 	if err != nil {

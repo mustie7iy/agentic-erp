@@ -117,7 +117,7 @@ func (w WebIdentity) Credentials(ctx context.Context) (Credentials, error) {
 	if err != nil {
 		return Credentials{}, fmt.Errorf("awscreds: sts: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
@@ -167,7 +167,7 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 		return Credentials{}, ErrNone // no metadata service here
 	}
 	token, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close() // the token has been read; closing frees the connection and cannot change it
 	if resp.StatusCode != http.StatusOK {
 		return Credentials{}, ErrNone
 	}
@@ -178,7 +178,7 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 		if err != nil {
 			return nil, fmt.Errorf("awscreds: imds: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("awscreds: imds: %s: %d", path, resp.StatusCode)

@@ -109,7 +109,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	if err != nil {
 		return Response{}, fmt.Errorf("apitools: %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return Response{}, fmt.Errorf("apitools: %s %s: %w", method, path, err)

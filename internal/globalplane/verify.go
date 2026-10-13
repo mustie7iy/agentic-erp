@@ -191,7 +191,7 @@ func (s *Service) call(ctx context.Context, cell directory.Cell, method, path st
 	if err != nil {
 		return 0, nil, nil, problem.New(http.StatusBadGateway, "platform.cell_unreachable", "Cell unreachable", "Cell "+cell.Name+" did not answer; try again.").WithCause(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	answer, err := io.ReadAll(io.LimitReader(resp.Body, uow.MaxBody))
 	if err != nil {
 		return 0, nil, nil, problem.New(http.StatusBadGateway, "platform.cell_unreachable", "Cell unreachable", "Cell "+cell.Name+" did not finish its answer; try again.").WithCause(err)

@@ -132,7 +132,7 @@ func (k KMS) call(action string, in map[string]any, out any) error {
 	if err != nil {
 		return fmt.Errorf("fieldcrypt: kms %s: %w", action, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		e := &kmsError{Action: action, Status: resp.StatusCode}

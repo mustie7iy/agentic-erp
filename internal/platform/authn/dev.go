@@ -95,6 +95,6 @@ func (d *DevIssuer) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"token": d.Token(tenant, in.Subject), "expires_in": int(DevTokenTTL.Seconds())})
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": d.Token(tenant, in.Subject), "expires_in": int(DevTokenTTL.Seconds())}) // a failed response write means the client is gone: no one is left to tell
 	})
 }

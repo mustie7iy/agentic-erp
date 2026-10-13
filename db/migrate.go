@@ -51,8 +51,10 @@ func migrate(ctx context.Context, conn *pgx.Conn, ms []Migration) (applied []str
 	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
 		return nil, fmt.Errorf("migrate: lock: %w", err)
 	}
-	// A failed unlock needs no handling: the session lock ends with the connection.
-	defer conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", lockKey)
+	// A failed unlock needs no handling: the session lock ends with the
+	// connection, and the unlock fails only on a broken one, which pgx closes
+	// (a pool discards a closed connection rather than reuse it).
+	defer func() { _, _ = conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", lockKey) }()
 	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.erp_schema_migration (
 		version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return nil, fmt.Errorf("migrate: version table: %w", err)

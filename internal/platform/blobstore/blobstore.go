@@ -146,7 +146,7 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 	}
 	_, werr := f.Write(content)
 	if err := errors.Join(werr, f.Close()); err != nil {
-		os.Remove(p)
+		_ = os.Remove(p) // best effort on a path that already fails: the write error is the one reported
 		return fmt.Errorf("blobstore: %w", err)
 	}
 	meta := contentType(opts) + "\n"
@@ -253,7 +253,10 @@ func (d Dir) Delete(_ context.Context, key string) error {
 	if err := os.Remove(d.path(key)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("blobstore: %w", err)
 	}
-	os.Remove(d.path(key) + ".meta")
+	// The content is gone, which is what Delete promises. A sidecar left
+	// behind holds no content, is skipped by List and is rewritten by the
+	// next Put of the key.
+	_ = os.Remove(d.path(key) + ".meta")
 	return nil
 }
 
