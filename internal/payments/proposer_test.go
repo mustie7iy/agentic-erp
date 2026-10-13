@@ -1,12 +1,10 @@
 package payments_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,23 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
-
-type syncBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
-}
 
 func TestProposer(t *testing.T) {
 	e := setup(t)
@@ -117,12 +98,13 @@ func TestProposer(t *testing.T) {
 	}
 
 	// Run logs failed rounds and stops with its context.
-	var logs syncBuffer
+	var logs pgtest.SyncBuffer
 	failing := proposer(t)
 	failing.WorkerRole, failing.Interval, failing.Log = "no_such_role", time.Millisecond, slog.New(slog.NewTextHandler(&logs, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { failing.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "payment proposal failed") },
 		"logs: %s", &logs)
 	cancel()
