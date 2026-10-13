@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -34,16 +35,8 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireStatus(v, "post", Parked); err != nil {
 		return Invoice{}, err
 	}
-	if v.PurchaseOrderID != nil && v.WorkflowRequestID == nil {
-		var clean *bool
-		err := tx.QueryRow(ctx, `SELECT is_clean FROM payables.match_result WHERE supplier_invoice_id = $1 ORDER BY evaluated_at DESC LIMIT 1`, id).Scan(&clean)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return Invoice{}, fmt.Errorf("payables: read latest match of invoice %s: %w", id, err)
-		}
-		if clean == nil || !*clean {
-			return Invoice{}, problem.Conflict("payables.match_required",
-				"An invoice on a purchase order is posted after a clean match or an approved exception; match it first.")
-		}
+	if err := requireCleanMatch(ctx, tx, v); err != nil {
+		return Invoice{}, err
 	}
 	var net int64
 	for _, it := range v.Items {
@@ -59,38 +52,14 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if why := sup.Usable(); why != "" {
 		return Invoice{}, problem.Unprocessable("payables.supplier_not_usable", "The supplier cannot be posted: "+why+".")
 	}
-	date := postingDate
-	if date == nil {
-		date = v.PostingDate
+	date, err := invoicePostingDate(ctx, tx, v, postingDate)
+	if err != nil {
+		return Invoice{}, err
 	}
-	if date == nil {
-		d, err := today(ctx, tx)
-		if err != nil {
-			return Invoice{}, err
-		}
-		date = &d
+	lines, err := e.invoiceLines(ctx, v, sup, *date)
+	if err != nil {
+		return Invoice{}, err
 	}
-	var lines []ledger.PostingLine
-	var taxCode *string
-	for _, it := range v.Items {
-		if it.TaxCode != nil && taxCode == nil {
-			taxCode = it.TaxCode
-		}
-		if it.Amount != 0 {
-			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: it.Amount, TaxCode: it.TaxCode, Text: it.Description})
-		}
-	}
-	if v.Tax != 0 {
-		account, ok, err := e.taxAccount(ctx, v.LegalEntityID, taxCode, *date)
-		if err != nil {
-			return Invoice{}, err
-		}
-		if !ok {
-			return Invoice{}, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
-		}
-		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: v.Tax, TaxCode: taxCode})
-	}
-	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -v.Gross, PartnerID: &v.SupplierID})
 	text := "Supplier invoice " + v.DocumentNumber
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: DocumentType, DocumentDate: v.InvoiceDate,
 		PostingDate: *date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
@@ -111,6 +80,69 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": date.Format(time.DateOnly),
 			"gross_amount": amount(posted.Gross, posted.Currency, posted.Exponent), "tax_amount": amount(posted.Tax, posted.Currency, posted.Exponent),
 			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
+}
+
+// requireCleanMatch lets an invoice on a purchase order post only after a
+// clean latest match, unless an approved exception request is linked.
+func requireCleanMatch(ctx context.Context, tx pgx.Tx, v Invoice) error {
+	if v.PurchaseOrderID == nil || v.WorkflowRequestID != nil {
+		return nil
+	}
+	var clean *bool
+	err := tx.QueryRow(ctx, `SELECT is_clean FROM payables.match_result WHERE supplier_invoice_id = $1 ORDER BY evaluated_at DESC LIMIT 1`, v.ID).Scan(&clean)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("payables: read latest match of invoice %s: %w", v.ID, err)
+	}
+	if clean == nil || !*clean {
+		return problem.Conflict("payables.match_required",
+			"An invoice on a purchase order is posted after a clean match or an approved exception; match it first.")
+	}
+	return nil
+}
+
+// invoicePostingDate is the requested posting date, else the invoice's,
+// else today.
+func invoicePostingDate(ctx context.Context, tx pgx.Tx, v Invoice, postingDate *time.Time) (*time.Time, error) {
+	date := postingDate
+	if date == nil {
+		date = v.PostingDate
+	}
+	if date == nil {
+		d, err := today(ctx, tx)
+		if err != nil {
+			return nil, err
+		}
+		date = &d
+	}
+	return date, nil
+}
+
+// invoiceLines builds the entry's lines: Dr expense per non-zero item, Dr
+// input tax on the first item tax code's account, Cr the supplier's
+// reconciliation account.
+func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Supplier, date time.Time) ([]ledger.PostingLine, error) {
+	var lines []ledger.PostingLine
+	var taxCode *string
+	for _, it := range v.Items {
+		if it.TaxCode != nil && taxCode == nil {
+			taxCode = it.TaxCode
+		}
+		if it.Amount != 0 {
+			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: it.Amount, TaxCode: it.TaxCode, Text: it.Description})
+		}
+	}
+	if v.Tax != 0 {
+		account, ok, err := e.taxAccount(ctx, v.LegalEntityID, taxCode, date)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
+		}
+		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: v.Tax, TaxCode: taxCode})
+	}
+	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -v.Gross, PartnerID: &v.SupplierID})
+	return lines, nil
 }
 
 // taxAccount is the account of the tax code valid on the date, else the
