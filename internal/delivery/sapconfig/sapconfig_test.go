@@ -102,8 +102,6 @@ func TestAlphaMatchesTheMigration(t *testing.T) {
 	}
 }
 
-// SAP numbers that do not parse, or that the configuration cannot hold
-// exactly, are reported for the reviewer instead of silently defaulted.
 // A tolerance percentage without a leading zero reads like one with it,
 // and one too large to hold is reported as such, not as "not a number".
 func TestTolerancePercentageForms(t *testing.T) {
@@ -134,6 +132,8 @@ func TestTolerancePercentageForms(t *testing.T) {
 	}
 }
 
+// SAP numbers that do not parse, or that the configuration cannot hold
+// exactly, are reported for the reviewer instead of silently defaulted.
 func TestUnparseableNumbersAreNoted(t *testing.T) {
 	cases := map[string]struct {
 		proz, ztag1 string
