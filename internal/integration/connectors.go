@@ -141,7 +141,7 @@ func CreateConnector(ctx context.Context, in NewConnector) (Connector, error) {
 		VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7) RETURNING `+connectorColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), in.Kind, in.Name, in.Settings, in.SecretRef, p.ID))
 	if err != nil {
-		return Connector{}, err
+		return Connector{}, fmt.Errorf("integration: create connector %q: %w", in.Name, err)
 	}
 	return c, record(ctx, "integration.connector.create", c.ID, map[string]any{"kind": c.Kind, "name": c.Name}, statusEvent(c, "connector_enabled", nil))
 }
@@ -181,7 +181,7 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET name = $2, settings = $3, secret_ref = $4, version = version + 1,
 		updated_by = $5 WHERE id = $1 RETURNING `+connectorColumns, id, c.Name, c.Settings, c.SecretRef, p.ID))
 	if err != nil {
-		return Connector{}, err
+		return Connector{}, fmt.Errorf("integration: update connector %s: %w", id, err)
 	}
 	return updated, record(ctx, "integration.connector.update", id, map[string]any{"name": updated.Name, "secret_ref_set": updated.SecretRef != nil})
 }
@@ -205,7 +205,7 @@ func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+connectorColumns, id, status, p.ID))
 	if err != nil {
-		return Connector{}, err
+		return Connector{}, fmt.Errorf("integration: set connector %s to %s: %w", id, status, err)
 	}
 	name, action := "connector_enabled", "integration.connector.enable"
 	if status == "disabled" {

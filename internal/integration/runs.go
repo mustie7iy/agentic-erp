@@ -134,7 +134,7 @@ func (e *Endpoints) CreateRun(ctx context.Context, in NewRun) (Run, error) {
 		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7) RETURNING `+runColumns, p.TenantID, uuid.Must(uuid.NewV7()), c.ID, in.Scope, in.Mode,
 		in.IsRehearsal, p.ID))
 	if err != nil {
-		return Run{}, err
+		return Run{}, fmt.Errorf("integration: create migration run for connector %s: %w", c.ID, err)
 	}
 	return r, record(ctx, "integration.migration_run.create", r.ID, map[string]any{"connector_id": c.ID, "mode": r.Mode, "is_rehearsal": r.IsRehearsal,
 		"scope": r.Scope})
@@ -270,7 +270,7 @@ func finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operat
 		started_at = coalesce(started_at, now()), finished_at = CASE WHEN $5 THEN now() END, version = version + 1 WHERE id = $1 RETURNING `+runColumns,
 		r.ID, status, report, op.ID, final))
 	if err != nil {
-		return op, err
+		return op, fmt.Errorf("integration: record migration run %s as %s: %w", r.ID, status, err)
 	}
 	var events []outbox.Event
 	if final {
