@@ -131,7 +131,7 @@ func TestRouting(t *testing.T) {
 	srv := httptest.NewServer(rt)
 	defer srv.Close()
 	do := func(method, path, token, body string) (int, map[string]any, http.Header) {
-		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req, _ := http.NewRequestWithContext(t.Context(), method, srv.URL+path, strings.NewReader(body))
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}

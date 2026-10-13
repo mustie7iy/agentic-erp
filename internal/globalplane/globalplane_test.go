@@ -64,7 +64,7 @@ func (p *plane) operator(subject string) string {
 
 func (p *plane) do(method, path, body string, headers map[string]string) (int, map[string]any, http.Header) {
 	p.t.Helper()
-	req, _ := http.NewRequest(method, p.srv.URL+path, strings.NewReader(body))
+	req, _ := http.NewRequestWithContext(p.t.Context(), method, p.srv.URL+path, strings.NewReader(body))
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}

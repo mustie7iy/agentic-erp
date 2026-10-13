@@ -299,7 +299,7 @@ func TestPresignedUploads(t *testing.T) {
 		t.Fatalf("url: %s", url)
 	}
 	pdf := "%PDF-1.7 presigned"
-	req, _ := http.NewRequest(http.MethodPut, url, strings.NewReader(pdf))
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, url, strings.NewReader(pdf))
 	req.Header.Set("Content-Type", "application/pdf")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {

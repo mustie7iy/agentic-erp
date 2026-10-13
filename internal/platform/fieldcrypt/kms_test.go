@@ -96,7 +96,7 @@ func TestKMSMaster(t *testing.T) {
 		t.Fatalf("garbage: %v (%d)", err, ticks)
 	}
 	// The double itself: an unknown action and a request that is not the protocol.
-	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("unsigned: %v %v", resp, err)

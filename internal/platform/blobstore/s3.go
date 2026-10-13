@@ -244,7 +244,7 @@ func (s S3) PresignPut(ctx context.Context, key, contentType string, expires tim
 	if err := checkKey(key); err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPut, s.url(key), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, s.url(key), nil)
 	if err != nil {
 		return "", fmt.Errorf("blobstore: %w", err)
 	}

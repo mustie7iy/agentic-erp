@@ -221,7 +221,7 @@ func TestStatAndPresignedUploads(t *testing.T) {
 		t.Fatal(err)
 	}
 	put := func(url, contentType string) int {
-		req, _ := http.NewRequest(http.MethodPut, url, strings.NewReader("%PDF-1.7"))
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPut, url, strings.NewReader("%PDF-1.7"))
 		req.Header.Set("Content-Type", contentType)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
