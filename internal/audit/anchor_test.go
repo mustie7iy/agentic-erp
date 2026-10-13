@@ -102,8 +102,23 @@ func TestAnchoring(t *testing.T) {
 	key := blobstore.Key(c.Tenant.ID, blobstore.KindAnchors, audit.ObjectName(3))
 	content, ct, err := store.Get(ctx, key)
 	var obj audit.Anchor
-	if err != nil || ct != "application/json" || json.Unmarshal(content, &obj) != nil || obj.Seq != 3 || obj.TenantID != c.Tenant.ID || len(obj.Hash) != 64 {
-		t.Fatalf("object: %s %s %v", content, ct, err)
+	if err != nil {
+		t.Fatalf("object: %v", err)
+	}
+	if ct != "application/json" {
+		t.Fatalf("object content type: got %s, want application/json", ct)
+	}
+	if err := json.Unmarshal(content, &obj); err != nil {
+		t.Fatalf("object %s: %v", content, err)
+	}
+	if obj.Seq != 3 {
+		t.Fatalf("object seq: got %d, want 3", obj.Seq)
+	}
+	if obj.TenantID != c.Tenant.ID {
+		t.Fatalf("object tenant: got %v, want %v", obj.TenantID, c.Tenant.ID)
+	}
+	if len(obj.Hash) != 64 {
+		t.Fatalf("object hash: got %d characters, want 64", len(obj.Hash))
 	}
 	want := obj.AnchoredAt.Add(w.Retention).UTC().Format(time.RFC3339)
 	if meta, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(key)) + ".meta"); !strings.Contains(string(meta), want) {
@@ -122,8 +137,10 @@ func TestAnchoring(t *testing.T) {
 	}
 	// Verification starts from the last anchor by default and checks the anchors in range.
 	res := verify(t, c, store, nil, nil)
-	if res["verified"] != true || res["anchors_checked"] != float64(1) || res["checked"] != float64(1) {
-		t.Fatalf("default range: %v", res)
+	for field, want := range map[string]any{"verified": true, "anchors_checked": float64(1), "checked": float64(1)} {
+		if res[field] != want {
+			t.Fatalf("default range %s: got %v, want %v", field, res[field], want)
+		}
 	}
 	one := int64(1)
 	res = verify(t, c, store, &one, nil)
@@ -222,8 +239,10 @@ func TestAnchoringFailures(t *testing.T) {
 	ctx := context.Background()
 	// A store that refuses writes anchors nothing and says so; reads failing during a check are reported.
 	w := anchorer(t, failingStore{err: errors.New("store down")})
-	if n, err := w.RunOnce(ctx); err == nil || n != 0 || !strings.Contains(err.Error(), "store down") {
-		t.Fatalf("%d %v", n, err)
+	if n, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "store down") {
+		t.Fatalf("got %v, want the store's failure", err)
+	} else if n != 0 {
+		t.Fatalf("got %d anchored, want 0", n)
 	}
 	if got := anchors(t, c.Tenant.ID); len(got) != 0 {
 		t.Fatalf("anchored with a failing store: %v", got)

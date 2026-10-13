@@ -47,8 +47,23 @@ func TestScheduledVerification(t *testing.T) {
 		BrokenAt       *int64
 	}
 	row := pgtest.Admin(t).QueryRow(ctx, `SELECT ok, head_seq, checked, anchors_checked, broken_at FROM audit.verification WHERE tenant_id = $1 ORDER BY verified_at DESC LIMIT 1`, e.Tenant.ID)
-	if err := row.Scan(&rec.OK, &rec.HeadSeq, &rec.Checked, &rec.AnchorsChecked, &rec.BrokenAt); err != nil || !rec.OK || rec.HeadSeq == 0 || rec.Checked != rec.HeadSeq || rec.AnchorsChecked != 1 || rec.BrokenAt != nil {
-		t.Fatalf("%+v %v", rec, err)
+	if err := row.Scan(&rec.OK, &rec.HeadSeq, &rec.Checked, &rec.AnchorsChecked, &rec.BrokenAt); err != nil {
+		t.Fatalf("read the verification: %v", err)
+	}
+	if !rec.OK {
+		t.Fatalf("verification ok: got false, want true")
+	}
+	if rec.HeadSeq == 0 {
+		t.Fatalf("verification head seq: got 0, want the chain's head")
+	}
+	if rec.Checked != rec.HeadSeq {
+		t.Fatalf("verification checked: got %d, want the head seq %d", rec.Checked, rec.HeadSeq)
+	}
+	if rec.AnchorsChecked != 1 {
+		t.Fatalf("verification anchors checked: got %d, want 1", rec.AnchorsChecked)
+	}
+	if rec.BrokenAt != nil {
+		t.Fatalf("verification broken at: got %d, want none", *rec.BrokenAt)
 	}
 	// While the chain is intact, a store that cannot be read fails the anchor check; without a store the anchors are compared to the events only.
 	v.Store = failingStore{err: errors.New("store down")}
@@ -57,8 +72,10 @@ func TestScheduledVerification(t *testing.T) {
 	}
 	v.Store = nil
 	clock = clock.Add(time.Minute)
-	if ver, err := v.Verify(ctx, e.Tenant.ID); err != nil || !ver.OK || ver.AnchorsChecked != 1 {
-		t.Fatalf("without a store: %+v %v", ver, err)
+	if ver, err := v.Verify(ctx, e.Tenant.ID); err != nil {
+		t.Fatalf("without a store: %v", err)
+	} else if !ver.OK || ver.AnchorsChecked != 1 {
+		t.Fatalf("without a store: got ok %v with %d anchors checked, want ok with 1", ver.OK, ver.AnchorsChecked)
 	}
 	v.Store = store
 	// An event rewritten behind the chain's back: the next round records the break, logs it and publishes the alarm, once.
@@ -67,8 +84,17 @@ func TestScheduledVerification(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		clock = clock.Add(time.Hour)
 		ver, err := v.Verify(ctx, e.Tenant.ID)
-		if err != nil || ver.OK || ver.BrokenAt != 1 || !ver.VerifiedAt.Equal(clock) {
-			t.Fatalf("round %d: %+v %v", i, ver, err)
+		if err != nil {
+			t.Fatalf("round %d: %v", i, err)
+		}
+		if ver.OK {
+			t.Fatalf("round %d ok: got true, want false", i)
+		}
+		if ver.BrokenAt != 1 {
+			t.Fatalf("round %d broken at: got %d, want 1", i, ver.BrokenAt)
+		}
+		if !ver.VerifiedAt.Equal(clock) {
+			t.Fatalf("round %d verified at: got %v, want %v", i, ver.VerifiedAt, clock)
 		}
 	}
 	alarms := 0
