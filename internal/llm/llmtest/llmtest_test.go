@@ -28,8 +28,11 @@ func TestScriptControls(t *testing.T) {
 		t.Fatalf("calls %d", srv.Calls())
 	}
 	fn := ToolFn("t", func(body string) any { return map[string]any{"len": len(body)} })
-	if fn.Tool != "t" || fn.Input("abc").(map[string]any)["len"] != 3 {
-		t.Fatal("ToolFn")
+	if fn.Tool != "t" {
+		t.Errorf("ToolFn tool: got %q, want %q", fn.Tool, "t")
+	}
+	if got := fn.Input("abc").(map[string]any)["len"]; got != 3 {
+		t.Errorf("ToolFn input len: got %v, want 3", got)
 	}
 }
 

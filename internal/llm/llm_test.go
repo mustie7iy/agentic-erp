@@ -51,7 +51,7 @@ func TestRunToolsTextAndRefusal(t *testing.T) {
 	req := srv.Requests[0]
 	for _, frag := range []string{`"effort":"medium"`, `"fallbacks":"default"`, `"cache_control"`, `"model":"claude-opus-5-5"`} {
 		if !strings.Contains(req, frag) {
-			t.Errorf("request lacks %s", frag)
+			t.Errorf("request: got %s, want it to contain %s", req, frag)
 		}
 	}
 	if !strings.Contains(srv.Headers[0].Get("anthropic-beta"), "server-side-fallback-2026-07-01") {
@@ -67,8 +67,11 @@ func TestRunToolsTextAndRefusal(t *testing.T) {
 	if _, err := r3.RunTools(context.Background(), nil, r3.Params("s", anthropic.NewBetaTextBlock("x")), 2); err == nil {
 		t.Fatal("server errors propagate")
 	}
-	if down.Calls() != 1 || len(down.ToolNames()) != 0 {
-		t.Fatal("fake server bookkeeping")
+	if got := down.Calls(); got != 1 {
+		t.Errorf("fake server calls: got %d, want 1", got)
+	}
+	if got := down.ToolNames(); len(got) != 0 {
+		t.Errorf("fake server tool names: got %v, want none", got)
 	}
 }
 
