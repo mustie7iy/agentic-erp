@@ -10,14 +10,14 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
-func (e env) rate(t testing.TB, from, to, validFrom, rate string) {
-	t.Helper()
+func (e env) rate(tb testing.TB, from, to, validFrom, rate string) {
+	tb.Helper()
 	e.Must(201, "POST", "/v1/exchange-rates", fmt.Sprintf(`{"rate_type": "average", "from_currency": %q, "to_currency": %q, "valid_from": %q, "rate": %q, "source": "ECB"}`,
 		from, to, validFrom, rate), "")
 }
 
-func amounts(t testing.TB, je map[string]any, field string) string {
-	t.Helper()
+func amounts(tb testing.TB, je map[string]any, field string) string {
+	tb.Helper()
 	var out []string
 	for _, l := range je["lines"].([]any) {
 		out = append(out, l.(map[string]any)[field].(map[string]any)["amount"].(string))

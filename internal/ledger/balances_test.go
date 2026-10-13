@@ -18,13 +18,13 @@ import (
 )
 
 // project runs the projector until nothing is pending in any tenant.
-func project(t testing.TB) {
-	t.Helper()
-	p := &ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector"}
+func project(tb testing.TB) {
+	tb.Helper()
+	p := &ledger.Projector{Pool: pgtest.Pool(tb), Role: "erp_projector"}
 	for {
 		n, err := p.RunOnce(context.Background())
 		if err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 		if n == 0 {
 			return
@@ -33,8 +33,8 @@ func project(t testing.TB) {
 }
 
 // trialBalance lists the balances of a query as "account period debit/credit lc".
-func (e env) trialBalance(t testing.TB, q string) []string {
-	t.Helper()
+func (e env) trialBalance(tb testing.TB, q string) []string {
+	tb.Helper()
 	page, _ := e.Must(200, "GET", "/v1/balances?"+q, "", "")
 	var out []string
 	for _, it := range page["items"].([]any) {

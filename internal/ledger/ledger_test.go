@@ -28,15 +28,15 @@ var perms = []string{"ledger.account.read", "ledger.period.read", "ledger.period
 
 // document is the prototype's configuration (companies 1000 in USD and
 // 2000 in EUR) with journal number ranges for 2026.
-func document(t testing.TB) *config.Config {
-	t.Helper()
+func document(tb testing.TB) *config.Config {
+	tb.Helper()
 	b, err := os.ReadFile("../config/testdata/valid.yaml")
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	c, err := config.Parse(b)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	for _, co := range []string{"1000", "2000"} {
 		for _, dt := range []string{"journal_sa", "journal_ab"} {
@@ -66,56 +66,56 @@ type env struct {
 
 // setup creates a tenant (group currency EUR) with legal entities 1000 and
 // 2000, bootstraps the configuration and opens the 2026 periods of both.
-func setup(t testing.TB) env {
-	t.Helper()
-	ten := pgtest.NewTenant(t, perms...)
-	ten.AllCompanies(t, ten.Human)
-	e := env{Client: apitest.Client{T: t, API: apitest.New(t), Tenant: ten, As: ten.Human}, ten: ten,
+func setup(tb testing.TB) env {
+	tb.Helper()
+	ten := pgtest.NewTenant(tb, perms...)
+	ten.AllCompanies(tb, ten.Human)
+	e := env{Client: apitest.Client{T: tb, API: apitest.New(tb), Tenant: ten, As: ten.Human}, ten: ten,
 		us: uuid.Must(uuid.NewV7()), de: uuid.Must(uuid.NewV7()), usCal: uuid.Must(uuid.NewV7()), deCal: uuid.Must(uuid.NewV7())}
-	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+	pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 		VALUES ($1, $2, '1000', 'Acme Corp US', 'US', 'USD', $4, 'active', $6, $6), ($1, $3, '2000', 'Acme GmbH', 'DE', 'EUR', $5, 'active', $6, $6)`,
 		ten.ID, e.us, e.de, e.usCal, e.deCal, ten.Human.ID)
-	doc, _ := json.Marshal(document(t))
-	if err := apitest.Committed(t, ten, ten.Human, func(ctx context.Context) error {
+	doc, _ := json.Marshal(document(tb))
+	if err := apitest.Committed(tb, ten, ten.Human, func(ctx context.Context) error {
 		_, err := configuration.Bootstrap(ctx, deps(), doc)
 		return err
 	}); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'open', version = version + 1 WHERE tenant_id = $1 AND fiscal_year = 2026 AND period <= 12`, ten.ID)
-	e.supplier, e.vendor = e.newSupplier(t, "BP00000001"), e.newSupplier(t, "BP00000002")
+	pgtest.Exec(tb, `UPDATE ledger.period_status SET status = 'open', version = version + 1 WHERE tenant_id = $1 AND fiscal_year = 2026 AND period <= 12`, ten.ID)
+	e.supplier, e.vendor = e.newSupplier(tb, "BP00000001"), e.newSupplier(tb, "BP00000002")
 	return e
 }
 
 // newSupplier inserts an active supplier set up in both legal entities on
 // their payables reconciliation account 211000.
-func (e env) newSupplier(t testing.TB, number string) uuid.UUID {
-	t.Helper()
+func (e env) newSupplier(tb testing.TB, number string) uuid.UUID {
+	tb.Helper()
 	id := uuid.Must(uuid.NewV7())
-	pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
+	pgtest.Exec(tb, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
 		VALUES ($1, $2, $3, 'organization', $3, 'US', 'active', $4, $4)`, e.ten.ID, id, number, e.ten.Human.ID)
-	pgtest.Exec(t, `INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1, $2, 'supplier', $3)`, e.ten.ID, id, e.ten.Human.ID)
-	pgtest.Exec(t, `INSERT INTO partner.supplier_company (tenant_id, partner_id, legal_entity_id, reconciliation_account_id, payment_term_code, created_by, updated_by)
+	pgtest.Exec(tb, `INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1, $2, 'supplier', $3)`, e.ten.ID, id, e.ten.Human.ID)
+	pgtest.Exec(tb, `INSERT INTO partner.supplier_company (tenant_id, partner_id, legal_entity_id, reconciliation_account_id, payment_term_code, created_by, updated_by)
 		SELECT $1, $2, le.id, a.id, 'NT30', $3, $3 FROM tenancy.legal_entity le JOIN ledger.gl_account a ON a.tenant_id = le.tenant_id AND a.number = '211000'
 		JOIN ledger.chart_of_accounts c ON c.id = a.chart_id AND c.code = le.code WHERE le.tenant_id = $1`, e.ten.ID, id, e.ten.Human.ID)
 	return id
 }
 
 // account is the id of an account of a company's chart.
-func (e env) account(t testing.TB, company, number string) string {
-	t.Helper()
+func (e env) account(tb testing.TB, company, number string) string {
+	tb.Helper()
 	page, _ := e.Must(200, "GET", "/v1/accounts?number="+number, "", "")
 	for _, it := range page["items"].([]any) {
 		a := it.(map[string]any)
 		var chart string
-		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT code FROM ledger.chart_of_accounts WHERE id = $1`, a["chart_id"]).Scan(&chart); err != nil {
-			t.Fatalf("read chart of account: %v", err)
+		if err := pgtest.Admin(tb).QueryRow(context.Background(), `SELECT code FROM ledger.chart_of_accounts WHERE id = $1`, a["chart_id"]).Scan(&chart); err != nil {
+			tb.Fatalf("read chart of account: %v", err)
 		}
 		if chart == company {
 			return a["id"].(string)
 		}
 	}
-	t.Fatalf("no account %s/%s", company, number)
+	tb.Fatalf("no account %s/%s", company, number)
 	return ""
 }
 
@@ -137,9 +137,9 @@ func entry(le uuid.UUID, date, currency string, lines ...line) string {
 		le, date, date, currency, strings.Join(parts, ", "))
 }
 
-func events(t testing.TB, ten pgtest.Tenant, name string) []map[string]any {
-	t.Helper()
-	return apitest.Published(t, ten, outbox.Event{Context: "ledger", Name: name})
+func events(tb testing.TB, ten pgtest.Tenant, name string) []map[string]any {
+	tb.Helper()
+	return apitest.Published(tb, ten, outbox.Event{Context: "ledger", Name: name})
 }
 
 func TestPostAndReverse(t *testing.T) {
