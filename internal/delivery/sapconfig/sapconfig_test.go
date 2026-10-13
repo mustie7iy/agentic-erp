@@ -132,6 +132,28 @@ func TestTolerancePercentageForms(t *testing.T) {
 	}
 }
 
+// A payment term whose days do not parse must not validate as "due at
+// once": payments would propose every invoice under it on its document
+// date. The draft fails validation on that term until someone sets it.
+func TestUnparseableDaysFailValidation(t *testing.T) {
+	for _, ztag1 := range []string{"abc", "", "2.5"} {
+		t.Run(ztag1, func(t *testing.T) {
+			e := sap.GenerateMock(42, "2026")
+			e.T052 = append(e.T052, sap.T052{ZTERM: "NT99", ZTAG1: ztag1, TEXT1: "Odd"})
+			c, _ := Generate(e, DefaultOptions())
+			var found bool
+			for _, f := range config.Validate(c) {
+				if f.Path == "payment_terms[NT99].net_days" && f.Severity == config.SevError {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("got no error on payment_terms[NT99].net_days, want one: %v", config.Validate(c))
+			}
+		})
+	}
+}
+
 // SAP numbers that do not parse, or that the configuration cannot hold
 // exactly, are reported for the reviewer instead of silently defaulted.
 func TestUnparseableNumbersAreNoted(t *testing.T) {
@@ -142,9 +164,9 @@ func TestUnparseableNumbersAreNoted(t *testing.T) {
 	}{
 		"whole":            {"3", "30", 3, 30, ""},
 		"decimal zero":     {"3.0", "030", 3, 30, ""},
-		"decimal fraction": {"2.5", "2.5", 2, 0, `"2.5"`},
-		"not a number":     {"abc", "abc", 2, 0, `"abc"`},
-		"empty":            {"", "", 2, 0, `""`},
+		"decimal fraction": {"2.5", "2.5", 2, -1, `"2.5"`},
+		"not a number":     {"abc", "abc", 2, -1, `"abc"`},
+		"empty":            {"", "", 2, -1, `""`},
 	}
 	paths := []string{"companies[1000].invoice_tolerance.price_percent", "payment_terms[NT30].net_days"}
 	for name, tc := range cases {

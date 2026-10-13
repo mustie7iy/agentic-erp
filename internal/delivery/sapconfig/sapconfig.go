@@ -109,16 +109,23 @@ type gen struct {
 
 func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}) }
 
+// unknownDays marks a payment term whose SAP days could not be read. Any
+// guess would be wrong in a way that pays early or late (0 days would
+// propose every invoice under the term on its document date), so the
+// draft carries a value config.Validate refuses ("must be 0-365" on
+// payment_terms[KEY].net_days) until a reviewer sets the real one.
+const unknownDays = -1
+
 // paymentTerms is SAP's payment terms (T052), or a net-30 placeholder with
 // a note when the extract has none. Days are whole numbers in SAP; a term
-// whose days do not parse gets 0 (due at once) and a note.
+// whose days do not parse gets unknownDays and a note.
 func (g *gen) paymentTerms() []config.PaymentTerm {
 	var out []config.PaymentTerm
 	for _, t := range g.e.T052 {
 		days, err := strconv.Atoi(strings.TrimSpace(t.ZTAG1))
 		if err != nil {
-			days = 0
-			g.note("payment_terms["+t.ZTERM+"].net_days", fmt.Sprintf("T052 days %q are not a whole number; used 0 (due at once)", t.ZTAG1))
+			days = unknownDays
+			g.note("payment_terms["+t.ZTERM+"].net_days", fmt.Sprintf("T052 days %q are not a whole number; set the term's days (left at %d, which fails validation)", t.ZTAG1, unknownDays))
 		}
 		out = append(out, config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: days})
 	}
