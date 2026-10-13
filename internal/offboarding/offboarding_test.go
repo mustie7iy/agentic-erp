@@ -313,8 +313,8 @@ func TestOffboardingFailures(t *testing.T) {
 	// A commit that fails.
 	w = worker(t, pool, store, &clock)
 	w.Begin = brokenCommitAt(pool, 2)
-	if _, err := w.Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("export commit: %v", err)
+	if _, err := w.Export(ctx, tenant); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("export commit: got %v, want %v", err, pgtest.ErrInjected)
 	}
 	// Each database statement of an export failing in turn is reported.
 	// The transactions themselves failing to start, the first and the second.
@@ -402,8 +402,8 @@ func TestOffboardingFailures(t *testing.T) {
 	// Commits that fail, and a tenant erased by another round between the transactions.
 	for k := 1; k <= 2; k++ {
 		plain.Begin = brokenCommitAt(pool, k)
-		if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "commit failed") {
-			t.Fatalf("erase commit %d: %v", k, err)
+		if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("erase commit %d: got %v, want %v", k, err, pgtest.ErrInjected)
 		}
 	}
 	plain.Begin = interfering(pool, 2, func() {
@@ -496,15 +496,9 @@ func (m manifestless) Put(ctx context.Context, key string, content []byte, opts 
 	return m.Store.Put(ctx, key, content, opts)
 }
 
-// brokenCommit is a transaction whose commit fails.
-type brokenCommit struct{ pgx.Tx }
-
-func (b brokenCommit) Commit(ctx context.Context) error {
-	b.Rollback(ctx)
-	return errors.New("commit failed")
-}
-
 // brokenCommitAt breaks the commit of the k-th transaction a worker starts.
+// It counts transactions, which pgtest.FailingTx does not, and lets
+// FailingTx fail the commit.
 func brokenCommitAt(pool *database.Pool, k int) func(context.Context, database.Scope) (pgx.Tx, error) {
 	calls := 0
 	return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -513,7 +507,7 @@ func brokenCommitAt(pool *database.Pool, k int) func(context.Context, database.S
 		if err != nil || calls != k {
 			return tx, err
 		}
-		return brokenCommit{tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
 }
 
