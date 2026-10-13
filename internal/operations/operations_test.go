@@ -225,15 +225,21 @@ func TestCancelOperation(t *testing.T) {
 	var audits, events int
 	var payload []byte
 	admin := pgtest.Admin(t)
-	admin.QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'platform.operation.cancel'
-		AND object_id = $2 AND actor_id = $3 AND actor_kind = 'agent'`, ten.ID, o.ID, ten.Agent.ID).Scan(&audits)
-	admin.QueryRow(context.Background(), `SELECT count(*), max(payload::text) FROM platform.outbox WHERE tenant_id = $1 AND aggregate_id = $2
-		AND event_type = 'com.example.erp.platform.operation_completed.v1' AND actor_id = $3`, ten.ID, o.ID, ten.Agent.ID).Scan(&events, &payload)
+	if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'platform.operation.cancel'
+		AND object_id = $2 AND actor_id = $3 AND actor_kind = 'agent'`, ten.ID, o.ID, ten.Agent.ID).Scan(&audits); err != nil {
+		t.Fatalf("count cancel audits: %v", err)
+	}
+	if err := admin.QueryRow(context.Background(), `SELECT count(*), max(payload::text) FROM platform.outbox WHERE tenant_id = $1 AND aggregate_id = $2
+		AND event_type = 'com.example.erp.platform.operation_completed.v1' AND actor_id = $3`, ten.ID, o.ID, ten.Agent.ID).Scan(&events, &payload); err != nil {
+		t.Fatalf("read completion events: %v", err)
+	}
 	if audits != 1 || events != 1 {
 		t.Fatalf("audits %d events %d", audits, events)
 	}
 	var ev map[string]any
-	json.Unmarshal(payload, &ev)
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		t.Fatalf("decode the event: %v", err)
+	}
 	if ev["status"] != "cancelled" || ev["operation_id"] != o.ID.String() || ev["error"] != nil {
 		t.Fatalf("event %v", ev)
 	}
@@ -245,7 +251,9 @@ func TestCancelOperation(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body)
 	}
-	admin.QueryRow(context.Background(), `SELECT payload::text FROM platform.outbox WHERE aggregate_id = $1`, running.ID).Scan(&payload)
+	if err := admin.QueryRow(context.Background(), `SELECT payload::text FROM platform.outbox WHERE aggregate_id = $1`, running.ID).Scan(&payload); err != nil {
+		t.Fatalf("read the failure event: %v", err)
+	}
 	if !strings.Contains(string(payload), `"message": "SAP not reachable"`) {
 		t.Fatalf("event %s", payload)
 	}
