@@ -131,10 +131,12 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 	}
 	for name, call := range calls {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Errorf("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		})
 	}
 	apitest.EveryFailure(t, other.Tenant, other.Tenant.Human, "load", func(ctx context.Context) error {
 		_, err := ho.StartRun(ctx, first, yes)
@@ -187,8 +189,10 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
+				t.Errorf("got nil error, want the call refused")
+			}
+		})
 	}
 }

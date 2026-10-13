@@ -132,10 +132,12 @@ func TestRunsWithAnEngine(t *testing.T) {
 		"execute reconcile":  func(ctx context.Context) error { _, err := h.Execute(ctx, reconciling); return err },
 		"execute unreadable": func(ctx context.Context) error { _, err := h.Execute(ctx, stillUnreadable); return err },
 	} {
-		if err := call(ctx); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(ctx); err == nil {
+				t.Errorf("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		})
 	}
 	// Putting an unreadable run back reports a missing audit buffer (a call
 	// outside the unit of work's setup).
