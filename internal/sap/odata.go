@@ -153,46 +153,63 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 			q.Set("sap-client", o.Client)
 		}
 		u := fmt.Sprintf("%s/sap/opu/odata/sap/%s/%s?%s", strings.TrimRight(o.BaseURL, "/"), em.Service, em.Entity, q.Encode())
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		results, err := o.page(ctx, httpc, u, skip)
 		if err != nil {
-			return nil, fmt.Errorf("build request for page at offset %d: %w", skip, err)
+			return nil, err
 		}
-		req.SetBasicAuth(o.User, o.Password)
-		req.Header.Set("Accept", "application/json")
-		resp, err := httpc.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("request page at offset %d: %w", skip, err)
-		}
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read page at offset %d: %w", skip, err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("HTTP %d: %.300s", resp.StatusCode, body)
-		}
-		var page struct {
-			D struct {
-				Results []map[string]any `json:"results"`
-			} `json:"d"`
-		}
-		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("decode page: %w", err)
-		}
-		for _, rec := range page.D.Results {
-			row := map[string]string{}
-			for k, v := range em.Static {
-				row[k] = v
-			}
-			for sapField, prop := range em.Fields {
-				row[sapField] = odataValue(rec[prop])
-			}
-			out = append(out, row)
-		}
-		if len(page.D.Results) < pageSize {
+		out = append(out, odataRows(em, results)...)
+		if len(results) < pageSize {
 			return out, nil
 		}
 	}
+}
+
+// page reads one page of an entity set.
+func (o *ODataSource) page(ctx context.Context, httpc *http.Client, u string, skip int) ([]map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request for page at offset %d: %w", skip, err)
+	}
+	req.SetBasicAuth(o.User, o.Password)
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request page at offset %d: %w", skip, err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close() // the body has been read; a close error cannot change what it held
+	if err != nil {
+		return nil, fmt.Errorf("read page at offset %d: %w", skip, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d: %.300s", resp.StatusCode, body)
+	}
+	var page struct {
+		D struct {
+			Results []map[string]any `json:"results"`
+		} `json:"d"`
+	}
+	if err := json.Unmarshal(body, &page); err != nil {
+		return nil, fmt.Errorf("decode page: %w", err)
+	}
+	return page.D.Results, nil
+}
+
+// odataRows maps a page's records to SAP table rows: the mapping's static
+// fields, then each SAP field from its OData property.
+func odataRows(em EntityMapping, results []map[string]any) []map[string]string {
+	var out []map[string]string
+	for _, rec := range results {
+		row := map[string]string{}
+		for k, v := range em.Static {
+			row[k] = v
+		}
+		for sapField, prop := range em.Fields {
+			row[sapField] = odataValue(rec[prop])
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // odataValue normalizes OData V2 JSON values to SAP table conventions:

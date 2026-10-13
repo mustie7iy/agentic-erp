@@ -194,62 +194,7 @@ func (g *mockGen) company(cc string, taxPct int64, vendors []string, scenarios b
 
 	const numPOs = 20
 	for i := range numPOs {
-		vendor := vendors[g.r.IntN(len(vendors))]
-		switch {
-		case scenarios && i == 3:
-			vendor = blockedVendor // invoiced before the vendor was blocked
-		case scenarios && i == 16:
-			vendor = g.e.EKKO[len(g.e.EKKO)-16].LIFNR // same vendor as this company's PO 0
-		}
-		g.poSeq++
-		ebeln := fmt.Sprintf("45%02d%06d", g.year()%100, g.poSeq)
-		month := 1 + i%6
-		g.e.EKKO = append(g.e.EKKO, EKKO{EBELN: ebeln, BUKRS: cc, LIFNR: vendor, WAERS: mockCurrency(cc), BEDAT: g.date(month, 3)})
-
-		var lines []mockPOLine
-		for j := range 1 + g.r.IntN(3) {
-			l := mockPOLine{
-				item:  fmt.Sprintf("%05d", (j+1)*10),
-				qty:   money.Qty((1 + g.r.Int64N(50)) * money.QtyScale),
-				price: g.money(1000, 200000),
-				peinh: 1,
-				sakto: expenseAccounts[g.r.IntN(len(expenseAccounts))],
-			}
-			if i == 5 && j == 0 {
-				l.qty = 12500 // 12.5 units
-			}
-			if i == 7 && j == 0 {
-				l.peinh = 100 // price per 100 units
-				l.qty = 2400 * money.QtyScale
-			}
-			if scenarios && i == 17 {
-				l.price = g.money(2000000, 3000000) // pushes the invoice over the auto-post limit
-				l.qty += 10 * money.QtyScale
-			}
-			l.amount = money.Extend(l.qty, l.price, l.peinh)
-			lines = append(lines, l)
-			g.e.EKPO = append(g.e.EKPO, EKPO{
-				EBELN: ebeln, EBELP: l.item, MATNR: fmt.Sprintf("MAT-%04d", g.r.IntN(9000)+1000),
-				TXZ01: fmt.Sprintf("Item %d for %s", j+1, ebeln), MENGE: l.qty.String(),
-				NETPR: l.price.Decimal(), PEINH: fmt.Sprint(l.peinh), SAKTO: l.sakto,
-			})
-		}
-
-		partialGR := scenarios && i == 15
-		for _, l := range lines {
-			q := l.qty
-			if partialGR {
-				q = l.qty / 2
-			}
-			g.grSeq++
-			g.e.MSEG = append(g.e.MSEG, MSEG{
-				MBLNR: fmt.Sprintf("50%08d", g.grSeq), MJAHR: g.gj, ZEILE: "0001", BWART: "101",
-				EBELN: ebeln, EBELP: l.item, MENGE: q.String(), BUDAT: g.date(month, 10),
-			})
-		}
-
-		posted := i < 12
-		g.invoice(cc, ebeln, vendor, month, i, lines, taxPct, posted, scenarios)
+		g.purchaseOrder(cc, i, taxPct, vendors, scenarios)
 	}
 
 	// Second-half revenue is generated after purchasing so the random stream
@@ -257,6 +202,75 @@ func (g *mockGen) company(cc string, taxPct int64, vendors []string, scenarios b
 	for m := 7; m <= g.through; m++ {
 		g.revenue(cc, m)
 	}
+}
+
+// purchaseOrder generates a company's i-th order with its receipts and
+// invoice. The order of random draws is part of the mock's contract: the
+// same seed must produce the same extract.
+func (g *mockGen) purchaseOrder(cc string, i int, taxPct int64, vendors []string, scenarios bool) {
+	vendor := vendors[g.r.IntN(len(vendors))]
+	switch {
+	case scenarios && i == 3:
+		vendor = blockedVendor // invoiced before the vendor was blocked
+	case scenarios && i == 16:
+		vendor = g.e.EKKO[len(g.e.EKKO)-16].LIFNR // same vendor as this company's PO 0
+	}
+	g.poSeq++
+	ebeln := fmt.Sprintf("45%02d%06d", g.year()%100, g.poSeq)
+	month := 1 + i%6
+	g.e.EKKO = append(g.e.EKKO, EKKO{EBELN: ebeln, BUKRS: cc, LIFNR: vendor, WAERS: mockCurrency(cc), BEDAT: g.date(month, 3)})
+
+	var lines []mockPOLine
+	for j := range 1 + g.r.IntN(3) {
+		lines = append(lines, g.poLine(ebeln, i, j, scenarios))
+	}
+
+	partialGR := scenarios && i == 15
+	for _, l := range lines {
+		q := l.qty
+		if partialGR {
+			q = l.qty / 2
+		}
+		g.grSeq++
+		g.e.MSEG = append(g.e.MSEG, MSEG{
+			MBLNR: fmt.Sprintf("50%08d", g.grSeq), MJAHR: g.gj, ZEILE: "0001", BWART: "101",
+			EBELN: ebeln, EBELP: l.item, MENGE: q.String(), BUDAT: g.date(month, 10),
+		})
+	}
+
+	posted := i < 12
+	g.invoice(cc, ebeln, vendor, month, i, lines, taxPct, posted, scenarios)
+}
+
+// poLine generates item j of the i-th order, with the scenario overrides
+// (fractional quantity, price unit, over-limit price), and appends it to
+// EKPO.
+func (g *mockGen) poLine(ebeln string, i, j int, scenarios bool) mockPOLine {
+	l := mockPOLine{
+		item:  fmt.Sprintf("%05d", (j+1)*10),
+		qty:   money.Qty((1 + g.r.Int64N(50)) * money.QtyScale),
+		price: g.money(1000, 200000),
+		peinh: 1,
+		sakto: expenseAccounts[g.r.IntN(len(expenseAccounts))],
+	}
+	if i == 5 && j == 0 {
+		l.qty = 12500 // 12.5 units
+	}
+	if i == 7 && j == 0 {
+		l.peinh = 100 // price per 100 units
+		l.qty = 2400 * money.QtyScale
+	}
+	if scenarios && i == 17 {
+		l.price = g.money(2000000, 3000000) // pushes the invoice over the auto-post limit
+		l.qty += 10 * money.QtyScale
+	}
+	l.amount = money.Extend(l.qty, l.price, l.peinh)
+	g.e.EKPO = append(g.e.EKPO, EKPO{
+		EBELN: ebeln, EBELP: l.item, MATNR: fmt.Sprintf("MAT-%04d", g.r.IntN(9000)+1000),
+		TXZ01: fmt.Sprintf("Item %d for %s", j+1, ebeln), MENGE: l.qty.String(),
+		NETPR: l.price.Decimal(), PEINH: fmt.Sprint(l.peinh), SAKTO: l.sakto,
+	})
+	return l
 }
 
 // revenue posts one month's sales (a trend growing ~7% a year, with +/-5%
