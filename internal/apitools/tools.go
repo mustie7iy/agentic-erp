@@ -215,48 +215,47 @@ func (c contract) resolve(n map[string]any) map[string]any {
 	}
 }
 
+// malformed is the error for a contract node that does not have the shape
+// the contract format gives it; at is where the node sits.
+func malformed(at, want string) error {
+	return fmt.Errorf("contract %s is not %s", at, want)
+}
+
 // schema turns a contract schema into a self-contained JSON schema for a
 // request: references inlined, read-only properties and examples dropped,
-// open enumerations described.
-func (c contract) schema(v any, depth int) any {
+// open enumerations described. at is where v sits in the contract, for
+// errors.
+func (c contract) schema(v any, at string, depth int) (any, error) {
 	switch n := v.(type) {
 	case map[string]any:
 		if depth > 12 {
-			return map[string]any{}
+			return map[string]any{}, nil
 		}
-		return c.schemaObject(c.resolve(n), depth)
+		return c.schemaObject(c.resolve(n), at, depth)
 	case []any:
 		out := make([]any, len(n))
 		for i, x := range n {
-			out[i] = c.schema(x, depth+1)
+			s, err := c.schema(x, fmt.Sprintf("%s[%d]", at, i), depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = s
 		}
-		return out
+		return out, nil
 	}
-	return v
+	return v, nil
 }
 
 // schemaObject converts one resolved schema object.
-func (c contract) schemaObject(n map[string]any, depth int) map[string]any {
+func (c contract) schemaObject(n map[string]any, at string, depth int) (map[string]any, error) {
 	out := map[string]any{}
 	var readOnly []string
 	for k, x := range n {
-		switch {
-		case k == "examples" || k == "example" || k == "readOnly":
-		case k == "x-extensible-enum":
-			out["description"] = enumDescription(n, x.([]any))
-		case strings.HasPrefix(k, "x-"):
-		case k == "properties":
-			var props map[string]any
-			props, readOnly = c.schemaProperties(x.(map[string]any), depth)
-			out[k] = props
-		case k == "description":
-			// An open enumeration's description already includes this one.
-			if _, has := out["description"]; !has {
-				out[k] = x
-			}
-		default:
-			out[k] = c.schema(x, depth+1)
+		ro, err := c.schemaKeyword(out, n, k, x, at+"."+k, depth)
+		if err != nil {
+			return nil, err
 		}
+		readOnly = append(readOnly, ro...)
 	}
 	if req, ok := out["required"].([]any); ok && len(readOnly) > 0 {
 		kept := []any{}
@@ -267,7 +266,45 @@ func (c contract) schemaObject(n map[string]any, depth int) map[string]any {
 		}
 		out["required"] = kept
 	}
-	return out
+	return out, nil
+}
+
+// schemaKeyword converts keyword k of schema object n into out and returns
+// the read-only properties it left out.
+func (c contract) schemaKeyword(out, n map[string]any, k string, x any, at string, depth int) ([]string, error) {
+	switch {
+	case k == "examples" || k == "example" || k == "readOnly":
+	case k == "x-extensible-enum":
+		enum, ok := x.([]any)
+		if !ok {
+			return nil, malformed(at, "a list")
+		}
+		out["description"] = enumDescription(n, enum)
+	case strings.HasPrefix(k, "x-"):
+	case k == "properties":
+		properties, ok := x.(map[string]any)
+		if !ok {
+			return nil, malformed(at, "an object")
+		}
+		props, readOnly, err := c.schemaProperties(properties, at, depth)
+		if err != nil {
+			return nil, err
+		}
+		out[k] = props
+		return readOnly, nil
+	case k == "description":
+		// An open enumeration's description already includes this one.
+		if _, has := out["description"]; !has {
+			out[k] = x
+		}
+	default:
+		s, err := c.schema(x, at, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		out[k] = s
+	}
+	return nil, nil
 }
 
 // enumDescription is the description of an open enumeration, with its
@@ -283,7 +320,7 @@ func enumDescription(n map[string]any, enum []any) string {
 
 // schemaProperties converts the properties of an object schema, leaving out
 // the read-only ones, which it returns by name.
-func (c contract) schemaProperties(properties map[string]any, depth int) (map[string]any, []string) {
+func (c contract) schemaProperties(properties map[string]any, at string, depth int) (map[string]any, []string, error) {
 	props := map[string]any{}
 	var readOnly []string
 	for name, p := range properties {
@@ -291,9 +328,13 @@ func (c contract) schemaProperties(properties map[string]any, depth int) (map[st
 			readOnly = append(readOnly, name)
 			continue
 		}
-		props[name] = c.schema(p, depth+1)
+		s, err := c.schema(p, at+"."+name, depth+1)
+		if err != nil {
+			return nil, nil, err
+		}
+		props[name] = s
 	}
-	return props, readOnly
+	return props, readOnly, nil
 }
 
 // tool builds the agent tool of an operation.
@@ -313,7 +354,11 @@ func (c contract) operation(id string, forPeople bool) (*Tool, error) {
 			if op["x-agent"] == false && !forPeople {
 				return nil, fmt.Errorf("apitools: %s is not open to agents (x-agent: false)", id)
 			}
-			return c.buildTool(id, strings.ToUpper(method), path, op), nil
+			t, err := c.buildTool(id, method, path, op)
+			if err != nil {
+				return nil, fmt.Errorf("apitools: operation %s: %w", id, err)
+			}
+			return t, nil
 		}
 	}
 	return nil, fmt.Errorf("apitools: no operation %s in the contract", id)
@@ -321,48 +366,86 @@ func (c contract) operation(id string, forPeople bool) (*Tool, error) {
 
 // buildTool is the tool of one contract operation: its parameters and body
 // become the properties of one input object.
-func (c contract) buildTool(id, method, path string, op map[string]any) *Tool {
-	t := &Tool{name: id, op: operation{id: id, method: method, path: path}}
+func (c contract) buildTool(id, method, path string, op map[string]any) (*Tool, error) {
+	at := "paths." + path + "." + method
+	t := &Tool{name: id, op: operation{id: id, method: strings.ToUpper(method), path: path}}
 	summary, _ := op["summary"].(string)
 	desc, _ := op["description"].(string)
 	t.description = summary + ". " + desc
 	props, required := map[string]any{}, []any{}
 	params, _ := op["parameters"].([]any)
-	for _, raw := range params {
-		required = c.parameter(t, c.resolve(raw.(map[string]any)), props, required)
+	for i, raw := range params {
+		pat := fmt.Sprintf("%s.parameters[%d]", at, i)
+		p, ok := raw.(map[string]any)
+		if !ok {
+			return nil, malformed(pat, "an object")
+		}
+		var err error
+		if required, err = c.parameter(t, c.resolve(p), pat, props, required); err != nil {
+			return nil, err
+		}
 	}
-	if rb, ok := op["requestBody"].(map[string]any); ok {
-		rb = c.resolve(rb)
-		content, _ := rb["content"].(map[string]any)
-		for _, media := range content {
-			s := c.schema(media.(map[string]any)["schema"], 0)
-			props["body"] = s
-			t.op.body = true
-		}
-		if rb["required"] == true {
-			required = append(required, "body")
-		}
+	bodyRequired, err := c.requestBody(t, op, at, props)
+	if err != nil {
+		return nil, err
+	}
+	if bodyRequired {
+		required = append(required, "body")
 	}
 	schema := map[string]any{"type": "object", "properties": props, "required": required}
 	b, _ := json.Marshal(schema)  // built from YAML values
 	_ = t.schema.UnmarshalJSON(b) // an object always unmarshals into the schema param
-	return t
+	return t, nil
+}
+
+// requestBody adds the operation's request body, if it has one, to the
+// tool's input properties and reports whether it is required.
+func (c contract) requestBody(t *Tool, op map[string]any, at string, props map[string]any) (bool, error) {
+	rb, ok := op["requestBody"].(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	rb = c.resolve(rb)
+	content, _ := rb["content"].(map[string]any)
+	for mediaType, media := range content {
+		mat := at + ".requestBody.content." + mediaType
+		m, ok := media.(map[string]any)
+		if !ok {
+			return false, malformed(mat, "an object")
+		}
+		s, err := c.schema(m["schema"], mat+".schema", 0)
+		if err != nil {
+			return false, err
+		}
+		props["body"] = s
+		t.op.body = true
+	}
+	return rb["required"] == true, nil
 }
 
 // parameter adds one operation parameter to the tool's input properties
 // and returns the required names with it added when it is required.
-func (c contract) parameter(t *Tool, p map[string]any, props map[string]any, required []any) []any {
+func (c contract) parameter(t *Tool, p map[string]any, at string, props map[string]any, required []any) ([]any, error) {
 	name, _ := p["name"].(string)
 	in, _ := p["in"].(string)
 	switch {
 	case in == "header" && strings.EqualFold(name, "If-Match"):
 		t.op.ifMatch = true
 		props["if_match"] = map[string]any{"type": "string", "description": "The ETag of the resource as you last read it (the etag of its latest result)."}
-		return append(required, "if_match")
+		return append(required, "if_match"), nil
 	case in != "path" && in != "query":
-		return required // Idempotency-Key is set by the client
+		return required, nil // Idempotency-Key is set by the client
 	}
-	s, _ := c.schema(p["schema"], 0).(map[string]any)
+	s := map[string]any{} // a parameter without a schema takes any value
+	if raw, has := p["schema"]; has && raw != nil {
+		v, err := c.schema(raw, at+".schema", 0)
+		if err != nil {
+			return nil, err
+		}
+		if s, has = v.(map[string]any); !has {
+			return nil, malformed(at+".schema", "an object")
+		}
+	}
 	if d, ok := p["description"].(string); ok {
 		if sd, has := s["description"].(string); has {
 			d += " " + sd
@@ -374,5 +457,5 @@ func (c contract) parameter(t *Tool, p map[string]any, props map[string]any, req
 	if p["required"] == true {
 		required = append(required, name)
 	}
-	return required
+	return required, nil
 }
