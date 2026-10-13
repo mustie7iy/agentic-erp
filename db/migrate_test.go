@@ -1,8 +1,10 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"sync"
@@ -197,5 +199,58 @@ func TestMigrateReportsDatabaseErrors(t *testing.T) {
 	}
 	if _, err := CurrentVersion(ctx, conn); err == nil {
 		t.Fatal("closed connection accepted")
+	}
+}
+
+// deadPeer is a connection to a server that stops answering once the
+// unlock is sent: the unlock's bytes go nowhere and no reply ever comes,
+// as when the peer dies without closing the connection.
+type deadPeer struct {
+	net.Conn
+}
+
+func (c deadPeer) Write(b []byte) (int, error) {
+	if bytes.Contains(b, []byte("pg_advisory_unlock")) {
+		return len(b), nil
+	}
+	return c.Conn.Write(b) //nolint:wrapcheck // a pass-through connection: pgx sees the socket's own error
+}
+
+// TestMigrateReturnsWhenTheUnlockGetsNoAnswer: a server that stops
+// answering after the migrations ran does not hold Migrate up; the unlock
+// gives up after unlockTimeout and the connection, whose session holds the
+// lock, is closed.
+func TestMigrateReturnsWhenTheUnlockGetsNoAnswer(t *testing.T) {
+	ctx := context.Background()
+	cfg, err := pgx.ParseConfig(emptyDatabase(t).Config().ConnString())
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	dial := cfg.DialFunc
+	cfg.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := dial(ctx, network, addr)
+		return deadPeer{c}, err
+	}
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	unlockTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { unlockTimeout = 10 * time.Second })
+	result := make(chan error, 1)
+	go func() {
+		_, err := migrate(ctx, conn, []Migration{{Name: "000001_t", Up: "CREATE TABLE t (id int)"}})
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("got %v, want the migrations' success", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("got Migrate still waiting for the unlock after 30s, want it to give up")
+	}
+	if !conn.IsClosed() {
+		t.Error("got the connection open after the unlock gave up, want it closed so its session's lock ends")
 	}
 }

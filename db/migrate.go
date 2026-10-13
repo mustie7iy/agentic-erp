@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -18,6 +19,21 @@ const NoTransaction = "-- migrate:no-transaction"
 
 // lockKey serializes migrations across replicas starting at the same time.
 const lockKey = 7_428_361
+
+// unlockTimeout bounds the unlock: a server that stopped answering must not
+// hold up a migration that is done. A variable so tests can shorten it.
+var unlockTimeout = 10 * time.Second
+
+// unlock releases the migration lock, giving up after unlockTimeout. A
+// failed unlock needs no handling: the session lock ends with the
+// connection, and the unlock fails only on a broken connection or a
+// deadline, both of which make pgx close it (a pool discards a closed
+// connection rather than reuse it).
+func unlock(ctx context.Context, conn *pgx.Conn) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockTimeout)
+	defer cancel()
+	_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey)
+}
 
 // Version is the migration's number, from its NNNNNN_ name prefix.
 func (m Migration) Version() (int, error) {
@@ -51,10 +67,7 @@ func migrate(ctx context.Context, conn *pgx.Conn, ms []Migration) (applied []str
 	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
 		return nil, fmt.Errorf("migrate: lock: %w", err)
 	}
-	// A failed unlock needs no handling: the session lock ends with the
-	// connection, and the unlock fails only on a broken one, which pgx closes
-	// (a pool discards a closed connection rather than reuse it).
-	defer func() { _, _ = conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", lockKey) }()
+	defer unlock(ctx, conn)
 	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.erp_schema_migration (
 		version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return nil, fmt.Errorf("migrate: version table: %w", err)
