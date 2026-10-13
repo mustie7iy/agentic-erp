@@ -44,7 +44,10 @@ func TestSealOpenAndFingerprint(t *testing.T) {
 	if len(k.Fingerprint(tenant, "x")) != 64 {
 		t.Fatal("fingerprint is not 64 hex characters")
 	}
-	if Last4("de89 3704 0044 0532 0130 00") != "3000" || Last4("ab1") != "AB1" {
-		t.Fatalf("last4: %s %s", Last4("de89 3704 0044 0532 0130 00"), Last4("ab1"))
+	if got := Last4("de89 3704 0044 0532 0130 00"); got != "3000" {
+		t.Errorf("Last4 of an IBAN: got %q, want %q", got, "3000")
+	}
+	if got := Last4("ab1"); got != "AB1" {
+		t.Errorf("Last4 of a short value: got %q, want %q", got, "AB1")
 	}
 }

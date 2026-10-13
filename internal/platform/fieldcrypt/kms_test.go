@@ -19,8 +19,11 @@ import (
 func TestKMSMaster(t *testing.T) {
 	srv := kmstest.New(t)
 	m := srv.Master("")
-	if m.ID() != "kms" || srv.Master("hsm1").ID() != "hsm1" {
-		t.Fatal("master ids")
+	if got := m.ID(); got != "kms" {
+		t.Errorf("default master id: got %q, want kms", got)
+	}
+	if got := srv.Master("hsm1").ID(); got != "hsm1" {
+		t.Errorf("named master id: got %q, want hsm1", got)
 	}
 	tenant := uuid.New()
 	key := []byte(strings.Repeat("k", 32))
@@ -31,8 +34,12 @@ func TestKMSMaster(t *testing.T) {
 	if got, err := m.Unwrap(tenant, wrapped); err != nil || string(got) != string(key) {
 		t.Fatalf("%q %v", got, err)
 	}
-	if e, d := srv.Calls(); e != 1 || d != 1 {
-		t.Fatalf("calls: %d %d", e, d)
+	e, d := srv.Calls()
+	if e != 1 {
+		t.Errorf("encrypt calls: got %d, want 1", e)
+	}
+	if d != 1 {
+		t.Errorf("decrypt calls: got %d, want 1", d)
 	}
 	// Bound to the tenant by the encryption context; tampered and truncated blobs are corrupt, not failures.
 	for name, bad := range map[string]struct {
@@ -43,21 +50,27 @@ func TestKMSMaster(t *testing.T) {
 		"tampered":       {tenant, append(append([]byte(nil), wrapped[:len(wrapped)-1]...), wrapped[len(wrapped)-1]^1)},
 		"truncated":      {tenant, wrapped[:3]},
 	} {
-		_, err := m.Unwrap(bad.tenant, bad.blob)
-		if !errors.Is(err, fieldcrypt.ErrCorrupt) {
-			t.Errorf("%s: %v", name, err)
-		}
-		// The service's refusal stays in the chain behind ErrCorrupt.
-		var both interface{ Unwrap() []error }
-		if !errors.As(err, &both) || len(both.Unwrap()) != 2 {
-			t.Errorf("%s: got %v, want ErrCorrupt wrapping the service's refusal", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			_, err := m.Unwrap(bad.tenant, bad.blob)
+			if !errors.Is(err, fieldcrypt.ErrCorrupt) {
+				t.Errorf("got %v, want ErrCorrupt", err)
+			}
+			// The service's refusal stays in the chain behind ErrCorrupt.
+			var both interface{ Unwrap() []error }
+			if !errors.As(err, &both) || len(both.Unwrap()) != 2 {
+				t.Errorf("got %v, want ErrCorrupt wrapping the service's refusal", err)
+			}
+		})
 	}
 	// The service's refusals are reported with their type; nothing is mistaken for a corrupt key.
 	other := m
 	other.KeyID = "alias/nope"
-	if _, err := other.Wrap(tenant, key); err == nil || !strings.Contains(err.Error(), "NotFoundException") || errors.Is(err, fieldcrypt.ErrCorrupt) {
-		t.Fatalf("unknown key: %v", err)
+	_, err = other.Wrap(tenant, key)
+	if err == nil || !strings.Contains(err.Error(), "NotFoundException") {
+		t.Errorf("unknown key: got %v, want NotFoundException", err)
+	}
+	if errors.Is(err, fieldcrypt.ErrCorrupt) {
+		t.Errorf("unknown key: got %v, want an error that is not ErrCorrupt", err)
 	}
 	other.KeyID, other.SecretKey = kmstest.KeyID, "wrong"
 	if _, err := other.Unwrap(tenant, wrapped); err == nil || !strings.Contains(err.Error(), "403 IncompleteSignatureException") {
@@ -92,8 +105,11 @@ func TestKMSMaster(t *testing.T) {
 	var ticks int
 	odd := fieldcrypt.KMS{KeyID: kmstest.KeyID, Endpoint: garbage.URL, Region: kmstest.Region, AccessKey: kmstest.AccessKey, SecretKey: kmstest.SecretKey,
 		Client: garbage.Client(), Now: func() time.Time { ticks++; return time.Now() }}
-	if _, err := odd.Wrap(tenant, key); err == nil || !strings.Contains(err.Error(), "answer is not JSON") || ticks != 1 {
-		t.Fatalf("garbage: %v (%d)", err, ticks)
+	if _, err := odd.Wrap(tenant, key); err == nil || !strings.Contains(err.Error(), "answer is not JSON") {
+		t.Errorf("garbage: got %v, want answer is not JSON", err)
+	}
+	if ticks != 1 {
+		t.Errorf("injected clock reads: got %d, want 1", ticks)
 	}
 	// The double itself: an unknown action and a request that is not the protocol.
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
