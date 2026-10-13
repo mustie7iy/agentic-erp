@@ -13,7 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,7 +40,7 @@ func (s *Service) client() *http.Client {
 
 // List returns one page of the directory's tenants.
 func (s *Service) List(ctx context.Context, f directory.Filter, page pagination.Request) ([]directory.Entry, string, error) {
-	if f.Status != "" && !strings.Contains(" active suspended offboarded read_only ", " "+f.Status+" ") {
+	if f.Status != "" && !slices.Contains([]string{directory.Active, directory.Suspended, directory.Offboarded, directory.ReadOnly}, f.Status) {
 		return nil, "", problem.BadRequest("request.invalid_parameter", "Parameter status is invalid.",
 			problem.FieldError{Field: "status", Code: "invalid", Message: "one of active, suspended, offboarded, read_only"})
 	}

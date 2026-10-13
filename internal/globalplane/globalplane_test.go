@@ -282,6 +282,8 @@ func TestGlobalControlPlane(t *testing.T) {
 		t.Fatalf("none: %v", none)
 	}
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", "/directory/v1/tenants?status=bogus", "")
+	// Two statuses are not one: the value is matched whole, not found inside the list of statuses.
+	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", "/directory/v1/tenants?status=active%20suspended", "")
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", "/directory/v1/tenants?page_size=many", "")
 	p.problem(400, "request.invalid_order_by", "ops|alice", "GET", "/directory/v1/tenants?order_by=name", "")
 	p.problem(404, "request.not_found", "ops|alice", "GET", "/directory/v1/tenants/"+uuid.NewString(), "")
