@@ -36,11 +36,11 @@ type Server struct {
 }
 
 // New starts a server that stops when the test ends.
-func New(t testing.TB) *Server {
-	t.Helper()
+func New(tb testing.TB) *Server {
+	tb.Helper()
 	s := &Server{Secrets: map[string]map[string]any{}, revoked: map[string]bool{}}
 	srv := httptest.NewServer(http.HandlerFunc(s.serve))
-	t.Cleanup(srv.Close)
+	tb.Cleanup(srv.Close)
 	s.URL = srv.URL
 	return s
 }

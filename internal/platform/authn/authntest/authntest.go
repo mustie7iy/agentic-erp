@@ -29,21 +29,21 @@ type Issuer struct {
 }
 
 // New starts an issuer that stops when the test ends.
-func New(t testing.TB) *Issuer {
-	t.Helper()
+func New(tb testing.TB) *Issuer {
+	tb.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	is := &Issuer{key: key}
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: key, KeyID: "k1"}}, nil)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	is.signer = signer
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	tb.Cleanup(srv.Close)
 	is.URL = srv.URL
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		// A failed response write means the client is gone: no one is left to tell.
@@ -66,8 +66,8 @@ func (is *Issuer) Config() authn.Issuer {
 
 // Token mints a valid token for subject in tenant; extra claims override
 // the defaults.
-func (is *Issuer) Token(t testing.TB, tenant uuid.UUID, subject string, extra map[string]any) string {
-	t.Helper()
+func (is *Issuer) Token(tb testing.TB, tenant uuid.UUID, subject string, extra map[string]any) string {
+	tb.Helper()
 	claims := map[string]any{
 		"iss": is.URL, "aud": Audience, "sub": subject, "tenant_id": tenant.String(),
 		"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
@@ -78,11 +78,11 @@ func (is *Issuer) Token(t testing.TB, tenant uuid.UUID, subject string, extra ma
 	payload, _ := json.Marshal(claims)
 	sig, err := is.signer.Sign(payload)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	raw, err := sig.CompactSerialize()
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return raw
 }

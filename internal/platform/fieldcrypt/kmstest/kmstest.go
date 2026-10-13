@@ -48,15 +48,15 @@ type Server struct {
 }
 
 // New starts a server that stops when the test ends.
-func New(t testing.TB) *Server {
-	t.Helper()
+func New(tb testing.TB) *Server {
+	tb.Helper()
 	key := make([]byte, 32)
 	_, _ = rand.Read(key) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 	block, _ := aes.NewCipher(key)
 	aead, _ := cipher.NewGCM(block)
 	s := &Server{aead: aead}
 	srv := httptest.NewServer(http.HandlerFunc(s.serve))
-	t.Cleanup(srv.Close)
+	tb.Cleanup(srv.Close)
 	s.URL = srv.URL
 	return s
 }
