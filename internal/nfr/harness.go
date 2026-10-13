@@ -3,6 +3,7 @@ package nfr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -212,6 +213,10 @@ type Result struct {
 // OK reports a 2xx answer.
 func (r Result) OK() bool { return r.Err == nil && r.Status >= 200 && r.Status < 300 }
 
+// String is the answer for a failure message. A message formats a pointer to
+// a Result when the call fails, so it shows the answer last seen.
+func (r Result) String() string { return fmt.Sprintf("%d %v %s", r.Status, r.Err, r.Body) }
+
 // JSON decodes the body; it is nil when the body is not an object.
 func (r Result) JSON() map[string]any {
 	var m map[string]any
@@ -247,10 +252,14 @@ func (s *Stack) Call(ctx context.Context, r Req) Result {
 	body, err := io.ReadAll(resp.Body)
 	res := Result{Status: resp.StatusCode, Body: body, ETag: resp.Header.Get("ETag"), Took: time.Since(start), Err: err}
 	if err == nil && len(body) > 0 && !json.Valid(body) {
-		res.Err = fmt.Errorf("%s %s: %d with a body that is not JSON (%d bytes)", r.Method, r.Path, resp.StatusCode, len(body))
+		res.Err = fmt.Errorf("%s %s: %d with a %w (%d bytes)", r.Method, r.Path, resp.StatusCode, errNotJSON, len(body))
 	}
 	return res
 }
+
+// errNotJSON marks a complete answer whose body is not JSON, as opposed to
+// one whose body could not be read.
+var errNotJSON = errors.New("body that is not JSON")
 
 // Must performs a request that has to succeed.
 func (s *Stack) Must(ctx context.Context, r Req) Result {
@@ -354,7 +363,7 @@ func (s *Stack) created() (ids []uuid.UUID, keys, problems []string) {
 		if p.Status != http.StatusCreated {
 			continue
 		}
-		if p.Err != nil {
+		if p.Err != nil && !errors.Is(p.Err, errNotJSON) {
 			keys = append(keys, p.Key)
 			continue
 		}
@@ -368,6 +377,20 @@ func (s *Stack) created() (ids []uuid.UUID, keys, problems []string) {
 	return ids, keys, problems
 }
 
+// missing checks the database alone that every post answered 201 is in the
+// journal: by id when the answer was read, by its key (the reference) when
+// the body was cut off. It returns the problems found.
+func (s *Stack) missing() []string {
+	ten := s.Env.Tenant.ID
+	ids, keys, problems := s.created()
+	if n := s.Count(`SELECT count(*) FROM unnest($2::uuid[]) AS c(id) WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.id = c.id)`,
+		ten, ids) + s.Count(`SELECT count(*) FROM unnest($2::text[]) AS c(reference)
+			WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.reference = c.reference)`, ten, keys); n > 0 {
+		problems = append(problems, fmt.Sprintf("%d entries answered 201 are not in the journal", n))
+	}
+	return problems
+}
+
 // Consistent checks the ledger after a run: every reference posted exactly
 // once, every entry the users were told about present, the projected
 // balances equal to the journal, and the audit chain intact.
@@ -378,13 +401,7 @@ func (s *Stack) Consistent(ctx context.Context) error {
 		GROUP BY reference HAVING count(*) > 1) d`, ten); n > 0 {
 		errs = append(errs, fmt.Sprintf("%d references posted more than once", n))
 	}
-	created, lost, unreadable := s.created()
-	errs = append(errs, unreadable...)
-	if missing := s.Count(`SELECT count(*) FROM unnest($2::uuid[]) AS c(id) WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.id = c.id)`,
-		ten, created) + s.Count(`SELECT count(*) FROM unnest($2::text[]) AS c(reference)
-			WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.reference = c.reference)`, ten, lost); missing > 0 {
-		errs = append(errs, fmt.Sprintf("%d entries answered 201 are not in the journal", missing))
-	}
+	errs = append(errs, s.missing()...)
 	if s.Projector != nil {
 		if n := s.Count(`SELECT count(*) FROM (
 			SELECT legal_entity_id, account_id, fiscal_period, sum(greatest(amount_lc, 0)) AS debit, sum(greatest(-amount_lc, 0)) AS credit
@@ -652,6 +669,12 @@ func (st *Stats) Failures() map[string]int {
 		}
 	}
 	return out
+}
+
+// String sums the run up for a failure message: a message formats it when
+// the check fails, so it shows the run as it was then.
+func (st *Stats) String() string {
+	return fmt.Sprintf("%d posts answered, failures %v %v", st.Count("post"), st.Failures(), st.Errors())
 }
 
 // Errors are the first failures seen.

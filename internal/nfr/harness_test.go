@@ -122,4 +122,9 @@ func TestConsistentChecksALostAnswerByItsKey(t *testing.T) {
 	if err := s.Consistent(ctx); err == nil || !strings.Contains(err.Error(), "an entry answered 201 without a readable id") {
 		t.Errorf("got %v, want the complete answer without an id reported", err)
 	}
+	s.posted = s.posted[:1]
+	s.record(Posted{Key: key, Status: http.StatusCreated, Err: fmt.Errorf("POST: 201 with a %w", errNotJSON)})
+	if err := s.Consistent(ctx); err == nil || !strings.Contains(err.Error(), "an entry answered 201 without a readable id") {
+		t.Errorf("got %v, want a complete answer that is not JSON reported, not looked up by its key", err)
+	}
 }
