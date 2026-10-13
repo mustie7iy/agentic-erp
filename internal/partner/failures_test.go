@@ -2,6 +2,7 @@ package partner_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -160,5 +162,14 @@ func TestDatabaseFailures(t *testing.T) {
 		if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
 			t.Errorf("%s: page_size 0 accepted", name)
 		}
+	}
+}
+
+// TestOutsideARequest: a handler called without a unit of work reports
+// reqctx.ErrOutsideRequest instead of using a nil transaction.
+func TestOutsideARequest(t *testing.T) {
+	_, err := endpoints().CreateBusinessPartner(context.Background(), &gen.BusinessPartnerCreate{}, gen.CreateBusinessPartnerParams{})
+	if !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("CreateBusinessPartner: got %v, want reqctx.ErrOutsideRequest", err)
 	}
 }

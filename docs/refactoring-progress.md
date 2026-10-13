@@ -26,7 +26,13 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
 - [x] R3 outbox relay: event type without a dot. Published under the name it has (rejecting
   would stall the context's ordered queue; ADR-0007). TestRelayPublishesAnUnversionedType: the
   old code panicked at relay.go:111. Lint outbox 11 → 11. Reviewer: APPROVE.
-- [ ] R4 reqctx.Request errors returned, not discarded
+- [x] R4 reqctx.Request errors returned, not discarded. 15 sites: 13 helpers now receive tx and
+  principal from the caller that already checked the request (a second lookup would be an
+  unreachable branch); partner CreateBusinessPartner and payables CreateUpload/GetUpload check
+  the request first. TestOutsideARequest / TestUploadsOutsideARequest are regression guards:
+  no site was reachable outside a request before, so they pass on the old code too. Needed R22a
+  first (funlen on the changed signatures). Lint: whole tree unchanged except R22a's −2.
+  Reviewer: APPROVE.
 - [ ] R4b reqctx.PrincipalFrom / TxFrom ok flags not discarded (found in R4)
 - [ ] R5 Fail closed in production (codec key, dev token issuer)
 - [ ] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero
@@ -187,5 +193,10 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
   internal/payments/payments.go:305 and internal/integration/integration.go:137 (only literal
   inputs today, so no panic is reachable): a copied helper for R9 / Phase 2.
 - R4: `p, _ := reqctx.PrincipalFrom(ctx)` / `tx, _ := reqctx.TxFrom(ctx)` discard the ok flag in
-  payments/release.go (2), procurement/receipts.go, procurement/requisitions.go,
-  payables/invoices.go, approvals/approvals.go, platform/authz/authz.go: step R4b.
+  7 places: payments/release.go:347 and :376, platform/authz/authz.go:101,
+  procurement/receipts.go:132, procurement/requisitions.go:368, payables/invoices.go:216,
+  approvals/approvals.go:316: step R4b.
+- R4: TestMigrationWorkflow failed once in the stop hook (Temporal test suite's default 3 s
+  real-time timeout) while a reviewer ran the same database-heavy packages concurrently; it
+  passed 5× alone and 3× under the hook's load with and without the change. Tests whose
+  activities hit the database should set a test timeout: R30.

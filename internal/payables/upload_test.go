@@ -331,3 +331,20 @@ func TestPresignedUploads(t *testing.T) {
 		t.Fatalf("presign failure on read: %d %s", r.Code, r.Body)
 	}
 }
+
+// TestUploadsOutsideARequest: the upload handlers called without a unit of
+// work report reqctx.ErrOutsideRequest instead of using a nil transaction.
+func TestUploadsOutsideARequest(t *testing.T) {
+	h := endpoints(nil)
+	h.Uploads = &payables.Uploads{}
+	t.Run("create", func(t *testing.T) {
+		if _, err := h.CreateUpload(context.Background(), &gen.UploadCreate{}, gen.CreateUploadParams{}); !errors.Is(err, reqctx.ErrOutsideRequest) {
+			t.Errorf("got %v, want reqctx.ErrOutsideRequest", err)
+		}
+	})
+	t.Run("get", func(t *testing.T) {
+		if _, err := h.GetUpload(context.Background(), gen.GetUploadParams{ID: uuid.New()}); !errors.Is(err, reqctx.ErrOutsideRequest) {
+			t.Errorf("got %v, want reqctx.ErrOutsideRequest", err)
+		}
+	})
+}

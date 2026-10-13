@@ -167,7 +167,7 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 		r := lowConfidence
 		status, reason = OnHold, &r
 	}
-	v, err := e.insert(ctx, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
+	v, err := e.insert(ctx, tx, p, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
 	if err != nil {
 		return operations.Operation{}, err
 	}

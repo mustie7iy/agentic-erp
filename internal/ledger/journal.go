@@ -167,8 +167,7 @@ func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgerID uu
 
 // post inserts a balanced entry with its lines, publishes JournalEntryPosted
 // and queues the entry for the balance projector.
-func (e *Endpoints) post(ctx context.Context, d draft) (Entry, error) {
-	tx, p, _ := reqctx.Request(ctx) // callers run in a request
+func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft) (Entry, error) {
 	year, number, err := postingPeriod(ctx, tx, d.entity, d.ledgerID, d.postingDate)
 	if err != nil {
 		return Entry{}, err
@@ -499,7 +498,7 @@ func abs64(n int64) int64 {
 // group amounts are converted at the average rates valid on the posting
 // date, and rounding differences go to the largest line.
 func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -578,7 +577,7 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 	for i := range lines {
 		lines[i].LC, lines[i].GC = lcs[i], gcs[i]
 	}
-	posted, err := e.post(ctx, draft{entity: le, ledgerID: ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
+	posted, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
 		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: group, rateTCLC: rateLC,
 		rateLCGC: rateGC, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
 		sourceDocumentID: in.SourceDocumentID, lines: lines})
@@ -595,7 +594,7 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 // date unless another is given. Reversals and entries with cleared lines
 // cannot be reversed.
 func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMatch func(Entry) error, postingDate *time.Time, headerText *string) (Entry, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -640,14 +639,13 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 		text := "Reversal of " + orig.DocumentNumber
 		headerText = &text
 	}
-	rev, err := e.post(ctx, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
+	rev, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
 		postingDate: date, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
 		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, lines: lines})
 	if err != nil {
 		return Entry{}, err
 	}
-	p, _ := reqctx.PrincipalFrom(ctx)
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.reversal (tenant_id, original_year, original_entry_id, reversal_year, reversal_entry_id)
 		VALUES ($1, $2, $3, $4, $5)`, p.TenantID, orig.FiscalYear, orig.ID, rev.FiscalYear, rev.ID); err != nil {
 		return Entry{}, err

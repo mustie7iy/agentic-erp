@@ -148,11 +148,10 @@ func pageRequest(orderBy gen.OptString, size gen.OptInt32, token gen.OptString) 
 }
 
 // list runs a keyset-paged query and converts its rows.
-func list[R, A any](ctx context.Context, ks *pagination.Keyset, query string, args []any, scan func(pgx.Row) (R, error),
+func list[R, A any](ctx context.Context, tx pgx.Tx, ks *pagination.Keyset, query string, args []any, scan func(pgx.Row) (R, error),
 	key func(R) (string, uuid.UUID), toAPI func(R) A) ([]A, gen.OptString, error) {
-	tx, _, _ := reqctx.Request(ctx) // handlers check the request first
 	q, args := ks.SQL(query, args)
-	rows, _ := tx.Query(ctx, q, args...)
+	rows, _ := tx.Query(ctx, q, args...) // CollectRows returns the query's error
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (R, error) { return scan(r) })
 	if err != nil {
 		return nil, gen.OptString{}, err
@@ -210,7 +209,8 @@ var principalSort = pagination.Sort{Default: "display_name", Fields: []paginatio
 
 // ListPrincipals implements GET /v1/principals.
 func (e *Endpoints) ListPrincipals(ctx context.Context, params gen.ListPrincipalsParams) (gen.ListPrincipalsRes, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
 		return nil, err
 	}
 	ks, err := e.Pages.Keyset(principalSort, "listPrincipals|"+params.Kind.Value+"|"+params.Status.Value,
@@ -219,7 +219,7 @@ func (e *Endpoints) ListPrincipals(ctx context.Context, params gen.ListPrincipal
 		return nil, err
 	}
 	byName := ks.Field() == "display_name"
-	items, next, err := list(ctx, ks, principalSelect+` WHERE ($1 = '' OR p.kind = $1) AND ($2 = '' OR p.status = $2)`,
+	items, next, err := list(ctx, tx, ks, principalSelect+` WHERE ($1 = '' OR p.kind = $1) AND ($2 = '' OR p.status = $2)`,
 		[]any{params.Kind.Value, params.Status.Value}, scanPrincipal,
 		func(p Principal) (string, uuid.UUID) {
 			if byName {
@@ -289,7 +289,8 @@ var roleSort = pagination.Sort{Default: "code", Fields: []pagination.Field{
 
 // ListRoles implements GET /v1/roles.
 func (e *Endpoints) ListRoles(ctx context.Context, params gen.ListRolesParams) (gen.ListRolesRes, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
 		return nil, err
 	}
 	ks, err := e.Pages.Keyset(roleSort, "listRoles|"+params.Status.Value, pageRequest(params.OrderBy, params.PageSize, params.PageToken))
@@ -297,7 +298,7 @@ func (e *Endpoints) ListRoles(ctx context.Context, params gen.ListRolesParams) (
 		return nil, err
 	}
 	byName := ks.Field() == "name"
-	items, next, err := list(ctx, ks, roleSelect+` WHERE ($1 = '' OR r.status = $1)`, []any{params.Status.Value}, scanRole,
+	items, next, err := list(ctx, tx, ks, roleSelect+` WHERE ($1 = '' OR r.status = $1)`, []any{params.Status.Value}, scanRole,
 		func(r Role) (string, uuid.UUID) {
 			if byName {
 				return r.Name, r.ID
@@ -363,7 +364,7 @@ func (e *Endpoints) ListRolePermissions(ctx context.Context, params gen.ListRole
 	if err != nil {
 		return nil, err
 	}
-	items, next, err := list(ctx, ks, `SELECT `+rolePermissionColumns+` FROM identity.role_permission WHERE role_id = $1 AND `+fmt.Sprintf(validOn, 2),
+	items, next, err := list(ctx, tx, ks, `SELECT `+rolePermissionColumns+` FROM identity.role_permission WHERE role_id = $1 AND `+fmt.Sprintf(validOn, 2),
 		[]any{params.ID, on}, scanRolePermission, func(g RolePermission) (string, uuid.UUID) { return dateKey(g.Grant) }, rolePermissionToAPI)
 	if err != nil {
 		return nil, err
@@ -409,7 +410,8 @@ func (e *Endpoints) GetRoleAssignment(ctx context.Context, params gen.GetRoleAss
 
 // ListRoleAssignments implements GET /v1/role-assignments.
 func (e *Endpoints) ListRoleAssignments(ctx context.Context, params gen.ListRoleAssignmentsParams) (gen.ListRoleAssignmentsRes, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
 		return nil, err
 	}
 	principal, role, on := optUUID(params.PrincipalID), optUUID(params.RoleID), optDate(params.ValidOn)
@@ -418,7 +420,7 @@ func (e *Endpoints) ListRoleAssignments(ctx context.Context, params gen.ListRole
 	if err != nil {
 		return nil, err
 	}
-	items, next, err := list(ctx, ks, `SELECT `+assignmentColumns+` FROM identity.principal_role
+	items, next, err := list(ctx, tx, ks, `SELECT `+assignmentColumns+` FROM identity.principal_role
 		WHERE ($1::uuid IS NULL OR principal_id = $1) AND ($2::uuid IS NULL OR role_id = $2) AND `+fmt.Sprintf(validOn, 3),
 		[]any{principal, role, on}, scanAssignment, func(g RoleAssignment) (string, uuid.UUID) { return dateKey(g.Grant) }, assignmentToAPI)
 	if err != nil {
@@ -465,7 +467,8 @@ func (e *Endpoints) GetCompanyAccess(ctx context.Context, params gen.GetCompanyA
 
 // ListCompanyAccess implements GET /v1/company-access.
 func (e *Endpoints) ListCompanyAccess(ctx context.Context, params gen.ListCompanyAccessParams) (gen.ListCompanyAccessRes, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
 		return nil, err
 	}
 	principal, le, on := optUUID(params.PrincipalID), optUUID(params.LegalEntityID), optDate(params.ValidOn)
@@ -474,7 +477,7 @@ func (e *Endpoints) ListCompanyAccess(ctx context.Context, params gen.ListCompan
 	if err != nil {
 		return nil, err
 	}
-	items, next, err := list(ctx, ks, `SELECT `+accessColumns+` FROM identity.company_access
+	items, next, err := list(ctx, tx, ks, `SELECT `+accessColumns+` FROM identity.company_access
 		WHERE ($1::uuid IS NULL OR principal_id = $1) AND ($2::uuid IS NULL OR legal_entity_id = $2) AND `+fmt.Sprintf(validOn, 3),
 		[]any{principal, le, on}, scanAccess, func(g CompanyAccess) (string, uuid.UUID) { return dateKey(g.Grant) }, accessToAPI)
 	if err != nil {
@@ -523,7 +526,8 @@ var createdSort = pagination.Sort{Default: "created_at", Fields: []pagination.Fi
 
 // ListSodRules implements GET /v1/sod-rules.
 func (e *Endpoints) ListSodRules(ctx context.Context, params gen.ListSodRulesParams) (gen.ListSodRulesRes, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
 		return nil, err
 	}
 	on := optDate(params.ValidOn)
@@ -531,7 +535,7 @@ func (e *Endpoints) ListSodRules(ctx context.Context, params gen.ListSodRulesPar
 	if err != nil {
 		return nil, err
 	}
-	items, next, err := list(ctx, ks, `SELECT `+sodColumns+` FROM identity.sod_rule WHERE `+fmt.Sprintf(validOn, 1), []any{on}, scanSod,
+	items, next, err := list(ctx, tx, ks, `SELECT `+sodColumns+` FROM identity.sod_rule WHERE `+fmt.Sprintf(validOn, 1), []any{on}, scanSod,
 		func(r SodRule) (string, uuid.UUID) { return r.CreatedAt.UTC().Format(time.RFC3339Nano), r.ID }, sodToAPI)
 	if err != nil {
 		return nil, err

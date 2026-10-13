@@ -164,6 +164,10 @@ func taxesIn(in []gen.TaxIdentifierInput) []TaxInput {
 
 // CreateBusinessPartner implements POST /v1/business-partners.
 func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.BusinessPartnerCreate, _ gen.CreateBusinessPartnerParams) (gen.CreateBusinessPartnerRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
 	in := NewPartner{Kind: req.Kind, Name: req.Name, LegalName: optString(req.LegalName), CountryCode: req.CountryCode,
 		Language: optString(req.Language), Roles: req.Roles, SupplierCompanies: companiesIn(req.SupplierCompanies),
 		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: fromExtensions(req.Extensions), Reason: req.Reason}
@@ -178,7 +182,6 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	if _, err := RequestApproval(ctx, e.Approvals, c); err != nil {
 		return nil, err
 	}
-	tx, _, _ := reqctx.Request(ctx) // CreatePartner ran in the request
 	if p, err = getPartner(ctx, tx, p.ID, false); err != nil {
 		return nil, err
 	}

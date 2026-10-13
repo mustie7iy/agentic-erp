@@ -168,8 +168,7 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 // build computes a proposing run's payments and exclusions, reserves the
 // paid items and moves the run to proposed. Proposals of one legal entity
 // are serialized, so two runs never reserve the same item.
-func (e *Endpoints) build(ctx context.Context, r Run) (Run, error) {
-	tx, p, _ := reqctx.Request(ctx) // Process runs in a request
+func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) (Run, error) {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "payments.propose."+r.LegalEntityID.String()); err != nil {
 		return Run{}, err
 	}
@@ -274,8 +273,7 @@ func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r
 // fail moves a run that could not be proposed, or whose operation was
 // cancelled, to failed; the operation records the problem unless it is
 // already cancelled.
-func fail(ctx context.Context, r Run, why *problem.Problem) error {
-	tx, p, _ := reqctx.Request(ctx) // Process runs in a request
+func fail(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, why *problem.Problem) error {
 	if why != nil {
 		if _, err := operations.Fail(ctx, *r.OperationID, why); err != nil {
 			return err
@@ -343,7 +341,7 @@ func JobFor(ctx context.Context, tx pgx.Tx, run uuid.UUID) (Job, bool, error) {
 // its operation was cancelled. A problem while building fails the run and
 // its operation; other errors leave both for another attempt.
 func (e *Endpoints) Process(ctx context.Context, j Job) error {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
@@ -352,12 +350,12 @@ func (e *Endpoints) Process(ctx context.Context, j Job) error {
 		return err
 	}
 	if j.Cancelled {
-		return fail(ctx, r, nil)
+		return fail(ctx, tx, p, r, nil)
 	}
 	if _, err := tx.Exec(ctx, `SAVEPOINT propose`); err != nil {
 		return err
 	}
-	_, err = e.build(ctx, r)
+	_, err = e.build(ctx, tx, p, r)
 	var why *problem.Problem
 	if !errors.As(err, &why) || why.Status >= 500 {
 		return err
@@ -366,5 +364,5 @@ func (e *Endpoints) Process(ctx context.Context, j Job) error {
 		return err
 	}
 	audit.Discard(ctx)
-	return fail(ctx, r, why)
+	return fail(ctx, tx, p, r, why)
 }

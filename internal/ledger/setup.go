@@ -188,10 +188,10 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 			[]string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss}); err != nil {
 			return err
 		}
-		if err := s.calendar(ctx, le.FiscalCalendarID, le.ID, co, doc); err != nil {
+		if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {
 			return err
 		}
-		if err := taxCodes(ctx, le.ID, le.FiscalCalendarID, chart, co); err != nil {
+		if err := taxCodes(ctx, tx, p, le.ID, le.FiscalCalendarID, chart, co); err != nil {
 			return err
 		}
 	}
@@ -200,8 +200,7 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 
 // taxCodes makes the legal entity's tax codes valid today match the
 // company's, ending changed and removed ones today.
-func taxCodes(ctx context.Context, le, calendar, chart uuid.UUID, co config.Company) error {
-	tx, p, _ := reqctx.Request(ctx) // Apply checked the request
+func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, chart uuid.UUID, co config.Company) error {
 	var codes, descriptions, rates, numbers []string
 	for _, t := range co.TaxCodes {
 		codes, descriptions, rates, numbers = append(codes, t.Code), append(descriptions, t.Description), append(rates, t.RatePercent), append(numbers, t.Account)
@@ -230,8 +229,7 @@ func taxCodes(ctx context.Context, le, calendar, chart uuid.UUID, co config.Comp
 // calendar creates the legal entity's fiscal calendar if needed and the
 // periods of every fiscal year the document has a number range for, closed
 // in every ledger.
-func (s Setup) calendar(ctx context.Context, calendar, legalEntity uuid.UUID, co config.Company, doc *config.Config) error {
-	tx, p, _ := reqctx.Request(ctx) // Apply checked the request
+func (s Setup) calendar(ctx context.Context, tx pgx.Tx, p reqctx.Principal, calendar, legalEntity uuid.UUID, co config.Company, doc *config.Config) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.fiscal_calendar (tenant_id, id, code, name, normal_periods, special_periods, created_by)
 		SELECT $1, $2, 'C' || lpad((count(*) + 1)::text, 3, '0'), $3, $4, $5, $6 FROM ledger.fiscal_calendar
 		ON CONFLICT (tenant_id, id) DO NOTHING`,

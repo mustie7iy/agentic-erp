@@ -270,8 +270,7 @@ func (u *Uploads) mark(ctx context.Context, tx pgx.Tx, up Upload, content []byte
 	return err
 }
 
-func (e *Endpoints) uploadToAPI(ctx context.Context, up Upload) (*gen.Upload, error) {
-	_, p, _ := reqctx.Request(ctx) // callers run in a request
+func (e *Endpoints) uploadToAPI(ctx context.Context, tenant uuid.UUID, up Upload) (*gen.Upload, error) {
 	out := &gen.Upload{ID: up.ID, Version: up.Version, CreatedAt: up.CreatedAt, CreatedBy: up.CreatedBy, UpdatedAt: up.UpdatedAt,
 		Purpose: up.Purpose, ContentType: up.ContentType, MaxBytes: up.MaxBytes, Status: up.Status, Method: http.MethodPut, ExpiresAt: up.ExpiresAt}
 	if up.Size != nil {
@@ -280,7 +279,7 @@ func (e *Endpoints) uploadToAPI(ctx context.Context, up Upload) (*gen.Upload, er
 	if up.UsedBy != nil {
 		out.UsedBy = gen.NewOptUUID(*up.UsedBy)
 	}
-	t, err := e.Uploads.Target(ctx, p.TenantID, up)
+	t, err := e.Uploads.Target(ctx, tenant, up)
 	if err != nil {
 		return nil, err
 	}
@@ -290,11 +289,15 @@ func (e *Endpoints) uploadToAPI(ctx context.Context, up Upload) (*gen.Upload, er
 
 // CreateUpload implements POST /v1/uploads.
 func (e *Endpoints) CreateUpload(ctx context.Context, req *gen.UploadCreate, _ gen.CreateUploadParams) (gen.CreateUploadRes, error) {
+	_, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
 	up, err := e.Uploads.Create(ctx, req.Purpose, req.ContentType)
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.uploadToAPI(ctx, up)
+	out, err := e.uploadToAPI(ctx, p.TenantID, up)
 	if err != nil {
 		return nil, err
 	}
@@ -306,11 +309,15 @@ func (e *Endpoints) GetUpload(ctx context.Context, params gen.GetUploadParams) (
 	if e.Uploads == nil {
 		return nil, problem.Unavailable("This server has no object storage.", 0)
 	}
+	_, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
 	up, err := e.Uploads.Get(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.uploadToAPI(ctx, up)
+	out, err := e.uploadToAPI(ctx, p.TenantID, up)
 	if err != nil {
 		return nil, err
 	}

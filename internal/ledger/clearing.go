@@ -155,7 +155,7 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 		return Clearing{}, err
 	}
 	first := items[0]
-	entry, err := e.post(ctx, draft{entity: le, ledgerID: first.ledger, documentType: ClearingDocumentType, documentDate: date, postingDate: date,
+	entry, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: first.ledger, documentType: ClearingDocumentType, documentDate: date, postingDate: date,
 		currencyTC: first.currency, currencyLC: first.currencyLC, currencyGC: first.currencyGC, rateTCLC: first.rateTCLC,
 		rateLCGC: first.rateLCGC, headerText: &text, sourceContext: "ledger", lines: lines})
 	if err != nil {

@@ -129,7 +129,7 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 	}
 	p := reqctx.Principal{ID: j.By, Kind: j.ByKind, TenantID: tenant}
 	ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), p))
-	if err := w.process(ctx, j); err != nil {
+	if err := w.process(ctx, tx, p, j); err != nil {
 		return false, err
 	}
 	now := time.Now
@@ -146,8 +146,7 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 // A problem (the request is no longer awaiting evidence, the proposal
 // cannot be replayed) fails the operation; other errors leave the job for
 // another attempt.
-func (w *SimulationWorker) process(ctx context.Context, j job) error {
-	tx, actor, _ := reqctx.Request(ctx) // one runs process in a request
+func (w *SimulationWorker) process(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, j job) error {
 	fail := func(p *problem.Problem) error {
 		_, err := operations.Fail(ctx, j.OperationID, p)
 		return err

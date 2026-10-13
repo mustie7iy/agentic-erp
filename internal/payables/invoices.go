@@ -30,8 +30,7 @@ type newInvoice struct {
 
 // insert numbers and inserts a validated invoice and publishes
 // SupplierInvoiceCaptured.
-func (e *Endpoints) insert(ctx context.Context, in newInvoice) (Invoice, error) {
-	tx, p, _ := reqctx.Request(ctx) // callers run in a request
+func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in newInvoice) (Invoice, error) {
 	c, err := e.validate(ctx, tx, in.Input)
 	if err != nil {
 		return Invoice{}, err
@@ -88,13 +87,14 @@ func (e *Endpoints) insert(ctx context.Context, in newInvoice) (Invoice, error) 
 
 // CreateInvoice enters a parked invoice.
 func (e *Endpoints) CreateInvoice(ctx context.Context, in Input, source string) (Invoice, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
 		return Invoice{}, err
 	}
 	if !Sources[source] {
 		return Invoice{}, invalid("payables.unknown_source", "source", "Invoices are entered as manual, edi or migration; documents use :capture.")
 	}
-	return e.insert(ctx, newInvoice{Input: in, source: source, status: Parked})
+	return e.insert(ctx, tx, p, newInvoice{Input: in, source: source, status: Parked})
 }
 
 // Change is a merge patch of a parked invoice; nil fields are unchanged.

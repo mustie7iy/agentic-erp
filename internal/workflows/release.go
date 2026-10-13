@@ -71,7 +71,7 @@ func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
 
 // inRelease runs fn in one transaction as the run's releaser, with the
 // audit buffer flushed and the transaction committed when fn succeeds.
-func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx context.Context, r payments.Run) error) error {
+func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx context.Context, tx pgx.Tx, r payments.Run) error) error {
 	tx, err := p.begin(ctx, database.Scope{Role: p.AppRole, TenantID: in.TenantID})
 	if err != nil {
 		return err
@@ -85,7 +85,7 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 		return err
 	}
 	rctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor))
-	if err := fn(rctx, r); err != nil {
+	if err := fn(rctx, tx, r); err != nil {
 		return err
 	}
 	now := time.Now
@@ -111,8 +111,7 @@ func asProblem(err error) error {
 // PaymentsToPost lists the run's payments still to post.
 func (p *Payments) PaymentsToPost(ctx context.Context, in ReleaseInput) ([]uuid.UUID, error) {
 	var todo []uuid.UUID
-	err := p.inRelease(ctx, in, func(ctx context.Context, r payments.Run) error {
-		tx, _, _ := reqctx.Request(ctx)
+	err := p.inRelease(ctx, in, func(ctx context.Context, tx pgx.Tx, r payments.Run) error {
 		var err error
 		todo, _, err = payments.PaymentsToPost(ctx, tx, r.ID)
 		return err
@@ -122,7 +121,7 @@ func (p *Payments) PaymentsToPost(ctx context.Context, in ReleaseInput) ([]uuid.
 
 // PostPayment posts one payment; a payment already posted is left alone.
 func (p *Payments) PostPayment(ctx context.Context, in ReleaseInput, pay uuid.UUID) error {
-	return asProblem(p.inRelease(ctx, in, func(ctx context.Context, r payments.Run) error {
+	return asProblem(p.inRelease(ctx, in, func(ctx context.Context, _ pgx.Tx, r payments.Run) error {
 		_, err := p.Endpoints.PostPayment(ctx, r, pay)
 		return err
 	}))
@@ -130,7 +129,7 @@ func (p *Payments) PostPayment(ctx context.Context, in ReleaseInput, pay uuid.UU
 
 // FinishRelease writes the bank file and releases the run.
 func (p *Payments) FinishRelease(ctx context.Context, in ReleaseInput) error {
-	return asProblem(p.inRelease(ctx, in, func(ctx context.Context, r payments.Run) error {
+	return asProblem(p.inRelease(ctx, in, func(ctx context.Context, _ pgx.Tx, r payments.Run) error {
 		_, err := p.Endpoints.FinishRelease(ctx, r)
 		return err
 	}))
@@ -138,7 +137,7 @@ func (p *Payments) FinishRelease(ctx context.Context, in ReleaseInput) error {
 
 // FailRelease records the problem that stopped the release.
 func (p *Payments) FailRelease(ctx context.Context, in ReleaseInput, why problem.Problem) error {
-	return p.inRelease(ctx, in, func(ctx context.Context, r payments.Run) error {
+	return p.inRelease(ctx, in, func(ctx context.Context, _ pgx.Tx, r payments.Run) error {
 		_, err := p.Endpoints.FailRelease(ctx, r, &why)
 		return err
 	})
