@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -130,8 +131,12 @@ func TestModelLoadsAndValidates(t *testing.T) {
 	if m.Metric(m.Defaults["sales"]).Name != "revenue" {
 		t.Fatal(`"sales" should default to revenue`)
 	}
-	if dims := m.AllowedDimensions("operating_margin"); !containsStr(dims, "fiscal_month") || containsStr(dims, "vendor") {
-		t.Fatalf("derived metric dimensions wrong: %v", dims)
+	dims := m.AllowedDimensions("operating_margin")
+	if !containsStr(dims, "fiscal_month") {
+		t.Errorf("derived metric dimensions: got %v, want fiscal_month among them", dims)
+	}
+	if containsStr(dims, "vendor") {
+		t.Errorf("derived metric dimensions: got %v, want no vendor", dims)
 	}
 	if _, err := ParseModel([]byte("metrics:\n  - {name: x, type: money}\n")); err == nil {
 		t.Fatal("metric without source or derivation must be rejected")
@@ -143,10 +148,15 @@ func TestFiscalCalendar(t *testing.T) {
 		date        string
 		start, y, m int
 	}{{"2026-01-15", 1, 2026, 1}, {"2026-12-01", 1, 2026, 12}, {"2026-04-01", 4, 2027, 1}, {"2026-03-31", 4, 2026, 12}} {
-		y, m, err := fiscal(c.date, c.start)
-		if err != nil || y != c.y || m != c.m {
-			t.Errorf("fiscal(%s, %d) = %d/%d, want %d/%d", c.date, c.start, y, m, c.y, c.m)
-		}
+		t.Run(fmt.Sprintf("%s from month %d", c.date, c.start), func(t *testing.T) {
+			y, m, err := fiscal(c.date, c.start)
+			if err != nil {
+				t.Fatalf("fiscal(%s, %d): %v", c.date, c.start, err)
+			}
+			if y != c.y || m != c.m {
+				t.Errorf("fiscal(%s, %d): got %d/%d, want %d/%d", c.date, c.start, y, m, c.y, c.m)
+			}
+		})
 	}
 }
 
@@ -168,8 +178,11 @@ func TestRevenueMatchesLedger(t *testing.T) {
 			t.Errorf("%s revenue %v, ledger says %v", year, got, want)
 		}
 	}
-	if r.Columns[1].Currency != "USD" || r.DataThrough != "2026-09-28" {
-		t.Errorf("currency %q, data through %q", r.Columns[1].Currency, r.DataThrough)
+	if r.Columns[1].Currency != "USD" {
+		t.Errorf("currency: got %q, want USD", r.Columns[1].Currency)
+	}
+	if r.DataThrough != "2026-09-28" {
+		t.Errorf("data through: got %q, want 2026-09-28", r.DataThrough)
 	}
 }
 
@@ -183,12 +196,15 @@ func TestFiltersOrderingAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Rows) != 2 || r.Rows[0][2].(float64) < r.Rows[1][2].(float64) {
-		t.Fatalf("expected top 2 by revenue descending: %v", r.Rows)
+	if len(r.Rows) != 2 {
+		t.Fatalf("rows: got %d %v, want the top 2", len(r.Rows), r.Rows)
+	}
+	if first, second := r.Rows[0][2].(float64), r.Rows[1][2].(float64); first < second {
+		t.Errorf("order: got %v before %v, want revenue descending", first, second)
 	}
 	for _, row := range r.Rows {
 		if m := row[1].(string); m < "7" || m > "9" {
-			t.Fatalf("filter leaked month %s", m)
+			t.Errorf("row %v: got month %s, want 7 to 9", row, m)
 		}
 	}
 }
@@ -203,9 +219,11 @@ func TestQueryGuardrails(t *testing.T) {
 		"order by not in it": {Measures: []string{"revenue"}, By: []string{"company"}, OrderBy: "fiscal_year"},
 	}
 	for name, q := range cases {
-		if _, err := all.Run(q); err == nil {
-			t.Errorf("%s: expected an error", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if _, err := all.Run(q); err == nil {
+				t.Error("got no error, want the query refused")
+			}
+		})
 	}
 	if _, err := all.Run(Query{Measures: []string{"revenue"}, By: []string{"company"}}); err != nil {
 		t.Errorf("breaking down by company should resolve the currency mix: %v", err)
@@ -218,8 +236,14 @@ func TestRowLevelSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Rows) != 1 || r.Rows[0][0] != "2000" || r.Columns[1].Currency != "EUR" {
-		t.Fatalf("user restricted to 2000 saw %v", r.Rows)
+	if len(r.Rows) != 1 {
+		t.Fatalf("user restricted to 2000: got %d rows %v, want 1", len(r.Rows), r.Rows)
+	}
+	if r.Rows[0][0] != "2000" {
+		t.Errorf("user restricted to 2000: got company %v, want 2000", r.Rows[0][0])
+	}
+	if r.Columns[1].Currency != "EUR" {
+		t.Errorf("user restricted to 2000: got currency %s, want EUR", r.Columns[1].Currency)
 	}
 	if QueryID(r.Query, de.Principal) == QueryID(r.Query, us) {
 		t.Fatal("query ids must differ by access scope")
@@ -234,8 +258,11 @@ func TestDerivedMetrics(t *testing.T) {
 	}
 	for _, row := range r.Rows {
 		rev, exp, op, margin := row[1].(float64), row[2].(float64), row[3].(float64), row[4].(float64)
-		if round(rev-exp, 2) != op || round(op/rev, 4) != margin {
-			t.Errorf("derived values inconsistent: %v", row)
+		if want := round(rev-exp, 2); op != want {
+			t.Errorf("row %v: got operating profit %v, want %v", row, op, want)
+		}
+		if want := round(op/rev, 4); margin != want {
+			t.Errorf("row %v: got operating margin %v, want %v", row, margin, want)
 		}
 	}
 }
@@ -258,9 +285,11 @@ func TestNarrativeCheck(t *testing.T) {
 		"8 of 9 months grew in Q3 of FY2026.",                  // small ints, words, years
 	}
 	for _, text := range ok {
-		if bad := CheckNarrative(text, []*Result{r}); len(bad) > 0 {
-			t.Errorf("%q: unexpectedly rejected %v", text, bad)
-		}
+		t.Run(text, func(t *testing.T) {
+			if bad := CheckNarrative(text, []*Result{r}); len(bad) > 0 {
+				t.Errorf("got %v rejected, want the text accepted", bad)
+			}
+		})
 	}
 	wrong := []string{
 		"Revenue reached $5.2M.",
@@ -269,9 +298,11 @@ func TestNarrativeCheck(t *testing.T) {
 		"Revenue was 1,234,567.",
 	}
 	for _, text := range wrong {
-		if bad := CheckNarrative(text, []*Result{r}); len(bad) == 0 {
-			t.Errorf("%q: invented figure not caught", text)
-		}
+		t.Run(text, func(t *testing.T) {
+			if bad := CheckNarrative(text, []*Result{r}); len(bad) == 0 {
+				t.Error("got nothing rejected, want the invented figure caught")
+			}
+		})
 	}
 }
 
@@ -344,8 +375,11 @@ func TestBuildRenderAndRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh.Spec.Commentary == "" || len(results) != 1 {
-		t.Fatalf("rerun lost commentary or results: %+v", fresh.Spec)
+	if fresh.Spec.Commentary == "" {
+		t.Errorf("rerun commentary: got none, want it kept: %+v", fresh.Spec)
+	}
+	if len(results) != 1 {
+		t.Errorf("rerun results: got %d, want 1", len(results))
 	}
 
 	// A stale commentary (figures no longer in the data) is dropped on rerun.
@@ -355,8 +389,11 @@ func TestBuildRenderAndRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh.Spec.Commentary != "" || !strings.Contains(strings.Join(fresh.Spec.Assumptions, " "), "commentary was removed") {
-		t.Fatal("stale commentary should be removed with a note")
+	if fresh.Spec.Commentary != "" {
+		t.Errorf("stale commentary: got %q, want it removed", fresh.Spec.Commentary)
+	}
+	if notes := strings.Join(fresh.Spec.Assumptions, " "); !strings.Contains(notes, "commentary was removed") {
+		t.Errorf("assumptions: got %q, want a note that the commentary was removed", notes)
 	}
 }
 
@@ -367,8 +404,12 @@ func TestHandWrittenReportRemapsQueryIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh.Spec.Charts[0].QueryID == "monthly" || results[fresh.Spec.Charts[0].QueryID] == nil {
-		t.Fatal("readable query ids should be remapped to real ones")
+	qid := fresh.Spec.Charts[0].QueryID
+	if qid == "monthly" {
+		t.Error("chart query id: got monthly, want it remapped to a real one")
+	}
+	if results[qid] == nil {
+		t.Errorf("chart query id: got %s, want one with a result", qid)
 	}
 }
 
@@ -463,11 +504,19 @@ func TestAgentAskBuildsValidatedDashboard(t *testing.T) {
 	if !fake.rejected {
 		t.Error("the invented figure should have been rejected before acceptance")
 	}
-	if ans.Report == nil || strings.Contains(ans.Report.Spec.Commentary, "42.0%") || ans.Summary == "" {
-		t.Fatalf("unexpected answer: %+v", ans)
+	if ans.Report == nil {
+		t.Fatalf("answer: got no report, want one: %+v", ans)
 	}
-	if !strings.Contains(fake.bodies[0], "Today is 8 October 2026") || !strings.Contains(fake.bodies[0], `"fallbacks":"default"`) {
-		t.Error("request missing date context or fallback config")
+	if strings.Contains(ans.Report.Spec.Commentary, "42.0%") {
+		t.Errorf("commentary: got %q, want the invented figure gone", ans.Report.Spec.Commentary)
+	}
+	if ans.Summary == "" {
+		t.Error("summary: got none, want one")
+	}
+	for _, want := range []string{"Today is 8 October 2026", `"fallbacks":"default"`} {
+		if !strings.Contains(fake.bodies[0], want) {
+			t.Errorf("first request: got %s, want it to contain %s", fake.bodies[0], want)
+		}
 	}
 	if _, err := ans.Report.Save(t.TempDir(), s.Results); err != nil {
 		t.Fatal(err)
