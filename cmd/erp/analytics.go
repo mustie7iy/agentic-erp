@@ -111,7 +111,9 @@ func queryCmd(ctx context.Context, args []string) error {
 	if err := tw.Flush(); err != nil {
 		return fmt.Errorf("query: print: %w", err)
 	}
-	fmt.Fprintf(out, "\n%s · %d rows · data through %s\n", r.ID, len(r.Rows), r.DataThrough)
+	if _, err := fmt.Fprintf(out, "\n%s · %d rows · data through %s\n", r.ID, len(r.Rows), r.DataThrough); err != nil {
+		return fmt.Errorf("query: print summary: %w", err)
+	}
 	if *csvOut != "" {
 		return writeCSV(*csvOut, r)
 	}

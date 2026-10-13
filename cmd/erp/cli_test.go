@@ -408,6 +408,16 @@ type failing struct{}
 func (failing) Write([]byte) (int, error) { return 0, errors.New("device full") }
 func (failing) Close() error              { return errors.New("close failed") }
 
+// summaryFails prints the table and fails on the summary line after it.
+type summaryFails struct{}
+
+func (summaryFails) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "data through") {
+		return 0, errors.New("device full")
+	}
+	return len(p), nil
+}
+
 // closeFails writes and fails only on close, as a file whose last buffered
 // data could not be stored.
 type closeFails struct{ bytes.Buffer }
@@ -426,6 +436,12 @@ func TestQueryReportsLostOutput(t *testing.T) {
 		out = failing{}
 		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count"}); err == nil || !strings.Contains(err.Error(), "device full") {
 			t.Errorf("got %v, want the print failure", err)
+		}
+	})
+	t.Run("summary", func(t *testing.T) {
+		out = summaryFails{}
+		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count"}); err == nil || !strings.Contains(err.Error(), "device full") {
+			t.Errorf("got %v, want the summary's print failure", err)
 		}
 	})
 	t.Run("close", func(t *testing.T) {
