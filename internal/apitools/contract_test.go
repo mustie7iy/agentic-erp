@@ -36,8 +36,14 @@ components:
           $ref: "#/components/schemas/Deep"
 `))
 	tool, err := c.tool("makeX")
-	if err != nil || tool.op.body || len(tool.op.params) != 1 {
-		t.Fatalf("%+v %v", tool, err)
+	if err != nil {
+		t.Fatalf("makeX: %v", err)
+	}
+	if tool.op.body {
+		t.Errorf("body: got true, want false for a request body without content")
+	}
+	if got := len(tool.op.params); got != 1 {
+		t.Errorf("params: got %d, want 1", got)
 	}
 	if got, err := c.schema(map[string]any{"$ref": "#/nowhere/at/all"}, "x", 0); err == nil {
 		t.Fatalf("got %v for an unresolvable reference, want an error", got)
@@ -60,8 +66,14 @@ components:
 		t.Fatal(err)
 	}
 	got := v.(map[string]any)
-	if _, has := got["x-internal"]; has || len(got["properties"].(map[string]any)) != 1 || len(got["required"].([]any)) != 1 {
-		t.Fatalf("read-only properties kept: %v", got)
+	if x, has := got["x-internal"]; has {
+		t.Errorf("x-internal: got %v, want the extension dropped", x)
+	}
+	if n := len(got["properties"].(map[string]any)); n != 1 {
+		t.Errorf("properties: got %d, want 1 (read-only ones dropped) in %v", n, got)
+	}
+	if n := len(got["required"].([]any)); n != 1 {
+		t.Errorf("required: got %d, want 1 (read-only ones dropped) in %v", n, got)
 	}
 }
 
@@ -83,7 +95,8 @@ func TestAnswers(t *testing.T) {
 `))
 	tool, _ := c.tool("getX")
 	tool.client = &Client{BaseURL: srv.URL}
-	result := func() string {
+	result := func(t *testing.T) string {
+		t.Helper()
 		res, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
 		if err != nil {
 			t.Fatal(err)
@@ -91,13 +104,20 @@ func TestAnswers(t *testing.T) {
 		return res[0].OfText.Text
 	}
 	for _, b := range []string{"", "not json"} {
-		if body = b; !strings.Contains(result(), `"body":null`) {
-			t.Errorf("%q: %s", b, result())
-		}
+		t.Run(b, func(t *testing.T) {
+			body = b
+			if got := result(t); !strings.Contains(got, `"body":null`) {
+				t.Errorf("answer %q: got %s, want a null body", b, got)
+			}
+		})
 	}
 	body = `["` + strings.Repeat("x", maxResult) + `"]`
-	if got := result(); len(got) > maxResult+100 || !strings.HasSuffix(got, "ask for a smaller page)") {
-		t.Errorf("not truncated: %d bytes", len(got))
+	got := result(t)
+	if len(got) > maxResult+100 {
+		t.Errorf("truncated length: got %d bytes, want at most %d", len(got), maxResult+100)
+	}
+	if !strings.HasSuffix(got, "ask for a smaller page)") {
+		t.Errorf("truncated answer: got ...%s, want it to end asking for a smaller page", got[max(0, len(got)-40):])
 	}
 	body = "cut"
 	if _, err := tool.client.Do(context.Background(), http.MethodGet, "/v1/x", nil, nil, ""); err == nil {

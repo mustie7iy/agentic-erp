@@ -56,17 +56,34 @@ func TestToolsFromTheContract(t *testing.T) {
 	}
 	get, update, create := schemaOf(t, tools[0]), schemaOf(t, tools[1]), schemaOf(t, tools[2])
 	props := get["properties"].(map[string]any)
-	if tools[0].Name() != "getSupplierInvoice" || !strings.HasPrefix(tools[0].Description(), "Get a supplier invoice. ") ||
-		props["id"].(map[string]any)["format"] != "uuid" || props["expand"].(map[string]any)["type"] != "array" || len(get["required"].([]any)) != 1 {
-		t.Fatalf("getSupplierInvoice: %v", get)
+	if got := tools[0].Name(); got != "getSupplierInvoice" {
+		t.Errorf("name: got %q, want %q", got, "getSupplierInvoice")
 	}
-	if req := update["required"].([]any); len(req) != 3 || update["properties"].(map[string]any)["if_match"] == nil {
-		t.Fatalf("updateConnector: %v", update)
+	if got := tools[0].Description(); !strings.HasPrefix(got, "Get a supplier invoice. ") {
+		t.Errorf("description: got %q, want the operation summary first", got)
+	}
+	if got := props["id"].(map[string]any)["format"]; got != "uuid" {
+		t.Errorf("getSupplierInvoice id format: got %v, want uuid", got)
+	}
+	if got := props["expand"].(map[string]any)["type"]; got != "array" {
+		t.Errorf("getSupplierInvoice expand type: got %v, want array", got)
+	}
+	if got := len(get["required"].([]any)); got != 1 {
+		t.Errorf("getSupplierInvoice required: got %d, want 1 in %v", got, get)
+	}
+	if got := len(update["required"].([]any)); got != 3 {
+		t.Errorf("updateConnector required: got %d, want 3 in %v", got, update)
+	}
+	if update["properties"].(map[string]any)["if_match"] == nil {
+		t.Errorf("updateConnector: got no if_match property, want one in %v", update)
 	}
 	body := create["properties"].(map[string]any)["body"].(map[string]any)
 	kind := body["properties"].(map[string]any)["kind"].(map[string]any)
-	if !strings.Contains(kind["description"].(string), "Known values: sap_odata") || body["examples"] != nil {
-		t.Fatalf("createConnector body: %v", body)
+	if got := kind["description"].(string); !strings.Contains(got, "Known values: sap_odata") {
+		t.Errorf("createConnector kind description: got %q, want the known values", got)
+	}
+	if got := body["examples"]; got != nil {
+		t.Errorf("createConnector body examples: got %v, want none", got)
 	}
 	if _, err := apitools.Tools(nil, nil, "approveApprovalRequest"); err == nil || !strings.Contains(err.Error(), "x-agent") {
 		t.Fatalf("approval decisions are tools: %v", err)
@@ -83,8 +100,11 @@ func TestToolsFromTheContract(t *testing.T) {
 	// Read-only properties of a resource are left out of request bodies.
 	end, _ := apitools.Tools(nil, nil, "getConnector", "createRecommendation")
 	rec := schemaOf(t, end[1])["properties"].(map[string]any)["body"].(map[string]any)["properties"].(map[string]any)
-	if rec["agent_id"] != nil || rec["session_id"] == nil {
-		t.Fatalf("recommendation body: %v", rec)
+	if got := rec["agent_id"]; got != nil {
+		t.Errorf("recommendation body agent_id: got %v, want it left out (read-only)", got)
+	}
+	if rec["session_id"] == nil {
+		t.Errorf("recommendation body: got no session_id, want one in %v", rec)
 	}
 }
 
@@ -116,11 +136,17 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 	tools[0].Observe(func(r apitools.Response) { seen = append(seen, r.Status) })
 	created := call(t, tools[0], `{"body": {"kind": "sap_file", "name": "SAP", "settings": {"path": "x.json"}}}`)
 	if len(seen) != 1 || seen[0] != 201 {
-		t.Fatalf("observed: %v", seen)
+		t.Fatalf("observed: got %v, want [201]", seen)
 	}
 	body := created["body"].(map[string]any)
-	if created["status"] != float64(201) || created["etag"] != `"1"` || body["name"] != "SAP" {
-		t.Fatalf("created: %v", created)
+	if got := created["status"]; got != float64(201) {
+		t.Errorf("created status: got %v, want 201", got)
+	}
+	if got := created["etag"]; got != `"1"` {
+		t.Errorf("created etag: got %v, want %q", got, `"1"`)
+	}
+	if got := body["name"]; got != "SAP" {
+		t.Errorf("created name: got %v, want SAP", got)
 	}
 	id := body["id"].(string)
 	if got := call(t, tools[1], `{"id": "`+id+`"}`); got["body"].(map[string]any)["id"] != id {
@@ -143,18 +169,28 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 		tool  *apitools.Tool
 		input string
 	}{{tools[1], `{}`}, {tools[1], `[1]`}, {tools[0], `{"body": {}}`}} {
-		if _, err := bad.tool.Execute(ctx, json.RawMessage(bad.input)); err == nil {
-			t.Errorf("%s %s accepted", bad.tool.Name(), bad.input)
-		}
+		t.Run(bad.tool.Name()+" "+bad.input, func(t *testing.T) {
+			if _, err := bad.tool.Execute(ctx, json.RawMessage(bad.input)); err == nil {
+				t.Errorf("%s %s: got no error, want one", bad.tool.Name(), bad.input)
+			}
+		})
 	}
 	if got := call(t, tools[3], `null`); got["status"] != float64(200) {
 		t.Fatalf("null input: %v", got)
 	}
 	calls, _ := e.api.Must(200, "GET", "/v1/agent-sessions/"+s.ID+"/tool-calls", "", "")
 	items := calls["items"].([]any)
-	if len(items) != 9 || items[0].(map[string]any)["tool"] != "createConnector" || items[3].(map[string]any)["is_error"] != true ||
-		items[6].(map[string]any)["result_summary"] != "missing path parameter in /v1/connectors/{id}" {
-		t.Fatalf("tool calls: %v", items)
+	if len(items) != 9 {
+		t.Fatalf("tool calls: got %d, want 9: %v", len(items), items)
+	}
+	if got := items[0].(map[string]any)["tool"]; got != "createConnector" {
+		t.Errorf("first tool call: got %v, want createConnector", got)
+	}
+	if got := items[3].(map[string]any)["is_error"]; got != true {
+		t.Errorf("fourth tool call is_error: got %v, want true", got)
+	}
+	if got := items[6].(map[string]any)["result_summary"]; got != "missing path parameter in /v1/connectors/{id}" {
+		t.Errorf("seventh tool call summary: got %v, want the missing path parameter", got)
 	}
 	if err := s.End(ctx, "completed", anthropic.BetaUsage{InputTokens: 3, OutputTokens: 2}); err != nil {
 		t.Fatal(err)
@@ -202,16 +238,28 @@ func TestRun(t *testing.T) {
 		return got
 	}
 	s, err := run(llmtest.Tool("listConnectors", map[string]any{}), llmtest.Final("done"))
-	if got := session(s); err != nil || got["status"] != "completed" || got["input_tokens"] != float64(20) || got["output_tokens"] != float64(10) {
-		t.Fatalf("completed: %v %v", got, err)
+	if err != nil {
+		t.Fatalf("completed run: %v", err)
+	}
+	got := session(s)
+	for field, want := range map[string]any{"status": "completed", "input_tokens": float64(20), "output_tokens": float64(10)} {
+		if got[field] != want {
+			t.Errorf("completed session %s: got %v, want %v", field, got[field], want)
+		}
 	}
 	s, err = run(llmtest.Step{Text: "no", StopReason: "refusal"})
-	if got := session(s); err == nil || got["status"] != "refused" {
-		t.Fatalf("refused: %v %v", got, err)
+	if err == nil {
+		t.Errorf("refused run: got no error, want one")
+	}
+	if got := session(s)["status"]; got != "refused" {
+		t.Errorf("refused session status: got %v, want refused", got)
 	}
 	s, err = run()
-	if got := session(s); err == nil || got["status"] != "failed" {
-		t.Fatalf("failed: %v %v", got, err)
+	if err == nil {
+		t.Errorf("failed run: got no error, want one")
+	}
+	if got := session(s)["status"]; got != "failed" {
+		t.Errorf("failed session status: got %v, want failed", got)
 	}
 	// A session that cannot be ended is an error even after a good run.
 	srv := llmtest.New(t, llmtest.Final("done"))
