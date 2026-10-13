@@ -158,6 +158,7 @@ func (g *mockGen) fiDoc(cc, budat, blart, xblnr string, lines []fiLine) string {
 		})
 	}
 	if total != 0 {
+		//nolint:forbidigo // an invariant of this generator: its callers build every document's lines from the same amounts, so an unbalanced one is a bug in this file, not something a seed or year can cause
 		panic(fmt.Sprintf("mock FI doc %s/%s unbalanced by %s", cc, belnr, total))
 	}
 	return belnr

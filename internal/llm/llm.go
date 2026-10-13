@@ -91,13 +91,3 @@ func Result(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 func Error(err error) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 	return Result("error: " + err.Error())
 }
-
-// Must unwraps a value whose error can only come from a programming mistake,
-// such as building a tool schema from a fixed Go struct. It panics instead
-// of returning an error no caller could handle.
-func Must[T any](v T, err error) T {
-	if err != nil {
-		panic(fmt.Sprintf("llm: %v", err))
-	}
-	return v
-}

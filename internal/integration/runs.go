@@ -190,6 +190,7 @@ func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error)
 	if v, ok := c.Settings["client"].(string); ok {
 		o.Client = v
 	}
+	//nolint:forbidigo // a JSON number in map[string]any is a float64; page_size is a count checkODataSettings held to a whole 1-5000, not an amount
 	if v, ok := c.Settings["page_size"].(float64); ok {
 		o.PageSize = int(v)
 	}

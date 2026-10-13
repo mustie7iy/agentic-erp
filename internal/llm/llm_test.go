@@ -85,15 +85,3 @@ func TestLastToolResult(t *testing.T) {
 		t.Fatal("no tool result")
 	}
 }
-
-func TestMust(t *testing.T) {
-	if llm.Must(5, nil) != 5 {
-		t.Fatal("value passes through")
-	}
-	defer func() {
-		if r := recover(); r == nil || !strings.Contains(r.(string), "boom") {
-			t.Fatalf("must panic with the error: %v", r)
-		}
-	}()
-	llm.Must(0, errors.New("boom"))
-}

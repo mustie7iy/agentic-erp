@@ -78,6 +78,7 @@ func MustOperations() map[string]Operation {
 func mustParse(src []byte) map[string]Operation {
 	ops, err := parseOperations(src, true)
 	if err != nil {
+		//nolint:forbidigo // init-time wiring of a static value: the embedded contract is fixed at build time and checked by this package's tests
 		panic(err)
 	}
 	return ops
