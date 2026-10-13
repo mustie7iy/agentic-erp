@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -367,12 +368,20 @@ func TestSync(t *testing.T) {
 	if _, err := s.RunOnce(ctx); err == nil {
 		t.Fatal("begin")
 	}
-	// Run rounds until stopped, logging failures.
+	// Run rounds until stopped, logging failures. The log buffer is not safe
+	// to read while the worker writes, so the test waits for a second
+	// transaction instead: it begins only after the first round failed and
+	// was logged.
+	var begun atomic.Int32
+	s.Begin = func(context.Context, database.Scope) (pgx.Tx, error) {
+		begun.Add(1)
+		return nil, errors.New("pool down")
+	}
 	s.Interval = time.Millisecond
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { s.Run(runCtx); close(done) }()
-	time.Sleep(5 * time.Millisecond)
+	pgtest.Eventually(t, 10*time.Second, func() bool { return begun.Load() >= 2 }, "the running sync did not begin a second round")
 	cancel()
 	<-done
 	if !strings.Contains(logs.String(), "directory sync failed") {
