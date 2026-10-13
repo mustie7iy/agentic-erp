@@ -3,6 +3,7 @@ package authn_test
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -38,8 +39,14 @@ func TestVerifyAcceptsValidTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.TenantID != tenant || c.Subject != "human|1" || c.Issuer != is.URL {
-		t.Fatalf("%+v", c)
+	if c.TenantID != tenant {
+		t.Errorf("tenant: got %v, want %v", c.TenantID, tenant)
+	}
+	if c.Subject != "human|1" {
+		t.Errorf("subject: got %s, want human|1", c.Subject)
+	}
+	if c.Issuer != is.URL {
+		t.Errorf("issuer: got %s, want %s", c.Issuer, is.URL)
 	}
 }
 
@@ -61,10 +68,12 @@ func TestVerifyRejectsBadTokens(t *testing.T) {
 		"tenant not a uuid": is.Token(t, tenant, "s", map[string]any{"tenant_id": "acme"}),
 	}
 	for name, raw := range cases {
-		_, err := v.Verify(context.Background(), raw)
-		if p := problem.From(err); err == nil || p.Status != http.StatusUnauthorized {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			_, err := v.Verify(context.Background(), raw)
+			if p := problem.From(err); err == nil || p.Status != http.StatusUnauthorized {
+				t.Errorf("got %v, want a 401 problem", err)
+			}
+		})
 	}
 }
 
@@ -98,17 +107,28 @@ func TestOperatorTokens(t *testing.T) {
 	// An operator token names no tenant; a tenant's token is not an operator's and the reverse.
 	operator := is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil})
 	c, err := v.VerifyOperator(ctx, operator)
-	if err != nil || c.Subject != "ops|alice" || c.Issuer != is.URL || c.TenantID != uuid.Nil {
-		t.Fatalf("%+v %v", c, err)
+	if err != nil {
+		t.Fatalf("operator token: %v", err)
+	}
+	if c.Subject != "ops|alice" {
+		t.Errorf("operator subject: got %s, want ops|alice", c.Subject)
+	}
+	if c.Issuer != is.URL {
+		t.Errorf("operator issuer: got %s, want %s", c.Issuer, is.URL)
+	}
+	if c.TenantID != uuid.Nil {
+		t.Errorf("operator tenant: got %v, want none", c.TenantID)
 	}
 	for name, raw := range map[string]string{
 		"names a tenant": is.Token(t, uuid.New(), "ops|alice", nil),
 		"untrusted":      other.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil}),
 		"malformed":      "abc",
 	} {
-		if _, err := v.VerifyOperator(ctx, raw); problem.From(err).Status != http.StatusUnauthorized {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			if _, err := v.VerifyOperator(ctx, raw); problem.From(err).Status != http.StatusUnauthorized {
+				t.Errorf("got %v, want a 401 problem", err)
+			}
+		})
 	}
 	if _, err := v.Verify(ctx, operator); problem.From(err).Status != http.StatusUnauthorized {
 		t.Fatalf("operator token as a tenant's: %v", err)
@@ -118,14 +138,25 @@ func TestOperatorTokens(t *testing.T) {
 		w.Header().Set("Subject", c.Subject)
 		w.WriteHeader(204)
 	}))
-	for raw, want := range map[string]int{operator: 204, is.Token(t, uuid.New(), "s", nil): 401} {
-		rec := httptest.NewRecorder()
-		r := httptest.NewRequest("GET", "/control/v1/tenants", nil)
-		r.Header.Set("Authorization", "Bearer "+raw)
-		h.ServeHTTP(rec, r)
-		if rec.Code != want || (want == 204 && rec.Header().Get("Subject") != "ops|alice") {
-			t.Errorf("%d: %d", want, rec.Code)
-		}
+	for name, c := range map[string]struct {
+		raw  string
+		want int
+	}{
+		"operator token": {operator, 204},
+		"tenant token":   {is.Token(t, uuid.New(), "s", nil), 401},
+	} {
+		t.Run("middleware "+name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			r := httptest.NewRequest("GET", "/control/v1/tenants", nil)
+			r.Header.Set("Authorization", "Bearer "+c.raw)
+			h.ServeHTTP(rec, r)
+			if rec.Code != c.want {
+				t.Errorf("got status %d, want %d", rec.Code, c.want)
+			}
+			if c.want == 204 && rec.Header().Get("Subject") != "ops|alice" {
+				t.Errorf("got subject %q, want ops|alice", rec.Header().Get("Subject"))
+			}
+		})
 	}
 }
 
@@ -145,18 +176,20 @@ func TestMiddleware(t *testing.T) {
 		"Bearer garbage": 401,
 		"bearer " + is.Token(t, tenant, "s", nil): 204,
 	} {
-		rec := httptest.NewRecorder()
-		r := httptest.NewRequest("GET", "/v1/operations", nil)
-		if header != "" {
-			r.Header.Set("Authorization", header)
-		}
-		h.ServeHTTP(rec, r)
-		if rec.Code != want {
-			t.Errorf("%q: %d", header, rec.Code)
-		}
-		if want == 401 && rec.Header().Get("Content-Type") != "application/problem+json" {
-			t.Errorf("%q: not a problem response", header)
-		}
+		t.Run(fmt.Sprintf("%.20q", header), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			r := httptest.NewRequest("GET", "/v1/operations", nil)
+			if header != "" {
+				r.Header.Set("Authorization", header)
+			}
+			h.ServeHTTP(rec, r)
+			if rec.Code != want {
+				t.Errorf("got status %d, want %d", rec.Code, want)
+			}
+			if ct := rec.Header().Get("Content-Type"); want == 401 && ct != "application/problem+json" {
+				t.Errorf("got content type %q, want application/problem+json", ct)
+			}
+		})
 	}
 	if got.TenantID != tenant {
 		t.Fatal("claims not passed on")
@@ -182,14 +215,28 @@ func TestOperatorRoles(t *testing.T) {
 		"garbage": {42, nil},
 		"mixed":   {[]any{"erp:read", 7, ""}, []string{"erp:read"}},
 	} {
-		claims, err := v.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil, "roles": c.claim}))
-		if err != nil || strings.Join(claims.Roles, ",") != strings.Join(c.roles, ",") || (claims.Roles == nil) != (c.roles == nil) {
-			t.Errorf("%s: %v %v", name, claims.Roles, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			claims, err := v.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil, "roles": c.claim}))
+			if err != nil {
+				t.Fatalf("verify: %v", err)
+			}
+			if got, want := strings.Join(claims.Roles, ","), strings.Join(c.roles, ","); got != want {
+				t.Errorf("got roles %s, want %s", got, want)
+			}
+			if (claims.Roles == nil) != (c.roles == nil) {
+				t.Errorf("got roles nil %v, want nil %v", claims.Roles == nil, c.roles == nil)
+			}
+		})
 	}
 	claims, err := v.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil}))
-	if err != nil || claims.Roles != nil || !authn.OperatorAllowed(claims, authn.RoleOperate) {
-		t.Fatalf("no roles claim: %v %v", claims.Roles, err)
+	if err != nil {
+		t.Fatalf("no roles claim: %v", err)
+	}
+	if claims.Roles != nil {
+		t.Errorf("no roles claim: got roles %v, want nil", claims.Roles)
+	}
+	if !authn.OperatorAllowed(claims, authn.RoleOperate) {
+		t.Errorf("no roles claim: got operate refused, want allowed")
 	}
 	for roles, allowed := range map[string]map[string]bool{
 		"":                     {authn.RoleRead: false, authn.RoleOperate: false},
@@ -198,11 +245,13 @@ func TestOperatorRoles(t *testing.T) {
 		"erp:admin":            {authn.RoleRead: true, authn.RoleProvision: true, authn.RoleOperate: true},
 		"erp:read erp:operate": {authn.RoleRead: true, authn.RoleOperate: true, authn.RoleProvision: false},
 	} {
-		for role, want := range allowed {
-			if got := authn.OperatorAllowed(reqctx.Claims{Roles: strings.Fields(roles)}, role); got != want {
-				t.Errorf("roles %q, %s: %v", roles, role, got)
+		t.Run("roles="+roles, func(t *testing.T) {
+			for role, want := range allowed {
+				if got := authn.OperatorAllowed(reqctx.Claims{Roles: strings.Fields(roles)}, role); got != want {
+					t.Errorf("%s: got %v, want %v", role, got, want)
+				}
 			}
-		}
+		})
 	}
 	// A custom roles claim name per issuer.
 	custom := is.Config()

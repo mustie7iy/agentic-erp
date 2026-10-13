@@ -22,8 +22,17 @@ func TestDevelopmentIssuer(t *testing.T) {
 	}
 	ten := uuid.New()
 	claims, err := v.Verify(context.Background(), dev.Token(ten, "alice"))
-	if err != nil || claims.TenantID != ten || claims.Subject != "alice" || claims.Issuer != authn.DevIssuerURL {
-		t.Fatalf("%+v %v", claims, err)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if claims.TenantID != ten {
+		t.Errorf("tenant: got %v, want %v", claims.TenantID, ten)
+	}
+	if claims.Subject != "alice" {
+		t.Errorf("subject: got %s, want alice", claims.Subject)
+	}
+	if claims.Issuer != authn.DevIssuerURL {
+		t.Errorf("issuer: got %s, want %s", claims.Issuer, authn.DevIssuerURL)
 	}
 	// Another dev issuer's key is not trusted; an expired token is refused.
 	other := authn.NewDevIssuer()
@@ -57,10 +66,17 @@ func TestDevelopmentIssuer(t *testing.T) {
 	if claims, err := v.Verify(context.Background(), answer.Token); err != nil || claims.Subject != "bob" {
 		t.Fatalf("%+v %v", claims, err)
 	}
-	for _, body := range []string{`{`, `{"tenant_id": "x", "subject": "bob"}`, `{"tenant_id": "` + ten.String() + `"}`, `{"subject": ""}`} {
-		if rec := post(body); rec.Code != http.StatusBadRequest {
-			t.Errorf("%s: %d", body, rec.Code)
-		}
+	for name, body := range map[string]string{
+		"not json":        `{`,
+		"tenant not uuid": `{"tenant_id": "x", "subject": "bob"}`,
+		"no subject":      `{"tenant_id": "` + ten.String() + `"}`,
+		"empty subject":   `{"subject": ""}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if rec := post(body); rec.Code != http.StatusBadRequest {
+				t.Errorf("%s: got %d, want %d", body, rec.Code, http.StatusBadRequest)
+			}
+		})
 	}
 	// Without a tenant the token is an operator's.
 	rec = post(`{"subject": "ops"}`)
