@@ -3,6 +3,7 @@ package partner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -243,7 +244,7 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 	rows, _ := tx.Query(ctx, q, args...)
 	ps, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Partner, error) { return scanPartner(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: list business partners: %w", err)
 	}
 	ps, next := pagination.Page(ks, ps, func(p Partner) (string, uuid.UUID) {
 		if ks.Field() == "name" {
@@ -339,7 +340,7 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 	rows, _ := tx.Query(ctx, q, args...)
 	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Change, error) { return scanChange(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: list partner changes: %w", err)
 	}
 	cs, next := pagination.Page(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID })
 	page := gen.PartnerChangePage{Items: make([]gen.PartnerChange, 0, len(cs))}
@@ -414,7 +415,7 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 	}
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM partner.business_partner WHERE id = $1)`, params.ID).Scan(&exists); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: find business partner %s: %w", params.ID, err)
 	}
 	if !exists {
 		return nil, notFound("business partner")
@@ -424,7 +425,7 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 	rows, _ := tx.Query(ctx, q, args...)
 	bs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (BankAccount, error) { return scanBank(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: list bank accounts of business partner %s: %w", params.ID, err)
 	}
 	bs, next := pagination.Page(ks, bs, func(b BankAccount) (string, uuid.UUID) { return b.ValidFrom.Format(time.DateOnly), b.ID })
 	page := gen.BankAccountPage{Items: make([]gen.BankAccount, 0, len(bs))}

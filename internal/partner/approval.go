@@ -2,6 +2,7 @@ package partner
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -23,7 +24,7 @@ func RequestApproval(ctx context.Context, opener Opener, c Change) (Change, erro
 	}
 	var number string
 	if err := tx.QueryRow(ctx, `SELECT number FROM partner.business_partner WHERE id = $1`, c.PartnerID).Scan(&number); err != nil {
-		return Change{}, err
+		return Change{}, fmt.Errorf("partner: read the number of business partner %s: %w", c.PartnerID, err)
 	}
 	id, needed, err := opener.Open(ctx, approvals.NewRequest{ObjectType: approvals.PartnerChange, ObjectID: c.ID,
 		Title: "Partner change " + c.Number + " (" + c.Kind + ") for " + number})
@@ -33,8 +34,12 @@ func RequestApproval(ctx context.Context, opener Opener, c Change) (Change, erro
 	if !needed {
 		return ApplyChange(ctx, c.ID)
 	}
-	return scanChange(tx.QueryRow(ctx, `UPDATE partner.partner_change SET workflow_request_id = $2, version = version + 1, updated_by = $3
+	linked, err := scanChange(tx.QueryRow(ctx, `UPDATE partner.partner_change SET workflow_request_id = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+changeColumns, c.ID, id, p.ID))
+	if err != nil {
+		return linked, fmt.Errorf("partner: link partner change %s to approval request %s: %w", c.ID, id, err)
+	}
+	return linked, nil
 }
 
 // Approvals moves partner changes on when their approval requests complete.

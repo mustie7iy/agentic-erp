@@ -172,4 +172,7 @@ func TestOutsideARequest(t *testing.T) {
 	if !errors.Is(err, reqctx.ErrOutsideRequest) {
 		t.Errorf("CreateBusinessPartner: got %v, want reqctx.ErrOutsideRequest", err)
 	}
+	if _, _, err := partner.CreatePartner(context.Background(), partner.Ports{}, partner.NewPartner{}); !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("CreatePartner: got %v, want reqctx.ErrOutsideRequest", err)
+	}
 }
