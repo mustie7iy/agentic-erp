@@ -108,7 +108,7 @@ func (x *ContractExpirer) RunOnce(ctx context.Context) (int, error) {
 	for _, t := range tenants {
 		k, err := x.Expire(ctx, t)
 		if err != nil {
-			return n, fmt.Errorf("expiring the contracts of tenant %s: %w", t, err)
+			return n, fmt.Errorf("procurement: run contract expiry: %w", err)
 		}
 		n += k
 	}

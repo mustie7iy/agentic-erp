@@ -69,7 +69,8 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
 - [ ] R10 wrapcheck: internal/platform/*
 - [ ] R11 wrapcheck: internal/ledger
 - [ ] R12 wrapcheck: internal/payments
-- [ ] R13 wrapcheck: internal/procurement
+- [x] R13 wrapcheck: internal/procurement 42 → 0 (worktree agent; cherry-picked as a99637e, re-verified
+  on the branch; expiry message de-duplicated). Reviewer: APPROVE.
 - [ ] R14 wrapcheck: internal/payables
 - [ ] R15 wrapcheck: internal/partner
 - [ ] R16 wrapcheck: internal/configuration
