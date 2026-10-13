@@ -182,13 +182,24 @@ func TestIdempotentCreate(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	c := call{method: "POST", path: "/create", key: "key-00000001", body: `{"x":1}`, tenant: ten.ID, subject: ten.Human.Subject}
 	first := a.do(c)
-	if first.Code != 201 || first.Header().Get("Idempotent-Replayed") != "" {
-		t.Fatalf("%d %s", first.Code, first.Body)
+	if first.Code != 201 {
+		t.Fatalf("first status: got %d, want 201 (%s)", first.Code, first.Body)
+	}
+	if got := first.Header().Get("Idempotent-Replayed"); got != "" {
+		t.Fatalf("first Idempotent-Replayed: got %q, want empty", got)
 	}
 	replay := a.do(c)
-	if replay.Code != 201 || replay.Header().Get("Idempotent-Replayed") != "true" ||
-		replay.Header().Get("ETag") != `"1"` || replay.Header().Get("Location") != first.Header().Get("Location") {
-		t.Fatalf("replay %d %v", replay.Code, replay.Header())
+	if replay.Code != 201 {
+		t.Fatalf("replay status: got %d, want 201 (%s)", replay.Code, replay.Body)
+	}
+	if got := replay.Header().Get("Idempotent-Replayed"); got != "true" {
+		t.Fatalf("replay Idempotent-Replayed: got %q, want true", got)
+	}
+	if got := replay.Header().Get("ETag"); got != `"1"` {
+		t.Fatalf("replay ETag: got %s, want \"1\"", got)
+	}
+	if got, want := replay.Header().Get("Location"), first.Header().Get("Location"); got != want {
+		t.Fatalf("replay Location: got %q, want %q", got, want)
 	}
 	var x, y map[string]string
 	if err := json.Unmarshal(first.Body.Bytes(), &x); err != nil {
@@ -221,8 +232,15 @@ func TestIdempotentCreate(t *testing.T) {
 	}
 	// An expired key starts afresh.
 	pgtest.Exec(t, "UPDATE platform.idempotency_key SET expires_at = now() - interval '1 second' WHERE tenant_id = $1", ten.ID)
-	if r := a.do(c); r.Code != 201 || r.Header().Get("Idempotent-Replayed") != "" || operations(t, ten) != 2 {
-		t.Fatalf("expired key: %d", r.Code)
+	r := a.do(c)
+	if r.Code != 201 {
+		t.Fatalf("expired key status: got %d, want 201 (%s)", r.Code, r.Body)
+	}
+	if got := r.Header().Get("Idempotent-Replayed"); got != "" {
+		t.Fatalf("expired key Idempotent-Replayed: got %q, want empty", got)
+	}
+	if n := operations(t, ten); n != 2 {
+		t.Fatalf("operations after expired key: got %d, want 2", n)
 	}
 }
 
@@ -233,8 +251,15 @@ func TestErrorsKeepTheAnswerNotTheChanges(t *testing.T) {
 	if r := a.do(c); r.Code != 409 {
 		t.Fatal(r.Code)
 	}
-	if r := a.do(c); r.Code != 409 || r.Header().Get("Idempotent-Replayed") != "true" || !strings.Contains(r.Body.String(), "test.conflict") {
-		t.Fatalf("replayed 4xx: %d %s", r.Code, r.Body)
+	r := a.do(c)
+	if r.Code != 409 {
+		t.Fatalf("replayed 4xx status: got %d, want 409 (%s)", r.Code, r.Body)
+	}
+	if got := r.Header().Get("Idempotent-Replayed"); got != "true" {
+		t.Fatalf("replayed 4xx Idempotent-Replayed: got %q, want true", got)
+	}
+	if !strings.Contains(r.Body.String(), "test.conflict") {
+		t.Fatalf("replayed 4xx body: got %s, want test.conflict", r.Body)
 	}
 	if n := operations(t, ten); n != 0 {
 		t.Fatalf("4xx kept %d business rows", n)
@@ -242,24 +267,38 @@ func TestErrorsKeepTheAnswerNotTheChanges(t *testing.T) {
 	// 5xx keeps nothing, so a retry runs again.
 	c = call{method: "POST", path: "/crash", key: "key-crash-01", tenant: ten.ID, subject: ten.Human.Subject}
 	for i := 0; i < 2; i++ {
-		if r := a.do(c); r.Code != 500 || r.Header().Get("Idempotent-Replayed") != "" {
-			t.Fatalf("5xx: %d %v", r.Code, r.Header())
+		r := a.do(c)
+		if r.Code != 500 {
+			t.Fatalf("5xx attempt %d status: got %d, want 500", i+1, r.Code)
+		}
+		if got := r.Header().Get("Idempotent-Replayed"); got != "" {
+			t.Fatalf("5xx attempt %d Idempotent-Replayed: got %q, want empty", i+1, got)
 		}
 	}
-	if n := count(t, "SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND key = 'key-crash-01'", ten.ID); n != 0 || operations(t, ten) != 0 {
-		t.Fatal("5xx kept state")
+	if n := count(t, "SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND key = 'key-crash-01'", ten.ID); n != 0 {
+		t.Fatalf("5xx kept keys: got %d, want 0", n)
+	}
+	if n := operations(t, ten); n != 0 {
+		t.Fatalf("5xx kept operations: got %d, want 0", n)
 	}
 	// A request error (here 412) is not stored: the corrected retry with the same key runs.
 	c = call{method: "POST", path: "/stale", key: "key-stale-01", tenant: ten.ID, subject: ten.Human.Subject}
 	if r := a.do(c); r.Code != 412 {
 		t.Fatal(r.Code)
 	}
-	if n := count(t, "SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND key = 'key-stale-01'", ten.ID); n != 0 || operations(t, ten) != 0 {
-		t.Fatal("412 kept state")
+	if n := count(t, "SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND key = 'key-stale-01'", ten.ID); n != 0 {
+		t.Fatalf("412 kept keys: got %d, want 0", n)
+	}
+	if n := operations(t, ten); n != 0 {
+		t.Fatalf("412 kept operations: got %d, want 0", n)
 	}
 	c.path = "/create"
-	if r := a.do(c); r.Code != 201 || r.Header().Get("Idempotent-Replayed") != "" {
-		t.Fatalf("corrected retry: %d", r.Code)
+	r = a.do(c)
+	if r.Code != 201 {
+		t.Fatalf("corrected retry status: got %d, want 201", r.Code)
+	}
+	if got := r.Header().Get("Idempotent-Replayed"); got != "" {
+		t.Fatalf("corrected retry Idempotent-Replayed: got %q, want empty", got)
 	}
 }
 
@@ -271,8 +310,17 @@ func TestSafeRequests(t *testing.T) {
 	if err := json.Unmarshal(r.Body.Bytes(), &got); err != nil {
 		t.Fatalf("%d %s: %v", r.Code, r.Body, err)
 	}
-	if r.Code != 200 || got["principal"] != ten.Agent.ID.String() || got["kind"] != "agent" || got["info"] != ten.Agent.ID.String() {
-		t.Fatalf("%d %v", r.Code, got)
+	if r.Code != 200 {
+		t.Fatalf("status: got %d, want 200 (%v)", r.Code, got)
+	}
+	if want := ten.Agent.ID.String(); got["principal"] != want {
+		t.Errorf("principal: got %s, want %s", got["principal"], want)
+	}
+	if got["kind"] != "agent" {
+		t.Errorf("kind: got %s, want agent", got["kind"])
+	}
+	if want := ten.Agent.ID.String(); got["info"] != want {
+		t.Errorf("info: got %s, want %s", got["info"], want)
 	}
 	if r := a.do(call{method: "GET", path: "/missing", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 404 {
 		t.Fatal(r.Code)
@@ -344,15 +392,22 @@ func TestConcurrentRetryWaitsThenGets409(t *testing.T) {
 		return count(t, "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity s USING (pid) WHERE s.query LIKE '%SAVEPOINT uow%'") > 0
 	}, "the first request never held the key")
 	second := a.do(c)
-	if second.Code != 409 || second.Header().Get("Retry-After") == "" {
-		t.Fatalf("concurrent retry: %d %v", second.Code, second.Header())
+	if second.Code != 409 {
+		t.Fatalf("concurrent retry status: got %d, want 409", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Fatalf("concurrent retry Retry-After: got empty, want set (%v)", second.Header())
 	}
 	finish()
 	if first.Code != 204 {
 		t.Fatal(first.Code)
 	}
-	if third := a.do(c); third.Code != 204 || third.Header().Get("Idempotent-Replayed") != "true" {
-		t.Fatalf("after completion: %d", third.Code)
+	third := a.do(c)
+	if third.Code != 204 {
+		t.Fatalf("after completion status: got %d, want 204", third.Code)
+	}
+	if got := third.Header().Get("Idempotent-Replayed"); got != "true" {
+		t.Fatalf("after completion Idempotent-Replayed: got %q, want true", got)
 	}
 }
 
@@ -365,9 +420,11 @@ func TestFailuresAtTheEnd(t *testing.T) {
 		"/sabotage":  500, // the savepoint is gone
 		"/deferred":  409, // the commit itself fails
 	} {
-		if r := a.do(call{method: "POST", path: path, key: "key-" + path[1:] + "-1", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != want {
-			t.Errorf("%s: %d %s", path, r.Code, r.Body)
-		}
+		t.Run(path, func(t *testing.T) {
+			if r := a.do(call{method: "POST", path: path, key: "key-" + path[1:] + "-1", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != want {
+				t.Errorf("got %d, want %d (%s)", r.Code, want, r.Body)
+			}
+		})
 	}
 }
 
@@ -417,8 +474,14 @@ func TestLostConnectionIsRetryable(t *testing.T) {
 		return faultTx{Tx: tx, prefix: "INSERT INTO audit.chain_head", err: &pgconn.PgError{Code: "57P01", Message: "terminating connection"}}, err
 	}
 	r := a.do(call{method: "POST", path: "/create", key: "key-lost-connection-1", tenant: ten.ID, subject: ten.Human.Subject})
-	if r.Code != 503 || r.Header().Get("Retry-After") != "1" || !strings.Contains(r.Body.String(), "connection was lost") {
-		t.Fatalf("%d %v %s", r.Code, r.Header(), r.Body)
+	if r.Code != 503 {
+		t.Fatalf("status: got %d, want 503 (%s)", r.Code, r.Body)
+	}
+	if got := r.Header().Get("Retry-After"); got != "1" {
+		t.Errorf("Retry-After: got %q, want 1", got)
+	}
+	if !strings.Contains(r.Body.String(), "connection was lost") {
+		t.Errorf("body: got %s, want it to mention the lost connection", r.Body)
 	}
 }
 
@@ -434,23 +497,25 @@ func TestInjectedDatabaseFailures(t *testing.T) {
 		"UPDATE platform.idempotency_key",   // storing the response
 		"SELECT principal_id, request_hash", // reading an existing key
 	} {
-		a.mw.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pool.Begin(ctx, s)
-			return faultTx{Tx: tx, prefix: prefix}, err
-		}
 		n++
 		key := "key-fault-" + string(rune('a'+n)) + "-xx"
-		if prefix == "SELECT principal_id, request_hash" {
-			a.mw.Begin = nil
-			a.do(call{method: "POST", path: "/create", key: key, tenant: ten.ID, subject: ten.Human.Subject})
+		t.Run(prefix, func(t *testing.T) {
 			a.mw.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 				tx, err := pool.Begin(ctx, s)
 				return faultTx{Tx: tx, prefix: prefix}, err
 			}
-		}
-		if r := a.do(call{method: "POST", path: "/create", key: key, tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 500 {
-			t.Errorf("%s: %d %s", prefix, r.Code, r.Body)
-		}
+			if prefix == "SELECT principal_id, request_hash" {
+				a.mw.Begin = nil
+				a.do(call{method: "POST", path: "/create", key: key, tenant: ten.ID, subject: ten.Human.Subject})
+				a.mw.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+					tx, err := pool.Begin(ctx, s)
+					return faultTx{Tx: tx, prefix: prefix}, err
+				}
+			}
+			if r := a.do(call{method: "POST", path: "/create", key: key, tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 500 {
+				t.Errorf("got %d, want 500 (%s)", r.Code, r.Body)
+			}
+		})
 	}
 	a.mw.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errInjected }
 	if r := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 500 {
