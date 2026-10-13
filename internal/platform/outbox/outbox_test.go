@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -114,17 +115,26 @@ func TestRelayPublishesInOrderOnce(t *testing.T) {
 				t.Fatalf("payload %s: %v", m.Data, err)
 			}
 			order = append(order, p["i"])
-			if m.Subject != "erp.eu1.platform."+ten.ID.String()+".operation_completed" || m.Header["ce-source"] != "/erp/eu1/platform" ||
-				m.Header["ce-subject"] != agg.String() || m.Header["ce-actorid"] != ten.Human.ID.String() ||
-				m.Header["ce-traceid"] != "4bf92f3577b34da6a3ce929d0e0e4736" || m.Header["ce-id"] != m.ID.String() {
-				t.Fatalf("%+v", m)
+			if want := "erp.eu1.platform." + ten.ID.String() + ".operation_completed"; m.Subject != want {
+				t.Errorf("message %s subject: got %q, want %q", m.ID, m.Subject, want)
 			}
-		} else if m.Subject != "erp.eu1.configuration."+ten.ID.String()+".configuration_activated" {
-			t.Fatal(m.Subject)
+			for _, h := range []struct{ key, want string }{
+				{"ce-source", "/erp/eu1/platform"},
+				{"ce-subject", agg.String()},
+				{"ce-actorid", ten.Human.ID.String()},
+				{"ce-traceid", "4bf92f3577b34da6a3ce929d0e0e4736"},
+				{"ce-id", m.ID.String()},
+			} {
+				if got := m.Header[h.key]; got != h.want {
+					t.Errorf("message %s header %s: got %q, want %q", m.ID, h.key, got, h.want)
+				}
+			}
+		} else if want := "erp.eu1.configuration." + ten.ID.String() + ".configuration_activated"; m.Subject != want {
+			t.Errorf("message %s subject: got %q, want %q", m.ID, m.Subject, want)
 		}
 	}
-	if len(order) != 3 || order[0] != 0 || order[1] != 1 || order[2] != 2 {
-		t.Fatalf("order %v", order)
+	if want := []float64{0, 1, 2}; !slices.Equal(order, want) {
+		t.Errorf("publication order: got %v, want %v", order, want)
 	}
 	var unpublished int
 	if err := pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&unpublished); err != nil {
@@ -324,8 +334,11 @@ func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	msgs := rec.forTenant(ten.ID)
-	if len(msgs) != 2 || msgs[0].ID != msgs[1].ID {
-		t.Fatalf("want the same event published twice, got %d", len(msgs))
+	if len(msgs) != 2 {
+		t.Fatalf("published: got %d, want the same event twice", len(msgs))
+	}
+	if msgs[0].ID != msgs[1].ID {
+		t.Errorf("republished event id: got %s, want %s", msgs[1].ID, msgs[0].ID)
 	}
 	// A role that cannot read the outbox fails the round.
 	if _, err := (&outbox.Relay{Pool: pool, Role: "pg_monitor", Publisher: rec, Cell: "eu1"}).RunOnce(context.Background()); err == nil {
