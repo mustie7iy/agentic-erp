@@ -258,15 +258,31 @@ func odataValue(v any) string {
 // 1,200 decimal digits), so an absurd number cannot become a huge string.
 const maxSpelledExp = 4096
 
+// maxNumberLen bounds the literal decimalText spells out. Spelling costs time
+// growing with the square of the precision, which grows with the length, and
+// the page comes from another system; no amount comes near 64 characters.
+const maxNumberLen = 64
+
 // decimalText is a JSON number as a plain decimal ("1.5e3" is "1500") with
 // every digit kept: the precision grows with the literal's length, so the
 // shortest decimal that reads back the same is the number itself. A number
-// too large or too small to spell out keeps its literal.
+// too long, too large or too small to spell out keeps its literal; that
+// includes one big.Float reads as infinite, or as zero when it is not.
 func decimalText(n json.Number) string {
 	s := n.String()
+	if len(s) > maxNumberLen {
+		return s
+	}
 	f, _, err := big.ParseFloat(s, 10, 64+4*uint(len(s)), big.ToNearestEven)
-	if err != nil || f.MantExp(nil) > maxSpelledExp || f.MantExp(nil) < -maxSpelledExp {
+	if err != nil || f.IsInf() || (f.Sign() == 0 && !zeroLiteral(s)) || f.MantExp(nil) > maxSpelledExp || f.MantExp(nil) < -maxSpelledExp {
 		return s
 	}
 	return f.Text('f', -1)
+}
+
+// zeroLiteral reports whether a JSON number's digits before its exponent
+// are all zeros ("0", "-0.00", "0e5").
+func zeroLiteral(s string) bool {
+	mantissa, _, _ := strings.Cut(strings.ToLower(s), "e")
+	return strings.Trim(mantissa, "-+0.") == ""
 }

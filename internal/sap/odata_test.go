@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,7 @@ func TestODataValue(t *testing.T) {
 		"/Date(1767225600000+0000)/": "20260101",
 		"1234.50":                    "1234.50",
 		json.Number("3"):             "3",
+		json.Number("0.00"):          "0",
 	}
 	for in, want := range cases {
 		if got := odataValue(in); got != want {
@@ -119,6 +121,21 @@ func TestODataNumbersKeepEveryDigit(t *testing.T) {
 		if got := rows[0][field]; got != want {
 			t.Errorf("%s: got %q, want %q", field, got, want)
 		}
+	}
+}
+
+// Numbers that cannot be spelled out cheaply and exactly keep their literal:
+// one past what big.Float holds (it would read as +Inf or 0), and one longer
+// than any amount, whose spelling would cost time growing with the square of
+// its length.
+func TestODataNumbersOutOfRangeKeepTheirLiteral(t *testing.T) {
+	long := strings.Repeat("1", 100) + "e-50"
+	for name, in := range map[string]string{"overflow": "1e646456993", "underflow": "1e-646457000", "too long": long} {
+		t.Run(name, func(t *testing.T) {
+			if got := decimalText(json.Number(in)); got != in {
+				t.Errorf("got %.40q, want the literal %.40q", got, in)
+			}
+		})
 	}
 }
 
