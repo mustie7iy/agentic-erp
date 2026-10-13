@@ -8,6 +8,7 @@ package analytics
 import (
 	_ "embed"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 
@@ -110,8 +111,10 @@ func (m *Model) index() error {
 			return err
 		}
 	}
-	for word, metric := range m.Defaults {
-		if m.byName[metric] == nil {
+	// Sorted, so a model with several bad defaults reports the same one
+	// every time.
+	for _, word := range slices.Sorted(maps.Keys(m.Defaults)) {
+		if metric := m.Defaults[word]; m.byName[metric] == nil {
 			return fmt.Errorf("semantic model: default %q points to unknown metric %s", word, metric)
 		}
 	}

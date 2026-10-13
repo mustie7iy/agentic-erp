@@ -58,6 +58,20 @@ func TestModelValidationMessages(t *testing.T) {
 	}
 }
 
+// With several invalid defaults the error names the first word in sorted
+// order, every time; a map range would report a different one per run.
+func TestModelDefaultErrorIsDeterministic(t *testing.T) {
+	doc := "dimensions: [{name: d}]\nmetrics:\n  - {name: a, type: money, source: t, aggregate: sum, dimensions: [d]}\n" +
+		"defaults: {zeta: z1, alpha: z2, mid: z3, beta: z4, omega: z5, kappa: z6, delta: z7, gamma: z8}\n"
+	want := `semantic model: default "alpha" points to unknown metric z2`
+	for i := range 50 {
+		_, err := ParseModel([]byte(doc))
+		if err == nil || err.Error() != want {
+			t.Fatalf("run %d: got %v, want %s", i, err, want)
+		}
+	}
+}
+
 // --- agent ---------------------------------------------------------------------
 
 func TestNewAgentAndToolText(t *testing.T) {
@@ -192,6 +206,31 @@ func TestValidateEveryProblem(t *testing.T) {
 	empty := Spec{Title: "x"}
 	if p := empty.Validate(results); len(p) != 1 || !strings.Contains(p[0], "at least one") {
 		t.Fatalf("empty spec: %v", p)
+	}
+}
+
+// The commentary is checked against every result in a map; the problems
+// it reports must not depend on the order the map is ranged in.
+func TestValidateCommentaryIsDeterministic(t *testing.T) {
+	results := map[string]*Result{}
+	for i, id := range []string{"q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8"} {
+		r := fixtureResult()
+		r.ID = id
+		for _, row := range r.Rows {
+			if v, ok := row[2].(float64); ok {
+				row[2] = v + float64(i)*10000
+			}
+		}
+		results[id] = r
+	}
+	spec := Spec{Title: "t", Tables: []Table{{QueryID: "q1"}},
+		Commentary: "Revenue was 41,000.00 and 1,000.00, not 777.77, 888.88 or 999.99."}
+	want := "commentary cites figures not found in any query result: 777.77, 888.88, 999.99."
+	for i := range 50 {
+		got := spec.Validate(results)
+		if len(got) != 1 || !strings.HasPrefix(got[0], want) {
+			t.Fatalf("run %d: got %q, want one problem starting %q", i, got, want)
+		}
 	}
 }
 

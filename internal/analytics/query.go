@@ -162,7 +162,6 @@ type aggCell struct {
 	sum        int64
 	ids        map[string]bool
 	currencies map[string]bool
-	seen       bool
 }
 
 // aggregation holds every base metric aggregated per group.
@@ -200,7 +199,6 @@ func (agg *aggregation) addMetric(b string, met *Metric, f *Facts, p Principal, 
 			c = &aggCell{ids: map[string]bool{}, currencies: map[string]bool{}}
 			agg.base[b][key] = c
 		}
-		c.seen = true
 		c.currencies[fact.Currency] = true
 		if met.Aggregate == "count_distinct" {
 			c.ids[fact.ID] = true
