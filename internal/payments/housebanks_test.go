@@ -90,14 +90,25 @@ func TestHouseBanks(t *testing.T) {
 	if err := apply(doc); err != nil {
 		t.Fatal(err)
 	}
-	if got := banksOf(t, e.DE); got["NEW"].status != "active" || got["NEW"].last4 != "2051" || got["MAIN"].status != "inactive" {
-		t.Fatalf("replaced: %+v", got)
+	got := banksOf(t, e.DE)
+	if got["NEW"].status != "active" {
+		t.Errorf("replaced, NEW status: got %s, want active", got["NEW"].status)
+	}
+	if got["NEW"].last4 != "2051" {
+		t.Errorf("replaced, NEW last4: got %s, want 2051", got["NEW"].last4)
+	}
+	if got["MAIN"].status != "inactive" {
+		t.Errorf("replaced, MAIN status: got %s, want inactive", got["MAIN"].status)
 	}
 	if err := apply(fixture.Document(t)); err != nil {
 		t.Fatal(err)
 	}
-	if got := banksOf(t, e.DE); got["NEW"].status != "inactive" || got["MAIN"].status != "active" {
-		t.Fatalf("back to MAIN: %+v", got)
+	got = banksOf(t, e.DE)
+	if got["NEW"].status != "inactive" {
+		t.Errorf("back to MAIN, NEW status: got %s, want inactive", got["NEW"].status)
+	}
+	if got["MAIN"].status != "active" {
+		t.Errorf("back to MAIN, MAIN status: got %s, want active", got["MAIN"].status)
 	}
 
 	// A company without a legal entity, or without a bank account, cannot be applied.

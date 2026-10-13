@@ -23,8 +23,17 @@ func TestCancelledAndFailedProposals(t *testing.T) {
 		t.Fatalf("cancelled: %v", run)
 	}
 	failed := events(t, e.Tenant, "payment_run_failed")
-	if len(failed) != 1 || failed[0]["previous_status"] != "proposing" || failed[0]["released_item_count"] != float64(0) || failed[0]["operation_id"] != id(op) {
-		t.Fatalf("failed events: %v", failed)
+	if len(failed) != 1 {
+		t.Fatalf("failed events: got %d, want 1: %v", len(failed), failed)
+	}
+	if failed[0]["previous_status"] != "proposing" {
+		t.Errorf("failed event previous status: got %v, want proposing", failed[0]["previous_status"])
+	}
+	if failed[0]["released_item_count"] != float64(0) {
+		t.Errorf("failed event released items: got %v, want 0", failed[0]["released_item_count"])
+	}
+	if failed[0]["operation_id"] != id(op) {
+		t.Errorf("failed event operation: got %v, want %s", failed[0]["operation_id"], id(op))
 	}
 
 	// A problem while building fails the run and its operation.
@@ -33,8 +42,14 @@ func TestCancelledAndFailedProposals(t *testing.T) {
 	work(t)
 	run, _ = e.Must(200, "GET", op["resource"].(string), "", "")
 	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if run["status"] != "failed" || done["status"] != "failed" || done["error"].(map[string]any)["code"] != "config.not_bootstrapped" {
-		t.Fatalf("failed: %v %v", run, done)
+	if run["status"] != "failed" {
+		t.Errorf("run status: got %v, want failed", run["status"])
+	}
+	if done["status"] != "failed" {
+		t.Errorf("operation status: got %v, want failed", done["status"])
+	}
+	if got := done["error"].(map[string]any)["code"]; got != "config.not_bootstrapped" {
+		t.Errorf("operation error: got %v, want config.not_bootstrapped", got)
 	}
 	e.decide(t, 409, run, "release", "")
 }
@@ -63,9 +78,11 @@ func TestProposeValidation(t *testing.T) {
 		{"no fiscal year", body(e.DE, e.bank, "2031-01-15"), 422, "ledger.no_fiscal_period"},
 	}
 	for _, c := range cases {
-		if got := e.Problem(c.status, c.code, "POST", "/v1/payment-runs:propose", c.body, ""); t.Failed() {
-			t.Fatalf("%s: %v", c.name, got)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			api := e.Client
+			api.T = t
+			api.Problem(c.status, c.code, "POST", "/v1/payment-runs:propose", c.body, "")
+		})
 	}
 	pgtest.Exec(t, `UPDATE payments.house_bank SET status = 'inactive', version = version + 1 WHERE id = $1`, e.bank)
 	e.Problem(422, "payments.house_bank_inactive", "POST", "/v1/payment-runs:propose", body(e.DE, e.bank, "2026-04-15"), "")
@@ -96,8 +113,12 @@ func TestForeignExchange(t *testing.T) {
 	run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
 	// The invoice is booked at 90.00 EUR and paid at 95.00 EUR: a loss in group currency, which needs an account.
 	// The release operation fails with the ledger's problem; nothing was posted, so the run is proposed again.
-	if _, after := e.releaseFails(t, run, "ledger.no_fx_account"); after["status"] != "proposed" || after["decided_by"] != nil {
-		t.Fatalf("after the failed release: %v", after)
+	_, after := e.releaseFails(t, run, "ledger.no_fx_account")
+	if after["status"] != "proposed" {
+		t.Errorf("after the failed release, status: got %v, want proposed", after["status"])
+	}
+	if after["decided_by"] != nil {
+		t.Errorf("after the failed release, decided by: got %v, want none", after["decided_by"])
 	}
 	loss := e.Account(t, "1000", "510000")
 	pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, 'fx_loss', $3, $4)`,
@@ -108,9 +129,20 @@ func TestForeignExchange(t *testing.T) {
 	je, _ := e.Must(200, "GET", "/v1/journal-entries/"+pay["journal_entry_id"].(string), "", "")
 	lines := je["lines"].([]any)
 	fx := lines[2].(map[string]any)
-	if len(lines) != 3 || fx["account_id"] != loss.String() || fx["amount"].(map[string]any)["amount"] != "0.00" ||
-		fx["amount_gc"].(map[string]any)["amount"] != "5.00" || lines[1].(map[string]any)["amount_gc"].(map[string]any)["amount"] != "-95.00" {
-		t.Fatalf("payment entry: %v", lines)
+	if len(lines) != 3 {
+		t.Errorf("payment entry lines: got %d, want 3: %v", len(lines), lines)
+	}
+	if fx["account_id"] != loss.String() {
+		t.Errorf("fx line account: got %v, want %v", fx["account_id"], loss)
+	}
+	if got := fx["amount"].(map[string]any)["amount"]; got != "0.00" {
+		t.Errorf("fx line amount: got %v, want 0.00", got)
+	}
+	if got := fx["amount_gc"].(map[string]any)["amount"]; got != "5.00" {
+		t.Errorf("fx line group amount: got %v, want 5.00", got)
+	}
+	if got := lines[1].(map[string]any)["amount_gc"].(map[string]any)["amount"]; got != "-95.00" {
+		t.Errorf("bank line group amount: got %v, want -95.00", got)
 	}
 }
 
@@ -148,8 +180,11 @@ func TestTransmitFailures(t *testing.T) {
 	e.Problem(500, "platform.internal", "POST", path, "", `"1"`)
 	pgtest.Exec(t, `UPDATE payments.house_bank SET iban_cipher = $2, version = version + 1 WHERE id = $1`, e.bank,
 		apitest.Seal(t, e.Tenant.ID, "DE89370400440532013000"))
-	if got, _ := e.Must(200, "GET", "/v1/bank-files/"+id(file), "", ""); got["status"] != "created" || len(e.connector.files) != 0 {
-		t.Fatalf("file after failures: %v %v", got, e.connector.files)
+	if got, _ := e.Must(200, "GET", "/v1/bank-files/"+id(file), "", ""); got["status"] != "created" {
+		t.Errorf("file after failures, status: got %v, want created", got["status"])
+	}
+	if len(e.connector.files) != 0 {
+		t.Errorf("files transmitted after failures: got %v, want none", e.connector.files)
 	}
 
 	// A file the bank format refuses stops the release.
@@ -199,12 +234,18 @@ func TestListsAndAccess(t *testing.T) {
 		return out
 	}
 	page := list("/v1/payment-runs?page_size=1")
-	if fmt.Sprint(ids(page)) != fmt.Sprint([]string{id(first)}) || page["next_page_token"] == nil {
-		t.Fatalf("first page: %v", page)
+	if got, want := fmt.Sprint(ids(page)), fmt.Sprint([]string{id(first)}); got != want {
+		t.Errorf("first page: got %s, want %s", got, want)
+	}
+	if page["next_page_token"] == nil {
+		t.Fatalf("first page token: got none, want one: %v", page)
 	}
 	page = list("/v1/payment-runs?page_size=1&page_token=" + url.QueryEscape(page["next_page_token"].(string)))
-	if fmt.Sprint(ids(page)) != fmt.Sprint([]string{id(second)}) || page["next_page_token"] != nil {
-		t.Fatalf("second page: %v", page)
+	if got, want := fmt.Sprint(ids(page)), fmt.Sprint([]string{id(second)}); got != want {
+		t.Errorf("second page: got %s, want %s", got, want)
+	}
+	if page["next_page_token"] != nil {
+		t.Errorf("second page token: got %v, want none", page["next_page_token"])
 	}
 	if got := ids(list("/v1/payment-runs?order_by=document_number%20desc&page_size=1")); fmt.Sprint(got) != fmt.Sprint([]string{id(second)}) {
 		t.Fatalf("by number: %v", got)
@@ -220,22 +261,35 @@ func TestListsAndAccess(t *testing.T) {
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/payment-runs?order_by=total", "", "")
 
 	pays := list("/v1/payment-runs/" + id(first) + "/payments?page_size=1")
-	if len(pays["items"].([]any)) != 1 || pays["next_page_token"] == nil {
-		t.Fatalf("payments page: %v", pays)
+	if got := len(pays["items"].([]any)); got != 1 {
+		t.Errorf("payments page: got %d items, want 1", got)
+	}
+	if pays["next_page_token"] == nil {
+		t.Fatalf("payments page token: got none, want one: %v", pays)
 	}
 	rest := list("/v1/payment-runs/" + id(first) + "/payments?page_size=1&page_token=" + url.QueryEscape(pays["next_page_token"].(string)))
-	if len(rest["items"].([]any)) != 1 || rest["next_page_token"] != nil {
-		t.Fatalf("payments second page: %v", rest)
+	if got := len(rest["items"].([]any)); got != 1 {
+		t.Errorf("payments second page: got %d items, want 1", got)
+	}
+	if rest["next_page_token"] != nil {
+		t.Errorf("payments second page token: got %v, want none", rest["next_page_token"])
 	}
 	if got := list("/v1/payment-runs/" + id(first) + "/payments?supplier_id=" + e.Vendor.String()); len(got["items"].([]any)) != 1 {
 		t.Fatalf("payments of the vendor: %v", got)
 	}
 	exs := list("/v1/payment-runs/" + id(second) + "/exclusions?page_size=1")
-	if len(exs["items"].([]any)) != 1 || exs["next_page_token"] == nil {
-		t.Fatalf("exclusions page: %v", exs)
+	if got := len(exs["items"].([]any)); got != 1 {
+		t.Errorf("exclusions page: got %d items, want 1", got)
 	}
-	if got := list("/v1/bank-files?status=created&page_size=1"); len(got["items"].([]any)) != 1 || got["next_page_token"] != nil {
-		t.Fatalf("bank files: %v", got)
+	if exs["next_page_token"] == nil {
+		t.Errorf("exclusions page token: got none, want one")
+	}
+	created := list("/v1/bank-files?status=created&page_size=1")
+	if got := len(created["items"].([]any)); got != 1 {
+		t.Errorf("created bank files: got %d, want 1", got)
+	}
+	if created["next_page_token"] != nil {
+		t.Errorf("created bank files token: got %v, want none", created["next_page_token"])
 	}
 	if got := list("/v1/bank-files?status=transmitted"); len(got["items"].([]any)) != 0 {
 		t.Fatalf("transmitted files: %v", got)
@@ -266,12 +320,20 @@ func TestListsAndAccess(t *testing.T) {
 	other := e.As(us)
 	for _, path := range []string{"/v1/payment-runs/" + id(first), "/v1/payment-runs/" + id(first) + "/payments",
 		"/v1/payment-runs/" + id(first) + "/exclusions", "/v1/bank-files/" + id(file)} {
-		other.Problem(404, "request.not_found", "GET", path, "", "")
+		t.Run("get "+path, func(t *testing.T) {
+			api := other
+			api.T = t
+			api.Problem(404, "request.not_found", "GET", path, "", "")
+		})
 	}
 	for _, path := range []string{"/v1/payment-runs", "/v1/bank-files"} {
-		if got, _ := other.Must(200, "GET", path, "", ""); len(got["items"].([]any)) != 0 {
-			t.Errorf("%s: %v", path, got)
-		}
+		t.Run("list "+path, func(t *testing.T) {
+			api := other
+			api.T = t
+			if got, _ := api.Must(200, "GET", path, "", ""); len(got["items"].([]any)) != 0 {
+				t.Errorf("got %v, want no items", got["items"])
+			}
+		})
 	}
 	other.Problem(422, "request.reference_not_found", "POST", "/v1/payment-runs:propose",
 		fmt.Sprintf(`{"legal_entity_id": %q, "house_bank_id": %q, "run_date": "2026-04-15", "due_by": "2026-04-15"}`, e.DE, e.bank), "")

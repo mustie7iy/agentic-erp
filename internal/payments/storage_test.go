@@ -41,16 +41,31 @@ func TestBankFilesAreKept(t *testing.T) {
 	first := uuidOf(id(file))
 	key := blobstore.Key(e.Tenant.ID, blobstore.KindBankFiles, id(file)+".xml")
 	stored, ct, err := store.Get(context.Background(), key)
-	if err != nil || ct != "application/xml" || !strings.Contains(string(stored), "<MsgId>2000-"+run["document_number"].(string)+"</MsgId>") {
-		t.Fatalf("stored file: %s %s %v", ct, stored, err)
+	if err != nil {
+		t.Fatalf("read the stored file: %v", err)
+	}
+	if ct != "application/xml" {
+		t.Errorf("stored file content type: got %s, want application/xml", ct)
+	}
+	if want := "<MsgId>2000-" + run["document_number"].(string) + "</MsgId>"; !strings.Contains(string(stored), want) {
+		t.Errorf("stored file: got\n%s\nwant it to contain %s", stored, want)
 	}
 	var ref string
-	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT object_ref FROM payments.bank_file WHERE id = $1`, id(file)).Scan(&ref); err != nil || ref != key {
-		t.Fatalf("object_ref %q %v", ref, err)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT object_ref FROM payments.bank_file WHERE id = $1`, id(file)).Scan(&ref); err != nil {
+		t.Fatalf("read object_ref: %v", err)
+	}
+	if ref != key {
+		t.Errorf("object_ref: got %q, want %q", ref, key)
 	}
 	r := e.API.Do(apitest.Req{Method: "GET", Path: "/v1/bank-files/" + id(file) + "/content", Tenant: e.Tenant.ID, As: e.Tenant.Human})
-	if r.Code != 200 || r.Body.String() != string(stored) || r.Header().Get("Content-Type") != "application/xml" {
-		t.Fatalf("content: %d %s", r.Code, r.Header().Get("Content-Type"))
+	if r.Code != 200 {
+		t.Fatalf("content status: got %d, want 200: %s", r.Code, r.Body)
+	}
+	if r.Body.String() != string(stored) {
+		t.Errorf("content: got %s, want the stored file", r.Body)
+	}
+	if got := r.Header().Get("Content-Type"); got != "application/xml" {
+		t.Errorf("content type: got %s, want application/xml", got)
 	}
 	// Bank details are inside: agents never read it; the file is transmitted from the store.
 	e.As(e.Tenant.Agent).Problem(403, "identity.agent_not_allowed", "GET", "/v1/bank-files/"+id(file)+"/content", "", "")

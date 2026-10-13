@@ -91,16 +91,28 @@ func (e env) releaser(t *testing.T) *workflows.Releaser {
 func (e env) release(t *testing.T, run map[string]any, body string) map[string]any {
 	t.Helper()
 	op := e.decide(t, 202, run, "release", body)
-	if op["kind"] != "payments.release" || op["status"] != "queued" || op["resource"] != "/v1/payment-runs/"+id(run) {
-		t.Fatalf("release operation: %v", op)
+	if op["kind"] != "payments.release" {
+		t.Fatalf("release operation kind: got %v, want payments.release", op["kind"])
+	}
+	if op["status"] != "queued" {
+		t.Fatalf("release operation status: got %v, want queued", op["status"])
+	}
+	if want := "/v1/payment-runs/" + id(run); op["resource"] != want {
+		t.Fatalf("release operation resource: got %v, want %s", op["resource"], want)
 	}
 	if _, err := e.releaser(t).RunOnce(context.Background()); err != nil {
 		t.Fatalf("release worker: %v", err)
 	}
 	got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
 	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if got["status"] != "released" || done["status"] != "succeeded" || got["release_operation_id"] != id(op) {
-		t.Fatalf("released: %v\noperation: %v", got, done)
+	if got["status"] != "released" {
+		t.Fatalf("released run status: got %v, want released", got["status"])
+	}
+	if done["status"] != "succeeded" {
+		t.Fatalf("release operation status: got %v, want succeeded: %v", done["status"], done)
+	}
+	if got["release_operation_id"] != id(op) {
+		t.Fatalf("released run operation: got %v, want %s", got["release_operation_id"], id(op))
 	}
 	return got
 }
@@ -114,8 +126,11 @@ func (e env) releaseFails(t *testing.T, run map[string]any, code string) (op, af
 		t.Fatalf("release worker: %v", err)
 	}
 	op, _ = e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if op["status"] != "failed" || op["error"].(map[string]any)["code"] != code {
-		t.Fatalf("release operation after the failure: %v", op)
+	if op["status"] != "failed" {
+		t.Fatalf("release operation after the failure, status: got %v, want failed: %v", op["status"], op)
+	}
+	if got := op["error"].(map[string]any)["code"]; got != code {
+		t.Fatalf("release operation after the failure, error: got %v, want %s", got, code)
 	}
 	after, _ = e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
 	return op, after

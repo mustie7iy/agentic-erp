@@ -89,9 +89,11 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		}(),
 	} {
-		if err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err == nil {
+				t.Error("outside a unit of work: got nil error, want an error")
+			}
+		})
 	}
 	e.invoice(t, e.Vendor, "INV-2", "50.00", "2026-03-01")
 	e.invoice(t, e.NewSupplier(t, "BP90000003"), "INV-3", "5.00", "2026-03-01")
@@ -107,8 +109,11 @@ func TestDatabaseFailures(t *testing.T) {
 		j, _, err := payments.Next(ctx, tx)
 		queued = j
 		return err
-	}); err != nil || queued.Cancelled {
-		t.Fatalf("next job: %+v %v", queued, err)
+	}); err != nil {
+		t.Fatalf("next job: %v", err)
+	}
+	if queued.Cancelled {
+		t.Fatalf("next job: got a cancelled job, want a live one: %+v", queued)
 	}
 	gone = payments.Job{RunID: uuidOf(cancelled["resource"].(string)[len("/v1/payment-runs/"):]), Cancelled: true, ProposedBy: e.Tenant.Human.ID,
 		ProposerKind: "human"}
@@ -263,10 +268,12 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	for as, set := range map[*pgtest.Actor]map[string]func(ctx context.Context) error{&e.Tenant.Human: calls, &e.Approver: decisions} {
 		for name, call := range set {
-			if err := call(context.Background()); err == nil {
-				t.Errorf("%s outside a unit of work", name)
-			}
-			apitest.EveryFailure(t, e.Tenant, *as, name, call)
+			t.Run(name, func(t *testing.T) {
+				if err := call(context.Background()); err == nil {
+					t.Error("outside a unit of work: got nil error, want an error")
+				}
+				apitest.EveryFailure(t, e.Tenant, *as, name, call)
+			})
 		}
 	}
 
@@ -328,8 +335,10 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, e.Tenant, e.Approver, call); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := apitest.InRequest(t, e.Tenant, e.Approver, call); err == nil {
+				t.Error("got nil error, want a refusal")
+			}
+		})
 	}
 }

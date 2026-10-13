@@ -30,8 +30,15 @@ func TestProposer(t *testing.T) {
 	}
 	bad = proposer(t)
 	bad.AppRole = "no_such_role"
-	if n, err := bad.RunOnce(context.Background()); err == nil || n != 0 || status() != "proposing" {
-		t.Fatalf("built without the app role: %d %v", n, err)
+	n, err := bad.RunOnce(context.Background())
+	if err == nil {
+		t.Error("without the app role: got no error, want one")
+	}
+	if n != 0 {
+		t.Errorf("without the app role: got %d jobs done, want 0", n)
+	}
+	if got := status(); got != "proposing" {
+		t.Fatalf("without the app role: got status %s, want proposing", got)
 	}
 	// Every statement of a round can fail, and so can its commit; the job
 	// stays queued until one succeeds.
@@ -62,13 +69,22 @@ func TestProposer(t *testing.T) {
 		}
 		n, err := w.RunOnce(context.Background())
 		if err == nil {
-			if n != 1 || status() != "proposed" {
-				t.Fatalf("after %d failures: %d %s", failAt-1, n, status())
+			if n != 1 {
+				t.Errorf("after %d failures: got %d jobs done, want 1", failAt-1, n)
+			}
+			if got := status(); got != "proposed" {
+				t.Errorf("after %d failures: got status %s, want proposed", failAt-1, got)
 			}
 			break
 		}
-		if !errors.Is(err, pgtest.ErrInjected) || status() != "proposing" || failAt > 100 {
-			t.Fatalf("statement %d: %v (%s)", failAt, err, status())
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("statement %d: got %v, want the injected failure", failAt, err)
+		}
+		if got := status(); got != "proposing" {
+			t.Fatalf("statement %d: got status %s, want proposing", failAt, got)
+		}
+		if failAt > 100 {
+			t.Fatalf("statement %d: still failing after 100 statements", failAt)
 		}
 	}
 	for name, begin := range map[string]func(context.Context, database.Scope) (pgx.Tx, error){
@@ -78,11 +94,13 @@ func TestProposer(t *testing.T) {
 			return &pgtest.FailingTx{Tx: tx, FailAt: 1}, err
 		},
 	} {
-		w := proposer(t)
-		w.Begin = begin
-		if _, err := w.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			w := proposer(t)
+			w.Begin = begin
+			if _, err := w.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want the injected failure", err)
+			}
+		})
 	}
 	e.propose(t, "2026-04-16", "2026-04-16")
 	begun := 0
@@ -93,8 +111,11 @@ func TestProposer(t *testing.T) {
 		}
 		return pool.Begin(ctx, s)
 	}
-	if _, err := w.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) || begun != 2 {
-		t.Fatalf("tenant transaction: %v after %d", err, begun)
+	if _, err := w.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("tenant transaction: got %v, want the injected failure", err)
+	}
+	if begun != 2 {
+		t.Errorf("tenant transaction: got %d transactions begun, want 2", begun)
 	}
 
 	// Run logs failed rounds and stops with its context.
