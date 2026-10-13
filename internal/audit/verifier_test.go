@@ -124,10 +124,10 @@ func TestScheduledVerification(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return brokenCommit{tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
-	if _, err := v.Verify(ctx, e.Tenant.ID); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("commit: %v", err)
+	if _, err := v.Verify(ctx, e.Tenant.ID); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("commit: got %v, want %v", err, pgtest.ErrInjected)
 	}
 	v.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
 	if _, _, err := v.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "pool down") {
@@ -178,12 +178,4 @@ func TestScheduledVerification(t *testing.T) {
 		"logs: %s", logs)
 	cancel()
 	<-done
-}
-
-// brokenCommit is a transaction whose commit fails.
-type brokenCommit struct{ pgx.Tx }
-
-func (b brokenCommit) Commit(ctx context.Context) error {
-	b.Rollback(ctx)
-	return errors.New("commit failed")
 }
