@@ -111,8 +111,10 @@ func Start(t testing.TB, o Options) *Stack {
 	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
 	s.Server.Start()
 	s.Client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 4 * o.Users, MaxIdleConnsPerHost: 4 * o.Users}}
-	s.startWorkers(t, o)
+	// Before the workers start: a start that fails half way (tb.Fatal) still
+	// stops the server and whatever workers did start.
 	t.Cleanup(s.Stop)
+	s.startWorkers(t, o)
 	return s
 }
 
@@ -137,10 +139,10 @@ func (s *Stack) startWorkers(tb testing.TB, o Options) {
 			if err != nil {
 				tb.Fatal(err)
 			}
-			if err := bus.EnsureStreams(ctx, Cell); err != nil {
+			s.Bus, publisher = bus, bus // set before the streams, so Stop closes it if they fail
+			if err := ensureStreams(bus, ctx, Cell); err != nil {
 				tb.Fatal(err)
 			}
-			s.Bus, publisher = bus, bus
 		}
 		s.Relay = &outbox.Relay{Pool: s.Pool, Role: "erp_relay", Publisher: publisher, Cell: Cell, Interval: 100 * time.Millisecond, Log: log}
 		s.workers.Add(1)
@@ -148,10 +150,17 @@ func (s *Stack) startWorkers(tb testing.TB, o Options) {
 	}
 }
 
-// Stop stops the server, then the workers.
+// ensureStreams makes the stack's streams on its bus; tests replace it to
+// fail the start.
+var ensureStreams = (*natsbus.Bus).EnsureStreams
+
+// Stop stops the server, then the workers; it also ends a stack whose start
+// failed before every worker was running.
 func (s *Stack) Stop() {
 	s.Server.Close()
-	s.cancel()
+	if s.cancel != nil {
+		s.cancel()
+	}
 	s.workers.Wait()
 	if s.Bus != nil {
 		s.Bus.Close()
