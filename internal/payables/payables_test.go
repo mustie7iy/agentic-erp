@@ -99,13 +99,36 @@ func TestEntryAndEdits(t *testing.T) {
 		poItem(po, 1, "10", "EA", "120.00"), poItem(po, 2, "5", "KG", "17.85")), "")
 	items := inv["items"].([]any)
 	first := items[0].(map[string]any)
-	if inv["status"] != "parked" || inv["source"] != "manual" || inv["purchase_order_id"] != po.String() || tag != `"1"` ||
-		!strings.HasPrefix(inv["document_number"].(string), "SI") || first["tax_code"] != "V1" || first["account_id"] != e.expense.String() {
-		t.Fatalf("invoice: %v", inv)
+	if inv["status"] != "parked" {
+		t.Errorf("invoice status: got %v, want parked", inv["status"])
+	}
+	if inv["source"] != "manual" {
+		t.Errorf("invoice source: got %v, want manual", inv["source"])
+	}
+	if inv["purchase_order_id"] != po.String() {
+		t.Errorf("invoice order: got %v, want %v", inv["purchase_order_id"], po)
+	}
+	if tag != `"1"` {
+		t.Errorf("invoice etag: got %s, want \"1\"", tag)
+	}
+	if got := inv["document_number"].(string); !strings.HasPrefix(got, "SI") {
+		t.Errorf("invoice document number: got %q, want prefix SI", got)
+	}
+	if first["tax_code"] != "V1" {
+		t.Errorf("first item tax code: got %v, want V1", first["tax_code"])
+	}
+	if first["account_id"] != e.expense.String() {
+		t.Errorf("first item account: got %v, want %v", first["account_id"], e.expense)
 	}
 	captured := events(t, e.Tenant, "supplier_invoice_captured")
-	if len(captured) != 1 || captured[0]["status"] != "parked" || captured[0]["capture_sha256"] != nil {
-		t.Fatalf("events: %v", captured)
+	if len(captured) != 1 {
+		t.Fatalf("captured events: got %d, want 1: %v", len(captured), captured)
+	}
+	if captured[0]["status"] != "parked" {
+		t.Errorf("captured event status: got %v, want parked", captured[0]["status"])
+	}
+	if captured[0]["capture_sha256"] != nil {
+		t.Errorf("captured event hash: got %v, want none", captured[0]["capture_sha256"])
 	}
 	got, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv)+"?expand=supplier", "", "")
 	if got["expanded"].(map[string]any)["supplier"].(map[string]any)["number"] != "BP90000001" {
@@ -116,15 +139,32 @@ func TestEntryAndEdits(t *testing.T) {
 	// Edits replace the items as a whole; removed items come back as new ones.
 	upd, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), fmt.Sprintf(`{"supplier_reference": "INV-1A", "posting_date": "2026-03-12",
 		"gross_amount": {"amount": "142.80", "currency": "EUR"}, "items": [%s], "extensions": {"cost_center": "CC1"}}`, poItem(po, 1, "10", "EA", "120.00")), tag)
-	if len(upd["items"].([]any)) != 1 || upd["supplier_reference"] != "INV-1A" || upd["posting_date"] != "2026-03-12" ||
-		upd["extensions"].(map[string]any)["cost_center"] != "CC1" {
-		t.Fatalf("updated: %v", upd)
+	if got := len(upd["items"].([]any)); got != 1 {
+		t.Errorf("updated items: got %d, want 1", got)
+	}
+	if upd["supplier_reference"] != "INV-1A" {
+		t.Errorf("updated reference: got %v, want INV-1A", upd["supplier_reference"])
+	}
+	if upd["posting_date"] != "2026-03-12" {
+		t.Errorf("updated posting date: got %v, want 2026-03-12", upd["posting_date"])
+	}
+	if got := upd["extensions"].(map[string]any)["cost_center"]; got != "CC1" {
+		t.Errorf("updated cost center: got %v, want CC1", got)
 	}
 	back, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), fmt.Sprintf(`{"posting_date": null, "purchase_order_id": null, "invoice_date": "2026-03-11",
 		"tax_amount": {"amount": "22.80", "currency": "EUR"}, "items": [%s, %s], "extensions": {"cost_center": null}}`,
 		poItem(po, 1, "10", "EA", "120.00"), poItem(po, 2, "5", "KG", "17.85")), `"2"`)
-	if len(back["items"].([]any)) != 2 || back["posting_date"] != nil || back["purchase_order_id"] != po.String() || len(back["extensions"].(map[string]any)) != 0 {
-		t.Fatalf("items back: %v", back)
+	if got := len(back["items"].([]any)); got != 2 {
+		t.Errorf("items back: got %d, want 2", got)
+	}
+	if back["posting_date"] != nil {
+		t.Errorf("cleared posting date: got %v, want none", back["posting_date"])
+	}
+	if back["purchase_order_id"] != po.String() {
+		t.Errorf("order after clearing it: got %v, want %v from the items", back["purchase_order_id"], po)
+	}
+	if got := back["extensions"].(map[string]any); len(got) != 0 {
+		t.Errorf("cleared extensions: got %v, want none", got)
 	}
 	e.Problem(412, "request.version_mismatch", "PATCH", "/v1/supplier-invoices/"+id(inv), `{"supplier_reference": "X"}`, `"1"`)
 	e.Problem(404, "request.not_found", "GET", "/v1/supplier-invoices/"+uuid.NewString(), "", "")
@@ -132,8 +172,11 @@ func TestEntryAndEdits(t *testing.T) {
 	// An account-based invoice of the other supplier, entered as EDI.
 	other, _ := e.Must(201, "POST", "/v1/supplier-invoices", strings.Replace(e.invoice(e.Vendor, "V-9", "119.00", "19.00", accountItem(e.expense, "100.00")),
 		`"items"`, `"source": "edi", "extensions": {"channel": "x400"}, "items"`, 1), "")
-	if other["source"] != "edi" || other["purchase_order_id"] != nil {
-		t.Fatalf("account-based: %v", other)
+	if other["source"] != "edi" {
+		t.Errorf("account-based source: got %v, want edi", other["source"])
+	}
+	if other["purchase_order_id"] != nil {
+		t.Errorf("account-based order: got %v, want none", other["purchase_order_id"])
 	}
 
 	list := func(q string) []string {
@@ -218,9 +261,15 @@ func TestEntryRefusals(t *testing.T) {
 		"no fiscal year":       {strings.Replace(e.invoice(e.Supplier, "R", "1.00", "0.00", ap), "2026-03-10", "2031-03-10", 1), 422, "ledger.no_fiscal_period"},
 	}
 	for name, c := range cases {
-		if code, m, _ := e.Do("POST", "/v1/supplier-invoices", c.body, ""); code != c.status || m["code"] != c.code {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			code, m, _ := e.Do("POST", "/v1/supplier-invoices", c.body, "")
+			if code != c.status {
+				t.Errorf("status: got %d, want %d: %v", code, c.status, m)
+			}
+			if m["code"] != c.code {
+				t.Errorf("problem code: got %v, want %s", m["code"], c.code)
+			}
+		})
 	}
 	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "R", "1.00", "0.00", ap), "")
 	e.Problem(422, "payables.account_not_postable", "PATCH", "/v1/supplier-invoices/"+id(inv), `{"items": [`+accountItem(usBank, "1.00")+`]}`, `"1"`)

@@ -124,10 +124,12 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 	}
 	for name, call := range calls {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		})
 	}
 	for name, call := range map[string]func(ctx context.Context) error{
 		"rejected unknown": func(ctx context.Context) error {
@@ -149,13 +151,17 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
+				t.Error("got nil error, want a refusal")
+			}
+		})
 	}
 	for action, body := range map[string]string{"hold": `{"reason": "r"}`, "release": "", "cancel": `{"reason": "r"}`, "match": "", "post": "",
 		"reverse": `{"reason": "r"}`} {
-		e.Problem(412, "request.version_mismatch", "POST", "/v1/supplier-invoices/"+id(parked)+":"+action, body, `"99"`)
+		t.Run("stale "+action, func(*testing.T) {
+			e.Problem(412, "request.version_mismatch", "POST", "/v1/supplier-invoices/"+id(parked)+":"+action, body, `"99"`)
+		})
 	}
 	if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: "supplier_invoice_capture_once"}); p.Code != "payables.already_captured" {
 		t.Errorf("capture constraint: %v", p)
@@ -201,8 +207,11 @@ func TestEdgeCases(t *testing.T) {
 			t.Error("over-received invoice matched clean")
 		}
 		v, _ := payables.GetInvoice(ctx, uuid.MustParse(id(over)))
-		if v.Status != payables.OnHold || v.WorkflowRequestID != nil {
-			t.Errorf("held without a request: %+v", v)
+		if v.Status != payables.OnHold {
+			t.Errorf("held status: got %v, want %v", v.Status, payables.OnHold)
+		}
+		if v.WorkflowRequestID != nil {
+			t.Errorf("held workflow request: got %v, want none", *v.WorkflowRequestID)
 		}
 		return err
 	})
@@ -224,7 +233,11 @@ func TestEdgeCases(t *testing.T) {
 	withExt, tag := e.Must(201, "POST", "/v1/supplier-invoices", strings.Replace(e.invoice(e.Vendor, "E-5", "1.00", "0.00", plain),
 		`"items"`, `"extensions": {"routing": {"desk": "north", "floor": 2}}, "items"`, 1), "")
 	got, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(withExt), `{"extensions": {"routing": {"floor": 3}}}`, tag)
-	if r := got["extensions"].(map[string]any)["routing"].(map[string]any); r["desk"] != "north" || r["floor"] != float64(3) {
-		t.Fatalf("merged: %v", got)
+	r := got["extensions"].(map[string]any)["routing"].(map[string]any)
+	if r["desk"] != "north" {
+		t.Errorf("merged desk: got %v, want north", r["desk"])
+	}
+	if r["floor"] != float64(3) {
+		t.Errorf("merged floor: got %v, want 3", r["floor"])
 	}
 }

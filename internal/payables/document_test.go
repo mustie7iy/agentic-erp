@@ -58,16 +58,28 @@ func TestCapturedDocumentsAreKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := e.API.Do(apitest.Req{Method: "GET", Path: "/v1/supplier-invoices/" + inv["id"].(string) + "/document", Tenant: e.Tenant.ID, As: e.Tenant.Human})
-	if r.Code != 200 || r.Body.String() != pdf || r.Header().Get("Content-Type") != "application/octet-stream" {
-		t.Fatalf("document: %d %q %s", r.Code, r.Body.String(), r.Header().Get("Content-Type"))
+	if r.Code != 200 {
+		t.Fatalf("document status: got %d, want 200: %s", r.Code, r.Body)
+	}
+	if got := r.Body.String(); got != pdf {
+		t.Errorf("document body: got %q, want %q", got, pdf)
+	}
+	if got := r.Header().Get("Content-Type"); got != "application/octet-stream" {
+		t.Errorf("document content type: got %q, want application/octet-stream", got)
 	}
 	keys, _ := filepath.Glob(filepath.Join(root, "tenants", e.Tenant.ID.String(), "documents", "*"))
 	if len(keys) != 2 { // the object and its sidecar
 		t.Fatalf("stored: %v", keys)
 	}
 	content, ct, err := store.Get(context.Background(), strings.TrimPrefix(filepath.ToSlash(strings.TrimSuffix(keys[0], ".meta")), filepath.ToSlash(root)+"/"))
-	if err != nil || string(content) != pdf || ct != "application/pdf" {
-		t.Fatalf("in the store: %s %s %v", content, ct, err)
+	if err != nil {
+		t.Fatalf("read the stored document: %v", err)
+	}
+	if string(content) != pdf {
+		t.Errorf("stored content: got %q, want %q", content, pdf)
+	}
+	if ct != "application/pdf" {
+		t.Errorf("stored content type: got %q, want application/pdf", ct)
 	}
 	// Agents with access to the company may read documents.
 	e.Tenant.AllCompanies(t, e.Tenant.Agent)
