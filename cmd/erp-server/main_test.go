@@ -259,8 +259,11 @@ func TestMaintenanceRetries(t *testing.T) {
 		close(done)
 	}()
 	<-done
-	if runs != 3 || strings.Count(logs.String(), "partition maintenance failed") != 2 {
-		t.Fatalf("%d runs\n%s", runs, logs.String())
+	if runs != 3 {
+		t.Errorf("runs: got %d, want 3", runs)
+	}
+	if n := strings.Count(logs.String(), "partition maintenance failed"); n != 2 {
+		t.Errorf("logged failures: got %d, want 2:\n%s", n, logs.String())
 	}
 }
 
@@ -269,36 +272,38 @@ func TestStartupFailures(t *testing.T) {
 	ctx := context.Background()
 	busy, _ := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	defer func() { _ = busy.Close() }() // best-effort cleanup of the port the cases collide with
-	cases := map[string]func(env map[string]string, cfg *config.Config){
-		"otlp endpoint": func(_ map[string]string, c *config.Config) { c.OTLPEndpoint = "not a url" },
-		"database": func(_ map[string]string, c *config.Config) {
+	cases := map[string]func(t *testing.T, cfg *config.Config){
+		"otlp endpoint": func(_ *testing.T, c *config.Config) { c.OTLPEndpoint = "not a url" },
+		"database": func(_ *testing.T, c *config.Config) {
 			c.DatabaseURL = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
 		},
-		"issuer": func(_ map[string]string, c *config.Config) { c.Issuers[0].URL = "http://127.0.0.1:1" },
-		"operator issuer": func(_ map[string]string, c *config.Config) {
+		"issuer": func(_ *testing.T, c *config.Config) { c.Issuers[0].URL = "http://127.0.0.1:1" },
+		"operator issuer": func(_ *testing.T, c *config.Config) {
 			c.OperatorIssuers = []authn.Issuer{{URL: "http://127.0.0.1:1", Audience: "erp-api"}}
 		},
-		"page key":  func(_ map[string]string, c *config.Config) { c.PageTokenKey = []byte("short") },
-		"field key": func(_ map[string]string, c *config.Config) { c.FieldKey = []byte("short") },
-		"master key": func(_ map[string]string, c *config.Config) {
+		"page key":  func(_ *testing.T, c *config.Config) { c.PageTokenKey = []byte("short") },
+		"field key": func(_ *testing.T, c *config.Config) { c.FieldKey = []byte("short") },
+		"master key": func(_ *testing.T, c *config.Config) {
 			c.FieldKeys = []config.MasterKey{{ID: "k", Secret: []byte("short")}}
 		},
-		"nats":              func(_ map[string]string, c *config.Config) { c.NATSURL = "nats://127.0.0.1:1" },
-		"jetstream missing": func(_ map[string]string, c *config.Config) { c.NATSURL = natstest.Plain(t) },
-		"api port":          func(_ map[string]string, c *config.Config) { c.HTTPAddr = busy.Addr().String() },
-		"admin port":        func(_ map[string]string, c *config.Config) { c.AdminAddr = busy.Addr().String() },
-		"migrations":        func(_ map[string]string, c *config.Config) { c.DatabaseURL = limitedUser(t) },
-		"partitions": func(_ map[string]string, c *config.Config) {
+		"nats":              func(_ *testing.T, c *config.Config) { c.NATSURL = "nats://127.0.0.1:1" },
+		"jetstream missing": func(t *testing.T, c *config.Config) { t.Helper(); c.NATSURL = natstest.Plain(t) },
+		"api port":          func(_ *testing.T, c *config.Config) { c.HTTPAddr = busy.Addr().String() },
+		"admin port":        func(_ *testing.T, c *config.Config) { c.AdminAddr = busy.Addr().String() },
+		"migrations":        func(t *testing.T, c *config.Config) { t.Helper(); c.DatabaseURL = limitedUser(t) },
+		"partitions": func(t *testing.T, c *config.Config) {
+			t.Helper()
 			c.DatabaseURL, c.MigrateOnStart = pgtest.EmptyDatabase(t), false
 		},
 	}
 	for name, mutate := range cases {
-		env := environment(t, is, "")
-		cfg := load(t, env)
-		mutate(env, &cfg)
-		if err := run(ctx, cfg, quiet(), nil); err == nil {
-			t.Errorf("%s: started", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			cfg := load(t, environment(t, is, ""))
+			mutate(t, &cfg)
+			if err := run(ctx, cfg, quiet(), nil); err == nil {
+				t.Errorf("got the server started, want a startup failure")
+			}
+		})
 	}
 	// A meter provider that cannot create instruments fails the API. (The
 	// global delegate cannot be set back, so a no-op provider takes its place.)
@@ -463,10 +468,12 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 		"invalid":     {[]string{"provision", "-config", file}, 1, "tenancy.invalid_tenant"},
 		"unknown cmd": {[]string{"serve"}, 2, "unknown command"},
 	} {
-		stderr.Reset()
-		if code := cli(context.Background(), c.args, getenv, io.Discard, &stderr, nil); code != c.code || !strings.Contains(stderr.String(), c.want) {
-			t.Errorf("%s: %d %s", name, code, stderr.String())
-		}
+		t.Run(name, func(t *testing.T) {
+			stderr.Reset()
+			if code := cli(context.Background(), c.args, getenv, io.Discard, &stderr, nil); code != c.code || !strings.Contains(stderr.String(), c.want) {
+				t.Errorf("got %d %s, want %d and %q", code, stderr.String(), c.code, c.want)
+			}
+		})
 	}
 	// Without a reachable database provisioning fails after the configuration was accepted.
 	down := map[string]string{}
@@ -572,9 +579,13 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 		t.Fatal("no anchor object")
 	}
 	cancel()
-	if code := <-done; code != 0 || !strings.Contains(logs.String(), "ERP_DEV_ISSUER") || !strings.Contains(logs.String(), "control plane served") ||
-		!strings.Contains(logs.String(), "suspendTenant") {
-		t.Fatalf("exit %d\n%s", code, logs.String())
+	if code := <-done; code != 0 {
+		t.Fatalf("exit: got %d, want 0\n%s", code, logs.String())
+	}
+	for _, want := range []string{"ERP_DEV_ISSUER", "control plane served", "suspendTenant"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("logs: got none with %q, want it logged\n%s", want, logs.String())
+		}
 	}
 }
 
@@ -624,8 +635,15 @@ func TestObjectStores(t *testing.T) {
 	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
-	if o, ok := s3.Object(key); !ok || o.LockMode != "COMPLIANCE" || o.ContentType != "application/json" {
-		t.Fatalf("anchor in S3: %+v (%v)", o, s3.Keys())
+	o, ok := s3.Object(key)
+	if !ok {
+		t.Fatalf("anchor in S3: got none, want %s among %v", key, s3.Keys())
+	}
+	if o.LockMode != "COMPLIANCE" {
+		t.Errorf("anchor lock mode: got %q, want COMPLIANCE", o.LockMode)
+	}
+	if o.ContentType != "application/json" {
+		t.Errorf("anchor content type: got %q, want application/json", o.ContentType)
 	}
 	// The same store reached with the deployment's ambient credentials (the AWS_* environment), no keys in settings.
 	ten2 := pgtest.NewTenant(t)
@@ -755,17 +773,19 @@ func TestImportCommand(t *testing.T) {
 		"no store":    {[]string{"import", "-manifest", ex.Ref}, func(e map[string]string) { delete(e, "ERP_OBJECT_DIR") }, 1, "no object storage"},
 		"db down":     {[]string{"import", "-manifest", ex.Ref}, func(e map[string]string) { e["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1" }, 1, "connect"},
 	} {
-		e := map[string]string{}
-		for k, v := range env {
-			e[k] = v
-		}
-		if c.env != nil {
-			c.env(e)
-		}
-		stderr.Reset()
-		if code := cli(context.Background(), c.args, func(k string) string { return e[k] }, io.Discard, &stderr, nil); code != c.code || !strings.Contains(stderr.String(), c.want) {
-			t.Errorf("%s: %d %s", name, code, stderr.String())
-		}
+		t.Run(name, func(t *testing.T) {
+			e := map[string]string{}
+			for k, v := range env {
+				e[k] = v
+			}
+			if c.env != nil {
+				c.env(e)
+			}
+			stderr.Reset()
+			if code := cli(context.Background(), c.args, func(k string) string { return e[k] }, io.Discard, &stderr, nil); code != c.code || !strings.Contains(stderr.String(), c.want) {
+				t.Errorf("got %d %s, want %d and %q", code, stderr.String(), c.code, c.want)
+			}
+		})
 	}
 }
 
@@ -791,15 +811,17 @@ func TestRewrapCommand(t *testing.T) {
 	env["ERP_FIELD_KMS_ACCESS_KEY"], env["ERP_FIELD_KMS_SECRET_KEY"] = kmstest.AccessKey, kmstest.SecretKey
 	failing := func(name string, args []string, mutate func(env map[string]string), code int, want string) {
 		t.Helper()
-		e := map[string]string{}
-		for k, v := range env {
-			e[k] = v
-		}
-		mutate(e)
-		stderr.Reset()
-		if got := cli(context.Background(), args, func(k string) string { return e[k] }, io.Discard, &stderr, nil); got != code || !strings.Contains(stderr.String(), want) {
-			t.Errorf("%s: %d %s", name, got, stderr.String())
-		}
+		t.Run(name, func(t *testing.T) {
+			e := map[string]string{}
+			for k, v := range env {
+				e[k] = v
+			}
+			mutate(e)
+			stderr.Reset()
+			if got := cli(context.Background(), args, func(k string) string { return e[k] }, io.Discard, &stderr, nil); got != code || !strings.Contains(stderr.String(), want) {
+				t.Errorf("got %d %s, want %d and %q", got, stderr.String(), code, want)
+			}
+		})
 	}
 	none := func(map[string]string) {}
 	failing("help", []string{"rewrap", "-h"}, none, 0, "")
@@ -821,8 +843,17 @@ func TestRewrapCommand(t *testing.T) {
 		if code := cli(context.Background(), []string{"rewrap"}, getenv, &stdout, &stderr, nil); code != 0 {
 			t.Fatalf("rewrap %d: %d %s", i, code, stderr.String())
 		}
-		if err := json.Unmarshal(stdout.Bytes(), &res); err != nil || res.Master != "kms" || res.Keys != want || res.Tenants == 0 {
-			t.Fatalf("rewrap %d: %+v %v %s", i, res, err, stdout.String())
+		if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
+			t.Fatalf("rewrap %d output %q: %v", i, stdout.String(), err)
+		}
+		if res.Master != "kms" {
+			t.Fatalf("rewrap %d master: got %s, want kms", i, res.Master)
+		}
+		if res.Keys != want {
+			t.Fatalf("rewrap %d keys: got %d, want %d", i, res.Keys, want)
+		}
+		if res.Tenants == 0 {
+			t.Fatalf("rewrap %d tenants: got 0, want some", i)
 		}
 	}
 	if n := countKeys(t, "v1"); n != 0 {
@@ -874,8 +905,14 @@ func TestDirectorySync(t *testing.T) {
 	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
-	if entry.Cell != "test" || entry.APIURL != "https://test.api.example.com" || entry.Status != directory.Active {
-		t.Fatalf("directory entry: %+v", entry)
+	if entry.Cell != "test" {
+		t.Errorf("directory entry cell: got %s, want test", entry.Cell)
+	}
+	if entry.APIURL != "https://test.api.example.com" {
+		t.Errorf("directory entry api url: got %s, want https://test.api.example.com", entry.APIURL)
+	}
+	if entry.Status != directory.Active {
+		t.Errorf("directory entry status: got %s, want %s", entry.Status, directory.Active)
 	}
 	cells, err := dir.ListCells(context.Background(), "eu-west")
 	if err != nil {
