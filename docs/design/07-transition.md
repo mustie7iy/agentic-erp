@@ -80,7 +80,7 @@ prototype store for that context.
 | T26 (done) | **Temporal runtime** (ADR-0012, accepted) | `erp-server` runs a Temporal worker; the `Operation` resource is the API's view of a workflow (id from the business key, status, progress, result, error, `:cancel`); one existing operation runs end to end as a workflow whose activities are the application services in the unit of work; a dev server in tests and CI |
 | T27 (done) | **Payment release as a workflow** | `:release` answers 202 with an Operation; the run is `releasing` while each payment is posted as one idempotent activity (progress on the operation) and the bank file is written at the end; a business problem fails the operation and a run with postings is resumed by `:release` again; the proposal stays one activity (its selection is one snapshot) |
 | T28 (done) | **Simulations, regression and migration runs as workflows** | Simulations (with their regression replays) run as workflows; with an engine, migration and reconciliation runs leave the request (the run is `running` under its operation) and run as workflows, the CLI waiting for the operation; without one they complete within the request as before, and the in-process workers stay as that cell's fallback |
-| T29 | **Human waits and timers** | Approval requests and period close run as workflows that wait on decisions and deadlines; escalation timers; workflow versioning and the payload codec in place; namespaces per environment and tenant isolation by task queue |
+| T29 (done) | **Human waits and timers** | Every pending approval request is watched by a deadline workflow that escalates it each period without a decision (`ApprovalEscalated`, up to a limit) and ends once it is decided; workflow logic is versioned; payloads are sealed by a codec before they reach the engine; period close as a workflow and tenant isolation by task queue stay open points |
 
 The prototype stayed runnable as a demo until T6, which removed
 `core.Store` and made the CLI a thin API client.
@@ -1537,6 +1537,51 @@ Open points for the contract and design review:
 - Regression suites are captured and replayed inside the simulation
   activity; a long replay would benefit from its own activity with
   progress, as the release has.
+
+### T29 decisions and open points
+
+What T29 built: human waits and timers on the engine (ADR-0012). The
+dispatcher starts `ApprovalDeadline` for every pending approval request
+(`{tenant}-approval_request-{id}-deadline`, recorded on the request,
+migration 000032). The workflow sleeps the escalation period
+(`ERP_APPROVAL_ESCALATE_AFTER`, default 48h) and runs `Approvals.Escalate`:
+a request still pending counts an escalation (`escalations`,
+`escalated_at` on the request), publishes `ApprovalEscalated` and writes
+the audit entry as a system actor; it stops after
+`ERP_APPROVAL_ESCALATIONS` (default 3) or at the first check that finds
+the request decided. Decisions stay synchronous human transitions on the
+API: the workflow owns only the clock. The workflow's loop is versioned
+with `workflow.GetVersion`, the rule every later change follows.
+`workflow.Codec` seals every payload with AES-256-GCM
+(`ERP_TEMPORAL_CODEC_KEY`) before it reaches the engine; payloads written
+without a key are read as they are, so a key can be introduced on a running
+cell, and the server warns when it runs an engine without one. The exit
+criteria are `TestApprovalDeadline`, `TestCodec` and the sealed round trip
+in `TestTemporal` and `TestWorkflowEngine`.
+
+Decisions taken while building it:
+
+- **The clock is the workflow's, the decision the API's.** No signals:
+  the workflow checks the request at each deadline, so a decision needs no
+  coordination with the engine.
+- **Escalation is an event, not a reassignment.** Who is reminded (the
+  step's role, their managers) is the notification read model's choice;
+  the request's steps do not change.
+- **Sealed at the edge.** The codec runs in the server, so the engine and
+  its history hold ciphertext only; the key is a secret like the field
+  keys and can be supplied by reference (ADR-0017).
+
+Open points for the contract and design review:
+
+- Period close as a workflow (cut-off timers, the checklist's steps,
+  reopening) needs the close calendar and checklist of the roadmap first.
+- Tenant isolation by task queue or namespace: one queue serves the cell;
+  a dedicated queue for a large tenant is a deployment setting still to add.
+- Codec key rotation: the codec holds one key; a ring with key ids, as the
+  field keys have, would let a key be retired.
+- A failed workflow's exception-queue item (ADR-0012) is the failed
+  operation today; a queue resource with retry and cancel actions is still
+  to design.
 
 ## 7.4 Data from the prototype
 

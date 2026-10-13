@@ -40,7 +40,8 @@ func TestTemporal(t *testing.T) {
 	if _, err := workflow.Dial(ctx, workflow.Config{Address: "127.0.0.1:1", Namespace: "default"}); err == nil || !strings.Contains(err.Error(), "connecting to") {
 		t.Fatalf("dial nothing: %v", err)
 	}
-	engine, err := workflow.Dial(ctx, workflow.Config{Address: addr, Namespace: "default"})
+	codec, _ := workflow.NewCodec([]byte(strings.Repeat("k", 32))) // payloads sealed on their way to the engine and back
+	engine, err := workflow.Dial(ctx, workflow.Config{Address: addr, Namespace: "default", Codec: codec})
 	if err != nil {
 		t.Fatal(err)
 	}

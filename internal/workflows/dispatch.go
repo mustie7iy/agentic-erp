@@ -26,12 +26,17 @@ import (
 // re-dispatches nothing twice (the engine refuses a known id), and a
 // cancellation reaches the workflow by that id.
 type Dispatcher struct {
-	Pool       *database.Pool
-	WorkerRole string // erp_worker: reads queued operations across tenants
-	Client     workflow.Client
-	Queue      string        // the task queue the cell's workers listen on
-	Interval   time.Duration // between rounds; default 1 second
-	Log        *slog.Logger
+	// Deadline is the escalation policy of approval requests: the period
+	// without a decision, and how often to escalate (ERP_APPROVAL_ESCALATE_AFTER,
+	// ERP_APPROVAL_ESCALATIONS); a zero period watches no requests.
+	Deadline    time.Duration
+	Escalations int
+	Pool        *database.Pool
+	WorkerRole  string // erp_worker: reads queued operations across tenants
+	Client      workflow.Client
+	Queue       string        // the task queue the cell's workers listen on
+	Interval    time.Duration // between rounds; default 1 second
+	Log         *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin func(context.Context, database.Scope) (pgx.Tx, error)
 }
@@ -148,8 +153,53 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 			n++
 		}
 	}
+	if d.Deadline > 0 {
+		k, err := d.watch(ctx, tx)
+		n += k
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return n, err
+	}
+	return n, errors.Join(errs...)
+}
+
+// DeadlineWorkflowID is the id of an approval request's deadline workflow.
+func DeadlineWorkflowID(tenant, request uuid.UUID) string {
+	return fmt.Sprintf("%s-approval_request-%s-deadline", tenant, request)
+}
+
+// watch starts a deadline workflow for every pending approval request that
+// has none and records it on the request.
+func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
+	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM workflow.approval_request WHERE status = 'pending' AND workflow_id IS NULL ORDER BY id`)
+	type req struct{ tenant, id uuid.UUID }
+	pending, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (req, error) {
+		var q req
+		err := r.Scan(&q.tenant, &q.id)
+		return q, err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("dispatcher: reading pending approval requests: %w", err)
+	}
+	n := 0
+	var errs []error
+	for _, q := range pending {
+		id := DeadlineWorkflowID(q.tenant, q.id)
+		started, err := d.Client.Start(ctx, workflow.Start{ID: id, Queue: d.Queue, Name: DeadlineWorkflow,
+			Args: []any{DeadlineInput{TenantID: q.tenant, RequestID: q.id, After: d.Deadline, Max: d.Escalations}}})
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET workflow_id = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`, q.tenant, q.id, id); err != nil {
+			return n, fmt.Errorf("dispatcher: recording the deadline of approval request %s: %w", q.id, err)
+		}
+		if started {
+			n++
+		}
 	}
 	return n, errors.Join(errs...)
 }
@@ -175,12 +225,14 @@ func (d *Dispatcher) Run(ctx context.Context) {
 }
 
 // Register registers the workflows and activities a cell's worker hosts.
-func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations) {
+func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
 	r.RegisterWorkflowWithOptions(ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: ReleaseWorkflow})
 	r.RegisterWorkflowWithOptions(SimulateChange, sdkworkflow.RegisterOptions{Name: SimulateWorkflow})
 	r.RegisterWorkflowWithOptions(MigrateRun, sdkworkflow.RegisterOptions{Name: MigrateWorkflow})
 	r.RegisterActivity(p)
 	r.RegisterActivity(s)
+	r.RegisterWorkflowWithOptions(ApprovalDeadline, sdkworkflow.RegisterOptions{Name: DeadlineWorkflow})
 	r.RegisterActivity(m)
+	r.RegisterActivity(a)
 }

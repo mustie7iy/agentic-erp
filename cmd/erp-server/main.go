@@ -187,7 +187,13 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	var engine *workflow.Temporal
 	var engineClient workflow.Client
 	if cfg.Temporal.Address != "" {
-		engine, err = workflow.Dial(ctx, workflow.Config{Address: cfg.Temporal.Address, Namespace: cfg.Temporal.Namespace})
+		var codec *workflow.Codec
+		if cfg.Temporal.CodecKey != nil {
+			codec, _ = workflow.NewCodec(cfg.Temporal.CodecKey) // the configuration checked the length
+		} else {
+			log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed")
+		}
+		engine, err = workflow.Dial(ctx, workflow.Config{Address: cfg.Temporal.Address, Namespace: cfg.Temporal.Namespace, Codec: codec})
 		if err != nil {
 			return err
 		}
@@ -233,11 +239,12 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}
 		go func() {
 			workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
-				workflows.Register(r, activities, &workflows.Simulations{Worker: simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Integration(apiCfg)})
+				workflows.Register(r, activities, &workflows.Simulations{Worker: simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Integration(apiCfg)},
+					&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole})
 			})
 			close(workerDone)
 		}()
-		dispatcher := &workflows.Dispatcher{Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Log: log}
+		dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Log: log}
 		go func() { dispatcher.Run(runCtx); close(dispatchDone) }()
 	}
 	maintenanceDone := make(chan struct{})

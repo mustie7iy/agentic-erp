@@ -259,6 +259,7 @@ channels:
     messages:
       ApprovalRequested: {$ref: '#/components/messages/ApprovalRequested'}
       ApprovalCompleted: {$ref: '#/components/messages/ApprovalCompleted'}
+      ApprovalEscalated: {$ref: '#/components/messages/ApprovalEscalated'}
   integration:
     address: 'erp.{cell}.integration.{tenant}.{event}'
     title: Integration events
@@ -409,6 +410,7 @@ operations:
     messages:
       - $ref: '#/channels/workflow/messages/ApprovalRequested'
       - $ref: '#/channels/workflow/messages/ApprovalCompleted'
+      - $ref: '#/channels/workflow/messages/ApprovalEscalated'
   publishIntegrationEvents:
     action: send
     title: Integration publishes
@@ -1041,6 +1043,22 @@ components:
         - name: payment-run
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000001d, source: /erp/eu-1/workflow, type: com.example.erp.workflow.approval_requested.v1, subject: 0192a000-0000-7000-8000-000000000901, time: '2026-10-19T06:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {approval_request_id: 0192a000-0000-7000-8000-000000000901, object_type: requisition, object_id: 0192a000-0000-7000-8000-000000000801, title: Requisition 1000004711 (laptops), requester_id: 0192a000-0000-7000-8000-000000000101, amount: {amount: '184220.50', currency: EUR}, policy_id: 0192a000-0000-7000-8000-000000000902, steps: [{step_no: 1, role_id: 0192a000-0000-7000-8000-000000000903, required: 1}]}
+    ApprovalEscalated:
+      name: ApprovalEscalated
+      title: Approval escalated
+      summary: A pending approval request got no decision within its deadline.
+      description: "Emitted by the request's deadline workflow (ADR-0012) when the request is still pending after the escalation period (`ERP_APPROVAL_ESCALATE_AFTER`); repeated each period up to a limit. Notification and inbox read models use it to remind the step's role and their managers. The actor is a service. Subject is the approval request id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.workflow.approval_escalated.v1}
+      payload: {$ref: '#/components/schemas/ApprovalEscalatedV1'}
+      examples:
+        - name: requisition
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000005e, source: /erp/eu-1/workflow, type: com.example.erp.workflow.approval_escalated.v1, subject: 0192a000-0000-7000-8000-000000000901, time: '2026-10-21T06:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000999}
+          payload: {approval_request_id: 0192a000-0000-7000-8000-000000000901, object_type: requisition, object_id: 0192a000-0000-7000-8000-000000000801, current_step: 1, escalations: 1, pending_since: '2026-10-19T06:00:01Z'}
     ApprovalCompleted:
       name: ApprovalCompleted
       title: Approval completed
@@ -2419,6 +2437,16 @@ components:
         status: {type: string, description: 'Open enum; transmitted in v1.'}
 
     # ------------------------------------------------------------- workflow
+    ApprovalEscalatedV1:
+      type: object
+      required: [approval_request_id, object_type, object_id, current_step, escalations, pending_since]
+      properties:
+        approval_request_id: {$ref: '#/components/schemas/Uuid'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception.'}
+        object_id: {$ref: '#/components/schemas/Uuid'}
+        current_step: {type: integer, minimum: 1, description: The step waiting for a decision.}
+        escalations: {type: integer, minimum: 1, description: How often the request has now been escalated.}
+        pending_since: {type: string, format: date-time, description: When the request was opened.}
     ApprovalRequestedV1:
       type: object
       required: [approval_request_id, object_type, object_id, title, requester_id, steps]

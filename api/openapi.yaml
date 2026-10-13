@@ -15986,6 +15986,17 @@ components:
               format: date-time
               description: When the request was completed.
               readOnly: true
+            escalations:
+              type: integer
+              format: int32
+              minimum: 0
+              description: "How often the request was escalated because no decision arrived within the deadline (ADR-0012); 0 while it never was."
+              readOnly: true
+            escalated_at:
+              type: string
+              format: date-time
+              description: When the request was last escalated; absent while it never was.
+              readOnly: true
             steps:
               type: array
               items:

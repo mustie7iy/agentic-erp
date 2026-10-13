@@ -1256,6 +1256,11 @@ type ApprovalRequest struct {
 	CurrentStep int32 `json:"current_step"`
 	// When the request was completed.
 	CompletedAt OptDateTime `json:"completed_at"`
+	// How often the request was escalated because no decision arrived within the deadline (ADR-0012); 0
+	// while it never was.
+	Escalations OptInt32 `json:"escalations"`
+	// When the request was last escalated; absent while it never was.
+	EscalatedAt OptDateTime `json:"escalated_at"`
 	// Steps.
 	Steps []ApprovalStep `json:"steps"`
 	// Decisions so far.
@@ -1335,6 +1340,16 @@ func (s *ApprovalRequest) GetCurrentStep() int32 {
 // GetCompletedAt returns the value of CompletedAt.
 func (s *ApprovalRequest) GetCompletedAt() OptDateTime {
 	return s.CompletedAt
+}
+
+// GetEscalations returns the value of Escalations.
+func (s *ApprovalRequest) GetEscalations() OptInt32 {
+	return s.Escalations
+}
+
+// GetEscalatedAt returns the value of EscalatedAt.
+func (s *ApprovalRequest) GetEscalatedAt() OptDateTime {
+	return s.EscalatedAt
 }
 
 // GetSteps returns the value of Steps.
@@ -1420,6 +1435,16 @@ func (s *ApprovalRequest) SetCurrentStep(val int32) {
 // SetCompletedAt sets the value of CompletedAt.
 func (s *ApprovalRequest) SetCompletedAt(val OptDateTime) {
 	s.CompletedAt = val
+}
+
+// SetEscalations sets the value of Escalations.
+func (s *ApprovalRequest) SetEscalations(val OptInt32) {
+	s.Escalations = val
+}
+
+// SetEscalatedAt sets the value of EscalatedAt.
+func (s *ApprovalRequest) SetEscalatedAt(val OptDateTime) {
+	s.EscalatedAt = val
 }
 
 // SetSteps sets the value of Steps.

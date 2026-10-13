@@ -867,6 +867,7 @@ func TestWorkflowEngine(t *testing.T) {
 	env := environment(t, is, "")
 	env["ERP_TEMPORAL_ADDRESS"] = workflowtest.Server(t)
 	env["ERP_TEMPORAL_TASK_QUEUE"] = "erp-test-" + uuid.NewString()[:8]
+	env["ERP_TEMPORAL_CODEC_KEY"] = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32))) // payloads sealed on the way to the engine
 	dispatchInterval = 50 * time.Millisecond
 	defer func() { dispatchInterval = time.Second }()
 	f := fixture.New(t, "payments.run.read", "payments.run.propose", "payments.run.release", "platform.operation.read")
@@ -952,8 +953,9 @@ func TestWorkflowEngine(t *testing.T) {
 	if !strings.Contains(logs.String(), "workflow engine connected") || !strings.Contains(logs.String(), "workflows started") {
 		t.Fatalf("logs: %s", logs.String())
 	}
-	// An engine that cannot be reached stops the start.
+	// An engine that cannot be reached stops the start (here without a codec key, which is warned about).
 	env["ERP_TEMPORAL_ADDRESS"] = "127.0.0.1:1"
+	delete(env, "ERP_TEMPORAL_CODEC_KEY")
 	if err := run(context.Background(), load(t, env), quiet(), nil); err == nil || !strings.Contains(err.Error(), "connecting to") {
 		t.Fatalf("started without its engine: %v", err)
 	}

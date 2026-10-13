@@ -2204,6 +2204,18 @@ func (s *ApprovalRequest) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Escalations.Set {
+			e.FieldStart("escalations")
+			s.Escalations.Encode(e)
+		}
+	}
+	{
+		if s.EscalatedAt.Set {
+			e.FieldStart("escalated_at")
+			s.EscalatedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
 		e.FieldStart("steps")
 		e.ArrStart()
 		for _, elem := range s.Steps {
@@ -2221,7 +2233,7 @@ func (s *ApprovalRequest) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfApprovalRequest = [17]string{
+var jsonFieldsNameOfApprovalRequest = [19]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -2237,8 +2249,10 @@ var jsonFieldsNameOfApprovalRequest = [17]string{
 	12: "status",
 	13: "current_step",
 	14: "completed_at",
-	15: "steps",
-	16: "decisions",
+	15: "escalations",
+	16: "escalated_at",
+	17: "steps",
+	18: "decisions",
 }
 
 // Decode decodes ApprovalRequest from json.
@@ -2422,8 +2436,28 @@ func (s *ApprovalRequest) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"completed_at\"")
 			}
+		case "escalations":
+			if err := func() error {
+				s.Escalations.Reset()
+				if err := s.Escalations.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"escalations\"")
+			}
+		case "escalated_at":
+			if err := func() error {
+				s.EscalatedAt.Reset()
+				if err := s.EscalatedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"escalated_at\"")
+			}
 		case "steps":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				s.Steps = make([]ApprovalStep, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -2441,7 +2475,7 @@ func (s *ApprovalRequest) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"steps\"")
 			}
 		case "decisions":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				s.Decisions = make([]Decision, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -2469,8 +2503,8 @@ func (s *ApprovalRequest) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11011111,
-		0b10110011,
-		0b00000001,
+		0b00110011,
+		0b00000110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -17,12 +17,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/testsuite"
 
+	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -828,4 +830,145 @@ func TestMigrationWorkflow(t *testing.T) {
 		}
 	}
 	m3.Begin = nil
+}
+
+// approvalPending submits a requisition that needs approval and returns the
+// environment and its pending approval request.
+func approvalPending(t *testing.T) (env, map[string]any, string) {
+	t.Helper()
+	f := fixture.New(t, "procurement.requisition.read", "procurement.requisition.create")
+	e := env{Env: f}
+	office := f.Account(t, "2000", "520000")
+	req, _ := e.Must(201, "POST", "/v1/requisitions", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "supplier_id": %q, "items": [{"description": "Paper",
+		"quantity": {"value": "1", "unit": "EA"}, "unit_price": {"amount": "1.00", "currency": "EUR"}, "account_id": %q}]}`, e.DE, e.Supplier, office), "")
+	_, tag := e.Must(200, "GET", "/v1/requisitions/"+id(req), "", "")
+	e.Must(200, "POST", "/v1/requisitions/"+id(req)+":submit", "", tag)
+	return e, e.Pending(t, id(req)), id(req)
+}
+
+// TestApprovalDeadline: a pending request is escalated each period up to
+// the limit, with the event and audit entry, as a system actor; a decided
+// request ends the workflow at the next check; the dispatcher watches every
+// pending request once; failures are reported.
+func TestApprovalDeadline(t *testing.T) {
+	e, pending, reqID := approvalPending(t)
+	a := &workflows.Approvals{Pool: pgtest.Pool(t), AppRole: "erp_app"}
+	in := workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: uuid.MustParse(id(pending)), After: 48 * time.Hour, Max: 2}
+	var s testsuite.WorkflowTestSuite
+	run := func() error {
+		env := s.NewTestWorkflowEnvironment()
+		env.RegisterWorkflow(workflows.ApprovalDeadline)
+		env.RegisterActivity(a)
+		env.ExecuteWorkflow(workflows.ApprovalDeadline, in)
+		return env.GetWorkflowError()
+	}
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := e.Must(200, "GET", "/v1/approval-requests/"+id(pending), "", "")
+	ev := apitest.Published(t, e.Tenant, outbox.Event{Context: "workflow", Name: "approval_escalated"})
+	if got["escalations"] != float64(2) || got["escalated_at"] == nil || got["status"] != "pending" || len(ev) != 2 || ev[1]["escalations"] != float64(2) || ev[0]["current_step"] != float64(1) {
+		t.Fatalf("escalated: %v %v", got, ev)
+	}
+	var actor uuid.UUID
+	pgtest.Admin(t).QueryRow(context.Background(), `SELECT actor_id FROM audit.audit_event WHERE tenant_id = $1 AND action = 'workflow.approval_request.escalate' LIMIT 1`, e.Tenant.ID).Scan(&actor)
+	if actor != approvals.EscalatorActor {
+		t.Fatalf("escalated by %v", actor)
+	}
+	// Decided: the next check ends the workflow without an escalation.
+	e.Approve(t, reqID)
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.Must(200, "GET", "/v1/approval-requests/"+id(pending), "", ""); got["escalations"] != float64(2) || got["status"] != "approved" {
+		t.Fatalf("after the decision: %v", got)
+	}
+	// The dispatcher starts one deadline workflow per pending request and records it; a refused start is retried.
+	e2, pending2, _ := approvalPending(t)
+	engine := &fakeEngine{fail: id(pending2)}
+	d := &workflows.Dispatcher{Deadline: time.Hour, Escalations: 3, Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}
+	if _, err := d.RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "engine refused") {
+		t.Fatalf("refused deadline: %v", err)
+	}
+	engine.fail = ""
+	if _, err := d.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := workflows.DeadlineWorkflowID(e2.Tenant.ID, uuid.MustParse(id(pending2)))
+	found := false
+	for _, st := range engine.started {
+		in := st.Args[0]
+		found = found || st.ID == want && st.Name == workflows.DeadlineWorkflow && in.(workflows.DeadlineInput).After == time.Hour && in.(workflows.DeadlineInput).Max == 3
+	}
+	var recorded *string
+	pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM workflow.approval_request WHERE id = $1`, uuid.MustParse(id(pending2))).Scan(&recorded)
+	if !found || recorded == nil || *recorded != want {
+		t.Fatalf("deadline dispatch: %v %+v", recorded, engine.started)
+	}
+	before := len(engine.started)
+	if _, err := d.RunOnce(context.Background()); err != nil || len(engine.started) != before {
+		t.Fatalf("watched twice: %v %d", err, len(engine.started))
+	}
+	// Failures: the database refusing statements, in the activity and the dispatcher.
+	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	if _, err := a.Escalate(context.Background(), in); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Fatalf("database down: %v", err)
+	}
+	pool := pgtest.Pool(t)
+	in2 := workflows.DeadlineInput{TenantID: e2.Tenant.ID, RequestID: uuid.MustParse(id(pending2)), After: time.Hour, Max: 1}
+	a.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) }
+	for n := 1; n < 30; n++ {
+		count := 0
+		a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
+		}
+		_, err := a.Escalate(context.Background(), in2)
+		if err == nil {
+			if n == 1 {
+				t.Fatal("escalated without a statement to fail")
+			}
+			break
+		}
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("statement %d: %v", n, err)
+		}
+	}
+	a.Begin = nil
+	e3, pending3, _ := approvalPending(t)
+	_ = e3
+	_ = pending3
+	for n := 1; n < 10; n++ {
+		count := 0
+		d.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
+		}
+		_, err := d.RunOnce(context.Background())
+		if err == nil {
+			if n == 1 {
+				t.Fatal("dispatched without a statement to fail")
+			}
+			break
+		}
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("dispatcher statement %d: %v", n, err)
+		}
+	}
+	d.Begin = nil
+	// A failing workflow: the activity's error ends it.
+	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	env := s.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.ApprovalDeadline)
+	env.RegisterActivity(a)
+	env.ExecuteWorkflow(workflows.ApprovalDeadline, workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: in.RequestID, After: time.Minute, Max: 1})
+	if err := env.GetWorkflowError(); err == nil {
+		t.Fatal("workflow with a failing activity succeeded")
+	}
 }

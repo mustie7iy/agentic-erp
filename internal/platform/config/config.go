@@ -146,6 +146,12 @@ type Temporal struct {
 	Address   string
 	Namespace string
 	TaskQueue string
+	CodecKey  []byte // ERP_TEMPORAL_CODEC_KEY, base64 of 32 bytes: payloads sealed before they reach the engine (ADR-0012)
+	// EscalateAfter is the period a pending approval request waits for a
+	// decision before it is escalated (ERP_APPROVAL_ESCALATE_AFTER, default
+	// 48h; 0 disables escalation), Escalations how often (ERP_APPROVAL_ESCALATIONS, default 3).
+	EscalateAfter time.Duration
+	Escalations   int
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -282,6 +288,19 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	c.Temporal = Temporal{Address: getenv("ERP_TEMPORAL_ADDRESS"), Namespace: get("ERP_TEMPORAL_NAMESPACE", "default"), TaskQueue: get("ERP_TEMPORAL_TASK_QUEUE", "erp")}
+	if raw := getenv("ERP_TEMPORAL_CODEC_KEY"); raw != "" {
+		if key, err := base64.StdEncoding.DecodeString(raw); err != nil || len(key) != 32 {
+			errs = append(errs, errors.New("ERP_TEMPORAL_CODEC_KEY must be base64 of 32 random bytes, the same on every replica and kept secret"))
+		} else {
+			c.Temporal.CodecKey = key
+		}
+	}
+	if c.Temporal.EscalateAfter, err = time.ParseDuration(get("ERP_APPROVAL_ESCALATE_AFTER", "48h")); err != nil || c.Temporal.EscalateAfter < 0 {
+		errs = append(errs, errors.New("ERP_APPROVAL_ESCALATE_AFTER must be a duration such as 48h, or 0 not to escalate"))
+	}
+	if c.Temporal.Escalations, err = strconv.Atoi(get("ERP_APPROVAL_ESCALATIONS", "3")); err != nil || c.Temporal.Escalations < 1 {
+		errs = append(errs, errors.New("ERP_APPROVAL_ESCALATIONS must be a whole number of at least 1"))
+	}
 	c.AWS = AWS{Getenv: raw, STSEndpoint: get("ERP_AWS_STS_ENDPOINT", "https://sts.amazonaws.com"), IMDSEndpoint: get("ERP_AWS_IMDS_ENDPOINT", "http://169.254.169.254")}
 	c.DirectoryURL, c.CellAPIURL, c.CellRegion, c.CellControlURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL"), getenv("ERP_CELL_REGION"), getenv("ERP_CELL_CONTROL_URL")
 	c.CellAccepting = get("ERP_CELL_ACCEPTING", "true") != "false"

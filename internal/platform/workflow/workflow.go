@@ -39,6 +39,7 @@ type Client interface {
 type Config struct {
 	Address   string // host:port of the Temporal frontend
 	Namespace string // one per environment (ADR-0012)
+	Codec     *Codec // seals payloads before they reach the engine; nil: plain
 }
 
 // Temporal is the Client on a Temporal cluster, and hosts workers.
@@ -48,7 +49,7 @@ type Temporal struct {
 
 // Dial connects; the SDK checks the cluster answers before returning.
 func Dial(ctx context.Context, cfg Config) (*Temporal, error) {
-	c, err := client.DialContext(ctx, client.Options{HostPort: cfg.Address, Namespace: cfg.Namespace})
+	c, err := client.DialContext(ctx, client.Options{HostPort: cfg.Address, Namespace: cfg.Namespace, DataConverter: dataConverter(cfg.Codec)})
 	if err != nil {
 		return nil, fmt.Errorf("workflow: connecting to %s: %w", cfg.Address, err)
 	}

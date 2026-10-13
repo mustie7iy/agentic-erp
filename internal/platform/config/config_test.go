@@ -350,3 +350,28 @@ func TestRotationPolicyAndPublicURL(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowEngineSettings(t *testing.T) {
+	m := valid()
+	c, err := Load(env(m))
+	if err != nil || c.Temporal.Address != "" || c.Temporal.CodecKey != nil || c.Temporal.EscalateAfter != 48*time.Hour || c.Temporal.Escalations != 3 || c.Temporal.TaskQueue != "erp" {
+		t.Fatalf("%+v %v", c.Temporal, err)
+	}
+	key := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
+	m["ERP_TEMPORAL_ADDRESS"], m["ERP_TEMPORAL_CODEC_KEY"], m["ERP_APPROVAL_ESCALATE_AFTER"], m["ERP_APPROVAL_ESCALATIONS"] = "localhost:7233", key, "0", "1"
+	if c, err := Load(env(m)); err != nil || len(c.Temporal.CodecKey) != 32 || c.Temporal.EscalateAfter != 0 || c.Temporal.Escalations != 1 {
+		t.Fatalf("%+v %v", c.Temporal, err)
+	}
+	for name, bad := range map[string][2]string{"short key": {"ERP_TEMPORAL_CODEC_KEY", base64.StdEncoding.EncodeToString([]byte("short"))},
+		"not base64": {"ERP_TEMPORAL_CODEC_KEY", "%%%"}, "negative period": {"ERP_APPROVAL_ESCALATE_AFTER", "-1h"}, "words": {"ERP_APPROVAL_ESCALATE_AFTER", "soon"},
+		"zero escalations": {"ERP_APPROVAL_ESCALATIONS", "0"}, "not a number": {"ERP_APPROVAL_ESCALATIONS", "many"}} {
+		mm := map[string]string{}
+		for k, v := range m {
+			mm[k] = v
+		}
+		mm[bad[0]] = bad[1]
+		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

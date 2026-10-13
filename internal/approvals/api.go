@@ -34,6 +34,10 @@ func toAPI(r Request) gen.ApprovalRequest {
 	if r.CompletedAt != nil {
 		out.CompletedAt.SetTo(*r.CompletedAt)
 	}
+	out.Escalations.SetTo(int32(r.Escalations))
+	if r.EscalatedAt != nil {
+		out.EscalatedAt.SetTo(*r.EscalatedAt)
+	}
 	for i, s := range r.Steps {
 		out.Steps[i] = gen.ApprovalStep{StepNo: int32(s.No), RoleID: s.RoleID, Required: int32(s.Required), Approvals: int32(s.Approvals)}
 	}

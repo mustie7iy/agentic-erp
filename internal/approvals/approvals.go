@@ -122,6 +122,8 @@ type Request struct {
 	Status      string
 	CurrentStep int16
 	CompletedAt *time.Time
+	Escalations int16
+	EscalatedAt *time.Time
 	Steps       []Step
 	Decisions   []Decision
 	Version     int32
@@ -131,7 +133,7 @@ type Request struct {
 }
 
 const requestSelect = `SELECT r.id, r.object_type, r.object_id, r.title, r.requester_id, r.amount, r.currency, coalesce(c.exponent, 0), r.policy_id,
-		r.status, r.current_step, r.completed_at, r.version, r.created_at, r.created_by, r.updated_at,
+		r.status, r.current_step, r.completed_at, r.escalations, r.escalated_at, r.version, r.created_at, r.created_by, r.updated_at,
 		coalesce((SELECT json_agg(json_build_object('step_no', s.step_no, 'role_id', s.role_id, 'required', s.required,
 			'approvals', (SELECT count(*) FROM workflow.decision d WHERE d.tenant_id = s.tenant_id AND d.request_id = s.request_id
 				AND d.step_no = s.step_no AND d.decision = 'approve')) ORDER BY s.step_no)
@@ -144,7 +146,7 @@ const requestSelect = `SELECT r.id, r.object_type, r.object_id, r.title, r.reque
 func scanRequest(row pgx.Row) (Request, error) {
 	var r Request
 	err := row.Scan(&r.ID, &r.ObjectType, &r.ObjectID, &r.Title, &r.RequesterID, &r.Amount, &r.Currency, &r.Exponent, &r.PolicyID,
-		&r.Status, &r.CurrentStep, &r.CompletedAt, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.Steps, &r.Decisions)
+		&r.Status, &r.CurrentStep, &r.CompletedAt, &r.Escalations, &r.EscalatedAt, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.Steps, &r.Decisions)
 	return r, err
 }
 
