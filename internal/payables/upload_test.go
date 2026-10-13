@@ -305,7 +305,7 @@ func TestPresignedUploads(t *testing.T) {
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("put to the store: %v %v", resp, err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close() // the status is all the test needs from the store's answer
 	got, _ := e.Must(200, "GET", "/v1/uploads/"+up["id"].(string), "", "")
 	if got["status"] != "open" { // the store does not tell the API
 		t.Fatalf("%v", got)

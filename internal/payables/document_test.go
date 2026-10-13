@@ -91,10 +91,16 @@ func TestCapturedDocumentsAreKept(t *testing.T) {
 	e.API = before
 	// A document whose stored bytes differ from the hash is not handed out; a missing object is 404.
 	path := strings.TrimSuffix(keys[0], ".meta")
-	os.Chmod(path, 0o600)
-	os.WriteFile(path, []byte("tampered"), 0o600)
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("make the document writable: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("tampered"), 0o600); err != nil {
+		t.Fatalf("tamper with the document: %v", err)
+	}
 	e.Problem(409, "payables.document_changed", "GET", "/v1/supplier-invoices/"+inv["id"].(string)+"/document", "", "")
-	os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove the document: %v", err)
+	}
 	e.Problem(404, "request.not_found", "GET", "/v1/supplier-invoices/"+inv["id"].(string)+"/document", "", "")
 	// A store that does not answer: 503 on capture and on download.
 	broken := failingStore{err: errors.New("store down")}

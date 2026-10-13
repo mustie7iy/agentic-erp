@@ -150,20 +150,24 @@ func TestRegressionSuites(t *testing.T) {
 	}
 	// Without a maximum every invoice is a case, strata first.
 	var all []configuration.RegressionCase
-	apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
 		all, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return today }}.Capture(ctx, base, 90*24*time.Hour, 0)
 		return err
-	})
+	}); err != nil {
+		t.Fatalf("capture without a maximum: %v", err)
+	}
 	if len(all) != 4 || all[3].Why != "sample" {
 		t.Fatalf("all cases: %+v", all)
 	}
 	// A configuration without the company decides its invoices without tolerances or limit, and is never near a limit.
 	gone := fixture.Document(t)
 	gone.Companies = gone.Companies[:1]
-	apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
 		all, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return today }}.Capture(ctx, gone, 90*24*time.Hour, 0)
 		return err
-	})
+	}); err != nil {
+		t.Fatalf("capture without the company: %v", err)
+	}
 	if len(all) != 4 || all[0].ExpectedDecision != payables.DecisionReview || strings.Contains(all[0].Why+all[1].Why+all[2].Why+all[3].Why, "near") {
 		t.Fatalf("without the company: %+v", all)
 	}
