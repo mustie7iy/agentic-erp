@@ -14,17 +14,28 @@ import (
 
 func TestParseQuota(t *testing.T) {
 	for in, want := range map[string]Quota{"2000/10000": {2000, 10000}, "50": {50, 50}, "0.5": {0.5, 1}, "off": {}} {
-		if got, err := ParseQuota(in); err != nil || got != want {
-			t.Errorf("%q: %+v %v", in, got, err)
-		}
+		t.Run(in, func(t *testing.T) {
+			got, err := ParseQuota(in)
+			if err != nil {
+				t.Fatalf("ParseQuota: %v", err)
+			}
+			if got != want {
+				t.Errorf("got %+v, want %+v", got, want)
+			}
+		})
 	}
 	for _, in := range []string{"", "x", "-1", "0", "inf", "10/0", "10/x", "10/-5"} {
-		if _, err := ParseQuota(in); err == nil {
-			t.Errorf("%q accepted", in)
-		}
+		t.Run("invalid "+in, func(t *testing.T) {
+			if got, err := ParseQuota(in); err == nil {
+				t.Errorf("got %+v, want an error", got)
+			}
+		})
 	}
-	if New(Quota{}, Quota{}) != nil || New(Quota{Rate: 1, Burst: 1}, Quota{}) == nil {
-		t.Fatal("New")
+	if got := New(Quota{}, Quota{}); got != nil {
+		t.Errorf("New without quotas: got %v, want nil", got)
+	}
+	if got := New(Quota{Rate: 1, Burst: 1}, Quota{}); got == nil {
+		t.Error("New with a tenant quota: got nil, want a limiter")
 	}
 }
 
@@ -40,32 +51,39 @@ func serve(l *Limiter, tenant uuid.UUID, subject string) *httptest.ResponseRecor
 	return rec
 }
 
+// expect checks a response's status and the given headers.
+func expect(t *testing.T, step string, rec *httptest.ResponseRecorder, code int, headers map[string]string) {
+	t.Helper()
+	if rec.Code != code {
+		t.Errorf("%s: status got %d, want %d", step, rec.Code, code)
+	}
+	for name, want := range headers {
+		if got := rec.Header().Get(name); got != want {
+			t.Errorf("%s: %s got %q, want %q", step, name, got, want)
+		}
+	}
+}
+
 func TestQuotasAreEnforcedAndReported(t *testing.T) {
 	now := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
 	l := &Limiter{Tenant: Quota{Rate: 10, Burst: 5}, Principal: Quota{Rate: 1, Burst: 2}, Now: func() time.Time { return now }}
 	ten := uuid.New()
 	// The principal's bucket is the tighter one and is what the headers report.
 	rec := serve(l, ten, "alice")
-	if rec.Code != 204 || rec.Header().Get("RateLimit-Limit") != "2" || rec.Header().Get("RateLimit-Remaining") != "1" || rec.Header().Get("RateLimit-Reset") != "1" {
-		t.Fatalf("first: %d %v", rec.Code, rec.Header())
-	}
+	expect(t, "first", rec, 204, map[string]string{"RateLimit-Limit": "2", "RateLimit-Remaining": "1", "RateLimit-Reset": "1"})
 	serve(l, ten, "alice")
 	rec = serve(l, ten, "alice")
-	if rec.Code != 429 || rec.Header().Get("Retry-After") != "1" || rec.Header().Get("RateLimit-Remaining") != "0" || rec.Header().Get("RateLimit-Reset") != "2" {
-		t.Fatalf("over the principal quota: %d %v %s", rec.Code, rec.Header(), rec.Body)
-	}
+	expect(t, "over the principal quota", rec, 429, map[string]string{"Retry-After": "1", "RateLimit-Remaining": "0", "RateLimit-Reset": "2"})
 	// Alice's refused request did not count against the tenant: two of its five tokens are spent.
 	// Another principal gets through and still sees its own, tighter quota.
-	if rec = serve(l, ten, "bob"); rec.Code != 204 || rec.Header().Get("RateLimit-Limit") != "2" {
-		t.Fatalf("bob: %d %v", rec.Code, rec.Header())
-	}
+	expect(t, "bob", serve(l, ten, "bob"), 204, map[string]string{"RateLimit-Limit": "2"})
 	serve(l, ten, "carol")
 	// The fifth token is the tenant's last: its quota is now the tighter one, and the next caller is refused.
-	if rec = serve(l, ten, "dave"); rec.Code != 204 || rec.Header().Get("RateLimit-Limit") != "5" || rec.Header().Get("RateLimit-Remaining") != "0" {
-		t.Fatalf("dave: %d %v", rec.Code, rec.Header())
-	}
-	if rec = serve(l, ten, "erin"); rec.Code != 429 || rec.Header().Get("RateLimit-Limit") != "5" || !strings.Contains(rec.Body.String(), "Tenant quota of 10") {
-		t.Fatalf("over the tenant quota: %d %v %s", rec.Code, rec.Header(), rec.Body)
+	expect(t, "dave", serve(l, ten, "dave"), 204, map[string]string{"RateLimit-Limit": "5", "RateLimit-Remaining": "0"})
+	rec = serve(l, ten, "erin")
+	expect(t, "over the tenant quota", rec, 429, map[string]string{"RateLimit-Limit": "5"})
+	if !strings.Contains(rec.Body.String(), "Tenant quota of 10") {
+		t.Errorf("over the tenant quota: got body %s, want it to name the tenant quota of 10", rec.Body)
 	}
 	// Tokens come back with time; another tenant is independent.
 	now = now.Add(500 * time.Millisecond)
@@ -76,9 +94,7 @@ func TestQuotasAreEnforcedAndReported(t *testing.T) {
 		t.Fatalf("other tenant: %d", rec.Code)
 	}
 	// Without claims nothing is limited or reported.
-	if rec = serve(l, ten, ""); rec.Code != 204 || rec.Header().Get("RateLimit-Limit") != "" {
-		t.Fatalf("anonymous: %d %v", rec.Code, rec.Header())
-	}
+	expect(t, "anonymous", serve(l, ten, ""), 204, map[string]string{"RateLimit-Limit": ""})
 	// Buckets that refilled completely are swept once a minute; the caller's own stays.
 	now = now.Add(2 * time.Minute)
 	serve(l, ten, "alice")
@@ -100,7 +116,6 @@ func TestQuotasAreEnforcedAndReported(t *testing.T) {
 	}
 	// With the tenant quota off only principals are limited; the real clock works too.
 	l = &Limiter{Principal: Quota{Rate: 1000, Burst: 1}}
-	if a, b := serve(l, ten, "x"), serve(l, ten, "x"); a.Code != 204 || b.Code != 429 {
-		t.Fatalf("principal only: %d %d", a.Code, b.Code)
-	}
+	expect(t, "principal only, first", serve(l, ten, "x"), 204, nil)
+	expect(t, "principal only, second", serve(l, ten, "x"), 429, nil)
 }
