@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Whole-suite statement coverage of production code, with a minimum.
+# Whole-suite statement coverage of production code, with a minimum,
+# compared on exact statement counts.
 # Excluded from the figure: test-only packages (nfr, testkit, llmtest, and the
 # platform's pgtest, authntest, natstest, apitest, blobstoretest, vaulttest, kmstest, fixture) and code generated from the
 # API contract (api/gen). Database-backed packages need DATABASE_URL; without
@@ -28,10 +29,15 @@ if ! go test -short -count=1 -coverpkg="$coverpkg" -coverprofile="$profile" ./..
   exit 1
 fi
 grep -v -E "$excluded" "$profile" > "$profile.prod"
-total="$(go tool cover -func="$profile.prod" | awk '/^total:/ {print $NF}' | tr -d '%')"
-echo "statement coverage: ${total}% (minimum ${MIN}%)"
-if awk -v t="$total" -v m="$MIN" 'BEGIN { exit !(t+0 < m+0) }'; then
-  echo "uncovered functions:"
-  go tool cover -func="$profile.prod" | grep -v '100.0%' | grep -v '^total:'
+# Count statements, not the rounded percentage go tool cover prints: at this
+# size a handful of uncovered statements still rounds to 100.0%. Every test
+# binary reports each block, so a block counts as covered if any run hit it.
+read -r covered statements < <(awk 'NR > 1 { split($0, f, " "); k = f[1]; n[k] = f[2]; if (f[3] > 0) hit[k] = 1 }
+  END { for (k in n) { s += n[k]; if (k in hit) c += n[k] }; print c + 0, s + 0 }' "$profile.prod")
+echo "statement coverage: ${covered} of ${statements} statements (minimum ${MIN}%)"
+if awk -v c="$covered" -v s="$statements" -v m="$MIN" 'BEGIN { exit !(c * 100 < m * s) }'; then
+  echo "uncovered blocks:"
+  awk 'NR > 1 { split($0, f, " "); k = f[1]; n[k] = f[2]; if (f[3] > 0) hit[k] = 1 }
+    END { for (k in n) if (!(k in hit) && n[k] > 0) print "  " k " (" n[k] " statements)" }' "$profile.prod" | sort
   exit 1
 fi
