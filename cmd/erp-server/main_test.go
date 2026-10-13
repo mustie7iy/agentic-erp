@@ -96,6 +96,11 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 			addrs <- [2]string{api.Addr().String(), admin.Addr().String()}
 		})
 	}()
+	exit := 0
+	stop := sync.OnceFunc(func() { cancel(); exit = <-done })
+	// A failed wait below must stop the server before maintenanceInterval
+	// is reset, or the server outlives the test and races the reset.
+	defer stop()
 	a := <-addrs
 	get := func(u, token string) (int, map[string]any) {
 		req, _ := http.NewRequest("GET", u, nil)
@@ -165,9 +170,9 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		t.Fatalf("event subject %s", relayed.Header.Get("ce-subject"))
 	}
 
-	cancel()
-	if code := <-done; code != 0 {
-		t.Fatalf("exit %d\n%s", code, logs.String())
+	stop()
+	if exit != 0 {
+		t.Fatalf("exit %d\n%s", exit, logs.String())
 	}
 }
 
