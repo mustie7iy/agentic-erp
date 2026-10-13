@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"text/tabwriter"
@@ -149,9 +150,10 @@ func readRun(ctx context.Context, c *apitools.Client, path string) (migrationRun
 	return run, err
 }
 
-// printRun prints the run's report. Its error is a checks table that could
-// not be written, so the operator never decides on a partial report.
+// printRun prints the run's report. Its error is any part of the report that
+// could not be written, so the operator never decides on a partial report.
 func printRun(run migrationRun) error {
+	out := &stickyWriter{w: out}
 	r := run.Report
 	loaded, _ := json.Marshal(r.Loaded)
 	fmt.Fprintf(out, "Migration run %s: %s\nLoaded: %s\n", run.ID, run.Status, loaded)
@@ -177,9 +179,7 @@ func printRun(run migrationRun) error {
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", c.CompanyCode, c.Name, c.SAP, c.Platform, res)
 		}
-		if err := tw.Flush(); err != nil {
-			return fmt.Errorf("migrate: print checks: %w", err)
-		}
+		_ = tw.Flush() // its only error is a failed write, which out keeps
 	}
 	for _, d := range r.Diffs {
 		fmt.Fprintf(out, "  difference %s %s: SAP %s, platform %s\n", d.CompanyCode, d.Key, d.SAP, d.Platform)
@@ -187,5 +187,24 @@ func printRun(run migrationRun) error {
 	if len(r.Missing) > 0 {
 		fmt.Fprintf(out, "  %d SAP documents are not on the platform, for example %s\n", len(r.Missing), r.Missing[0])
 	}
+	if out.err != nil {
+		return fmt.Errorf("migrate: print report: %w", out.err)
+	}
 	return nil
+}
+
+// stickyWriter keeps the first error of its writes and skips the writes
+// after it, so a report printed with many calls is checked once at the end.
+type stickyWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (s *stickyWriter) Write(p []byte) (int, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	n, err := s.w.Write(p)
+	s.err = err
+	return n, err //nolint:wrapcheck // a pass-through writer: printRun wraps the error it keeps
 }

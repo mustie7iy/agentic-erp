@@ -236,6 +236,14 @@ func TestMigrateErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "device full") {
 		t.Errorf("unprintable report: got %v, want the print failure", err)
 	}
+	// So does one without checks: every line of the report counts, not only the table.
+	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), ok(`{"id": "r1", "status": "reconciled"}`)}}))
+	out = failing{}
+	err = migrate(context.Background(), []string{"-connector", "c", "-legal-entities", "le"})
+	out = os.Stdout
+	if err == nil || !strings.Contains(err.Error(), "device full") {
+		t.Errorf("unprintable report without checks: got %v, want the print failure", err)
+	}
 	fails(t, "flag provided", "migrate", "-x")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN", "migrate")
