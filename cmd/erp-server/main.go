@@ -135,7 +135,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	startWorkers(s, runCtx)
+	startWorkersHook(s, runCtx)
 	bus, err := s.connectBus()
 	if err != nil {
 		return s.abort(cancel, err)
@@ -339,9 +339,9 @@ func (s *server) newAPI() error {
 	return nil
 }
 
-// startWorkers is what run calls to start the workers; tests wrap it to see
+// startWorkersHook is what run calls to start the workers; tests wrap it to see
 // the server whose workers they check.
-var startWorkers = (*server).startWorkers
+var startWorkersHook = (*server).startWorkers
 
 // startWorkers starts the background workers on runCtx, which run cancels
 // at shutdown.

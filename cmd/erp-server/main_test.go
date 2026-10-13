@@ -316,8 +316,8 @@ func TestABusFailureStopsTheWorkersFirst(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var s *server
-			startWorkers = func(srv *server, runCtx context.Context) { s = srv; srv.startWorkers(runCtx) }
-			defer func() { startWorkers = (*server).startWorkers }()
+			startWorkersHook = func(srv *server, runCtx context.Context) { s = srv; srv.startWorkers(runCtx) }
+			defer func() { startWorkersHook = (*server).startWorkers }()
 			if err := run(context.Background(), load(t, environment(t, is, c.nats())), quiet(), nil); err == nil {
 				t.Fatal("got no error, want the bus failure")
 			}
