@@ -108,7 +108,18 @@ type gen struct {
 
 func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}) }
 
-func alpha(s string) string { return strings.TrimLeft(s, "0") }
+// alpha strips SAP ALPHA-conversion leading zeros ("0000100001" ->
+// "100001") exactly as the migration's alpha in internal/integration does:
+// the migration looks journal accounts up in the configured chart by this
+// number, so an all-zero account must be "0" here too, not "" (which no
+// chart account can be).
+func alpha(s string) string {
+	t := strings.TrimLeft(s, "0")
+	if t == "" && s != "" {
+		return "0"
+	}
+	return t
+}
 
 // paymentTerms is SAP's payment terms (T052), or a net-30 placeholder with
 // a note when the extract has none. Days are whole numbers in SAP; a term
