@@ -94,11 +94,11 @@ func TestContractExpiry(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &brokenCommit{Tx: tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
 	pgtest.Exec(t, `UPDATE procurement.contract SET status = 'active', version = version + 1 WHERE id = $1`, uuid.MustParse(id(draft)))
-	if _, err := x.Expire(ctx, e.Tenant.ID); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("commit failing: %v", err)
+	if _, err := x.Expire(ctx, e.Tenant.ID); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("commit failing: got %v, want the injected failure", err)
 	}
 	x.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	if _, err := x.Expire(ctx, e.Tenant.ID); err == nil || !strings.Contains(err.Error(), "database down") {
@@ -123,11 +123,4 @@ func TestContractExpiry(t *testing.T) {
 		"no expiring round logged: %s", logs)
 	cancel()
 	<-done
-}
-
-type brokenCommit struct{ pgx.Tx }
-
-func (b *brokenCommit) Commit(ctx context.Context) error {
-	_ = b.Rollback(ctx)
-	return errors.New("commit failed")
 }
