@@ -393,21 +393,25 @@ func (l *loader) directory(c *Config) {
 	c.DirectoryURL, c.CellAPIURL, c.CellRegion, c.CellControlURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL"), getenv("ERP_CELL_REGION"), getenv("ERP_CELL_CONTROL_URL")
 	c.CellAccepting = get("ERP_CELL_ACCEPTING", "true") != "false"
 	if c.DirectoryURL != "" {
-		for name, value := range map[string]string{"ERP_CELL_API_URL": c.CellAPIURL, "ERP_CELL_CONTROL_URL": c.CellControlURL} {
-			if u, err := url.Parse(value); err != nil || u.Scheme == "" || u.Host == "" {
-				l.errs = append(l.errs, errors.New("ERP_DIRECTORY_URL needs "+name+", a base URL such as https://eu-1.api.example.com"))
+		// Slices, not maps, so the errors come out in the same order every run.
+		for _, s := range []setting{{"ERP_CELL_API_URL", c.CellAPIURL}, {"ERP_CELL_CONTROL_URL", c.CellControlURL}} {
+			if u, err := url.Parse(s.value); err != nil || u.Scheme == "" || u.Host == "" {
+				l.errs = append(l.errs, errors.New("ERP_DIRECTORY_URL needs "+s.name+", a base URL such as https://eu-1.api.example.com"))
 			}
 		}
 		if !regionPattern.MatchString(c.CellRegion) {
 			l.errs = append(l.errs, errors.New("ERP_DIRECTORY_URL needs ERP_CELL_REGION, the cell's region such as eu-west"))
 		}
 	}
-	for name, dir := range map[string]string{"ERP_BANK_OUTBOX_DIR": c.BankOutboxDir, "ERP_EXTRACT_DIR": c.ExtractDir, "ERP_OBJECT_DIR": c.Objects.Dir} {
-		if fi, err := os.Stat(dir); dir != "" && (err != nil || !fi.IsDir()) {
-			l.errs = append(l.errs, fmt.Errorf("%s %q must be an existing directory", name, dir))
+	for _, s := range []setting{{"ERP_BANK_OUTBOX_DIR", c.BankOutboxDir}, {"ERP_EXTRACT_DIR", c.ExtractDir}, {"ERP_OBJECT_DIR", c.Objects.Dir}} {
+		if fi, err := os.Stat(s.value); s.value != "" && (err != nil || !fi.IsDir()) {
+			l.errs = append(l.errs, fmt.Errorf("%s %q must be an existing directory", s.name, s.value))
 		}
 	}
 }
+
+// setting is one environment setting's name and value, checked in a fixed order.
+type setting struct{ name, value string }
 
 // server reads how the process runs: migrations at start, logging,
 // timeouts, the connection pool and the rate limits.

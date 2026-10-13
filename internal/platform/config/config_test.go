@@ -377,6 +377,24 @@ func TestWorkflowEngineSettings(t *testing.T) {
 	}
 }
 
+// TestDirectoryErrorsInFixedOrder: with several directory settings invalid,
+// every Load reports them in the same order, so the message is stable.
+func TestDirectoryErrorsInFixedOrder(t *testing.T) {
+	m := valid()
+	missing := filepath.Join(t.TempDir(), "missing")
+	m["ERP_DIRECTORY_URL"], m["ERP_CELL_REGION"] = "postgres://dir@db/directory", "eu-west"
+	m["ERP_BANK_OUTBOX_DIR"], m["ERP_EXTRACT_DIR"], m["ERP_OBJECT_DIR"] = missing+"-bank", missing+"-extract", missing+"-objects"
+	_, first := Load(env(m))
+	if first == nil {
+		t.Fatal("got no error, want the invalid directory settings reported")
+	}
+	for i := range 50 {
+		if _, err := Load(env(m)); err == nil || err.Error() != first.Error() {
+			t.Fatalf("load %d: got %v, want %v", i, err, first)
+		}
+	}
+}
+
 // TestEscalationsFitTheCount: the deadline workflow counts escalations in an
 // int16 and the column is a smallint, so a value above 32767 is refused at
 // load rather than wrapping later.
