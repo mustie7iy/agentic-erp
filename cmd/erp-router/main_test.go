@@ -71,8 +71,14 @@ func TestRoutesToTheCell(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close() // the body is already read; a close error cannot change what is asserted
-	if resp.StatusCode != 200 || !strings.Contains(string(body), `"cell":"eu-1"`) || resp.Header.Get("X-Erp-Cell") != "eu-1" {
-		t.Fatalf("%d %s %v", resp.StatusCode, body, resp.Header)
+	if resp.StatusCode != 200 {
+		t.Errorf("status: got %d, want 200 (body %s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"cell":"eu-1"`) {
+		t.Errorf("body: got %s, want it to contain %q", body, `"cell":"eu-1"`)
+	}
+	if got := resp.Header.Get("X-Erp-Cell"); got != "eu-1" {
+		t.Errorf("X-Erp-Cell: got %q, want %q", got, "eu-1")
 	}
 	if code := getStatus(t, base+"/livez"); code != 200 {
 		t.Fatalf("livez: got %d, want 200", code)
@@ -86,9 +92,11 @@ func TestRoutesToTheCell(t *testing.T) {
 		t.Fatal("no admin listener")
 	}
 	for _, path := range []string{"/livez", "/metrics"} {
-		if code := getStatus(t, adminBase+path); code != 200 {
-			t.Fatalf("admin %s: got %d, want 200", path, code)
-		}
+		t.Run("admin "+path, func(t *testing.T) {
+			if code := getStatus(t, adminBase+path); code != 200 {
+				t.Fatalf("admin %s: got %d, want 200", path, code)
+			}
+		})
 	}
 	req, _ = http.NewRequestWithContext(t.Context(), "GET", adminBase+"/directory/v1/tenants/"+tenant.String(), nil)
 	req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil}))
@@ -98,8 +106,11 @@ func TestRoutesToTheCell(t *testing.T) {
 	}
 	_ = resp.Body.Close() // only the status is asserted; the body is not needed
 	cancel()
-	if code := <-done; code != 0 || !strings.Contains(logs.String(), "erp-router stopped") {
-		t.Fatalf("stop: %d %s", code, logs.String())
+	if code := <-done; code != 0 {
+		t.Errorf("stop: exit code got %d, want 0 (logs %s)", code, logs.String())
+	}
+	if !strings.Contains(logs.String(), "erp-router stopped") {
+		t.Errorf("stop: logs got %s, want them to contain %q", logs.String(), "erp-router stopped")
 	}
 }
 
@@ -129,22 +140,27 @@ func TestExitCodes(t *testing.T) {
 		}, 2, "ERP_PAGE_TOKEN_KEY"},
 		"listener closed": {func(map[string]string) {}, 1, "closed"},
 	} {
-		env := environment(t, is)
-		c.mutate(env)
-		var logs bytes.Buffer
-		started := func(_, _ net.Listener) {}
-		if name == "listener closed" {
-			started = func(ln, _ net.Listener) {
-				// Closing provokes the serve error under test; a failed close shows as a wrong exit code.
-				_ = ln.Close()
+		t.Run(name, func(t *testing.T) {
+			env := environment(t, is)
+			c.mutate(env)
+			var logs bytes.Buffer
+			started := func(_, _ net.Listener) {}
+			if name == "listener closed" {
+				started = func(ln, _ net.Listener) {
+					// Closing provokes the serve error under test; a failed close shows as a wrong exit code.
+					_ = ln.Close()
+				}
 			}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		code := cli(ctx, func(k string) string { return env[k] }, &logs, started)
-		cancel()
-		if code != c.code || !strings.Contains(logs.String(), c.want) {
-			t.Errorf("%s: %d %s", name, code, logs.String())
-		}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			code := cli(ctx, func(k string) string { return env[k] }, &logs, started)
+			cancel()
+			if code != c.code {
+				t.Errorf("exit code: got %d, want %d (logs %s)", code, c.code, logs.String())
+			}
+			if !strings.Contains(logs.String(), c.want) {
+				t.Errorf("logs: got %s, want them to contain %q", logs.String(), c.want)
+			}
+		})
 	}
 	// main wires the signal context and exits with the code.
 	exit = func(int) {}
