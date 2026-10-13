@@ -93,7 +93,7 @@ func TestApproveThroughTheAPI(t *testing.T) {
 	f.As(noPermission).Problem(403, "identity.permission_missing", "POST", path(r, "approve"), "", tag(r))
 
 	got, etag := f.As(f.Approver).Must(200, "POST", path(r, "approve"), `{"comment": "Checked"}`, tag(r))
-	d := got["decisions"].([]any)[0].(map[string]any)
+	d := first(t, got["decisions"], "decisions")
 	if got["status"] != "approved" {
 		t.Errorf("status: got %v, want approved", got["status"])
 	}
@@ -106,7 +106,7 @@ func TestApproveThroughTheAPI(t *testing.T) {
 	if d["comment"] != "Checked" {
 		t.Errorf("comment: got %v, want Checked", d["comment"])
 	}
-	if n := got["steps"].([]any)[0].(map[string]any)["approvals"]; n != float64(1) {
+	if n := first(t, got["steps"], "steps")["approvals"]; n != float64(1) {
 		t.Errorf("step approvals: got %v, want 1", n)
 	}
 	if etag != tag(got) {
@@ -145,6 +145,22 @@ func person(t *testing.T, f fixture.Env, name string, roles ...string) pgtest.Ac
 	return a
 }
 
+// first is the first object of a JSON list, failing the test when there is
+// none, so a missing list is a failure rather than a panic that stops the
+// package's other tests.
+func first(t *testing.T, v any, what string) map[string]any {
+	t.Helper()
+	list, _ := v.([]any)
+	if len(list) == 0 {
+		t.Fatalf("%s: got %v, want at least one", what, v)
+	}
+	m, ok := list[0].(map[string]any)
+	if !ok {
+		t.Fatalf("%s[0]: got %v, want an object", what, list[0])
+	}
+	return m
+}
+
 func TestRejectAndCancel(t *testing.T) {
 	f := setup(t)
 	rejected := partnerChange(t, f, "Rejected Partner")
@@ -164,7 +180,7 @@ func TestRejectAndCancel(t *testing.T) {
 	if got["status"] != "cancelled" {
 		t.Errorf("status: got %v, want cancelled", got["status"])
 	}
-	if d := got["decisions"].([]any)[0].(map[string]any)["decision"]; d != "cancel" {
+	if d := first(t, got["decisions"], "cancel decisions")["decision"]; d != "cancel" {
 		t.Errorf("decision: got %v, want cancel", d)
 	}
 	f.Problem(412, "request.version_mismatch", "POST", path(got, "cancel"), `{"comment": "Again"}`, `"9"`)

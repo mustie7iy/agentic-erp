@@ -57,7 +57,7 @@ func TestToolsFromTheContract(t *testing.T) {
 	get, update, create := schemaOf(t, tools[0]), schemaOf(t, tools[1]), schemaOf(t, tools[2])
 	props := get["properties"].(map[string]any)
 	if got := tools[0].Name(); got != "getSupplierInvoice" {
-		t.Errorf("name: got %q, want %q", got, "getSupplierInvoice")
+		t.Fatalf("name: got %q, want %q (the checks below read its schema)", got, "getSupplierInvoice")
 	}
 	if got := tools[0].Description(); !strings.HasPrefix(got, "Get a supplier invoice. ") {
 		t.Errorf("description: got %q, want the operation summary first", got)
