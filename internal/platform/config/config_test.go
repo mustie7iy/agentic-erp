@@ -377,6 +377,25 @@ func TestWorkflowEngineSettings(t *testing.T) {
 	}
 }
 
+// TestEscalationsFitTheCount: the deadline workflow counts escalations in an
+// int16 and the column is a smallint, so a value above 32767 is refused at
+// load rather than wrapping later.
+func TestEscalationsFitTheCount(t *testing.T) {
+	m := valid()
+	m["ERP_APPROVAL_ESCALATIONS"] = "32767"
+	c, err := Load(env(m))
+	if err != nil {
+		t.Fatalf("32767: got %v, want no error", err)
+	}
+	if c.Temporal.Escalations != 32767 {
+		t.Errorf("32767: got %d escalations, want 32767", c.Temporal.Escalations)
+	}
+	m["ERP_APPROVAL_ESCALATIONS"] = "32768"
+	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_APPROVAL_ESCALATIONS") {
+		t.Errorf("32768: got %v, want an error naming ERP_APPROVAL_ESCALATIONS", err)
+	}
+}
+
 // TestProductionFailsClosed: in production (ERP_ENV) the server refuses to
 // start with the development token issuer, or with a workflow engine but no
 // codec key; development allows both, as before. An unknown environment is
