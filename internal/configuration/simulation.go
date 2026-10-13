@@ -56,14 +56,11 @@ type SimulationWorker struct {
 	Now          func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests replace it to
 	// inject database failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (w *SimulationWorker) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if w.Begin != nil {
-		return w.Begin(ctx, s)
-	}
-	return w.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, w.Pool, w.Begin, s)
 }
 
 // tenants returns the tenants with queued simulations.

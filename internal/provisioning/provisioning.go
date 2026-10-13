@@ -93,14 +93,11 @@ type Provisioner struct {
 	Now           func() time.Time
 	// Begin starts the transaction; nil means Pool.Begin. Tests replace it
 	// to inject database failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (p *Provisioner) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if p.Begin != nil {
-		return p.Begin(ctx, s)
-	}
-	return p.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, p.Pool, p.Begin, s)
 }
 
 func (p *Provisioner) now() time.Time {

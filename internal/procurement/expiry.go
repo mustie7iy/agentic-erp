@@ -32,14 +32,11 @@ type ContractExpirer struct {
 	Interval   time.Duration // between rounds; default 1 hour
 	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (x *ContractExpirer) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if x.Begin != nil {
-		return x.Begin(ctx, s)
-	}
-	return x.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, x.Pool, x.Begin, s)
 }
 
 // due lists the tenants holding active contracts past their validity, as

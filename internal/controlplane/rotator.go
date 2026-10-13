@@ -34,14 +34,11 @@ type KeyRotator struct {
 	Interval   time.Duration // between rounds; default 1 hour
 	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (k *KeyRotator) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if k.Begin != nil {
-		return k.Begin(ctx, s)
-	}
-	return k.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, k.Pool, k.Begin, s)
 }
 
 // due lists the active tenants whose active key is older than Age (or

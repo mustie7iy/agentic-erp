@@ -58,14 +58,11 @@ type Payments struct {
 	Timeout   time.Duration // statement timeout while building; default 5 minutes
 	Now       func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (p *Payments) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if p.Begin != nil {
-		return p.Begin(ctx, s)
-	}
-	return p.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, p.Pool, p.Begin, s)
 }
 
 // Propose builds the run as its proposer, in one transaction with its

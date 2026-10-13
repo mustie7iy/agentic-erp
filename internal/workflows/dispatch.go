@@ -38,14 +38,11 @@ type Dispatcher struct {
 	Interval    time.Duration // between rounds; default 1 second
 	Log         *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (d *Dispatcher) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if d.Begin != nil {
-		return d.Begin(ctx, s)
-	}
-	return d.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, d.Pool, d.Begin, s)
 }
 
 // pending is a queued operation (or a proposal cancelled before it started)

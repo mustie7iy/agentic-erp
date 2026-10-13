@@ -164,3 +164,30 @@ func TestOpenAndBeginErrors(t *testing.T) {
 		t.Fatal("closed transaction accepted")
 	}
 }
+
+// TestBeginOr: an injected begin is used when set, the pool otherwise.
+func TestBeginOr(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	t.Run("injected", func(t *testing.T) {
+		injected := errors.New("injected")
+		_, err := database.BeginOr(ctx, nil, func(context.Context, database.Scope) (pgx.Tx, error) { return nil, injected }, database.Scope{})
+		if !errors.Is(err, injected) {
+			t.Errorf("got %v, want the injected begin's error", err)
+		}
+	})
+	t.Run("pool", func(t *testing.T) {
+		tx, err := database.BeginOr(ctx, pool, nil, database.Scope{ReadOnly: true})
+		if err != nil {
+			t.Fatalf("got %v, want a transaction from the pool", err)
+		}
+		defer tx.Rollback(ctx)
+		var readOnly string
+		if err := tx.QueryRow(ctx, `SHOW transaction_read_only`).Scan(&readOnly); err != nil {
+			t.Fatal(err)
+		}
+		if readOnly != "on" {
+			t.Errorf("transaction_read_only: got %q, want on (the scope reaches the pool)", readOnly)
+		}
+	})
+}

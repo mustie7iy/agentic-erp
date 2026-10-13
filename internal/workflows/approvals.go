@@ -91,14 +91,11 @@ type Approvals struct {
 	AppRole string
 	Now     func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (a *Approvals) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if a.Begin != nil {
-		return a.Begin(ctx, s)
-	}
-	return a.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, a.Pool, a.Begin, s)
 }
 
 // Escalate escalates the request when it is still pending, in one

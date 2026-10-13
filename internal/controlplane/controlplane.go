@@ -125,14 +125,11 @@ type Service struct {
 	Now         func() time.Time
 	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
 	// inject database failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (s *Service) begin(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
-	if s.Begin != nil {
-		return s.Begin(ctx, scope)
-	}
-	return s.Pool.Begin(ctx, scope)
+	return database.BeginOr(ctx, s.Pool, s.Begin, scope)
 }
 
 func (s *Service) now() time.Time {

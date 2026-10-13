@@ -42,14 +42,11 @@ type Middleware struct {
 	Now  func() time.Time
 	// Begin starts the request transaction; nil means Pool.Begin. Tests
 	// replace it to inject database failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (m *Middleware) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if m.Begin != nil {
-		return m.Begin(ctx, s)
-	}
-	return m.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, m.Pool, m.Begin, s)
 }
 
 func unsafe(method string) bool {

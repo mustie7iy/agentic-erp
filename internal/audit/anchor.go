@@ -45,14 +45,11 @@ type Anchorer struct {
 	Now        func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests replace it to
 	// inject database failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (a *Anchorer) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if a.Begin != nil {
-		return a.Begin(ctx, s)
-	}
-	return a.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, a.Pool, a.Begin, s)
 }
 
 func (a *Anchorer) now() time.Time {

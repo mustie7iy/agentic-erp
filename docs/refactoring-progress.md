@@ -52,7 +52,9 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
 - [x] R7 etag.IfMatch replaces the per-package ifMatch copies: 11 copies deleted, 51 calls
   moved; parameters named ifMatch untouched. Lint unchanged (one-liners were below dupl's
   threshold). Reviewer: APPROVE.
-- [ ] R8 One helper for injectable Begin / Now
+- [~] R8 One helper for injectable Begin / Now
+  - [x] R8a database.BeginFunc and BeginOr: 16 begin methods delegate in one line, 16 fields
+    typed BeginFunc. Lint unchanged. Reviewer: APPROVE.
 - [ ] R9 Remaining dupl findings
 
 ### Phase 3 — Error context
@@ -216,3 +218,8 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
   real-time timeout) while a reviewer ran the same database-heavy packages concurrently; it
   passed 5× alone and 3× under the hook's load with and without the change. Tests whose
   activities hit the database should set a test timeout: R30.
+- R8a: TestResilienceWorkerRestarts failed once in the full -race suite ("an entry answered 201
+  without a readable id"); it passed 4× alone with and 4× without the change. The harness
+  (internal/nfr/harness.go Consistent) comments that such a 201 is "counted, not fatal" yet adds
+  it to the errors that fail the run: a flaky check (or a lost response body under load) to look
+  at in R30.

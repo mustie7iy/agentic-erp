@@ -101,6 +101,19 @@ func (p *Pool) Begin(ctx context.Context, s Scope) (pgx.Tx, error) {
 	return tx, nil
 }
 
+// BeginFunc starts a transaction in a scope. Workers and services hold one
+// as their Begin field, nil in production, so tests can inject failures.
+type BeginFunc func(context.Context, Scope) (pgx.Tx, error)
+
+// BeginOr starts a transaction with begin when it is set and with the pool
+// otherwise.
+func BeginOr(ctx context.Context, pool *Pool, begin BeginFunc, s Scope) (pgx.Tx, error) {
+	if begin != nil {
+		return begin(ctx, s)
+	}
+	return pool.Begin(ctx, s)
+}
+
 func (p *Pool) setup(ctx context.Context, tx pgx.Tx, s Scope) error {
 	tenant := ""
 	if s.TenantID != uuid.Nil {

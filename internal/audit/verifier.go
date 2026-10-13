@@ -36,14 +36,11 @@ type Verifier struct {
 	Log        *slog.Logger
 	Now        func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (v *Verifier) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if v.Begin != nil {
-		return v.Begin(ctx, s)
-	}
-	return v.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, v.Pool, v.Begin, s)
 }
 
 func (v *Verifier) now() time.Time {

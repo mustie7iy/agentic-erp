@@ -46,14 +46,11 @@ type Migrations struct {
 	Endpoints *integration.Endpoints
 	Now       func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (m *Migrations) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if m.Begin != nil {
-		return m.Begin(ctx, s)
-	}
-	return m.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, m.Pool, m.Begin, s)
 }
 
 // Execute does the run's work as the operation's requester, in one

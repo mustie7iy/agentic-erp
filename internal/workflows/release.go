@@ -155,14 +155,11 @@ type Releaser struct {
 		ErrorContext(context.Context, string, ...any)
 	}
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (w *Releaser) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if w.Begin != nil {
-		return w.Begin(ctx, s)
-	}
-	return w.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, w.Pool, w.Begin, s)
 }
 
 // pending lists the queued release operations across tenants.
