@@ -124,182 +124,253 @@ func duplicateInvoices(e *sap.Extract) map[string]string {
 // loaded. Problems found here are cheap to fix in SAP or in the
 // configuration; problems found after cutover are not.
 func checkQuality(e *sap.Extract, t target) []Issue {
-	var out []Issue
-	add := func(sev, table, key, format string, args ...any) {
-		out = append(out, Issue{Severity: sev, Table: table, Key: key, Message: fmt.Sprintf(format, args...)})
-	}
-	currency := map[string]string{}
-	for _, c := range e.T001 {
-		currency[c.BUKRS] = c.WAERS
-		if le := t.entities[c.BUKRS]; c.WAERS != le.LocalCurrency {
-			add(SevError, "T001", c.BUKRS, "company code currency %q is not the legal entity's local currency %s", c.WAERS, le.LocalCurrency)
+	q := &qualityCheck{e: e, t: t}
+	q.companies()
+	q.accounts()
+	q.vendors()
+	q.vendorCompanies()
+	q.purchaseOrders()
+	q.movements()
+	q.journal()
+	q.supplierInvoices()
+	return q.out
+}
+
+// qualityCheck carries the lookups that later checks build on (company
+// currencies, accounts, vendors) and collects issues in the order the
+// checks run, which is the order the report shows.
+type qualityCheck struct {
+	e        *sap.Extract
+	t        target
+	out      []Issue
+	currency map[string]string   // by company code
+	account  map[string]sap.SKB1 // by company code/account
+	vendor   map[string]sap.LFA1 // by vendor number
+}
+
+func (q *qualityCheck) add(sev, table, key, format string, args ...any) {
+	q.out = append(q.out, Issue{Severity: sev, Table: table, Key: key, Message: fmt.Sprintf(format, args...)})
+}
+
+// companies checks each company code's currency against its legal entity.
+func (q *qualityCheck) companies() {
+	q.currency = map[string]string{}
+	for _, c := range q.e.T001 {
+		q.currency[c.BUKRS] = c.WAERS
+		if le := q.t.entities[c.BUKRS]; c.WAERS != le.LocalCurrency {
+			q.add(SevError, "T001", c.BUKRS, "company code currency %q is not the legal entity's local currency %s", c.WAERS, le.LocalCurrency)
 		}
 	}
+}
 
-	accounts := map[string]sap.SKB1{}
-	for _, a := range e.SKB1 {
-		accounts[a.BUKRS+"/"+a.SAKNR] = a
-		got, ok := t.charts[a.BUKRS][alpha(a.SAKNR)]
+// accounts checks each G/L account against the legal entity's chart.
+func (q *qualityCheck) accounts() {
+	q.account = map[string]sap.SKB1{}
+	for _, a := range q.e.SKB1 {
+		q.account[a.BUKRS+"/"+a.SAKNR] = a
+		got, ok := q.t.charts[a.BUKRS][alpha(a.SAKNR)]
 		switch {
 		case !ok:
-			add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "account %s is not in the legal entity's chart of accounts; add it through a configuration change", alpha(a.SAKNR))
+			q.add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "account %s is not in the legal entity's chart of accounts; add it through a configuration change", alpha(a.SAKNR))
 		case (a.MITKZ == "K") != (got.ReconciliationKind == "supplier"):
-			add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "account %s is a vendor reconciliation account on one side only", alpha(a.SAKNR))
+			q.add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "account %s is a vendor reconciliation account on one side only", alpha(a.SAKNR))
 		}
 	}
+}
 
-	vendors := map[string]sap.LFA1{}
+// vendors checks the vendor masters and flags names that look duplicated.
+func (q *qualityCheck) vendors() {
+	q.vendor = map[string]sap.LFA1{}
 	byName := map[string][]string{}
-	for _, v := range e.LFA1 {
-		vendors[v.LIFNR] = v
+	for _, v := range q.e.LFA1 {
+		q.vendor[v.LIFNR] = v
 		if strings.TrimSpace(v.NAME1) == "" {
-			add(SevError, "LFA1", v.LIFNR, "vendor has no name")
+			q.add(SevError, "LFA1", v.LIFNR, "vendor has no name")
 		}
 		if strings.TrimSpace(v.STCD1) == "" {
-			add(SevWarning, "LFA1", v.LIFNR, "vendor %q has no tax number", v.NAME1)
+			q.add(SevWarning, "LFA1", v.LIFNR, "vendor %q has no tax number", v.NAME1)
 		}
 		key := strings.ToUpper(strings.Join(strings.Fields(v.NAME1), " "))
 		byName[key] = append(byName[key], v.LIFNR)
 	}
 	for _, name := range sortedKeys(byName) {
 		if ids := byName[name]; len(ids) > 1 {
-			add(SevWarning, "LFA1", strings.Join(ids, ","), "possible duplicate vendors named %q", name)
+			q.add(SevWarning, "LFA1", strings.Join(ids, ","), "possible duplicate vendors named %q", name)
 		}
 	}
-	for _, v := range e.LFB1 {
-		if _, ok := vendors[v.LIFNR]; !ok {
-			add(SevError, "LFB1", v.LIFNR, "company data without vendor master (LFA1)")
-		}
-		if a, ok := accounts[v.BUKRS+"/"+v.AKONT]; !ok || a.MITKZ != "K" {
-			add(SevError, "LFB1", v.LIFNR, "reconciliation account %s is not a vendor reconciliation account of company %s", v.AKONT, v.BUKRS)
-		}
-		if !t.terms[v.ZTERM] {
-			add(SevError, "LFB1", v.LIFNR, "payment terms %q are not in the configuration", v.ZTERM)
-		}
-	}
+}
 
+// vendorCompanies checks each vendor's company data: master, reconciliation
+// account and payment terms.
+func (q *qualityCheck) vendorCompanies() {
+	for _, v := range q.e.LFB1 {
+		if _, ok := q.vendor[v.LIFNR]; !ok {
+			q.add(SevError, "LFB1", v.LIFNR, "company data without vendor master (LFA1)")
+		}
+		if a, ok := q.account[v.BUKRS+"/"+v.AKONT]; !ok || a.MITKZ != "K" {
+			q.add(SevError, "LFB1", v.LIFNR, "reconciliation account %s is not a vendor reconciliation account of company %s", v.AKONT, v.BUKRS)
+		}
+		if !q.t.terms[v.ZTERM] {
+			q.add(SevError, "LFB1", v.LIFNR, "payment terms %q are not in the configuration", v.ZTERM)
+		}
+	}
+}
+
+// purchaseOrders checks order headers, then their items against the header.
+func (q *qualityCheck) purchaseOrders() {
 	poHeaders := map[string]sap.EKKO{}
-	for _, h := range e.EKKO {
+	for _, h := range q.e.EKKO {
 		poHeaders[h.EBELN] = h
-		if _, ok := vendors[h.LIFNR]; !ok {
-			add(SevError, "EKKO", h.EBELN, "vendor %s not in extract", h.LIFNR)
+		if _, ok := q.vendor[h.LIFNR]; !ok {
+			q.add(SevError, "EKKO", h.EBELN, "vendor %s not in extract", h.LIFNR)
 		}
 		if _, err := sapDate(h.BEDAT); err != nil {
-			add(SevError, "EKKO", h.EBELN, "%v", err)
+			q.add(SevError, "EKKO", h.EBELN, "%v", err)
 		}
 	}
-	for _, i := range e.EKPO {
-		key := i.EBELN + "/" + i.EBELP
-		h := poHeaders[i.EBELN] // extracts keep the items of the scope's orders only
-		if _, ok := t.charts[h.BUKRS][alpha(i.SAKTO)]; !ok {
-			add(SevError, "EKPO", key, "G/L account %s is not in the chart of company %s", alpha(i.SAKTO), h.BUKRS)
-		}
-		if err := quantity(i.MENGE); err != nil {
-			add(SevError, "EKPO", key, "%v", err)
-		}
-		if _, err := t.amount(i.NETPR, h.WAERS); err != nil {
-			add(SevError, "EKPO", key, "%v", err)
-		}
-		if n, err := strconv.Atoi(i.PEINH); i.PEINH != "" && (err != nil || n < 1) {
-			add(SevError, "EKPO", key, "price unit %q is not a positive whole number", i.PEINH)
-		}
+	for _, i := range q.e.EKPO {
+		q.purchaseOrderItem(i, poHeaders[i.EBELN]) // extracts keep the items of the scope's orders only
 	}
-	for _, m := range e.MSEG {
+}
+
+func (q *qualityCheck) purchaseOrderItem(i sap.EKPO, h sap.EKKO) {
+	key := i.EBELN + "/" + i.EBELP
+	if _, ok := q.t.charts[h.BUKRS][alpha(i.SAKTO)]; !ok {
+		q.add(SevError, "EKPO", key, "G/L account %s is not in the chart of company %s", alpha(i.SAKTO), h.BUKRS)
+	}
+	if err := quantity(i.MENGE); err != nil {
+		q.add(SevError, "EKPO", key, "%v", err)
+	}
+	if _, err := q.t.amount(i.NETPR, h.WAERS); err != nil {
+		q.add(SevError, "EKPO", key, "%v", err)
+	}
+	if n, err := strconv.Atoi(i.PEINH); i.PEINH != "" && (err != nil || n < 1) {
+		q.add(SevError, "EKPO", key, "price unit %q is not a positive whole number", i.PEINH)
+	}
+}
+
+// movements warns about goods movements other than receipts.
+func (q *qualityCheck) movements() {
+	for _, m := range q.e.MSEG {
 		if m.BWART != "101" {
-			add(SevWarning, "MSEG", m.MBLNR+"/"+m.MJAHR+"/"+m.ZEILE, "movement type %s is not migrated; received quantities count receipts (101) only", m.BWART)
+			q.add(SevWarning, "MSEG", m.MBLNR+"/"+m.MJAHR+"/"+m.ZEILE, "movement type %s is not migrated; received quantities count receipts (101) only", m.BWART)
 		}
 	}
+}
 
-	// Universal Journal: every document must balance, hit known accounts
-	// and have a number range for its document type.
-	docTotals := map[string]int64{}
-	openByVendor, noRange := map[string]bool{}, map[string]bool{}
-	for _, l := range e.ACDOCA {
-		key := l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR
-		amt, err := t.amount(l.HSL, currency[l.RBUKRS])
-		if err != nil {
-			add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)
-			continue
-		}
-		docTotals[key] += amt
-		a, ok := accounts[l.RBUKRS+"/"+l.RACCT]
-		if !ok {
-			add(SevError, "ACDOCA", key+"/"+l.DOCLN, "account %s missing from chart of accounts", l.RACCT)
-		} else if a.MITKZ == "K" && l.LIFNR == "" {
-			add(SevError, "ACDOCA", key+"/"+l.DOCLN, "posting to vendor reconciliation account %s without vendor", l.RACCT)
-		}
-		if l.LIFNR != "" {
-			if _, known := vendors[l.LIFNR]; !known {
-				add(SevError, "ACDOCA", key+"/"+l.DOCLN, "vendor %s not in extract", l.LIFNR)
-			}
-			if l.AUGBL == "" && ok && a.MITKZ == "K" {
-				openByVendor[l.LIFNR] = true
-			}
-		}
-		if _, err := sapDate(l.BUDAT); err != nil {
-			add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)
-		}
-		if documentType := "journal_" + strings.ToLower(l.BLART); !t.balances && !t.hasRange(l.RBUKRS, documentType) && !noRange[l.RBUKRS+documentType] {
-			noRange[l.RBUKRS+documentType] = true
-			add(SevError, "ACDOCA", key, "the configuration has no %s number range for company %s in %d", documentType, l.RBUKRS, t.year)
-		}
-	}
-	for _, key := range sortedKeys(docTotals) {
-		if total := docTotals[key]; total != 0 {
-			add(SevError, "ACDOCA", key, "document does not balance (off by %d minor units)", total)
-		}
-	}
-	for _, id := range sortedKeys(openByVendor) {
-		if v := vendors[id]; v.SPERR == "X" {
-			add(SevWarning, "LFA1", id, "vendor %q is posting-blocked but has open payables", v.NAME1)
-		}
-	}
-	if t.balances {
-		for _, c := range e.T001 {
-			if !t.hasRange(c.BUKRS, "journal_ob") {
-				add(SevError, "T001", c.BUKRS, "the configuration has no journal_ob number range for the opening entry in %d", t.year)
-			}
-		}
-	}
+// journalScan accumulates what the Universal Journal lines add up to.
+type journalScan struct {
+	docTotals    map[string]int64
+	openByVendor map[string]bool
+	noRange      map[string]bool
+}
 
-	// Supplier invoices: header must agree with items and tax.
+// journal checks the Universal Journal: every document must balance, hit
+// known accounts and have a number range for its document type.
+func (q *qualityCheck) journal() {
+	s := journalScan{docTotals: map[string]int64{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}}
+	for _, l := range q.e.ACDOCA {
+		q.journalLine(l, &s)
+	}
+	for _, key := range sortedKeys(s.docTotals) {
+		if total := s.docTotals[key]; total != 0 {
+			q.add(SevError, "ACDOCA", key, "document does not balance (off by %d minor units)", total)
+		}
+	}
+	for _, id := range sortedKeys(s.openByVendor) {
+		if v := q.vendor[id]; v.SPERR == "X" {
+			q.add(SevWarning, "LFA1", id, "vendor %q is posting-blocked but has open payables", v.NAME1)
+		}
+	}
+	if q.t.balances {
+		for _, c := range q.e.T001 {
+			if !q.t.hasRange(c.BUKRS, "journal_ob") {
+				q.add(SevError, "T001", c.BUKRS, "the configuration has no journal_ob number range for the opening entry in %d", q.t.year)
+			}
+		}
+	}
+}
+
+func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
+	key := l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR
+	amt, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
+	if err != nil {
+		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)
+		return
+	}
+	s.docTotals[key] += amt
+	a, ok := q.account[l.RBUKRS+"/"+l.RACCT]
+	if !ok {
+		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "account %s missing from chart of accounts", l.RACCT)
+	} else if a.MITKZ == "K" && l.LIFNR == "" {
+		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "posting to vendor reconciliation account %s without vendor", l.RACCT)
+	}
+	if l.LIFNR != "" {
+		if _, known := q.vendor[l.LIFNR]; !known {
+			q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "vendor %s not in extract", l.LIFNR)
+		}
+		if l.AUGBL == "" && ok && a.MITKZ == "K" {
+			s.openByVendor[l.LIFNR] = true
+		}
+	}
+	if _, err := sapDate(l.BUDAT); err != nil {
+		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)
+	}
+	if documentType := "journal_" + strings.ToLower(l.BLART); !q.t.balances && !q.t.hasRange(l.RBUKRS, documentType) && !s.noRange[l.RBUKRS+documentType] {
+		s.noRange[l.RBUKRS+documentType] = true
+		q.add(SevError, "ACDOCA", key, "the configuration has no %s number range for company %s in %d", documentType, l.RBUKRS, q.t.year)
+	}
+}
+
+// supplierInvoices checks that each invoice header agrees with its items
+// and tax.
+func (q *qualityCheck) supplierInvoices() {
+	itemTotals := q.invoiceItemTotals()
+	dups := duplicateInvoices(q.e)
+	for _, h := range q.e.RBKP {
+		q.supplierInvoice(h, itemTotals, dups)
+	}
+}
+
+// invoiceItemTotals sums each invoice's items in the invoice currency.
+func (q *qualityCheck) invoiceItemTotals() map[string]int64 {
 	invCurrency := map[string]string{}
-	for _, h := range e.RBKP {
+	for _, h := range q.e.RBKP {
 		invCurrency[h.BELNR+"/"+h.GJAHR] = h.WAERS
 	}
 	itemTotals := map[string]int64{}
-	for _, it := range e.RSEG {
-		amt, err := t.amount(it.WRBTR, invCurrency[it.BELNR+"/"+it.GJAHR])
+	for _, it := range q.e.RSEG {
+		amt, err := q.t.amount(it.WRBTR, invCurrency[it.BELNR+"/"+it.GJAHR])
 		if err != nil {
-			add(SevError, "RSEG", it.BELNR+"/"+it.BUZEI, "%v", err)
+			q.add(SevError, "RSEG", it.BELNR+"/"+it.BUZEI, "%v", err)
 			continue
 		}
 		itemTotals[it.BELNR+"/"+it.GJAHR] += amt
 	}
-	dups := duplicateInvoices(e)
-	for _, h := range e.RBKP {
-		key := h.BELNR + "/" + h.GJAHR
-		gross, err1 := t.amount(h.RMWWR, h.WAERS)
-		tax, err2 := t.amount(h.WMWST1, h.WAERS)
-		_, err3 := sapDate(h.BLDAT)
-		switch {
-		case err1 != nil || err2 != nil || err3 != nil:
-			add(SevError, "RBKP", key, "unparseable amounts %q / %q or date %q", h.RMWWR, h.WMWST1, h.BLDAT)
-			continue
-		case h.RBSTAT == "5":
-			continue // posted in SAP: its journal entry carries it
-		case h.RBSTAT != "A":
-			add(SevWarning, "RBKP", key, "invoice status %q is not migrated", h.RBSTAT)
-			continue
-		case dups[key] != "":
-			add(SevWarning, "RBKP", key, "supplier reference %q repeats invoice %s; it is not migrated", h.XBLNR, dups[key])
-			continue
-		}
-		if net := itemTotals[key]; net+tax != gross {
-			add(SevWarning, "RBKP", key, "gross %d != items %d + tax %d minor units (it will be held at matching)", gross, net, tax)
-		}
+	return itemTotals
+}
+
+func (q *qualityCheck) supplierInvoice(h sap.RBKP, itemTotals map[string]int64, dups map[string]string) {
+	key := h.BELNR + "/" + h.GJAHR
+	gross, err1 := q.t.amount(h.RMWWR, h.WAERS)
+	tax, err2 := q.t.amount(h.WMWST1, h.WAERS)
+	_, err3 := sapDate(h.BLDAT)
+	switch {
+	case err1 != nil || err2 != nil || err3 != nil:
+		q.add(SevError, "RBKP", key, "unparseable amounts %q / %q or date %q", h.RMWWR, h.WMWST1, h.BLDAT)
+		return
+	case h.RBSTAT == "5":
+		return // posted in SAP: its journal entry carries it
+	case h.RBSTAT != "A":
+		q.add(SevWarning, "RBKP", key, "invoice status %q is not migrated", h.RBSTAT)
+		return
+	case dups[key] != "":
+		q.add(SevWarning, "RBKP", key, "supplier reference %q repeats invoice %s; it is not migrated", h.XBLNR, dups[key])
+		return
 	}
-	return out
+	if net := itemTotals[key]; net+tax != gross {
+		q.add(SevWarning, "RBKP", key, "gross %d != items %d + tax %d minor units (it will be held at matching)", gross, net, tax)
+	}
 }
 
 func sortedKeys[V any](m map[string]V) []string {
