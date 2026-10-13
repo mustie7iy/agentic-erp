@@ -108,7 +108,9 @@ func (e env) account(t testing.TB, company, number string) string {
 	for _, it := range page["items"].([]any) {
 		a := it.(map[string]any)
 		var chart string
-		pgtest.Admin(t).QueryRow(context.Background(), `SELECT code FROM ledger.chart_of_accounts WHERE id = $1`, a["chart_id"]).Scan(&chart)
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT code FROM ledger.chart_of_accounts WHERE id = $1`, a["chart_id"]).Scan(&chart); err != nil {
+			t.Fatalf("read chart of account: %v", err)
+		}
 		if chart == company {
 			return a["id"].(string)
 		}

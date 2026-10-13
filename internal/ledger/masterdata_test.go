@@ -250,8 +250,10 @@ func TestSetup(t *testing.T) {
 	apply(next) // applying the same document again changes nothing
 	status := func(company, number string) (string, string) {
 		var st, name string
-		pgtest.Admin(t).QueryRow(context.Background(), `SELECT a.status, a.name FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.id = a.chart_id
-			WHERE c.tenant_id = $1 AND c.code = $2 AND a.number = $3`, e.ten.ID, company, number).Scan(&st, &name)
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT a.status, a.name FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.id = a.chart_id
+			WHERE c.tenant_id = $1 AND c.code = $2 AND a.number = $3`, e.ten.ID, company, number).Scan(&st, &name); err != nil {
+			t.Fatalf("read account: %v", err)
+		}
 		return st, name
 	}
 	if st, _ := status("2000", removed); st != "inactive" {
@@ -265,9 +267,15 @@ func TestSetup(t *testing.T) {
 	}
 	var periods2027, ukStart, calendars string
 	admin := pgtest.Admin(t)
-	admin.QueryRow(context.Background(), `SELECT count(*)::text FROM ledger.period_status WHERE legal_entity_id = $1 AND fiscal_year = 2027`, e.de).Scan(&periods2027)
-	admin.QueryRow(context.Background(), `SELECT start_date::text FROM ledger.fiscal_period WHERE calendar_id = $1 AND fiscal_year = 2026 AND period = 1`, cal).Scan(&ukStart)
-	admin.QueryRow(context.Background(), `SELECT string_agg(code, ',' ORDER BY code) FROM ledger.fiscal_calendar WHERE tenant_id = $1`, e.ten.ID).Scan(&calendars)
+	if err := admin.QueryRow(context.Background(), `SELECT count(*)::text FROM ledger.period_status WHERE legal_entity_id = $1 AND fiscal_year = 2027`, e.de).Scan(&periods2027); err != nil {
+		t.Fatalf("count 2027 periods: %v", err)
+	}
+	if err := admin.QueryRow(context.Background(), `SELECT start_date::text FROM ledger.fiscal_period WHERE calendar_id = $1 AND fiscal_year = 2026 AND period = 1`, cal).Scan(&ukStart); err != nil {
+		t.Fatalf("read UK calendar start: %v", err)
+	}
+	if err := admin.QueryRow(context.Background(), `SELECT string_agg(code, ',' ORDER BY code) FROM ledger.fiscal_calendar WHERE tenant_id = $1`, e.ten.ID).Scan(&calendars); err != nil {
+		t.Fatalf("list calendars: %v", err)
+	}
 	if periods2027 != "16" || ukStart != "2025-04-01" || calendars != "C001,C002,C003" {
 		t.Errorf("periods %s, UK start %s, calendars %s", periods2027, ukStart, calendars)
 	}
@@ -305,7 +313,9 @@ func TestSetup(t *testing.T) {
 	}
 	// The stored document matches what was applied.
 	var stored json.RawMessage
-	admin.QueryRow(context.Background(), `SELECT document FROM config.config_version WHERE tenant_id = $1`, e.ten.ID).Scan(&stored)
+	if err := admin.QueryRow(context.Background(), `SELECT document FROM config.config_version WHERE tenant_id = $1`, e.ten.ID).Scan(&stored); err != nil {
+		t.Fatalf("read stored configuration: %v", err)
+	}
 	if len(stored) == 0 {
 		t.Fatal("no configuration version")
 	}

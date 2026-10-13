@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -135,8 +136,10 @@ func TestTaxCodes(t *testing.T) {
 	s := ledger.Setup{LegalEntities: tenancy.Directory{}}
 	rows := func() string {
 		var out string
-		pgtest.Admin(t).QueryRow(context.Background(), `SELECT string_agg(code || ' ' || trim_scale(rate_pct) || ' ' || (valid_from = current_date)::text || ' ' ||
-			coalesce((valid_to = current_date)::text, 'open'), ', ' ORDER BY code, valid_from) FROM ledger.tax_code WHERE legal_entity_id = $1`, e.de).Scan(&out)
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT string_agg(code || ' ' || trim_scale(rate_pct) || ' ' || (valid_from = current_date)::text || ' ' ||
+			coalesce((valid_to = current_date)::text, 'open'), ', ' ORDER BY code, valid_from) FROM ledger.tax_code WHERE legal_entity_id = $1`, e.de).Scan(&out); err != nil {
+			t.Fatalf("list tax codes: %v", err)
+		}
 		return out
 	}
 	// Set up when 2026 began; the first activation shows as not today.
@@ -174,7 +177,7 @@ func TestTaxCodes(t *testing.T) {
 	}
 	// A code removed today comes back from today.
 	readded := document(t)
-	readded.Companies[1].TaxCodes = append(changed.Companies[1].TaxCodes[:1:1], readded.Companies[1].TaxCodes[1])
+	readded.Companies[1].TaxCodes = slices.Concat(changed.Companies[1].TaxCodes[:1], readded.Companies[1].TaxCodes[1:2])
 	apply(readded)
 	if got := rows(); !strings.Contains(got, "V0 0 true open") {
 		t.Fatalf("re-added: %s", got)

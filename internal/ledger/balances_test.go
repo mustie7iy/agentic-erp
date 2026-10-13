@@ -62,7 +62,9 @@ func TestBalancesAndProjector(t *testing.T) {
 		t.Fatalf("balances before projection: %v", before)
 	}
 	var pending int
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending); err != nil {
+		t.Fatalf("count pending projections: %v", err)
+	}
 	if pending != 3 {
 		t.Fatalf("pending: %d", pending)
 	}
@@ -78,7 +80,9 @@ func TestBalancesAndProjector(t *testing.T) {
 		t.Fatalf("bank in March: %v", mixed)
 	}
 	var debit, credit int64
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT debit_lc, credit_lc FROM ledger.period_balance WHERE account_id = $1 AND fiscal_period = 3`, bank).Scan(&debit, &credit)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT debit_lc, credit_lc FROM ledger.period_balance WHERE account_id = $1 AND fiscal_period = 3`, bank).Scan(&debit, &credit); err != nil {
+		t.Fatalf("read projected period balance: %v", err)
+	}
 	if debit != 10000 || credit != 3000 {
 		t.Fatalf("projected row: %d/%d", debit, credit)
 	}
@@ -156,7 +160,9 @@ func TestProjectorRuns(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		var pending int
-		pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending)
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending); err != nil {
+			t.Fatalf("count pending projections: %v", err)
+		}
 		if pending == 0 {
 			break
 		}
@@ -188,7 +194,9 @@ func TestTrialBalanceBudget(t *testing.T) {
 	project(t)
 	var chart uuid.UUID
 	admin := pgtest.Admin(t)
-	admin.QueryRow(context.Background(), `SELECT id FROM ledger.chart_of_accounts WHERE tenant_id = $1 AND code = '2000'`, e.ten.ID).Scan(&chart)
+	if err := admin.QueryRow(context.Background(), `SELECT id FROM ledger.chart_of_accounts WHERE tenant_id = $1 AND code = '2000'`, e.ten.ID).Scan(&chart); err != nil {
+		t.Fatalf("read chart 2000: %v", err)
+	}
 	pgtest.Exec(t, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, status, created_by, updated_by)
 		SELECT $1, gen_random_uuid(), $2, 'P' || n, 'Account ' || n, 'expense', 'active', $3, $3 FROM generate_series(1, 5000) n`, e.ten.ID, chart, e.ten.Human.ID)
 	pgtest.Exec(t, `INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by)
@@ -202,7 +210,9 @@ func TestTrialBalanceBudget(t *testing.T) {
 	rows, _ := admin.Query(context.Background(), `SELECT id::text FROM ledger.gl_account WHERE chart_id = $1 AND number LIKE 'P%' LIMIT 20`, chart)
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan account: %v", err)
+		}
 		accounts = append(accounts, id)
 	}
 	pgtest.Exec(t, `ANALYZE ledger.period_balance`)

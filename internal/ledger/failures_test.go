@@ -40,7 +40,7 @@ func TestDatabaseFailures(t *testing.T) {
 	periods, _ := e.Must(200, "GET", "/v1/fiscal-periods?legal_entity_id="+e.de.String()+"&order_by=period&page_size=1", "", "")
 	period := uuid.MustParse(periods["items"].([]any)[0].(map[string]any)["id"].(string))
 	id := func(m map[string]any) uuid.UUID { return uuid.MustParse(m["id"].(string)) }
-	u := func(s string) uuid.UUID { return uuid.MustParse(s) }
+	u := uuid.MustParse
 	qty := gen.NewOptQuantity(gen.Quantity{Value: "1", Unit: "EA"})
 	setup := ledger.Setup{LegalEntities: tenancy.Directory{}}
 
