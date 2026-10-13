@@ -396,7 +396,10 @@ func (f *fakeClaude) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Name string `json:"name"`
 			} `json:"tools"`
 		}
-		json.Unmarshal(body, &req)
+		if err := json.Unmarshal(body, &req); err != nil { // not a Messages request: refuse it, and the test sees the error
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		for _, t := range req.Tools {
 			f.tools = append(f.tools, t.Name)
 		}
@@ -432,7 +435,8 @@ func (f *fakeClaude) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		stop = "end_turn"
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	// A failed write reaches the client as a broken answer, which the test sees there.
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id": "msg_test", "type": "message", "role": "assistant", "model": defaultModel,
 		"content": content, "stop_reason": stop, "stop_sequence": nil,
 		"usage": map[string]any{"input_tokens": 10, "output_tokens": 5},

@@ -18,7 +18,9 @@ import (
 
 func TestLoadModel(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "m.yaml")
-	os.WriteFile(path, defaultModelYAML, 0o644)
+	if err := os.WriteFile(path, defaultModelYAML, 0o644); err != nil {
+		t.Fatalf("write the model: %v", err)
+	}
 	m, err := LoadModel(path)
 	if err != nil || m.Metric("revenue") == nil {
 		t.Fatalf("load: %v", err)
@@ -625,7 +627,9 @@ func TestSessionErrorPaths(t *testing.T) {
 	if _, err := LoadReport(filepath.Join(dir, "missing.json")); err == nil {
 		t.Fatal("missing report")
 	}
-	os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{"), 0o644); err != nil {
+		t.Fatalf("write a corrupt report: %v", err)
+	}
 	if _, err := LoadReport(filepath.Join(dir, "bad.json")); err == nil {
 		t.Fatal("corrupt report")
 	}
@@ -634,12 +638,16 @@ func TestSessionErrorPaths(t *testing.T) {
 	r, _ := ok.Run(salesQuery())
 	rep, _ := ok.Build(salesSpec(r.ID), "x")
 	blocked := filepath.Join(dir, "file")
-	os.WriteFile(blocked, nil, 0o644)
+	if err := os.WriteFile(blocked, nil, 0o644); err != nil {
+		t.Fatalf("write the blocking file: %v", err)
+	}
 	if _, err := rep.Save(filepath.Join(blocked, "sub"), ok.Results); err == nil {
 		t.Fatal("unwritable directory")
 	}
 	jsonDir := t.TempDir()
-	os.Mkdir(filepath.Join(jsonDir, rep.ID+".json"), 0o755)
+	if err := os.Mkdir(filepath.Join(jsonDir, rep.ID+".json"), 0o755); err != nil {
+		t.Fatalf("block the report file: %v", err)
+	}
 	if _, err := rep.Save(jsonDir, ok.Results); err == nil || !strings.Contains(err.Error(), "analytics: save report "+rep.ID+" definition") {
 		t.Fatalf("unwritable report file: got %v", err)
 	}
