@@ -94,20 +94,27 @@ func checkSettings(kind string, settings map[string]any) error {
 			return invalid("integration.invalid_settings", "settings.path", "An extract file path relative to the server's extract directory.")
 		}
 	case SAPOData:
-		b, ok := str("base_url")
-		u, err := url.Parse(b)
-		if !ok || err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return invalid("integration.invalid_settings", "settings.base_url", "The SAP system's base URL, for example https://sap.example.com.")
+		return checkODataSettings(settings)
+	}
+	return nil
+}
+
+// checkODataSettings validates the settings of a sap_odata source.
+func checkODataSettings(settings map[string]any) error {
+	b, ok := settings["base_url"].(string)
+	u, err := url.Parse(b)
+	if !ok || err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return invalid("integration.invalid_settings", "settings.base_url", "The SAP system's base URL, for example https://sap.example.com.")
+	}
+	if c, ok := settings["client"]; ok {
+		if _, isString := c.(string); !isString {
+			return invalid("integration.invalid_settings", "settings.client", "The SAP client as a string, for example \"100\".")
 		}
-		if c, ok := settings["client"]; ok {
-			if _, isString := c.(string); !isString {
-				return invalid("integration.invalid_settings", "settings.client", "The SAP client as a string, for example \"100\".")
-			}
-		}
-		if n, ok := settings["page_size"]; ok {
-			if f, isNumber := n.(float64); !isNumber || f < 1 || f > 5000 || f != float64(int(f)) {
-				return invalid("integration.invalid_settings", "settings.page_size", "A page size from 1 to 5000.")
-			}
+	}
+	if n, ok := settings["page_size"]; ok {
+		//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a page size is not an amount
+		if f, isNumber := n.(float64); !isNumber || f < 1 || f > 5000 || f != float64(int(f)) {
+			return invalid("integration.invalid_settings", "settings.page_size", "A page size from 1 to 5000.")
 		}
 	}
 	return nil
