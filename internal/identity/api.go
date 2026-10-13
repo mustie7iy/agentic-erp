@@ -406,19 +406,9 @@ func (e *Endpoints) GetRoleAssignment(ctx context.Context, params gen.GetRoleAss
 
 // ListRoleAssignments implements GET /v1/role-assignments.
 func (e *Endpoints) ListRoleAssignments(ctx context.Context, params gen.ListRoleAssignmentsParams) (gen.ListRoleAssignmentsRes, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return nil, err
-	}
-	principal, role, on := optUUID(params.PrincipalID), optUUID(params.RoleID), optDate(params.ValidOn)
-	ks, err := e.Pages.Keyset(validFromSort, "listRoleAssignments|"+uuidParam(principal)+"|"+uuidParam(role)+"|"+dateParam(on),
-		pageRequest(params.OrderBy, params.PageSize, params.PageToken))
-	if err != nil {
-		return nil, err
-	}
-	items, next, err := list(ctx, tx, ks, `SELECT `+assignmentColumns+` FROM identity.principal_role
-		WHERE ($1::uuid IS NULL OR principal_id = $1) AND ($2::uuid IS NULL OR role_id = $2) AND `+fmt.Sprintf(validOn, 3),
-		[]any{principal, role, on}, scanAssignment, func(g RoleAssignment) (string, uuid.UUID) { return dateKey(g.Grant) }, assignmentToAPI)
+	items, next, err := listGrants(ctx, e, grantList{name: "listRoleAssignments", columns: assignmentColumns, table: "identity.principal_role", other: "role_id"},
+		params.PrincipalID, params.RoleID, params.ValidOn, pageRequest(params.OrderBy, params.PageSize, params.PageToken),
+		scanAssignment, func(g RoleAssignment) Grant { return g.Grant }, assignmentToAPI)
 	if err != nil {
 		return nil, err
 	}
@@ -463,23 +453,38 @@ func (e *Endpoints) GetCompanyAccess(ctx context.Context, params gen.GetCompanyA
 
 // ListCompanyAccess implements GET /v1/company-access.
 func (e *Endpoints) ListCompanyAccess(ctx context.Context, params gen.ListCompanyAccessParams) (gen.ListCompanyAccessRes, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return nil, err
-	}
-	principal, le, on := optUUID(params.PrincipalID), optUUID(params.LegalEntityID), optDate(params.ValidOn)
-	ks, err := e.Pages.Keyset(validFromSort, "listCompanyAccess|"+uuidParam(principal)+"|"+uuidParam(le)+"|"+dateParam(on),
-		pageRequest(params.OrderBy, params.PageSize, params.PageToken))
-	if err != nil {
-		return nil, err
-	}
-	items, next, err := list(ctx, tx, ks, `SELECT `+accessColumns+` FROM identity.company_access
-		WHERE ($1::uuid IS NULL OR principal_id = $1) AND ($2::uuid IS NULL OR legal_entity_id = $2) AND `+fmt.Sprintf(validOn, 3),
-		[]any{principal, le, on}, scanAccess, func(g CompanyAccess) (string, uuid.UUID) { return dateKey(g.Grant) }, accessToAPI)
+	items, next, err := listGrants(ctx, e, grantList{name: "listCompanyAccess", columns: accessColumns, table: "identity.company_access", other: "legal_entity_id"},
+		params.PrincipalID, params.LegalEntityID, params.ValidOn, pageRequest(params.OrderBy, params.PageSize, params.PageToken),
+		scanAccess, func(g CompanyAccess) Grant { return g.Grant }, accessToAPI)
 	if err != nil {
 		return nil, err
 	}
 	return &gen.CompanyAccessPageHeaders{Response: gen.CompanyAccessPage{Items: items, NextPageToken: next}}, nil
+}
+
+// grantList describes a list of grants filtered by principal, by one other
+// id and by the date they are valid on. Its fields are constant SQL
+// identifiers written in this package, never input.
+type grantList struct {
+	name, columns, table, other string
+}
+
+// listGrants pages through the grants of q matching the filters, by the
+// date they start.
+func listGrants[R, A any](ctx context.Context, e *Endpoints, q grantList, principalID, otherID gen.OptUUID, validDate gen.OptDate, page pagination.Request,
+	scan func(pgx.Row) (R, error), grant func(R) Grant, toAPI func(R) A) ([]A, gen.OptString, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, gen.OptString{}, err
+	}
+	principal, other, on := optUUID(principalID), optUUID(otherID), optDate(validDate)
+	ks, err := e.Pages.Keyset(validFromSort, q.name+"|"+uuidParam(principal)+"|"+uuidParam(other)+"|"+dateParam(on), page)
+	if err != nil {
+		return nil, gen.OptString{}, err
+	}
+	return list(ctx, tx, ks, `SELECT `+q.columns+` FROM `+q.table+`
+		WHERE ($1::uuid IS NULL OR principal_id = $1) AND ($2::uuid IS NULL OR `+q.other+` = $2) AND `+fmt.Sprintf(validOn, 3),
+		[]any{principal, other, on}, scan, func(r R) (string, uuid.UUID) { return dateKey(grant(r)) }, toAPI)
 }
 
 // EndCompanyAccess implements POST /v1/company-access/{id}:end.

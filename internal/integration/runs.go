@@ -298,6 +298,22 @@ func finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operat
 // engine (Workflows, ADR-0012) the run moves to running and the work is the
 // migration workflow's; without one it completes within the request.
 func (e *Endpoints) StartRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
+	return e.runStep(ctx, id, ifMatch, step{from: Queued, refusal: "Only a queued migration run can be started",
+		kind: "integration.migrate", action: "integration.migration_run.start", work: e.load})
+}
+
+// step is one move of a migration run: the status it starts from, the
+// refusal when the run is elsewhere (runStep appends "; this one is
+// <status>."), the operation kind and audit action, and the work done
+// within the request when there is no workflow engine.
+type step struct {
+	from, refusal, kind, action string
+	work                        func(context.Context, pgx.Tx, reqctx.Principal, Run, operations.Operation, target, *sap.Extract, Connector) (operations.Operation, error)
+}
+
+// runStep moves the run on: with a workflow engine its work is handed to
+// the workflow, without one it is done within the request.
+func (e *Endpoints) runStep(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, st step) (operations.Operation, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return operations.Operation{}, err
@@ -309,24 +325,24 @@ func (e *Endpoints) StartRun(ctx context.Context, id uuid.UUID, ifMatch func(int
 	if err := ifMatch(r.Version); err != nil {
 		return operations.Operation{}, err
 	}
-	if r.Status != Queued {
-		return operations.Operation{}, problem.Conflict("integration.invalid_status", "Only a queued migration run can be started; this one is "+r.Status+".")
+	if r.Status != st.from {
+		return operations.Operation{}, problem.Conflict("integration.invalid_status", st.refusal+"; this one is "+r.Status+".")
 	}
 	if e.Workflows {
 		if _, err := activeConnector(ctx, tx, r); err != nil {
 			return operations.Operation{}, err
 		}
-		return e.hand(ctx, tx, p, r, "integration.migrate", "integration.migration_run.start")
+		return e.hand(ctx, tx, p, r, st.kind, st.action)
 	}
 	t, ext, c, err := e.prepare(ctx, tx, r)
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	op, err := operations.StartFor(ctx, "integration.migrate", map[string]any{"migration_run_id": r.ID}, "/v1/migration-runs/"+r.ID.String())
+	op, err := operations.StartFor(ctx, st.kind, map[string]any{"migration_run_id": r.ID}, "/v1/migration-runs/"+r.ID.String())
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	return e.load(ctx, tx, p, r, op, t, ext, c)
+	return st.work(ctx, tx, p, r, op, t, ext, c)
 }
 
 // activeConnector is the run's connector, active.
@@ -466,35 +482,8 @@ func asList(issues []Issue) []Issue {
 // platform and writes the report: reconciled or failed. With a workflow
 // engine the run moves to running and the work is the workflow's.
 func (e *Endpoints) ReconcileRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
-	tx, p, err := reqctx.Request(ctx)
-	if err != nil {
-		return operations.Operation{}, err
-	}
-	r, err := getRun(ctx, tx, id, true)
-	if err != nil {
-		return operations.Operation{}, err
-	}
-	if err := ifMatch(r.Version); err != nil {
-		return operations.Operation{}, err
-	}
-	if r.Status != Loaded {
-		return operations.Operation{}, problem.Conflict("integration.invalid_status", "Only a loaded migration run can be reconciled; this one is "+r.Status+".")
-	}
-	if e.Workflows {
-		if _, err := activeConnector(ctx, tx, r); err != nil {
-			return operations.Operation{}, err
-		}
-		return e.hand(ctx, tx, p, r, "integration.reconcile", "integration.migration_run.reconcile")
-	}
-	t, ext, c, err := e.prepare(ctx, tx, r)
-	if err != nil {
-		return operations.Operation{}, err
-	}
-	op, err := operations.StartFor(ctx, "integration.reconcile", map[string]any{"migration_run_id": r.ID}, "/v1/migration-runs/"+r.ID.String())
-	if err != nil {
-		return operations.Operation{}, err
-	}
-	return e.reconcileRun(ctx, tx, p, r, op, t, ext, c)
+	return e.runStep(ctx, id, ifMatch, step{from: Loaded, refusal: "Only a loaded migration run can be reconciled",
+		kind: "integration.reconcile", action: "integration.migration_run.reconcile", work: e.reconcileRun})
 }
 
 // reconcileRun compares the extract with the platform under the operation.
