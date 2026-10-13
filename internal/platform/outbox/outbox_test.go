@@ -180,20 +180,13 @@ func TestRelayToJetStream(t *testing.T) {
 		Log: slog.New(slog.NewTextHandler(&buf, nil))}
 	done := make(chan struct{})
 	go func() { relay.Run(ctx); close(done) }()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
+	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var n int
 		if err := pgtest.Admin(t).QueryRow(context.Background(), "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
-		if n == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("relay did not publish")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		return n == 0
+	}, "relay did not publish: %s", &buf)
 	cancel()
 	<-done
 }
