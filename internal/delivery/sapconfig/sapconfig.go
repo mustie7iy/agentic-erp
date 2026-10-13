@@ -126,18 +126,7 @@ func (g *gen) company(t sap.T001) config.Company {
 	}
 	g.note(p+".fiscal_year_start_month", "fiscal year variant not in extract; assumed calendar year (K4)")
 	g.note(p+".auto_post_limit", "no SAP equivalent; invoices above "+g.opts.AutoPostLimit+" always go to a person")
-	for _, a := range g.e.SKB1 {
-		if a.BUKRS != t.BUKRS {
-			continue
-		}
-		num := alpha(a.SAKNR)
-		typ, err := g.opts.accountType(num)
-		if err != nil {
-			g.note(p+".chart_of_accounts["+num+"]", err.Error())
-			continue
-		}
-		co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: num, Name: a.TXT50, Type: typ, VendorReconciliation: a.MITKZ == "K"})
-	}
+	co.ChartOfAccounts = g.chartOfAccounts(p, t.BUKRS)
 	for _, r := range g.e.T030 {
 		if r.BUKRS != t.BUKRS {
 			continue
@@ -149,41 +138,13 @@ func (g *gen) company(t sap.T001) config.Company {
 			co.AccountDetermination.Bank = alpha(r.KONTS)
 		}
 	}
-	// AP reconciliation: the account most vendors in this company post to.
-	counts := map[string]int{}
-	for _, v := range g.e.LFB1 {
-		if v.BUKRS == t.BUKRS {
-			counts[alpha(v.AKONT)]++
-		}
-	}
-	best := ""
-	for acct, n := range counts {
-		if n > counts[best] || (n == counts[best] && acct < best) {
-			best = acct
-		}
-	}
-	co.AccountDetermination.APReconciliation = best
-	if len(counts) > 1 {
-		g.note(p+".account_determination.ap_reconciliation", fmt.Sprintf("vendors use %d reconciliation accounts; %s is the most common", len(counts), best))
-	}
+	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)
 	for _, tx := range g.e.T007A {
 		if tx.BUKRS == t.BUKRS {
 			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: alpha(tx.KONTS)})
 		}
 	}
-	co.InvoiceTolerance = config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}
-	found := false
-	for _, tol := range g.e.T169G {
-		if tol.BUKRS == t.BUKRS && tol.TOLSL == "PP" {
-			pct := 0
-			fmt.Sscanf(tol.PROZ, "%d", &pct)
-			co.InvoiceTolerance = config.Tolerance{PricePercent: pct, PriceAbsolute: tol.WERTO}
-			found = true
-		}
-	}
-	if !found {
-		g.note(p+".invoice_tolerance", "T169G key PP not found; used 2% / 5.00")
-	}
+	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS)
 	for _, b := range g.e.T012K {
 		if b.BUKRS == t.BUKRS {
 			co.HouseBank = config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT}
@@ -194,6 +155,64 @@ func (g *gen) company(t sap.T001) config.Company {
 		}
 	}
 	return co
+}
+
+// chartOfAccounts is the company's G/L accounts; an account whose type the
+// options cannot tell is left out with a note.
+func (g *gen) chartOfAccounts(p, company string) []config.Account {
+	var out []config.Account
+	for _, a := range g.e.SKB1 {
+		if a.BUKRS != company {
+			continue
+		}
+		num := alpha(a.SAKNR)
+		typ, err := g.opts.accountType(num)
+		if err != nil {
+			g.note(p+".chart_of_accounts["+num+"]", err.Error())
+			continue
+		}
+		out = append(out, config.Account{Number: num, Name: a.TXT50, Type: typ, VendorReconciliation: a.MITKZ == "K"})
+	}
+	return out
+}
+
+// apReconciliation is the account most vendors in this company post to.
+func (g *gen) apReconciliation(p, company string) string {
+	counts := map[string]int{}
+	for _, v := range g.e.LFB1 {
+		if v.BUKRS == company {
+			counts[alpha(v.AKONT)]++
+		}
+	}
+	best := ""
+	for acct, n := range counts {
+		if n > counts[best] || (n == counts[best] && acct < best) {
+			best = acct
+		}
+	}
+	if len(counts) > 1 {
+		g.note(p+".account_determination.ap_reconciliation", fmt.Sprintf("vendors use %d reconciliation accounts; %s is the most common", len(counts), best))
+	}
+	return best
+}
+
+// invoiceTolerance is the company's price tolerance (T169G key PP), or 2%
+// and 5.00 with a note when SAP has none.
+func (g *gen) invoiceTolerance(p, company string) config.Tolerance {
+	tolerance := config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}
+	found := false
+	for _, tol := range g.e.T169G {
+		if tol.BUKRS == company && tol.TOLSL == "PP" {
+			pct := 0
+			fmt.Sscanf(tol.PROZ, "%d", &pct)
+			tolerance = config.Tolerance{PricePercent: pct, PriceAbsolute: tol.WERTO}
+			found = true
+		}
+	}
+	if !found {
+		g.note(p+".invoice_tolerance", "T169G key PP not found; used 2% / 5.00")
+	}
+	return tolerance
 }
 
 // numberRanges gives every company a range per document type in each
