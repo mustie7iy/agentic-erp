@@ -58,6 +58,14 @@ func newPlane(t *testing.T) *plane {
 	return &plane{t: t, dir: dir, is: is, srv: srv, s: s}
 }
 
+// in is the plane for a subtest: its failures stop the subtest.
+func (p *plane) in(t *testing.T) *plane {
+	t.Helper()
+	c := *p
+	c.t = t
+	return &c
+}
+
 func (p *plane) operator(subject string) string {
 	return p.is.Token(p.t, uuid.Nil, subject, map[string]any{"tenant_id": nil})
 }
@@ -177,19 +185,43 @@ func TestGlobalControlPlane(t *testing.T) {
 	// Provisioning: placed in the emptiest cell, forwarded with the key and the token, entered in the directory at once.
 	body := `{"name":"Acme","region":"` + region + `","group_currency":"EUR","administrator":{"subject":"idp|ada","display_name":"Ada"},"configuration":{"group_currency":"EUR","companies":[]}}`
 	created, h := p.must(201, "ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString())
-	if created["cell"] != region+"-1" || h.Get("X-Erp-Cell") != region+"-1" || h.Get("ETag") != `"1"` || h.Get("Location") == "" || created["name"] != "Acme" {
-		t.Fatalf("created: %v %v", created, h)
+	for field, c := range map[string]struct{ got, want any }{
+		"cell":         {created["cell"], region + "-1"},
+		"name":         {created["name"], "Acme"},
+		"X-Erp-Cell":   {h.Get("X-Erp-Cell"), region + "-1"},
+		"ETag":         {h.Get("ETag"), `"1"`},
+		"has Location": {h.Get("Location") != "", true},
+	} {
+		if c.got != c.want {
+			t.Errorf("created %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	id := uuid.MustParse(created["id"].(string))
 	entry, h := p.must(200, "ops|alice", "GET", "/directory/v1/tenants/"+id.String(), "")
-	if entry["cell"] != region+"-1" || entry["status"] != "active" || entry["api_url"] != "https://1.api.example.com" || h.Get("ETag") != `"1"` {
-		t.Fatalf("entry: %v", entry)
+	for field, c := range map[string]struct{ got, want any }{
+		"cell":    {entry["cell"], region + "-1"},
+		"status":  {entry["status"], "active"},
+		"api_url": {entry["api_url"], "https://1.api.example.com"},
+		"ETag":    {h.Get("ETag"), `"1"`},
+	} {
+		if c.got != c.want {
+			t.Errorf("entry %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	eu1.mu.Lock()
-	if len(eu1.seen) != 1 || !strings.Contains(eu1.seen[0], "POST /control/v1/tenants key=key-") || !strings.Contains(eu1.seen[0], "auth=true") || strings.Contains(eu1.seen[0], `"cell"`) {
-		t.Fatalf("cell saw: %v", eu1.seen)
-	}
+	seen := append([]string(nil), eu1.seen...)
 	eu1.mu.Unlock()
+	if len(seen) != 1 {
+		t.Fatalf("cell saw %d requests, want 1: %v", len(seen), seen)
+	}
+	for _, want := range []string{"POST /control/v1/tenants key=key-", "auth=true"} {
+		if !strings.Contains(seen[0], want) {
+			t.Fatalf("cell saw %s, want %q in it", seen[0], want)
+		}
+	}
+	if strings.Contains(seen[0], `"cell"`) {
+		t.Fatalf("cell saw %s, want no cell field forwarded", seen[0])
+	}
 	// The second tenant goes to the other cell; a named cell wins; the full cell is refused; a retry keeps its cell.
 	second, _ := p.must(201, "ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString())
 	if second["cell"] != region+"-2" {
@@ -259,8 +291,15 @@ func TestGlobalControlPlane(t *testing.T) {
 	upsertCell(directory.Cell{Name: region + "-us", Region: "us-east", APIURL: "https://us.api.example.com", ControlURL: "http://us:9090", Accepting: true})
 	p.problem(422, "tenancy.region_mismatch", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"`+region+`-us"}`, "If-Match", `"2"`)
 	moved, h := p.must(200, "ops|bob", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"`+region+`-2"}`, "If-Match", `"2"`)
-	if moved["cell"] != region+"-2" || moved["api_url"] != "https://2.api.example.com" || moved["status"] != "read_only" || h.Get("ETag") != `"3"` {
-		t.Fatalf("moved: %v", moved)
+	for field, c := range map[string]struct{ got, want any }{
+		"cell":    {moved["cell"], region + "-2"},
+		"api_url": {moved["api_url"], "https://2.api.example.com"},
+		"status":  {moved["status"], "read_only"},
+		"ETag":    {h.Get("ETag"), `"3"`},
+	} {
+		if c.got != c.want {
+			t.Errorf("moved %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	active, _ := p.must(200, "ops|bob", "POST", "/directory/v1/tenants/"+id.String()+":unfreeze", "", "If-Match", `"3"`)
 	if active["status"] != "active" || active["cell"] != region+"-2" {
@@ -292,14 +331,16 @@ func TestGlobalControlPlane(t *testing.T) {
 	p.problem(404, "request.not_found", "ops|alice", "GET", "/directory/v1/nothing", "")
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", "/directory/v1/tenants/not-a-uuid", "")
 	for path, allow := range map[string]string{"/directory/v1/tenants": "GET, POST", "/directory/v1/cells": "GET", "/directory/v1/tenants/" + id.String(): "GET", "/directory/v1/tenants/" + id.String() + ":freeze": "POST"} {
-		method := "DELETE"
-		if allow == "POST" {
-			method = "GET"
-		}
-		status, _, h := p.as("ops|alice", method, path, "")
-		if status != 405 || h.Get("Allow") != allow {
-			t.Errorf("%s %s: %d allow %q", method, path, status, h.Get("Allow"))
-		}
+		t.Run("method not allowed on "+path, func(t *testing.T) {
+			method := "DELETE"
+			if allow == "POST" {
+				method = "GET"
+			}
+			status, _, h := p.in(t).as("ops|alice", method, path, "")
+			if status != 405 || h.Get("Allow") != allow {
+				t.Errorf("%s: got %d allow %q, want 405 allow %q", method, status, h.Get("Allow"), allow)
+			}
+		})
 	}
 	if status, _, _ := p.do("GET", "/directory/v1/cells", "", nil); status != 401 {
 		t.Fatalf("no token: %d", status)
@@ -326,10 +367,15 @@ func TestGlobalControlPlane(t *testing.T) {
 		{"operator freezes", "erp:operate", "POST", "/directory/v1/tenants/" + id.String() + ":freeze", 200},
 		{"admin unfreezes", []any{"erp:admin"}, "POST", "/directory/v1/tenants/" + id.String() + ":unfreeze", 200},
 	} {
-		status, m, _ := p.do(c.method, c.path, "", withRoles(c.roles))
-		if status != c.code || (status == 403 && m["code"] != "authz.operator_role") {
-			t.Errorf("%s: %d %v", c.name, status, m)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			status, m, _ := p.in(t).do(c.method, c.path, "", withRoles(c.roles))
+			if status != c.code {
+				t.Errorf("got status %d, want %d: %v", status, c.code, m)
+			}
+			if status == 403 && m["code"] != "authz.operator_role" {
+				t.Errorf("got problem %v, want authz.operator_role", m["code"])
+			}
+		})
 	}
 	// Every operation of the contract is served.
 	ops, err := api.DirectoryOperations()
@@ -337,18 +383,22 @@ func TestGlobalControlPlane(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, op := range ops {
-		path := strings.NewReplacer("{id}", uuid.NewString()).Replace(op.Path)
-		status, _, _ := p.as("ops|alice", op.Method, path, `{"cell":"x","name":"x","region":"eu-west"}`, "If-Match", "*", "Idempotency-Key", "key-"+uuid.NewString())
-		if status == 405 || status == 404 && !strings.Contains(op.Path, "{id}") {
-			t.Errorf("%s: %d", id, status)
-		}
+		t.Run("served "+id, func(t *testing.T) {
+			path := strings.NewReplacer("{id}", uuid.NewString()).Replace(op.Path)
+			status, _, _ := p.in(t).as("ops|alice", op.Method, path, `{"cell":"x","name":"x","region":"eu-west"}`, "If-Match", "*", "Idempotency-Key", "key-"+uuid.NewString())
+			if status == 405 || status == 404 && !strings.Contains(op.Path, "{id}") {
+				t.Errorf("%s %s: got %d, want the operation served", op.Method, op.Path, status)
+			}
+		})
 	}
 	// The directory failing.
 	p.dir.Close()
 	for _, path := range []string{"/directory/v1/tenants", "/directory/v1/cells", "/directory/v1/tenants/" + id.String()} {
-		if status, _, _ := p.as("ops|alice", "GET", path, ""); status != 500 {
-			t.Errorf("%s with the directory down: %d", path, status)
-		}
+		t.Run("directory down GET "+path, func(t *testing.T) {
+			if status, _, _ := p.in(t).as("ops|alice", "GET", path, ""); status != 500 {
+				t.Errorf("got %d, want 500", status)
+			}
+		})
 	}
 	if status, _, _ := p.as("ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"x"}`, "If-Match", "*"); status != 500 {
 		t.Errorf("move with the directory down: %d", status)
@@ -437,8 +487,17 @@ func TestVerifyTenant(t *testing.T) {
 	// One token for the request and the check: two minted a second apart differ in iat and exp.
 	token := p.operator("ops|alice")
 	v, _ := p.must(200, "ops|alice", "POST", path, to("b"), "Authorization", "Bearer "+token)
-	if v["equal"] != true || len(v["differences"].([]any)) != 0 || v["source"].(map[string]any)["cell"] != region+"-a" || v["destination"].(map[string]any)["fingerprint"] == nil {
-		t.Fatalf("equal: %v", v)
+	if v["equal"] != true {
+		t.Errorf("equal: got %v, want true", v["equal"])
+	}
+	if diffs, _ := v["differences"].([]any); len(diffs) != 0 {
+		t.Errorf("equal differences: got %v, want none", diffs)
+	}
+	if source, _ := v["source"].(map[string]any); source["cell"] != region+"-a" {
+		t.Errorf("equal source cell: got %v, want %s-a", source["cell"], region)
+	}
+	if dest, _ := v["destination"].(map[string]any); dest["fingerprint"] == nil {
+		t.Errorf("equal destination fingerprint: got nil, want one")
 	}
 	b.mu.Lock()
 	seen := strings.Join(b.auth, "\n")
@@ -512,10 +571,12 @@ func TestVerifyTenant(t *testing.T) {
 	// Roles: a reader verifies, a provisioner does not.
 	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, "2:"+h2))
 	for roles, want := range map[string]int{"erp:read": 200, "erp:provision": 403} {
-		headers := map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": roles}), "Content-Type": "application/json"}
-		if status, m, _ := p.do("POST", path, to("b"), headers); status != want {
-			t.Errorf("%s verifies: %d %v", roles, status, m)
-		}
+		t.Run(roles+" verifies", func(t *testing.T) {
+			headers := map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": roles}), "Content-Type": "application/json"}
+			if status, m, _ := p.in(t).do("POST", path, to("b"), headers); status != want {
+				t.Errorf("got %d %v, want %d", status, m, want)
+			}
+		})
 	}
 	// The directory failing after the entry was read, and down.
 	calls := 0
