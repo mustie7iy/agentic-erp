@@ -39,8 +39,11 @@ func TestRequisitionDecisions(t *testing.T) {
 	p = e.Pending(t, id(r))
 	e.Must(200, "POST", "/v1/approval-requests/"+id(p)+":cancel", `{"comment": "Changing it"}`, `"1"`)
 	got, _ := e.Must(200, "GET", path, "", "")
-	if got["status"] != "draft" || got["workflow_request_id"] != nil {
-		t.Fatalf("withdrawn: %v", got)
+	if got["status"] != "draft" {
+		t.Errorf("withdrawn status: got %v, want draft", got["status"])
+	}
+	if got["workflow_request_id"] != nil {
+		t.Errorf("withdrawn workflow request: got %v, want none", got["workflow_request_id"])
 	}
 	if c := e.act(t, path, "cancel", ""); c["status"] != "cancelled" {
 		t.Fatalf("cancelled: %v", c)
@@ -85,9 +88,17 @@ func TestRequisitionRefusals(t *testing.T) {
 		"contract":       {fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "contract_id": %q, "items": %s}`, e.DE, uuid.New(), ok), 422, "procurement.invalid_contract"},
 		"extensions":     {fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "items": %s, "extensions": {"Bad": 1}}`, e.DE, ok), 422, "request.invalid_extension"},
 	} {
-		if code, m, _ := e.Do("POST", "/v1/requisitions", c.body, ""); code != c.status || m["code"] != c.code {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			api := e.Client
+			api.T = t
+			code, m, _ := api.Do("POST", "/v1/requisitions", c.body, "")
+			if code != c.status {
+				t.Errorf("status: got %d, want %d: %v", code, c.status, m)
+			}
+			if m["code"] != c.code {
+				t.Errorf("problem code: got %v, want %s", m["code"], c.code)
+			}
+		})
 	}
 	// Contract references: status, company and supplier.
 	draft := e.contract(t, e.Supplier.String(), "")
@@ -97,9 +108,11 @@ func TestRequisitionRefusals(t *testing.T) {
 		"draft contract": fmt.Sprintf(`, "contract_id": %q`, id(draft)),
 		"other supplier": fmt.Sprintf(`, "contract_id": %q, "supplier_id": %q`, id(active), e.Vendor),
 	} {
-		if code, m, _ := e.Do("POST", "/v1/requisitions", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "items": %s%s}`, e.DE, ok, c), ""); code != 422 || m["code"] != "procurement.invalid_contract" {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			api := e.Client
+			api.T = t
+			api.Problem(422, "procurement.invalid_contract", "POST", "/v1/requisitions", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "items": %s%s}`, e.DE, ok, c), "")
+		})
 	}
 	if code, m, _ := e.Do("POST", "/v1/requisitions", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "USD", "contract_id": %q, "items": %s}`, e.DE, id(active),
 		items(item(e.office, "1", "EA", "1.00", "USD", ""))), ""); code != 422 || m["code"] != "procurement.invalid_contract" {
@@ -121,12 +134,21 @@ func TestRequisitionRefusals(t *testing.T) {
 	e.Problem(404, "request.not_found", "GET", "/v1/requisitions/"+uuid.NewString(), "", "")
 	moved, _ := e.Must(200, "PATCH", path, fmt.Sprintf(`{"contract_id": null, "supplier_id": null, "currency": "USD", "items": %s}`,
 		items(item(e.office, "1", "EA", "2.00", "USD", ""))), `"1"`)
-	if moved["currency"] != "USD" || moved["supplier_id"] != nil || moved["contract_id"] != nil {
-		t.Fatalf("moved: %v", moved)
+	if moved["currency"] != "USD" {
+		t.Errorf("moved currency: got %v, want USD", moved["currency"])
+	}
+	if moved["supplier_id"] != nil {
+		t.Errorf("moved supplier: got %v, want none", moved["supplier_id"])
+	}
+	if moved["contract_id"] != nil {
+		t.Errorf("moved contract: got %v, want none", moved["contract_id"])
 	}
 	moved, _ = e.Must(200, "PATCH", path, fmt.Sprintf(`{"supplier_id": %q, "needed_by": "2026-12-01"}`, e.Vendor), `"2"`)
-	if moved["supplier_id"] != e.Vendor.String() || moved["needed_by"] != "2026-12-01" {
-		t.Fatalf("supplier: %v", moved)
+	if moved["supplier_id"] != e.Vendor.String() {
+		t.Errorf("new supplier: got %v, want %v", moved["supplier_id"], e.Vendor)
+	}
+	if moved["needed_by"] != "2026-12-01" {
+		t.Errorf("new needed by: got %v, want 2026-12-01", moved["needed_by"])
 	}
 	agent := e.As(e.Tenant.Agent)
 	agent.Problem(404, "request.not_found", "GET", path, "", "")
@@ -147,8 +169,17 @@ func TestContracts(t *testing.T) {
 	e := setup(t)
 	c := e.contract(t, e.Supplier.String(), "")
 	path := "/v1/contracts/" + id(c)
-	if c["document_number"] != "CT100000" || c["status"] != "draft" || c["consumed_value"].(map[string]any)["amount"] != "0.00" || len(c["items"].([]any)) != 2 {
-		t.Fatalf("created: %v", c)
+	if c["document_number"] != "CT100000" {
+		t.Errorf("created document number: got %v, want CT100000", c["document_number"])
+	}
+	if c["status"] != "draft" {
+		t.Errorf("created status: got %v, want draft", c["status"])
+	}
+	if got := c["consumed_value"].(map[string]any)["amount"]; got != "0.00" {
+		t.Errorf("created consumed value: got %v, want 0.00", got)
+	}
+	if n := len(c["items"].([]any)); n != 2 {
+		t.Errorf("created items: got %d, want 2", n)
 	}
 	item := func(key string) string {
 		return fmt.Sprintf(`{"material_key": %q, "description": "X", "unit_price": {"amount": "1.00", "currency": "EUR"}, "uom_code": "EA", "account_id": %q}`, key, e.office)
@@ -159,8 +190,14 @@ func TestContracts(t *testing.T) {
 	e.Problem(422, "procurement.account_not_postable", "PATCH", path, `{"items": [`+strings.Replace(item("C"), e.office, e.Account(t, "1000", "520000").String(), 1)+`]}`, `"1"`)
 	upd, tag := e.Must(200, "PATCH", path, `{"valid_from": "2026-02-01", "valid_to": "2026-11-30", "target_value": {"amount": "2000.00", "currency": "EUR"},
 		"items": [`+item("B")+`, `+item("A")+`]}`, `"1"`)
-	if upd["target_value"].(map[string]any)["amount"] != "2000.00" || upd["valid_from"] != "2026-02-01" || upd["items"].([]any)[0].(map[string]any)["material_key"] != "B" {
-		t.Fatalf("updated: %v", upd)
+	if got := upd["target_value"].(map[string]any)["amount"]; got != "2000.00" {
+		t.Errorf("updated target value: got %v, want 2000.00", got)
+	}
+	if upd["valid_from"] != "2026-02-01" {
+		t.Errorf("updated valid from: got %v, want 2026-02-01", upd["valid_from"])
+	}
+	if got := upd["items"].([]any)[0].(map[string]any)["material_key"]; got != "B" {
+		t.Errorf("updated first item: got %v, want B", got)
 	}
 	upd, _ = e.Must(200, "PATCH", path, `{}`, tag)
 	e.Problem(409, "procurement.invalid_status", "POST", path+":terminate", `{"reason": "r"}`, "*")
@@ -179,8 +216,8 @@ func TestContracts(t *testing.T) {
 		t.Fatalf("cancelled: %v", got)
 	}
 	for _, name := range []string{"contract_activated", "contract_terminated", "contract_cancelled"} {
-		if len(events(t, e, name)) != 1 {
-			t.Errorf("no %s event", name)
+		if got := len(events(t, e, name)); got != 1 {
+			t.Errorf("%s events: got %d, want 1", name, got)
 		}
 	}
 	for name, body := range map[string]string{
@@ -197,9 +234,13 @@ func TestContracts(t *testing.T) {
 		"legal entity": fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "valid_from": "2026-01-01", "valid_to": "2026-02-01",
 			"target_value": {"amount": "1.00", "currency": "EUR"}, "items": [%s]}`, uuid.New(), e.Supplier, item("A")),
 	} {
-		if code, m, _ := e.Do("POST", "/v1/contracts", body, ""); code/100 != 4 {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			api := e.Client
+			api.T = t
+			if code, m, _ := api.Do("POST", "/v1/contracts", body, ""); code/100 != 4 {
+				t.Errorf("status: got %d, want 4xx: %v", code, m)
+			}
+		})
 	}
 	list := func(q string) (int, string) {
 		page, _ := e.Must(200, "GET", "/v1/contracts?"+q, "", "")
@@ -210,17 +251,28 @@ func TestContracts(t *testing.T) {
 		t.Fatalf("filtered: %d", n)
 	}
 	n, tok := list("page_size=1&order_by=document_number")
-	if n != 1 || tok == "" {
-		t.Fatalf("page 1: %d", n)
+	if n != 1 {
+		t.Errorf("page 1: got %d contracts, want 1", n)
 	}
-	if n, tok := list("page_size=1&order_by=document_number&page_token=" + tok); n != 1 || tok != "" {
-		t.Fatalf("page 2: %d %s", n, tok)
+	if tok == "" {
+		t.Fatal("page 1: got no next page token, want one")
+	}
+	n, tok = list("page_size=1&order_by=document_number&page_token=" + tok)
+	if n != 1 {
+		t.Errorf("page 2: got %d contracts, want 1", n)
+	}
+	if tok != "" {
+		t.Errorf("page 2: got next page token %q, want none", tok)
 	}
 	if n, _ := list("page_size=5"); n != 2 {
 		t.Fatalf("by validity: %d", n)
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/contracts/"+uuid.NewString(), "", "")
-	if got, tag := e.Must(200, "GET", path, "", ""); got["status"] != "terminated" || tag == "" {
-		t.Fatalf("get: %v", got)
+	got, tag := e.Must(200, "GET", path, "", "")
+	if got["status"] != "terminated" {
+		t.Errorf("get status: got %v, want terminated", got["status"])
+	}
+	if tag == "" {
+		t.Error("get etag: got none, want one")
 	}
 }

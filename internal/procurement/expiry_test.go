@@ -33,30 +33,58 @@ func TestContractExpiry(t *testing.T) {
 	logs := &pgtest.SyncBuffer{}
 	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil))}
 	n, err := x.RunOnce(ctx)
-	if err != nil || n != 1 {
-		t.Fatalf("round: %d expired, %v", n, err)
+	if err != nil {
+		t.Fatalf("round: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("round: got %d expired, want 1", n)
 	}
 	if got, _ := e.Must(200, "GET", pastPath, "", ""); got["status"] != "expired" {
 		t.Fatalf("past contract: %v", got)
 	}
 	for _, c := range []struct{ id, want string }{{id(current), "active"}, {id(draft), "draft"}} {
 		if got, _ := e.Must(200, "GET", "/v1/contracts/"+c.id, "", ""); got["status"] != c.want {
-			t.Fatalf("contract %s: %v", c.id, got)
+			t.Errorf("contract %s status: got %v, want %s", c.id, got["status"], c.want)
 		}
 	}
-	if ev := events(t, e, "contract_expired"); len(ev) != 1 || ev[0]["contract_id"] != id(past) || ev[0]["previous_status"] != "active" || ev[0]["status"] != "expired" ||
-		ev[0]["consumed_value"].(map[string]any)["amount"] != "0.00" || ev[0]["valid_to"] == nil {
-		t.Fatalf("event: %v", ev)
+	ev := events(t, e, "contract_expired")
+	if len(ev) != 1 {
+		t.Fatalf("expired events: got %d, want 1: %v", len(ev), ev)
+	}
+	if ev[0]["contract_id"] != id(past) {
+		t.Errorf("expired event contract: got %v, want %s", ev[0]["contract_id"], id(past))
+	}
+	if ev[0]["previous_status"] != "active" {
+		t.Errorf("expired event previous status: got %v, want active", ev[0]["previous_status"])
+	}
+	if ev[0]["status"] != "expired" {
+		t.Errorf("expired event status: got %v, want expired", ev[0]["status"])
+	}
+	if got := ev[0]["consumed_value"].(map[string]any)["amount"]; got != "0.00" {
+		t.Errorf("expired event consumed value: got %v, want 0.00", got)
+	}
+	if ev[0]["valid_to"] == nil {
+		t.Errorf("expired event valid to: got none, want a date")
 	}
 	var actor uuid.UUID
 	var detail map[string]any
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT actor_id, detail FROM audit.audit_event WHERE tenant_id = $1 AND action = 'procurement.contract.expire' AND object_id = $2`,
-		e.Tenant.ID, uuid.MustParse(id(past))).Scan(&actor, &detail); err != nil || actor != procurement.ExpirerActor || detail["from_status"] != "active" {
-		t.Fatalf("audit: %v %v %v", actor, detail, err)
+		e.Tenant.ID, uuid.MustParse(id(past))).Scan(&actor, &detail); err != nil {
+		t.Fatalf("audit: %v", err)
+	}
+	if actor != procurement.ExpirerActor {
+		t.Errorf("audit actor: got %v, want %v", actor, procurement.ExpirerActor)
+	}
+	if detail["from_status"] != "active" {
+		t.Errorf("audit from status: got %v, want active", detail["from_status"])
 	}
 	// Nothing left to do: the next round is quiet.
-	if n, err := x.RunOnce(ctx); err != nil || n != 0 {
-		t.Fatalf("second round: %d, %v", n, err)
+	n, err = x.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("second round: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("second round: got %d expired, want 0", n)
 	}
 	// An expired contract takes no new orders and cannot be terminated.
 	e.Problem(409, "procurement.invalid_status", "POST", pastPath+":terminate", `{"reason": "Late"}`, "*")

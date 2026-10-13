@@ -51,13 +51,22 @@ func TestLists(t *testing.T) {
 		t.Fatalf("filtered requisitions: %d", n)
 	}
 	for _, order := range []string{"created_at", "document_number"} {
-		n, tok := reqs("page_size=2&order_by=" + order)
-		if n != 2 || tok == "" {
-			t.Fatalf("%s page 1: %d", order, n)
-		}
-		if n, tok := reqs("page_size=2&order_by=" + order + "&page_token=" + tok); n != 1 || tok != "" {
-			t.Fatalf("%s page 2: %d", order, n)
-		}
+		t.Run("requisitions by "+order, func(t *testing.T) {
+			n, tok := reqs("page_size=2&order_by=" + order)
+			if n != 2 {
+				t.Errorf("page 1: got %d requisitions, want 2", n)
+			}
+			if tok == "" {
+				t.Fatal("page 1: got no next page token, want one")
+			}
+			n, tok = reqs("page_size=2&order_by=" + order + "&page_token=" + tok)
+			if n != 1 {
+				t.Errorf("page 2: got %d requisitions, want 1", n)
+			}
+			if tok != "" {
+				t.Errorf("page 2: got next page token %q, want none", tok)
+			}
+		})
 	}
 	for _, d := range []string{"2026-03-01", "2026-03-05", "2026-03-09"} {
 		e.Must(201, "POST", "/v1/purchase-orders", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "order_date": %q, "items": %s}`,
@@ -75,13 +84,18 @@ func TestLists(t *testing.T) {
 		t.Fatalf("order by number: %d", n)
 	}
 	for _, order := range []string{"order_date", "document_number"} {
-		n, tok := orders("page_size=2&order_by=" + order)
-		if n != 2 || tok == "" {
-			t.Fatalf("%s page 1: %d", order, n)
-		}
-		if n, _ := orders("page_size=2&order_by=" + order + "&page_token=" + tok); n != 1 {
-			t.Fatalf("%s page 2: %d", order, n)
-		}
+		t.Run("orders by "+order, func(t *testing.T) {
+			n, tok := orders("page_size=2&order_by=" + order)
+			if n != 2 {
+				t.Errorf("page 1: got %d orders, want 2", n)
+			}
+			if tok == "" {
+				t.Fatal("page 1: got no next page token, want one")
+			}
+			if n, _ := orders("page_size=2&order_by=" + order + "&page_token=" + tok); n != 1 {
+				t.Errorf("page 2: got %d orders, want 1", n)
+			}
+		})
 	}
 }
 
@@ -232,10 +246,12 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 	}
 	for name, call := range calls {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		})
 	}
 	// An order from a requisition, cancelled: the requisition becomes approved again.
 	fromReq := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
@@ -285,9 +301,11 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
-			t.Errorf("%s: page_size 0 accepted", name)
-		}
+		t.Run("page size 0 "+name, func(t *testing.T) {
+			if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
+				t.Error("got nil error, want page_size 0 refused")
+			}
+		})
 	}
 	// A decision for a requisition that is not pending is refused.
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
@@ -298,11 +316,31 @@ func TestDatabaseFailures(t *testing.T) {
 	// Orders port.
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		o, ok, err := procurement.Orders{}.Order(ctx, u(released))
-		if err != nil || !ok || o.Status != "released" || len(o.Items) != 1 || o.Items[0].Received != "2" || o.Items[0].Quantity != "10" {
-			t.Errorf("order: %+v %v %v", o, ok, err)
+		if err != nil {
+			t.Errorf("order: %v", err)
 		}
-		if _, ok, err := (procurement.Orders{}).Order(ctx, uuid.New()); ok || err != nil {
-			t.Errorf("unknown order: %v %v", ok, err)
+		if !ok {
+			t.Errorf("order: got not found, want the order")
+		}
+		if o.Status != "released" {
+			t.Errorf("order status: got %s, want released", o.Status)
+		}
+		if len(o.Items) != 1 {
+			t.Errorf("order items: got %d, want 1", len(o.Items))
+		} else {
+			if o.Items[0].Received != "2" {
+				t.Errorf("order item received: got %s, want 2", o.Items[0].Received)
+			}
+			if o.Items[0].Quantity != "10" {
+				t.Errorf("order item quantity: got %s, want 10", o.Items[0].Quantity)
+			}
+		}
+		_, ok, err = (procurement.Orders{}).Order(ctx, uuid.New())
+		if err != nil {
+			t.Errorf("unknown order: %v", err)
+		}
+		if ok {
+			t.Errorf("unknown order: got found, want not found")
 		}
 		return nil
 	}); err != nil {
@@ -370,8 +408,10 @@ func TestEdges(t *testing.T) {
 	for name, code := range map[string]string{"purchase_order_one_per_requisition": "procurement.requisition_ordered",
 		"contract_item_material_key": "procurement.duplicate_material_key", "requisition_item_uom_code_fkey": "procurement.unknown_unit",
 		"goods_movement_item_tenant_id_purchase_order_id_po_item_no_fkey": "procurement.unknown_order_item"} {
-		if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name}); p.Code != code {
-			t.Errorf("%s: %v", name, p)
-		}
+		t.Run(name, func(t *testing.T) {
+			if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name}); p.Code != code {
+				t.Errorf("problem code: got %s, want %s", p.Code, code)
+			}
+		})
 	}
 }
