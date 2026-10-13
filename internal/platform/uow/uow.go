@@ -295,7 +295,8 @@ func (r *recorder) WriteHeader(status int) {
 
 func (r *recorder) Write(b []byte) (int, error) {
 	r.WriteHeader(http.StatusOK)
-	return r.body.Write(b) //nolint:wrapcheck // io.Writer decorator: bytes.Buffer.Write never returns an error
+	r.body.Write(b) // a bytes.Buffer write cannot fail
+	return len(b), nil
 }
 
 func (r *recorder) send(w http.ResponseWriter) {

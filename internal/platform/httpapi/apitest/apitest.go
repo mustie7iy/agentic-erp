@@ -50,7 +50,8 @@ type syncBuffer struct {
 func (s *syncBuffer) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.b.Write(p) //nolint:wrapcheck // io.Writer decorator: bytes.Buffer.Write never returns an error; the logger expects its writer's own result
+	s.b.Write(p) // a bytes.Buffer write cannot fail
+	return len(p), nil
 }
 
 // New builds the API; it is skipped without DATABASE_URL.

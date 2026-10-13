@@ -201,7 +201,7 @@ func (r *Keyring) load(ctx context.Context, tenant uuid.UUID) (*tenantKey, error
 		_, err := pgx.ForEachRow(rows, []any{&id, &masterID, &data, &mac, &status}, func() error {
 			k, err := r.unwrap(tenant, id, masterID, data, mac, status)
 			if err != nil {
-				unwrapErr = err
+				unwrapErr = fmt.Errorf("fieldcrypt: key %s of tenant %s: %w", id, tenant, err)
 				return err
 			}
 			r.remember(tenant, k)
@@ -211,7 +211,7 @@ func (r *Keyring) load(ctx context.Context, tenant uuid.UUID) (*tenantKey, error
 			return nil
 		})
 		if unwrapErr != nil {
-			return unwrapErr // already says which key and why
+			return unwrapErr
 		}
 		if err != nil {
 			return fmt.Errorf("fieldcrypt: read keys of tenant %s: %w", tenant, err)

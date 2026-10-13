@@ -108,3 +108,19 @@ func TestTemporal(t *testing.T) {
 		t.Fatalf("worker: %v", err)
 	}
 }
+
+// TestWorkerOnAClosedClient: a worker whose client is closed cannot start,
+// and the error names the queue.
+func TestWorkerOnAClosedClient(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // a worker that did start returns when this ends
+	defer cancel()
+	engine, err := workflow.Dial(ctx, workflow.Config{Address: workflowtest.Server(t), Namespace: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.Close()
+	err = engine.Worker(ctx, "closed", func(r workflow.Registry) { r.RegisterWorkflowWithOptions(echo, sdkworkflow.RegisterOptions{Name: "Echo"}) })
+	if err == nil || !strings.Contains(err.Error(), "workflow: worker on queue closed") {
+		t.Errorf("got %v, want the refused worker reported with its queue", err)
+	}
+}

@@ -3,6 +3,7 @@ package database_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,4 +191,17 @@ func TestBeginOr(t *testing.T) {
 			t.Errorf("transaction_read_only: got %q, want on (the scope reaches the pool)", readOnly)
 		}
 	})
+}
+
+// TestPingClosedPool: a pool that is closed reports the failed ping.
+func TestPingClosedPool(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, pgtest.URL(t), database.DefaultSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+	if err := pool.Ping(ctx); err == nil || !strings.Contains(err.Error(), "database: ping") {
+		t.Errorf("got %v, want the failed ping reported", err)
+	}
 }
