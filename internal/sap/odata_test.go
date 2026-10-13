@@ -71,6 +71,37 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 	}
 }
 
+// Scope values are OData string literals: a quote inside one is doubled, so
+// it cannot end the literal and change the filter.
+func TestODataFilterEscapesQuotes(t *testing.T) {
+	var filter string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		filter = r.URL.Query().Get("$filter")
+		w.Write([]byte(`{"d":{"results":[]}}`))
+	}))
+	defer srv.Close()
+	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{{
+		Table: "BKPF", Service: "S", Entity: "E", CompanyField: "CompanyCode", YearField: "FiscalYear",
+	}}}
+	cases := map[string]struct{ company, year, want string }{
+		"plain values unchanged": {"1000", "2026", "CompanyCode eq '1000' and FiscalYear eq '2026'"},
+		"quote in company code": {"10' or CompanyCode ne '", "2026",
+			"CompanyCode eq '10'' or CompanyCode ne ''' and FiscalYear eq '2026'"},
+		"quote in fiscal year": {"1000", "'", "CompanyCode eq '1000' and FiscalYear eq ''''"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{tc.company}, FiscalYear: tc.year})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if filter != tc.want {
+				t.Errorf("got $filter %q, want %q", filter, tc.want)
+			}
+		})
+	}
+}
+
 func TestMockIsBalancedAndDeterministic(t *testing.T) {
 	a, b := GenerateMock(7, "2026"), GenerateMock(7, "2026")
 	ja, _ := json.Marshal(a)

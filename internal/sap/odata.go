@@ -129,10 +129,10 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 	}
 	var filters []string
 	if companyCode != "" {
-		filters = append(filters, fmt.Sprintf("%s eq '%s'", em.CompanyField, companyCode))
+		filters = append(filters, em.CompanyField+" eq "+odataString(companyCode))
 	}
 	if em.YearField != "" && year != "" {
-		filters = append(filters, fmt.Sprintf("%s eq '%s'", em.YearField, year))
+		filters = append(filters, em.YearField+" eq "+odataString(year))
 	}
 	selectFields := make([]string, 0, len(em.Fields))
 	for _, prop := range em.Fields {
@@ -162,6 +162,13 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 			return out, nil
 		}
 	}
+}
+
+// odataString is s as an OData string literal: quoted, with each single
+// quote doubled (OData v2 and v4), so a value cannot end the literal early
+// and change the filter it sits in.
+func odataString(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // page reads one page of an entity set.
