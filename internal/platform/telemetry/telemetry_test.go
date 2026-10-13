@@ -43,8 +43,10 @@ func TestMiddlewareTracesLogsAndMeasures(t *testing.T) {
 	if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
 		t.Fatalf("log line %s: %v", logs.Bytes(), err)
 	}
-	if line["operation"] != "getOperation" || line["status"] != float64(200) || line["trace_id"] != seen {
-		t.Fatalf("log line %v", line)
+	for field, want := range map[string]any{"operation": "getOperation", "status": float64(200), "trace_id": seen} {
+		if got := line[field]; got != want {
+			t.Errorf("log line %s: got %v, want %v", field, got, want)
+		}
 	}
 	mrec := httptest.NewRecorder()
 	m.Handler().ServeHTTP(mrec, httptest.NewRequest("GET", "/metrics", nil))
@@ -63,8 +65,14 @@ func TestPanicsBecomeProblems(t *testing.T) {
 	}))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("POST", "/x", nil))
-	if rec.Code != 500 || !strings.Contains(rec.Body.String(), "platform.internal") || !strings.Contains(logs.String(), "panic") {
-		t.Fatalf("%d %s", rec.Code, rec.Body)
+	if rec.Code != 500 {
+		t.Errorf("status: got %d, want 500", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "platform.internal") {
+		t.Errorf("body: got %s, want a platform.internal problem", rec.Body)
+	}
+	if !strings.Contains(logs.String(), "panic") {
+		t.Errorf("logs: got %s, want the panic logged", logs.String())
 	}
 	if !strings.Contains(logs.String(), `"operation":"unmatched"`) {
 		t.Fatal("unmatched operation not labelled")
@@ -103,9 +111,11 @@ func TestOTLPExport(t *testing.T) {
 		t.Fatal("no spans exported")
 	}
 	for _, bad := range []string{"::bad", "collector:4318", "ftp://x/y", "http://"} {
-		if _, err := Tracing(ctx, bad); err == nil {
-			t.Errorf("%q accepted", bad)
-		}
+		t.Run(bad, func(t *testing.T) {
+			if _, err := Tracing(ctx, bad); err == nil {
+				t.Errorf("got nil error for endpoint %q, want an error", bad)
+			}
+		})
 	}
 }
 
@@ -121,9 +131,14 @@ func TestGaugesAreReadOnScrape(t *testing.T) {
 	}
 	// Collectors run concurrently, so the error counter shows the failure on this scrape or the next.
 	got := scrape() + scrape()
-	if !strings.Contains(got, "erp_test_backlog 7") || strings.Contains(got, "erp_test_broken 0") ||
-		!regexp.MustCompile(`erp_gauge_read_errors_total\{gauge="erp_test_broken"\} [12]`).MatchString(got) {
-		t.Fatal(got)
+	if !strings.Contains(got, "erp_test_backlog 7") {
+		t.Errorf("got %s, want erp_test_backlog 7", got)
+	}
+	if strings.Contains(got, "erp_test_broken 0") {
+		t.Errorf("got %s, want no value for the broken gauge", got)
+	}
+	if !regexp.MustCompile(`erp_gauge_read_errors_total\{gauge="erp_test_broken"\} [12]`).MatchString(got) {
+		t.Errorf("got %s, want a read error counted for the broken gauge", got)
 	}
 	backlog = 0
 	if got = scrape(); !strings.Contains(got, "erp_test_backlog 0") {
