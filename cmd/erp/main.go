@@ -238,7 +238,11 @@ func call(ctx context.Context, args []string) error {
 		ETag   string
 		Body   json.RawMessage
 	}
-	json.Unmarshal([]byte(res[0].OfText.Text), &r) // the tool's own encoding
+	// The tool's own encoding, unless the answer was over its size limit and
+	// came back truncated.
+	if err := json.Unmarshal([]byte(res[0].OfText.Text), &r); err != nil {
+		return fmt.Errorf("call %s: the answer cannot be read (it may be over the size limit; ask for a smaller page): %w", args[0], err)
+	}
 	pretty, _ := json.MarshalIndent(r.Body, "", "  ")
 	fmt.Fprintf(out, "%d %s\n%s\n", r.Status, r.ETag, pretty)
 	if r.Status >= 400 {

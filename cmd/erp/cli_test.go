@@ -135,6 +135,10 @@ func TestCallErrors(t *testing.T) {
 	fails(t, "missing path parameter", "call", "getMigrationRun")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN is not set", "call", "listMigrationRuns")
+	// An answer over the tool's size limit comes back truncated, no longer
+	// JSON: the command fails rather than print status 0 and null.
+	fakeAPI(t, routes{"GET /v1/migration-runs": {ok(`{"items": ["` + strings.Repeat("x", 50000) + `"]}`)}})
+	fails(t, "cannot be read", "call", "listMigrationRuns")
 }
 
 func TestLocalPreparationErrors(t *testing.T) {
