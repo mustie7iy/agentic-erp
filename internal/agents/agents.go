@@ -210,7 +210,7 @@ func RecordToolCall(ctx context.Context, session uuid.UUID, tool string, input m
 		SELECT $1, $2, coalesce(max(seq), 0) + 1, $3, $4, $5, $6 FROM agents.tool_call WHERE session_id = $2
 		RETURNING `+toolCallColumns, p.TenantID, session, tool, input, summary, isError))
 	if err != nil {
-		return ToolCall{}, fmt.Errorf("agents: record tool call on session %s: %w", session, err)
+		return c, fmt.Errorf("agents: record tool call on session %s: %w", session, err)
 	}
 	return c, nil
 }

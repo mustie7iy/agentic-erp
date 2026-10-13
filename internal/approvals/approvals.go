@@ -162,7 +162,7 @@ func getRequest(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Reques
 		return Request{}, problem.NotFound("No approval request with this id.")
 	}
 	if err != nil {
-		return Request{}, fmt.Errorf("approvals: read request %s: %w", id, err)
+		return r, fmt.Errorf("approvals: read request %s: %w", id, err)
 	}
 	return r, nil
 }
