@@ -84,7 +84,18 @@ single-return path whose failure no test can provoke from becoming its own branc
 - [x] R16 wrapcheck: internal/configuration 31 → 0 (worktree agent, a5af3f3; failed-commit test asserts the job stays queued). Reviewer: APPROVE.
 - [x] R17 wrapcheck: internal/integration 15 → 0 (worktree agent, 82375bd; write paths named in the review follow-up). Reviewer: APPROVE after fixes.
 - [x] R18 wrapcheck: internal/analytics 11 → 0 (worktree agent, 72218e0; render and page-save failures tested in the review follow-up). Reviewer: APPROVE after fixes.
-- [ ] R19 wrapcheck: remaining internal packages and cmd/*
+- [x] R19 wrapcheck: remaining internal packages and cmd/* (worktree agents; reviewer APPROVE after fixes)
+  - R19a identity 22, directory 12, audit 15, offboarding 22, workflows 20 → 0. Follow-ups: 27
+    errs.Wrapf single returns made plain branches; workflows' nolints checked against the Temporal
+    SDK (7 replaced by wraps, 7 workflow results kept with accurate reasons, 2 error constructors);
+    tests for branches only the exact count exposed.
+  - R19b approvals, agents, tenancy, controlplane, provisioning, operations, sap, llm, apitools,
+    capture, config, db: 62 → 0, no nolint.
+  - R19c cmd/erp 41, erp-server 3, erp-router 2 → 0 (parseFlags helper for the 27 flag parses).
+  - Gate: scripts/coverage.sh compared a total rounded to 0.1%, hiding up to ~8 uncovered
+    statements (2 at the branch start, up to 12 mid-phase). It now counts statements exactly:
+    16367 of 16367.
+  Phase 3 total: wrapcheck 490 → 0 across the tree.
 
 ### Phase 4 — Long and complex functions
 - [ ] R20 cmd/erp-server run() split into named steps
@@ -245,6 +256,8 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
   (internal/nfr/harness.go Consistent) comments that such a 201 is "counted, not fatal" yet adds
   it to the errors that fail the run: a flaky check (or a lost response body under load) to look
   at in R30.
+- Phase 3: TestKeyRotationPolicy (internal/controlplane) fails under heavy parallel load; it
+  waits time.Sleep(50ms) before checking a log: R30.
 - Phase 3: five test packages (procurement, offboarding, workflows, controlplane, audit) each
   define a private brokenCommit; pgtest.FailingTx.FailCommit can replace them (R31). A second
   mode that commits and then reports failure would let run-twice tests cover a lost commit.
