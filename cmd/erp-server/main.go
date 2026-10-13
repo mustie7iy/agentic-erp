@@ -135,18 +135,29 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s.startWorkers(runCtx)
+	startWorkers(s, runCtx)
 	bus, err := s.connectBus()
 	if err != nil {
-		return err
+		return s.abort(cancel, err)
 	}
 	if bus != nil {
 		defer bus.Close()
 	}
 	if err := s.startRelay(ctx, runCtx, bus); err != nil {
-		return err
+		return s.abort(cancel, err)
 	}
 	return s.serve(ctx, cancel, started)
+}
+
+// abort ends a startup that failed after the workers started: it stops them
+// and waits, as a shutdown does, so that run's deferred closes (the pool,
+// the engine, the directory) never run under a worker still using them. The
+// relay has not started on this path, so its end is marked here.
+func (s *server) abort(cancel context.CancelFunc, err error) error {
+	cancel()
+	close(s.relayDone)
+	s.wait()
+	return err
 }
 
 // server is what run wires together, one step after the other, before it
@@ -327,6 +338,10 @@ func (s *server) newAPI() error {
 	}
 	return nil
 }
+
+// startWorkers is what run calls to start the workers; tests wrap it to see
+// the server whose workers they check.
+var startWorkers = (*server).startWorkers
 
 // startWorkers starts the background workers on runCtx, which run cancels
 // at shutdown.

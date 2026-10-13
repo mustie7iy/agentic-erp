@@ -300,6 +300,47 @@ func TestStartupFailures(t *testing.T) {
 	}
 }
 
+// TestABusFailureStopsTheWorkersFirst: when the bus cannot be connected or
+// its streams cannot be made, the workers have already started; run returns
+// only once every one of them stopped, so the pool it then closes is no
+// longer in use.
+func TestABusFailureStopsTheWorkersFirst(t *testing.T) {
+	is := authntest.New(t)
+	cases := []struct {
+		name string
+		nats func() string
+	}{
+		{"bus unreachable", func() string { return "nats://127.0.0.1:1" }},
+		{"streams refused", func() string { return natstest.Plain(t) }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var s *server
+			startWorkers = func(srv *server, runCtx context.Context) { s = srv; srv.startWorkers(runCtx) }
+			defer func() { startWorkers = (*server).startWorkers }()
+			if err := run(context.Background(), load(t, environment(t, is, c.nats())), quiet(), nil); err == nil {
+				t.Fatal("got no error, want the bus failure")
+			}
+			if s == nil {
+				t.Fatal("got no workers started, want them started before the bus")
+			}
+			workers := []struct {
+				name string
+				done chan struct{}
+			}{{"relay", s.relayDone}, {"projector", s.projectorDone}, {"proposer", s.proposerDone}, {"dispatcher", s.dispatchDone},
+				{"workflow worker", s.workerDone}, {"simulator", s.simulatorDone}, {"maintenance", s.maintenanceDone}, {"anchorer", s.anchorDone},
+				{"offboarder", s.offboardDone}, {"verifier", s.verifyDone}, {"rotator", s.rotateDone}, {"expirer", s.expireDone}, {"directory sync", s.dirDone}}
+			for _, w := range workers {
+				select {
+				case <-w.done:
+				default:
+					t.Errorf("%s: got still running after run returned, want stopped", w.name)
+				}
+			}
+		})
+	}
+}
+
 func TestAListenerFailureStopsTheServer(t *testing.T) {
 	is := authntest.New(t)
 	cfg := load(t, environment(t, is, ""))
