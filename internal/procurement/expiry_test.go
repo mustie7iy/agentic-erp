@@ -108,19 +108,19 @@ func TestContractExpiry(t *testing.T) {
 	}
 	// Run logs a failed round and a quiet one, and stops with the context.
 	runCtx, cancel := context.WithCancel(ctx)
-	go func() { x.Run(runCtx) }()
-	for !strings.Contains(logs.String(), "contract expiry round failed") {
-		time.Sleep(5 * time.Millisecond)
-	}
+	failed := make(chan struct{})
+	go func() { x.Run(runCtx); close(failed) }()
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "contract expiry round failed") },
+		"no failed round logged: %s", logs)
 	cancel()
+	<-failed // the worker reads x.Begin, which the test changes next
 	x.Begin = nil
 	x.Interval = time.Hour
 	runCtx, cancel = context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { x.Run(runCtx); close(done) }()
-	for !strings.Contains(logs.String(), "expired=1") {
-		time.Sleep(5 * time.Millisecond)
-	}
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "expired=1") },
+		"no expiring round logged: %s", logs)
 	cancel()
 	<-done
 }
