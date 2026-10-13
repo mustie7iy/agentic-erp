@@ -95,10 +95,12 @@ func TestPartitionsStayAhead(t *testing.T) {
 	next := time.Date(2038, 1, 1, 0, 0, 0, 0, time.UTC) // everything is missing: every statement runs
 	for n := 1; ; n++ {
 		var err error
-		pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		if txErr := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
 			_, err = EnsurePartitions(ctx, &failingTx{Tx: tx, failAt: n}, next)
 			return errInjected // keep the database as it was
-		})
+		}); !errors.Is(txErr, errInjected) {
+			t.Fatalf("statement %d: transaction: %v", n, txErr)
+		}
 		if err == nil {
 			if n < 10 {
 				t.Fatalf("succeeded after only %d statements", n)

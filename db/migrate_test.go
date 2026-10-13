@@ -32,11 +32,22 @@ func emptyDatabase(t *testing.T) *pgx.Conn {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		conn.Close(ctx)
-		admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
-		admin.Close(ctx)
+		_ = conn.Close(ctx) // the drop below forces any session off; a test may have closed it already
+		if _, err := admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+			t.Errorf("drop %s: %v", name, err)
+		}
+		_ = admin.Close(ctx) // best-effort: the drop's outcome is checked above
 	})
 	return conn
+}
+
+// mustExec runs a statement a test sets its scene with; a failure stops the test
+// rather than surfacing as a misleading assertion later.
+func mustExec(t *testing.T, conn *pgx.Conn, sql string) {
+	t.Helper()
+	if _, err := conn.Exec(context.Background(), sql); err != nil {
+		t.Fatalf("%s: %v", sql, err)
+	}
 }
 
 func TestMigrateAppliesEverythingOnce(t *testing.T) {
@@ -69,7 +80,7 @@ func TestMigrateIsSafeForConcurrentReplicas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer other.Close(ctx)
+	defer func() { _ = other.Close(ctx) }() // best-effort: the database is dropped at cleanup
 	var wg sync.WaitGroup
 	results := make([][]string, 2)
 	errs := make([]error, 2)
@@ -100,12 +111,14 @@ func TestMigrateRunsNoTransactionMigrationsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n int
-	conn.QueryRow(ctx, "SELECT count(*) FROM pg_indexes WHERE indexname = 't_id'").Scan(&n)
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM pg_indexes WHERE indexname = 't_id'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 1 {
 		t.Fatal("concurrent index not created")
 	}
 	// A newer version applied by a later release is left alone.
-	conn.Exec(ctx, "INSERT INTO public.erp_schema_migration VALUES (99, '000099_future', now())")
+	mustExec(t, conn, "INSERT INTO public.erp_schema_migration VALUES (99, '000099_future', now())")
 	if applied, err := migrate(ctx, conn, ms); err != nil || len(applied) != 0 {
 		t.Fatalf("applied %v, %v", applied, err)
 	}
@@ -143,15 +156,15 @@ func TestMigrateWithoutPrivileges(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
 	// A role that may not create tables cannot create the version table.
-	conn.Exec(ctx, "SET ROLE erp_readonly")
+	mustExec(t, conn, "SET ROLE erp_readonly")
 	if _, err := Migrate(ctx, conn); err == nil || !strings.Contains(err.Error(), "version table") {
 		t.Fatalf("want version table error, got %v", err)
 	}
 	// Nor read it once it exists.
-	conn.Exec(ctx, "RESET ROLE")
-	conn.Exec(ctx, "CREATE TABLE public.erp_schema_migration (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())")
-	conn.Exec(ctx, "GRANT CREATE ON SCHEMA public TO erp_readonly") // this test database only
-	conn.Exec(ctx, "SET ROLE erp_readonly")
+	mustExec(t, conn, "RESET ROLE")
+	mustExec(t, conn, "CREATE TABLE public.erp_schema_migration (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())")
+	mustExec(t, conn, "GRANT CREATE ON SCHEMA public TO erp_readonly") // this test database only
+	mustExec(t, conn, "SET ROLE erp_readonly")
 	if _, err := Migrate(ctx, conn); err == nil || !strings.Contains(err.Error(), "read versions") {
 		t.Fatalf("want read error, got %v", err)
 	}
@@ -176,7 +189,9 @@ func TestMigrateReportsDatabaseErrors(t *testing.T) {
 	if _, err := Migrate(cancelled, conn); err == nil {
 		t.Fatal("cancelled context accepted")
 	}
-	conn.Close(ctx)
+	if err := conn.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Migrate(ctx, conn); err == nil {
 		t.Fatal("closed connection accepted")
 	}

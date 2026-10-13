@@ -55,9 +55,11 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	code := m.Run()
-	testDB.Close(ctx)
-	conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
-	conn.Close(ctx)
+	_ = testDB.Close(ctx) // the drop below forces any session off
+	if _, err := conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+		fmt.Println("drop test database:", err)
+	}
+	_ = conn.Close(ctx) // the process exits next
 	os.Exit(code)
 }
 
@@ -247,8 +249,13 @@ func TestDesignRules(t *testing.T) {
 		var out []string
 		for rows.Next() {
 			var s string
-			rows.Scan(&s)
+			if err := rows.Scan(&s); err != nil {
+				t.Fatal(err)
+			}
 			out = append(out, s)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
 		}
 		return out
 	}
@@ -303,7 +310,9 @@ func TestDesignRules(t *testing.T) {
 	}
 	for _, tbl := range insertOnly {
 		var can bool
-		testDB.QueryRow(ctx, "SELECT has_table_privilege('erp_app', $1, 'UPDATE')", tbl).Scan(&can)
+		if err := testDB.QueryRow(ctx, "SELECT has_table_privilege('erp_app', $1, 'UPDATE')", tbl).Scan(&can); err != nil {
+			t.Fatalf("privilege on %s: %v", tbl, err)
+		}
 		if can {
 			t.Errorf("the application may update insert-only table %s", tbl)
 		}
@@ -317,7 +326,9 @@ func TestMigrationsRevertCleanly(t *testing.T) {
 		t.Fatalf("down: %v", err)
 	}
 	var schemas int
-	testDB.QueryRow(ctx, "SELECT count(*) FROM pg_namespace WHERE nspname IN ('ledger','partner','payables')").Scan(&schemas)
+	if err := testDB.QueryRow(ctx, "SELECT count(*) FROM pg_namespace WHERE nspname IN ('ledger','partner','payables')").Scan(&schemas); err != nil {
+		t.Fatal(err)
+	}
 	if schemas != 0 {
 		t.Fatal("down migrations left schemas behind")
 	}
@@ -619,7 +630,9 @@ func TestGoodsReceiptLimits(t *testing.T) {
 	mustApp(t, f.tenant, receive("1", "101", nil)) // within 10% tolerance
 	failsWith(t, asApp(t, f.tenant, receive("1", "101", nil)), "exceeds ordered")
 	var first uuid.UUID
-	testDB.QueryRow(context.Background(), "SELECT id FROM procurement.goods_movement WHERE tenant_id = $1 ORDER BY posted_at LIMIT 1", f.tenant).Scan(&first)
+	if err := testDB.QueryRow(context.Background(), "SELECT id FROM procurement.goods_movement WHERE tenant_id = $1 ORDER BY posted_at LIMIT 1", f.tenant).Scan(&first); err != nil {
+		t.Fatalf("first goods movement: %v", err)
+	}
 	failsWith(t, asApp(t, f.tenant, receive("-12", "102", &first)), "reversal exceeds")
 }
 
@@ -732,17 +745,30 @@ func TestGaplessDocumentNumbers(t *testing.T) {
 	}
 	// A rolled-back transaction gives its number back.
 	ctx := context.Background()
-	tx, _ := testDB.Begin(ctx)
-	tx.Exec(ctx, "SET LOCAL ROLE erp_app")
-	tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", f.tenant.String())
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec(tx, "SET LOCAL ROLE erp_app"); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec(tx, "SELECT set_config('app.tenant_id', $1, true)", f.tenant.String()); err != nil {
+		t.Fatal(err)
+	}
 	var lost string
-	tx.QueryRow(ctx, "SELECT config.next_document_number($1,$2,'supplier_invoice',2026::smallint)", f.tenant, f.entity).Scan(&lost)
-	tx.Rollback(ctx)
+	if err := tx.QueryRow(ctx, "SELECT config.next_document_number($1,$2,'supplier_invoice',2026::smallint)", f.tenant, f.entity).Scan(&lost); err != nil {
+		t.Fatalf("number in the rolled-back transaction: %v", err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if n, _ := next(); n != "INV-2" {
 		t.Fatalf("gapless range skipped a number: %q", n)
 	}
-	next()
-	_, err := next()
+	if n, err := next(); err != nil {
+		t.Fatalf("last number of the range: %q, %v", n, err)
+	}
+	_, err = next()
 	failsWith(t, err, "exhausted")
 	var missing string
 	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
@@ -780,7 +806,9 @@ func TestAssignmentsAreEndedNeverRewritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	var endedAt *time.Time
-	testDB.QueryRow(context.Background(), "SELECT ended_at FROM identity.principal_role WHERE tenant_id = $1 AND id = $2", f.tenant, assignment).Scan(&endedAt)
+	if err := testDB.QueryRow(context.Background(), "SELECT ended_at FROM identity.principal_role WHERE tenant_id = $1 AND id = $2", f.tenant, assignment).Scan(&endedAt); err != nil {
+		t.Fatalf("ended_at: %v", err)
+	}
 	if endedAt == nil {
 		t.Fatal("ended_at not recorded")
 	}
