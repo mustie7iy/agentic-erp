@@ -183,18 +183,6 @@ func tenantTables(ctx context.Context, tx pgx.Tx) ([]tenantTable, error) {
 	return list, nil
 }
 
-// tables lists the tenant tables' names, as an export records them.
-func tables(ctx context.Context, tx pgx.Tx) ([]string, error) {
-	list, err := tenantTables(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, len(list))
-	for i, t := range list {
-		names[i] = t.Name
-	}
-	return names, nil
-}
 
 // Export writes the tenant's data to the store, one JSON Lines object per
 // table and a manifest, all locked for Retention, and records the export
@@ -229,7 +217,7 @@ func (w *Worker) writeExport(ctx context.Context, tenant uuid.UUID) (Export, err
 	if err != nil {
 		return Export{}, err
 	}
-	names, err := tables(ctx, tx)
+	list, err := tenantTables(ctx, tx)
 	if err != nil {
 		return Export{}, err
 	}
@@ -241,8 +229,8 @@ func (w *Worker) writeExport(ctx context.Context, tenant uuid.UUID) (Export, err
 	}
 	m := manifest{TenantID: tenant, Tenant: row, ExportedAt: now}
 	var ex Export
-	for _, name := range names {
-		parts, rows, err := w.exportTable(ctx, tx, tenant, name, dir, opts)
+	for _, t := range list {
+		parts, rows, err := w.exportTable(ctx, tx, tenant, t, dir, opts)
 		if err != nil {
 			return Export{}, err
 		}
@@ -319,12 +307,13 @@ func (w *Worker) recordExport(ctx context.Context, tenant uuid.UUID, ex Export) 
 // exportTable streams a table's rows into objects of ChunkRows each, so a
 // table takes a bounded amount of memory whatever its size, and returns the
 // parts written and the rows they hold.
-func (w *Worker) exportTable(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, name, dir string, opts blobstore.PutOptions) ([]exportedTable, int64, error) {
+func (w *Worker) exportTable(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, t tenantTable, dir string, opts blobstore.PutOptions) ([]exportedTable, int64, error) {
+	name := t.Name
 	chunk := w.ChunkRows
 	if chunk <= 0 {
 		chunk = 10000
 	}
-	rows, _ := tx.Query(ctx, `SELECT row_to_json(t)::text FROM `+name+` t WHERE tenant_id = $1`, tenant) // errors surface from ForEachRow
+	rows, _ := tx.Query(ctx, `SELECT row_to_json(t)::text FROM `+t.ident()+` t WHERE tenant_id = $1`, tenant) // errors surface from ForEachRow
 	var parts []exportedTable
 	var total int64
 	var buf strings.Builder
