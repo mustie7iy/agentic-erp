@@ -80,8 +80,11 @@ func (s sim) tier3(t *testing.T, rate string) (map[string]any, map[string]any) {
 	doc.Companies[1].TaxCodes[0].RatePercent = rate
 	cr, _ := s.Must(201, "POST", "/v1/change-requests", fmt.Sprintf(`{"title": "Tax %s", "rationale": "Law", "base_version": 1, "proposed": %s}`, rate, jsonOf(t, doc)), "")
 	got, tag := s.Must(200, "POST", "/v1/change-requests/"+cr["id"].(string)+":submit", "", `"1"`)
-	if got["status"] != "awaiting_evidence" || got["tier"] != float64(3) {
-		t.Fatalf("submitted: %v", got)
+	if got["status"] != "awaiting_evidence" {
+		t.Fatalf("submitted: got status %v, want awaiting_evidence", got["status"])
+	}
+	if got["tier"] != float64(3) {
+		t.Fatalf("submitted: got tier %v, want 3", got["tier"])
 	}
 	op, _ := s.Must(202, "POST", "/v1/change-requests/"+cr["id"].(string)+":simulate", "", tag)
 	return got, op
@@ -104,25 +107,50 @@ func TestSimulationEvidenceMovesTier3On(t *testing.T) {
 	fake := &fakeSimulator{sim: configuration.Simulation{Passed: true, Summary: "3 invoices replayed", Detail: map[string]any{"invoices": 3}}}
 	w := worker(t, fake)
 	// The package database holds other tests' tenants too, so a round may run more than this job.
-	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 || fake.calls < 1 {
-		t.Fatalf("run: %d %v", n, err)
+	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 {
+		t.Fatalf("run: got %d %v, want at least one job", n, err)
+	}
+	if fake.calls < 1 {
+		t.Fatalf("simulator calls: got %d, want at least 1", fake.calls)
 	}
 	got := s.status(t, path)
-	if got["status"] != "pending_approval" || got["workflow_request_id"] == nil || len(got["evidence"].([]any)) != 2 {
-		t.Fatalf("after the simulation: %v", got)
+	if got["status"] != "pending_approval" {
+		t.Errorf("after the simulation: got status %v, want pending_approval", got["status"])
+	}
+	if got["workflow_request_id"] == nil {
+		t.Error("after the simulation: got no workflow_request_id, want one")
+	}
+	if n := len(got["evidence"].([]any)); n != 2 {
+		t.Fatalf("after the simulation: got %d pieces of evidence %v, want 2", n, got["evidence"])
 	}
 	e := evidenceOf(got, "simulation")
-	if e["passed"] != true || e["summary"] != "3 invoices replayed" || e["detail"].(map[string]any)["invoices"] != float64(3) ||
-		e["recorded_by"] != s.Tenant.Human.ID.String() || evidenceOf(got, "regression")["passed"] != true {
-		t.Fatalf("evidence: %v", got["evidence"])
+	for field, want := range map[string]any{"passed": true, "summary": "3 invoices replayed", "recorded_by": s.Tenant.Human.ID.String()} {
+		if e[field] != want {
+			t.Errorf("simulation evidence %s: got %v, want %v", field, e[field], want)
+		}
+	}
+	if invoices := e["detail"].(map[string]any)["invoices"]; invoices != float64(3) {
+		t.Errorf("simulation evidence invoices: got %v, want 3", invoices)
+	}
+	if passed := evidenceOf(got, "regression")["passed"]; passed != true {
+		t.Errorf("regression evidence passed: got %v, want true", passed)
 	}
 	done := s.status(t, opPath)
-	if done["status"] != "succeeded" || done["resource"] != path || done["result"].(map[string]any)["status"] != "pending_approval" {
-		t.Fatalf("operation: %v", done)
+	for field, want := range map[string]any{"status": "succeeded", "resource": path} {
+		if done[field] != want {
+			t.Errorf("operation %s: got %v, want %v", field, done[field], want)
+		}
+	}
+	if result := done["result"].(map[string]any)["status"]; result != "pending_approval" {
+		t.Errorf("operation result status: got %v, want pending_approval", result)
 	}
 	validated := events(t, s.Tenant, "change_request_validated")
-	if last := validated[len(validated)-1]; last["outcome"] != "pending_approval" || last["workflow_request_id"] == nil {
-		t.Fatalf("events: %v", validated)
+	last := validated[len(validated)-1]
+	if last["outcome"] != "pending_approval" {
+		t.Errorf("last validated event outcome: got %v, want pending_approval", last["outcome"])
+	}
+	if last["workflow_request_id"] == nil {
+		t.Error("last validated event workflow_request_id: got nil, want a request")
 	}
 	if r := s.Pending(t, cr["id"].(string)); len(r["steps"].([]any)) != 2 {
 		t.Fatalf("approval request: %v", r)
@@ -132,8 +160,12 @@ func TestSimulationEvidenceMovesTier3On(t *testing.T) {
 	if approved["status"] != "approved" {
 		t.Fatalf("approved: %v", approved)
 	}
-	if active, _ := s.Must(200, "POST", path+":activate", "", tag); active["status"] != "active" || active["activated_version"] != float64(2) {
-		t.Fatalf("activated: %v", active)
+	active, _ := s.Must(200, "POST", path+":activate", "", tag)
+	if active["status"] != "active" {
+		t.Errorf("activated status: got %v, want active", active["status"])
+	}
+	if active["activated_version"] != float64(2) {
+		t.Errorf("activated version: got %v, want 2", active["activated_version"])
 	}
 	if n, err := w.RunOnce(context.Background()); err != nil || n != 0 {
 		t.Fatalf("nothing left: %d %v", n, err)
@@ -153,11 +185,19 @@ func TestSimulationOutcomes(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("failed simulation: %d %v", n, err)
 	}
-	if got := s.status(t, path); got["status"] != "awaiting_evidence" || evidenceOf(got, "simulation")["passed"] != false {
-		t.Fatalf("after a failed simulation: %v", got)
+	got := s.status(t, path)
+	if got["status"] != "awaiting_evidence" {
+		t.Errorf("after a failed simulation: got status %v, want awaiting_evidence", got["status"])
 	}
-	if done := s.status(t, opPath); done["status"] != "succeeded" || done["result"].(map[string]any)["passed"] != false {
-		t.Fatalf("operation: %v", done)
+	if passed := evidenceOf(got, "simulation")["passed"]; passed != false {
+		t.Errorf("after a failed simulation: got passed %v, want false", passed)
+	}
+	done := s.status(t, opPath)
+	if done["status"] != "succeeded" {
+		t.Errorf("operation status: got %v, want succeeded", done["status"])
+	}
+	if passed := done["result"].(map[string]any)["passed"]; passed != false {
+		t.Errorf("operation result passed: got %v, want false", passed)
 	}
 	// Simulated again with a passing result, the latest evidence applies.
 	_, tag := s.Must(200, "GET", path, "", "")
@@ -166,8 +206,12 @@ func TestSimulationOutcomes(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("second simulation: %d %v", n, err)
 	}
-	if got := s.status(t, path); got["status"] != "pending_approval" || len(got["evidence"].([]any)) != 4 {
-		t.Fatalf("after the second simulation: %v", got)
+	got = s.status(t, path)
+	if got["status"] != "pending_approval" {
+		t.Errorf("after the second simulation: got status %v, want pending_approval", got["status"])
+	}
+	if n := len(got["evidence"].([]any)); n != 4 {
+		t.Errorf("after the second simulation: got %d pieces of evidence, want 4", n)
 	}
 
 	// A proposal the simulator refuses fails the operation; a transient error leaves it queued.
@@ -184,11 +228,19 @@ func TestSimulationOutcomes(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("refused: %d %v", n, err)
 	}
-	if failed := s.status(t, opPath); failed["status"] != "failed" || failed["error"].(map[string]any)["code"] != "config.unreplayable" {
-		t.Fatalf("refused operation: %v", failed)
+	failed := s.status(t, opPath)
+	if failed["status"] != "failed" {
+		t.Errorf("refused operation: got status %v, want failed", failed["status"])
 	}
-	if got := s.status(t, path); got["status"] != "awaiting_evidence" || len(got["evidence"].([]any)) != 0 {
-		t.Fatalf("after a refusal: %v", got)
+	if code := failed["error"].(map[string]any)["code"]; code != "config.unreplayable" {
+		t.Errorf("refused operation: got code %v, want config.unreplayable", code)
+	}
+	got = s.status(t, path)
+	if got["status"] != "awaiting_evidence" {
+		t.Errorf("after a refusal: got status %v, want awaiting_evidence", got["status"])
+	}
+	if n := len(got["evidence"].([]any)); n != 0 {
+		t.Errorf("after a refusal: got %d pieces of evidence, want 0", n)
 	}
 	fake.err = nil
 
@@ -200,8 +252,12 @@ func TestSimulationOutcomes(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("withdrawn: %d %v", n, err)
 	}
-	if failed := s.status(t, opPath); failed["status"] != "failed" || failed["error"].(map[string]any)["code"] != "config.invalid_status" {
-		t.Fatalf("withdrawn operation: %v", failed)
+	failed = s.status(t, opPath)
+	if failed["status"] != "failed" {
+		t.Errorf("withdrawn operation: got status %v, want failed", failed["status"])
+	}
+	if code := failed["error"].(map[string]any)["code"]; code != "config.invalid_status" {
+		t.Errorf("withdrawn operation: got code %v, want config.invalid_status", code)
 	}
 	// A cancelled operation is left alone; an operation naming no request fails.
 	_, op = s.tier3(t, "5")
@@ -213,8 +269,12 @@ func TestSimulationOutcomes(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("bogus and cancelled: %d %v", n, err)
 	}
-	if failed := s.status(t, "/v1/operations/"+bogus.String()); failed["status"] != "failed" || failed["error"].(map[string]any)["code"] != "config.invalid_request" {
-		t.Fatalf("bogus operation: %v", failed)
+	failed = s.status(t, "/v1/operations/"+bogus.String())
+	if failed["status"] != "failed" {
+		t.Errorf("bogus operation: got status %v, want failed", failed["status"])
+	}
+	if code := failed["error"].(map[string]any)["code"]; code != "config.invalid_request" {
+		t.Errorf("bogus operation: got code %v, want config.invalid_request", code)
 	}
 	if n, err := w.RunOnce(ctx); err != nil || n != 0 {
 		t.Fatalf("cancelled left alone: %d %v", n, err)
@@ -237,8 +297,11 @@ func TestSimulationWorkerFailures(t *testing.T) {
 	}
 	bad = worker(t, fake)
 	bad.AppRole = "no_such_role"
-	if n, err := bad.RunOnce(ctx); err == nil || n != 0 || status() != "queued" {
-		t.Fatalf("ran without the app role: %d %v", n, err)
+	if n, err := bad.RunOnce(ctx); err == nil || n != 0 {
+		t.Fatalf("ran without the app role: got %d %v, want an error and no job", n, err)
+	}
+	if got := status(); got != "queued" {
+		t.Fatalf("ran without the app role: got operation %s, want queued", got)
 	}
 	// Every statement of a round can fail; the job stays queued until one succeeds.
 	pool := pgtest.Pool(t)
@@ -254,13 +317,25 @@ func TestSimulationWorkerFailures(t *testing.T) {
 		}
 		n, err := w.RunOnce(ctx)
 		if err == nil {
-			if n < 1 || status() != "succeeded" || s.status(t, "/v1/change-requests/"+cr["id"].(string))["status"] != "pending_approval" {
-				t.Fatalf("after %d failures: %d %s", failAt-1, n, status())
+			if n < 1 {
+				t.Errorf("after %d failures: got %d jobs, want at least 1", failAt-1, n)
+			}
+			if got := status(); got != "succeeded" {
+				t.Errorf("after %d failures: got operation %s, want succeeded", failAt-1, got)
+			}
+			if got := s.status(t, "/v1/change-requests/"+cr["id"].(string))["status"]; got != "pending_approval" {
+				t.Errorf("after %d failures: got change request %v, want pending_approval", failAt-1, got)
 			}
 			break
 		}
-		if !errors.Is(err, pgtest.ErrInjected) || status() != "queued" || failAt > 100 {
-			t.Fatalf("statement %d: %v (%s)", failAt, err, status())
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("statement %d: got %v, want %v", failAt, err, pgtest.ErrInjected)
+		}
+		if got := status(); got != "queued" {
+			t.Fatalf("statement %d: got operation %s, want queued", failAt, got)
+		}
+		if failAt > 100 {
+			t.Fatalf("statement %d: still failing, want a round to succeed within 100 statements", failAt)
 		}
 	}
 	for name, begin := range map[string]func(context.Context, database.Scope) (pgx.Tx, error){
@@ -270,11 +345,13 @@ func TestSimulationWorkerFailures(t *testing.T) {
 			return &pgtest.FailingTx{Tx: tx, FailAt: 1}, err
 		},
 	} {
-		w := worker(t, fake)
-		w.Begin = begin
-		if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			w := worker(t, fake)
+			w.Begin = begin
+			if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want %v", err, pgtest.ErrInjected)
+			}
+		})
 	}
 	_, op3 := s.tier3(t, "3")
 	begun := 0
@@ -285,8 +362,11 @@ func TestSimulationWorkerFailures(t *testing.T) {
 		}
 		return pool.Begin(ctx, sc)
 	}
-	if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) || begun < 2 {
-		t.Fatalf("tenant transaction: %v after %d", err, begun)
+	if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("tenant transaction: got %v, want %v", err, pgtest.ErrInjected)
+	}
+	if begun < 2 {
+		t.Fatalf("tenant transaction: got %d transactions begun, want at least 2", begun)
 	}
 	// A failed commit leaves the job queued for another attempt.
 	failed := worker(t, fake)

@@ -3,6 +3,7 @@ package configuration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -100,10 +101,12 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 	}
 	for name, call := range calls {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
 	}
 
 	bare := setup(t, true)
@@ -115,7 +118,7 @@ func TestDatabaseFailures(t *testing.T) {
 		t.Error("bootstrap outside a unit of work")
 	}
 	apitest.EveryFailure(t, bare.ten, bare.ten.Human, "bootstrap", bootstrap)
-	for _, fn := range []func(context.Context) error{
+	for i, fn := range []func(context.Context) error{
 		func(ctx context.Context) error {
 			_, err := configuration.CreateChangeRequest(ctx, configuration.NewChangeRequest{})
 			return err
@@ -137,9 +140,11 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if fn(context.Background()) == nil {
-			t.Error("context function outside a unit of work")
-		}
+		t.Run(fmt.Sprintf("context function %d", i), func(t *testing.T) {
+			if fn(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+		})
 	}
 
 	// Page sizes are checked by the handlers too, for callers other than the generated router.
@@ -158,9 +163,11 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
-			t.Errorf("%s: page_size 0 accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
+				t.Error("page_size 0: got no error, want it refused")
+			}
+		})
 	}
 }
 
@@ -196,14 +203,24 @@ func TestStateFromLaterSteps(t *testing.T) {
 		VALUES ($1, $2, 'simulation', true, '120 invoices replayed', '{"replayed": 120}', $3)`, e.ten.ID, crID, e.ten.Human.ID)
 	got, _ := e.Must(200, "GET", "/v1/change-requests/"+crID.String(), "", "")
 	ev := got["evidence"].([]any)
-	if got["workflow_request_id"] != wf.String() || len(ev) != 1 || ev[0].(map[string]any)["detail"].(map[string]any)["replayed"] != float64(120) {
-		t.Fatalf("change request: %v", got)
+	if got["workflow_request_id"] != wf.String() {
+		t.Errorf("workflow_request_id: got %v, want %s", got["workflow_request_id"], wf)
+	}
+	if len(ev) != 1 {
+		t.Fatalf("evidence: got %d %v, want 1", len(ev), ev)
+	}
+	if replayed := ev[0].(map[string]any)["detail"].(map[string]any)["replayed"]; replayed != float64(120) {
+		t.Errorf("evidence replayed: got %v, want 120", replayed)
 	}
 	pgtest.Exec(t, `INSERT INTO config.config_version (tenant_id, id, number, document, hash, source, restored_from, activated_by)
 		SELECT tenant_id, gen_random_uuid(), 2, document, hash, 'rollback', 1, activated_by FROM config.config_version WHERE tenant_id = $1`, e.ten.ID)
 	list, _ := e.Must(200, "GET", "/v1/config-versions?number=2", "", "")
-	if v := list["items"].([]any)[0].(map[string]any); v["restored_from"] != float64(1) || v["is_active"] != false {
-		t.Fatalf("rollback version: %v", v)
+	v := list["items"].([]any)[0].(map[string]any)
+	if v["restored_from"] != float64(1) {
+		t.Errorf("rollback version restored_from: got %v, want 1", v["restored_from"])
+	}
+	if v["is_active"] != false {
+		t.Errorf("rollback version is_active: got %v, want false", v["is_active"])
 	}
 	// Simulation reports a missing audit buffer (a call outside the unit of work's setup).
 	ctx := context.Background()
