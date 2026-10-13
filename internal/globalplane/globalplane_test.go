@@ -490,8 +490,8 @@ func TestVerifyTenant(t *testing.T) {
 	if v["equal"] != true {
 		t.Errorf("equal: got %v, want true", v["equal"])
 	}
-	if diffs, _ := v["differences"].([]any); len(diffs) != 0 {
-		t.Errorf("equal differences: got %v, want none", diffs)
+	if diffs, ok := v["differences"].([]any); !ok || len(diffs) != 0 {
+		t.Errorf("equal differences: got %v, want an empty list", v["differences"])
 	}
 	if source, _ := v["source"].(map[string]any); source["cell"] != region+"-a" {
 		t.Errorf("equal source cell: got %v, want %s-a", source["cell"], region)

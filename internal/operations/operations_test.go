@@ -62,7 +62,10 @@ func TestGetOperation(t *testing.T) {
 		t.Fatalf("%d %s", r.Code, r.Body)
 	}
 	got := apitest.JSON(t, r)
-	progress, _ := got["progress"].(map[string]any)
+	progress, ok := got["progress"].(map[string]any)
+	if !ok {
+		t.Fatalf("progress: got %v, want an object (a required field)", got["progress"])
+	}
 	for field, c := range map[string]struct{ got, want any }{
 		"id":             {got["id"], o.ID.String()},
 		"status":         {got["status"], "queued"},

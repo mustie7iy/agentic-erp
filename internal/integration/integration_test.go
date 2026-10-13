@@ -374,8 +374,8 @@ func TestQualityGateAndRefusedLoads(t *testing.T) {
 	if got["status"] != "failed" {
 		t.Errorf("failed controls status: got %v, want failed", got["status"])
 	}
-	if missing, _ := report["missing_documents"].([]any); len(missing) != 1 {
-		t.Errorf("failed controls missing documents: got %d, want 1: %v", len(missing), missing)
+	if missing, ok := report["missing_documents"].([]any); !ok || len(missing) != 1 {
+		t.Errorf("failed controls missing documents: got %v, want a list of 1", report["missing_documents"])
 	}
 	if diffs := fmt.Sprint(report["diffs"]); !strings.Contains(diffs, "partner "+stranger.String()) {
 		t.Errorf("failed controls diffs: got %s, want partner %s among them", diffs, stranger)

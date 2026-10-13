@@ -355,7 +355,8 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	// Other tests offboard tenants in the same database: every item must be
 	// offboarded, and of this test's two tenants only the offboarded one listed.
 	filtered, _ := p.must(200, "ops|alice", "GET", tenants+"?status=offboarded&page_size=500", "")
-	// The package database holds every earlier run's tenants; the checks below
+	// The package database holds every tenant this binary made, earlier -count
+	// runs included; the checks below
 	// read one page, so a second one would leave tenants unchecked.
 	if next := filtered["next_page_token"]; next != nil {
 		t.Fatalf("offboarded tenants: got more than one page (next %v), want them all on one", next)
