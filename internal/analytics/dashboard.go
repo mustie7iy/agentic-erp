@@ -60,91 +60,126 @@ type Compare struct {
 // Validate checks that every reference resolves and that the commentary
 // only cites numbers the results support.
 func (s *Spec) Validate(results map[string]*Result) []string {
-	var problems []string
-	bad := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
+	v := &specValidator{results: results}
 	if strings.TrimSpace(s.Title) == "" {
-		bad("title is required")
+		v.bad("title is required")
 	}
 	if len(s.Tiles)+len(s.Charts)+len(s.Tables) == 0 {
-		bad("add at least one tile, chart or table")
-	}
-	get := func(where, id string) *Result {
-		r := results[id]
-		if r == nil {
-			bad("%s: unknown query_id %q (run the query first)", where, id)
-		}
-		return r
+		v.bad("add at least one tile, chart or table")
 	}
 	for i, t := range s.Tiles {
-		where := fmt.Sprintf("tile %d (%s)", i+1, t.Label)
-		r := get(where, t.QueryID)
-		if r == nil {
-			continue
-		}
-		if r.col(t.Measure) < 0 || r.Columns[r.col(t.Measure)].Kind != "measure" {
-			bad("%s: measure %q is not in query %s", where, t.Measure, t.QueryID)
-			continue
-		}
-		if _, n, err := r.sum(t.Measure, t.Where); err != nil {
-			bad("%s: %v", where, err)
-		} else if n == 0 {
-			bad("%s: no rows match %v", where, t.Where)
-		}
-		if t.CompareWhere != nil {
-			if _, n, err := r.sum(t.Measure, t.CompareWhere); err != nil {
-				bad("%s compare: %v", where, err)
-			} else if n == 0 {
-				bad("%s: no rows match compare_where %v", where, t.CompareWhere)
-			}
-		}
+		v.tile(i, t)
 	}
 	for i, c := range s.Charts {
-		where := fmt.Sprintf("chart %d (%s)", i+1, c.Title)
-		r := get(where, c.QueryID)
-		if r == nil {
-			continue
-		}
-		if c.Type != "bar" && c.Type != "line" {
-			bad("%s: type must be bar or line", where)
-		}
-		if r.col(c.X) < 0 || r.Columns[r.col(c.X)].Kind != "dimension" {
-			bad("%s: x %q is not a dimension of query %s", where, c.X, c.QueryID)
-		}
-		if c.Series != "" && (r.col(c.Series) < 0 || r.Columns[r.col(c.Series)].Kind != "dimension") {
-			bad("%s: series %q is not a dimension of query %s", where, c.Series, c.QueryID)
-		}
-		if r.col(c.Measure) < 0 || r.Columns[r.col(c.Measure)].Kind != "measure" {
-			bad("%s: measure %q is not in query %s", where, c.Measure, c.QueryID)
-		}
+		v.chart(i, c)
 	}
 	for i, t := range s.Tables {
-		where := fmt.Sprintf("table %d (%s)", i+1, t.Title)
-		r := get(where, t.QueryID)
-		if r == nil || t.Compare == nil {
-			continue
-		}
-		c := t.Compare
-		if r.col(c.Dim) < 0 || r.Columns[r.col(c.Dim)].Kind != "dimension" {
-			bad("%s: compare dim %q is not a dimension of query %s", where, c.Dim, t.QueryID)
-		}
-		if r.col(c.Measure) < 0 || r.Columns[r.col(c.Measure)].Kind != "measure" {
-			bad("%s: compare measure %q is not in query %s", where, c.Measure, t.QueryID)
-		}
+		v.table(i, t)
 	}
 	if s.Commentary != "" {
-		var used []*Result
-		for _, r := range results {
-			used = append(used, r)
-		}
-		if missing := CheckNarrative(s.Commentary, used); len(missing) > 0 {
-			problems = append(problems, narrativeError(missing).Error())
+		v.commentary(s.Commentary)
+	}
+	return v.problems
+}
+
+// specValidator collects the problems of a spec in the order found.
+type specValidator struct {
+	results  map[string]*Result
+	problems []string
+}
+
+func (v *specValidator) bad(format string, args ...any) {
+	v.problems = append(v.problems, fmt.Sprintf(format, args...))
+}
+
+// get resolves a query_id, reporting an unknown one.
+func (v *specValidator) get(where, id string) *Result {
+	r := v.results[id]
+	if r == nil {
+		v.bad("%s: unknown query_id %q (run the query first)", where, id)
+	}
+	return r
+}
+
+func (v *specValidator) tile(i int, t Tile) {
+	where := fmt.Sprintf("tile %d (%s)", i+1, t.Label)
+	r := v.get(where, t.QueryID)
+	if r == nil {
+		return
+	}
+	if !r.hasColumn(t.Measure, "measure") {
+		v.bad("%s: measure %q is not in query %s", where, t.Measure, t.QueryID)
+		return
+	}
+	if _, n, err := r.sum(t.Measure, t.Where); err != nil {
+		v.bad("%s: %v", where, err)
+	} else if n == 0 {
+		v.bad("%s: no rows match %v", where, t.Where)
+	}
+	if t.CompareWhere != nil {
+		if _, n, err := r.sum(t.Measure, t.CompareWhere); err != nil {
+			v.bad("%s compare: %v", where, err)
+		} else if n == 0 {
+			v.bad("%s: no rows match compare_where %v", where, t.CompareWhere)
 		}
 	}
-	return problems
+}
+
+func (v *specValidator) chart(i int, c Chart) {
+	where := fmt.Sprintf("chart %d (%s)", i+1, c.Title)
+	r := v.get(where, c.QueryID)
+	if r == nil {
+		return
+	}
+	if c.Type != "bar" && c.Type != "line" {
+		v.bad("%s: type must be bar or line", where)
+	}
+	if !r.hasColumn(c.X, "dimension") {
+		v.bad("%s: x %q is not a dimension of query %s", where, c.X, c.QueryID)
+	}
+	if c.Series != "" && !r.hasColumn(c.Series, "dimension") {
+		v.bad("%s: series %q is not a dimension of query %s", where, c.Series, c.QueryID)
+	}
+	if !r.hasColumn(c.Measure, "measure") {
+		v.bad("%s: measure %q is not in query %s", where, c.Measure, c.QueryID)
+	}
+}
+
+func (v *specValidator) table(i int, t Table) {
+	where := fmt.Sprintf("table %d (%s)", i+1, t.Title)
+	r := v.get(where, t.QueryID)
+	if r == nil || t.Compare == nil {
+		return
+	}
+	c := t.Compare
+	if !r.hasColumn(c.Dim, "dimension") {
+		v.bad("%s: compare dim %q is not a dimension of query %s", where, c.Dim, t.QueryID)
+	}
+	if !r.hasColumn(c.Measure, "measure") {
+		v.bad("%s: compare measure %q is not in query %s", where, c.Measure, t.QueryID)
+	}
+}
+
+// commentary checks the commentary against every result, not only those
+// the spec references: the agent may cite any query it ran.
+func (v *specValidator) commentary(text string) {
+	var used []*Result
+	for _, r := range v.results {
+		used = append(used, r)
+	}
+	if missing := CheckNarrative(text, used); len(missing) > 0 {
+		v.problems = append(v.problems, narrativeError(missing).Error())
+	}
 }
 
 func (r *Result) col(name string) int {
 	return slices.IndexFunc(r.Columns, func(c Column) bool { return c.Name == name })
+}
+
+// hasColumn reports whether the result has a column name of the given kind.
+func (r *Result) hasColumn(name, kind string) bool {
+	i := r.col(name)
+	return i >= 0 && r.Columns[i].Kind == kind
 }
 
 // sum adds a measure over rows whose dimensions match every where entry.
@@ -159,21 +194,31 @@ func (r *Result) sum(measure string, where map[string]string) (float64, int, err
 		}
 	}
 	if r.Columns[mi].Type == Ratio {
-		// A ratio can only be read from exactly one row.
-		var val float64
-		n := 0
-		for _, row := range r.Rows {
-			if rowMatches(r, row, where) {
-				if v, ok := row[mi].(float64); ok {
-					val, n = v, n+1
-				}
+		return r.ratioValue(measure, mi, where)
+	}
+	total, n := r.total(mi, where)
+	return total, n, nil
+}
+
+// ratioValue reads a ratio from the one matching row: ratios do not add up.
+func (r *Result) ratioValue(measure string, mi int, where map[string]string) (float64, int, error) {
+	var val float64
+	n := 0
+	for _, row := range r.Rows {
+		if rowMatches(r, row, where) {
+			if v, ok := row[mi].(float64); ok {
+				val, n = v, n+1
 			}
 		}
-		if n > 1 {
-			return 0, n, fmt.Errorf("ratio %s matches %d rows; narrow where to one row", measure, n)
-		}
-		return val, n, nil
 	}
+	if n > 1 {
+		return 0, n, fmt.Errorf("ratio %s matches %d rows; narrow where to one row", measure, n)
+	}
+	return val, n, nil
+}
+
+// total adds the measure over the matching rows that have a value.
+func (r *Result) total(mi int, where map[string]string) (float64, int) {
 	var total float64
 	n := 0
 	for _, row := range r.Rows {
@@ -185,7 +230,7 @@ func (r *Result) sum(measure string, where map[string]string) (float64, int, err
 			n++
 		}
 	}
-	return round(total, 2), n, nil
+	return round(total, 2), n
 }
 
 func rowMatches(r *Result, row Row, where map[string]string) bool {
