@@ -161,12 +161,8 @@ func TestScheduledVerification(t *testing.T) {
 	liveCtx, stopLive := context.WithCancel(ctx)
 	lived := make(chan struct{})
 	go func() { v.Run(liveCtx); close(lived) }()
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logs.String(), "audit verification round"); {
-		if time.Now().After(deadline) {
-			t.Fatal("no round logged")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "audit verification round") },
+		"no round logged")
 	stopLive()
 	<-lived
 	v.Interval = 0
@@ -177,12 +173,10 @@ func TestScheduledVerification(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { v.Run(runCtx); close(done) }()
-	time.Sleep(5 * time.Millisecond)
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "audit verification round failed") },
+		"logs: %s", logs)
 	cancel()
 	<-done
-	if !strings.Contains(logs.String(), "audit verification round failed") {
-		t.Fatalf("logs: %s", logs.String())
-	}
 }
 
 // brokenCommit is a transaction whose commit fails.

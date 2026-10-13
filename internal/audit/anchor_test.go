@@ -324,14 +324,9 @@ func TestAnchoringFailures(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { broken.Run(runCtx); close(done) }()
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logs.String(), "audit anchoring failed"); {
-		if time.Now().After(deadline) {
-			cancel()
-			<-done
-			t.Fatalf("logs: %s", logs.String())
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "audit anchoring failed") },
+		"logs: %s", logs)
 	cancel()
 	<-done
 	// Verification against a store that cannot read is an error of the platform.
