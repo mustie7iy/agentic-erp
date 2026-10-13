@@ -35,8 +35,12 @@ func TestSoak(t *testing.T) {
 			first = st
 		}
 		last = st
-		if p, o := s.Backlogs(); p > 2000 || o > 2000 {
-			t.Errorf("window %v: workers fall behind: %d entries unprojected, %d events unpublished", elapsed, p, o)
+		p, o := s.Backlogs()
+		if p > 2000 {
+			t.Errorf("window %v: projector falls behind: got %d entries unprojected, want at most 2000", elapsed, p)
+		}
+		if o > 2000 {
+			t.Errorf("window %v: relay falls behind: got %d events unpublished, want at most 2000", elapsed, o)
 		}
 	}
 	// Latency at the end is where it was at the start (within noise), or within budget.

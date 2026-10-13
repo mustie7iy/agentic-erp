@@ -176,8 +176,11 @@ func TestResilienceEventBusLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	published := countPublished()
-	if got := ledgerEvents(t, s.NATS.URL, s); got != published || published == 0 {
-		t.Errorf("stream has %d ledger events, outbox published %d", got, published)
+	if published == 0 {
+		t.Error("outbox published 0 events, want some")
+	}
+	if got := ledgerEvents(t, s.NATS.URL, s); got != published {
+		t.Errorf("stream ledger events: got %d, want %d (the outbox published count)", got, published)
 	}
 	t.Logf("%d events waited for the bus; %d published once", unpublished, published)
 }
@@ -245,8 +248,14 @@ func TestResilienceWorkerRestarts(t *testing.T) {
 		t.Error(err)
 	}
 	published := s.Count(`SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1 AND published_at IS NOT NULL`, s.Env.Tenant.ID)
-	if got := ledgerEvents(t, nats, s); got != published || published == 0 || relay.crashes.Load() >= 0 {
-		t.Errorf("stream has %d ledger events, outbox published %d, relay crashes left %d", got, published, relay.crashes.Load())
+	if published == 0 {
+		t.Error("outbox published 0 events, want some")
+	}
+	if got := ledgerEvents(t, nats, s); got != published {
+		t.Errorf("stream ledger events: got %d, want %d (the outbox published count)", got, published)
+	}
+	if left := relay.crashes.Load(); left >= 0 {
+		t.Errorf("relay crashes left: got %d, want every crash used (below 0)", left)
 	}
 
 	// The proposal worker crashes in the middle of building a run; the next round builds it, once.
@@ -298,8 +307,11 @@ func TestResilienceWorkerRestarts(t *testing.T) {
 	}
 	run := s.Must(ctx, Req{Method: "GET", Path: op["resource"].(string), As: s.Env.Tenant.Human}).JSON()
 	items := s.Count(`SELECT count(*) FROM payments.payment_item WHERE tenant_id = $1`, s.Env.Tenant.ID)
-	if run["status"] != "proposed" || items != 5 {
-		t.Fatalf("run %v with %d items", run["status"], items)
+	if run["status"] != "proposed" {
+		t.Errorf("run status: got %v, want proposed", run["status"])
+	}
+	if items != 5 {
+		t.Errorf("payment items: got %d, want 5", items)
 	}
 }
 
@@ -322,8 +334,11 @@ func TestResilienceShutdownUnderLoad(t *testing.T) {
 			t.Errorf("%s: %d", k, n)
 		}
 	}
-	if st.Total() == 0 || st.Count("post") == 0 {
-		t.Fatal("nothing ran before the shutdown")
+	if st.Total() == 0 {
+		t.Fatal("requests before the shutdown: got 0, want some")
+	}
+	if st.Count("post") == 0 {
+		t.Fatal("posts before the shutdown: got 0, want some")
 	}
 	if err := s.Drain(30 * time.Second); err != nil {
 		t.Error(err)
