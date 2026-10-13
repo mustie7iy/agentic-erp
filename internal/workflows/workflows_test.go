@@ -169,6 +169,19 @@ func TestProposalWorkflow(t *testing.T) {
 	e.invoice(t, "INV-3", "25.00")
 	op4, run4 := e.propose(t, "2026-04-18")
 	pool := pgtest.Pool(t)
+	a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil || s.TenantID == uuid.Nil {
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
+	}
+	if err := a.Propose(context.Background(), input(e, op4, run4)); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "commit") {
+		t.Fatalf("failed commit: got %v, want the injected failure", err)
+	}
+	if r, _ := e.Must(200, "GET", "/v1/payment-runs/"+run4, "", ""); r["status"] != "proposing" {
+		t.Fatalf("after a failed commit: got %v, want proposing", r["status"])
+	}
 	for n := 1; n < 60; n++ {
 		count := 0
 		a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -522,6 +535,17 @@ func TestReleaseWorkflow(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
+	pool := pgtest.Pool(t)
+	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil // the listing of the pending releases
+	}
+	if _, err := w.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "read queued release operations") {
+		t.Fatalf("pending listing: got %v, want the injected failure", err)
+	}
 	w.Begin = nil
 	// A pending release whose steps fail is reported and left for the next round.
 	e.releaseAsked(t, run4)
@@ -543,7 +567,7 @@ func TestReleaseWorkflow(t *testing.T) {
 		t.Fatalf("two payments expected: %v", pays)
 	}
 	in5 := e.releaseAsked(t, run5)
-	pool := pgtest.Pool(t)
+	pool = pgtest.Pool(t)
 	// The first posting failing stops the loop before the second, in the workflow and in the releaser alike.
 	secondCall := func(onwards bool) func(context.Context, database.Scope) (pgx.Tx, error) { // the second transaction fails, once or (for the retrying workflow) from then on
 		calls := 0
@@ -563,6 +587,16 @@ func TestReleaseWorkflow(t *testing.T) {
 		t.Fatalf("workflow with the first posting failing: %v", err)
 	}
 	a.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) } // the activities' clock, on the audit entries
+	a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil || s.TenantID == uuid.Nil {
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
+	}
+	if err := w.Release(context.Background(), in5); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "commit") {
+		t.Fatalf("failed commit: got %v, want the injected failure", err)
+	}
 	for n := 1; n < 120; n++ {
 		count := 0
 		a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -813,6 +847,16 @@ func TestMigrationWorkflow(t *testing.T) {
 	pool := pgtest.Pool(t)
 	in4 := workflows.MigrateInput{TenantID: e3.Tenant.ID, RunID: in3.RunID, OperationID: uuid.MustParse(id(again))}
 	m3.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) }
+	m3.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil || s.TenantID == uuid.Nil {
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
+	}
+	if err := m3.Execute(context.Background(), in4); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "commit") {
+		t.Fatalf("failed commit: got %v, want the injected failure", err)
+	}
 	for n := 1; n < 60; n++ {
 		count := 0
 		m3.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -1105,6 +1149,22 @@ func TestEscalateGuard(t *testing.T) {
 			t.Errorf("got %v, want a non-retryable application error", err)
 		}
 	})
+	t.Run("failed commit", func(t *testing.T) {
+		e2, pending2, _ := approvalPending(t)
+		pool := pgtest.Pool(t)
+		failing := &workflows.Approvals{AppRole: "erp_app", Begin: func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
+		}}
+		in2 := workflows.DeadlineInput{TenantID: e2.Tenant.ID, RequestID: uuid.MustParse(id(pending2)), After: time.Hour, Max: 3}
+		_, err := failing.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in2, Prior: new(int16)})
+		if !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "commit") {
+			t.Errorf("got %v, want the injected failure", err)
+		}
+	})
 	t.Run("request not visible", func(t *testing.T) {
 		other := in
 		other.TenantID = uuid.New() // RLS hides the request from another tenant's scope
@@ -1127,4 +1187,22 @@ func TestEscalateGuard(t *testing.T) {
 			t.Errorf("got %v, want the injected failure", err)
 		}
 	})
+}
+
+// TestApprovalDeadlineCancelled: a deadline workflow cancelled while it
+// waits ends as cancelled, its error wrapped with the request.
+func TestApprovalDeadlineCancelled(t *testing.T) {
+	var s testsuite.WorkflowTestSuite
+	env := s.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.ApprovalDeadline)
+	env.RegisterDelayedCallback(env.CancelWorkflow, time.Minute)
+	request := uuid.New()
+	env.ExecuteWorkflow(workflows.ApprovalDeadline, workflows.DeadlineInput{TenantID: uuid.New(), RequestID: request, After: time.Hour, Max: 3})
+	err := env.GetWorkflowError()
+	if !temporal.IsCanceledError(err) {
+		t.Fatalf("got %v, want the workflow cancelled", err)
+	}
+	if !strings.Contains(err.Error(), "approval deadline of request "+request.String()) {
+		t.Errorf("got %q, want the request named", err.Error())
+	}
 }

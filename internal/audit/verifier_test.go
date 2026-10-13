@@ -134,6 +134,16 @@ func TestScheduledVerification(t *testing.T) {
 	if _, _, err := v.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "pool down") {
 		t.Fatalf("tenants: %v", err)
 	}
+	v.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil // the listing of the tenants
+	}
+	if _, _, err := v.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "list tenants with a chain") {
+		t.Fatalf("tenant listing: got %v, want the injected failure", err)
+	}
 	calls := 0
 	v.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		calls++

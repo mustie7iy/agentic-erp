@@ -3,6 +3,7 @@ package workflows
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,7 +58,7 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 	var a *Approvals
 	for i := 0; i < in.Max; i++ {
 		if err := workflow.Sleep(ctx, in.After); err != nil {
-			return err //nolint:wrapcheck // workflow result: Sleep fails only with the CanceledError the engine needs as it is to end the workflow as cancelled
+			return fmt.Errorf("workflows: approval deadline of request %s: %w", in.RequestID, err) // cancellation is matched with errors.As
 		}
 		input := EscalateInput{DeadlineInput: in}
 		if v > unguardedEscalation { // guardedEscalation or later
@@ -66,7 +67,7 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 		}
 		var pending bool
 		if err := workflow.ExecuteActivity(ctx, a.Escalate, input).Get(ctx, &pending); err != nil {
-			return err //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
+			return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 		}
 		if !pending {
 			return nil
@@ -116,5 +117,8 @@ func (a *Approvals) Escalate(ctx context.Context, in EscalateInput) (bool, error
 	if err != nil || !pending {
 		return false, err
 	}
-	return true, tx.Commit(ctx) //nolint:wrapcheck // activity result: the SDK takes the ApplicationError type from the error's Go type, which RetryPolicy.NonRetryableErrorTypes matches, so it stays unwrapped
+	if err := tx.Commit(ctx); err != nil {
+		return true, fmt.Errorf("workflows: escalate approval request %s: commit: %w", in.RequestID, err)
+	}
+	return true, nil
 }

@@ -239,6 +239,17 @@ func TestAnchoringFailures(t *testing.T) {
 	if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "tenant database down") {
 		t.Fatalf("tenant begin: %v", err)
 	}
+	// The listing of the tenants to anchor failing.
+	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil || s.TenantID != uuid.Nil {
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
+	}
+	if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "list tenants to anchor") {
+		t.Fatalf("tenant listing: got %v, want the injected failure", err)
+	}
 	// Each statement of the anchoring transaction failing in turn.
 	for n := 1; n < 20; n++ {
 		w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {

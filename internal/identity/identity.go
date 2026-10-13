@@ -174,10 +174,7 @@ func sodConflict(ctx context.Context, tx pgx.Tx, principal, role, rule uuid.UUID
 		return nil
 	}
 	if err != nil {
-		if err != nil {
-			return fmt.Errorf("identity: check segregation of duties: %w", err)
-		}
-		return nil
+		return fmt.Errorf("identity: check segregation of duties: %w", err)
 	}
 	return problem.Conflict("identity.sod_conflict", "Segregation of duties: principal "+c.Principal.String()+" would hold both "+
 		c.PermissionA+" and "+c.PermissionB+".")

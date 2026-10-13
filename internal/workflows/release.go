@@ -65,10 +65,10 @@ func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
 	if errors.As(err, &app) && app.Type() == ProblemError {
 		var why problem.Problem
 		if app.Details(&why) == nil {
-			return workflow.ExecuteActivity(ctx, a.FailRelease, in, why).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
+			return workflow.ExecuteActivity(ctx, a.FailRelease, in, why).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 		}
 	}
-	return err //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
+	return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 }
 
 // inRelease runs fn in one transaction as the run's releaser, with the
@@ -93,7 +93,10 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 	if err := buf.Flush(rctx, tx, actor, "", clock.Now(p.Now)); err != nil {
 		return err
 	}
-	return tx.Commit(ctx) //nolint:wrapcheck // activity result: the SDK takes the ApplicationError type from the error's Go type, which RetryPolicy.NonRetryableErrorTypes matches, so it stays unwrapped
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("workflows: release payment run %s: commit: %w", in.RunID, err)
+	}
+	return nil
 }
 
 // asProblem turns a business problem into the non-retryable error the

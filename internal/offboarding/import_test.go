@@ -265,6 +265,22 @@ func TestImportRefusals(t *testing.T) {
 			t.Fatalf("statement %d: %v", n, err)
 		}
 	}
+	// Creating a tenant this cell has never held failing: statements fail in
+	// turn on fresh tenants until the creation is the one that fails.
+	created := false
+	for n := 1; n < 10 && !created; n++ {
+		fresh := uuid.Must(uuid.NewV7()).String()
+		key := "tenants/" + fresh + "/exports/fresh/manifest.json"
+		put(key, `{"tenant_id":"`+fresh+`","tenant":{"id":"`+fresh+`","name":"Fresh","region":"eu-west","group_currency":"EUR","status":"active"},"exported_at":"2026-10-12T00:00:00Z","tables":[]}`)
+		im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+			return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}) })
+		}
+		_, err := im.Import(ctx, key)
+		created = errors.Is(err, pgtest.ErrInjected) && strings.Contains(err.Error(), "offboarding: create tenant "+fresh)
+	}
+	if !created {
+		t.Error("no injected failure reached the creation of a new tenant")
+	}
 	im.InTx = nil
 }
 

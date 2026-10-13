@@ -2,6 +2,7 @@ package workflows
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,7 +37,7 @@ func MigrateRun(ctx workflow.Context, in MigrateInput) error {
 	ao := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5}}
 	var a *Migrations
-	return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), a.Execute, in).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
+	return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), a.Execute, in).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 }
 
 // Migrations holds the migration activity: the integration endpoints the
@@ -67,7 +68,7 @@ func (m *Migrations) Execute(ctx context.Context, in MigrateInput) error {
 	var kind string
 	if err := tx.QueryRow(ctx, `SELECT o.created_by, p.kind FROM platform.operation o JOIN identity.principal p ON p.tenant_id = o.tenant_id AND p.id = o.created_by
 		WHERE o.id = $1`, in.OperationID).Scan(&by, &kind); err != nil {
-		return err //nolint:wrapcheck // activity result: the SDK takes the ApplicationError type from the error's Go type, which RetryPolicy.NonRetryableErrorTypes matches, so it stays unwrapped
+		return fmt.Errorf("workflows: migration run %s: read the requester of operation %s: %w", in.RunID, in.OperationID, err)
 	}
 	if err := database.SetActor(ctx, tx, by); err != nil {
 		return err
@@ -80,5 +81,8 @@ func (m *Migrations) Execute(ctx context.Context, in MigrateInput) error {
 	if err := buf.Flush(rctx, tx, actor, "", clock.Now(m.Now)); err != nil {
 		return err
 	}
-	return tx.Commit(ctx) //nolint:wrapcheck // activity result: the SDK takes the ApplicationError type from the error's Go type, which RetryPolicy.NonRetryableErrorTypes matches, so it stays unwrapped
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("workflows: migration run %s: commit: %w", in.RunID, err)
+	}
+	return nil
 }

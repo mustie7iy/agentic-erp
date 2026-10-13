@@ -45,9 +45,9 @@ func ProposePaymentRun(ctx workflow.Context, in ProposeInput) error {
 	if temporal.IsCanceledError(err) || ctx.Err() != nil {
 		detached, cancel := workflow.NewDisconnectedContext(ctx)
 		defer cancel()
-		return workflow.ExecuteActivity(workflow.WithActivityOptions(detached, ao), a.Propose, in).Get(detached, nil) //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
+		return workflow.ExecuteActivity(workflow.WithActivityOptions(detached, ao), a.Propose, in).Get(detached, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 	}
-	return err //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
+	return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 }
 
 // Payments holds the payment activities: the services the API uses, and the
@@ -82,7 +82,7 @@ func (p *Payments) Propose(ctx context.Context, in ProposeInput) error {
 		timeout = 5 * time.Minute
 	}
 	if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
-		return err //nolint:wrapcheck // activity result: the SDK takes the ApplicationError type from the error's Go type, which RetryPolicy.NonRetryableErrorTypes matches, so it stays unwrapped
+		return fmt.Errorf("workflows: propose payment run %s: set the statement timeout: %w", in.RunID, err)
 	}
 	job, ok, err := payments.JobFor(ctx, tx, in.RunID)
 	if err != nil || !ok {
@@ -99,5 +99,8 @@ func (p *Payments) Propose(ctx context.Context, in ProposeInput) error {
 	if err := buf.Flush(rctx, tx, actor, "", clock.Now(p.Now)); err != nil {
 		return err
 	}
-	return tx.Commit(ctx) //nolint:wrapcheck // activity result: the SDK takes the ApplicationError type from the error's Go type, which RetryPolicy.NonRetryableErrorTypes matches, so it stays unwrapped
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("workflows: propose payment run %s: commit: %w", in.RunID, err)
+	}
+	return nil
 }
