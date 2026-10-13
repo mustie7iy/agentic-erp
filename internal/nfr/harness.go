@@ -107,15 +107,16 @@ func Start(t testing.TB, o Options) *Stack {
 	for i := range o.Users {
 		s.Users = append(s.Users, &User{s: s, Actor: s.Env.Person(t, fmt.Sprintf("user%03d", i)), n: i})
 	}
-	s.Server = httptest.NewUnstartedServer(s.Env.API.Handler)
-	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
 	if o.Events && o.Publisher == nil {
 		// Before Stop is registered, so its cleanup (stopping the NATS server)
 		// runs after Stop has stopped the relay, as cleanups run last first;
-		// and before the API server starts, which only Stop closes, so a NATS
-		// server that fails to start leaves nothing serving.
+		// and before the API server is made (it listens from then on), which
+		// only Stop closes, so a NATS server that fails to start leaves
+		// nothing listening.
 		s.NATS = newRestartable(t)
 	}
+	s.Server = httptest.NewUnstartedServer(s.Env.API.Handler)
+	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
 	s.Server.Start()
 	s.Client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 4 * o.Users, MaxIdleConnsPerHost: 4 * o.Users}}
 	// Before the workers start: a start that fails half way (tb.Fatal) still
