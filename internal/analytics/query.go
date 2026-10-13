@@ -271,10 +271,11 @@ func fillRows(m *Model, q Query, agg *aggregation, res *Result, measureCol map[s
 }
 
 // fillMeasure evaluates one measure for one group into row[col], refusing
-// to add amounts in different currencies, and records the currencies seen
-// for the column.
+// to add amounts in different currencies, and records the currencies of
+// the column's amounts (not of documents a distinct count spans) to label
+// it.
 func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int, colCurrency map[string]map[string]bool) error {
-	ev := &cellEval{m: m, base: agg.base, key: key, curs: map[string]bool{}, summed: map[string]bool{}}
+	ev := &cellEval{m: m, base: agg.base, key: key, summed: map[string]bool{}}
 	v, ok := ev.eval(name)
 	met := m.Metric(name)
 	if len(ev.summed) > 1 {
@@ -284,7 +285,7 @@ func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int,
 	if colCurrency[name] == nil {
 		colCurrency[name] = map[string]bool{}
 	}
-	for c := range ev.curs {
+	for c := range ev.summed {
 		colCurrency[name][c] = true
 	}
 	if ok {
@@ -297,9 +298,9 @@ func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int,
 	return nil
 }
 
-// cellEval evaluates a metric for one group, collecting the currencies of
-// every base metric it reads so the caller can refuse mixed currencies.
-// summed holds only the currencies of sum aggregates: fact amounts are
+// cellEval evaluates a metric for one group, collecting in summed the
+// currencies of the sum aggregates it reads, so the caller can refuse
+// mixed currencies and label the column. Fact amounts are
 // minor units of the fact's currency (facts.go), so a sum is an amount
 // whatever the metric's type, while a distinct count is not. A cell is
 // refused when its sums read several currencies, whether one sum spans
@@ -309,7 +310,6 @@ type cellEval struct {
 	m      *Model
 	base   map[string]map[string]*aggCell
 	key    string
-	curs   map[string]bool
 	summed map[string]bool
 }
 
@@ -321,9 +321,6 @@ func (ev *cellEval) eval(n string) (float64, bool) {
 	c := ev.base[n][ev.key]
 	if c == nil {
 		return 0, false
-	}
-	for cur := range c.currencies {
-		ev.curs[cur] = true
 	}
 	if met.Aggregate == "count_distinct" {
 		return float64(len(c.ids)), true

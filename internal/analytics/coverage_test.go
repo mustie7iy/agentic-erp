@@ -436,7 +436,8 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 		"  - {name: usd_units, type: money, source: t, aggregate: sum, filter: {company: [\"1000\"]}, dimensions: [company]}\n" +
 		"  - {name: jpy_units, type: money, source: t, aggregate: sum, filter: {company: [\"3000\"]}, dimensions: [company]}\n" +
 		"  - {name: units_gap, type: money, derived: {op: subtract, left: usd_units, right: jpy_units}}\n" +
-		"  - {name: units_rate, type: ratio, derived: {op: divide, left: usd_units, right: jpy_units}}\n"))
+		"  - {name: units_rate, type: ratio, derived: {op: divide, left: usd_units, right: jpy_units}}\n" +
+		"  - {name: usd_per_doc, type: money, derived: {op: divide, left: usd_units, right: docs}}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,6 +484,20 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 			}
 		})
 	}
+	// The column's currency is that of the amounts it adds, not of the
+	// documents a distinct count spans.
+	t.Run("a money column keeps the currency of its sums", func(t *testing.T) {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"usd_per_doc"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Columns[0].Currency, "USD"; got != want {
+			t.Errorf("currency: got %q, want %q", got, want)
+		}
+		if got, want := r.Rows[0][0], 2.5; got != want { // USD 5.00 over 2 documents
+			t.Errorf("value: got %v, want %v", got, want)
+		}
+	})
 	t.Run("one currency per group", func(t *testing.T) {
 		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"units"}, By: []string{"company"}})
 		if err != nil {
