@@ -44,8 +44,17 @@ func TestProvisionedTenantIsManagedThroughTheAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.ConfigurationVersion != 1 || len(res.Roles) == 0 || res.AdministratorRoleID == uuid.Nil || len(res.LegalEntities) != 2 {
-		t.Fatalf("%+v", res)
+	if res.ConfigurationVersion != 1 {
+		t.Errorf("ConfigurationVersion = %d, want 1", res.ConfigurationVersion)
+	}
+	if len(res.Roles) == 0 {
+		t.Error("Roles: got none, want the configured roles")
+	}
+	if res.AdministratorRoleID == uuid.Nil {
+		t.Error("AdministratorRoleID: got nil, want an id")
+	}
+	if len(res.LegalEntities) != 2 {
+		t.Errorf("LegalEntities: got %d, want 2", len(res.LegalEntities))
 	}
 	ten := pgtest.Tenant{ID: res.TenantID}
 	admin := pgtest.Actor{ID: res.AdministratorID, Subject: "idp|ada", Kind: "human"}
@@ -81,7 +90,7 @@ func TestProvisionedTenantIsManagedThroughTheAPI(t *testing.T) {
 	}
 	for _, want := range append([]string{provisioning.AdministratorRole}, res.Roles...) {
 		if !codes[want] {
-			t.Errorf("role %s missing: %v", want, codes)
+			t.Errorf("role %s: got roles %v, want it among them", want, codes)
 		}
 	}
 	// The tenant has its own field-encryption key, and its house banks are sealed with it.
@@ -92,8 +101,11 @@ func TestProvisionedTenantIsManagedThroughTheAPI(t *testing.T) {
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT get_byte(iban_cipher, 0) FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, res.TenantID).Scan(&format); err != nil {
 		t.Fatalf("read the house bank seal format: %v", err)
 	}
-	if keyed != 1 || format != 2 {
-		t.Fatalf("tenant key: %d keys, house banks sealed with format %d", keyed, format)
+	if keyed != 1 {
+		t.Errorf("active tenant keys: got %d, want 1", keyed)
+	}
+	if format != 2 {
+		t.Errorf("house bank seal format: got %d, want 2", format)
 	}
 	// The tenant announced itself, and the audit trail starts with the administrator.
 	if ev := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "tenant_status_changed"}); len(ev) != 1 || ev[0]["status"] != "active" {
@@ -137,12 +149,17 @@ func TestProvisioningRefusals(t *testing.T) {
 		"bad region":       func(r *provisioning.Request) { r.Region = "EU West" },
 		"invalid document": func(r *provisioning.Request) { r.Document.Companies[0].InvoiceTolerance.PricePercent = 500 },
 	} {
-		r := request(t)
-		mutate(&r)
-		_, err := p.Provision(ctx, r)
-		if pr := problem.From(err); err == nil || pr.Status < 400 || pr.Status >= 500 {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			r := request(t)
+			mutate(&r)
+			_, err := p.Provision(ctx, r)
+			if err == nil {
+				t.Fatal("Provision: got nil error, want a 4xx problem")
+			}
+			if pr := problem.From(err); pr.Status < 400 || pr.Status >= 500 {
+				t.Errorf("status: got %d (%v), want 4xx", pr.Status, err)
+			}
+		})
 	}
 }
 
