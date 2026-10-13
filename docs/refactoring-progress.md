@@ -111,6 +111,22 @@ single-return path whose failure no test can provoke from becoming its own branc
 - [ ] R23 Unowned findings to zero: errcheck, forbidigo (production float/panic), gocritic
   (added at the end of Phase 0 with the user's agreement)
 
+### Bug fixes found during Phases 3–4 (user: "fix all identified bugs first", before R23)
+Each a separate Fix commit with a test that fails before the fix.
+- [ ] B1 SECURITY offboarding import: manifest table names checked and quoted
+- [ ] B2 analytics: Count sum over several currencies divided by a map-order currency
+- [ ] B3 analytics: nondeterministic default and commentary errors; dead aggCell.seen
+- [ ] B4 erp-server: workers stopped before the pool closes when the bus fails at startup
+- [ ] B5 config: ERP_APPROVAL_ESCALATIONS capped to what the smallint count holds
+- [ ] B6 config: directory setting errors in a fixed order
+- [ ] B7 cmd/erp: CSV close/flush and token decode errors reported
+- [ ] B8 nfr harness: cleanup registered before workers start
+- [ ] B9 ledger createClearing: deterministic partner in the net-zero error
+- [ ] B10 apitools: malformed contract refused instead of panicking
+- [ ] B11 sap: OData $filter values quote-escaped
+- [ ] B12 sapconfig: unparseable tolerance and payment-term numbers reported
+- [ ] B13 sapconfig: all-zero account conversion consistent with integration
+
 ### Phase 5 — Test quality
 - [ ] R30 Polling helper; no time.Sleep in tests
 - [ ] R31 t.Run subtests and one assertion per check
