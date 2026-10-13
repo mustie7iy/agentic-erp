@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -49,14 +50,22 @@ func TestModelValidationMessages(t *testing.T) {
 		"points to unknown metric": src("defaults: {sales: zz}\n"),
 	}
 	for want, doc := range cases {
-		_, err := ParseModel([]byte(doc))
-		if err == nil || (want != "semantic model: yaml" && !strings.Contains(err.Error(), want)) {
-			t.Errorf("%s: got %v", want, err)
-		}
+		t.Run(want, func(t *testing.T) {
+			_, err := ParseModel([]byte(doc))
+			if err == nil || (want != "semantic model: yaml" && !strings.Contains(err.Error(), want)) {
+				t.Errorf("got %v, want an error containing %q", err, want)
+			}
+		})
 	}
 	m, err := ParseModel([]byte(src("")))
-	if err != nil || m.Calendar.FiscalYearStartMonth != 1 || m.Metric("a").Sign != 1 {
-		t.Fatalf("defaults applied: %v %+v", err, m)
+	if err != nil {
+		t.Fatalf("parse a valid model: %v", err)
+	}
+	if m.Calendar.FiscalYearStartMonth != 1 {
+		t.Errorf("default fiscal year start month: got %d, want 1", m.Calendar.FiscalYearStartMonth)
+	}
+	if m.Metric("a").Sign != 1 {
+		t.Errorf("default sign: got %d, want 1", m.Metric("a").Sign)
 	}
 }
 
@@ -78,15 +87,23 @@ func TestModelDefaultErrorIsDeterministic(t *testing.T) {
 
 func TestNewAgentAndToolText(t *testing.T) {
 	t.Setenv("ERP_AGENT_MODEL", "claude-haiku-5-5")
-	if a := NewAgent(); a.Model != "claude-haiku-5-5" || a.Today == nil {
-		t.Fatalf("env model: %+v", a)
+	a := NewAgent()
+	if a.Model != "claude-haiku-5-5" {
+		t.Errorf("env model: got %s, want claude-haiku-5-5", a.Model)
+	}
+	if a.Today == nil {
+		t.Error("clock: got nil, want one")
 	}
 	t.Setenv("ERP_AGENT_MODEL", "")
 	if a := NewAgent(); a.Model != defaultModel {
-		t.Fatal("default model")
+		t.Fatalf("default model: got %s, want %s", a.Model, defaultModel)
 	}
-	if r, err := toolText("plain"); err != nil || r.OfText.Text != "plain" {
-		t.Fatal("string result")
+	r, err := toolText("plain")
+	if err != nil {
+		t.Fatalf("string result: %v", err)
+	}
+	if r.OfText.Text != "plain" {
+		t.Errorf("string result: got %q, want plain", r.OfText.Text)
 	}
 	if _, err := toolText(math.Inf(1)); err == nil {
 		t.Fatal("unmarshalable value must error")
@@ -105,9 +122,9 @@ func TestAgentToolSurface(t *testing.T) {
 	if len(tools) != 3 {
 		t.Fatal("three tools")
 	}
-	for _, tl := range tools {
+	for i, tl := range tools {
 		if tl == nil {
-			t.Fatal("tool construction failed")
+			t.Fatalf("tool %d: got nil, want a tool", i)
 		}
 	}
 }
@@ -147,8 +164,17 @@ func TestAskPaths(t *testing.T) {
 	a := llmAgent(ok)
 	a.Today = func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }
 	ans, err := a.Ask(context.Background(), s, "What was revenue in 2026?")
-	if err != nil || ans.Report.Question != "What was revenue in 2026?" || ans.Report.Spec.Question != ans.Report.Question || ans.Summary != "Done." {
-		t.Fatalf("answer: %v %+v", err, ans)
+	if err != nil {
+		t.Fatalf("answer: %v", err)
+	}
+	if ans.Report.Question != "What was revenue in 2026?" {
+		t.Errorf("report question: got %q, want the user's question", ans.Report.Question)
+	}
+	if ans.Report.Spec.Question != ans.Report.Question {
+		t.Errorf("spec question: got %q, want %q", ans.Report.Spec.Question, ans.Report.Question)
+	}
+	if ans.Summary != "Done." {
+		t.Errorf("summary: got %q, want Done.", ans.Summary)
 	}
 }
 
@@ -206,8 +232,12 @@ func TestValidateEveryProblem(t *testing.T) {
 		}
 	}
 	empty := Spec{Title: "x"}
-	if p := empty.Validate(results); len(p) != 1 || !strings.Contains(p[0], "at least one") {
-		t.Fatalf("empty spec: %v", p)
+	p := empty.Validate(results)
+	if len(p) != 1 {
+		t.Fatalf("empty spec: got %d problems %v, want 1", len(p), p)
+	}
+	if !strings.Contains(p[0], "at least one") {
+		t.Errorf("empty spec: got %q, want it to ask for at least one element", p[0])
 	}
 }
 
@@ -241,17 +271,39 @@ func TestSum(t *testing.T) {
 	if _, _, err := r.sum("nope", nil); err == nil {
 		t.Fatal("unknown measure")
 	}
-	if v, n, err := r.sum("revenue", map[string]string{"fiscal_year": "2026"}); err != nil || n != 2 || v != 1000 {
-		t.Fatalf("money sum skips nil values: %v %d %v", v, n, err)
+	v, n, err := r.sum("revenue", map[string]string{"fiscal_year": "2026"})
+	if err != nil {
+		t.Fatalf("money sum: %v", err)
 	}
-	if v, n, err := r.sum("margin", map[string]string{"fiscal_year": "2025", "fiscal_month": "2"}); err != nil || n != 1 || v != 0.25 {
-		t.Fatalf("single-row ratio: %v %d %v", v, n, err)
+	if n != 2 {
+		t.Errorf("money sum skips nil values: got %d rows, want 2", n)
 	}
-	if _, n, err := r.sum("margin", map[string]string{"fiscal_year": "2025"}); err == nil || n != 2 {
-		t.Fatal("a ratio over several rows must be refused")
+	if v != 1000 {
+		t.Errorf("money sum: got %v, want 1000", v)
 	}
-	if _, n, err := r.sum("margin", map[string]string{"fiscal_year": "2026", "fiscal_month": "2"}); err != nil || n != 0 {
-		t.Fatal("a nil ratio counts as no row")
+	v, n, err = r.sum("margin", map[string]string{"fiscal_year": "2025", "fiscal_month": "2"})
+	if err != nil {
+		t.Fatalf("single-row ratio: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("single-row ratio: got %d rows, want 1", n)
+	}
+	if v != 0.25 {
+		t.Errorf("single-row ratio: got %v, want 0.25", v)
+	}
+	_, n, err = r.sum("margin", map[string]string{"fiscal_year": "2025"})
+	if err == nil {
+		t.Error("a ratio over several rows: got no error, want it refused")
+	}
+	if n != 2 {
+		t.Errorf("a ratio over several rows: got %d rows, want 2", n)
+	}
+	_, n, err = r.sum("margin", map[string]string{"fiscal_year": "2026", "fiscal_month": "2"})
+	if err != nil {
+		t.Errorf("a nil ratio: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("a nil ratio counts as no row: got %d rows, want 0", n)
 	}
 }
 
@@ -278,24 +330,47 @@ func TestFormatting(t *testing.T) {
 		{groupThousands("12"), "12"},
 	}
 	for _, c := range cases {
-		if c.got != c.want {
-			t.Errorf("got %q, want %q", c.got, c.want)
-		}
+		t.Run(c.want, func(t *testing.T) {
+			if c.got != c.want {
+				t.Errorf("got %q, want %q", c.got, c.want)
+			}
+		})
 	}
-	if d, p, up := change(110, 100, money); d != "+$10.00" || p != "+10.0%" || !up {
-		t.Errorf("change up: %s %s %v", d, p, up)
+	for _, c := range []struct {
+		name       string
+		cur, prev  float64
+		col        Column
+		delta, pct string
+		up         bool
+	}{
+		{"change up", 110, 100, money, "+$10.00", "+10.0%", true},
+		{"change down", 90, 100, money, "−$10.00", "−10.0%", false},
+		{"ratio change", 0.3, 0.25, Column{Type: Ratio}, "+5.0 pts", "", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d, p, up := change(c.cur, c.prev, c.col)
+			if d != c.delta {
+				t.Errorf("delta: got %s, want %s", d, c.delta)
+			}
+			if p != c.pct {
+				t.Errorf("percent: got %q, want %q", p, c.pct)
+			}
+			if up != c.up {
+				t.Errorf("up: got %v, want %v", up, c.up)
+			}
+		})
 	}
-	if d, p, up := change(90, 100, money); d != "−$10.00" || p != "−10.0%" || up {
-		t.Errorf("change down: %s %s %v", d, p, up)
+	if d, p, _ := change(5, 0, money); d != "+$5.00" {
+		t.Errorf("change from zero: got %s, want +$5.00", d)
+	} else if p != "" {
+		t.Errorf("no percent from zero: got %q, want none", p)
 	}
-	if d, p, _ := change(5, 0, money); d != "+$5.00" || p != "" {
-		t.Errorf("no percent from zero: %s %q", d, p)
+	d, _, up := changeFull(90_000, 100_000, money)
+	if d != "−10,000.00" {
+		t.Errorf("full change down: got %s, want −10,000.00", d)
 	}
-	if d, p, up := change(0.3, 0.25, Column{Type: Ratio}); d != "+5.0 pts" || p != "" || !up {
-		t.Errorf("ratio change: %s %q", d, p)
-	}
-	if d, _, up := changeFull(90_000, 100_000, money); d != "−10,000.00" || up {
-		t.Errorf("full change down: %s", d)
+	if up {
+		t.Error("full change down: got up, want down")
 	}
 	if d, _, _ := changeFull(100_500, 100_000, money); d != "+500.00" {
 		t.Errorf("full change up: %s", d)
@@ -375,15 +450,24 @@ func TestQueryOperatorsAndBranches(t *testing.T) {
 		{Measures: []string{"revenue"}, By: []string{"company"}, Where: []Filter{{"fiscal_month", "between", []string{"1"}}}},
 	}
 	for i, q := range errs {
-		if _, err := s.Run(q); err == nil {
-			t.Errorf("query %d should be refused", i)
-		}
+		t.Run(fmt.Sprintf("query %d", i), func(t *testing.T) {
+			if _, err := s.Run(q); err == nil {
+				t.Errorf("got no error for %+v, want it refused", q)
+			}
+		})
 	}
 }
 
 func TestComparisonHelpers(t *testing.T) {
-	if compareValues("2", "10") != -1 || compareValues("10", "2") != 1 || compareValues("1", "1.0") != 0 || compareValues("a", "b") != -1 {
-		t.Fatal("compareValues")
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{{"2", "10", -1}, {"10", "2", 1}, {"1", "1.0", 0}, {"a", "b", -1}} {
+		t.Run(fmt.Sprintf("compareValues(%s,%s)", c.a, c.b), func(t *testing.T) {
+			if got := compareValues(c.a, c.b); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
 	}
 	cases := []struct {
 		a, b any
@@ -394,21 +478,32 @@ func TestComparisonHelpers(t *testing.T) {
 		{nil, nil, 0}, {nil, 1.0, -1},
 	}
 	for _, c := range cases {
-		if got := compareCells(c.a, c.b); got != c.want {
-			t.Errorf("compareCells(%v,%v)=%d want %d", c.a, c.b, got, c.want)
-		}
+		t.Run(fmt.Sprintf("compareCells(%v,%v)", c.a, c.b), func(t *testing.T) {
+			if got := compareCells(c.a, c.b); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
 	}
 	m, _ := DefaultModel()
-	if m.dimLabel("nope") != "nope" || m.dimLabel("company") != "Company code" {
-		t.Fatal("dimLabel")
-	}
-	for cur, want := range map[string]int{"JPY": 0, "KWD": 3, "USD": 2} {
-		if currencyDecimals(cur) != want {
-			t.Errorf("currencyDecimals(%s)", cur)
+	for dim, want := range map[string]string{"nope": "nope", "company": "Company code"} {
+		if got := m.dimLabel(dim); got != want {
+			t.Errorf("dimLabel(%s): got %q, want %q", dim, got, want)
 		}
 	}
-	if differInOne(nil, nil) || differInOne([]string{"a"}, []string{"a", "b"}) || !differInOne([]string{"a", "b"}, []string{"a", "c"}) {
-		t.Fatal("differInOne")
+	for cur, want := range map[string]int{"JPY": 0, "KWD": 3, "USD": 2} {
+		t.Run("currencyDecimals("+cur+")", func(t *testing.T) {
+			if got := currencyDecimals(cur); got != want {
+				t.Errorf("got %d, want %d", got, want)
+			}
+		})
+	}
+	for _, c := range []struct {
+		a, b []string
+		want bool
+	}{{nil, nil, false}, {[]string{"a"}, []string{"a", "b"}, false}, {[]string{"a", "b"}, []string{"a", "c"}, true}} {
+		if got := differInOne(c.a, c.b); got != c.want {
+			t.Errorf("differInOne(%v, %v): got %v, want %v", c.a, c.b, got, c.want)
+		}
 	}
 }
 
@@ -421,8 +516,14 @@ func TestZeroDecimalCurrency(t *testing.T) {
 		{ID: "J1", Dims: dims("asset"), Amount: 5000, Currency: "JPY"}, {ID: "J1", Dims: dims("revenue"), Amount: -5000, Currency: "JPY"}}}}
 	m, _ := DefaultModel()
 	r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"revenue"}})
-	if err != nil || r.Rows[0][0].(float64) != 5000 || r.Columns[0].Currency != "JPY" {
-		t.Fatalf("JPY revenue: %v %+v", err, r)
+	if err != nil {
+		t.Fatalf("JPY revenue: %v", err)
+	}
+	if got := r.Rows[0][0].(float64); got != 5000 {
+		t.Errorf("JPY revenue: got %v, want 5000", got)
+	}
+	if r.Columns[0].Currency != "JPY" {
+		t.Errorf("JPY revenue currency: got %s, want JPY", r.Columns[0].Currency)
 	}
 }
 
@@ -532,8 +633,14 @@ func TestNarrativeEdgeCases(t *testing.T) {
 func TestRenderingBranches(t *testing.T) {
 	r := fixtureResult()
 	plain := tableView(Table{Title: "all"}, r)
-	if plain.Header[2] != "Revenue (USD)" || plain.Rows[4][2].Text != "—" || plain.Rows[0][1].Text != "Jan" {
-		t.Fatalf("plain table: %+v", plain.Rows[4])
+	if plain.Header[2] != "Revenue (USD)" {
+		t.Errorf("plain table header: got %q, want Revenue (USD)", plain.Header[2])
+	}
+	if got := plain.Rows[4][2].Text; got != "—" {
+		t.Errorf("plain table missing value: got %q, want —", got)
+	}
+	if got := plain.Rows[0][1].Text; got != "Jan" {
+		t.Errorf("plain table month: got %q, want Jan", got)
 	}
 	cmp := tableView(Table{Title: "cmp", Compare: &Compare{Dim: "fiscal_year", Baseline: "2025", Current: "2026", Measure: "revenue"}}, r)
 	var neg, missing bool
@@ -543,8 +650,11 @@ func TestRenderingBranches(t *testing.T) {
 		}
 		missing = missing || row[1].Text == "—"
 	}
-	if !neg || !missing {
-		t.Fatalf("compare table must show a decrease and a missing baseline: %+v", cmp.Rows)
+	if !neg {
+		t.Errorf("compare table: got no decrease in %+v, want one", cmp.Rows)
+	}
+	if !missing {
+		t.Errorf("compare table: got no missing baseline in %+v, want one", cmp.Rows)
 	}
 	// Totals turn negative when the current year is lower overall; two key columns.
 	down := &Result{Columns: []Column{{Name: "company", Kind: "dimension"}, {Name: "region", Kind: "dimension"}, {Name: "fiscal_year", Kind: "dimension"},
@@ -553,19 +663,32 @@ func TestRenderingBranches(t *testing.T) {
 			{"1000", "01", "2025", 1.0}, {"1000", "1", "2025", 1.0}}}
 	tot := tableView(Table{Compare: &Compare{Dim: "fiscal_year", Baseline: "2025", Current: "2026", Measure: "v"}}, down)
 	last := tot.Rows[len(tot.Rows)-1]
-	if last[0].Text != "Total" || len(last) != 6 || !strings.Contains(last[4].Class, "neg") {
-		t.Fatalf("total row: %+v", last)
+	if len(last) != 6 {
+		t.Fatalf("total row: got %d cells %+v, want 6", len(last), last)
 	}
-	if numCell(0, false, Column{}).Text != "—" || cellText(nil, Column{}) != "—" || cellText(true, Column{}) != "—" {
-		t.Fatal("empty cells")
+	if last[0].Text != "Total" {
+		t.Errorf("total row label: got %q, want Total", last[0].Text)
 	}
-	if dimText("2", "fiscal_quarter") != "Q2" || dimText("13", "fiscal_month") != "13" || dimText("", "vendor") != "(none)" {
-		t.Fatal("dimText")
+	if !strings.Contains(last[4].Class, "neg") {
+		t.Errorf("total row change class: got %q, want neg", last[4].Class)
+	}
+	for name, got := range map[string]string{"numCell(0, false)": numCell(0, false, Column{}).Text, "cellText(nil)": cellText(nil, Column{}),
+		"cellText(true)": cellText(true, Column{})} {
+		if got != "—" {
+			t.Errorf("%s: got %q, want —", name, got)
+		}
+	}
+	for _, c := range []struct{ v, dim, want string }{{"2", "fiscal_quarter", "Q2"}, {"13", "fiscal_month", "13"}, {"", "vendor", "(none)"}} {
+		if got := dimText(c.v, c.dim); got != c.want {
+			t.Errorf("dimText(%q, %s): got %q, want %q", c.v, c.dim, got, c.want)
+		}
 	}
 
 	line := chartSVG(Chart{Title: "t", Type: "line", X: "fiscal_month", Series: "fiscal_year", Measure: "revenue"}, r)
-	if !strings.Contains(line, "<polyline") || !strings.Contains(line, `class="zero"`) {
-		t.Fatal("line chart with negative values")
+	for _, want := range []string{"<polyline", `class="zero"`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line chart with negative values: got %s, want it to contain %s", line, want)
+		}
 	}
 	bar := chartSVG(Chart{Title: "t", Type: "bar", X: "fiscal_month", Series: "fiscal_year", Measure: "revenue"}, r)
 	if !strings.Contains(bar, "<rect") {
@@ -578,17 +701,23 @@ func TestRenderingBranches(t *testing.T) {
 	if !strings.Contains(chartSVG(Chart{Type: "bar", X: "x", Measure: "v"}, zero), "<svg") {
 		t.Fatal("all-zero chart")
 	}
-	if niceStep(0) != 0 || niceStep(3) != 5 || niceStep(7) != 10 || niceStep(0.15) != 0.2 {
-		t.Fatalf("niceStep %v %v %v", niceStep(3), niceStep(7), niceStep(0.15))
+	for _, c := range []struct{ in, want float64 }{{0, 0}, {3, 5}, {7, 10}, {0.15, 0.2}} {
+		t.Run(fmt.Sprintf("niceStep(%v)", c.in), func(t *testing.T) {
+			if got := niceStep(c.in); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
 	}
 	for _, c := range []struct {
 		v    float64
 		col  Column
 		want string
 	}{{0.25, Column{Type: Ratio}, "25%"}, {2.5e6, Column{}, "2.5M"}, {-1500, Column{}, "−1.5K"}, {40, Column{}, "40"}} {
-		if got := axisLabel(c.v, c.col); got != c.want {
-			t.Errorf("axisLabel(%v) = %q want %q", c.v, got, c.want)
-		}
+		t.Run(fmt.Sprintf("axisLabel(%v)", c.v), func(t *testing.T) {
+			if got := axisLabel(c.v, c.col); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
@@ -603,8 +732,14 @@ func TestWriteCSV(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if lines[0] != "fiscal_year,fiscal_month,revenue,margin,orders" || lines[4] != "2026,2,-500,,1" || len(lines) != 6 {
-		t.Fatalf("csv:\n%s", buf.String())
+	if len(lines) != 6 {
+		t.Fatalf("csv: got %d lines, want 6:\n%s", len(lines), buf.String())
+	}
+	if lines[0] != "fiscal_year,fiscal_month,revenue,margin,orders" {
+		t.Errorf("csv header: got %q, want fiscal_year,fiscal_month,revenue,margin,orders", lines[0])
+	}
+	if lines[4] != "2026,2,-500,,1" {
+		t.Errorf("csv line 5: got %q, want 2026,2,-500,,1", lines[4])
 	}
 	if err := WriteCSV(failWriter{}, r); err == nil {
 		t.Fatal("flush error must be returned")
@@ -678,10 +813,12 @@ func TestChartGaps(t *testing.T) {
 	r := &Result{Columns: []Column{{Name: "m", Kind: "dimension"}, {Name: "y", Kind: "dimension"}, {Name: "v", Kind: "measure", Type: Money}},
 		Rows: []Row{{"1", "2025", 10.0}, {"2", "2025", 12.0}, {"1", "2026", 11.0}}}
 	for _, typ := range []string{"line", "bar"} {
-		svg := chartSVG(Chart{Type: typ, X: "m", Series: "y", Measure: "v"}, r)
-		if !strings.Contains(svg, "2026") {
-			t.Fatalf("%s chart lacks the second series", typ)
-		}
+		t.Run(typ, func(t *testing.T) {
+			svg := chartSVG(Chart{Type: typ, X: "m", Series: "y", Measure: "v"}, r)
+			if !strings.Contains(svg, "2026") {
+				t.Errorf("got %s, want the second series 2026", svg)
+			}
+		})
 	}
 	if n := strings.Count(chartSVG(Chart{Type: "bar", X: "m", Series: "y", Measure: "v"}, r), "<title>"); n != 3 {
 		t.Fatalf("three bars expected, got %d", n)
