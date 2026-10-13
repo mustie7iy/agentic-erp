@@ -107,7 +107,8 @@ func TestRouting(t *testing.T) {
 	cell := func(name string) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
-			json.NewEncoder(w).Encode(map[string]any{"cell": name, "method": r.Method, "path": r.URL.RequestURI(), "host": r.Host,
+			// A failed write reaches the router as a broken answer, which the client asserts on.
+			_ = json.NewEncoder(w).Encode(map[string]any{"cell": name, "method": r.Method, "path": r.URL.RequestURI(), "host": r.Host,
 				"forwarded": r.Header.Get("X-Forwarded-Host"), "proto": r.Header.Get("X-Forwarded-Proto"), "auth": r.Header.Get("Authorization"), "body": string(body)})
 		}))
 	}
@@ -138,9 +139,11 @@ func TestRouting(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }() // a read body has nothing left to lose on close
 		var out map[string]any
-		json.NewDecoder(resp.Body).Decode(&out)
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("%s %s: %d, not JSON: %v", method, path, resp.StatusCode, err)
+		}
 		return resp.StatusCode, out, resp.Header
 	}
 	// Each tenant reaches its own cell, request intact; the answer names the cell.
