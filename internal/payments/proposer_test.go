@@ -123,9 +123,8 @@ func TestProposer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { failing.Run(ctx); close(done) }()
-	for !strings.Contains(logs.String(), "payment proposal failed") {
-		time.Sleep(time.Millisecond)
-	}
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "payment proposal failed") },
+		"logs: %s", &logs)
 	cancel()
 	<-done
 	stopped, stop := context.WithCancel(context.Background())
