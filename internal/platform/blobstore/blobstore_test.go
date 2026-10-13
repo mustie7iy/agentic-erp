@@ -19,7 +19,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 )
 
-// exercise puts and gets through any store: write once, typed, missing keys.
 // must fails the test when filesystem setup it relies on did not happen.
 func must(t *testing.T, err error) {
 	t.Helper()
@@ -40,6 +39,7 @@ func seal(t *testing.T, dir string, mode os.FileMode) {
 	})
 }
 
+// exercise puts and gets through any store: write once, typed, missing keys.
 func exercise(t *testing.T, s blobstore.Store) {
 	t.Helper()
 	ctx := context.Background()

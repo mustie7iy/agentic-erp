@@ -712,6 +712,15 @@ func TestKeyRotationPolicy(t *testing.T) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
+	stopped := false
+	defer func() {
+		// A Fatalf below must stop the server before rotationInterval is
+		// reset, or the server outlives the test and races the reset.
+		if !stopped {
+			cancel()
+			<-done
+		}
+	}()
 	var n int
 	for deadline := time.Now().Add(10 * time.Second); n < 2 && time.Now().Before(deadline); {
 		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, created.TenantID).Scan(&n); err != nil {
@@ -720,6 +729,7 @@ func TestKeyRotationPolicy(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()
+	stopped = true
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
