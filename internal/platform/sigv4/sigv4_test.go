@@ -92,8 +92,14 @@ func TestPresign(t *testing.T) {
 	sent, _ := http.NewRequestWithContext(t.Context(), "PUT", u, nil)
 	sent.Header.Set("Content-Type", "application/pdf")
 	ok, at, ttl := sigv4.Verify(sent, accessKey, secretKey, "us-east-1", "s3")
-	if !ok || !at.Equal(made) || ttl != 15*time.Minute {
-		t.Fatalf("verify: %v %v %v", ok, at, ttl)
+	if !ok {
+		t.Fatal("verify: got not ok, want ok")
+	}
+	if !at.Equal(made) {
+		t.Errorf("verify signing time: got %v, want %v", at, made)
+	}
+	if ttl != 15*time.Minute {
+		t.Errorf("verify ttl: got %v, want %v", ttl, 15*time.Minute)
 	}
 	sent.Header.Set("Content-Type", "image/png")
 	if ok, _, _ := sigv4.Verify(sent, accessKey, secretKey, "us-east-1", "s3"); ok {
@@ -107,19 +113,21 @@ func TestPresign(t *testing.T) {
 		"other credential": func(q url.Values) { q.Set("X-Amz-Credential", "AKIDOTHER/20130524/us-east-1/s3/aws4_request") },
 		"tampered":         func(q url.Values) { q.Set("X-Amz-Expires", "999999") },
 	} {
-		bad := *sent
-		bad.URL = new(url.URL)
-		*bad.URL = *sent.URL
-		q := bad.URL.Query()
-		mutate(q)
-		bad.URL.RawQuery = q.Encode()
-		secret := secretKey
-		if name == "wrong secret" {
-			secret = "nope"
-		}
-		if ok, _, _ := sigv4.Verify(&bad, accessKey, secret, "us-east-1", "s3"); ok {
-			t.Errorf("%s: verified", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			bad := *sent
+			bad.URL = new(url.URL)
+			*bad.URL = *sent.URL
+			q := bad.URL.Query()
+			mutate(q)
+			bad.URL.RawQuery = q.Encode()
+			secret := secretKey
+			if name == "wrong secret" {
+				secret = "nope"
+			}
+			if ok, _, _ := sigv4.Verify(&bad, accessKey, secret, "us-east-1", "s3"); ok {
+				t.Error("got verified, want refused")
+			}
+		})
 	}
 }
 
@@ -129,8 +137,11 @@ func TestSessionToken(t *testing.T) {
 	creds := sigv4.Credentials{AccessKey: accessKey, SecretKey: secretKey, SessionToken: "FwoGZXIvYXdzEBYaD"}
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "https://example.amazonaws.com/", nil)
 	sigv4.SignWith(req, creds, "us-east-1", "service", emptyHash, at)
-	if req.Header.Get("X-Amz-Security-Token") != creds.SessionToken || !strings.Contains(req.Header.Get("Authorization"), "SignedHeaders=host;x-amz-date;x-amz-security-token") {
-		t.Fatalf("%v", req.Header)
+	if got := req.Header.Get("X-Amz-Security-Token"); got != creds.SessionToken {
+		t.Errorf("X-Amz-Security-Token: got %q, want %q", got, creds.SessionToken)
+	}
+	if got := req.Header.Get("Authorization"); !strings.Contains(got, "SignedHeaders=host;x-amz-date;x-amz-security-token") {
+		t.Errorf("Authorization: got %s, want the security token signed", got)
 	}
 	req, _ = http.NewRequestWithContext(t.Context(), "PUT", "https://s3.example.com/bucket/key", nil)
 	u := sigv4.PresignWith(req, creds, "us-east-1", "s3", time.Minute, at)
