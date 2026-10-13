@@ -18,13 +18,16 @@ func TestContractEdges(t *testing.T) {
     post:
       operationId: makeX
       requestBody:
-        $ref: "#/components/requestBodies/missing"
+        $ref: "#/components/requestBodies/NoContent"
       parameters:
         - name: q
           in: query
           schema:
             $ref: "#/components/schemas/Deep"
 components:
+  requestBodies:
+    NoContent:
+      description: A body without content gives the tool no body.
   schemas:
     Deep:
       type: object
@@ -36,8 +39,8 @@ components:
 	if err != nil || tool.op.body || len(tool.op.params) != 1 {
 		t.Fatalf("%+v %v", tool, err)
 	}
-	if got, err := c.schema(map[string]any{"$ref": "#/nowhere/at/all"}, "x", 0); err != nil || len(got.(map[string]any)) != 0 {
-		t.Fatalf("unresolvable reference: %v %v", got, err)
+	if got, err := c.schema(map[string]any{"$ref": "#/nowhere/at/all"}, "x", 0); err == nil {
+		t.Fatalf("got %v for an unresolvable reference, want an error", got)
 	}
 }
 
@@ -182,6 +185,37 @@ func TestReferenceCycle(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "contract "+tc.want+" ") || !strings.Contains(err.Error(), "resolvable reference") {
 				t.Errorf("got %v, want an unresolvable reference at %s", err, tc.want)
+			}
+		})
+	}
+}
+
+// A reference to nothing is a malformed contract, refused with the path
+// where it was met instead of standing in for an empty schema.
+func TestDanglingReference(t *testing.T) {
+	const op = "components:\n  schemas:\n    Leaf: {type: string}\npaths:\n  /v1/x:\n    post:\n      operationId: makeX\n"
+	cases := map[string]struct{ fragment, want string }{
+		"schema": {"      parameters:\n        - {name: q, in: query, schema: {$ref: '#/components/schemas/Missing'}}\n",
+			"paths./v1/x.post.parameters[0].schema"},
+		"through a node that is not an object": {"      parameters:\n        - {name: q, in: query, schema: {$ref: '#/components/schemas/Leaf/type/x'}}\n",
+			"paths./v1/x.post.parameters[0].schema"},
+		"property": {"      requestBody:\n        content:\n          application/json:\n            schema: {properties: {a: {$ref: '#/nowhere'}}}\n",
+			"paths./v1/x.post.requestBody.content.application/json.schema.properties.a"},
+		"parameter":    {"      parameters:\n        - {$ref: '#/components/parameters/Missing'}\n", "paths./v1/x.post.parameters[0]"},
+		"request body": {"      requestBody: {$ref: '#/components/requestBodies/Missing'}\n", "paths./v1/x.post.requestBody"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c, err := load([]byte(op + tc.fragment))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = c.tool("makeX")
+			if err == nil {
+				t.Fatal("got no error, want one")
+			}
+			if !strings.Contains(err.Error(), "contract "+tc.want+" ") || !strings.Contains(err.Error(), "points nowhere") {
+				t.Errorf("got %v, want a reference that points nowhere at %s", err, tc.want)
 			}
 		})
 	}

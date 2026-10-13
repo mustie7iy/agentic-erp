@@ -199,8 +199,10 @@ func load(src []byte) (contract, error) {
 // two, so a longer chain is a cycle.
 const maxRefHops = 32
 
-// resolve follows local references from the node at at; a chain longer
-// than maxRefHops is a cycle and an error rather than an endless loop.
+// resolve follows local references from the node at at. A reference that
+// points to no object, or a chain longer than maxRefHops (a cycle), is a
+// malformed contract: guessing an empty schema would hand an agent a tool
+// that accepts anything.
 func (c contract) resolve(n map[string]any, at string) (map[string]any, error) {
 	for hops := 0; ; hops++ {
 		ref, ok := n["$ref"].(string)
@@ -217,7 +219,7 @@ func (c contract) resolve(n map[string]any, at string) (map[string]any, error) {
 		}
 		target, ok := cur.(map[string]any)
 		if !ok {
-			return map[string]any{}, nil
+			return nil, malformed(at, "a resolvable reference ("+ref+" points nowhere)")
 		}
 		n = target
 	}
