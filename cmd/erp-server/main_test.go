@@ -868,17 +868,20 @@ func countKeys(t *testing.T, master string) int {
 }
 
 // TestDirectorySync: with a directory configured the server records its
-// tenants there, API URL and status included.
+// tenants there, API URL and status included. The directory is a database of
+// its own, as in production: its tables in the package database would be
+// tenant tables to every later export there.
 func TestDirectorySync(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
-	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = pgtest.URL(t), "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+	directoryURL := emptyDatabase(t)
+	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
 	ten := pgtest.NewTenant(t)
 	directoryInterval = 20 * time.Millisecond
 	defer func() { directoryInterval = time.Minute }()
 	stop := background(load(t, env), quiet())
 	defer func() { _ = stop() }() // stops a server a failed wait left running before directoryInterval is reset; the wait's failure is the one reported
-	dir, err := directory.Open(context.Background(), pgtest.URL(t))
+	dir, err := directory.Open(context.Background(), directoryURL)
 	if err != nil {
 		t.Fatal(err)
 	}
