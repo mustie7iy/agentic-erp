@@ -91,22 +91,22 @@ type Posted struct {
 }
 
 // Start builds and starts a stack.
-func Start(t testing.TB, o Options) *Stack {
-	t.Helper()
+func Start(tb testing.TB, o Options) *Stack {
+	tb.Helper()
 	if o.Users <= 0 {
 		o.Users = 8
 	}
-	s := &Stack{T: t, Metrics: telemetry.NewMetrics()}
-	s.Env = fixture.New(t, Permissions...)
-	s.Env.API = apitest.NewWith(t, func(c *httpapi.Config) {
+	s := &Stack{T: tb, Metrics: telemetry.NewMetrics()}
+	s.Env = fixture.New(tb, Permissions...)
+	s.Env.API = apitest.NewWith(tb, func(c *httpapi.Config) {
 		c.Limits, c.RequestTimeout, c.Metrics = o.Limits, o.Timeout, s.Metrics
 		s.Config = *c
 	})
-	s.Pool = pgtest.Pool(t)
-	s.admin = pgtest.Admin(t)
-	s.Expense, s.Bank, s.Office = s.Env.Account(t, "2000", "520000"), s.Env.Account(t, "2000", "100000"), s.Env.Account(t, "2000", "510000")
+	s.Pool = pgtest.Pool(tb)
+	s.admin = pgtest.Admin(tb)
+	s.Expense, s.Bank, s.Office = s.Env.Account(tb, "2000", "520000"), s.Env.Account(tb, "2000", "100000"), s.Env.Account(tb, "2000", "510000")
 	for i := range o.Users {
-		s.Users = append(s.Users, &User{s: s, Actor: s.Env.Person(t, fmt.Sprintf("user%03d", i)), n: i})
+		s.Users = append(s.Users, &User{s: s, Actor: s.Env.Person(tb, fmt.Sprintf("user%03d", i)), n: i})
 	}
 	if o.Events && o.Publisher == nil {
 		// Before Stop is registered, so its cleanup (stopping the NATS server)
@@ -114,7 +114,7 @@ func Start(t testing.TB, o Options) *Stack {
 		// and before the API server is made (it listens from then on), which
 		// only Stop closes, so a NATS server that fails to start leaves
 		// nothing listening.
-		s.NATS = newRestartable(t)
+		s.NATS = newRestartable(tb)
 	}
 	s.Server = httptest.NewUnstartedServer(s.Env.API.Handler)
 	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
@@ -122,8 +122,8 @@ func Start(t testing.TB, o Options) *Stack {
 	s.Client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 4 * o.Users, MaxIdleConnsPerHost: 4 * o.Users}}
 	// Before the workers start: a start that fails half way (tb.Fatal) still
 	// stops the server and whatever workers did start.
-	t.Cleanup(s.Stop)
-	s.startWorkers(t, o)
+	tb.Cleanup(s.Stop)
+	s.startWorkers(tb, o)
 	return s
 }
 
@@ -685,8 +685,8 @@ func (st *Stats) Errors() []string {
 }
 
 // Report logs a table of the run.
-func (st *Stats) Report(t testing.TB, title string) {
-	t.Helper()
+func (st *Stats) Report(tb testing.TB, title string) {
+	tb.Helper()
 	elapsed := time.Since(st.started)
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %d requests in %v (%.0f/s)\n", title, st.Total(), elapsed.Round(time.Millisecond), float64(st.Total())/elapsed.Seconds())
@@ -708,24 +708,24 @@ func (st *Stats) Report(t testing.TB, title string) {
 			fmt.Fprintf(&b, "    %s\n", e)
 		}
 	}
-	t.Log(b.String())
+	tb.Log(b.String())
 }
 
 // CheckBudgets fails the test for every operation over its p95 or p99
 // budget, and for any failed request.
-func (st *Stats) CheckBudgets(t testing.TB) {
-	t.Helper()
+func (st *Stats) CheckBudgets(tb testing.TB) {
+	tb.Helper()
 	for op, b := range Budgets {
 		if st.Count(op) == 0 {
-			t.Errorf("%s: no samples", op)
+			tb.Errorf("%s: no samples", op)
 			continue
 		}
 		if p95, p99 := st.Percentile(op, 95), st.Percentile(op, 99); p95 > Budget(b[0]) || p99 > Budget(b[1]) {
-			t.Errorf("%s: p95 %v (budget %v), p99 %v (budget %v)", op, p95.Round(time.Millisecond), Budget(b[0]), p99.Round(time.Millisecond), Budget(b[1]))
+			tb.Errorf("%s: p95 %v (budget %v), p99 %v (budget %v)", op, p95.Round(time.Millisecond), Budget(b[0]), p99.Round(time.Millisecond), Budget(b[1]))
 		}
 	}
 	if f := st.Failures(); len(f) > 0 {
-		t.Errorf("failed requests: %v\n%s", f, strings.Join(st.Errors(), "\n"))
+		tb.Errorf("failed requests: %v\n%s", f, strings.Join(st.Errors(), "\n"))
 	}
 }
 
@@ -774,4 +774,7 @@ func Budget(d time.Duration) time.Duration {
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
 // natstestServer starts an embedded JetStream server for a test.
-func natstestServer(t testing.TB) string { return natstest.Server(t) }
+func natstestServer(tb testing.TB) string {
+	tb.Helper()
+	return natstest.Server(tb)
+}
