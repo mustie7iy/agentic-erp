@@ -112,48 +112,17 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 	if err != nil {
 		return Clearing{}, err
 	}
-	seen := map[ItemRef]bool{}
-	for i, r := range refs {
-		if seen[r] {
-			return Clearing{}, problem.Unprocessable("ledger.duplicate_item", "An open item is listed twice.",
-				problem.FieldError{Field: fmt.Sprintf("items[%d]", i), Code: "duplicate", Message: "each item once"})
-		}
-		seen[r] = true
+	if err := requireDistinct(refs); err != nil {
+		return Clearing{}, err
 	}
 	items, err := loadItems(ctx, tx, refs)
 	if err != nil {
 		return Clearing{}, err
 	}
-	type sums struct{ tc, lc, gc int64 }
-	perPartner := map[uuid.UUID]*sums{}
-	lines := make([]Line, len(items))
 	text := "Clearing"
-	for i, it := range items {
-		field := fmt.Sprintf("items[%d]", i)
-		switch {
-		case !it.found || !it.recon || it.legalEntity != le.ID:
-			return Clearing{}, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.",
-				problem.FieldError{Field: field, Code: "not_an_open_item", Message: "a line on a supplier or customer reconciliation account"})
-		case !it.open:
-			return Clearing{}, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
-		case it.currency != items[0].currency || it.ledger != items[0].ledger:
-			return Clearing{}, problem.Unprocessable("ledger.mixed_items", "The items of one clearing share their ledger and transaction currency.",
-				problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + items[0].currency + " of the same ledger"})
-		}
-		s := perPartner[*it.partner]
-		if s == nil {
-			s = &sums{}
-			perPartner[*it.partner] = s
-		}
-		s.tc, s.lc, s.gc = s.tc+it.tc, s.lc+it.lc, s.gc+it.gc
-		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: &text}
-	}
-	for partner, s := range perPartner {
-		if *s != (sums{}) {
-			return Clearing{}, problem.Unprocessable("ledger.clearing_not_balanced",
-				"The items of partner "+partner.String()+" do not net to zero in every currency; settle the difference with a posting first.",
-				problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that net to zero per partner"})
-		}
+	lines, err := clearingLines(items, le.ID, &text)
+	if err != nil {
+		return Clearing{}, err
 	}
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Clearing{}, err
@@ -181,18 +150,84 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 	if err != nil {
 		return Clearing{}, err
 	}
+	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
+		Payload: map[string]any{"clearing_id": id, "legal_entity_id": le.ID, "clearing_date": date.Format(time.DateOnly),
+			"clearing_entry_id": entry.ID, "clearing_entry_year": entry.FiscalYear, "items": clearedItemsPayload(items, entry)}}); err != nil {
+		return Clearing{}, err
+	}
+	return c, audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",
+		Detail: map[string]any{"items": len(items), "clearing_entry_id": entry.ID, "document_number": entry.DocumentNumber}})
+}
+
+// requireDistinct rejects a clearing that lists an open item twice.
+func requireDistinct(refs []ItemRef) error {
+	seen := map[ItemRef]bool{}
+	for i, r := range refs {
+		if seen[r] {
+			return problem.Unprocessable("ledger.duplicate_item", "An open item is listed twice.",
+				problem.FieldError{Field: fmt.Sprintf("items[%d]", i), Code: "duplicate", Message: "each item once"})
+		}
+		seen[r] = true
+	}
+	return nil
+}
+
+// clearingLines are the lines that offset each item on its account. The
+// items must be open items on reconciliation accounts of the legal entity,
+// in one ledger and transaction currency, and net to zero per partner in
+// every currency.
+func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, error) {
+	type sums struct{ tc, lc, gc int64 }
+	perPartner := map[uuid.UUID]*sums{}
+	lines := make([]Line, len(items))
+	for i, it := range items {
+		if err := requireClearable(i, it, items[0], legalEntity); err != nil {
+			return nil, err
+		}
+		s := perPartner[*it.partner]
+		if s == nil {
+			s = &sums{}
+			perPartner[*it.partner] = s
+		}
+		s.tc, s.lc, s.gc = s.tc+it.tc, s.lc+it.lc, s.gc+it.gc
+		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text}
+	}
+	for partner, s := range perPartner {
+		if *s != (sums{}) {
+			return nil, problem.Unprocessable("ledger.clearing_not_balanced",
+				"The items of partner "+partner.String()+" do not net to zero in every currency; settle the difference with a posting first.",
+				problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that net to zero per partner"})
+		}
+	}
+	return lines, nil
+}
+
+// requireClearable checks item i: an open line on a reconciliation account
+// of the legal entity, in the ledger and currency of the first item.
+func requireClearable(i int, it, first item, legalEntity uuid.UUID) error {
+	field := fmt.Sprintf("items[%d]", i)
+	switch {
+	case !it.found || !it.recon || it.legalEntity != legalEntity:
+		return problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.",
+			problem.FieldError{Field: field, Code: "not_an_open_item", Message: "a line on a supplier or customer reconciliation account"})
+	case !it.open:
+		return problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+	case it.currency != first.currency || it.ledger != first.ledger:
+		return problem.Unprocessable("ledger.mixed_items", "The items of one clearing share their ledger and transaction currency.",
+			problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + first.currency + " of the same ledger"})
+	}
+	return nil
+}
+
+// clearedItemsPayload describes the cleared items for the items_cleared
+// event.
+func clearedItemsPayload(items []item, entry Entry) []map[string]any {
 	payload := make([]map[string]any, len(items))
 	for i, it := range items {
 		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
 			"account_id": it.account, "partner_id": it.partner, "amount_tc": amount(it.tc, entry.CurrencyTC, entry.ExpTC)}
 	}
-	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
-		Payload: map[string]any{"clearing_id": id, "legal_entity_id": le.ID, "clearing_date": date.Format(time.DateOnly),
-			"clearing_entry_id": entry.ID, "clearing_entry_year": entry.FiscalYear, "items": payload}}); err != nil {
-		return Clearing{}, err
-	}
-	return c, audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",
-		Detail: map[string]any{"items": len(items), "clearing_entry_id": entry.ID, "document_number": entry.DocumentNumber}})
+	return payload
 }
 
 // loadItems reads the journal lines to clear, in the order of refs; lines

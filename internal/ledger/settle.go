@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // OpenItems answers the payments context's questions about open items, in
@@ -115,91 +116,31 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	lines := make([]Line, 0, len(items)+3)
-	var tc, lc, gc int64
-	for i, it := range items {
-		switch {
-		case !it.found || !it.recon || it.legalEntity != le.ID:
-			return Entry{}, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
-		case !it.open:
-			return Entry{}, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
-		case it.currency != in.Currency || it.ledger != items[0].ledger:
-			return Entry{}, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
-		}
-		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: in.HeaderText})
-		tc, lc, gc = tc+it.tc, lc+it.lc, gc+it.gc
-	}
-	group, err := e.LegalEntities.GroupCurrency(ctx)
+	lines, tc, lc, gc, err := settledItemLines(items, in, le.ID)
 	if err != nil {
 		return Entry{}, err
 	}
-	exps, err := exponents(ctx, tx, in.Currency, le.LocalCurrency, group)
+	bank, err := e.bankAmounts(ctx, tx, in, le, tc)
 	if err != nil {
 		return Entry{}, err
 	}
-	rateLC, err := rate(ctx, tx, in.Currency, le.LocalCurrency, in.PostingDate)
+	lines = append(lines, Line{AccountID: in.BankAccountID, TC: tc, LC: bank.lc, GC: bank.gc, Text: in.HeaderText})
+	fx, err := exchangeDifferenceLines(ctx, le.ID, lc-bank.lc, gc-bank.gc, in.HeaderText)
 	if err != nil {
 		return Entry{}, err
 	}
-	rateGC, err := rate(ctx, tx, le.LocalCurrency, group, in.PostingDate)
-	if err != nil {
-		return Entry{}, err
-	}
-	bankLC, err := convert(tc, rateLC, exps[in.Currency], exps[le.LocalCurrency])
-	if err != nil {
-		return Entry{}, err
-	}
-	bankGC, err := convert(bankLC, rateGC, exps[le.LocalCurrency], exps[group])
-	if err != nil {
-		return Entry{}, err
-	}
-	lines = append(lines, Line{AccountID: in.BankAccountID, TC: tc, LC: bankLC, GC: bankGC, Text: in.HeaderText})
-	for _, d := range []Line{{LC: lc - bankLC}, {GC: gc - bankGC}} {
-		if d.LC == 0 && d.GC == 0 {
-			continue
-		}
-		key := "fx_gain" // the payment cost less than the items were booked at
-		if d.LC+d.GC > 0 {
-			key = "fx_loss"
-		}
-		account, ok, err := Accounts{}.Determination(ctx, le.ID, key)
-		if err != nil {
-			return Entry{}, err
-		}
-		if !ok {
-			return Entry{}, problem.Unprocessable("ledger.no_fx_account", "The payment realizes an exchange difference, and the legal entity has no "+key+
-				" account in its account determination.")
-		}
-		d.AccountID, d.Text = account, in.HeaderText
-		lines = append(lines, d)
-	}
+	lines = append(lines, fx...)
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}
 	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgerID: items[0].ledger, documentType: in.DocumentType, documentDate: in.PostingDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: group, rateTCLC: rateLC, rateLCGC: rateGC,
+		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: bank.group, rateTCLC: bank.rateLC, rateLCGC: bank.rateGC,
 		reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext, sourceDocumentID: &in.SourceDocumentID, lines: lines})
 	if err != nil {
 		return Entry{}, err
 	}
-	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, le.ID, in.PostingDate, entry.FiscalYear, entry.ID, actor.ID); err != nil {
-		return Entry{}, fmt.Errorf("ledger: settle with entry %s: record clearing %s: %w", entry.ID, id, err)
-	}
-	cleared := make([]ItemRef, 0, 2*len(items))
-	payload := make([]map[string]any, len(items))
-	for i, it := range items {
-		cleared = append(cleared, it.ref, ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: int32(i + 1)})
-		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
-			"account_id": it.account, "partner_id": it.partner, "amount_tc": amount(it.tc, entry.CurrencyTC, entry.ExpTC)}
-	}
-	if err := markCleared(ctx, tx, actor.TenantID, id, cleared); err != nil {
-		return Entry{}, err
-	}
-	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
-		Payload: map[string]any{"clearing_id": id, "legal_entity_id": le.ID, "clearing_date": in.PostingDate.Format(time.DateOnly),
-			"clearing_entry_id": entry.ID, "clearing_entry_year": entry.FiscalYear, "items": payload}}); err != nil {
+	id, err := clearSettled(ctx, tx, actor, le.ID, in.PostingDate, entry, items)
+	if err != nil {
 		return Entry{}, err
 	}
 	return entry, errors.Join(
@@ -208,4 +149,112 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 				"source_context": entry.SourceContext}}),
 		audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",
 			Detail: map[string]any{"items": len(items), "clearing_entry_id": entry.ID, "document_number": entry.DocumentNumber}}))
+}
+
+// settlementBank is the bank line's local and group amounts with the
+// rates of the posting date they were converted at.
+type settlementBank struct {
+	group          string
+	rateLC, rateGC string
+	lc, gc         int64
+}
+
+// bankAmounts converts the settled transaction amount to local currency,
+// and that to group currency, at the average rates of the posting date.
+func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, tc int64) (settlementBank, error) {
+	var b settlementBank
+	var err error
+	if b.group, err = e.LegalEntities.GroupCurrency(ctx); err != nil {
+		return settlementBank{}, err
+	}
+	exps, err := exponents(ctx, tx, in.Currency, le.LocalCurrency, b.group)
+	if err != nil {
+		return settlementBank{}, err
+	}
+	if b.rateLC, err = rate(ctx, tx, in.Currency, le.LocalCurrency, in.PostingDate); err != nil {
+		return settlementBank{}, err
+	}
+	if b.rateGC, err = rate(ctx, tx, le.LocalCurrency, b.group, in.PostingDate); err != nil {
+		return settlementBank{}, err
+	}
+	if b.lc, err = convert(tc, b.rateLC, exps[in.Currency], exps[le.LocalCurrency]); err != nil {
+		return settlementBank{}, err
+	}
+	if b.gc, err = convert(b.lc, b.rateGC, exps[le.LocalCurrency], exps[b.group]); err != nil {
+		return settlementBank{}, err
+	}
+	return b, nil
+}
+
+// clearSettled records the settlement entry as the clearing of the items,
+// clears each item with its offsetting line (line i+1 of the entry), and
+// publishes items_cleared.
+func clearSettled(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, le uuid.UUID, date time.Time, entry Entry, items []item) (uuid.UUID, error) {
+	id := uuid.Must(uuid.NewV7())
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, le, date, entry.FiscalYear, entry.ID, actor.ID); err != nil {
+		return uuid.Nil, fmt.Errorf("ledger: settle with entry %s: record clearing %s: %w", entry.ID, id, err)
+	}
+	cleared := make([]ItemRef, 0, 2*len(items))
+	for i, it := range items {
+		cleared = append(cleared, it.ref, ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: int32(i + 1)})
+	}
+	payload := clearedItemsPayload(items, entry)
+	if err := markCleared(ctx, tx, actor.TenantID, id, cleared); err != nil {
+		return uuid.Nil, err
+	}
+	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
+		Payload: map[string]any{"clearing_id": id, "legal_entity_id": le, "clearing_date": date.Format(time.DateOnly),
+			"clearing_entry_id": entry.ID, "clearing_entry_year": entry.FiscalYear, "items": payload}}); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+// settledItemLines offsets each item on its account at its original
+// amounts and returns the lines with the items' totals per currency. The
+// items must be open items on reconciliation accounts of the legal entity,
+// in one ledger and in the settlement's currency.
+func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines []Line, tc, lc, gc int64, err error) {
+	lines = make([]Line, 0, len(items)+3)
+	for i, it := range items {
+		switch {
+		case !it.found || !it.recon || it.legalEntity != legalEntity:
+			return nil, 0, 0, 0, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
+		case !it.open:
+			return nil, 0, 0, 0, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+		case it.currency != in.Currency || it.ledger != items[0].ledger:
+			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
+		}
+		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: in.HeaderText})
+		tc, lc, gc = tc+it.tc, lc+it.lc, gc+it.gc
+	}
+	return lines, tc, lc, gc, nil
+}
+
+// exchangeDifferenceLines books what the bank line leaves in local and in
+// group currency on the fx_gain or fx_loss account of the account
+// determination: one line per currency with a difference.
+func exchangeDifferenceLines(ctx context.Context, legalEntity uuid.UUID, diffLC, diffGC int64, text *string) ([]Line, error) {
+	var lines []Line
+	for _, d := range []Line{{LC: diffLC}, {GC: diffGC}} {
+		if d.LC == 0 && d.GC == 0 {
+			continue
+		}
+		key := "fx_gain" // the payment cost less than the items were booked at
+		if d.LC+d.GC > 0 {
+			key = "fx_loss"
+		}
+		account, ok, err := Accounts{}.Determination(ctx, legalEntity, key)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, problem.Unprocessable("ledger.no_fx_account", "The payment realizes an exchange difference, and the legal entity has no "+key+
+				" account in its account determination.")
+		}
+		d.AccountID, d.Text = account, text
+		lines = append(lines, d)
+	}
+	return lines, nil
 }
