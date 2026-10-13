@@ -224,48 +224,7 @@ func (c contract) schema(v any, depth int) any {
 		if depth > 12 {
 			return map[string]any{}
 		}
-		n = c.resolve(n)
-		out := map[string]any{}
-		var readOnly []string
-		for k, x := range n {
-			switch {
-			case k == "examples" || k == "example" || k == "readOnly":
-			case k == "x-extensible-enum":
-				var values []string
-				for _, e := range x.([]any) {
-					values = append(values, fmt.Sprint(e))
-				}
-				desc, _ := n["description"].(string)
-				out["description"] = strings.TrimSpace(desc + " Known values: " + strings.Join(values, ", ") + ".")
-			case strings.HasPrefix(k, "x-"):
-			case k == "properties":
-				props := map[string]any{}
-				for name, p := range x.(map[string]any) {
-					if pm, ok := p.(map[string]any); ok && (pm["readOnly"] == true || c.resolve(pm)["readOnly"] == true) {
-						readOnly = append(readOnly, name)
-						continue
-					}
-					props[name] = c.schema(p, depth+1)
-				}
-				out[k] = props
-			case k == "description":
-				if _, has := out["description"]; !has {
-					out[k] = x
-				}
-			default:
-				out[k] = c.schema(x, depth+1)
-			}
-		}
-		if req, ok := out["required"].([]any); ok && len(readOnly) > 0 {
-			kept := []any{}
-			for _, r := range req {
-				if !slices.Contains(readOnly, fmt.Sprint(r)) {
-					kept = append(kept, r)
-				}
-			}
-			out["required"] = kept
-		}
-		return out
+		return c.schemaObject(c.resolve(n), depth)
 	case []any:
 		out := make([]any, len(n))
 		for i, x := range n {
@@ -274,6 +233,67 @@ func (c contract) schema(v any, depth int) any {
 		return out
 	}
 	return v
+}
+
+// schemaObject converts one resolved schema object.
+func (c contract) schemaObject(n map[string]any, depth int) map[string]any {
+	out := map[string]any{}
+	var readOnly []string
+	for k, x := range n {
+		switch {
+		case k == "examples" || k == "example" || k == "readOnly":
+		case k == "x-extensible-enum":
+			out["description"] = enumDescription(n, x.([]any))
+		case strings.HasPrefix(k, "x-"):
+		case k == "properties":
+			var props map[string]any
+			props, readOnly = c.schemaProperties(x.(map[string]any), depth)
+			out[k] = props
+		case k == "description":
+			// An open enumeration's description already includes this one.
+			if _, has := out["description"]; !has {
+				out[k] = x
+			}
+		default:
+			out[k] = c.schema(x, depth+1)
+		}
+	}
+	if req, ok := out["required"].([]any); ok && len(readOnly) > 0 {
+		kept := []any{}
+		for _, r := range req {
+			if !slices.Contains(readOnly, fmt.Sprint(r)) {
+				kept = append(kept, r)
+			}
+		}
+		out["required"] = kept
+	}
+	return out
+}
+
+// enumDescription is the description of an open enumeration, with its
+// known values appended so an agent can choose among them.
+func enumDescription(n map[string]any, enum []any) string {
+	var values []string
+	for _, e := range enum {
+		values = append(values, fmt.Sprint(e))
+	}
+	desc, _ := n["description"].(string)
+	return strings.TrimSpace(desc + " Known values: " + strings.Join(values, ", ") + ".")
+}
+
+// schemaProperties converts the properties of an object schema, leaving out
+// the read-only ones, which it returns by name.
+func (c contract) schemaProperties(properties map[string]any, depth int) (map[string]any, []string) {
+	props := map[string]any{}
+	var readOnly []string
+	for name, p := range properties {
+		if pm, ok := p.(map[string]any); ok && (pm["readOnly"] == true || c.resolve(pm)["readOnly"] == true) {
+			readOnly = append(readOnly, name)
+			continue
+		}
+		props[name] = c.schema(p, depth+1)
+	}
+	return props, readOnly
 }
 
 // tool builds the agent tool of an operation.
@@ -293,55 +313,66 @@ func (c contract) operation(id string, forPeople bool) (*Tool, error) {
 			if op["x-agent"] == false && !forPeople {
 				return nil, fmt.Errorf("apitools: %s is not open to agents (x-agent: false)", id)
 			}
-			t := &Tool{name: id, op: operation{id: id, method: strings.ToUpper(method), path: path}}
-			summary, _ := op["summary"].(string)
-			desc, _ := op["description"].(string)
-			t.description = summary + ". " + desc
-			props, required := map[string]any{}, []any{}
-			params, _ := op["parameters"].([]any)
-			for _, raw := range params {
-				p := c.resolve(raw.(map[string]any))
-				name, _ := p["name"].(string)
-				in, _ := p["in"].(string)
-				switch {
-				case in == "header" && strings.EqualFold(name, "If-Match"):
-					t.op.ifMatch = true
-					props["if_match"] = map[string]any{"type": "string", "description": "The ETag of the resource as you last read it (the etag of its latest result)."}
-					required = append(required, "if_match")
-					continue
-				case in != "path" && in != "query":
-					continue // Idempotency-Key is set by the client
-				}
-				s, _ := c.schema(p["schema"], 0).(map[string]any)
-				if d, ok := p["description"].(string); ok {
-					if sd, has := s["description"].(string); has {
-						d += " " + sd
-					}
-					s["description"] = d
-				}
-				props[name] = s
-				t.op.params = append(t.op.params, param{name: name, in: in, array: s["type"] == "array"})
-				if p["required"] == true {
-					required = append(required, name)
-				}
-			}
-			if rb, ok := op["requestBody"].(map[string]any); ok {
-				rb = c.resolve(rb)
-				content, _ := rb["content"].(map[string]any)
-				for _, media := range content {
-					s := c.schema(media.(map[string]any)["schema"], 0)
-					props["body"] = s
-					t.op.body = true
-				}
-				if rb["required"] == true {
-					required = append(required, "body")
-				}
-			}
-			schema := map[string]any{"type": "object", "properties": props, "required": required}
-			b, _ := json.Marshal(schema)  // built from YAML values
-			_ = t.schema.UnmarshalJSON(b) // an object always unmarshals into the schema param
-			return t, nil
+			return c.buildTool(id, strings.ToUpper(method), path, op), nil
 		}
 	}
 	return nil, fmt.Errorf("apitools: no operation %s in the contract", id)
+}
+
+// buildTool is the tool of one contract operation: its parameters and body
+// become the properties of one input object.
+func (c contract) buildTool(id, method, path string, op map[string]any) *Tool {
+	t := &Tool{name: id, op: operation{id: id, method: method, path: path}}
+	summary, _ := op["summary"].(string)
+	desc, _ := op["description"].(string)
+	t.description = summary + ". " + desc
+	props, required := map[string]any{}, []any{}
+	params, _ := op["parameters"].([]any)
+	for _, raw := range params {
+		required = c.parameter(t, c.resolve(raw.(map[string]any)), props, required)
+	}
+	if rb, ok := op["requestBody"].(map[string]any); ok {
+		rb = c.resolve(rb)
+		content, _ := rb["content"].(map[string]any)
+		for _, media := range content {
+			s := c.schema(media.(map[string]any)["schema"], 0)
+			props["body"] = s
+			t.op.body = true
+		}
+		if rb["required"] == true {
+			required = append(required, "body")
+		}
+	}
+	schema := map[string]any{"type": "object", "properties": props, "required": required}
+	b, _ := json.Marshal(schema)  // built from YAML values
+	_ = t.schema.UnmarshalJSON(b) // an object always unmarshals into the schema param
+	return t
+}
+
+// parameter adds one operation parameter to the tool's input properties
+// and returns the required names with it added when it is required.
+func (c contract) parameter(t *Tool, p map[string]any, props map[string]any, required []any) []any {
+	name, _ := p["name"].(string)
+	in, _ := p["in"].(string)
+	switch {
+	case in == "header" && strings.EqualFold(name, "If-Match"):
+		t.op.ifMatch = true
+		props["if_match"] = map[string]any{"type": "string", "description": "The ETag of the resource as you last read it (the etag of its latest result)."}
+		return append(required, "if_match")
+	case in != "path" && in != "query":
+		return required // Idempotency-Key is set by the client
+	}
+	s, _ := c.schema(p["schema"], 0).(map[string]any)
+	if d, ok := p["description"].(string); ok {
+		if sd, has := s["description"].(string); has {
+			d += " " + sd
+		}
+		s["description"] = d
+	}
+	props[name] = s
+	t.op.params = append(t.op.params, param{name: name, in: in, array: s["type"] == "array"})
+	if p["required"] == true {
+		required = append(required, name)
+	}
+	return required
 }
