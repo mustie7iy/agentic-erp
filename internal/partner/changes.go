@@ -439,31 +439,14 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	if !slices.Contains(kinds, in.Kind) {
-		return Partner{}, Change{}, invalid("partner.unknown_kind", "kind", "organization or person")
-	}
-	for i, r := range in.Roles {
-		if !slices.Contains(roles, r) {
-			return Partner{}, Change{}, invalid("partner.unknown_role", fmt.Sprintf("roles[%d]", i), "supplier or customer")
-		}
-	}
-	if in.Extensions == nil {
-		in.Extensions = map[string]any{}
-	}
-	if err := checkExtensions(in.Extensions); err != nil {
+	if err := checkNewPartner(&in); err != nil {
 		return Partner{}, Change{}, err
 	}
 	day, err := today(ctx, tx)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	fields, codes := []string{"country_code"}, []string{in.CountryCode}
-	for i, a := range in.Addresses {
-		fields, codes = append(fields, fmt.Sprintf("addresses[%d].country_code", i)), append(codes, a.CountryCode)
-	}
-	for i, b := range in.BankAccounts {
-		fields, codes = append(fields, fmt.Sprintf("bank_accounts[%d].bank_country_code", i)), append(codes, b.BankCountryCode)
-	}
+	fields, codes := newPartnerCountries(in)
 	if err := checkCountries(ctx, tx, fields, codes); err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -486,22 +469,7 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 		return Partner{}, Change{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, legal_name, country_code, language,
-			status, extensions, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $10)`,
-		p.TenantID, id, number, in.Kind, in.Name, in.LegalName, in.CountryCode, in.Language, in.Extensions, p.ID); err != nil {
-		return Partner{}, Change{}, fmt.Errorf("partner: insert business partner %s: %w", number, err)
-	}
-	if err := addRoles(ctx, tx, p, id, in.Roles); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := putCompanies(ctx, tx, p, id, in.SupplierCompanies); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := addAddresses(ctx, tx, p, id, in.Addresses, false); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := putTaxes(ctx, tx, p, id, taxes); err != nil {
+	if err := insertPartner(ctx, tx, p, id, number, in, taxes); err != nil {
 		return Partner{}, Change{}, err
 	}
 	warns, err := warnings(ctx, tx, id, taxes, banks)
@@ -523,6 +491,57 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 		event("business_partner_created", id, "partner.business_partner", map[string]any{
 			"partner_id": id, "number": number, "kind": in.Kind, "name": in.Name, "country_code": in.CountryCode, "roles": bp.Roles,
 			"status": Pending, "partner_change_id": c.ID}))
+}
+
+// checkNewPartner requires a known partner kind, known roles and valid
+// extensions, which default to none.
+func checkNewPartner(in *NewPartner) error {
+	if !slices.Contains(kinds, in.Kind) {
+		return invalid("partner.unknown_kind", "kind", "organization or person")
+	}
+	for i, r := range in.Roles {
+		if !slices.Contains(roles, r) {
+			return invalid("partner.unknown_role", fmt.Sprintf("roles[%d]", i), "supplier or customer")
+		}
+	}
+	if in.Extensions == nil {
+		in.Extensions = map[string]any{}
+	}
+	return checkExtensions(in.Extensions)
+}
+
+// newPartnerCountries lists the country codes of a new partner with the
+// fields they come from: its own, its addresses' and its banks'.
+func newPartnerCountries(in NewPartner) (fields, codes []string) {
+	fields, codes = []string{"country_code"}, []string{in.CountryCode}
+	for i, a := range in.Addresses {
+		fields, codes = append(fields, fmt.Sprintf("addresses[%d].country_code", i)), append(codes, a.CountryCode)
+	}
+	for i, b := range in.BankAccounts {
+		fields, codes = append(fields, fmt.Sprintf("bank_accounts[%d].bank_country_code", i)), append(codes, b.BankCountryCode)
+	}
+	return fields, codes
+}
+
+// insertPartner writes a pending partner with its roles, company data,
+// addresses and sealed tax identifiers.
+func insertPartner(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, number string, in NewPartner, taxes []sealedTax) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, legal_name, country_code, language,
+			status, extensions, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $10)`,
+		p.TenantID, id, number, in.Kind, in.Name, in.LegalName, in.CountryCode, in.Language, in.Extensions, p.ID); err != nil {
+		return fmt.Errorf("partner: insert business partner %s: %w", number, err)
+	}
+	if err := addRoles(ctx, tx, p, id, in.Roles); err != nil {
+		return err
+	}
+	if err := putCompanies(ctx, tx, p, id, in.SupplierCompanies); err != nil {
+		return err
+	}
+	if err := addAddresses(ctx, tx, p, id, in.Addresses, false); err != nil {
+		return err
+	}
+	return putTaxes(ctx, tx, p, id, taxes)
 }
 
 // Block blocks an active partner at once and records the applied change.
@@ -615,19 +634,9 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 		len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 {
 		return Change{}, problem.Unprocessable("partner.no_changes", "The change requests no changes.")
 	}
-	all := bp.Roles
-	if ch.Roles != nil {
-		for i, r := range ch.Roles {
-			if !slices.Contains(roles, r) {
-				return Change{}, invalid("partner.unknown_role", fmt.Sprintf("payload.roles[%d]", i), "supplier or customer")
-			}
-		}
-		for _, r := range bp.Roles {
-			if !slices.Contains(ch.Roles, r) {
-				return Change{}, invalid("partner.role_removal", "payload.roles", "roles can be added but not removed; "+r+" is missing")
-			}
-		}
-		all = ch.Roles
+	all, err := updatedRoles(bp.Roles, ch.Roles)
+	if err != nil {
+		return Change{}, err
 	}
 	if err := checkExtensions(ch.Extensions); err != nil {
 		return Change{}, err
@@ -664,6 +673,25 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 		return Change{}, err
 	}
 	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID})
+}
+
+// updatedRoles is the partner's set of roles after a change, which may
+// add known roles but not remove any; nil keeps the current ones.
+func updatedRoles(current, changed []string) ([]string, error) {
+	if changed == nil {
+		return current, nil
+	}
+	for i, r := range changed {
+		if !slices.Contains(roles, r) {
+			return nil, invalid("partner.unknown_role", fmt.Sprintf("payload.roles[%d]", i), "supplier or customer")
+		}
+	}
+	for _, r := range current {
+		if !slices.Contains(changed, r) {
+			return nil, invalid("partner.role_removal", "payload.roles", "roles can be added but not removed; "+r+" is missing")
+		}
+	}
+	return changed, nil
 }
 
 // RequestBankAccount opens a bank change that adds an account on approval.
