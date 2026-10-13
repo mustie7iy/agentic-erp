@@ -225,7 +225,7 @@ func TestMigrateErrors(t *testing.T) {
 	_, got := cli(t, "migrate")
 	for _, want := range []string{"FAIL", "difference 1000 211000", "1 SAP documents are not on the platform"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("report lacks %q:\n%s", want, got)
+			t.Errorf("report: got\n%s\nwant it to contain %q", got, want)
 		}
 	}
 	// A reconciled run whose checks table cannot be printed fails the command.
@@ -296,8 +296,11 @@ func TestInvoicesErrors(t *testing.T) {
 	}
 	// The agent reports the invoices it could not investigate.
 	fakeAPI(t, parked(nil))
-	if got := must(t, "invoices", "-agent"); !strings.Contains(got, "Posted 1: 5101") || !strings.Contains(got, "5100: apitools: start session") {
-		t.Fatalf("agent errors: %s", got)
+	got := must(t, "invoices", "-agent")
+	for _, want := range []string{"Posted 1: 5101", "5100: apitools: start session"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("agent errors: got %s, want it to contain %q", got, want)
+		}
 	}
 	fails(t, "flag provided", "invoices", "-x")
 	fakeAPI(t, parked(nil), "ERP_AGENT_TOKEN", "")
@@ -322,7 +325,9 @@ func TestAgentErrors(t *testing.T) {
 	fails(t, "404", "agent", "test", "-change-request", "cr")
 	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
 	for _, a := range []string{"config", "migration", "test"} {
-		fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")
+		t.Run(a+" without a token", func(t *testing.T) {
+			fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")
+		})
 	}
 }
 
@@ -591,8 +596,11 @@ func TestTenantsCommand(t *testing.T) {
 	}
 	fails(t, "tenancy.invalid_transition", "tenants", "offboard", "-id", "t1")
 	fails(t, "tenancy.invalid_tenant", "tenants", "create", "-config", file)
-	if got := must(t, "tenants", "fingerprint", "-id", "t1"); !strings.Contains(got, `"rows": 12`) || !strings.Contains(got, `"seq": 7`) || !strings.Contains(got, `"etag": "\"3\""`) {
-		t.Fatalf("fingerprint: %s", got)
+	got := must(t, "tenants", "fingerprint", "-id", "t1")
+	for _, want := range []string{`"rows": 12`, `"seq": 7`, `"etag": "\"3\""`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("fingerprint: got %s, want it to contain %s", got, want)
+		}
 	}
 	fails(t, "request.not_found", "tenants", "get", "-id", "nope")
 	fails(t, "request.not_found", "tenants", "fingerprint", "-id", "nope")
@@ -606,7 +614,9 @@ func TestTenantsCommand(t *testing.T) {
 	fails(t, "-config is required", "tenants", "create", "-name", "x")
 	fails(t, "no such file", "tenants", "create", "-config", "/no/such.yaml")
 	for _, sub := range []string{"list", "get", "fingerprint", "create", "suspend"} {
-		fails(t, "flag provided", "tenants", sub, "-x")
+		t.Run(sub+" unknown flag", func(t *testing.T) {
+			fails(t, "flag provided", "tenants", sub, "-x")
+		})
 	}
 	env["ERP_OPERATOR_TOKEN"] = "wrong"
 	fails(t, "authn.invalid_token", "tenants", "list")
@@ -620,8 +630,10 @@ func TestTenantsCommand(t *testing.T) {
 	fails(t, "connection refused", "tenants", "list")
 	mu.Lock()
 	defer mu.Unlock()
-	if !strings.Contains(strings.Join(seen, "\n"), "GET /control/v1/tenants?order_by=name+asc&page_size=2&page_token=p&status=active") ||
-		!strings.Contains(strings.Join(seen, "\n"), `POST /control/v1/tenants/t1:suspend key= if-match="3"`) {
-		t.Fatalf("calls:\n%s", strings.Join(seen, "\n"))
+	calls := strings.Join(seen, "\n")
+	for _, want := range []string{"GET /control/v1/tenants?order_by=name+asc&page_size=2&page_token=p&status=active", `POST /control/v1/tenants/t1:suspend key= if-match="3"`} {
+		if !strings.Contains(calls, want) {
+			t.Fatalf("calls: got\n%s\nwant them to contain %s", calls, want)
+		}
 	}
 }

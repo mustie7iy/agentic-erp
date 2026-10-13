@@ -131,9 +131,11 @@ func TestCaptureCommand(t *testing.T) {
 	fails(t, "", "capture", "-legal-entity", le, "-file", small, "-upload")
 	// Content types by extension.
 	for name, want := range map[string]string{"a.png": "image/png", "a.JPG": "image/jpeg", "a.jpeg": "image/jpeg", "a.xml": "application/xml", "a.pdf": "application/pdf", "noext": "application/pdf"} {
-		if got := contentTypeOf(name); got != want {
-			t.Errorf("%s: %s", name, got)
-		}
+		t.Run(name, func(t *testing.T) {
+			if got := contentTypeOf(name); got != want {
+				t.Errorf("contentTypeOf(%s): got %s, want %s", name, got, want)
+			}
+		})
 	}
 }
 

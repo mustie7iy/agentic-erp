@@ -95,8 +95,11 @@ func TestDirectoryCommand(t *testing.T) {
 	if got := must(t, "directory", "create", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "s", "-admin-name", "Ada", "-admin-email", "ada@example.com", "-config", file); !strings.Contains(got, `"cell": "eu-2"`) {
 		t.Fatalf("create: %s", got)
 	}
-	if got := must(t, "directory", "create", "-name", "Beta", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "s", "-admin-name", "Bea", "-cell", "eu-1", "-config", file, "-idempotency-key", "replayed-key"); !strings.Contains(got, `"cell": "eu-1"`) || !strings.Contains(got, "replayed") {
-		t.Fatalf("create in a cell, replayed: %s", got)
+	got := must(t, "directory", "create", "-name", "Beta", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "s", "-admin-name", "Bea", "-cell", "eu-1", "-config", file, "-idempotency-key", "replayed-key")
+	for _, want := range []string{`"cell": "eu-1"`, "replayed"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("create in a cell, replayed: got %s, want it to contain %s", got, want)
+		}
 	}
 	if got := must(t, "directory", "freeze", "-id", "t1"); !strings.Contains(got, `"read_only"`) {
 		t.Fatalf("freeze: %s", got)
@@ -110,7 +113,7 @@ func TestDirectoryCommand(t *testing.T) {
 	for _, want := range []string{"GET /directory/v1/cells?region=eu-west", "GET /directory/v1/tenants?cell=eu-1&order_by=cell+asc&page_size=1&page_token=n&region=eu-west&status=active",
 		"GET /directory/v1/tenants/t1 if-match=\nPOST /directory/v1/tenants/t1:freeze if-match=\"2\"", "POST /directory/v1/tenants/t1:move if-match=\"2\""} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("requests lack %q:\n%s", want, joined)
+			t.Errorf("requests: got\n%s\nwant them to contain %q", joined, want)
 		}
 	}
 	if got := must(t, "directory", "tenants"); !strings.Contains(got, `"t1"`) {
@@ -139,7 +142,9 @@ func TestDirectoryCommand(t *testing.T) {
 	fails(t, "unknown command", "directory", "explode")
 	fails(t, "usage: erp directory", "directory")
 	for _, sub := range []string{"cells", "tenants", "locate", "create", "freeze", "verify", "move"} {
-		fails(t, "flag provided but not defined", "directory", sub, "-x")
+		t.Run(sub+" unknown flag", func(t *testing.T) {
+			fails(t, "flag provided but not defined", "directory", sub, "-x")
+		})
 	}
 	env["ERP_OPERATOR_TOKEN"] = "wrong"
 	fails(t, "401 authn.invalid_token", "directory", "cells")

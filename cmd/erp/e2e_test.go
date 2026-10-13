@@ -117,13 +117,17 @@ func TestEndToEnd(t *testing.T) {
 	conn := body(t, must(t, "call", "createConnector", "-body", `{"kind": "sap_file", "name": "SAP PRD", "settings": {"path": "extract.json"}}`))
 	id := conn["id"].(string)
 	got := must(t, "migrate", "-connector", id, "-legal-entities", e.US.String(), "-year", "2026")
-	if !strings.Contains(got, "reconciled") || !strings.Contains(got, "Vendors") {
-		t.Fatalf("migrate: %s", got)
+	for _, want := range []string{"reconciled", "Vendors"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("migrate: got %s, want it to contain %q", got, want)
+		}
 	}
 	// The rule matches parked invoices: clean ones post, others stay held for the agent.
 	got = must(t, "invoices")
-	if !strings.Contains(got, "Posted") || !strings.Contains(got, "(match)") {
-		t.Fatalf("invoices: %s", got)
+	for _, want := range []string{"Posted", "(match)"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("invoices: got %s, want it to contain %q", got, want)
+		}
 	}
 	steps := []llmtest.Step{}
 	for range 6 {
@@ -168,8 +172,10 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("metrics: %s", got)
 	}
 	got = must(t, "query", "-measures", "revenue,invoice_count", "-by", "fiscal_year", "-where", "fiscal_month <= 9", "-companies", "1000", "-csv", "q.csv")
-	if !strings.Contains(got, "2026") || !strings.Contains(got, "data through") {
-		t.Fatalf("query: %s", got)
+	for _, want := range []string{"2026", "data through"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("query: got %s, want it to contain %q", got, want)
+		}
 	}
 	ask := llmtest.New(t,
 		llmtest.Tool("run_query", map[string]any{"measures": []string{"revenue"}, "by": []string{"fiscal_year"}}),
