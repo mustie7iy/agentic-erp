@@ -99,7 +99,10 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err != nil {
 		return err
 	}
-	defer tp.Shutdown(context.WithoutCancel(ctx))
+	// With a context that cannot end, Shutdown fails only when an exporter
+	// fails to stop, which the OTLP HTTP client never does; spans the last
+	// export loses are reported through otel's error handler, not here.
+	defer func() { _ = tp.Shutdown(context.WithoutCancel(ctx)) }()
 	s := &server{cfg: cfg, log: log, tp: tp}
 	if s.pool, err = openPool(ctx, cfg); err != nil {
 		return err
@@ -651,6 +654,7 @@ func maintain(ctx context.Context, interval time.Duration, job func(context.Cont
 // projector lag is a monitored metric), read on each scrape as the role
 // that drains them.
 func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
+	//nolint:forbidigo // a row count read as a Prometheus gauge value, which is float64; no amount or quantity
 	count := func(role, sql string, args ...any) func(context.Context) (float64, error) {
 		return func(ctx context.Context) (float64, error) {
 			var n float64

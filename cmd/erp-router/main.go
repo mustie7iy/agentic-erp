@@ -73,7 +73,7 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	}
 	adminLn, err := net.Listen("tcp", cfg.AdminAddr)
 	if err != nil {
-		ln.Close()
+		_ = ln.Close() // the admin listener's failure is the one reported
 		return fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
 	}
 	servers := []*http.Server{
@@ -96,7 +96,9 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	shutdownCtx, done := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
 	defer done()
 	for _, s := range servers {
-		s.Shutdown(shutdownCtx)
+		// In-flight requests finish or time out; a server that did not stop
+		// in time is abandoned with the process, so its error changes nothing.
+		_ = s.Shutdown(shutdownCtx)
 	}
 	log.Info("erp-router stopped")
 	return serveErr

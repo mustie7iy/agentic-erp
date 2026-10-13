@@ -277,7 +277,7 @@ func token(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("token: ask the admin listener: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	var answer struct {
 		Token string
 	}

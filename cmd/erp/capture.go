@@ -118,7 +118,7 @@ func upload(ctx context.Context, c *apitools.Client, doc []byte, contentType str
 	if err != nil {
 		return "", fmt.Errorf("capture: upload %s: %w", up.ID, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	if resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return "", fmt.Errorf("uploading the document: %d %s", resp.StatusCode, strings.TrimSpace(string(raw)))
@@ -130,15 +130,17 @@ func upload(ctx context.Context, c *apitools.Client, doc []byte, contentType str
 // capture posts the multipart capture request and returns the Operation.
 func capture(ctx context.Context, c *apitools.Client, fields map[string]string, document []byte) (map[string]any, error) {
 	var body bytes.Buffer
+	// The multipart writer writes to a bytes.Buffer, whose writes never
+	// fail, so none of these calls can return an error.
 	w := multipart.NewWriter(&body)
 	for k, v := range fields {
-		w.WriteField(k, v) // writes to a buffer never fail
+		_ = w.WriteField(k, v)
 	}
 	if document != nil {
 		part, _ := w.CreateFormFile("document", "document")
-		part.Write(document)
+		_, _ = part.Write(document)
 	}
-	w.Close()
+	_ = w.Close()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/v1/supplier-invoices:capture", &body) // a fixed method and URL always parse
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", w.FormDataContentType())
@@ -147,7 +149,7 @@ func capture(ctx context.Context, c *apitools.Client, fields map[string]string, 
 	if err != nil {
 		return nil, fmt.Errorf("capture: send: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	raw, _ := io.ReadAll(resp.Body)
 	var m map[string]any
 	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {

@@ -98,7 +98,7 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	if err != nil {
 		return nil, nil, fmt.Errorf("control plane %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	raw, _ := io.ReadAll(resp.Body)
 	var m map[string]any
 	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {
