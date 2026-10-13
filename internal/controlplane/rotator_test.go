@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -152,4 +154,41 @@ func TestKeyRotationPolicy(t *testing.T) {
 	stopped, cancelNow := context.WithCancel(ctx)
 	cancelNow()
 	k.Run(stopped)
+}
+
+// TestARotationFailureDoesNotStopTheRound: a tenant whose key cannot be
+// rotated (its master key gone, say) is reported, and the tenants after it
+// in the round are still rotated rather than starved round after round.
+func TestARotationFailureDoesNotStopTheRound(t *testing.T) {
+	p := newPlane(t)
+	ctx := context.Background()
+	var ids []uuid.UUID
+	for _, name := range []string{"Stuck", "Behind"} {
+		created, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, name), "Idempotency-Key", "key-"+uuid.NewString())
+		id := uuid.MustParse(created["id"].(string))
+		pgtest.Exec(t, `UPDATE tenancy.tenant_key SET created_at = now() - interval '25 hours', version = version + 1 WHERE tenant_id = $1 AND status = 'active'`, id)
+		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	stuck, behind := ids[0], ids[1] // the round takes tenants in id order: the failing one first
+	pool := p.s.Pool
+	k := &controlplane.KeyRotator{Pool: pool, Keys: apitest.FieldKeys(), AppRole: "erp_app", WorkerRole: "erp_worker", Age: 24 * time.Hour,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Begin: func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			if s.TenantID == stuck {
+				return nil, pgtest.ErrInjected
+			}
+			return pool.Begin(ctx, s)
+		}}
+	_, err := k.RunOnce(ctx)
+	if !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), stuck.String()) {
+		t.Fatalf("round error: got %v, want the injected failure of tenant %s", err, stuck)
+	}
+	var keys int
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, behind).Scan(&keys); err != nil {
+		t.Fatalf("count tenant keys: %v", err)
+	}
+	if keys != 2 {
+		t.Errorf("keys of the tenant behind the failing one: got %d, want 2", keys)
+	}
 }

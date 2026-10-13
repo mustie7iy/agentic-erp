@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -92,20 +93,25 @@ func (k *KeyRotator) Rotate(ctx context.Context, tenant uuid.UUID) (fieldcrypt.R
 	return rot, nil
 }
 
-// RunOnce rotates every tenant due and returns how many.
+// RunOnce rotates every tenant due and returns how many. A tenant whose
+// rotation fails is reported and left for the next round; the tenants after
+// it go on, or one key that cannot be rotated (its master key gone) would
+// stop every later tenant's rotation for good.
 func (k *KeyRotator) RunOnce(ctx context.Context) (int, error) {
 	tenants, err := k.due(ctx)
 	if err != nil {
 		return 0, err
 	}
 	n := 0
+	var failures []error
 	for _, t := range tenants {
 		if _, err := k.Rotate(ctx, t); err != nil {
-			return n, fmt.Errorf("rotating the key of tenant %s: %w", t, err)
+			failures = append(failures, fmt.Errorf("rotating the key of tenant %s: %w", t, err))
+			continue
 		}
 		n++
 	}
-	return n, nil
+	return n, errors.Join(failures...)
 }
 
 // Run rounds until ctx ends, logging failures and work done.
