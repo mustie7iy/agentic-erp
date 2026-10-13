@@ -91,237 +91,391 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 	return 0
 }
 
+// run starts the server and serves until ctx ends or a listener fails. The
+// steps run in startup order; what a step opens is closed by run's defers,
+// in the reverse order, once the workers stopped.
 func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(api, admin net.Listener)) error {
 	tp, err := telemetry.Tracing(ctx, cfg.OTLPEndpoint)
 	if err != nil {
 		return err
 	}
 	defer tp.Shutdown(context.WithoutCancel(ctx))
-	settings := database.DefaultSettings
-	settings.MaxConns = cfg.DBMaxConns
-	pool, err := database.Open(ctx, cfg.DatabaseURL, settings)
+	s := &server{cfg: cfg, log: log, tp: tp}
+	if s.pool, err = openPool(ctx, cfg); err != nil {
+		return err
+	}
+	defer s.pool.Close()
+	if err := s.prepareSchema(ctx); err != nil {
+		return err
+	}
+	if err := s.authenticate(ctx); err != nil {
+		return err
+	}
+	s.openObjects()
+	dir, err := s.openDirectory(ctx)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
-	if cfg.MigrateOnStart {
-		if err := migrate(ctx, pool, log); err != nil {
+	if dir != nil {
+		defer dir.Close()
+	}
+	if err := s.controlPlane(ctx); err != nil {
+		return err
+	}
+	s.collaborators()
+	engine, err := s.dialEngine(ctx)
+	if err != nil {
+		return err
+	}
+	if engine != nil {
+		defer engine.Close()
+	}
+	if err := s.newAPI(); err != nil {
+		return err
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.startWorkers(runCtx)
+	bus, err := s.connectBus()
+	if err != nil {
+		return err
+	}
+	if bus != nil {
+		defer bus.Close()
+	}
+	if err := s.startRelay(ctx, runCtx, bus); err != nil {
+		return err
+	}
+	return s.serve(ctx, cancel, started)
+}
+
+// server is what run wires together, one step after the other, before it
+// serves.
+type server struct {
+	cfg  config.Config
+	log  *slog.Logger
+	tp   *sdktrace.TracerProvider
+	pool *database.Pool
+
+	static       []authn.Static
+	dev          *authn.DevIssuer
+	verifier     *authn.Verifier
+	pages        *pagination.Codec
+	keys         *fieldcrypt.Keyring
+	store        blobstore.Store
+	offboarder   *offboarding.Worker
+	sync         *directory.Sync
+	control      http.Handler
+	extractor    capture.Extractor
+	connector    payments.Connector
+	metrics      *telemetry.Metrics
+	engine       *workflow.Temporal
+	engineClient workflow.Client
+	apiCfg       httpapi.Config
+	apiHandler   http.Handler
+	simulator    *configuration.SimulationWorker
+
+	// Each worker's end: closed when it stopped, or right away when it
+	// does not run in this configuration.
+	dirDone, projectorDone, simulatorDone, proposerDone, workerDone, dispatchDone, maintenanceDone chan struct{}
+	anchorDone, offboardDone, rotateDone, expireDone, verifyDone, relayDone                        chan struct{}
+	// workerErr is the workflow worker's end: nil after a requested shutdown,
+	// the failure when it could not start (joined into the server's exit).
+	workerErr chan error
+}
+
+// openPool opens the database pool with the configured size.
+func openPool(ctx context.Context, cfg config.Config) (*database.Pool, error) {
+	settings := database.DefaultSettings
+	settings.MaxConns = cfg.DBMaxConns
+	return database.Open(ctx, cfg.DatabaseURL, settings)
+}
+
+// prepareSchema migrates when configured to, and creates the partitions
+// the coming periods need.
+func (s *server) prepareSchema(ctx context.Context) error {
+	if s.cfg.MigrateOnStart {
+		if err := migrate(ctx, s.pool, s.log); err != nil {
 			return err
 		}
 	}
-	if err := partitions(ctx, pool, log); err != nil {
+	return partitions(ctx, s.pool, s.log)
+}
+
+// authenticate sets up who the API trusts (the configured issuers and the
+// development issuer), the page-token codec and the field encryption ring.
+func (s *server) authenticate(ctx context.Context) error {
+	if s.cfg.DevIssuer {
+		s.dev = authn.NewDevIssuer()
+		s.static = append(s.static, s.dev.Static())
+		s.log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant, and operator tokens (POST /dev/token); never in production, where ERP_ENV=production refuses it")
+	}
+	var err error
+	if s.verifier, err = authn.New(ctx, s.cfg.Issuers, s.static...); err != nil {
 		return err
 	}
-	var static []authn.Static
-	var dev *authn.DevIssuer
-	if cfg.DevIssuer {
-		dev = authn.NewDevIssuer()
-		static = append(static, dev.Static())
-		log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant, and operator tokens (POST /dev/token); never in production, where ERP_ENV=production refuses it")
-	}
-	verifier, err := authn.New(ctx, cfg.Issuers, static...)
-	if err != nil {
+	if s.pages, err = pagination.NewCodec(s.cfg.PageTokenKey); err != nil {
 		return err
 	}
-	pages, err := pagination.NewCodec(cfg.PageTokenKey)
-	if err != nil {
+	if s.keys, err = keyring(s.cfg, s.pool); err != nil {
 		return err
 	}
-	keys, err := keyring(cfg, pool)
-	if err != nil {
-		return err
-	}
-	store := objects(cfg.Objects, cfg.AWS)
-	if store == nil {
-		log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported")
+	return nil
+}
+
+// openObjects opens the object store and, where there is one, the worker
+// that exports and erases offboarded tenants.
+func (s *server) openObjects() {
+	s.store = objects(s.cfg.Objects, s.cfg.AWS)
+	if s.store == nil {
+		s.log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported")
 	}
 	// The control plane trusts the operator issuers, and the development
 	// issuer's operator tokens; without either it is not served.
 	// Offboarded tenants are exported and erased by a worker, where there
 	// is a store for the exports; the control plane erases on request.
-	var offboarder *offboarding.Worker
-	if store != nil {
-		offboarder = &offboarding.Worker{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: offboardInterval,
-			Grace: cfg.OffboardGrace, Retention: cfg.Objects.Retention, Log: log}
+	if s.store != nil {
+		s.offboarder = &offboarding.Worker{Pool: s.pool, Store: s.store, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Interval: offboardInterval,
+			Grace: s.cfg.OffboardGrace, Retention: s.cfg.Objects.Retention, Log: s.log}
 	}
-	// With a global directory (ADR-0022) the cell keeps its tenants' entries
-	// current, right after a change and in rounds.
-	var sync *directory.Sync
-	var dirDone = make(chan struct{})
-	if cfg.DirectoryURL != "" {
-		dir, err := directory.Open(ctx, cfg.DirectoryURL)
-		if err != nil {
-			return err
-		}
-		defer dir.Close()
-		sync = &directory.Sync{Pool: pool, ControlRole: cfg.ControlRole, Directory: dir, Cell: cfg.Cell, APIURL: cfg.CellAPIURL,
-			Region: cfg.CellRegion, ControlURL: cfg.CellControlURL, Accepting: cfg.CellAccepting, Interval: directoryInterval, Log: log}
-	} else {
-		close(dirDone)
+}
+
+// openDirectory connects the global directory (ADR-0022), where there is
+// one: the cell keeps its tenants' entries current, right after a change
+// and in rounds. Without one it returns nil.
+func (s *server) openDirectory(ctx context.Context) (*directory.Postgres, error) {
+	s.dirDone = make(chan struct{})
+	if s.cfg.DirectoryURL == "" {
+		close(s.dirDone)
+		return nil, nil
 	}
-	var control http.Handler
-	if len(cfg.OperatorIssuers)+len(static) > 0 {
-		operators, err := authn.New(ctx, cfg.OperatorIssuers, static...)
-		if err != nil {
-			return err
-		}
-		service := &controlplane.Service{Pool: pool, AppRole: cfg.AppRole, ControlRole: cfg.ControlRole, Pages: pages,
-			Keys: keys, Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})},
-			Offboarding: offboarder, Directory: sync}
-		control = controlplane.Handler(service, operators, log)
-		log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(cfg.OperatorIssuers), "dev_issuer", cfg.DevIssuer)
+	dir, err := directory.Open(ctx, s.cfg.DirectoryURL)
+	if err != nil {
+		return nil, err
 	}
-	var extractor capture.Extractor
-	if cfg.LLMEnabled {
-		extractor = &capture.ClaudeExtractor{LLM: llm.New()}
+	s.sync = &directory.Sync{Pool: s.pool, ControlRole: s.cfg.ControlRole, Directory: dir, Cell: s.cfg.Cell, APIURL: s.cfg.CellAPIURL,
+		Region: s.cfg.CellRegion, ControlURL: s.cfg.CellControlURL, Accepting: s.cfg.CellAccepting, Interval: directoryInterval, Log: s.log}
+	return dir, nil
+}
+
+// controlPlane builds the operators' API, served when there is an issuer
+// for operator tokens.
+func (s *server) controlPlane(ctx context.Context) error {
+	if len(s.cfg.OperatorIssuers)+len(s.static) == 0 {
+		return nil
 	}
-	var connector payments.Connector
-	if cfg.BankOutboxDir != "" {
-		connector = payments.DirConnector{Dir: cfg.BankOutboxDir}
-	}
-	metrics := telemetry.NewMetrics()
-	backlogs(pool, cfg, metrics)
-	// The workflow engine (ADR-0012): with ERP_TEMPORAL_ADDRESS the server
-	// hosts a worker and dispatches queued operations to it; without, the
-	// in-process workers of the transition keep running them.
-	var engine *workflow.Temporal
-	var engineClient workflow.Client
-	if cfg.Temporal.Address != "" {
-		var codec *workflow.Codec
-		if cfg.Temporal.CodecKey != nil {
-			codec, _ = workflow.NewCodec(cfg.Temporal.CodecKey) // the configuration checked the length
-		} else {
-			log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed (ERP_ENV=production refuses this)")
-		}
-		engine, err = workflow.Dial(ctx, workflow.Config{Address: cfg.Temporal.Address, Namespace: cfg.Temporal.Namespace, Codec: codec})
-		if err != nil {
-			return err
-		}
-		defer engine.Close()
-		engineClient = engine
-		log.Info("workflow engine connected", "address", cfg.Temporal.Address, "namespace", cfg.Temporal.Namespace, "task_queue", cfg.Temporal.TaskQueue)
-	}
-	apiCfg := httpapi.Config{
-		Pool: pool, AppRole: cfg.AppRole, Verifier: verifier, Pages: pages, FieldKeys: keys, Extractor: extractor, Connector: connector, ExtractDir: cfg.ExtractDir, Objects: store, Secrets: cfg.Secrets, Log: log,
-		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: engineClient,
-		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
-		Metrics: metrics, Tracer: tp, Meter: otel.GetMeterProvider(), Now: time.Now,
-	}
-	apiHandler, err := httpapi.New(apiCfg)
+	operators, err := authn.New(ctx, s.cfg.OperatorIssuers, s.static...)
 	if err != nil {
 		return err
 	}
+	service := &controlplane.Service{Pool: s.pool, AppRole: s.cfg.AppRole, ControlRole: s.cfg.ControlRole, Pages: s.pages,
+		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: s.keys})},
+		Offboarding: s.offboarder, Directory: s.sync}
+	s.control = controlplane.Handler(service, operators, s.log)
+	s.log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(s.cfg.OperatorIssuers), "dev_issuer", s.cfg.DevIssuer)
+	return nil
+}
 
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	projector := &ledger.Projector{Pool: pool, Role: cfg.ProjectorRole, Log: log}
-	projectorDone := make(chan struct{})
-	go func() { projector.Run(runCtx); close(projectorDone) }()
-	simulator := &configuration.SimulationWorker{Dependencies: httpapi.Configuration(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
-	simulatorDone := make(chan struct{})
-	if engine == nil {
-		go func() { simulator.Run(runCtx); close(simulatorDone) }()
-	} else {
-		close(simulatorDone) // simulations run as workflows
+// collaborators sets up the optional outside services (document extraction,
+// the bank connector) and the metrics with the queues' backlogs.
+func (s *server) collaborators() {
+	if s.cfg.LLMEnabled {
+		s.extractor = &capture.ClaudeExtractor{LLM: llm.New()}
 	}
-	// workerErr is the workflow worker's end: nil after a requested shutdown,
-	// the failure when it could not start (joined into the server's exit).
-	proposerDone, workerDone, dispatchDone, workerErr := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	if s.cfg.BankOutboxDir != "" {
+		s.connector = payments.DirConnector{Dir: s.cfg.BankOutboxDir}
+	}
+	s.metrics = telemetry.NewMetrics()
+	backlogs(s.pool, s.cfg, s.metrics)
+}
+
+// dialEngine connects the workflow engine (ADR-0012): with
+// ERP_TEMPORAL_ADDRESS the server hosts a worker and dispatches queued
+// operations to it; without, the in-process workers of the transition keep
+// running them, and it returns nil.
+func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
+	if s.cfg.Temporal.Address == "" {
+		return nil, nil
+	}
+	var codec *workflow.Codec
+	if s.cfg.Temporal.CodecKey != nil {
+		codec, _ = workflow.NewCodec(s.cfg.Temporal.CodecKey) // the configuration checked the length
+	} else {
+		s.log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed (ERP_ENV=production refuses this)")
+	}
+	engine, err := workflow.Dial(ctx, workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec})
+	if err != nil {
+		return nil, err
+	}
+	s.engine, s.engineClient = engine, engine
+	s.log.Info("workflow engine connected", "address", s.cfg.Temporal.Address, "namespace", s.cfg.Temporal.Namespace, "task_queue", s.cfg.Temporal.TaskQueue)
+	return engine, nil
+}
+
+// newAPI builds the public API's handler.
+func (s *server) newAPI() error {
+	cfg := s.cfg
+	s.apiCfg = httpapi.Config{
+		Pool: s.pool, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Secrets: cfg.Secrets, Log: s.log,
+		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
+		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
+		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
+	}
+	var err error
+	if s.apiHandler, err = httpapi.New(s.apiCfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+// startWorkers starts the background workers on runCtx, which run cancels
+// at shutdown.
+func (s *server) startWorkers(runCtx context.Context) {
+	s.startProjections(runCtx)
+	s.startOperations(runCtx)
+	s.startMaintenance(runCtx)
+	s.startAudit(runCtx)
+}
+
+// startProjections starts the balance projector and, without a workflow
+// engine, the configuration simulator.
+func (s *server) startProjections(runCtx context.Context) {
+	projector := &ledger.Projector{Pool: s.pool, Role: s.cfg.ProjectorRole, Log: s.log}
+	s.projectorDone = make(chan struct{})
+	go func() { projector.Run(runCtx); close(s.projectorDone) }()
+	s.simulator = &configuration.SimulationWorker{Dependencies: httpapi.Configuration(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Log: s.log}
+	s.simulatorDone = make(chan struct{})
+	if s.engine == nil {
+		go func() { s.simulator.Run(runCtx); close(s.simulatorDone) }()
+	} else {
+		close(s.simulatorDone) // simulations run as workflows
+	}
+}
+
+// startOperations starts what runs queued operations: the in-process
+// payment workers, or the workflow worker and the dispatcher that hands it
+// the queued operations.
+func (s *server) startOperations(runCtx context.Context) {
+	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
+	s.proposerDone, s.workerDone, s.dispatchDone, s.workerErr = make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	if engine == nil {
 		proposer := &payments.Proposer{Endpoints: httpapi.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
-		go func() { proposer.Run(runCtx); close(proposerDone) }()
+		go func() { proposer.Run(runCtx); close(s.proposerDone) }()
 		releaser := &workflows.Releaser{Payments: &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}, Pool: pool, WorkerRole: cfg.WorkerRole, Log: log}
-		go func() { releaser.Run(runCtx); close(workerDone) }()
-		close(dispatchDone)
-		workerErr <- nil
-	} else {
-		close(proposerDone)
-		activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}
-		go func() {
-			workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
-				workflows.Register(r, activities, &workflows.Simulations{Worker: simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Integration(apiCfg)},
-					&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole})
-			})
-			close(workerDone)
-		}()
-		dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Log: log}
-		go func() { dispatcher.Run(runCtx); close(dispatchDone) }()
+		go func() { releaser.Run(runCtx); close(s.workerDone) }()
+		close(s.dispatchDone)
+		s.workerErr <- nil
+		return
 	}
-	maintenanceDone := make(chan struct{})
+	close(s.proposerDone)
+	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}
+	go func() {
+		s.workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
+			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Integration(apiCfg)},
+				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole})
+		})
+		close(s.workerDone)
+	}()
+	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Log: log}
+	go func() { dispatcher.Run(runCtx); close(s.dispatchDone) }()
+}
+
+// startMaintenance starts the partition maintenance and, with a global
+// directory, the directory sync.
+func (s *server) startMaintenance(runCtx context.Context) {
+	pool, log := s.pool, s.log
+	s.maintenanceDone = make(chan struct{})
 	go func() {
 		maintain(runCtx, maintenanceInterval, func(ctx context.Context) error { return partitions(ctx, pool, log) }, log)
-		close(maintenanceDone)
+		close(s.maintenanceDone)
 	}()
-	if sync != nil {
-		go func() { sync.Run(runCtx); close(dirDone) }()
+	if s.sync != nil {
+		go func() { s.sync.Run(runCtx); close(s.dirDone) }()
 	}
-	anchorDone, offboardDone := make(chan struct{}), make(chan struct{})
-	if store == nil {
-		close(anchorDone)
-		close(offboardDone)
+}
+
+// startAudit starts the workers that keep data within its policies: the
+// audit anchorer and offboarding (with an object store), key rotation,
+// contract expiry and audit chain verification.
+func (s *server) startAudit(runCtx context.Context) {
+	cfg, pool, log := s.cfg, s.pool, s.log
+	s.anchorDone, s.offboardDone = make(chan struct{}), make(chan struct{})
+	if s.store == nil {
+		close(s.anchorDone)
+		close(s.offboardDone)
 	} else {
-		anchorer := &audit.Anchorer{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: anchorInterval, Retention: cfg.Objects.Retention, Log: log}
-		go func() { anchorer.Run(runCtx); close(anchorDone) }()
-		go func() { offboarder.Run(runCtx); close(offboardDone) }()
+		anchorer := &audit.Anchorer{Pool: pool, Store: s.store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: anchorInterval, Retention: cfg.Objects.Retention, Log: log}
+		go func() { anchorer.Run(runCtx); close(s.anchorDone) }()
+		go func() { s.offboarder.Run(runCtx); close(s.offboardDone) }()
 	}
 	// Keys older than the policy's age are rotated by the server (ADR-0028).
-	rotateDone := make(chan struct{})
+	s.rotateDone = make(chan struct{})
 	if cfg.KeyRotationAge == 0 {
-		close(rotateDone)
+		close(s.rotateDone)
 	} else {
-		rotator := &controlplane.KeyRotator{Pool: pool, Keys: keys, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Age: cfg.KeyRotationAge, Interval: rotationInterval, Log: log}
-		go func() { rotator.Run(runCtx); close(rotateDone) }()
+		rotator := &controlplane.KeyRotator{Pool: pool, Keys: s.keys, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Age: cfg.KeyRotationAge, Interval: rotationInterval, Log: log}
+		go func() { rotator.Run(runCtx); close(s.rotateDone) }()
 	}
 	// Active contracts past their validity are expired in rounds (the
 	// contract's ContractExpired is the job's).
 	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log}
-	expireDone := make(chan struct{})
-	go func() { expirer.Run(runCtx); close(expireDone) }()
+	s.expireDone = make(chan struct{})
+	go func() { expirer.Run(runCtx); close(s.expireDone) }()
 	// Every tenant's audit chain is verified against its anchors in rounds
 	// (ADR-0011); a chain that stops verifying is an alarm.
-	verifyDone := make(chan struct{})
+	s.verifyDone = make(chan struct{})
 	if cfg.AuditVerify == 0 {
-		close(verifyDone)
+		close(s.verifyDone)
 		log.Warn("ERP_AUDIT_VERIFY_INTERVAL is 0: audit chains are verified on request only")
 	} else {
-		verifier := &audit.Verifier{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: cfg.AuditVerify, Log: log}
-		go func() { verifier.Run(runCtx); close(verifyDone) }()
+		verifier := &audit.Verifier{Pool: pool, Store: s.store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: cfg.AuditVerify, Log: log}
+		go func() { verifier.Run(runCtx); close(s.verifyDone) }()
 	}
-	relayDone := make(chan struct{})
-	if cfg.NATSURL == "" {
-		log.Warn("ERP_NATS_URL not set: events stay in the outbox until a relay runs")
-		close(relayDone)
-	} else {
-		bus, err := natsbus.Connect(cfg.NATSURL)
-		if err != nil {
-			return err
-		}
-		defer bus.Close()
-		if err := bus.EnsureStreams(ctx, cfg.Cell); err != nil {
-			return err
-		}
-		relay := &outbox.Relay{Pool: pool, Role: cfg.RelayRole, Publisher: bus, Cell: cfg.Cell, Log: log}
-		go func() { relay.Run(runCtx); close(relayDone) }()
-	}
+}
 
-	apiLn, err := net.Listen("tcp", cfg.HTTPAddr)
-	if err != nil {
-		return fmt.Errorf("erp-server: listen on %s: %w", cfg.HTTPAddr, err)
+// connectBus connects NATS for the outbox relay, or returns nil when none
+// is configured: events then stay in the outbox.
+func (s *server) connectBus() (*natsbus.Bus, error) {
+	s.relayDone = make(chan struct{})
+	if s.cfg.NATSURL == "" {
+		s.log.Warn("ERP_NATS_URL not set: events stay in the outbox until a relay runs")
+		close(s.relayDone)
+		return nil, nil
 	}
-	adminLn, err := net.Listen("tcp", cfg.AdminAddr)
+	return natsbus.Connect(s.cfg.NATSURL)
+}
+
+// startRelay makes sure the cell's streams exist and starts the outbox
+// relay on bus, when there is one.
+func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error {
+	if bus == nil {
+		return nil
+	}
+	if err := bus.EnsureStreams(ctx, s.cfg.Cell); err != nil {
+		return err
+	}
+	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log}
+	go func() { relay.Run(runCtx); close(s.relayDone) }()
+	return nil
+}
+
+// serve opens the listeners and serves until ctx ends or a listener fails,
+// then shuts the servers down, stops the workers (cancel) and waits for
+// them.
+func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started func(api, admin net.Listener)) error {
+	apiLn, adminLn, err := listen(s.cfg)
 	if err != nil {
-		apiLn.Close()
-		return fmt.Errorf("erp-server: admin listen on %s: %w", cfg.AdminAddr, err)
+		return err
 	}
 	servers := []*http.Server{
-		{Handler: apiHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
-		{Handler: httpapi.Admin(ready(pool), metrics, devHandler(dev), traced(control, log, metrics, tp)), ReadHeaderTimeout: 5 * time.Second},
+		{Handler: s.apiHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
+		{Handler: httpapi.Admin(ready(s.pool), s.metrics, devHandler(s.dev), traced(s.control, s.log, s.metrics, s.tp)), ReadHeaderTimeout: 5 * time.Second},
 	}
 	errc := make(chan error, 2)
 	for i, ln := range []net.Listener{apiLn, adminLn} {
 		go func() { errc <- servers[i].Serve(ln) }()
 	}
-	log.Info("erp-server started", "api", apiLn.Addr().String(), "admin", adminLn.Addr().String(), "env", cfg.Environment, "cell", cfg.Cell, "directory", cfg.DirectoryURL != "")
+	s.log.Info("erp-server started", "api", apiLn.Addr().String(), "admin", adminLn.Addr().String(), "env", s.cfg.Environment, "cell", s.cfg.Cell, "directory", s.cfg.DirectoryURL != "")
 	if started != nil {
 		started(apiLn, adminLn)
 	}
@@ -331,27 +485,51 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	case <-ctx.Done():
 	case serveErr = <-errc:
 	}
-	shutdownCtx, done := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
+	shutdownCtx, done := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
 	defer done()
-	for _, s := range servers {
-		s.Shutdown(shutdownCtx) // in-flight requests finish or time out
+	for _, srv := range servers {
+		// In-flight requests finish or time out; a server that did not stop
+		// in time is abandoned with the process, so its error changes nothing.
+		_ = srv.Shutdown(shutdownCtx)
 	}
 	cancel()
-	<-relayDone
-	<-projectorDone
-	<-proposerDone
-	<-dispatchDone
-	<-workerDone
-	<-simulatorDone
-	<-maintenanceDone
-	<-anchorDone
-	<-offboardDone
-	<-verifyDone
-	<-rotateDone
-	<-expireDone
-	<-dirDone
-	log.Info("erp-server stopped")
-	return errors.Join(serveErr, <-workerErr) // nil after a requested shutdown; set when a listener or the workflow worker failed
+	s.wait()
+	s.log.Info("erp-server stopped")
+	return errors.Join(serveErr, <-s.workerErr) // nil after a requested shutdown; set when a listener or the workflow worker failed
+}
+
+// listen opens the API and admin listeners; when the second fails the
+// first is closed again. The listen itself takes no context (it is what
+// net.Listen does): a shutdown is noticed once serving.
+func listen(cfg config.Config) (apiLn, adminLn net.Listener, err error) {
+	var lc net.ListenConfig
+	apiLn, err = lc.Listen(context.Background(), "tcp", cfg.HTTPAddr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("erp-server: listen on %s: %w", cfg.HTTPAddr, err)
+	}
+	adminLn, err = lc.Listen(context.Background(), "tcp", cfg.AdminAddr)
+	if err != nil {
+		_ = apiLn.Close() // the admin listener's failure is the one reported
+		return nil, nil, fmt.Errorf("erp-server: admin listen on %s: %w", cfg.AdminAddr, err)
+	}
+	return apiLn, adminLn, nil
+}
+
+// wait blocks until every worker stopped.
+func (s *server) wait() {
+	<-s.relayDone
+	<-s.projectorDone
+	<-s.proposerDone
+	<-s.dispatchDone
+	<-s.workerDone
+	<-s.simulatorDone
+	<-s.maintenanceDone
+	<-s.anchorDone
+	<-s.offboardDone
+	<-s.verifyDone
+	<-s.rotateDone
+	<-s.expireDone
+	<-s.dirDone
 }
 
 // maintenanceInterval is how often a replica checks the partition horizon,
