@@ -67,8 +67,20 @@ func TestReview(t *testing.T) {
 		llmtest.Final("Nothing to say."))
 	a := &agent.Agent{LLM: model.Runner(), API: api, MaxInvoices: 5}
 	res, err := a.Review(context.Background())
-	if err != nil || res.Recommendations != 1 || len(res.Reviewed) != 2 || len(res.Errors) != 1 || !strings.Contains(res.Errors[0], "no recommendation") {
-		t.Fatalf("review: %+v %v", res, err)
+	if err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	if res.Recommendations != 1 {
+		t.Errorf("review recommendations: got %d, want 1", res.Recommendations)
+	}
+	if len(res.Reviewed) != 2 {
+		t.Errorf("review reviewed: got %v, want 2 invoices", res.Reviewed)
+	}
+	if len(res.Errors) != 1 {
+		t.Fatalf("review errors: got %v, want 1", res.Errors)
+	}
+	if !strings.Contains(res.Errors[0], "no recommendation") {
+		t.Errorf("review error: got %q, want it to mention no recommendation", res.Errors[0])
 	}
 	if names := model.ToolNames(); len(names) != len(agent.Tools) {
 		t.Fatalf("tools offered: %v", names)
@@ -79,8 +91,20 @@ func TestReview(t *testing.T) {
 	}
 	// Invoices with an open recommendation are not reviewed again; model failures are reported per invoice.
 	res, err = (&agent.Agent{LLM: llmtest.New(t).Runner(), API: api}).Review(context.Background())
-	if err != nil || len(res.Reviewed) != 1 || res.Reviewed[0] == "" || len(res.Errors) != 1 || second == "" {
-		t.Fatalf("second review: %+v %v", res, err)
+	if err != nil {
+		t.Fatalf("second review: %v", err)
+	}
+	if len(res.Reviewed) != 1 {
+		t.Fatalf("second review reviewed: got %v, want 1 invoice", res.Reviewed)
+	}
+	if res.Reviewed[0] == "" {
+		t.Error("second review reviewed: got an empty id, want the invoice id")
+	}
+	if len(res.Errors) != 1 {
+		t.Errorf("second review errors: got %v, want 1", res.Errors)
+	}
+	if second == "" {
+		t.Error("second held invoice: got an empty id, want an id")
 	}
 	// The agent needs to read invoices, recommendations and start sessions.
 	person := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)}
@@ -95,8 +119,10 @@ func TestReview(t *testing.T) {
 	}
 	for name, c := range map[string]*apitools.Client{"no server": {BaseURL: "http://127.0.0.1:1"}, "no token": {BaseURL: srv.URL},
 		"server gone": {BaseURL: srv.URL, Token: api.Token, HTTP: &http.Client{Transport: &failAfter{n: 1}}}} {
-		if _, err := (&agent.Agent{LLM: model.Runner(), API: c}).Review(context.Background()); err == nil {
-			t.Errorf("%s: reviewed", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if _, err := (&agent.Agent{LLM: model.Runner(), API: c}).Review(context.Background()); err == nil {
+				t.Error("Review: got nil error, want a failure")
+			}
+		})
 	}
 }
