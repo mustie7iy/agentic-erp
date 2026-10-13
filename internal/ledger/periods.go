@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -48,8 +49,8 @@ const periodSelect = `SELECT * FROM (SELECT s.id, s.legal_entity_id, s.ledger_id
 
 func scanPeriod(row pgx.Row) (Period, error) {
 	var p Period
-	err := wrapScan("fiscal period", row.Scan(&p.ID, &p.LegalEntityID, &p.LedgerID, &p.CalendarID, &p.FiscalYear, &p.Period, &p.StartDate, &p.EndDate,
-		&p.IsSpecial, &p.Status, &p.Version, &p.UpdatedAt, &p.UpdatedBy))
+	err := errs.Wrapf(row.Scan(&p.ID, &p.LegalEntityID, &p.LedgerID, &p.CalendarID, &p.FiscalYear, &p.Period, &p.StartDate, &p.EndDate,
+		&p.IsSpecial, &p.Status, &p.Version, &p.UpdatedAt, &p.UpdatedBy), "scan fiscal period")
 	return p, err
 }
 
@@ -67,7 +68,10 @@ func getPeriod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Period,
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(p.LegalEntityID)) {
 		return Period{}, problem.NotFound("No fiscal period with this id.")
 	}
-	return p, err
+	if err != nil {
+		return Period{}, fmt.Errorf("ledger: read fiscal period %s: %w", id, err)
+	}
+	return p, nil
 }
 
 // GetPeriod returns a posting period.

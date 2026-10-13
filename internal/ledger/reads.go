@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -48,21 +49,10 @@ const accountSelect = `SELECT a.id, a.chart_id, a.number, a.name, a.account_type
 		a.version, a.created_at, a.created_by, a.updated_at, a.updated_by
 	FROM ledger.gl_account a`
 
-// wrapScan gives a row scan's error the ledger's context. The scan helpers
-// share it so that the wrapping is one branch, reached by the reads whose
-// query can fail, rather than one per helper, most of which only run on rows
-// a successful query returned.
-func wrapScan(what string, err error) error {
-	if err != nil {
-		return fmt.Errorf("ledger: scan %s: %w", what, err)
-	}
-	return nil
-}
-
 func scanAccount(row pgx.Row) (Account, error) {
 	var a Account
-	err := wrapScan("account", row.Scan(&a.ID, &a.ChartID, &a.Number, &a.Name, &a.AccountType, &a.IsBalanceSheet, &a.ReconciliationKind, &a.Status,
-		&a.Settings, &a.Version, &a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy))
+	err := errs.Wrapf(row.Scan(&a.ID, &a.ChartID, &a.Number, &a.Name, &a.AccountType, &a.IsBalanceSheet, &a.ReconciliationKind, &a.Status,
+		&a.Settings, &a.Version, &a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy), "scan account")
 	return a, err
 }
 
@@ -80,7 +70,10 @@ func GetAccount(ctx context.Context, id uuid.UUID) (Account, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, problem.NotFound("No account with this id.")
 	}
-	return a, err
+	if err != nil {
+		return Account{}, fmt.Errorf("ledger: read account %s: %w", id, err)
+	}
+	return a, nil
 }
 
 // OpenItem is an uncleared line on a supplier or customer reconciliation
@@ -114,8 +107,8 @@ const openItemSelect = `SELECT * FROM (SELECT l.fiscal_year, l.journal_entry_id,
 
 func scanOpenItem(row pgx.Row) (OpenItem, error) {
 	var o OpenItem
-	err := wrapScan("open item", row.Scan(&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate, &o.TC, &o.LC,
-		&o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference))
+	err := errs.Wrapf(row.Scan(&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate, &o.TC, &o.LC,
+		&o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference), "scan open item")
 	return o, err
 }
 
@@ -163,7 +156,7 @@ const balanceSelect = `SELECT * FROM (SELECT md5(account_id::text || '/' || fisc
 
 func scanBalance(row pgx.Row) (Balance, error) {
 	var b Balance
-	err := wrapScan("balance", row.Scan(&b.ID, &b.AccountID, &b.FiscalPeriod, &b.CurrencyTC, &b.ExpTC, &b.DebitTC, &b.CreditTC, &b.DebitLC, &b.CreditLC,
-		&b.DebitGC, &b.CreditGC, &b.UpdatedAt))
+	err := errs.Wrapf(row.Scan(&b.ID, &b.AccountID, &b.FiscalPeriod, &b.CurrencyTC, &b.ExpTC, &b.DebitTC, &b.CreditTC, &b.DebitLC, &b.CreditLC,
+		&b.DebitGC, &b.CreditGC, &b.UpdatedAt), "scan balance")
 	return b, err
 }

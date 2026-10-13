@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -49,7 +51,7 @@ const rateColumns = `id, rate_type, from_currency, to_currency, valid_from, rate
 
 func scanRate(row pgx.Row) (Rate, error) {
 	var r Rate
-	err := wrapScan("exchange rate", row.Scan(&r.ID, &r.RateType, &r.FromCurrency, &r.ToCurrency, &r.ValidFrom, &r.Rate, &r.Source, &r.CreatedAt, &r.CreatedBy))
+	err := errs.Wrapf(row.Scan(&r.ID, &r.RateType, &r.FromCurrency, &r.ToCurrency, &r.ValidFrom, &r.Rate, &r.Source, &r.CreatedAt, &r.CreatedBy), "scan exchange rate")
 	return r, err
 }
 
@@ -63,7 +65,10 @@ func GetRate(ctx context.Context, id uuid.UUID) (Rate, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Rate{}, problem.NotFound("No exchange rate with this id.")
 	}
-	return r, err
+	if err != nil {
+		return Rate{}, fmt.Errorf("ledger: read exchange rate %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // NewRate is the input of CreateRate.
@@ -96,7 +101,7 @@ func CreateRate(ctx context.Context, in NewRate) (Rate, error) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9) RETURNING `+rateColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), in.RateType, in.FromCurrency, in.ToCurrency, in.ValidFrom, in.Rate, in.Source, p.ID))
 	if err != nil {
-		return Rate{}, err
+		return Rate{}, fmt.Errorf("ledger: create exchange rate %s/%s from %s: %w", in.FromCurrency, in.ToCurrency, in.ValidFrom.Format(time.DateOnly), err)
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "exchange_rate_maintained", AggregateType: "ledger.exchange_rate", AggregateID: r.ID,
 		Payload: map[string]any{"exchange_rate_id": r.ID, "rate_type": r.RateType, "from_currency": r.FromCurrency, "to_currency": r.ToCurrency,

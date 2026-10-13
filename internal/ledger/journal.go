@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -93,10 +94,10 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year,
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
-	err := wrapScan("journal entry", row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
+	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
 		&e.DocumentDate, &e.PostingDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
 		&e.Reference, &e.HeaderText, &e.SourceContext, &e.SourceDocumentID, &e.ReversalOfID, &e.ReversalOfYear, &e.ReversedByID,
-		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines))
+		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines), "scan journal entry")
 	return e, err
 }
 
@@ -110,7 +111,10 @@ func getEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Entry, error) {
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(e.LegalEntityID)) {
 		return Entry{}, problem.NotFound("No journal entry with this id.")
 	}
-	return e, err
+	if err != nil {
+		return Entry{}, fmt.Errorf("ledger: read journal entry %s: %w", id, err)
+	}
+	return e, nil
 }
 
 // GetEntry returns a journal entry.

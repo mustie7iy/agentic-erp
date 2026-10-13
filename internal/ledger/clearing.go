@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -56,7 +57,7 @@ const clearingSelect = `SELECT c.id, c.legal_entity_id, c.clearing_date, c.clear
 
 func scanClearing(row pgx.Row) (Clearing, error) {
 	var c Clearing
-	err := wrapScan("clearing", row.Scan(&c.ID, &c.LegalEntityID, &c.ClearingDate, &c.EntryYear, &c.EntryID, &c.CreatedAt, &c.CreatedBy, &c.Items))
+	err := errs.Wrapf(row.Scan(&c.ID, &c.LegalEntityID, &c.ClearingDate, &c.EntryYear, &c.EntryID, &c.CreatedAt, &c.CreatedBy, &c.Items), "scan clearing")
 	return c, err
 }
 
@@ -69,7 +70,10 @@ func getClearing(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Clearing, error)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(c.LegalEntityID)) {
 		return Clearing{}, problem.NotFound("No clearing with this id.")
 	}
-	return c, err
+	if err != nil {
+		return Clearing{}, fmt.Errorf("ledger: read clearing %s: %w", id, err)
+	}
+	return c, nil
 }
 
 // GetClearing returns a clearing.

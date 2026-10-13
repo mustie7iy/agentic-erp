@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -48,7 +49,7 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, currency, documentDateTo)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem
-		err := wrapScan("payable item", r.Scan(&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount))
+		err := errs.Wrapf(r.Scan(&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount), "scan payable item")
 		return p, err
 	})
 	if err != nil {
