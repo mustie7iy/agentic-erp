@@ -278,8 +278,18 @@ func TestAsyncAPIChannels(t *testing.T) {
 		ch := asMap(raw)
 		addr := asString(ch["address"])
 		segs := strings.Split(addr, ".")
-		if len(segs) != 5 || segs[0] != "erp" || segs[1] != "{cell}" || segs[3] != "{tenant}" || segs[4] != "{event}" {
-			t.Errorf("channel %s: address %q, want erp.{cell}.<context>.{tenant}.{event}", chName, addr)
+		if len(segs) != 5 {
+			t.Errorf("channel %s: address %q has %d segments, want erp.{cell}.<context>.{tenant}.{event}", chName, addr, len(segs))
+			continue
+		}
+		wellFormed := true
+		for i, want := range map[int]string{0: "erp", 1: "{cell}", 3: "{tenant}", 4: "{event}"} {
+			if segs[i] != want {
+				t.Errorf("channel %s: address %q segment %d: got %q, want %q", chName, addr, i, segs[i], want)
+				wellFormed = false
+			}
+		}
+		if !wellFormed {
 			continue
 		}
 		ctx := segs[2]

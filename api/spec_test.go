@@ -160,8 +160,14 @@ func TestDocument(t *testing.T) {
 		t.Errorf("openapi = %q, want 3.1.x", v)
 	}
 	info, _ := spec["info"].(node)
-	if info["version"] != "1.0.0" || info["title"] == nil || !strings.Contains(fmt.Sprint(info["description"]), "04-api-design.md") {
-		t.Errorf("info must have a title, version 1.0.0 and a description pointing to 04-api-design.md")
+	if info["version"] != "1.0.0" {
+		t.Errorf("info.version: got %v, want 1.0.0", info["version"])
+	}
+	if info["title"] == nil {
+		t.Error("info.title: got none, want a title")
+	}
+	if desc := fmt.Sprint(info["description"]); !strings.Contains(desc, "04-api-design.md") {
+		t.Errorf("info.description: got %q, want it to point to 04-api-design.md", desc)
 	}
 	servers, _ := spec["servers"].([]any)
 	if len(servers) == 0 {
@@ -180,8 +186,11 @@ func TestDocument(t *testing.T) {
 	}
 	security, _ := spec["security"].([]any)
 	schemes, _ := spec["components"].(node)["securitySchemes"].(node)
-	if len(security) == 0 || len(schemes) == 0 {
-		t.Error("a global security requirement and a security scheme are required")
+	if len(security) == 0 {
+		t.Error("security: got no global security requirement, want one")
+	}
+	if len(schemes) == 0 {
+		t.Error("securitySchemes: got none, want a security scheme")
 	}
 	for _, req := range security {
 		for name := range req.(node) {
@@ -374,8 +383,11 @@ func TestRepresentations(t *testing.T) {
 	}
 	schemas := spec["components"].(node)["schemas"].(node)
 	money := schemas["Money"].(node)["properties"].(node)
-	if money["amount"].(node)["type"] != "string" || money["currency"] == nil {
-		t.Error("Money must be {amount: decimal string, currency}")
+	if typ := money["amount"].(node)["type"]; typ != "string" {
+		t.Errorf("Money.amount type: got %v, want string (a decimal string)", typ)
+	}
+	if money["currency"] == nil {
+		t.Error("Money.currency: got none, want a currency")
 	}
 	for _, name := range []string{"Problem", "FieldError", "Operation", "AuditFields", "Extensions", "Quantity"} {
 		if schemas[name] == nil {
