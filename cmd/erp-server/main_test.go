@@ -317,11 +317,12 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 		name   string
 		nats   func() string
 		mutate func(*config.Config)
+		want   string // the step that failed, so the case cannot pass on an earlier failure
 	}{
-		{"bus unreachable", func() string { return "nats://127.0.0.1:1" }, func(*config.Config) {}},
-		{"streams refused", func() string { return natstest.Plain(t) }, func(*config.Config) {}},
-		{"api port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.HTTPAddr = busy.Addr().String() }},
-		{"admin port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.AdminAddr = busy.Addr().String() }},
+		{"bus unreachable", func() string { return "nats://127.0.0.1:1" }, func(*config.Config) {}, "natsbus: connect"},
+		{"streams refused", func() string { return natstest.Plain(t) }, func(*config.Config) {}, "natsbus: stream"},
+		{"api port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.HTTPAddr = busy.Addr().String() }, "erp-server: listen on"},
+		{"admin port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.AdminAddr = busy.Addr().String() }, "erp-server: admin listen on"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -330,8 +331,8 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 			defer func() { startWorkersHook = (*server).startWorkers }()
 			cfg := load(t, environment(t, is, c.nats()))
 			c.mutate(&cfg)
-			if err := run(context.Background(), cfg, quiet(), nil); err == nil {
-				t.Fatal("got no error, want the startup failure")
+			if err := run(context.Background(), cfg, quiet(), nil); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("got %v, want the startup failure %q", err, c.want)
 			}
 			if s == nil {
 				t.Fatal("got no workers started, want them started before the failure")
