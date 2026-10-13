@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"log/slog"
@@ -373,5 +374,55 @@ func TestWorkflowEngineSettings(t *testing.T) {
 		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// TestProductionFailsClosed: in production (ERP_ENV) the server refuses to
+// start with the development token issuer, or with a workflow engine but no
+// codec key; development allows both, as before. An unknown environment is
+// refused.
+func TestProductionFailsClosed(t *testing.T) {
+	codec := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
+	const devRefused, codecRefused = "ERP_DEV_ISSUER must not be set with ERP_ENV=production", "ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production"
+	cases := []struct {
+		name    string
+		set     map[string]string
+		wantErr []string // the errors reported; none means the configuration loads
+	}{
+		{"development by default", map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
+		{"development dev issuer", map[string]string{"ERP_ENV": "development", "ERP_DEV_ISSUER": "true"}, nil},
+		{"development engine without codec", map[string]string{"ERP_ENV": "development", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
+		{"production", map[string]string{"ERP_ENV": "production", "ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_TEMPORAL_CODEC_KEY": codec}, nil},
+		{"production without an engine", map[string]string{"ERP_ENV": "production"}, nil},
+		{"production dev issuer", map[string]string{"ERP_ENV": "production", "ERP_DEV_ISSUER": "true"}, []string{devRefused}},
+		{"production engine without codec", map[string]string{"ERP_ENV": "production", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, []string{codecRefused}},
+		{"production both", map[string]string{"ERP_ENV": "production", "ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, []string{devRefused, codecRefused}},
+		{"unknown environment", map[string]string{"ERP_ENV": "staging"}, []string{"must be development or production"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			for k, v := range c.set {
+				m[k] = v
+			}
+			cfg, err := Load(env(m))
+			if len(c.wantErr) == 0 {
+				if err != nil {
+					t.Fatalf("got %v, want the configuration to load", err)
+				}
+				if want := cmp.Or(c.set["ERP_ENV"], Development); cfg.Environment != want {
+					t.Errorf("environment: got %q, want %q", cfg.Environment, want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("got no error, want %q", c.wantErr)
+			}
+			for _, want := range c.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("got %v, want it to report %q", err, want)
+				}
+			}
+		})
 	}
 }

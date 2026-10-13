@@ -27,6 +27,7 @@ type Config struct {
 	HTTPAddr        string          // ERP_HTTP_ADDR, public API (default :8080)
 	AdminAddr       string          // ERP_ADMIN_ADDR, liveness, readiness, metrics (default :9090)
 	DatabaseURL     string          // DATABASE_URL (required)
+	Environment     string          // ERP_ENV: development (default) or production, where insecure settings refuse to start
 	AppRole         string          // ERP_DB_APP_ROLE (default erp_app)
 	RelayRole       string          // ERP_DB_RELAY_ROLE (default erp_relay)
 	ProjectorRole   string          // ERP_DB_PROJECTOR_ROLE (default erp_projector)
@@ -342,7 +343,36 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.PrincipalQuota, err = ratelimit.ParseQuota(get("ERP_RATE_LIMIT_PRINCIPAL", "50/100")); err != nil {
 		errs = append(errs, fmt.Errorf("ERP_RATE_LIMIT_PRINCIPAL: %w", err))
 	}
+	c.Environment = get("ERP_ENV", Development)
+	errs = append(errs, checkEnvironment(c)...)
 	return c, errors.Join(errs...)
+}
+
+// The environments ERP_ENV names.
+const (
+	Development = "development"
+	Production  = "production"
+)
+
+// checkEnvironment refuses, in production, the settings that are only safe
+// on a developer's machine: a missing security setting fails startup rather
+// than logging a warning (CLAUDE.md).
+func checkEnvironment(c Config) []error {
+	switch c.Environment {
+	case Development:
+		return nil
+	case Production:
+	default:
+		return []error{fmt.Errorf("ERP_ENV %q must be development or production", c.Environment)}
+	}
+	var errs []error
+	if c.DevIssuer {
+		errs = append(errs, errors.New("ERP_DEV_ISSUER must not be set with ERP_ENV=production: it mints tokens for any subject of any tenant"))
+	}
+	if c.Temporal.Address != "" && c.Temporal.CodecKey == nil {
+		errs = append(errs, errors.New("ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production and a workflow engine: without it payloads reach the engine unsealed"))
+	}
+	return errs
 }
 
 // DefaultK8sJWTFile is where Kubernetes mounts the service account token.

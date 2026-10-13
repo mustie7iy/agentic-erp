@@ -117,7 +117,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if cfg.DevIssuer {
 		dev = authn.NewDevIssuer()
 		static = append(static, dev.Static())
-		log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant, and operator tokens (POST /dev/token); never in production")
+		log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant, and operator tokens (POST /dev/token); never in production, where ERP_ENV=production refuses it")
 	}
 	verifier, err := authn.New(ctx, cfg.Issuers, static...)
 	if err != nil {
@@ -191,7 +191,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		if cfg.Temporal.CodecKey != nil {
 			codec, _ = workflow.NewCodec(cfg.Temporal.CodecKey) // the configuration checked the length
 		} else {
-			log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed")
+			log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed (ERP_ENV=production refuses this)")
 		}
 		engine, err = workflow.Dial(ctx, workflow.Config{Address: cfg.Temporal.Address, Namespace: cfg.Temporal.Namespace, Codec: codec})
 		if err != nil {
@@ -321,7 +321,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	for i, ln := range []net.Listener{apiLn, adminLn} {
 		go func() { errc <- servers[i].Serve(ln) }()
 	}
-	log.Info("erp-server started", "api", apiLn.Addr().String(), "admin", adminLn.Addr().String(), "cell", cfg.Cell, "directory", cfg.DirectoryURL != "")
+	log.Info("erp-server started", "api", apiLn.Addr().String(), "admin", adminLn.Addr().String(), "env", cfg.Environment, "cell", cfg.Cell, "directory", cfg.DirectoryURL != "")
 	if started != nil {
 		started(apiLn, adminLn)
 	}

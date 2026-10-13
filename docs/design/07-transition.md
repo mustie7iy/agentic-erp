@@ -639,7 +639,9 @@ Decisions taken while building it:
   trusts its own fresh RSA key under issuer `erp-dev`, audience `erp-api`,
   and serves `POST /dev/token` on the admin listener only. With
   `ERP_DEV_ISSUER=true`, `ERP_OIDC_ISSUERS` becomes optional; the server
-  logs a warning at start. Tokens live an hour.
+  logs a warning at start, and refuses to start with `ERP_ENV=production`
+  (as it does with a workflow engine but no `ERP_TEMPORAL_CODEC_KEY`).
+  Tokens live an hour.
 
 Open points for the contract and design review:
 

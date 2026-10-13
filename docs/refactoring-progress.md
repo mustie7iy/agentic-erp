@@ -38,7 +38,10 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   transition; approvals complete; authz checkSoD) receive the principal, tenant or tx from callers
   that hold it; no exported signature changed. No reachable failure before, so no failing-first
   test; make test passes. Reviewer: APPROVE (after widening from four sites to all seven).
-- [ ] R5 Fail closed in production (codec key, dev token issuer)
+- [x] R5 Fail closed in production (codec key, dev token issuer). ERP_ENV (development default |
+  production); production refuses ERP_DEV_ISSUER and an engine without ERP_TEMPORAL_CODEC_KEY.
+  TestProductionFailsClosed (9 cases); its refusal cases fail with the check disabled. Lint
+  config unchanged. Reviewer: APPROVE.
 - [ ] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero
 
 ### Phase 2 — Shared helpers
@@ -187,6 +190,9 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
 - 2026-10-13, end of Phase 0: R5 adds `ERP_ENV` (development | production) to
   internal/platform/config; production refuses to start with the dev token issuer or without the
   Temporal codec key. R23 owns the findings the brief left unassigned.
+- R5: ERP_ENV defaults to development (local runs, tests and the README flows unchanged), so the
+  protection is opt-in: every production deployment manifest must set ERP_ENV=production. The
+  server logs its environment at start and its two insecure-setting warnings name ERP_ENV.
 
 ## Found during refactoring
 

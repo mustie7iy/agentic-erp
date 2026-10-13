@@ -66,7 +66,7 @@ access and audit as any other client. Point it at a server with
 A tenant is provisioned once by an operator, with its first administrator and
 its first configuration; from then on the administrator manages it through
 the API. Locally, the server can mint tokens for any subject
-(`ERP_DEV_ISSUER=true`; never in production):
+(`ERP_DEV_ISSUER=true`; a server started with `ERP_ENV=production` refuses it):
 
 ```sh
 make db-up
@@ -192,7 +192,8 @@ export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"e
 export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
 export ERP_NATS_URL=nats://localhost:4222   # optional; without it events wait in the outbox
 export ERP_TEMPORAL_ADDRESS=localhost:7233   # optional; the workflow engine (ADR-0012): `temporal server start-dev` locally; without it in-process workers run the long-running work
-export ERP_TEMPORAL_CODEC_KEY=$(head -c 32 /dev/urandom | base64)   # seals workflow payloads before they reach the engine
+export ERP_TEMPORAL_CODEC_KEY=$(head -c 32 /dev/urandom | base64)   # seals workflow payloads before they reach the engine; required with an engine in production
+export ERP_ENV=development                   # the default; production refuses ERP_DEV_ISSUER and an engine without ERP_TEMPORAL_CODEC_KEY
 export ERP_OBJECT_DIR=$PWD/data/objects      # or ERP_OBJECT_S3_ENDPOINT, _BUCKET, _ACCESS_KEY, _SECRET_KEY for an S3-compatible store
 make run-server                 # migrates, then serves :8080 (API) and :9090 (admin)
 ```
