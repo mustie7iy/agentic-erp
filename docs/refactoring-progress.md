@@ -251,6 +251,24 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
   activities hit the database should set a test timeout: R30.
 - Phase 3: internal/nfr TestLoadShedsAHotPrincipal fails under concurrent load (relies on the
   rate limiter refilling at 20/s; slow requests are never refused); passes alone: R30.
+- Phase 4 (analytics, found while splitting; not fixed):
+  - cellEval.eval keeps the last currency of a cell's map for the divisor: a Count metric
+    with aggregate sum over facts in, say, JPY and USD is divided by 1 or 100 depending on map
+    order (Money and Ratio end in the mixed-currency error; Count is exempt). Real bug.
+  - Model.index checks defaults ranging over a map: with several invalid defaults the error
+    reported varies between runs.
+  - Render indexes columns without checking for -1 and ignores r.sum errors; it relies on
+    Spec.Validate having run.
+  - aggCell.seen is set and never read; orderRows computes `less` before the Desc check.
+- Phase 4 (integration, sap, apitools, sapconfig, found while splitting; not fixed):
+  - apitools contract.parameter: a parameter with a description but no schema panics (nil map
+    write); several unchecked type assertions panic on a malformed contract.
+  - sap ODataSource.fetch puts company code and year into $filter as '%s' without escaping
+    quotes.
+  - sapconfig invoiceTolerance ignores fmt.Sscanf's error: a PROZ of "2.5" becomes 2%, a
+    non-number 0%, with no note.
+  - sapconfig alpha turns an all-zero account into "", integration's alpha into "0".
+  - integration reconcile recomputes duplicateInvoices(ext) for every company code (slow only).
 - R8a: TestResilienceWorkerRestarts failed once in the full -race suite ("an entry answered 201
   without a readable id"); it passed 4× alone with and 4× without the change. The harness
   (internal/nfr/harness.go Consistent) comments that such a 201 is "counted, not fatal" yet adds
