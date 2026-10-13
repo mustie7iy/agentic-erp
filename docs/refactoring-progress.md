@@ -66,8 +66,11 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
     from R3's note are gone. Reviewer: APPROVE.
 
 ### Phase 3 — Error context
+Convention (settled during batch 1): a row scanner wraps as `scan <kind>` without the package
+prefix and its caller adds `<pkg>: <operation> <key id>`; internal/platform/errs.Wrapf keeps a
+single-return path whose failure no test can provoke from becoming its own branch.
 - [ ] R10 wrapcheck: internal/platform/*
-- [ ] R11 wrapcheck: internal/ledger
+- [x] R11 wrapcheck: internal/ledger 59 → 0 (worktree agent, e8a5c92). Reviewer: APPROVE.
 - [ ] R12 wrapcheck: internal/payments
 - [x] R13 wrapcheck: internal/procurement 42 → 0 (worktree agent; cherry-picked as a99637e, re-verified
   on the branch; expiry message de-duplicated). Reviewer: APPROVE.
