@@ -75,30 +75,48 @@ func TestBalancesAndProjector(t *testing.T) {
 	// Projected and pending amounts add up in one row.
 	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-20", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	mixed := e.trialBalance(t, q+"&fiscal_period=3&account_id="+bank)
-	if len(mixed) != 1 || !strings.HasSuffix(mixed[0], "101.00/30.00 EUR") {
-		t.Fatalf("bank in March: %v", mixed)
+	if len(mixed) != 1 {
+		t.Fatalf("bank in March: got %d rows %v, want 1", len(mixed), mixed)
+	}
+	if !strings.HasSuffix(mixed[0], "101.00/30.00 EUR") {
+		t.Errorf("bank in March: got %q, want suffix %q", mixed[0], "101.00/30.00 EUR")
 	}
 	var debit, credit int64
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT debit_lc, credit_lc FROM ledger.period_balance WHERE account_id = $1 AND fiscal_period = 3`, bank).Scan(&debit, &credit); err != nil {
 		t.Fatalf("read projected period balance: %v", err)
 	}
-	if debit != 10000 || credit != 3000 {
-		t.Fatalf("projected row: %d/%d", debit, credit)
+	if debit != 10000 {
+		t.Errorf("projected debit: got %d, want 10000", debit)
+	}
+	if credit != 3000 {
+		t.Errorf("projected credit: got %d, want 3000", credit)
 	}
 	usd := e.trialBalance(t, q+"&fiscal_period=4&account_id="+bank)
-	if len(usd) != 1 || !strings.HasSuffix(usd[0], "0.00/5.00 USD") {
-		t.Fatalf("converted balance: %v", usd)
+	if len(usd) != 1 {
+		t.Fatalf("converted balance: got %d rows %v, want 1", len(usd), usd)
+	}
+	if !strings.HasSuffix(usd[0], "0.00/5.00 USD") {
+		t.Errorf("converted balance: got %q, want suffix %q", usd[0], "0.00/5.00 USD")
 	}
 	byAccount := e.trialBalance(t, q+"&page_size=4")
-	if len(byAccount) != 5 || !strings.HasPrefix(byAccount[4], "next:") {
-		t.Fatalf("by account: %v", byAccount)
+	if len(byAccount) != 5 {
+		t.Fatalf("by account: got %d rows %v, want 5", len(byAccount), byAccount)
+	}
+	if !strings.HasPrefix(byAccount[4], "next:") {
+		t.Fatalf("by account: got last %q, want a next page token", byAccount[4])
 	}
 	if rest := e.trialBalance(t, q+"&page_size=4&page_token="+strings.TrimPrefix(byAccount[4], "next:")); len(rest) != 1 {
 		t.Fatalf("by account, page 2: %v", rest)
 	}
 	byPeriod := e.trialBalance(t, q+"&order_by=fiscal_period%20desc&page_size=2")
-	if len(byPeriod) != 3 || !strings.Contains(byPeriod[0], "/4 ") || !strings.HasPrefix(byPeriod[2], "next:") {
-		t.Fatalf("by period: %v", byPeriod)
+	if len(byPeriod) != 3 {
+		t.Fatalf("by period: got %d rows %v, want 3", len(byPeriod), byPeriod)
+	}
+	if !strings.Contains(byPeriod[0], "/4 ") {
+		t.Errorf("by period: got first %q, want period 4", byPeriod[0])
+	}
+	if !strings.HasPrefix(byPeriod[2], "next:") {
+		t.Fatalf("by period: got last %q, want a next page token", byPeriod[2])
 	}
 	if rest := e.trialBalance(t, q+"&order_by=fiscal_period%20desc&page_size=2&page_token="+strings.TrimPrefix(byPeriod[2], "next:")); len(rest) != 3 {
 		t.Fatalf("page 2: %v", rest)
@@ -108,9 +126,11 @@ func TestBalancesAndProjector(t *testing.T) {
 		"unknown entity": "legal_entity_id=" + uuid.NewString() + "&fiscal_year=2026",
 		"other year":     "legal_entity_id=" + e.de.String() + "&fiscal_year=2025",
 	} {
-		if got := e.trialBalance(t, query); len(got) != 0 {
-			t.Errorf("%s: %v", name, got)
-		}
+		t.Run(name, func(t *testing.T) {
+			if got := e.in(t).trialBalance(t, query); len(got) != 0 {
+				t.Errorf("got %v, want no balances", got)
+			}
+		})
 	}
 	agent := e.Client
 	agent.As = e.ten.Agent

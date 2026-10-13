@@ -52,8 +52,10 @@ func TestClearing(t *testing.T) {
 	if got := items("legal_entity_id=" + e.de.String() + "&account_id=" + ap + "&posting_date_to=2026-03-21&page_size=1"); len(got) != 2 {
 		t.Fatalf("paged: %v", got)
 	} else if rest := items("legal_entity_id=" + e.de.String() + "&account_id=" + ap + "&posting_date_to=2026-03-21&page_size=1&page_token=" +
-		strings.TrimPrefix(got[1], "next:")); len(rest) != 1 || rest[0] != "100.00@2026-03-20" {
-		t.Fatalf("page 2: %v", rest)
+		strings.TrimPrefix(got[1], "next:")); len(rest) != 1 {
+		t.Fatalf("page 2: got %d items %v, want 1", len(rest), rest)
+	} else if rest[0] != "100.00@2026-03-20" {
+		t.Errorf("page 2: got %q, want 100.00@2026-03-20", rest[0])
 	}
 
 	refusals := map[string]struct {
@@ -70,18 +72,36 @@ func TestClearing(t *testing.T) {
 		"no fiscal period": {clearing(e.de, "2031-03-31", ref{invoice, 2}, ref{payment, 1}), 422, "ledger.no_fiscal_period"},
 	}
 	for name, c := range refusals {
-		if code, m, _ := e.Do("POST", "/v1/clearings", c.body, ""); code != c.status || m["code"] != c.code {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			code, m, _ := e.in(t).Do("POST", "/v1/clearings", c.body, "")
+			if code != c.status {
+				t.Errorf("status: got %d, want %d (%v)", code, c.status, m)
+			}
+			if m["code"] != c.code {
+				t.Errorf("code: got %v, want %s", m["code"], c.code)
+			}
+		})
 	}
 
 	c, tag := e.Must(201, "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{invoice, 2}, ref{payment, 1}), "")
-	if len(c["items"].([]any)) != 2 || c["legal_entity_id"] != e.de.String() || len(tag) < 10 {
-		t.Fatalf("clearing: %v", c)
+	if got := len(c["items"].([]any)); got != 2 {
+		t.Errorf("clearing items: got %d, want 2", got)
+	}
+	if c["legal_entity_id"] != e.de.String() {
+		t.Errorf("clearing legal_entity_id: got %v, want %s", c["legal_entity_id"], e.de)
+	}
+	if len(tag) < 10 {
+		t.Errorf("clearing tag: got %q, want at least 10 characters", tag)
 	}
 	ce, _ := e.Must(200, "GET", "/v1/journal-entries/"+c["clearing_entry_id"].(string), "", "")
-	if ce["document_type"] != "AB" || ce["document_number"] != "100000" || amounts(t, ce, "amount") != "100.00,-100.00" {
-		t.Fatalf("clearing entry: %v", ce)
+	if ce["document_type"] != "AB" {
+		t.Errorf("clearing entry document_type: got %v, want AB", ce["document_type"])
+	}
+	if ce["document_number"] != "100000" {
+		t.Errorf("clearing entry document_number: got %v, want 100000", ce["document_number"])
+	}
+	if got := amounts(t, ce, "amount"); got != "100.00,-100.00" {
+		t.Errorf("clearing entry amounts: got %s, want 100.00,-100.00", got)
 	}
 	if got := items("partner_id=" + sup); len(got) != 0 {
 		t.Fatalf("still open: %v", got)
@@ -92,8 +112,11 @@ func TestClearing(t *testing.T) {
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/clearings/"+uuid.NewString(), "", "")
 	cleared := events(t, e.ten, "items_cleared")
-	if len(cleared) != 1 || len(cleared[0]["items"].([]any)) != 2 {
-		t.Fatalf("events: %v", cleared)
+	if len(cleared) != 1 {
+		t.Fatalf("items_cleared events: got %d %v, want 1", len(cleared), cleared)
+	}
+	if got := len(cleared[0]["items"].([]any)); got != 2 {
+		t.Errorf("items_cleared event items: got %d, want 2", got)
 	}
 	e.Problem(409, "ledger.item_already_cleared", "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{invoice, 2}, ref{payment, 1}), "")
 	e.Problem(409, "ledger.entry_cleared", "POST", "/v1/journal-entries/"+payment["id"].(string)+":reverse", "", payTag)
@@ -112,12 +135,18 @@ func TestClearing(t *testing.T) {
 	e.Must(201, "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{other, 2}, ref{back, 1}), "")
 
 	list, _ := e.Must(200, "GET", "/v1/clearings?legal_entity_id="+e.de.String()+"&page_size=1", "", "")
-	if len(list["items"].([]any)) != 1 || list["next_page_token"] == nil {
-		t.Fatalf("list: %v", list)
+	if got := len(list["items"].([]any)); got != 1 {
+		t.Errorf("list items: got %d, want 1", got)
+	}
+	if list["next_page_token"] == nil {
+		t.Fatalf("list: got no next_page_token, want one: %v", list)
 	}
 	rest, _ := e.Must(200, "GET", "/v1/clearings?legal_entity_id="+e.de.String()+"&page_size=1&page_token="+list["next_page_token"].(string), "", "")
-	if len(rest["items"].([]any)) != 1 || rest["next_page_token"] != nil {
-		t.Fatalf("rest: %v", rest)
+	if got := len(rest["items"].([]any)); got != 1 {
+		t.Errorf("rest items: got %d, want 1", got)
+	}
+	if rest["next_page_token"] != nil {
+		t.Errorf("rest next_page_token: got %v, want none", rest["next_page_token"])
 	}
 	agent := e.Client
 	agent.As = e.ten.Agent

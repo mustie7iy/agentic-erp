@@ -129,10 +129,12 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 	}
 	for name, call := range calls {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
 	}
 	// The opening transition fails like closing; it needs a closed period.
 	apitest.EveryFailure(t, e.ten, e.ten.Human, "open period", func(ctx context.Context) error {
@@ -184,16 +186,24 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
+				t.Error("got no error, want the call refused")
+			}
+		})
 	}
 }
 
 func TestConstraintProblems(t *testing.T) {
 	for name, code := range map[string]string{"reversal_pkey": "ledger.already_reversed", "clearing_item_pkey": "ledger.item_already_cleared"} {
-		if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name}); p.Code != code || p.Status != 409 {
-			t.Errorf("%s: %v", name, p)
-		}
+		t.Run(name, func(t *testing.T) {
+			p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name})
+			if p.Code != code {
+				t.Errorf("code: got %s, want %s", p.Code, code)
+			}
+			if p.Status != 409 {
+				t.Errorf("status: got %d, want 409", p.Status)
+			}
+		})
 	}
 }

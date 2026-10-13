@@ -101,6 +101,14 @@ func (e env) newSupplier(tb testing.TB, number string) uuid.UUID {
 	return id
 }
 
+// in returns e reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (e env) in(t *testing.T) env {
+	t.Helper()
+	e.T = t
+	return e
+}
+
 // account is the id of an account of a company's chart.
 func (e env) account(tb testing.TB, company, number string) string {
 	tb.Helper()
@@ -146,17 +154,31 @@ func TestPostAndReverse(t *testing.T) {
 	e := setup(t)
 	bank, revenue := e.account(t, "2000", "100000"), e.account(t, "2000", "400000")
 	je, tag := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1200.00", ""}, line{revenue, "-1200.00", ""}), "")
-	if je["document_number"] != "100000" || je["fiscal_year"] != float64(2026) || je["fiscal_period"] != float64(3) || je["document_type"] != "SA" ||
-		je["local_currency"] != "EUR" || je["group_currency"] != "EUR" || je["rate_tc_lc"] != "1.000000000000" || len(tag) < 10 {
-		t.Fatalf("entry: %v %s", je, tag)
+	for field, want := range map[string]any{"document_number": "100000", "fiscal_year": float64(2026), "fiscal_period": float64(3),
+		"document_type": "SA", "local_currency": "EUR", "group_currency": "EUR", "rate_tc_lc": "1.000000000000"} {
+		if je[field] != want {
+			t.Errorf("entry %s: got %v, want %v", field, je[field], want)
+		}
+	}
+	if len(tag) < 10 {
+		t.Errorf("entry tag: got %q, want at least 10 characters", tag)
 	}
 	l := je["lines"].([]any)[1].(map[string]any)
-	if l["amount"].(map[string]any)["amount"] != "-1200.00" || l["amount_gc"].(map[string]any)["amount"] != "-1200.00" {
-		t.Fatalf("line: %v", l)
+	if got := l["amount"].(map[string]any)["amount"]; got != "-1200.00" {
+		t.Errorf("line amount: got %v, want -1200.00", got)
+	}
+	if got := l["amount_gc"].(map[string]any)["amount"]; got != "-1200.00" {
+		t.Errorf("line amount_gc: got %v, want -1200.00", got)
 	}
 	rev, _ := e.Must(200, "POST", "/v1/journal-entries/"+je["id"].(string)+":reverse", "", tag)
-	if rev["reversal_of_id"] != je["id"] || rev["document_number"] != "100001" || rev["header_text"] != "Reversal of 100000" {
-		t.Fatalf("reversal: %v", rev)
+	if rev["reversal_of_id"] != je["id"] {
+		t.Errorf("reversal_of_id: got %v, want %v", rev["reversal_of_id"], je["id"])
+	}
+	if rev["document_number"] != "100001" {
+		t.Errorf("reversal document_number: got %v, want 100001", rev["document_number"])
+	}
+	if rev["header_text"] != "Reversal of 100000" {
+		t.Errorf("reversal header_text: got %v, want Reversal of 100000", rev["header_text"])
 	}
 	got, _ := e.Must(200, "GET", "/v1/journal-entries/"+je["id"].(string), "", "")
 	if got["reversed_by_id"] != rev["id"] {
@@ -165,7 +187,11 @@ func TestPostAndReverse(t *testing.T) {
 	if posted := events(t, e.ten, "journal_entry_posted"); len(posted) != 2 {
 		t.Fatalf("posted events: %v", posted)
 	}
-	if reversed := events(t, e.ten, "journal_entry_reversed"); len(reversed) != 1 || reversed[0]["reversal_entry_id"] != rev["id"] {
-		t.Fatalf("reversed events: %v", reversed)
+	reversed := events(t, e.ten, "journal_entry_reversed")
+	if len(reversed) != 1 {
+		t.Fatalf("reversed events: got %d %v, want 1", len(reversed), reversed)
+	}
+	if reversed[0]["reversal_entry_id"] != rev["id"] {
+		t.Errorf("reversed event reversal_entry_id: got %v, want %v", reversed[0]["reversal_entry_id"], rev["id"])
 	}
 }

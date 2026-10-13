@@ -36,9 +36,16 @@ func TestConversion(t *testing.T) {
 	e.rate(t, "EUR", "USD", "2026-01-01", "1.25")
 	je, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.us, "2026-03-15", "GBP", line{bank, "0.01", ""}, line{bank, "0.01", ""},
 		line{revenue, "-0.02", ""}), "")
-	if amounts(t, je, "amount_lc") != "0.02,0.02,-0.04" || amounts(t, je, "amount_gc") != "0.02,0.02,-0.04" ||
-		je["rate_tc_lc"] != "1.500000000000" || je["rate_lc_gc"] != "0.800000000000" || je["local_currency"] != "USD" {
-		t.Fatalf("converted: %v", je)
+	if got := amounts(t, je, "amount_lc"); got != "0.02,0.02,-0.04" {
+		t.Errorf("converted amount_lc: got %s, want 0.02,0.02,-0.04", got)
+	}
+	if got := amounts(t, je, "amount_gc"); got != "0.02,0.02,-0.04" {
+		t.Errorf("converted amount_gc: got %s, want 0.02,0.02,-0.04", got)
+	}
+	for field, want := range map[string]string{"rate_tc_lc": "1.500000000000", "rate_lc_gc": "0.800000000000", "local_currency": "USD"} {
+		if je[field] != want {
+			t.Errorf("converted %s: got %v, want %s", field, je[field], want)
+		}
 	}
 	// Zero-digit and three-digit currencies scale both ways.
 	deBank, deRevenue := e.account(t, "2000", "100000"), e.account(t, "2000", "400000")
@@ -46,8 +53,14 @@ func TestConversion(t *testing.T) {
 	e.rate(t, "KWD", "EUR", "2026-01-01", "3")
 	yen, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "JPY", line{deBank, "1000", ""}, line{deRevenue, "-1000", ""}), "")
 	dinar, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "KWD", line{deBank, "1.000", ""}, line{deRevenue, "-1.000", ""}), "")
-	if amounts(t, yen, "amount_lc") != "6.20,-6.20" || amounts(t, dinar, "amount_lc") != "3.00,-3.00" || amounts(t, dinar, "amount") != "1.000,-1.000" {
-		t.Fatalf("scaled: %v %v", yen, dinar)
+	if got := amounts(t, yen, "amount_lc"); got != "6.20,-6.20" {
+		t.Errorf("yen amount_lc: got %s, want 6.20,-6.20", got)
+	}
+	if got := amounts(t, dinar, "amount_lc"); got != "3.00,-3.00" {
+		t.Errorf("dinar amount_lc: got %s, want 3.00,-3.00", got)
+	}
+	if got := amounts(t, dinar, "amount"); got != "1.000,-1.000" {
+		t.Errorf("dinar amount: got %s, want 1.000,-1.000", got)
 	}
 	// A later rate in the other direction wins over an older direct one.
 	e.rate(t, "USD", "GBP", "2026-03-01", "0.5")
@@ -113,10 +126,15 @@ func TestPostingRefusals(t *testing.T) {
 		if c.status == 0 {
 			continue
 		}
-		code, m, _ := e.Do("POST", "/v1/journal-entries", c.body, "")
-		if code != c.status || m["code"] != c.code {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			code, m, _ := e.in(t).Do("POST", "/v1/journal-entries", c.body, "")
+			if code != c.status {
+				t.Errorf("status: got %d, want %d (%v)", code, c.status, m)
+			}
+			if m["code"] != c.code {
+				t.Errorf("code: got %v, want %s", m["code"], c.code)
+			}
+		})
 	}
 
 	// A period that is not open, an exhausted range, and a tax code that is valid.
@@ -127,8 +145,14 @@ func TestPostingRefusals(t *testing.T) {
 	taxed, _ := e.Must(201, "POST", "/v1/journal-entries", strings.Replace(entry(e.de, "2026-03-15", "EUR", ok...), `"currency": "EUR"}}, {`,
 		`"currency": "EUR"}, "tax_code": "V9", "line_text": "Fees", "quantity": {"value": "12.500", "unit": "KG"}}, {`, 1), "")
 	l := taxed["lines"].([]any)[0].(map[string]any)
-	if l["tax_code"] != "V9" || l["line_text"] != "Fees" || l["quantity"].(map[string]any)["value"] != "12.5" {
-		t.Fatalf("line: %v", l)
+	if l["tax_code"] != "V9" {
+		t.Errorf("line tax_code: got %v, want V9", l["tax_code"])
+	}
+	if l["line_text"] != "Fees" {
+		t.Errorf("line line_text: got %v, want Fees", l["line_text"])
+	}
+	if got := l["quantity"].(map[string]any)["value"]; got != "12.5" {
+		t.Errorf("line quantity: got %v, want 12.5", got)
 	}
 	pgtest.Exec(t, `UPDATE config.number_range SET next_value = last_value + 1, version = version + 1 WHERE legal_entity_id = $1 AND document_type = 'journal_sa'`, e.de)
 	e.Problem(409, "config.number_range_exhausted", "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", ok...), "")
@@ -154,9 +178,16 @@ func TestReversalRules(t *testing.T) {
 	pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = false, version = version + 1 WHERE account_id = $1`, bank)
 	rev, _ := e.Must(200, "POST", path, `{"posting_date": "2026-04-01", "header_text": "Wrong supplier"}`, tag)
 	l := rev["lines"].([]any)[0].(map[string]any)
-	if rev["fiscal_period"] != float64(4) || rev["header_text"] != "Wrong supplier" || rev["reference"] != "R-1" ||
-		l["quantity"].(map[string]any)["value"] != "3" || amounts(t, rev, "amount") != "-5.00,5.00" {
-		t.Fatalf("reversal: %v", rev)
+	for field, want := range map[string]any{"fiscal_period": float64(4), "header_text": "Wrong supplier", "reference": "R-1"} {
+		if rev[field] != want {
+			t.Errorf("reversal %s: got %v, want %v", field, rev[field], want)
+		}
+	}
+	if got := l["quantity"].(map[string]any)["value"]; got != "3" {
+		t.Errorf("reversal quantity: got %v, want 3", got)
+	}
+	if got := amounts(t, rev, "amount"); got != "-5.00,5.00" {
+		t.Errorf("reversal amounts: got %s, want -5.00,5.00", got)
 	}
 	_, now := e.Must(200, "GET", "/v1/journal-entries/"+je["id"].(string), "", "")
 	if now == tag {
@@ -201,26 +232,40 @@ func TestJournalLists(t *testing.T) {
 	if got := strings.Join(list(de), ","); got != "2026-03-10,2026-03-20,2026-04-05" {
 		t.Fatalf("by posting date: %s", got)
 	}
-	if got := list(de + "&page_size=2"); len(got) != 3 || !strings.HasPrefix(got[2], "next:") {
-		t.Fatalf("paged by posting date: %v", got)
-	} else if rest := list(de + "&page_size=2&page_token=" + strings.TrimPrefix(got[2], "next:")); len(rest) != 1 || rest[0] != "2026-04-05" {
-		t.Fatalf("page 2 by posting date: %v", rest)
+	paged := list(de + "&page_size=2")
+	if len(paged) != 3 {
+		t.Fatalf("paged by posting date: got %d %v, want 3", len(paged), paged)
+	}
+	if !strings.HasPrefix(paged[2], "next:") {
+		t.Fatalf("paged by posting date: got last %q, want a next page token", paged[2])
+	}
+	if rest := list(de + "&page_size=2&page_token=" + strings.TrimPrefix(paged[2], "next:")); len(rest) != 1 {
+		t.Fatalf("page 2 by posting date: got %d %v, want 1", len(rest), rest)
+	} else if rest[0] != "2026-04-05" {
+		t.Errorf("page 2 by posting date: got %s, want 2026-04-05", rest[0])
 	}
 	if got := strings.Join(list(de+"&order_by=posting_date%20desc&posting_date_from=2026-03-15&posting_date_to=2026-04-30&fiscal_year=2026"), ","); got != "2026-04-05,2026-03-20" {
 		t.Fatalf("filtered: %s", got)
 	}
-	if got := list(de + "&document_number=100001&source_context=ledger"); len(got) != 1 || got[0] != "2026-03-10" {
-		t.Fatalf("by number: %v", got)
+	if got := list(de + "&document_number=100001&source_context=ledger"); len(got) != 1 {
+		t.Fatalf("by number: got %d %v, want 1", len(got), got)
+	} else if got[0] != "2026-03-10" {
+		t.Errorf("by number: got %s, want 2026-03-10", got[0])
 	}
 	if got := list("source_document_id=" + uuid.NewString()); len(got) != 0 {
 		t.Fatalf("by source document: %v", got)
 	}
 	first := list(de + "&order_by=document_number&page_size=2")
-	if len(first) != 3 || !strings.HasPrefix(first[2], "next:") {
-		t.Fatalf("page 1: %v", first)
+	if len(first) != 3 {
+		t.Fatalf("page 1: got %d %v, want 3", len(first), first)
 	}
-	if rest := list(de + "&order_by=document_number&page_size=2&page_token=" + strings.TrimPrefix(first[2], "next:")); len(rest) != 1 || rest[0] != "2026-04-05" {
-		t.Fatalf("page 2: %v", rest)
+	if !strings.HasPrefix(first[2], "next:") {
+		t.Fatalf("page 1: got last %q, want a next page token", first[2])
+	}
+	if rest := list(de + "&order_by=document_number&page_size=2&page_token=" + strings.TrimPrefix(first[2], "next:")); len(rest) != 1 {
+		t.Fatalf("page 2: got %d %v, want 1", len(rest), rest)
+	} else if rest[0] != "2026-04-05" {
+		t.Errorf("page 2: got %s, want 2026-04-05", rest[0])
 	}
 	if got := list(""); len(got) != 4 {
 		t.Fatalf("all: %v", got)
