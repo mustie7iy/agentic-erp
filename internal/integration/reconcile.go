@@ -44,19 +44,14 @@ type Reconciliation struct {
 // for the fiscal year; counts cover the records this or earlier runs
 // loaded for the scope's SAP keys.
 func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r refs) (Reconciliation, error) {
-	var rec Reconciliation
-	add := func(cc, name, sapValue, platformValue string, pass bool) {
-		rec.Checks = append(rec.Checks, Check{CompanyCode: cc, Name: name, SAP: sapValue, Platform: platformValue, Pass: pass})
-	}
-	vendorOf := map[uuid.UUID]string{}
+	rc := &reconciler{e: e, ext: ext, t: t, r: r, vendorOf: map[uuid.UUID]string{}, recon: map[string]bool{}}
 	for key, id := range r {
 		if lifnr, ok := strings.CutPrefix(key, "LFA1/"); ok {
-			vendorOf[id] = alpha(lifnr)
+			rc.vendorOf[id] = alpha(lifnr)
 		}
 	}
-	recon := map[string]bool{}
 	for _, a := range ext.SKB1 {
-		recon[a.BUKRS+"/"+a.SAKNR] = a.MITKZ == "K"
+		rc.recon[a.BUKRS+"/"+a.SAKNR] = a.MITKZ == "K"
 	}
 	codes := make([]string, 0, len(ext.T001))
 	currency := map[string]string{}
@@ -65,125 +60,189 @@ func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r
 	}
 	slices.Sort(codes)
 	for _, cc := range codes {
-		le, cur := t.entities[cc], currency[cc]
-		format := func(v int64) string { return money.Minor(v).Plain(t.exponents[cur]) + " " + cur }
-
-		// 1. Trial balance per account, and debits when every document came over.
-		sapTB, sapOpen := map[string]int64{}, map[string]int64{}
-		var sapDebits int64
-		documents := map[string]bool{}
-		for _, l := range ext.ACDOCA {
-			if l.RBUKRS != cc {
-				continue
-			}
-			documents[documentKey(l)] = true
-			amt, _ := t.amount(l.HSL, cur) // checked by the quality gate
-			sapTB[alpha(l.RACCT)] += amt
-			sapDebits += max(amt, 0)
-			if l.LIFNR != "" && l.AUGBL == "" && recon[cc+"/"+l.RACCT] {
-				sapOpen["vendor "+alpha(l.LIFNR)] += amt
-			}
+		if err := rc.company(ctx, cc, currency[cc]); err != nil {
+			return rc.rec, err
 		}
-		totals, err := e.Reports.Totals(ctx, le.ID, int16(t.year))
-		if err != nil {
-			return rec, err
-		}
-		tb := diffs(cc, sapTB, totals.ByAccount, format)
-		rec.Diffs = append(rec.Diffs, tb...)
-		add(cc, "Trial balance: accounts with differences", "0", strconv.Itoa(len(tb)), len(tb) == 0)
-		if !t.balances {
-			add(cc, "Total debits posted", format(sapDebits), format(totals.Debits), sapDebits == totals.Debits)
-			for _, doc := range sortedKeys(documents) {
-				if _, ok := r["ACDOCA/"+doc]; !ok && len(rec.Missing) < 100 {
-					rec.Missing = append(rec.Missing, doc)
-				}
-			}
-		}
-
-		// 2. Open payables per vendor.
-		open, err := e.Reports.OpenPayables(ctx, le.ID, int16(t.year))
-		if err != nil {
-			return rec, err
-		}
-		platformOpen := map[string]int64{}
-		for id, amt := range open {
-			key := "partner " + id.String()
-			if lifnr, ok := vendorOf[id]; ok {
-				key = "vendor " + lifnr
-			}
-			platformOpen[key] += amt
-		}
-		ap := diffs(cc, sapOpen, platformOpen, format)
-		rec.Diffs = append(rec.Diffs, ap...)
-		add(cc, "Open payables total", format(sum(sapOpen)), format(sum(platformOpen)), sum(sapOpen) == sum(platformOpen))
-		add(cc, "Open payables: vendors with differences", "0", strconv.Itoa(len(ap)), len(ap) == 0)
-
-		// 3. Vendors set up in the legal entity.
-		sapVendors, platformVendors := 0, 0
-		for _, v := range ext.LFB1 {
-			if v.BUKRS != cc {
-				continue
-			}
-			sapVendors++
-			if id, ok := r["LFA1/"+v.LIFNR]; ok {
-				s, _, err := e.Suppliers.Supplier(ctx, id, le.ID)
-				if err != nil {
-					return rec, err
-				}
-				if s.SetUp {
-					platformVendors++
-				}
-			}
-		}
-		add(cc, "Vendors", strconv.Itoa(sapVendors), strconv.Itoa(platformVendors), sapVendors == platformVendors)
-
-		// 4. Purchase orders: count and value.
-		sapPOs, sapPOValue := 0, int64(0)
-		var orders []uuid.UUID
-		inCC := map[string]bool{}
-		for _, h := range ext.EKKO {
-			if h.BUKRS == cc {
-				sapPOs++
-				inCC[h.EBELN] = true
-				if id, ok := r["EKKO/"+h.EBELN]; ok {
-					orders = append(orders, id)
-				}
-			}
-		}
-		for _, i := range ext.EKPO {
-			if inCC[i.EBELN] {
-				sapPOValue += extend(i.MENGE, i.NETPR, i.PEINH, t, cur)
-			}
-		}
-		n, value, err := e.OrderValues.Value(ctx, orders)
-		if err != nil {
-			return rec, err
-		}
-		add(cc, "Purchase orders", strconv.Itoa(sapPOs), strconv.Itoa(n), sapPOs == n)
-		add(cc, "Purchase order value", format(sapPOValue), format(value), sapPOValue == value)
-
-		// 5. Parked supplier invoices (posted ones are carried by their journal entries).
-		dups := duplicateInvoices(ext)
-		sapParked := 0
-		var invoices []uuid.UUID
-		for _, h := range ext.RBKP {
-			key := h.BELNR + "/" + h.GJAHR
-			if h.BUKRS != cc || h.RBSTAT != "A" || dups[key] != "" {
-				continue
-			}
-			sapParked++
-			if id, ok := r["RBKP/"+key]; ok {
-				invoices = append(invoices, id)
-			}
-		}
-		parked, err := e.InvoiceCounts.Count(ctx, invoices)
-		if err != nil {
-			return rec, err
-		}
-		add(cc, "Parked supplier invoices", strconv.Itoa(sapParked), strconv.Itoa(parked), sapParked == parked)
 	}
-	rec.Passed = !slices.ContainsFunc(rec.Checks, func(c Check) bool { return !c.Pass })
-	return rec, nil
+	rc.rec.Passed = !slices.ContainsFunc(rc.rec.Checks, func(c Check) bool { return !c.Pass })
+	return rc.rec, nil
+}
+
+// reconciler holds a reconciliation in progress and the lookups shared by
+// every company code. A failed step leaves the checks recorded so far in
+// rec, which is returned with the error.
+type reconciler struct {
+	e        *Endpoints
+	ext      *sap.Extract
+	t        target
+	r        refs
+	rec      Reconciliation
+	vendorOf map[uuid.UUID]string // partner id -> SAP vendor number
+	recon    map[string]bool      // company/account -> vendor reconciliation account
+}
+
+// companyScope is one company code under reconciliation.
+type companyScope struct {
+	cc     string
+	le     uuid.UUID
+	cur    string
+	format func(int64) string
+}
+
+func (rc *reconciler) add(cc, name, sapValue, platformValue string, pass bool) {
+	rc.rec.Checks = append(rc.rec.Checks, Check{CompanyCode: cc, Name: name, SAP: sapValue, Platform: platformValue, Pass: pass})
+}
+
+// company runs the controls of one company code in report order.
+func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
+	exp := rc.t.exponents[cur]
+	s := companyScope{cc: cc, le: rc.t.entities[cc].ID, cur: cur, format: func(v int64) string { return money.Minor(v).Plain(exp) + " " + cur }}
+	sapOpen, err := rc.trialBalance(ctx, s)
+	if err != nil {
+		return err
+	}
+	if err := rc.openPayables(ctx, s, sapOpen); err != nil {
+		return err
+	}
+	if err := rc.vendors(ctx, s); err != nil {
+		return err
+	}
+	if err := rc.purchaseOrders(ctx, s); err != nil {
+		return err
+	}
+	return rc.parkedInvoices(ctx, s)
+}
+
+// trialBalance compares the trial balance per account, and debits when
+// every document came over. It returns SAP's open payables per vendor,
+// which come out of the same pass over the journal.
+func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[string]int64, error) {
+	sapTB, sapOpen := map[string]int64{}, map[string]int64{}
+	var sapDebits int64
+	documents := map[string]bool{}
+	for _, l := range rc.ext.ACDOCA {
+		if l.RBUKRS != s.cc {
+			continue
+		}
+		documents[documentKey(l)] = true
+		amt, _ := rc.t.amount(l.HSL, s.cur) // checked by the quality gate
+		sapTB[alpha(l.RACCT)] += amt
+		sapDebits += max(amt, 0)
+		if l.LIFNR != "" && l.AUGBL == "" && rc.recon[s.cc+"/"+l.RACCT] {
+			sapOpen["vendor "+alpha(l.LIFNR)] += amt
+		}
+	}
+	totals, err := rc.e.Reports.Totals(ctx, s.le, int16(rc.t.year))
+	if err != nil {
+		return nil, err
+	}
+	tb := diffs(s.cc, sapTB, totals.ByAccount, s.format)
+	rc.rec.Diffs = append(rc.rec.Diffs, tb...)
+	rc.add(s.cc, "Trial balance: accounts with differences", "0", strconv.Itoa(len(tb)), len(tb) == 0)
+	if !rc.t.balances {
+		rc.add(s.cc, "Total debits posted", s.format(sapDebits), s.format(totals.Debits), sapDebits == totals.Debits)
+		for _, doc := range sortedKeys(documents) {
+			if _, ok := rc.r["ACDOCA/"+doc]; !ok && len(rc.rec.Missing) < 100 {
+				rc.rec.Missing = append(rc.rec.Missing, doc)
+			}
+		}
+	}
+	return sapOpen, nil
+}
+
+// openPayables compares open payables per vendor.
+func (rc *reconciler) openPayables(ctx context.Context, s companyScope, sapOpen map[string]int64) error {
+	open, err := rc.e.Reports.OpenPayables(ctx, s.le, int16(rc.t.year))
+	if err != nil {
+		return err
+	}
+	platformOpen := map[string]int64{}
+	for id, amt := range open {
+		key := "partner " + id.String()
+		if lifnr, ok := rc.vendorOf[id]; ok {
+			key = "vendor " + lifnr
+		}
+		platformOpen[key] += amt
+	}
+	ap := diffs(s.cc, sapOpen, platformOpen, s.format)
+	rc.rec.Diffs = append(rc.rec.Diffs, ap...)
+	rc.add(s.cc, "Open payables total", s.format(sum(sapOpen)), s.format(sum(platformOpen)), sum(sapOpen) == sum(platformOpen))
+	rc.add(s.cc, "Open payables: vendors with differences", "0", strconv.Itoa(len(ap)), len(ap) == 0)
+	return nil
+}
+
+// vendors compares the vendors set up in the legal entity.
+func (rc *reconciler) vendors(ctx context.Context, s companyScope) error {
+	sapVendors, platformVendors := 0, 0
+	for _, v := range rc.ext.LFB1 {
+		if v.BUKRS != s.cc {
+			continue
+		}
+		sapVendors++
+		if id, ok := rc.r["LFA1/"+v.LIFNR]; ok {
+			sup, _, err := rc.e.Suppliers.Supplier(ctx, id, s.le)
+			if err != nil {
+				return err
+			}
+			if sup.SetUp {
+				platformVendors++
+			}
+		}
+	}
+	rc.add(s.cc, "Vendors", strconv.Itoa(sapVendors), strconv.Itoa(platformVendors), sapVendors == platformVendors)
+	return nil
+}
+
+// purchaseOrders compares purchase order count and value.
+func (rc *reconciler) purchaseOrders(ctx context.Context, s companyScope) error {
+	sapPOs, sapPOValue := 0, int64(0)
+	var orders []uuid.UUID
+	inCC := map[string]bool{}
+	for _, h := range rc.ext.EKKO {
+		if h.BUKRS == s.cc {
+			sapPOs++
+			inCC[h.EBELN] = true
+			if id, ok := rc.r["EKKO/"+h.EBELN]; ok {
+				orders = append(orders, id)
+			}
+		}
+	}
+	for _, i := range rc.ext.EKPO {
+		if inCC[i.EBELN] {
+			sapPOValue += extend(i.MENGE, i.NETPR, i.PEINH, rc.t, s.cur)
+		}
+	}
+	n, value, err := rc.e.OrderValues.Value(ctx, orders)
+	if err != nil {
+		return err
+	}
+	rc.add(s.cc, "Purchase orders", strconv.Itoa(sapPOs), strconv.Itoa(n), sapPOs == n)
+	rc.add(s.cc, "Purchase order value", s.format(sapPOValue), s.format(value), sapPOValue == value)
+	return nil
+}
+
+// parkedInvoices compares parked supplier invoices (posted ones are
+// carried by their journal entries).
+func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error {
+	dups := duplicateInvoices(rc.ext)
+	sapParked := 0
+	var invoices []uuid.UUID
+	for _, h := range rc.ext.RBKP {
+		key := h.BELNR + "/" + h.GJAHR
+		if h.BUKRS != s.cc || h.RBSTAT != "A" || dups[key] != "" {
+			continue
+		}
+		sapParked++
+		if id, ok := rc.r["RBKP/"+key]; ok {
+			invoices = append(invoices, id)
+		}
+	}
+	parked, err := rc.e.InvoiceCounts.Count(ctx, invoices)
+	if err != nil {
+		return err
+	}
+	rc.add(s.cc, "Parked supplier invoices", strconv.Itoa(sapParked), strconv.Itoa(parked), sapParked == parked)
+	return nil
 }
 
 // extend is an item's net value: quantity times price per price unit,
