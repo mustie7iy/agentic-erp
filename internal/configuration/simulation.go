@@ -72,7 +72,11 @@ func (w *SimulationWorker) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status = 'queued'`, SimulateKind)
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return tenants, fmt.Errorf("configuration: list the tenants with queued simulations: %w", err)
+	}
+	return tenants, nil
 }
 
 // job is a queued simulation: the operation and the change request it names.
@@ -110,7 +114,7 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 		timeout = 5 * time.Minute
 	}
 	if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
-		return false, err
+		return false, fmt.Errorf("configuration: set the simulation timeout: %w", err)
 	}
 	var j job
 	err = tx.QueryRow(ctx, `SELECT o.id, coalesce(o.request->>'change_request_id', ''), o.created_by, p.kind FROM platform.operation o
@@ -120,7 +124,7 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 		return false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("configuration: claim a queued simulation: %w", err)
 	}
 	if err := database.SetActor(ctx, tx, j.By); err != nil {
 		return false, err
@@ -133,7 +137,10 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 	if err := buf.Flush(ctx, tx, p, "", clock.Now(w.Now)); err != nil {
 		return false, err
 	}
-	return true, tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return true, fmt.Errorf("configuration: commit simulation %s: %w", j.OperationID, err)
+	}
+	return true, nil
 }
 
 // process simulates the job's change request and completes its operation.
@@ -231,9 +238,11 @@ func (w *SimulationWorker) advance(ctx context.Context, tx pgx.Tx, actor reqctx.
 
 // recordEvidence adds a result as evidence of the given kind.
 func recordEvidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, id uuid.UUID, kind string, s Simulation) error {
-	_, err := tx.Exec(ctx, `INSERT INTO config.evidence (tenant_id, change_request_id, kind, passed, summary, detail, recorded_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, kind, s.Passed, s.Summary, s.Detail, actor.ID)
-	return err
+	if _, err := tx.Exec(ctx, `INSERT INTO config.evidence (tenant_id, change_request_id, kind, passed, summary, detail, recorded_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, kind, s.Passed, s.Summary, s.Detail, actor.ID); err != nil {
+		return fmt.Errorf("configuration: record %s evidence of change request %s: %w", kind, id, err)
+	}
+	return nil
 }
 
 // failOrRetry fails the operation with a problem the request caused, and

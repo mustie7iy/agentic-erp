@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -128,7 +130,7 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 	rows, _ := tx.Query(ctx, q, args...)
 	crs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ChangeRequest, error) { return scanCR(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: list change requests: %w", err)
 	}
 	crs, next := pagination.Page(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID })
 	page := gen.ChangeRequestPage{Items: make([]gen.ChangeRequest, 0, len(crs))}
@@ -279,7 +281,7 @@ func (e *Endpoints) ListConfigVersions(ctx context.Context, params gen.ListConfi
 	rows, _ := tx.Query(ctx, q, args...)
 	vs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (version, error) { return scanVersion(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: list configuration versions: %w", err)
 	}
 	vs, next := pagination.Page(ks, vs, func(v version) (string, uuid.UUID) { return strconv.Itoa(int(v.Number)), v.ID })
 	page := gen.ConfigVersionPage{Items: make([]gen.ConfigVersion, 0, len(vs))}
@@ -313,7 +315,7 @@ func scanRange(row pgx.Row) (NumberRange, error) {
 	var n NumberRange
 	err := row.Scan(&n.ID, &n.LegalEntityID, &n.DocumentType, &n.FiscalYear, &n.Prefix, &n.FirstValue, &n.LastValue, &n.NextValue, &n.IsGapless,
 		&n.Version, &n.CreatedAt, &n.UpdatedAt, &n.CreatedBy)
-	return n, err
+	return n, errs.Wrapf(err, "scan number range")
 }
 
 func rangeToAPI(n NumberRange) gen.NumberRange {
@@ -338,7 +340,7 @@ func (e *Endpoints) GetNumberRange(ctx context.Context, params gen.GetNumberRang
 		return nil, problem.NotFound("No number range with this id.")
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: read number range %s: %w", params.ID, err)
 	}
 	return &gen.NumberRangeHeaders{ETag: gen.NewOptString(etag.Format(n.Version)), Response: rangeToAPI(n)}, nil
 }
@@ -376,7 +378,7 @@ func (e *Endpoints) ListNumberRanges(ctx context.Context, params gen.ListNumberR
 	rows, _ := tx.Query(ctx, q, args...)
 	ranges, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (NumberRange, error) { return scanRange(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: list number ranges: %w", err)
 	}
 	byYear := ks.Field() == "fiscal_year"
 	ranges, next := pagination.Page(ks, ranges, func(n NumberRange) (string, uuid.UUID) {

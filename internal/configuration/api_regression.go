@@ -2,6 +2,7 @@ package configuration
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,7 +64,7 @@ func (e *Endpoints) ListRegressionSuites(ctx context.Context, params gen.ListReg
 	rows, _ := tx.Query(ctx, q, args...)
 	suites, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (RegressionSuite, error) { return scanSuite(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: list regression suites: %w", err)
 	}
 	suites, next := pagination.Page(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return s.CapturedAt.UTC().Format(time.RFC3339Nano), s.ID })
 	page := gen.RegressionSuitePage{Items: make([]gen.RegressionSuite, 0, len(suites))}

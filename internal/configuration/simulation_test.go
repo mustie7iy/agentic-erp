@@ -289,6 +289,18 @@ func TestSimulationWorkerFailures(t *testing.T) {
 	if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) || begun < 2 {
 		t.Fatalf("tenant transaction: %v after %d", err, begun)
 	}
+	// A lost commit leaves the job queued for another attempt.
+	lost := worker(t, fake)
+	lost.Begin = func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, sc)
+		if err != nil || sc.TenantID == uuid.Nil {
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
+	}
+	if _, err := lost.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("lost commit: got %v, want %v", err, pgtest.ErrInjected)
+	}
 
 	// Run logs failed rounds and stops with its context.
 	var logs syncBuffer

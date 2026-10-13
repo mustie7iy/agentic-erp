@@ -40,7 +40,10 @@ func (Numbers) Next(ctx context.Context, legalEntity uuid.UUID, documentType str
 		return "", problem.Conflict("config.number_range_exhausted",
 			fmt.Sprintf("The %s number range of fiscal year %d is exhausted; raise its last number through a change request.", documentType, fiscalYear))
 	}
-	return n, err
+	if err != nil {
+		return "", fmt.Errorf("configuration: next %s number for legal entity %s in fiscal year %d: %w", documentType, legalEntity, fiscalYear, err)
+	}
+	return n, nil
 }
 
 // Settings reads the tenant's active configuration for other contexts:
@@ -62,7 +65,7 @@ func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
 		return nil, 0, problem.Conflict("config.not_bootstrapped", "The tenant has no configuration yet.")
 	}
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("configuration: read the active configuration: %w", err)
 	}
 	c, _ := config.Parse(doc) // activated documents always parse
 	return c, n, nil
