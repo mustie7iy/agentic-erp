@@ -125,104 +125,163 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 	if err != nil {
 		return nil, err
 	}
-	vendors := map[string]partner{}
-	for _, p := range partners {
-		vendors[p.ID] = p
+	b := &factBuilder{
+		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, AsOf: asOf},
+		startMonth: m.Calendar.FiscalYearStartMonth,
+		vendors:    map[string]partner{},
 	}
-	f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, AsOf: asOf}
-	cal := func(dims map[string]string, date string) error {
-		fy, fm, err := fiscal(date, m.Calendar.FiscalYearStartMonth)
-		if err != nil {
-			return err
-		}
-		dims["posting_date"] = date
-		dims["fiscal_year"] = strconv.Itoa(fy)
-		dims["fiscal_month"] = strconv.Itoa(fm)
-		dims["fiscal_quarter"] = strconv.Itoa((fm-1)/3 + 1)
-		f.DataThrough = max(f.DataThrough, date)
-		return nil
+	for _, p := range partners {
+		b.vendors[p.ID] = p
 	}
 	for _, le := range les {
-		f.Companies[le.Code] = le.LocalCurrency
-		byLE := url.Values{"legal_entity_id": {le.ID}}
-		accounts, err := list[account](ctx, s.API, "/v1/accounts", byLE)
-		if err != nil {
+		if err := s.addEntity(ctx, b, le); err != nil {
 			return nil, err
-		}
-		chart := map[string]account{}
-		for _, a := range accounts {
-			chart[a.ID] = a
-		}
-		open, err := list[openItem](ctx, s.API, "/v1/open-items", byLE)
-		if err != nil {
-			return nil, err
-		}
-		isOpen := map[string]bool{}
-		for _, o := range open {
-			isOpen[o.JournalEntryID+"/"+strconv.Itoa(o.LineNo)] = true
-		}
-		entries, err := list[journalEntry](ctx, s.API, "/v1/journal-entries", byLE)
-		if err != nil {
-			return nil, err
-		}
-		for _, je := range entries {
-			for _, l := range je.Lines {
-				a := chart[l.AccountID]
-				recon := a.ReconciliationKind == "supplier"
-				v := vendors[l.PartnerID]
-				dims := map[string]string{"company": le.Code, "account": a.Number, "account_name": a.Name, "account_type": a.AccountType,
-					"document_type": je.DocumentType, "vendor": v.Number, "vendor_name": v.Name, "vendor_recon": strconv.FormatBool(recon),
-					"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)])}
-				amt, err := l.AmountLC.minor()
-				if err == nil {
-					err = cal(dims, je.PostingDate)
-				}
-				if err != nil {
-					return nil, fmt.Errorf("journal entry %s: %w", je.ID, err)
-				}
-				f.Tables["gl_lines"] = append(f.Tables["gl_lines"], Fact{ID: je.ID, Dims: dims, Amount: amt, Currency: le.LocalCurrency})
-			}
-		}
-		orders, err := list[order](ctx, s.API, "/v1/purchase-orders", byLE)
-		if err != nil {
-			return nil, err
-		}
-		for _, o := range orders {
-			v := vendors[o.SupplierID]
-			for _, it := range o.Items {
-				a := chart[it.AccountID]
-				dims := map[string]string{"company": le.Code, "vendor": v.Number, "vendor_name": v.Name, "account": a.Number, "account_name": a.Name}
-				qty, err := money.ParseQty(it.Quantity.Value)
-				price, perr := it.UnitPrice.minor()
-				if err == nil {
-					err = perr
-				}
-				if err == nil {
-					err = cal(dims, o.OrderDate)
-				}
-				if err != nil {
-					return nil, fmt.Errorf("purchase order %s: %w", o.ID, err)
-				}
-				f.Tables["po_lines"] = append(f.Tables["po_lines"], Fact{ID: o.ID, Dims: dims,
-					Amount: int64(money.Extend(qty, money.Minor(price), max(it.PriceUnit, 1))), Currency: it.UnitPrice.Currency})
-			}
-		}
-		invoices, err := list[invoice](ctx, s.API, "/v1/supplier-invoices", byLE)
-		if err != nil {
-			return nil, err
-		}
-		for _, inv := range invoices {
-			v := vendors[inv.SupplierID]
-			dims := map[string]string{"company": le.Code, "vendor": v.Number, "vendor_name": v.Name, "invoice_status": inv.Status}
-			gross, err := inv.Gross.minor()
-			if err == nil {
-				err = cal(dims, inv.InvoiceDate)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("invoice %s: %w", inv.ID, err)
-			}
-			f.Tables["ap_invoices"] = append(f.Tables["ap_invoices"], Fact{ID: inv.ID, Dims: dims, Amount: gross, Currency: inv.Gross.Currency})
 		}
 	}
-	return f, nil
+	return b.f, nil
+}
+
+// factBuilder accumulates the fact tables across legal entities.
+type factBuilder struct {
+	f          *Facts
+	startMonth int
+	vendors    map[string]partner
+}
+
+// calendar adds the posting date and its fiscal year, month and quarter to
+// dims, and advances DataThrough.
+func (b *factBuilder) calendar(dims map[string]string, date string) error {
+	fy, fm, err := fiscal(date, b.startMonth)
+	if err != nil {
+		return err
+	}
+	dims["posting_date"] = date
+	dims["fiscal_year"] = strconv.Itoa(fy)
+	dims["fiscal_month"] = strconv.Itoa(fm)
+	dims["fiscal_quarter"] = strconv.Itoa((fm-1)/3 + 1)
+	b.f.DataThrough = max(b.f.DataThrough, date)
+	return nil
+}
+
+// addEntity reads one legal entity's ledger, purchase orders and supplier
+// invoices into the fact tables.
+func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) error {
+	b.f.Companies[le.Code] = le.LocalCurrency
+	byLE := url.Values{"legal_entity_id": {le.ID}}
+	accounts, err := list[account](ctx, s.API, "/v1/accounts", byLE)
+	if err != nil {
+		return err
+	}
+	chart := map[string]account{}
+	for _, a := range accounts {
+		chart[a.ID] = a
+	}
+	if err := s.addJournal(ctx, b, le, byLE, chart); err != nil {
+		return err
+	}
+	if err := s.addOrders(ctx, b, le, byLE, chart); err != nil {
+		return err
+	}
+	return s.addInvoices(ctx, b, le, byLE)
+}
+
+// addJournal adds one fact per journal line to gl_lines; a supplier line
+// counts as cleared when it is no longer an open item.
+func (s Source) addJournal(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
+	open, err := list[openItem](ctx, s.API, "/v1/open-items", byLE)
+	if err != nil {
+		return err
+	}
+	isOpen := map[string]bool{}
+	for _, o := range open {
+		isOpen[o.JournalEntryID+"/"+strconv.Itoa(o.LineNo)] = true
+	}
+	entries, err := list[journalEntry](ctx, s.API, "/v1/journal-entries", byLE)
+	if err != nil {
+		return err
+	}
+	for _, je := range entries {
+		if err := b.addEntry(le, je, chart, isOpen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string]account, isOpen map[string]bool) error {
+	for _, l := range je.Lines {
+		a := chart[l.AccountID]
+		recon := a.ReconciliationKind == "supplier"
+		v := b.vendors[l.PartnerID]
+		dims := map[string]string{"company": le.Code, "account": a.Number, "account_name": a.Name, "account_type": a.AccountType,
+			"document_type": je.DocumentType, "vendor": v.Number, "vendor_name": v.Name, "vendor_recon": strconv.FormatBool(recon),
+			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)])}
+		amt, err := l.AmountLC.minor()
+		if err == nil {
+			err = b.calendar(dims, je.PostingDate)
+		}
+		if err != nil {
+			return fmt.Errorf("journal entry %s: %w", je.ID, err)
+		}
+		b.f.Tables["gl_lines"] = append(b.f.Tables["gl_lines"], Fact{ID: je.ID, Dims: dims, Amount: amt, Currency: le.LocalCurrency})
+	}
+	return nil
+}
+
+// addOrders adds one fact per purchase order item to po_lines, valued at
+// quantity times unit price per price unit.
+func (s Source) addOrders(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
+	orders, err := list[order](ctx, s.API, "/v1/purchase-orders", byLE)
+	if err != nil {
+		return err
+	}
+	for _, o := range orders {
+		if err := b.addOrder(le, o, chart); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *factBuilder) addOrder(le legalEntity, o order, chart map[string]account) error {
+	v := b.vendors[o.SupplierID]
+	for _, it := range o.Items {
+		a := chart[it.AccountID]
+		dims := map[string]string{"company": le.Code, "vendor": v.Number, "vendor_name": v.Name, "account": a.Number, "account_name": a.Name}
+		qty, err := money.ParseQty(it.Quantity.Value)
+		price, perr := it.UnitPrice.minor()
+		if err == nil {
+			err = perr
+		}
+		if err == nil {
+			err = b.calendar(dims, o.OrderDate)
+		}
+		if err != nil {
+			return fmt.Errorf("purchase order %s: %w", o.ID, err)
+		}
+		b.f.Tables["po_lines"] = append(b.f.Tables["po_lines"], Fact{ID: o.ID, Dims: dims,
+			Amount: int64(money.Extend(qty, money.Minor(price), max(it.PriceUnit, 1))), Currency: it.UnitPrice.Currency})
+	}
+	return nil
+}
+
+// addInvoices adds one fact per supplier invoice to ap_invoices.
+func (s Source) addInvoices(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values) error {
+	invoices, err := list[invoice](ctx, s.API, "/v1/supplier-invoices", byLE)
+	if err != nil {
+		return err
+	}
+	for _, inv := range invoices {
+		v := b.vendors[inv.SupplierID]
+		dims := map[string]string{"company": le.Code, "vendor": v.Number, "vendor_name": v.Name, "invoice_status": inv.Status}
+		gross, err := inv.Gross.minor()
+		if err == nil {
+			err = b.calendar(dims, inv.InvoiceDate)
+		}
+		if err != nil {
+			return fmt.Errorf("invoice %s: %w", inv.ID, err)
+		}
+		b.f.Tables["ap_invoices"] = append(b.f.Tables["ap_invoices"], Fact{ID: inv.ID, Dims: dims, Amount: gross, Currency: inv.Gross.Currency})
+	}
+	return nil
 }
