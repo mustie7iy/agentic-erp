@@ -25,8 +25,11 @@ func TestPain001(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(out)
-	if !strings.HasPrefix(s, "<?xml") || !strings.Contains(s, `xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03"`) {
-		t.Fatal("header/namespace")
+	if !strings.HasPrefix(s, "<?xml") {
+		t.Errorf("header: got %.40q, want an <?xml declaration first", s)
+	}
+	if !strings.Contains(s, `xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03"`) {
+		t.Error("namespace: got none, want the pain.001.001.03 namespace")
 	}
 	var doc struct {
 		Hdr struct {
@@ -51,18 +54,45 @@ func TestPain001(t *testing.T) {
 	if err := xml.Unmarshal(out, &doc); err != nil {
 		t.Fatalf("not valid XML: %v", err)
 	}
-	if doc.Hdr.N != 2 || doc.Hdr.Sum != "1234.61" || doc.Hdr.At != "2026-10-09T09:30:00" {
-		t.Fatalf("group header: %+v", doc.Hdr)
+	if got := doc.Hdr.N; got != 2 {
+		t.Errorf("group header NbOfTxs: got %d, want %d", got, 2)
 	}
-	if doc.Pmt.Debtor != "GB33BUKB20201555555555" || doc.Pmt.Date != "2026-10-09" {
-		t.Fatal("debtor account and date")
+	if got := doc.Hdr.Sum; got != "1234.61" {
+		t.Errorf("group header CtrlSum: got %q, want %q", got, "1234.61")
+	}
+	if got := doc.Hdr.At; got != "2026-10-09T09:30:00" {
+		t.Errorf("group header CreDtTm: got %q, want %q", got, "2026-10-09T09:30:00")
+	}
+	if got := doc.Pmt.Debtor; got != "GB33BUKB20201555555555" {
+		t.Errorf("debtor IBAN: got %q, want %q", got, "GB33BUKB20201555555555")
+	}
+	if got := doc.Pmt.Date; got != "2026-10-09" {
+		t.Errorf("execution date: got %q, want %q", got, "2026-10-09")
 	}
 	tx := doc.Pmt.Txs
-	if tx[0].Name != "Initech & Sons <Ltd>" || tx[0].IBAN != "DE89370400440532013000" || tx[0].Amt.Value != "1234.56" || tx[0].Amt.Ccy != "USD" {
-		t.Fatalf("IBAN creditor (and XML escaping): %+v", tx[0])
+	if len(tx) < 2 {
+		t.Fatalf("transactions: got %d, want at least 2", len(tx))
 	}
-	if tx[1].Other != "400000007777" || tx[1].IBAN != "" || tx[1].Amt.Value != "0.05" {
-		t.Fatalf("domestic account creditor: %+v", tx[1])
+	if got := tx[0].Name; got != "Initech & Sons <Ltd>" {
+		t.Errorf("IBAN creditor name (XML escaping): got %q, want %q", got, "Initech & Sons <Ltd>")
+	}
+	if got := tx[0].IBAN; got != "DE89370400440532013000" {
+		t.Errorf("IBAN creditor IBAN: got %q, want %q", got, "DE89370400440532013000")
+	}
+	if got := tx[0].Amt.Value; got != "1234.56" {
+		t.Errorf("IBAN creditor amount: got %q, want %q", got, "1234.56")
+	}
+	if got := tx[0].Amt.Ccy; got != "USD" {
+		t.Errorf("IBAN creditor currency: got %q, want %q", got, "USD")
+	}
+	if got := tx[1].Other; got != "400000007777" {
+		t.Errorf("domestic account creditor account: got %q, want %q", got, "400000007777")
+	}
+	if got := tx[1].IBAN; got != "" {
+		t.Errorf("domestic account creditor IBAN: got %q, want %q", got, "")
+	}
+	if got := tx[1].Amt.Value; got != "0.05" {
+		t.Errorf("domestic account creditor amount: got %q, want %q", got, "0.05")
 	}
 }
 
@@ -77,11 +107,13 @@ func TestPain001Validation(t *testing.T) {
 		"creditor":    func(b *Batch) { b.Payments[1].CreditorName = " " },
 	}
 	for name, mutate := range cases {
-		b := batch()
-		mutate(&b)
-		if _, err := Pain001(b); err == nil {
-			t.Errorf("%s: expected a validation error", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			b := batch()
+			mutate(&b)
+			if _, err := Pain001(b); err == nil {
+				t.Error("Pain001: got nil error, want a validation error")
+			}
+		})
 	}
 }
 
@@ -93,15 +125,21 @@ func TestFieldLengthsAndIBAN(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(out), strings.Repeat("Ä", 71)) || strings.Contains(string(out), strings.Repeat("9", 36)) {
-		t.Fatal("fields must be clipped to schema limits (by characters, not bytes)")
+	// Fields are clipped to schema limits by characters, not bytes.
+	if strings.Contains(string(out), strings.Repeat("Ä", 71)) {
+		t.Error("creditor name: got more than 70 characters, want it clipped to 70")
+	}
+	if strings.Contains(string(out), strings.Repeat("9", 36)) {
+		t.Error("end-to-end id: got more than 35 characters, want it clipped to 35")
 	}
 	for iban, ok := range map[string]bool{
 		"GB33BUKB20201555555555": true, "gb33bukb20201555555555": true, "GB33BUKB2020155555555$": false,
 		"1B33BUKB20201555555555": false, "GB33": false, "DE89370400440532013000": true,
 	} {
-		if ValidIBAN(iban) != ok {
-			t.Errorf("ValidIBAN(%q) != %v", iban, ok)
-		}
+		t.Run(iban, func(t *testing.T) {
+			if got := ValidIBAN(iban); got != ok {
+				t.Errorf("ValidIBAN(%q) = %v, want %v", iban, got, ok)
+			}
+		})
 	}
 }
