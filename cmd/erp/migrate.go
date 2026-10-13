@@ -1,18 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 type migrationRun struct {
@@ -153,24 +154,26 @@ func readRun(ctx context.Context, c *apitools.Client, path string) (migrationRun
 // printRun prints the run's report. Its error is any part of the report that
 // could not be written, so the operator never decides on a partial report.
 func printRun(run migrationRun) error {
-	out := &stickyWriter{w: out}
+	// A bufio.Writer keeps the first failed write and refuses the rest, so the
+	// whole report is checked once, at the flush.
+	w := bufio.NewWriter(out)
 	r := run.Report
 	loaded, _ := json.Marshal(r.Loaded)
-	fmt.Fprintf(out, "Migration run %s: %s\nLoaded: %s\n", run.ID, run.Status, loaded)
+	fmt.Fprintf(w, "Migration run %s: %s\nLoaded: %s\n", run.ID, run.Status, loaded)
 	for _, list := range []struct {
 		title  string
 		issues []struct{ Severity, Table, Key, Message string }
 	}{{"Quality findings", r.Quality}, {"Load refusals", r.Load}} {
 		if len(list.issues) > 0 {
-			fmt.Fprintf(out, "\n%s:\n", list.title)
+			fmt.Fprintf(w, "\n%s:\n", list.title)
 			for _, i := range list.issues {
-				fmt.Fprintf(out, "  [%s] %s %s: %s\n", i.Severity, i.Table, i.Key, i.Message)
+				fmt.Fprintf(w, "  [%s] %s %s: %s\n", i.Severity, i.Table, i.Key, i.Message)
 			}
 		}
 	}
 	if len(r.Checks) > 0 {
-		fmt.Fprintln(out)
-		tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', 0)
+		fmt.Fprintln(w)
+		tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "COMPANY\tCHECK\tSAP\tPLATFORM\tRESULT")
 		for _, c := range r.Checks {
 			res := "PASS"
@@ -179,32 +182,13 @@ func printRun(run migrationRun) error {
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", c.CompanyCode, c.Name, c.SAP, c.Platform, res)
 		}
-		_ = tw.Flush() // its only error is a failed write, which out keeps
+		_ = tw.Flush() // its only error is a failed write, which w keeps
 	}
 	for _, d := range r.Diffs {
-		fmt.Fprintf(out, "  difference %s %s: SAP %s, platform %s\n", d.CompanyCode, d.Key, d.SAP, d.Platform)
+		fmt.Fprintf(w, "  difference %s %s: SAP %s, platform %s\n", d.CompanyCode, d.Key, d.SAP, d.Platform)
 	}
 	if len(r.Missing) > 0 {
-		fmt.Fprintf(out, "  %d SAP documents are not on the platform, for example %s\n", len(r.Missing), r.Missing[0])
+		fmt.Fprintf(w, "  %d SAP documents are not on the platform, for example %s\n", len(r.Missing), r.Missing[0])
 	}
-	if out.err != nil {
-		return fmt.Errorf("migrate: print report: %w", out.err)
-	}
-	return nil
-}
-
-// stickyWriter keeps the first error of its writes and skips the writes
-// after it, so a report printed with many calls is checked once at the end.
-type stickyWriter struct {
-	w   io.Writer
-	err error
-}
-
-func (s *stickyWriter) Write(p []byte) (int, error) {
-	if s.err != nil {
-		return 0, s.err
-	}
-	n, err := s.w.Write(p)
-	s.err = err
-	return n, err //nolint:wrapcheck // a pass-through writer: printRun wraps the error it keeps
+	return errs.Wrapf(w.Flush(), "migrate: print report")
 }
