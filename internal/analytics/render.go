@@ -16,19 +16,7 @@ import (
 // SVG, no scripts) that can be opened, emailed or archived as-is.
 func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal) error {
 	v := view{Spec: s, Principal: p.ID, Generated: time.Now().UTC().Format("2006-01-02 15:04 UTC")}
-	for _, t := range s.Tiles {
-		r := results[t.QueryID]
-		col := r.Columns[r.col(t.Measure)]
-		cur, _, _ := r.sum(t.Measure, t.Where)
-		tv := tileView{Label: t.Label, Value: formatValue(cur, col)}
-		if t.CompareWhere != nil {
-			base, _, _ := r.sum(t.Measure, t.CompareWhere)
-			tv.Delta, tv.Pct, tv.Up = change(cur, base, col)
-			tv.CompareLabel = t.CompareLabel
-			tv.HasCompare = true
-		}
-		v.Tiles = append(v.Tiles, tv)
-	}
+	v.Tiles = tileViews(s, results)
 	for _, c := range s.Charts {
 		v.Charts = append(v.Charts, chartView{Title: c.Title, SVG: template.HTML(chartSVG(c, results[c.QueryID]))}) // #nosec G203 -- SVG built by chartSVG from numbers and escaped labels, never from raw input
 	}
@@ -40,6 +28,36 @@ func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal) error
 			v.Commentary = append(v.Commentary, strings.TrimSpace(para))
 		}
 	}
+	v.addProvenance(results)
+	if err := pageTmpl.Execute(w, v); err != nil {
+		return fmt.Errorf("analytics: render page: %w", err)
+	}
+	return nil
+}
+
+// tileViews computes each tile's value and, with a baseline, its change.
+// The spec has been validated, so the sums' errors were reported there.
+func tileViews(s *Spec, results map[string]*Result) []tileView {
+	var tiles []tileView
+	for _, t := range s.Tiles {
+		r := results[t.QueryID]
+		col := r.Columns[r.col(t.Measure)]
+		cur, _, _ := r.sum(t.Measure, t.Where)
+		tv := tileView{Label: t.Label, Value: formatValue(cur, col)}
+		if t.CompareWhere != nil {
+			base, _, _ := r.sum(t.Measure, t.CompareWhere)
+			tv.Delta, tv.Pct, tv.Up = change(cur, base, col)
+			tv.CompareLabel = t.CompareLabel
+			tv.HasCompare = true
+		}
+		tiles = append(tiles, tv)
+	}
+	return tiles
+}
+
+// addProvenance lists the queries in id order and the definitions of every
+// metric they used, so the page shows how each number was computed.
+func (v *view) addProvenance(results map[string]*Result) {
 	ids := make([]string, 0, len(results))
 	for id := range results {
 		ids = append(ids, id)
@@ -56,22 +74,23 @@ func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal) error
 		v.DataThrough, v.AsOf = r.DataThrough, r.AsOf.UTC().Format("2006-01-02 15:04 UTC")
 	}
 	for _, name := range sortedKeysMap(defs) {
-		d := defs[name]
-		line := d.Description
-		if d.Source != "" {
-			line += fmt.Sprintf(" Source: %s", d.Source)
-			if len(d.Filter) > 0 {
-				f, _ := json.Marshal(d.Filter)
-				line += fmt.Sprintf(", filter %s", f)
-			}
-			line += "."
+		v.Definitions = append(v.Definitions, defView{Name: name, Text: definitionText(defs[name])})
+	}
+}
+
+// definitionText is a metric's description followed by its source and
+// filter, if it reads a fact table.
+func definitionText(d MetricLineage) string {
+	line := d.Description
+	if d.Source != "" {
+		line += fmt.Sprintf(" Source: %s", d.Source)
+		if len(d.Filter) > 0 {
+			f, _ := json.Marshal(d.Filter)
+			line += fmt.Sprintf(", filter %s", f)
 		}
-		v.Definitions = append(v.Definitions, defView{Name: name, Text: line})
+		line += "."
 	}
-	if err := pageTmpl.Execute(w, v); err != nil {
-		return fmt.Errorf("analytics: render page: %w", err)
-	}
-	return nil
+	return line
 }
 
 type view struct {
@@ -112,28 +131,62 @@ type cellView struct {
 func tableView(t Table, r *Result) tableData {
 	td := tableData{Title: t.Title}
 	if t.Compare == nil {
-		for _, c := range r.Columns {
-			h := c.Label
-			if c.Currency != "" {
-				h += " (" + c.Currency + ")"
-			}
-			td.Header = append(td.Header, h)
-			td.Numeric = append(td.Numeric, c.Kind == "measure")
-		}
-		for _, row := range r.Rows {
-			var cells []cellView
-			for i, c := range r.Columns {
-				cells = append(cells, cellView{Text: cellText(row[i], c)})
-			}
-			td.Rows = append(td.Rows, cells)
-		}
+		td.plain(r)
 		return td
 	}
+	td.pivot(t.Compare, r)
+	return td
+}
 
-	// Pivot: one row per combination of the other dimensions.
-	cmp := t.Compare
+// plain shows the result as it is, one row per result row.
+func (td *tableData) plain(r *Result) {
+	for _, c := range r.Columns {
+		h := c.Label
+		if c.Currency != "" {
+			h += " (" + c.Currency + ")"
+		}
+		td.Header = append(td.Header, h)
+		td.Numeric = append(td.Numeric, c.Kind == "measure")
+	}
+	for _, row := range r.Rows {
+		var cells []cellView
+		for i, c := range r.Columns {
+			cells = append(cells, cellView{Text: cellText(row[i], c)})
+		}
+		td.Rows = append(td.Rows, cells)
+	}
+}
+
+// pivotPair is one pivot row: the values of the other dimensions and the
+// measure summed at the baseline and at the current value.
+type pivotPair struct {
+	keys       []string
+	base, curr float64
+	hasB, hasC bool
+}
+
+// pivot shows one row per combination of the other dimensions, with a
+// total row when there is more than one row of an additive measure.
+func (td *tableData) pivot(cmp *Compare, r *Result) {
 	ci, mi := r.col(cmp.Dim), r.col(cmp.Measure)
 	col := r.Columns[mi]
+	keyCols := td.pivotHeader(cmp, r, ci, col)
+	order, pairs := pivotPairs(cmp, r, keyCols, ci, mi)
+	var totB, totC float64
+	for _, key := range order {
+		p := pairs[key]
+		td.Rows = append(td.Rows, pivotRow(p, r, keyCols, col))
+		totB += p.base
+		totC += p.curr
+	}
+	if len(keyCols) > 0 && col.Type != Ratio && len(order) > 1 {
+		td.Rows = append(td.Rows, pivotTotal(keyCols, totB, totC, col))
+	}
+}
+
+// pivotHeader adds the other dimensions' headers and the baseline,
+// current and change headers, and returns the other dimensions' columns.
+func (td *tableData) pivotHeader(cmp *Compare, r *Result, ci int, col Column) []int {
 	var keyCols []int
 	for i, c := range r.Columns {
 		if c.Kind == "dimension" && i != ci {
@@ -148,13 +201,14 @@ func tableView(t Table, r *Result) tableData {
 	}
 	td.Header = append(td.Header, cmp.Baseline+cur, cmp.Current+cur, "Change", "Change %")
 	td.Numeric = append(td.Numeric, true, true, true, true)
-	type pair struct {
-		keys       []string
-		base, curr float64
-		hasB, hasC bool
-	}
+	return keyCols
+}
+
+// pivotPairs sums the measure per combination of the other dimensions at
+// the baseline and current values, in natural order of those dimensions.
+func pivotPairs(cmp *Compare, r *Result, keyCols []int, ci, mi int) ([]string, map[string]*pivotPair) {
 	var order []string
-	pairs := map[string]*pair{}
+	pairs := map[string]*pivotPair{}
 	for _, row := range r.Rows {
 		keys := make([]string, len(keyCols))
 		for i, k := range keyCols {
@@ -163,7 +217,7 @@ func tableView(t Table, r *Result) tableData {
 		key := strings.Join(keys, "\x1f")
 		p := pairs[key]
 		if p == nil {
-			p = &pair{keys: keys}
+			p = &pivotPair{keys: keys}
 			pairs[key] = p
 			order = append(order, key)
 		}
@@ -187,43 +241,41 @@ func tableView(t Table, r *Result) tableData {
 		}
 		return false
 	})
-	var totB, totC float64
-	for _, key := range order {
-		p := pairs[key]
-		var cells []cellView
-		for i, k := range p.keys {
-			cells = append(cells, cellView{Text: dimText(k, r.Columns[keyCols[i]].Name)})
-		}
-		cells = append(cells, numCell(p.base, p.hasB, col), numCell(p.curr, p.hasC, col))
-		if p.hasB && p.hasC {
-			d, pct, up := changeFull(p.curr, p.base, col)
-			cls := "pos"
-			if !up {
-				cls = "neg"
-			}
-			cells = append(cells, cellView{Text: d, Class: cls}, cellView{Text: pct, Class: cls})
-		} else {
-			cells = append(cells, cellView{Text: "—"}, cellView{Text: "—"})
-		}
-		td.Rows = append(td.Rows, cells)
-		totB += p.base
-		totC += p.curr
+	return order, pairs
+}
+
+// pivotRow renders one pivot row; the change is shown only when both the
+// baseline and the current value exist.
+func pivotRow(p *pivotPair, r *Result, keyCols []int, col Column) []cellView {
+	var cells []cellView
+	for i, k := range p.keys {
+		cells = append(cells, cellView{Text: dimText(k, r.Columns[keyCols[i]].Name)})
 	}
-	if len(keyCols) > 0 && col.Type != Ratio && len(order) > 1 {
-		cells := []cellView{{Text: "Total", Class: "total"}}
-		for range keyCols[1:] {
-			cells = append(cells, cellView{Class: "total"})
-		}
-		d, pct, up := changeFull(totC, totB, col)
-		cls := "pos total"
+	cells = append(cells, numCell(p.base, p.hasB, col), numCell(p.curr, p.hasC, col))
+	if p.hasB && p.hasC {
+		d, pct, up := changeFull(p.curr, p.base, col)
+		cls := "pos"
 		if !up {
-			cls = "neg total"
+			cls = "neg"
 		}
-		cells = append(cells, cellView{Text: formatFull(totB, col), Class: "total"}, cellView{Text: formatFull(totC, col), Class: "total"},
-			cellView{Text: d, Class: cls}, cellView{Text: pct, Class: cls})
-		td.Rows = append(td.Rows, cells)
+		return append(cells, cellView{Text: d, Class: cls}, cellView{Text: pct, Class: cls})
 	}
-	return td
+	return append(cells, cellView{Text: "—"}, cellView{Text: "—"})
+}
+
+// pivotTotal renders the total row under the pivot.
+func pivotTotal(keyCols []int, totB, totC float64, col Column) []cellView {
+	cells := []cellView{{Text: "Total", Class: "total"}}
+	for range keyCols[1:] {
+		cells = append(cells, cellView{Class: "total"})
+	}
+	d, pct, up := changeFull(totC, totB, col)
+	cls := "pos total"
+	if !up {
+		cls = "neg total"
+	}
+	return append(cells, cellView{Text: formatFull(totB, col), Class: "total"}, cellView{Text: formatFull(totC, col), Class: "total"},
+		cellView{Text: d, Class: cls}, cellView{Text: pct, Class: cls})
 }
 
 func numCell(v float64, ok bool, c Column) cellView {
@@ -265,16 +317,51 @@ func dimText(v, dim string) string {
 
 var seriesColors = []string{"var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)"}
 
+// Chart geometry in SVG user units: the canvas and the padding around the
+// plot area.
+const (
+	chartW, chartH              = 720.0, 300.0
+	chartLeft, chartRight       = 64.0, 12.0
+	chartTopPad, chartBottomPad = 28.0, 30.0
+	chartPlotW, chartPlotH      = chartW - chartLeft - chartRight, chartH - chartTopPad - chartBottomPad
+)
+
 // chartSVG draws a grouped bar or multi-line chart on one linear scale.
 func chartSVG(c Chart, r *Result) string {
+	col := r.Columns[r.col(c.Measure)]
+	xs, ss, vals := chartData(c, r)
+	if len(xs) == 0 {
+		return `<p class="muted">No data for this chart.</p>`
+	}
+	fr := newChartFrame(vals, len(xs))
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg viewBox="0 0 %.0f %.0f" role="img" aria-label="%s">`, chartW, chartH, template.HTMLEscapeString(c.Title))
+	fr.axis(&b, col)
+	if len(ss) > 1 || ss[0] != "" {
+		chartLegend(&b, c, ss)
+	}
+	for i, x := range xs {
+		cx := chartLeft + fr.gw*float64(i) + fr.gw/2
+		fmt.Fprintf(&b, `<text class="axis" x="%.1f" y="%.1f" text-anchor="middle">%s</text>`, cx, chartH-chartBottomPad+16, template.HTMLEscapeString(dimText(x, c.X)))
+	}
+	if c.Type == "line" {
+		fr.lines(&b, xs, ss, vals)
+	} else {
+		fr.bars(&b, c, col, xs, ss, vals)
+	}
+	b.WriteString(`</svg>`)
+	return b.String()
+}
+
+// chartData sums the measure per x value and series, both in natural
+// order; rows without a value are skipped.
+func chartData(c Chart, r *Result) (xs, ss []string, vals map[[2]string]float64) {
 	xi, mi := r.col(c.X), r.col(c.Measure)
 	si := -1
 	if c.Series != "" {
 		si = r.col(c.Series)
 	}
-	col := r.Columns[mi]
-	var xs, ss []string
-	vals := map[[2]string]float64{}
+	vals = map[[2]string]float64{}
 	for _, row := range r.Rows {
 		x, _ := row[xi].(string)
 		s := ""
@@ -295,9 +382,17 @@ func chartSVG(c Chart, r *Result) string {
 	}
 	sort.SliceStable(xs, func(a, b int) bool { return compareValues(xs[a], xs[b]) < 0 })
 	sort.SliceStable(ss, func(a, b int) bool { return compareValues(ss[a], ss[b]) < 0 })
-	if len(xs) == 0 {
-		return `<p class="muted">No data for this chart.</p>`
-	}
+	return xs, ss, vals
+}
+
+// chartFrame is the value scale and the width of one x group.
+type chartFrame struct {
+	bottom, top, step, gw float64
+}
+
+// newChartFrame picks a scale with about four nice steps that includes
+// zero and every value.
+func newChartFrame(vals map[[2]string]float64, groups int) chartFrame {
 	lo, hi := 0.0, 0.0
 	for _, v := range vals {
 		lo, hi = math.Min(lo, v), math.Max(hi, v)
@@ -311,68 +406,72 @@ func chartSVG(c Chart, r *Result) string {
 	if top == bottom {
 		top = bottom + step
 	}
+	return chartFrame{bottom: bottom, top: top, step: step, gw: chartPlotW / float64(groups)}
+}
 
-	const W, H, left, right, topPad, bottomPad = 720.0, 300.0, 64.0, 12.0, 28.0, 30.0
-	plotW, plotH := W-left-right, H-topPad-bottomPad
-	y := func(v float64) float64 { return topPad + (top-v)/(top-bottom)*plotH }
-	var b strings.Builder
-	fmt.Fprintf(&b, `<svg viewBox="0 0 %.0f %.0f" role="img" aria-label="%s">`, W, H, template.HTMLEscapeString(c.Title))
-	for t := bottom; t <= top+step/2; t += step {
-		fmt.Fprintf(&b, `<line class="grid" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, left, W-right, y(t), y(t))
-		fmt.Fprintf(&b, `<text class="axis" x="%.1f" y="%.1f" text-anchor="end">%s</text>`, left-6, y(t)+3, axisLabel(t, col))
+// y maps a value to its vertical position in the plot area.
+func (fr chartFrame) y(v float64) float64 {
+	return chartTopPad + (fr.top-v)/(fr.top-fr.bottom)*chartPlotH
+}
+
+// axis draws the grid lines with their labels and, below zero, the zero line.
+func (fr chartFrame) axis(b *strings.Builder, col Column) {
+	for t := fr.bottom; t <= fr.top+fr.step/2; t += fr.step {
+		fmt.Fprintf(b, `<line class="grid" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, chartLeft, chartW-chartRight, fr.y(t), fr.y(t))
+		fmt.Fprintf(b, `<text class="axis" x="%.1f" y="%.1f" text-anchor="end">%s</text>`, chartLeft-6, fr.y(t)+3, axisLabel(t, col))
 	}
-	if bottom < 0 {
-		fmt.Fprintf(&b, `<line class="zero" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, left, W-right, y(0), y(0))
+	if fr.bottom < 0 {
+		fmt.Fprintf(b, `<line class="zero" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, chartLeft, chartW-chartRight, fr.y(0), fr.y(0))
 	}
-	gw := plotW / float64(len(xs))
-	if len(ss) > 1 || ss[0] != "" {
-		lx := left
-		for i, s := range ss {
-			fmt.Fprintf(&b, `<rect x="%.1f" y="6" width="10" height="10" rx="2" style="fill:%s"/><text class="legend" x="%.1f" y="15">%s</text>`,
-				lx, seriesColors[i%len(seriesColors)], lx+14, template.HTMLEscapeString(dimText(s, c.Series)))
-			lx += 24 + 7*float64(len(dimText(s, c.Series)))
-		}
+}
+
+// chartLegend draws one colour swatch and name per series.
+func chartLegend(b *strings.Builder, c Chart, ss []string) {
+	lx := chartLeft
+	for i, s := range ss {
+		fmt.Fprintf(b, `<rect x="%.1f" y="6" width="10" height="10" rx="2" style="fill:%s"/><text class="legend" x="%.1f" y="15">%s</text>`,
+			lx, seriesColors[i%len(seriesColors)], lx+14, template.HTMLEscapeString(dimText(s, c.Series)))
+		lx += 24 + 7*float64(len(dimText(s, c.Series)))
 	}
-	for i, x := range xs {
-		cx := left + gw*float64(i) + gw/2
-		fmt.Fprintf(&b, `<text class="axis" x="%.1f" y="%.1f" text-anchor="middle">%s</text>`, cx, H-bottomPad+16, template.HTMLEscapeString(dimText(x, c.X)))
-	}
-	if c.Type == "line" {
-		for si, s := range ss {
-			var pts []string
-			for i, x := range xs {
-				v, ok := vals[[2]string{x, s}]
-				if !ok {
-					continue
-				}
-				pts = append(pts, fmt.Sprintf("%.1f,%.1f", left+gw*float64(i)+gw/2, y(v)))
-			}
-			color := seriesColors[si%len(seriesColors)]
-			fmt.Fprintf(&b, `<polyline fill="none" stroke-width="2.5" style="stroke:%s" points="%s"/>`, color, strings.Join(pts, " "))
-			for _, p := range pts {
-				xy := strings.Split(p, ",")
-				fmt.Fprintf(&b, `<circle cx="%s" cy="%s" r="3.5" style="fill:%s"/>`, xy[0], xy[1], color)
-			}
-		}
-	} else {
-		n := float64(len(ss))
-		bw := math.Min(28, (gw*0.8)/n)
+}
+
+// lines draws one polyline with point markers per series.
+func (fr chartFrame) lines(b *strings.Builder, xs, ss []string, vals map[[2]string]float64) {
+	for si, s := range ss {
+		var pts []string
 		for i, x := range xs {
-			start := left + gw*float64(i) + gw/2 - bw*n/2
-			for si, s := range ss {
-				v, ok := vals[[2]string{x, s}]
-				if !ok {
-					continue
-				}
-				y0, y1 := y(math.Max(v, 0)), y(math.Min(v, 0))
-				fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" style="fill:%s"><title>%s %s: %s</title></rect>`,
-					start+bw*float64(si)+1, y0, bw-2, math.Max(y1-y0, 0.5), seriesColors[si%len(seriesColors)],
-					template.HTMLEscapeString(dimText(x, c.X)), template.HTMLEscapeString(dimText(s, c.Series)), formatFull(v, col))
+			v, ok := vals[[2]string{x, s}]
+			if !ok {
+				continue
 			}
+			pts = append(pts, fmt.Sprintf("%.1f,%.1f", chartLeft+fr.gw*float64(i)+fr.gw/2, fr.y(v)))
+		}
+		color := seriesColors[si%len(seriesColors)]
+		fmt.Fprintf(b, `<polyline fill="none" stroke-width="2.5" style="stroke:%s" points="%s"/>`, color, strings.Join(pts, " "))
+		for _, p := range pts {
+			xy := strings.Split(p, ",")
+			fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="3.5" style="fill:%s"/>`, xy[0], xy[1], color)
 		}
 	}
-	b.WriteString(`</svg>`)
-	return b.String()
+}
+
+// bars draws one bar per series side by side in each x group, from zero.
+func (fr chartFrame) bars(b *strings.Builder, c Chart, col Column, xs, ss []string, vals map[[2]string]float64) {
+	n := float64(len(ss))
+	bw := math.Min(28, (fr.gw*0.8)/n)
+	for i, x := range xs {
+		start := chartLeft + fr.gw*float64(i) + fr.gw/2 - bw*n/2
+		for si, s := range ss {
+			v, ok := vals[[2]string{x, s}]
+			if !ok {
+				continue
+			}
+			y0, y1 := fr.y(math.Max(v, 0)), fr.y(math.Min(v, 0))
+			fmt.Fprintf(b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" style="fill:%s"><title>%s %s: %s</title></rect>`,
+				start+bw*float64(si)+1, y0, bw-2, math.Max(y1-y0, 0.5), seriesColors[si%len(seriesColors)],
+				template.HTMLEscapeString(dimText(x, c.X)), template.HTMLEscapeString(dimText(s, c.Series)), formatFull(v, col))
+		}
+	}
 }
 
 func niceStep(raw float64) float64 {
