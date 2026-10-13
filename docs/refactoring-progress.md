@@ -13,7 +13,11 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   Code-quality refactoring programme)
 
 ### Phase 1 — Correctness bugs
-- [ ] R1 approvals escalation guarded by expected count (idempotent activity)
+- [x] R1 approvals escalation guarded by expected count (idempotent activity).
+  TestEscalateTwice failed first (2 escalations/events/audits, want 1), passes now. Unexplained
+  count fails the activity non-retryably. No GetVersion bump: commands unchanged (reviewer agreed).
+  Lint approvals+workflows 51 → 51 (new code clean; one justified nolint:wrapcheck on a
+  Temporal error constructor). Reviewer: APPROVE.
 - [ ] R2 approvals workflow branches on GetVersion
 - [ ] R3 outbox relay: event type without a dot
 - [ ] R4 reqctx.Request errors returned, not discarded
@@ -41,6 +45,8 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
 - [ ] R20 cmd/erp-server run() split into named steps
 - [ ] R21 analytics Execute, config Load, integration quality checks, payables validate
 - [ ] R22 Remaining funlen and gocognit to zero
+- [ ] R23 Unowned findings to zero: errcheck, forbidigo (production float/panic), gocritic
+  (added at the end of Phase 0 with the user's agreement)
 
 ### Phase 5 — Test quality
 - [ ] R30 Polling helper; no time.Sleep in tests
@@ -157,6 +163,14 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
 - gocritic 3 (1 production: argOrder in internal/globalplane/globalplane.go:43).
 - staticcheck: 3 production + 10 test style findings (QF1008, ST1023, QF1001), owned by R6.
 
+## Decisions
+
+- 2026-10-13, end of Phase 0: R5 adds `ERP_ENV` (development | production) to
+  internal/platform/config; production refuses to start with the dev token issuer or without the
+  Temporal codec key. R23 owns the findings the brief left unassigned.
+
 ## Found during refactoring
 
-(none yet)
+- R1: `ERP_APPROVAL_ESCALATIONS` has no upper bound (internal/platform/config); above 32767 the
+  workflow's int16 count wraps and the smallint column overflows. Fix: cap it in config (own
+  step, behaviour change).

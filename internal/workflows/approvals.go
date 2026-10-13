@@ -2,6 +2,7 @@ package workflows
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,7 +46,8 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 			return err
 		}
 		var pending bool
-		if err := workflow.ExecuteActivity(ctx, a.Escalate, in).Get(ctx, &pending); err != nil {
+		prior := int16(i) // escalations so far: one per earlier pass, none reset
+		if err := workflow.ExecuteActivity(ctx, a.Escalate, EscalateInput{DeadlineInput: in, Prior: &prior}).Get(ctx, &pending); err != nil {
 			return err
 		}
 		if !pending {
@@ -53,6 +55,16 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 		}
 	}
 	return nil
+}
+
+// EscalateInput is the escalation activity's input: the watched request
+// and the escalations the workflow made before this one, which guards the
+// update so a retried activity escalates once. Prior is nil in activities
+// scheduled before it existed (the fields of DeadlineInput are inlined, so
+// their payloads still decode).
+type EscalateInput struct {
+	DeadlineInput
+	Prior *int16 `json:"prior,omitempty"`
 }
 
 // Approvals holds the escalation activity.
@@ -72,8 +84,10 @@ func (a *Approvals) begin(ctx context.Context, s database.Scope) (pgx.Tx, error)
 }
 
 // Escalate escalates the request when it is still pending, in one
-// transaction in the tenant's scope, and reports whether it was.
-func (a *Approvals) Escalate(ctx context.Context, in DeadlineInput) (bool, error) {
+// transaction in the tenant's scope, and reports whether it still is. A
+// count no retry can repair fails the activity for good, so the workflow
+// fails visibly instead of retrying every minute.
+func (a *Approvals) Escalate(ctx context.Context, in EscalateInput) (bool, error) {
 	tx, err := a.begin(ctx, database.Scope{Role: a.AppRole, TenantID: in.TenantID})
 	if err != nil {
 		return false, err
@@ -83,7 +97,10 @@ func (a *Approvals) Escalate(ctx context.Context, in DeadlineInput) (bool, error
 	if a.Now != nil {
 		now = a.Now
 	}
-	pending, err := approvals.Escalate(ctx, tx, in.TenantID, in.RequestID, now().UTC())
+	pending, err := approvals.Escalate(ctx, tx, in.TenantID, in.RequestID, in.Prior, now().UTC())
+	if errors.Is(err, approvals.ErrEscalationCount) {
+		return false, temporal.NewNonRetryableApplicationError(err.Error(), "EscalationCount", err) //nolint:wrapcheck // constructs the engine's error with err as its cause; nothing to wrap
+	}
 	if err != nil || !pending {
 		return false, err
 	}

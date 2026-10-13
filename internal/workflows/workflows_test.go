@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
@@ -911,7 +912,7 @@ func TestApprovalDeadline(t *testing.T) {
 	}
 	// Failures: the database refusing statements, in the activity and the dispatcher.
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, err := a.Escalate(context.Background(), in); err == nil || !strings.Contains(err.Error(), "database down") {
+	if _, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in}); err == nil || !strings.Contains(err.Error(), "database down") {
 		t.Fatalf("database down: %v", err)
 	}
 	pool := pgtest.Pool(t)
@@ -926,7 +927,7 @@ func TestApprovalDeadline(t *testing.T) {
 			}
 			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
 		}
-		_, err := a.Escalate(context.Background(), in2)
+		_, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in2, Prior: new(int16)})
 		if err == nil {
 			if n == 1 {
 				t.Fatal("escalated without a statement to fail")
@@ -971,4 +972,99 @@ func TestApprovalDeadline(t *testing.T) {
 	if err := env.GetWorkflowError(); err == nil {
 		t.Fatal("workflow with a failing activity succeeded")
 	}
+}
+
+// TestEscalateTwice: the escalation activity run twice with the same input,
+// as Temporal retries it after a commit whose completion was lost, escalates
+// the request once, with one event and one audit entry (ADR-0008, ADR-0012).
+func TestEscalateTwice(t *testing.T) {
+	e, pending, _ := approvalPending(t)
+	a := &workflows.Approvals{Pool: pgtest.Pool(t), AppRole: "erp_app"}
+	in := workflows.EscalateInput{DeadlineInput: workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: uuid.MustParse(id(pending)), After: time.Hour, Max: 3},
+		Prior: new(int16)}
+	for run := 1; run <= 2; run++ {
+		escalated, err := a.Escalate(context.Background(), in)
+		if err != nil {
+			t.Fatalf("run %d: %v", run, err)
+		}
+		if !escalated {
+			t.Fatalf("run %d: got pending false, want true", run)
+		}
+	}
+	got, _ := e.Must(200, "GET", "/v1/approval-requests/"+id(pending), "", "")
+	if got["escalations"] != float64(1) {
+		t.Errorf("escalations: got %v, want 1", got["escalations"])
+	}
+	if ev := apitest.Published(t, e.Tenant, outbox.Event{Context: "workflow", Name: "approval_escalated"}); len(ev) != 1 {
+		t.Errorf("approval_escalated events: got %d, want 1", len(ev))
+	}
+	if n := escalationAudits(t, e.Tenant.ID); n != 1 {
+		t.Errorf("audit entries: got %d, want 1", n)
+	}
+}
+
+// escalationAudits counts the tenant's escalation audit entries.
+func escalationAudits(t *testing.T, tenant uuid.UUID) int {
+	t.Helper()
+	var n int
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'workflow.approval_request.escalate'`, tenant).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TestEscalateGuard: an activity scheduled before the guard (no prior)
+// escalates unguarded as it did; a pending request with fewer escalations
+// than the workflow counted is an error; a request the scope cannot see
+// ends the workflow; a failure reading the request after the guard refused
+// is reported.
+func TestEscalateGuard(t *testing.T) {
+	e, pending, _ := approvalPending(t)
+	a := &workflows.Approvals{Pool: pgtest.Pool(t), AppRole: "erp_app"}
+	in := workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: uuid.MustParse(id(pending)), After: time.Hour, Max: 3}
+	t.Run("no prior", func(t *testing.T) {
+		for run := 1; run <= 2; run++ {
+			if escalated, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in}); err != nil || !escalated {
+				t.Fatalf("run %d: got %v, %v, want true, nil", run, escalated, err)
+			}
+		}
+		if n := escalationAudits(t, e.Tenant.ID); n != 2 {
+			t.Errorf("audit entries: got %d, want 2", n)
+		}
+	})
+	// The subtests share the request and run in order: the next two rely on
+	// the two escalations made here.
+	t.Run("workflow ahead of the request", func(t *testing.T) {
+		ahead := int16(5)
+		_, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in, Prior: &ahead})
+		if !errors.Is(err, approvals.ErrEscalationCount) {
+			t.Fatalf("got %v, want ErrEscalationCount", err)
+		}
+		var app *temporal.ApplicationError
+		if !errors.As(err, &app) || !app.NonRetryable() {
+			t.Errorf("got %v, want a non-retryable application error", err)
+		}
+	})
+	t.Run("request not visible", func(t *testing.T) {
+		other := in
+		other.TenantID = uuid.New() // RLS hides the request from another tenant's scope
+		if escalated, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: other, Prior: new(int16)}); err != nil || escalated {
+			t.Errorf("got %v, %v, want false, nil", escalated, err)
+		}
+	})
+	t.Run("read fails", func(t *testing.T) {
+		pool := pgtest.Pool(t)
+		count := 0
+		a := &workflows.Approvals{AppRole: "erp_app", Begin: func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: 3, Count: &count}, nil // set actor, guarded update, read
+		}}
+		stale := int16(0)
+		if _, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in, Prior: &stale}); !errors.Is(err, pgtest.ErrInjected) {
+			t.Errorf("got %v, want the injected failure", err)
+		}
+	})
 }

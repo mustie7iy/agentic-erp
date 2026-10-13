@@ -1547,7 +1547,9 @@ migration 000032). The workflow sleeps the escalation period
 (`ERP_APPROVAL_ESCALATE_AFTER`, default 48h) and runs `Approvals.Escalate`:
 a request still pending counts an escalation (`escalations`,
 `escalated_at` on the request), publishes `ApprovalEscalated` and writes
-the audit entry as a system actor; it stops after
+the audit entry as a system actor. The update is guarded by the number of
+escalations the workflow has made, so an activity retried after a commit
+whose completion was lost escalates once (ADR-0008); it stops after
 `ERP_APPROVAL_ESCALATIONS` (default 3) or at the first check that finds
 the request decided. Decisions stay synchronous human transitions on the
 API: the workflow owns only the clock. The workflow's loop is versioned
