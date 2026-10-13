@@ -253,10 +253,11 @@ func (d Dir) List(_ context.Context, prefix string) ([]string, error) {
 		if err != nil || entry.IsDir() || strings.HasSuffix(p, ".meta") {
 			return err
 		}
-		// A temporary file a failed Put left behind is listed under the key it
-		// was for, so an erasure deletes it with the key (ADR-0021).
-		p, _, _ = strings.Cut(p, tempMark)
 		rel, _ := filepath.Rel(d.Root, p) // p is below Root
+		// A temporary file a failed Put left behind is listed under the key it
+		// was for, so an erasure deletes it with the key (ADR-0021). Only the
+		// part below Root is cut: Root itself may contain the mark.
+		rel, _, _ = strings.Cut(rel, tempMark)
 		if key := filepath.ToSlash(rel); strings.HasPrefix(key, prefix) {
 			keys = append(keys, key)
 		}
@@ -277,6 +278,10 @@ func (d Dir) Delete(_ context.Context, key string) error {
 	if err := checkKey(key); err != nil {
 		return err
 	}
+	// Leftovers of failed Puts are never locked, even under a locked key.
+	if err := d.removeTemporary(key); err != nil {
+		return err
+	}
 	if _, until := d.meta(key); !until.IsZero() && d.now().Before(until) {
 		return ErrLocked
 	}
@@ -287,7 +292,7 @@ func (d Dir) Delete(_ context.Context, key string) error {
 	// behind holds no content, is skipped by List and is rewritten by the
 	// next Put of the key.
 	_ = os.Remove(d.path(key) + ".meta")
-	return d.removeTemporary(key)
+	return nil
 }
 
 // removeTemporary removes what failed Puts of key left behind: part of its

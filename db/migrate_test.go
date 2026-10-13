@@ -235,6 +235,7 @@ func TestMigrateReturnsWhenTheUnlockGetsNoAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
+	t.Cleanup(func() { _ = conn.Close(ctx) }) // already closed when the test passes; the database is dropped either way
 	unlockTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { unlockTimeout = 10 * time.Second })
 	result := make(chan error, 1)

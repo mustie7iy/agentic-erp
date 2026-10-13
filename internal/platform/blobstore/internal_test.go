@@ -114,7 +114,16 @@ func temporaries(t *testing.T, dir string) []string {
 // a tenant's content, so List reports it under its key and Delete removes
 // it, whether or not the key holds an object (ADR-0021).
 func TestErasureRemovesTemporaryFiles(t *testing.T) {
-	root := t.TempDir()
+	for name, root := range map[string]string{
+		"plain root":         t.TempDir(),
+		"root with the mark": filepath.Join(t.TempDir(), "erp"+tempMark+"1"),
+	} {
+		t.Run(name, func(t *testing.T) { eraseLeftovers(t, root) })
+	}
+}
+
+func eraseLeftovers(t *testing.T, root string) {
+	t.Helper()
 	d := Dir{Root: root}
 	ctx := context.Background()
 	if err := d.Put(ctx, "tenants/x/a", []byte("1"), PutOptions{}); err != nil {
@@ -140,6 +149,19 @@ func TestErasureRemovesTemporaryFiles(t *testing.T) {
 	}
 	if left := temporaries(t, dir); len(left) != 0 {
 		t.Errorf("got %v left after the erasure, want nothing", left)
+	}
+	locked := "tenants/x/locked"
+	if err := d.Put(ctx, locked, []byte("1"), PutOptions{RetainUntil: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatalf("put locked: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "locked"+tempMark+"1"), []byte("partial"), 0o600); err != nil {
+		t.Fatalf("leftover of locked: %v", err)
+	}
+	if err := d.Delete(ctx, locked); !errors.Is(err, ErrLocked) {
+		t.Fatalf("got %v deleting a locked key, want ErrLocked", err)
+	}
+	if left := temporaries(t, dir); len(left) != 0 {
+		t.Errorf("got %v left beside a locked key, want nothing", left)
 	}
 	if err := d.Delete(ctx, "tenants/gone/a"); err != nil {
 		t.Errorf("got %v deleting below a missing directory, want nil", err)
