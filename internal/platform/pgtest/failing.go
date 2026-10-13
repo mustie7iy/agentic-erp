@@ -45,14 +45,14 @@ func (f *FailingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.C
 	if f.fail() {
 		return pgconn.CommandTag{}, ErrInjected
 	}
-	return f.Tx.Exec(ctx, sql, args...)
+	return f.Tx.Exec(ctx, sql, args...) //nolint:wrapcheck // test double: returns exactly what the real Tx returns, so the code under test behaves as in production
 }
 
 func (f *FailingTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	if f.fail() {
 		return errRows{}, ErrInjected
 	}
-	return f.Tx.Query(ctx, sql, args...)
+	return f.Tx.Query(ctx, sql, args...) //nolint:wrapcheck // test double: returns exactly what the real Tx returns, so the code under test behaves as in production
 }
 
 func (f *FailingTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {

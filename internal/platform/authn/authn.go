@@ -188,13 +188,13 @@ func unverifiedIssuer(raw string) (string, error) {
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("authn: decode token payload: %w", err)
 	}
 	var c struct {
 		Iss string `json:"iss"`
 	}
 	if err := json.Unmarshal(payload, &c); err != nil {
-		return "", err
+		return "", fmt.Errorf("authn: parse token payload: %w", err)
 	}
 	return c.Iss, nil
 }

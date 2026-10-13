@@ -197,9 +197,11 @@ func (r *Keyring) load(ctx context.Context, tenant uuid.UUID) (*tenantKey, error
 		var id uuid.UUID
 		var masterID, status string
 		var data, mac []byte
+		var unwrapErr error
 		_, err := pgx.ForEachRow(rows, []any{&id, &masterID, &data, &mac, &status}, func() error {
 			k, err := r.unwrap(tenant, id, masterID, data, mac, status)
 			if err != nil {
+				unwrapErr = err
 				return err
 			}
 			r.remember(tenant, k)
@@ -208,7 +210,13 @@ func (r *Keyring) load(ctx context.Context, tenant uuid.UUID) (*tenantKey, error
 			}
 			return nil
 		})
-		return err
+		if unwrapErr != nil {
+			return unwrapErr // already says which key and why
+		}
+		if err != nil {
+			return fmt.Errorf("fieldcrypt: read keys of tenant %s: %w", tenant, err)
+		}
+		return nil
 	})
 	if errors.Is(err, ErrNoKey) {
 		return nil, nil // no way to look: a legacy-only ring
@@ -354,12 +362,12 @@ func (r *Keyring) generate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*t
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE tenancy.tenant_key SET status = 'retired', retired_at = now(), version = version + 1 WHERE tenant_id = $1 AND status = 'active'`, tenant); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fieldcrypt: retire active key of tenant %s: %w", tenant, err)
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant_key (tenant_id, id, master_key_id, wrapped_data_key, wrapped_mac_key, status) VALUES ($1, $2, $3, $4, $5, 'active')`,
 		tenant, id, primary.ID(), wrappedData, wrappedMac); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fieldcrypt: insert key %s of tenant %s: %w", id, tenant, err)
 	}
 	block, _ := aes.NewCipher(data)
 	aead, _ := cipher.NewGCM(block)
@@ -437,7 +445,7 @@ func (r *Keyring) reseal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c Col
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("read rows: %w", err)
 	}
 	for _, rw := range all {
 		plain, err := r.Open(ctx, tenant, rw.sealed)
@@ -460,7 +468,7 @@ func (r *Keyring) reseal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c Col
 		}
 		if _, err := tx.Exec(ctx, `UPDATE `+c.Table+` SET `+strings.Join(set, ", ")+` WHERE tenant_id = $`+fmt.Sprint(len(args)+1)+` AND `+strings.Join(where, " AND "),
 			append(args, tenant)...); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("update row %v: %w", rw.keys, err)
 		}
 	}
 	return len(all), nil
@@ -495,7 +503,7 @@ func (r *Keyring) Rewrap(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rewr
 		all = append(all, wrapped{w.id, w.master, append([]byte(nil), w.data...), append([]byte(nil), w.mac...)})
 		return nil
 	}); err != nil {
-		return Rewrapped{}, err
+		return Rewrapped{}, fmt.Errorf("fieldcrypt: read keys of tenant %s to rewrap: %w", tenant, err)
 	}
 	for _, w := range all {
 		m, ok := r.master(w.master)
@@ -517,7 +525,7 @@ func (r *Keyring) Rewrap(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rewr
 		}
 		if _, err := tx.Exec(ctx, `UPDATE tenancy.tenant_key SET master_key_id = $1, wrapped_data_key = $2, wrapped_mac_key = $3, version = version + 1 WHERE tenant_id = $4 AND id = $5`,
 			primary.ID(), data, mac, tenant, w.id); err != nil {
-			return Rewrapped{}, err
+			return Rewrapped{}, fmt.Errorf("fieldcrypt: rewrap key %s of tenant %s: %w", w.id, tenant, err)
 		}
 		out.Keys++
 	}

@@ -69,7 +69,7 @@ func Main(m *testing.M) {
 func migrate(ctx context.Context, u string) error {
 	c, err := pgx.Connect(ctx, u)
 	if err != nil {
-		return err
+		return fmt.Errorf("pgtest: connect: %w", err)
 	}
 	defer c.Close(ctx)
 	_, err = db.Migrate(ctx, c)

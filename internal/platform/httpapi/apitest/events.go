@@ -3,6 +3,7 @@ package apitest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -59,7 +60,8 @@ func eventContract() (map[string]payloadSchema, error) {
 				Schemas map[string]payloadSchema `yaml:"schemas"`
 			} `yaml:"components"`
 		}
-		if contractErr = yaml.Unmarshal(b, &doc); contractErr != nil {
+		if err := yaml.Unmarshal(b, &doc); err != nil {
+			contractErr = fmt.Errorf("apitest: parse event contract: %w", err)
 			return
 		}
 		contract = map[string]payloadSchema{}

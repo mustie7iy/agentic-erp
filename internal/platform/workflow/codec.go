@@ -68,7 +68,7 @@ func (c *Codec) Decode(payloads []*commonpb.Payload) ([]*commonpb.Payload, error
 		}
 		var decoded commonpb.Payload
 		if err := proto.Unmarshal(plain, &decoded); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("workflow: sealed payload: decode: %w", err)
 		}
 		out[i] = &decoded
 	}

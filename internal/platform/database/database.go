@@ -70,7 +70,12 @@ func Open(ctx context.Context, url string, settings Settings) (*Pool, error) {
 func (p *Pool) Close() { p.pool.Close() }
 
 // Ping checks connectivity (readiness).
-func (p *Pool) Ping(ctx context.Context) error { return p.pool.Ping(ctx) }
+func (p *Pool) Ping(ctx context.Context) error {
+	if err := p.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("database: ping: %w", err)
+	}
+	return nil
+}
 
 // WithConn runs fn on a dedicated connection, outside any transaction (for
 // migrations and schema checks).

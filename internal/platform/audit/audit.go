@@ -134,7 +134,7 @@ func normalize(detail map[string]any) (json.RawMessage, error) {
 	}
 	b, err := json.Marshal(detail)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode: %w", err)
 	}
 	return canonical(b), nil
 }

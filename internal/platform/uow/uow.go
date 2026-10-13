@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -132,7 +133,7 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 			return err
 		}
 		if _, err := tx.Exec(ctx, "SAVEPOINT uow"); err != nil {
-			return err
+			return fmt.Errorf("uow: savepoint: %w", err)
 		}
 	}
 
@@ -168,7 +169,7 @@ func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	}
 	if failed {
 		if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT uow"); err != nil {
-			return err
+			return fmt.Errorf("uow: rollback to savepoint: %w", err)
 		}
 	} else if err := buf.Flush(ctx, tx, p, reqctx.TraceID(ctx), m.Now()); err != nil {
 		// The audit trail rejecting an entry is never the client's fault: a
@@ -184,7 +185,10 @@ func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("uow: commit: %w", err)
+	}
+	return nil
 }
 
 // resolve finds the active principal for the token in an active tenant.
@@ -199,7 +203,7 @@ func resolve(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal,
 	case errors.Is(err, pgx.ErrNoRows):
 		return reqctx.Principal{}, problem.Unauthorized("The token's tenant is not known here.")
 	case err != nil:
-		return reqctx.Principal{}, err
+		return reqctx.Principal{}, fmt.Errorf("uow: resolve principal in tenant %s: %w", c.TenantID, err)
 	case tenantStatus != "active":
 		return reqctx.Principal{}, problem.Forbidden("tenancy.tenant_inactive", "The tenant is "+tenantStatus+".")
 	case id == nil:
@@ -226,7 +230,8 @@ func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 		return false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return false, err // includes 55P03: the first request still holds the key → 409 Retry-After
+		// Includes 55P03: the first request still holds the key → 409 Retry-After.
+		return false, fmt.Errorf("uow: claim idempotency key: %w", err)
 	}
 	var owner uuid.UUID
 	var hash []byte
@@ -235,7 +240,7 @@ func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	var headers map[string]string
 	if err := tx.QueryRow(ctx, `SELECT principal_id, request_hash, coalesce(response_code, 0), coalesce(response_body::text, ''), response_headers
 		FROM platform.idempotency_key WHERE tenant_id = $1 AND key = $2`, p.TenantID, req.key).Scan(&owner, &hash, &code, &body, &headers); err != nil {
-		return false, err
+		return false, fmt.Errorf("uow: read idempotency key: %w", err)
 	}
 	if owner != p.ID || !bytes.Equal(hash, req.hash) {
 		return false, problem.Unprocessable("request.idempotency_key_reused",
@@ -264,10 +269,12 @@ func (m *Middleware) storeResponse(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 		}
 		body = rec.body.String()
 	}
-	_, err := tx.Exec(ctx, `UPDATE platform.idempotency_key SET status = 'completed', response_code = $3,
+	if _, err := tx.Exec(ctx, `UPDATE platform.idempotency_key SET status = 'completed', response_code = $3,
 		response_body = $4::jsonb, response_headers = $5 WHERE tenant_id = $1 AND key = $2`,
-		p.TenantID, req.key, rec.status, body, headers)
-	return err
+		p.TenantID, req.key, rec.status, body, headers); err != nil {
+		return fmt.Errorf("uow: store response: %w", err)
+	}
+	return nil
 }
 
 // recorder buffers the response until the transaction has committed.
@@ -288,7 +295,7 @@ func (r *recorder) WriteHeader(status int) {
 
 func (r *recorder) Write(b []byte) (int, error) {
 	r.WriteHeader(http.StatusOK)
-	return r.body.Write(b)
+	return r.body.Write(b) //nolint:wrapcheck // io.Writer decorator: bytes.Buffer.Write never returns an error
 }
 
 func (r *recorder) send(w http.ResponseWriter) {

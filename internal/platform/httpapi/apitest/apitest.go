@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,7 +50,7 @@ type syncBuffer struct {
 func (s *syncBuffer) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.b.Write(p)
+	return s.b.Write(p) //nolint:wrapcheck // io.Writer decorator: bytes.Buffer.Write never returns an error; the logger expects its writer's own result
 }
 
 // New builds the API; it is skipped without DATABASE_URL.
@@ -313,5 +314,8 @@ func Committed(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, fn func(ctx cont
 	if err := buf.Flush(ctx, tx, p, "", time.Now()); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("apitest: commit fixture for tenant %s: %w", ten.ID, err)
+	}
+	return nil
 }

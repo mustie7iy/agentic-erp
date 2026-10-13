@@ -79,7 +79,7 @@ func (r *Relay) relay(ctx context.Context, schema string) (int, error) {
 		var x row
 		if _, err := pgx.ForEachRow(rows, []any{&x.tenant, &x.id, &x.aggregate, &x.actor, &x.eventType, &x.traceID, &x.payload, &x.occurred},
 			func() error { rs = append(rs, x); return nil }); err != nil {
-			return err
+			return fmt.Errorf("outbox: read %s outbox: %w", schema, err)
 		}
 		if len(rs) == 0 {
 			return nil
@@ -93,7 +93,7 @@ func (r *Relay) relay(ctx context.Context, schema string) (int, error) {
 		}
 		if _, err := tx.Exec(ctx, `UPDATE `+table+` SET published_at = now()
 			WHERE (tenant_id, id) IN (SELECT * FROM unnest($1::uuid[], $2::uuid[]))`, tenants, ids); err != nil {
-			return err
+			return fmt.Errorf("outbox: mark %d %s events published: %w", len(rs), schema, err)
 		}
 		published = len(rs)
 		return nil
