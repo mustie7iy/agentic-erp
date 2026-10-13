@@ -197,7 +197,7 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	file, err := e.createFile(ctx, tx, r, hb, pays)
+	file, err := e.createFile(ctx, tx, p, r, hb, pays)
 	if err != nil {
 		return Run{}, err
 	}
@@ -343,13 +343,12 @@ func scanFile(row pgx.Row) (BankFile, error) {
 // record's creation time, so it can be rendered again byte for byte. With
 // object storage the file is kept under the bank file's id, and the record
 // refers to it; without, the reference is the hash alone.
-func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, r Run, hb houseBank, pays []Payment) (BankFile, error) {
-	p, _ := reqctx.PrincipalFrom(ctx) // ReleaseRun runs in a request
+func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, hb houseBank, pays []Payment) (BankFile, error) {
 	var created time.Time
 	if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&created); err != nil {
 		return BankFile{}, err
 	}
-	content, err := e.render(ctx, r, hb, pays, created)
+	content, err := e.render(ctx, p.TenantID, r, hb, pays, created)
 	if err != nil {
 		return BankFile{}, err
 	}
@@ -372,13 +371,12 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, r Run, hb houseBa
 // render writes the run's payments as a pain.001.001.03 credit transfer
 // from the house bank, in end-to-end id order, each telling the supplier
 // the references of the items it settles.
-func (e *Endpoints) render(ctx context.Context, r Run, hb houseBank, pays []Payment, created time.Time) ([]byte, error) {
-	p, _ := reqctx.PrincipalFrom(ctx) // callers run in a request
+func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, hb houseBank, pays []Payment, created time.Time) ([]byte, error) {
 	le, _, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
 	if err != nil {
 		return nil, err
 	}
-	iban, err := e.Keys.Open(ctx, p.TenantID, hb.IBANCipher)
+	iban, err := e.Keys.Open(ctx, tenant, hb.IBANCipher)
 	if err != nil {
 		return nil, err
 	}
@@ -418,8 +416,8 @@ func (e *Endpoints) render(ctx context.Context, r Run, hb houseBank, pays []Paym
 // fileOf is the bank file's content: read from object storage when it was
 // kept there, else rendered again from its run. Either way it must match
 // the hash recorded at release (409 payments.bank_file_changed).
-func (e *Endpoints) fileOf(ctx context.Context, tx pgx.Tx, f BankFile) ([]byte, error) {
-	content, err := e.rendered(ctx, tx, f)
+func (e *Endpoints) fileOf(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, f BankFile) ([]byte, error) {
+	content, err := e.rendered(ctx, tx, tenant, f)
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +428,7 @@ func (e *Endpoints) fileOf(ctx context.Context, tx pgx.Tx, f BankFile) ([]byte, 
 	return content, nil
 }
 
-func (e *Endpoints) rendered(ctx context.Context, tx pgx.Tx, f BankFile) ([]byte, error) {
+func (e *Endpoints) rendered(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, f BankFile) ([]byte, error) {
 	if blobstore.IsKey(f.ObjectRef) {
 		if e.Objects == nil {
 			return nil, problem.Unavailable("Object storage is not configured on this server.", 0)
@@ -453,5 +451,5 @@ func (e *Endpoints) rendered(ctx context.Context, tx pgx.Tx, f BankFile) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	return e.render(ctx, r, hb, pays, f.CreatedAt)
+	return e.render(ctx, tenant, r, hb, pays, f.CreatedAt)
 }

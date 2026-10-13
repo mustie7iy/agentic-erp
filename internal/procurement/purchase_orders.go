@@ -323,7 +323,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 		return PurchaseOrder{}, err
 	}
 	if in.RequisitionID != nil {
-		if _, err := setStatus(ctx, tx, req, Ordered, req.WorkflowRequestID, "requisition_ordered", map[string]any{"purchase_order_id": id}); err != nil {
+		if _, err := setStatus(ctx, tx, p, req, Ordered, req.WorkflowRequestID, "requisition_ordered", map[string]any{"purchase_order_id": id}); err != nil {
 			return PurchaseOrder{}, err
 		}
 	}
@@ -568,7 +568,7 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		if err != nil {
 			return PurchaseOrder{}, err
 		}
-		if _, err := setStatus(ctx, tx, req, Approved, req.WorkflowRequestID, "", nil); err != nil {
+		if _, err := setStatus(ctx, tx, p, req, Approved, req.WorkflowRequestID, "", nil); err != nil {
 			return PurchaseOrder{}, err
 		}
 	}

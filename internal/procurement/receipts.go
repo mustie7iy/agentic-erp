@@ -128,8 +128,7 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 }
 
 // insertMovement writes a goods movement with its items and returns it.
-func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, g GoodsReceipt) (GoodsReceipt, error) {
-	p, _ := reqctx.PrincipalFrom(ctx) // callers run in a request
+func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, g GoodsReceipt) (GoodsReceipt, error) {
 	number, err := e.number(ctx, g.LegalEntityID, "goods_receipt", g.PostingDate)
 	if err != nil {
 		return GoodsReceipt{}, err
@@ -176,7 +175,7 @@ type ReceiptInput struct {
 // items of the legal entity. The received quantity of an item may exceed
 // the ordered quantity by its over-delivery tolerance, no more.
 func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsReceipt, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
@@ -219,7 +218,7 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 				it.POItemNo, oi.documentNumber, added[key].FloatString(6), oi.ordered, oi.tolerance))
 		}
 	}
-	g, err := e.insertMovement(ctx, tx, GoodsReceipt{LegalEntityID: le.ID, PlantID: in.PlantID, MovementType: Receipt, DocumentDate: in.DocumentDate,
+	g, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: le.ID, PlantID: in.PlantID, MovementType: Receipt, DocumentDate: in.DocumentDate,
 		PostingDate: in.PostingDate, Reference: in.Reference, Items: in.Items})
 	if err != nil {
 		return GoodsReceipt{}, err
@@ -234,7 +233,7 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 // reverseReceipt posts a 102 that reverses a receipt, on the given date or
 // today. A receipt is reversed once, and never below the quantity received.
 func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch func(GoodsReceipt) error, postingDate *time.Time) (GoodsReceipt, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
@@ -282,7 +281,7 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	if postingDate != nil {
 		date = *postingDate
 	}
-	rev, err := e.insertMovement(ctx, tx, GoodsReceipt{LegalEntityID: orig.LegalEntityID, PlantID: orig.PlantID, MovementType: Reversal,
+	rev, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: orig.LegalEntityID, PlantID: orig.PlantID, MovementType: Reversal,
 		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items})
 	if err != nil {
 		return GoodsReceipt{}, err

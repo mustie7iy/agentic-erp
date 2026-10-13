@@ -37,6 +37,7 @@ func Permissions(ctx context.Context) (map[string]bool, error) {
 	if !ok || !ok2 {
 		return nil, errOutsideRequest
 	}
+	// CollectRows below returns the query's error.
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT rp.permission_code
 		FROM identity.principal_role pr
 		JOIN identity.role r ON r.tenant_id = pr.tenant_id AND r.id = pr.role_id AND r.status = 'active'
@@ -76,7 +77,8 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 		return fmt.Errorf("authz: operation %q is not in the contract", operationID)
 	}
 	p, ok := reqctx.PrincipalFrom(ctx)
-	if !ok {
+	tx, ok2 := reqctx.TxFrom(ctx)
+	if !ok || !ok2 {
 		return errOutsideRequest
 	}
 	if !op.AgentAllowed && p.Kind != reqctx.KindHuman {
@@ -89,7 +91,7 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 	if !set[op.Permission] {
 		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+op.Permission+".")
 	}
-	return checkSoD(ctx, op.Permission, set)
+	return checkSoD(ctx, tx, op.Permission, set)
 }
 
 // checkSoD refuses a permission while the principal also holds the other
@@ -97,8 +99,8 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 // that would create such a conflict; this check covers conflicts that exist
 // anyway (rules introduced while grants were already in place, or grants
 // made outside the API).
-func checkSoD(ctx context.Context, permission string, held map[string]bool) error {
-	tx, _ := reqctx.TxFrom(ctx) // Permissions already required it
+func checkSoD(ctx context.Context, tx pgx.Tx, permission string, held map[string]bool) error {
+	// CollectRows below returns the query's error.
 	rows, _ := tx.Query(ctx, `SELECT CASE WHEN permission_a = $1 THEN permission_b ELSE permission_a END
 		FROM identity.sod_rule
 		WHERE (permission_a = $1 OR permission_b = $1)

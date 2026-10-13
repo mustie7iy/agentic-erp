@@ -78,7 +78,7 @@ func GetFile(ctx context.Context, id uuid.UUID) (BankFile, error) {
 // transmitted again (banks refuse a message id they have already
 // processed).
 func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -99,7 +99,7 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	content, err := e.fileOf(ctx, tx, f)
+	content, err := e.fileOf(ctx, tx, p.TenantID, f)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -185,7 +185,7 @@ func ReportFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ou
 
 // FileContent returns a bank file's content, checked against its hash.
 func (e *Endpoints) FileContent(ctx context.Context, id uuid.UUID) ([]byte, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -193,5 +193,5 @@ func (e *Endpoints) FileContent(ctx context.Context, id uuid.UUID) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	return e.fileOf(ctx, tx, f)
+	return e.fileOf(ctx, tx, p.TenantID, f)
 }

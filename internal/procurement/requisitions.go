@@ -364,8 +364,7 @@ func requisitionEvent(name string, r Requisition, extra map[string]any) map[stri
 }
 
 // setStatus moves a requisition on and publishes the event of the move.
-func setStatus(ctx context.Context, tx pgx.Tx, r Requisition, status string, request *uuid.UUID, name string, extra map[string]any) (Requisition, error) {
-	p, _ := reqctx.PrincipalFrom(ctx) // callers run in a request
+func setStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Requisition, status string, request *uuid.UUID, name string, extra map[string]any) (Requisition, error) {
 	if _, err := tx.Exec(ctx, `UPDATE procurement.requisition SET status = $2, workflow_request_id = $3, version = version + 1, updated_by = $4 WHERE id = $1`,
 		r.ID, status, request, p.ID); err != nil {
 		return Requisition{}, err
@@ -408,13 +407,13 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if needed {
 		link = &request
 	}
-	submitted, err := setStatus(ctx, tx, r, PendingApproval, link, "requisition_submitted", map[string]any{"requester_id": r.RequesterID,
+	submitted, err := setStatus(ctx, tx, p, r, PendingApproval, link, "requisition_submitted", map[string]any{"requester_id": r.RequesterID,
 		"supplier_id": r.SupplierID, "contract_id": r.ContractID, "needed_by": date(r.NeededBy), "estimated_total": moneyOf(sum, r.Currency, r.Exponent),
 		"item_count": len(r.Items)})
 	if err != nil || needed {
 		return submitted, err
 	}
-	return setStatus(ctx, tx, submitted, Approved, nil, "requisition_approved", map[string]any{"workflow_request_id": nil})
+	return setStatus(ctx, tx, p, submitted, Approved, nil, "requisition_approved", map[string]any{"workflow_request_id": nil})
 }
 
 func date(d *time.Time) any {
@@ -440,13 +439,13 @@ func (e *Endpoints) cancelRequisition(ctx context.Context, id uuid.UUID, ifMatch
 			return Requisition{}, err
 		}
 	}
-	return setStatus(ctx, tx, r, Cancelled, r.WorkflowRequestID, "requisition_cancelled", map[string]any{"requester_id": r.RequesterID,
+	return setStatus(ctx, tx, p, r, Cancelled, r.WorkflowRequestID, "requisition_cancelled", map[string]any{"requester_id": r.RequesterID,
 		"workflow_request_id": r.WorkflowRequestID})
 }
 
 // decide applies the outcome of a requisition's approval request.
 func decide(ctx context.Context, id uuid.UUID, status, name string) error {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
@@ -464,6 +463,6 @@ func decide(ctx context.Context, id uuid.UUID, status, name string) error {
 	} else {
 		request = nil
 	}
-	_, err = setStatus(ctx, tx, r, status, request, name, extra)
+	_, err = setStatus(ctx, tx, p, r, status, request, name, extra)
 	return err
 }

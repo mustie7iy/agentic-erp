@@ -212,8 +212,7 @@ func joinStatuses(s []string) string {
 
 // transition moves an invoice to another status. holdReason is set with
 // on_hold and cleared otherwise; request replaces workflow_request_id.
-func transition(ctx context.Context, tx pgx.Tx, v Invoice, status string, holdReason *string, request *uuid.UUID) (Invoice, error) {
-	p, _ := reqctx.PrincipalFrom(ctx) // callers run in a request
+func transition(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, status string, holdReason *string, request *uuid.UUID) (Invoice, error) {
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = $2, hold_reason = $3, workflow_request_id = $4, version = version + 1,
 		updated_by = $5 WHERE id = $1`, v.ID, status, holdReason, request, p.ID); err != nil {
 		return Invoice{}, err
@@ -223,7 +222,7 @@ func transition(ctx context.Context, tx pgx.Tx, v Invoice, status string, holdRe
 
 // HoldInvoice puts a parked invoice on hold.
 func HoldInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Invoice, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -237,7 +236,7 @@ func HoldInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, r
 	if err := requireStatus(v, "hold", Parked); err != nil {
 		return Invoice{}, err
 	}
-	held, err := transition(ctx, tx, v, OnHold, &reason, v.WorkflowRequestID)
+	held, err := transition(ctx, tx, p, v, OnHold, &reason, v.WorkflowRequestID)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -251,7 +250,7 @@ func heldEvent(v Invoice) outbox.Event {
 // ReleaseInvoice returns an invoice on hold to parked; a pending exception
 // request is withdrawn.
 func (e *Endpoints) ReleaseInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, comment string) (Invoice, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -268,7 +267,7 @@ func (e *Endpoints) ReleaseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := e.Approvals.Withdraw(ctx, approvals.InvoiceException, id, "Released by hand: "+comment); err != nil {
 		return Invoice{}, err
 	}
-	released, err := transition(ctx, tx, v, Parked, nil, nil)
+	released, err := transition(ctx, tx, p, v, Parked, nil, nil)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -282,7 +281,7 @@ func releasedEvent(v Invoice, request *uuid.UUID) outbox.Event {
 // CancelInvoice cancels an unposted invoice; its supplier reference can be
 // entered again.
 func (e *Endpoints) CancelInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Invoice, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -299,7 +298,7 @@ func (e *Endpoints) CancelInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	if err := e.Approvals.Withdraw(ctx, approvals.InvoiceException, id, "Invoice cancelled: "+reason); err != nil {
 		return Invoice{}, err
 	}
-	cancelled, err := transition(ctx, tx, v, Cancelled, nil, v.WorkflowRequestID)
+	cancelled, err := transition(ctx, tx, p, v, Cancelled, nil, v.WorkflowRequestID)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -312,26 +311,26 @@ type Approvals struct{}
 
 // decided loads the invoice an exception request was for; it must still be
 // on hold.
-func decided(ctx context.Context, id uuid.UUID) (pgx.Tx, Invoice, error) {
-	tx, _, err := reqctx.Request(ctx)
+func decided(ctx context.Context, id uuid.UUID) (pgx.Tx, reqctx.Principal, Invoice, error) {
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
-		return nil, Invoice{}, err
+		return nil, reqctx.Principal{}, Invoice{}, err
 	}
 	v, err := load(ctx, tx, id, true)
 	if err == nil {
 		err = requireStatus(v, "an exception decision", OnHold)
 	}
-	return tx, v, err
+	return tx, p, v, err
 }
 
 // Approved releases the invoice from hold; the approved exception lets it
 // be posted despite its match issues.
 func (Approvals) Approved(ctx context.Context, invoice, request uuid.UUID) error {
-	tx, v, err := decided(ctx, invoice)
+	tx, p, v, err := decided(ctx, invoice)
 	if err != nil {
 		return err
 	}
-	released, err := transition(ctx, tx, v, Parked, nil, &request)
+	released, err := transition(ctx, tx, p, v, Parked, nil, &request)
 	if err != nil {
 		return err
 	}
@@ -341,11 +340,11 @@ func (Approvals) Approved(ctx context.Context, invoice, request uuid.UUID) error
 
 // Rejected rejects the invoice; its supplier reference can be entered again.
 func (Approvals) Rejected(ctx context.Context, invoice, request uuid.UUID, comment string) error {
-	tx, v, err := decided(ctx, invoice)
+	tx, p, v, err := decided(ctx, invoice)
 	if err != nil {
 		return err
 	}
-	rejected, err := transition(ctx, tx, v, Rejected, nil, &request)
+	rejected, err := transition(ctx, tx, p, v, Rejected, nil, &request)
 	if err != nil {
 		return err
 	}
@@ -355,11 +354,11 @@ func (Approvals) Rejected(ctx context.Context, invoice, request uuid.UUID, comme
 
 // Cancelled leaves the invoice on hold without a pending exception request.
 func (Approvals) Cancelled(ctx context.Context, invoice, request uuid.UUID, comment string) error {
-	tx, v, err := decided(ctx, invoice)
+	tx, p, v, err := decided(ctx, invoice)
 	if err != nil {
 		return err
 	}
-	if _, err := transition(ctx, tx, v, OnHold, v.HoldReason, nil); err != nil {
+	if _, err := transition(ctx, tx, p, v, OnHold, v.HoldReason, nil); err != nil {
 		return err
 	}
 	return record(ctx, "payables.supplier_invoice.exception_withdrawn", invoice, map[string]any{"workflow_request_id": request, "comment": comment})

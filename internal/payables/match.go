@@ -222,7 +222,7 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 		if needed {
 			r = &request
 		}
-		held, err := transition(ctx, tx, v, OnHold, &reason, r)
+		held, err := transition(ctx, tx, p, v, OnHold, &reason, r)
 		if err != nil {
 			return Match{}, err
 		}
@@ -231,7 +231,7 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 		if err := e.Approvals.Withdraw(ctx, approvals.InvoiceException, id, "The invoice now matches."); err != nil {
 			return Match{}, err
 		}
-		released, err := transition(ctx, tx, v, Parked, nil, nil)
+		released, err := transition(ctx, tx, p, v, Parked, nil, nil)
 		if err != nil {
 			return Match{}, err
 		}

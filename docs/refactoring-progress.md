@@ -33,7 +33,11 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   no site was reachable outside a request before, so they pass on the old code too. Needed R22a
   first (funlen on the changed signatures). Lint: whole tree unchanged except R22a's −2.
   Reviewer: APPROVE.
-- [ ] R4b reqctx.PrincipalFrom / TxFrom ok flags not discarded (found in R4)
+- [x] R4b reqctx.PrincipalFrom / TxFrom ok flags not discarded (found in R4). All seven: the
+  helpers (payments createFile, render chain; procurement insertMovement, setStatus; payables
+  transition; approvals complete; authz checkSoD) receive the principal, tenant or tx from callers
+  that hold it; no exported signature changed. No reachable failure before, so no failing-first
+  test; make test passes. Reviewer: APPROVE (after widening from four sites to all seven).
 - [ ] R5 Fail closed in production (codec key, dev token issuer)
 - [ ] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero
 

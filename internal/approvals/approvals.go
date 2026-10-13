@@ -287,7 +287,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 // the owning context decided the object otherwise (it was cancelled,
 // released by hand, changed). The owner is not called back.
 func (Approvals) Withdraw(ctx context.Context, objectType string, objectID uuid.UUID, comment string) error {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func (Approvals) Withdraw(ctx context.Context, objectType string, objectID uuid.
 	if err != nil {
 		return err
 	}
-	return complete(ctx, tx, id, Cancelled, comment)
+	return complete(ctx, tx, p, id, Cancelled, comment)
 }
 
 func moneyOf(r Request) any {
@@ -312,8 +312,7 @@ func moneyOf(r Request) any {
 
 // complete ends a pending request with the outcome and publishes
 // ApprovalCompleted.
-func complete(ctx context.Context, tx pgx.Tx, id uuid.UUID, outcome, comment string) error {
-	p, _ := reqctx.PrincipalFrom(ctx) // callers run in a request
+func complete(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, outcome, comment string) error {
 	if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET status = $2, completed_at = now(), version = version + 1 WHERE id = $1`,
 		id, outcome); err != nil {
 		return err
@@ -429,7 +428,7 @@ func (d Decider) Approve(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 			return Request{}, err
 		}
 	default:
-		if err := complete(ctx, tx, id, Approved, comment); err != nil {
+		if err := complete(ctx, tx, p, id, Approved, comment); err != nil {
 			return Request{}, err
 		}
 		if err := d.notify(r, func(h Handler) error { return h.Approved(ctx, r.ObjectID, id) }); err != nil {
@@ -452,7 +451,7 @@ func (d Decider) Reject(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if err := d.insertDecision(ctx, tx, p, r, "reject", comment); err != nil {
 		return Request{}, err
 	}
-	if err := complete(ctx, tx, id, Rejected, comment); err != nil {
+	if err := complete(ctx, tx, p, id, Rejected, comment); err != nil {
 		return Request{}, err
 	}
 	if err := d.notify(r, func(h Handler) error { return h.Rejected(ctx, r.ObjectID, id, comment) }); err != nil {
@@ -484,7 +483,7 @@ func (d Decider) Cancel(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if err := d.insertDecision(ctx, tx, p, r, "cancel", comment); err != nil {
 		return Request{}, err
 	}
-	if err := complete(ctx, tx, id, Cancelled, comment); err != nil {
+	if err := complete(ctx, tx, p, id, Cancelled, comment); err != nil {
 		return Request{}, err
 	}
 	if err := d.notify(r, func(h Handler) error { return h.Cancelled(ctx, r.ObjectID, id, comment) }); err != nil {
