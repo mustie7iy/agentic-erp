@@ -55,8 +55,14 @@ func TestPartitionsStayAhead(t *testing.T) {
 	}
 	// The migrations create audit months to the end of 2027 and journal years to 2035.
 	months, years, err := Horizon(ctx, conn, time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC))
-	if err != nil || months != 14 || years != 9 {
-		t.Fatalf("horizon in 2026-10: %d months, %d years, %v", months, years, err)
+	if err != nil {
+		t.Fatalf("horizon in 2026-10: %v", err)
+	}
+	if months != 14 {
+		t.Errorf("audit horizon in 2026-10: got %d months, want 14", months)
+	}
+	if years != 9 {
+		t.Errorf("ledger horizon in 2026-10: got %d years, want 9", years)
 	}
 	// Late in 2027 the audit horizon is too short for readiness; maintenance extends it.
 	late := time.Date(2027, 11, 15, 0, 0, 0, 0, time.UTC)
@@ -64,11 +70,21 @@ func TestPartitionsStayAhead(t *testing.T) {
 		t.Fatalf("horizon in 2027-11: %d months", months)
 	}
 	created, err := ensure(ctx, conn, late)
-	if err != nil || len(created) != AuditMonthsAhead-1 || created[0] != "audit.audit_event_202801" {
-		t.Fatalf("created %v, %v", created, err)
+	if err != nil {
+		t.Fatalf("maintenance in 2027-11: %v", err)
 	}
-	if months, years, _ = Horizon(ctx, conn, late); months != AuditMonthsAhead || years != 8 {
-		t.Fatalf("horizon after maintenance: %d months, %d years", months, years)
+	if len(created) != AuditMonthsAhead-1 {
+		t.Fatalf("partitions created in 2027-11: got %d (%v), want %d", len(created), created, AuditMonthsAhead-1)
+	}
+	if created[0] != "audit.audit_event_202801" {
+		t.Errorf("first partition created: got %s, want audit.audit_event_202801", created[0])
+	}
+	months, years, _ = Horizon(ctx, conn, late)
+	if months != AuditMonthsAhead {
+		t.Errorf("audit horizon after maintenance: got %d months, want %d", months, AuditMonthsAhead)
+	}
+	if years != 8 {
+		t.Errorf("ledger horizon after maintenance: got %d years, want 8", years)
 	}
 	// Journal years are created the same way; a second run creates nothing.
 	far := time.Date(2034, 6, 1, 0, 0, 0, 0, time.UTC)

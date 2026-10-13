@@ -314,7 +314,7 @@ func TestDesignRules(t *testing.T) {
 			t.Fatalf("privilege on %s: %v", tbl, err)
 		}
 		if can {
-			t.Errorf("the application may update insert-only table %s", tbl)
+			t.Errorf("erp_app UPDATE privilege on insert-only table %s: got true, want false", tbl)
 		}
 	}
 }

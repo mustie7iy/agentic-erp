@@ -18,8 +18,11 @@ func TestMigrationFiles(t *testing.T) {
 		if want := fmt.Sprintf("%06d_", i+1); !strings.HasPrefix(m.Name, want) {
 			t.Errorf("migration %d is %q, want prefix %q", i+1, m.Name, want)
 		}
-		if strings.TrimSpace(m.Up) == "" || strings.TrimSpace(m.Down) == "" {
-			t.Errorf("%s: up and down must both be present and non-empty", m.Name)
+		if strings.TrimSpace(m.Up) == "" {
+			t.Errorf("%s: up migration: got empty, want SQL", m.Name)
+		}
+		if strings.TrimSpace(m.Down) == "" {
+			t.Errorf("%s: down migration: got empty, want SQL", m.Name)
 		}
 	}
 	downs, _ := fs.Glob(files, "migrations/*.down.sql")

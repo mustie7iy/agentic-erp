@@ -94,8 +94,10 @@ func TestMigrateIsSafeForConcurrentReplicas(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if errs[0] != nil || errs[1] != nil {
-		t.Fatal(errs)
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("migration %d: got %v, want nil", i, err)
+		}
 	}
 	if total := len(results[0]) + len(results[1]); total != len(Migrations()) {
 		t.Fatalf("migrations applied %d times in total, want %d", total, len(Migrations()))
@@ -174,9 +176,11 @@ func TestMigrateWithoutPrivileges(t *testing.T) {
 
 func TestMigrationVersions(t *testing.T) {
 	for _, name := range []string{"x", "abc_def", "000000_zero"} {
-		if _, err := (Migration{Name: name}).Version(); err == nil {
-			t.Errorf("%q accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if v, err := (Migration{Name: name}).Version(); err == nil {
+				t.Errorf("Version(%q): got %d and no error, want an error", name, v)
+			}
+		})
 	}
 	if v, err := (Migration{Name: "000012_platform_runtime"}).Version(); err != nil || v != 12 {
 		t.Fatal(v, err)
