@@ -68,6 +68,28 @@ func fakeAPI(t *testing.T, r routes, vars ...string) {
 	t.Cleanup(func() { getenv = os.Getenv })
 }
 
+// writeFile writes a fixture file the command under test reads; a failed write
+// fails the test here rather than as a confusing command error later.
+func writeFile(t *testing.T, name string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(name, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// decodeRequest decodes a fake server's JSON request body into v. It runs on the
+// server's goroutine, so a body the CLI got wrong is reported with t.Errorf and
+// answered 400, and the caller returns.
+func decodeRequest(t *testing.T, w http.ResponseWriter, r *http.Request, v any) bool {
+	t.Helper()
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		t.Errorf("%s %s: decode the request body: %v", r.Method, r.URL.Path, err)
+		w.WriteHeader(http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
 // fails runs a command that must fail with output containing want.
 func fails(t *testing.T, want string, args ...string) {
 	t.Helper()
@@ -117,7 +139,7 @@ func TestCallErrors(t *testing.T) {
 
 func TestLocalPreparationErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
-	os.WriteFile("file", nil, 0o644)
+	writeFile(t, "file", nil)
 	fails(t, "flag provided", "gen-mock-sap", "-x")
 	fails(t, "not a directory", "gen-mock-sap", "-out", "file/extract.json")
 	must(t, "gen-mock-sap", "-out", "extract.json", "-seed", "7")
@@ -134,13 +156,13 @@ func TestLocalPreparationErrors(t *testing.T) {
 	doc := fixture.Document(t)
 	doc.Companies[0].TaxCodes = nil
 	b, _ := doc.Marshal()
-	os.WriteFile("warn.yaml", b, 0o644)
+	writeFile(t, "warn.yaml", b)
 	if got := must(t, "config", "validate", "-file", "warn.yaml"); !strings.Contains(got, "[warning]") {
 		t.Fatalf("warnings: %s", got)
 	}
 	doc.Companies[0].InvoiceTolerance.PricePercent = 200
 	b, _ = doc.Marshal()
-	os.WriteFile("bad.yaml", b, 0o644)
+	writeFile(t, "bad.yaml", b)
 	fails(t, "validation errors", "config", "validate", "-file", "bad.yaml")
 }
 
@@ -307,7 +329,7 @@ func facts() routes {
 
 func TestAnalyticsErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
-	os.WriteFile("file", nil, 0o644)
+	writeFile(t, "file", nil)
 	fakeAPI(t, facts())
 	fails(t, "flag provided", "metrics", "-x")
 	fails(t, "missing.yaml", "metrics", "-semantic", "missing.yaml")
@@ -340,7 +362,7 @@ func TestAnalyticsErrors(t *testing.T) {
 	fails(t, "no such file", "report", "-id", "missing")
 	rep := func(name, measure string) string {
 		b, _ := json.Marshal(analytics.Report{ID: "r1", Spec: analytics.Spec{Title: "t", Tables: []analytics.Table{{Title: "t", QueryID: "q"}}}, Queries: map[string]analytics.Query{"q": {Measures: []string{measure}}}})
-		os.WriteFile(name, b, 0o644)
+		writeFile(t, name, b)
 		return name
 	}
 	fails(t, "query q", "report", "-file", rep("bad.json", "nope"))
@@ -361,7 +383,9 @@ func TestTokenCommand(t *testing.T) {
 			return
 		}
 		var in map[string]string
-		json.NewDecoder(r.Body).Decode(&in)
+		if !decodeRequest(t, w, r, &in) {
+			return
+		}
 		if in["subject"] == "nobody" {
 			w.WriteHeader(404)
 			w.Write([]byte(`{"code": "not_found"}`))
@@ -478,7 +502,9 @@ func TestTenantsCommand(t *testing.T) {
 			w.Write([]byte(`{"items": [{"id": "t1", "status": "active"}], "next_page_token": "n"}`))
 		case r.URL.Path == "/control/v1/tenants" && r.Method == "POST":
 			var in map[string]any
-			json.NewDecoder(r.Body).Decode(&in)
+			if !decodeRequest(t, w, r, &in) {
+				return
+			}
 			if r.Header.Get("Idempotency-Key") == "replayed-key" {
 				w.Header().Set("Idempotent-Replayed", "true")
 			}
@@ -524,7 +550,7 @@ func TestTenantsCommand(t *testing.T) {
 	}
 	doc, _ := fixture.Document(t).Marshal()
 	file := t.TempDir() + "/config.yaml"
-	os.WriteFile(file, doc, 0o644)
+	writeFile(t, file, doc)
 	if got := must(t, "tenants", "create", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada", "-admin-email", "ada@example.com", "-config", file); !strings.Contains(got, `"name": "Acme"`) {
 		t.Fatalf("create: %s", got)
 	}

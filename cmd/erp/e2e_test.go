@@ -152,7 +152,7 @@ func TestEndToEnd(t *testing.T) {
 	doc := fixture.Document(t)
 	doc.Companies[1].InvoiceTolerance.PricePercent = 3
 	b, _ := json.Marshal(map[string]any{"title": "Tolerance", "rationale": "r", "base_version": 1, "proposed": doc})
-	os.WriteFile("cr.json", b, 0o644)
+	writeFile(t, "cr.json", b)
 	cr := body(t, must(t, "call", "createChangeRequest", "-body", "@cr.json"))
 	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
 	if got := must(t, "agent", "test", "-change-request", cr["id"].(string), "-out", "uat.md"); !strings.Contains(got, "UAT") {

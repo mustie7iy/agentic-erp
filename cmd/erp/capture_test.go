@@ -87,9 +87,9 @@ func TestCaptureCommand(t *testing.T) {
 	defer func() { getenv = os.Getenv }()
 	dir := t.TempDir()
 	small := filepath.Join(dir, "small.pdf")
-	os.WriteFile(small, []byte("%PDF small"), 0o644)
+	writeFile(t, small, []byte("%PDF small"))
 	large := filepath.Join(dir, "scan.PNG")
-	os.WriteFile(large, make([]byte, requestLimit+1), 0o644)
+	writeFile(t, large, make([]byte, requestLimit+1))
 	le := "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d11"
 
 	// Small: in the request. Large: through an upload (a path on the API). -upload: forced.

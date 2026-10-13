@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,7 +33,9 @@ func TestDirectoryCommand(t *testing.T) {
 			w.Write([]byte(`{"items": [{"tenant_id": "t1", "cell": "eu-1"}], "next_page_token": "n"}`))
 		case r.URL.Path == "/directory/v1/tenants" && r.Method == "POST":
 			var in map[string]any
-			json.NewDecoder(r.Body).Decode(&in)
+			if !decodeRequest(t, w, r, &in) {
+				return
+			}
 			if r.Header.Get("Idempotency-Key") == "replayed-key" {
 				w.Header().Set("Idempotent-Replayed", "true")
 			}
@@ -50,11 +51,15 @@ func TestDirectoryCommand(t *testing.T) {
 			w.Write([]byte(`{"tenant_id": "t1", "status": "read_only", "version": 3}`))
 		case r.URL.Path == "/directory/v1/tenants/t1:move" && r.Header.Get("If-Match") == `"2"`:
 			var in map[string]string
-			json.NewDecoder(r.Body).Decode(&in)
+			if !decodeRequest(t, w, r, &in) {
+				return
+			}
 			w.Write([]byte(`{"tenant_id": "t1", "status": "read_only", "cell": "` + in["cell"] + `", "version": 4}`))
 		case r.URL.Path == "/directory/v1/tenants/t1:verify":
 			var in map[string]string
-			json.NewDecoder(r.Body).Decode(&in)
+			if !decodeRequest(t, w, r, &in) {
+				return
+			}
 			equal := in["cell"] == "eu-2"
 			w.Write([]byte(`{"tenant_id": "t1", "source": {"cell": "eu-1"}, "destination": {"cell": "` + in["cell"] + `"}, "equal": ` + strconv.FormatBool(equal) + `, "differences": ["ledger.journal_line: 120 rows in eu-1, 118 in ` + in["cell"] + `"]}`))
 		case r.URL.Path == "/directory/v1/tenants/t1:unfreeze":
@@ -73,7 +78,7 @@ func TestDirectoryCommand(t *testing.T) {
 	defer func() { getenv = os.Getenv }()
 	doc, _ := fixture.Document(t).Marshal()
 	file := filepath.Join(t.TempDir(), "config.yaml")
-	os.WriteFile(file, doc, 0o644)
+	writeFile(t, file, doc)
 
 	if got := must(t, "directory", "cells", "-region", "eu-west"); !strings.Contains(got, `"tenants": 3`) {
 		t.Fatalf("cells: %s", got)
