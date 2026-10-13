@@ -143,14 +143,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 		return Result{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	if _, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, $2, $3, $4, 'active')`,
-		res.TenantID, strings.TrimSpace(req.Name), req.Region, strings.ToUpper(req.GroupCurrency)); err != nil {
-		return Result{}, fmt.Errorf("provisioning: tenant: %w", problem.From(err))
-	}
-	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{p.AppRole}.Sanitize()); err != nil {
-		return Result{}, fmt.Errorf("provisioning: tenant %s: set role %s: %w", res.TenantID, p.AppRole, err)
-	}
-	if err := database.SetActor(ctx, tx, res.AdministratorID); err != nil {
+	if err := p.createTenant(ctx, tx, req, res); err != nil {
 		return Result{}, err
 	}
 	principal := reqctx.Principal{ID: res.AdministratorID, Kind: identity.Human, TenantID: res.TenantID}
@@ -161,48 +154,11 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 			return Result{}, err
 		}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, email, all_companies, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, $4, $5, true, 'active', $2, $2)`,
-		res.TenantID, res.AdministratorID, req.Administrator.Subject, strings.TrimSpace(req.Administrator.DisplayName), req.Administrator.Email); err != nil {
-		return Result{}, fmt.Errorf("provisioning: administrator: %w", problem.From(err))
-	}
-	description := "The tenant's administrators: every permission, granted at provisioning."
-	role, err := identity.CreateRole(ctx, AdministratorRole, "Tenant administrator", &description)
-	if err != nil {
+	if err := createAdministrator(ctx, tx, req, &res); err != nil {
 		return Result{}, err
 	}
-	res.AdministratorRoleID = role.ID
-	// Every permission in one grant: the role is the tenant's root, and the
-	// audit entry below records it (no per-permission events, unlike grants
-	// made through the API later).
-	tag, err := tx.Exec(ctx, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
-		SELECT $1, gen_random_uuid(), $2, code, current_date, $3 FROM ref.permission`, res.TenantID, role.ID, res.AdministratorID)
-	if err != nil {
-		return Result{}, fmt.Errorf("provisioning: tenant %s: grant every permission to role %s: %w", res.TenantID, role.ID, err)
-	}
-	// The audit buffer is in ctx, so Add cannot fail.
-	_ = audit.Add(ctx, audit.Entry{Action: "identity.role_permission.grant", ObjectType: "identity.role", ObjectID: role.ID, Outcome: "succeeded",
-		Detail: map[string]any{"role_id": role.ID, "permissions": "all", "count": tag.RowsAffected()}})
-	if _, err := identity.AssignRole(ctx, res.AdministratorID, role.ID, nil, nil); err != nil {
+	if err := createRolesAndEntities(ctx, req, &res); err != nil {
 		return Result{}, err
-	}
-	for _, name := range req.Document.RoleNames() {
-		if _, err := identity.CreateRole(ctx, name, name, nil); err != nil {
-			return Result{}, err
-		}
-		res.Roles = append(res.Roles, name)
-	}
-	res.LegalEntities = map[string]uuid.UUID{}
-	for _, co := range req.Document.Companies {
-		le, err := tenancy.CreateLegalEntity(ctx, tenancy.NewLegalEntity{Code: co.Code, Name: co.Name, CountryCode: co.Country, LocalCurrency: co.Currency,
-			FiscalCalendarID: uuid.Must(uuid.NewV7())})
-		if err != nil {
-			return Result{}, err
-		}
-		if _, err := tenancy.ActivateLegalEntity(ctx, le.ID); err != nil {
-			return Result{}, err
-		}
-		res.LegalEntities[co.Code] = le.ID
 	}
 	doc, _ := json.Marshal(req.Document) // Config holds only JSON-safe types
 	if res.ConfigurationVersion, err = configuration.Bootstrap(ctx, p.Configuration, doc); err != nil {
@@ -218,15 +174,95 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	if err := buf.Flush(ctx, tx, principal, reqctx.TraceID(ctx), p.now()); err != nil {
 		return Result{}, err
 	}
-	if k := req.Idempotency; k != nil {
-		body, _ := json.Marshal(res) // ids, strings and a map of ids
-		if _, err := tx.Exec(ctx, `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, response_code, response_body, expires_at)
-			VALUES ($1, $2, $3, $4, 'completed', 201, $5, $6)`, res.TenantID, KeyPrefix+k.Key, k.ActorID, k.RequestHash, body, p.now().Add(uow.Retention)); err != nil {
-			return Result{}, problem.From(err)
-		}
+	if err := p.recordIdempotency(ctx, tx, req.Idempotency, res); err != nil {
+		return Result{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Result{}, fmt.Errorf("provisioning: commit: %w", err)
 	}
 	return res, nil
+}
+
+// createTenant writes the tenant row as the connection's own role, then
+// becomes AppRole acting as the administrator for the rest.
+func (p *Provisioner) createTenant(ctx context.Context, tx pgx.Tx, req Request, res Result) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, $2, $3, $4, 'active')`,
+		res.TenantID, strings.TrimSpace(req.Name), req.Region, strings.ToUpper(req.GroupCurrency)); err != nil {
+		return fmt.Errorf("provisioning: tenant: %w", problem.From(err))
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{p.AppRole}.Sanitize()); err != nil {
+		return fmt.Errorf("provisioning: tenant %s: set role %s: %w", res.TenantID, p.AppRole, err)
+	}
+	if err := database.SetActor(ctx, tx, res.AdministratorID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// createAdministrator creates the administrator and AdministratorRole with
+// every permission, and assigns the role to the administrator.
+func createAdministrator(ctx context.Context, tx pgx.Tx, req Request, res *Result) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, email, all_companies, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, $5, true, 'active', $2, $2)`,
+		res.TenantID, res.AdministratorID, req.Administrator.Subject, strings.TrimSpace(req.Administrator.DisplayName), req.Administrator.Email); err != nil {
+		return fmt.Errorf("provisioning: administrator: %w", problem.From(err))
+	}
+	description := "The tenant's administrators: every permission, granted at provisioning."
+	role, err := identity.CreateRole(ctx, AdministratorRole, "Tenant administrator", &description)
+	if err != nil {
+		return err
+	}
+	res.AdministratorRoleID = role.ID
+	// Every permission in one grant: the role is the tenant's root, and the
+	// audit entry below records it (no per-permission events, unlike grants
+	// made through the API later).
+	tag, err := tx.Exec(ctx, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+		SELECT $1, gen_random_uuid(), $2, code, current_date, $3 FROM ref.permission`, res.TenantID, role.ID, res.AdministratorID)
+	if err != nil {
+		return fmt.Errorf("provisioning: tenant %s: grant every permission to role %s: %w", res.TenantID, role.ID, err)
+	}
+	// The audit buffer is in ctx, so Add cannot fail.
+	_ = audit.Add(ctx, audit.Entry{Action: "identity.role_permission.grant", ObjectType: "identity.role", ObjectID: role.ID, Outcome: "succeeded",
+		Detail: map[string]any{"role_id": role.ID, "permissions": "all", "count": tag.RowsAffected()}})
+	if _, err := identity.AssignRole(ctx, res.AdministratorID, role.ID, nil, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+// createRolesAndEntities creates the roles the configuration names and an
+// active legal entity per company of the configuration.
+func createRolesAndEntities(ctx context.Context, req Request, res *Result) error {
+	for _, name := range req.Document.RoleNames() {
+		if _, err := identity.CreateRole(ctx, name, name, nil); err != nil {
+			return err
+		}
+		res.Roles = append(res.Roles, name)
+	}
+	res.LegalEntities = map[string]uuid.UUID{}
+	for _, co := range req.Document.Companies {
+		le, err := tenancy.CreateLegalEntity(ctx, tenancy.NewLegalEntity{Code: co.Code, Name: co.Name, CountryCode: co.Country, LocalCurrency: co.Currency,
+			FiscalCalendarID: uuid.Must(uuid.NewV7())})
+		if err != nil {
+			return err
+		}
+		if _, err := tenancy.ActivateLegalEntity(ctx, le.ID); err != nil {
+			return err
+		}
+		res.LegalEntities[co.Code] = le.ID
+	}
+	return nil
+}
+
+// recordIdempotency stores the result under the request's Idempotency-Key,
+// when it has one, so that a retried request gets the same answer.
+func (p *Provisioner) recordIdempotency(ctx context.Context, tx pgx.Tx, k *Idempotency, res Result) error {
+	if k != nil {
+		body, _ := json.Marshal(res) // ids, strings and a map of ids
+		if _, err := tx.Exec(ctx, `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, response_code, response_body, expires_at)
+			VALUES ($1, $2, $3, $4, 'completed', 201, $5, $6)`, res.TenantID, KeyPrefix+k.Key, k.ActorID, k.RequestHash, body, p.now().Add(uow.Retention)); err != nil {
+			return problem.From(err)
+		}
+	}
+	return nil
 }
