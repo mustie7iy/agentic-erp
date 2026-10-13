@@ -434,14 +434,16 @@ func TestVerifyTenant(t *testing.T) {
 	// Equal.
 	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120}, "5:"+h1))
 	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120}, "5:"+h1))
-	v, _ := p.must(200, "ops|alice", "POST", path, to("b"))
+	// One token for the request and the check: two minted a second apart differ in iat and exp.
+	token := p.operator("ops|alice")
+	v, _ := p.must(200, "ops|alice", "POST", path, to("b"), "Authorization", "Bearer "+token)
 	if v["equal"] != true || len(v["differences"].([]any)) != 0 || v["source"].(map[string]any)["cell"] != region+"-a" || v["destination"].(map[string]any)["fingerprint"] == nil {
 		t.Fatalf("equal: %v", v)
 	}
 	b.mu.Lock()
 	seen := strings.Join(b.auth, "\n")
 	b.mu.Unlock()
-	if !strings.Contains(seen, "GET /control/v1/tenants/"+id.String()+"/fingerprint Bearer "+p.operator("ops|alice")) {
+	if !strings.Contains(seen, "GET /control/v1/tenants/"+id.String()+"/fingerprint Bearer "+token) {
 		t.Fatalf("the destination did not see the operator's token: %s", seen)
 	}
 	// Differences of every kind.
