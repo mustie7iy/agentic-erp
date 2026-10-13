@@ -43,25 +43,44 @@ func TestKeyRotationPolicy(t *testing.T) {
 		pgtest.Exec(t, `UPDATE tenancy.tenant_key SET created_at = now() - interval '25 hours', version = version + 1 WHERE tenant_id = $1 AND status = 'active'`, id)
 	}
 	// A fresh key is not due (other tests' tenants on the legacy key are, and get keys of their own); an aged one is, once.
-	if _, err := k.RunOnce(ctx); err != nil || keys() != 1 {
-		t.Fatalf("fresh: %d keys, %v", keys(), err)
+	if _, err := k.RunOnce(ctx); err != nil {
+		t.Fatalf("fresh: %v", err)
+	}
+	if got := keys(); got != 1 {
+		t.Fatalf("fresh: got %d keys, want 1", got)
 	}
 	age()
 	n, err := k.RunOnce(ctx)
-	if err != nil || n < 1 || keys() != 2 {
-		t.Fatalf("due: %d rotated, %d keys, %v", n, keys(), err)
+	if err != nil {
+		t.Fatalf("due: %v", err)
 	}
-	if _, err := k.RunOnce(ctx); err != nil || keys() != 2 {
-		t.Fatalf("again: %d keys, %v", keys(), err)
+	if n < 1 {
+		t.Errorf("due: got %d rotated, want at least 1", n)
 	}
-	if detail := auditDetail(t, id, "tenancy.tenant.rotate_key"); detail["policy"] != "24h0m0s" || detail["resealed"] == nil {
-		t.Fatalf("audit entry: %v", detail)
+	if got := keys(); got != 2 {
+		t.Fatalf("due: got %d keys, want 2", got)
+	}
+	if _, err := k.RunOnce(ctx); err != nil {
+		t.Fatalf("again: %v", err)
+	}
+	if got := keys(); got != 2 {
+		t.Fatalf("again: got %d keys, want 2", got)
+	}
+	detail := auditDetail(t, id, "tenancy.tenant.rotate_key")
+	if detail["policy"] != "24h0m0s" {
+		t.Errorf("audit entry policy: got %v, want 24h0m0s", detail["policy"])
+	}
+	if detail["resealed"] == nil {
+		t.Errorf("audit entry resealed: got none, want a count")
 	}
 	// A tenant that is not active is skipped by the round and refused on request.
 	p.must(200, "ops|alice", "POST", tenants+"/"+id.String()+":suspend", "", "If-Match", "*")
 	age()
-	if _, err := k.RunOnce(ctx); err != nil || keys() != 2 {
-		t.Fatalf("suspended: %d keys, %v", keys(), err)
+	if _, err := k.RunOnce(ctx); err != nil {
+		t.Fatalf("suspended: %v", err)
+	}
+	if got := keys(); got != 2 {
+		t.Fatalf("suspended: got %d keys, want 2", got)
 	}
 	if _, err := k.Rotate(ctx, id); err == nil || !strings.Contains(err.Error(), "suspended") {
 		t.Fatalf("rotate a suspended tenant: %v", err)
@@ -179,8 +198,11 @@ func TestARotationFailureDoesNotStopTheRound(t *testing.T) {
 			return pool.Begin(ctx, s)
 		}}
 	rotated, err := k.RunOnce(ctx)
-	if !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), stuck.String()) {
-		t.Fatalf("round error: got %v, want the injected failure of tenant %s", err, stuck)
+	if !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("round error: got %v, want the injected failure", err)
+	}
+	if !strings.Contains(err.Error(), stuck.String()) {
+		t.Errorf("round error: got %v, want it to name tenant %s", err, stuck)
 	}
 	if rotated < 1 {
 		t.Errorf("rotated: got %d, want at least 1 (the tenant behind)", rotated)

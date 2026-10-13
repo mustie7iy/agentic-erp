@@ -534,10 +534,15 @@ func TestOperatorRoles(t *testing.T) {
 		{"operator rotates", []any{"erp:operate"}, "POST", tenants + "/" + id + ":rotateKey", 200},
 		{"reader rotates", []any{"erp:read"}, "POST", tenants + "/" + id + ":rotateKey", 403},
 	} {
-		status, m, _ := p.do(c.method, c.path, "", map[string]string{"Authorization": with(c.roles), "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()})
-		if status != c.code || (status == 403 && m["code"] != "authz.operator_role") {
-			t.Errorf("%s: %d %v", c.name, status, m)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			status, m, _ := p.do(c.method, c.path, "", map[string]string{"Authorization": with(c.roles), "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()})
+			if status != c.code {
+				t.Errorf("status: got %d, want %d: %v", status, c.code, m)
+			}
+			if status == 403 && m["code"] != "authz.operator_role" {
+				t.Errorf("problem code: got %v, want authz.operator_role", m["code"])
+			}
+		})
 	}
 }
 
@@ -550,11 +555,16 @@ func TestContractIsServed(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, op := range ops {
-		path := strings.ReplaceAll(op.Path, "{id}", uuid.NewString())
-		code, m, _ := p.as("ops|alice", op.Method, path, "")
-		if code == 405 || (code == 404 && m["detail"] == "No such endpoint.") {
-			t.Errorf("%s (%s %s): %d %v", id, op.Method, path, code, m)
-		}
+		t.Run(id, func(t *testing.T) {
+			path := strings.ReplaceAll(op.Path, "{id}", uuid.NewString())
+			code, m, _ := p.as("ops|alice", op.Method, path, "")
+			if code == 405 {
+				t.Errorf("%s %s: got 405, want the operation routed: %v", op.Method, path, m)
+			}
+			if code == 404 && m["detail"] == "No such endpoint." {
+				t.Errorf("%s %s: got no such endpoint, want the operation routed", op.Method, path)
+			}
+		})
 	}
 }
 
@@ -572,11 +582,16 @@ func TestControlRoleIsReadOnly(t *testing.T) {
 	if err := as(`SELECT count(*) FROM tenancy.tenant`); err != nil {
 		t.Fatal(err)
 	}
-	for _, sql := range []string{`UPDATE tenancy.tenant SET name = name, version = version + 1`, `SELECT count(*) FROM identity.principal`,
-		`INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, expires_at) VALUES (gen_random_uuid(), 'control|x', gen_random_uuid(), '', 'completed', now())`} {
-		if err := as(sql); err == nil || !strings.Contains(err.Error(), "permission denied") {
-			t.Errorf("%s: %v", sql, err)
-		}
+	for name, sql := range map[string]string{
+		"update tenants":         `UPDATE tenancy.tenant SET name = name, version = version + 1`,
+		"read principals":        `SELECT count(*) FROM identity.principal`,
+		"insert idempotency key": `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, expires_at) VALUES (gen_random_uuid(), 'control|x', gen_random_uuid(), '', 'completed', now())`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := as(sql); err == nil || !strings.Contains(err.Error(), "permission denied") {
+				t.Errorf("%s: got %v, want permission denied", sql, err)
+			}
+		})
 	}
 }
 
@@ -636,8 +651,14 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 	}
 	first := "key-first-" + uuid.NewString() // a key of this run's: an earlier run's would replay its tenant
 	created, replayed, err := s.Create(ctx, op, request(first))
-	if err != nil || replayed || created.Status != controlplane.Active {
-		t.Fatalf("%+v %v %v", created, replayed, err)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if replayed {
+		t.Errorf("create: got a replay, want a new tenant")
+	}
+	if created.Status != controlplane.Active {
+		t.Fatalf("created status: got %v, want %v", created.Status, controlplane.Active)
 	}
 	everyFailure(t, s, "list", func(ctx context.Context) error {
 		_, _, err := s.List(ctx, "", pagination.Request{})
@@ -689,9 +710,11 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		"resume": func() error { _, err := s.Transition(ctx, op, created.ID, "resume", "*"); return err },
 		"erase":  func() error { _, _, err := s.Erase(ctx, op, gone.ID, "*"); return err },
 	} {
-		if err := call(); err == nil || !strings.Contains(err.Error(), "database down") {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := call(); err == nil || !strings.Contains(err.Error(), "database down") {
+				t.Errorf("got %v, want database down", err)
+			}
+		})
 	}
 	s.Begin = nil
 	// A commit that fails is reported too (the connection is gone).
@@ -706,8 +729,12 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		t.Fatalf("commit: got %v, want the injected failure", err)
 	}
 	s.Begin = nil
-	if got, err := s.Get(ctx, created.ID); err != nil || got.Status != controlplane.Suspended {
-		t.Fatalf("after the failed commit: %+v %v", got, err)
+	got, err := s.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("after the failed commit: %v", err)
+	}
+	if got.Status != controlplane.Suspended {
+		t.Fatalf("after the failed commit: got status %v, want %v", got.Status, controlplane.Suspended)
 	}
 }
 
@@ -724,8 +751,15 @@ func TestProvisioningKeyUniqueness(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := s.Provisioner.Provision(ctx, req) // the replay check was skipped: straight to the insert
-	if p := problem.From(err); p.Status != 409 || p.Code != "request.idempotency_key_in_use" || p.RetryAfter != 1 {
-		t.Fatalf("second: %v", err)
+	p := problem.From(err)
+	if p.Status != 409 {
+		t.Errorf("second: got status %d, want 409: %v", p.Status, err)
+	}
+	if p.Code != "request.idempotency_key_in_use" {
+		t.Errorf("second: got code %s, want request.idempotency_key_in_use", p.Code)
+	}
+	if p.RetryAfter != 1 {
+		t.Errorf("second: got Retry-After %d, want 1", p.RetryAfter)
 	}
 	var n int
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM platform.idempotency_key WHERE key = $1`, provisioning.KeyPrefix+req.Idempotency.Key).Scan(&n); err != nil {
@@ -764,15 +798,41 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	got, h := p.must(200, "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", `"1"`)
 	p.s.Now = nil
 	rot := got["rotation"].(map[string]any)
-	if got["version"] != float64(2) || h.Get("ETag") != `"2"` || rot["resealed"] != float64(2) || rot["master_key_id"] != "test" ||
-		rot["previous_key_id"] == uuid.Nil.String() || rot["key_id"] == rot["previous_key_id"] {
-		t.Fatalf("rotation: %v", got)
+	if got["version"] != float64(2) {
+		t.Errorf("rotation version: got %v, want 2", got["version"])
+	}
+	if etag := h.Get("ETag"); etag != `"2"` {
+		t.Errorf("rotation ETag: got %s, want \"2\"", etag)
+	}
+	if rot["resealed"] != float64(2) {
+		t.Errorf("rotation resealed: got %v, want 2", rot["resealed"])
+	}
+	if rot["master_key_id"] != "test" {
+		t.Errorf("rotation master key: got %v, want test", rot["master_key_id"])
+	}
+	if rot["previous_key_id"] == uuid.Nil.String() {
+		t.Errorf("rotation previous key: got the nil key, want the provisioned one")
+	}
+	if rot["key_id"] == rot["previous_key_id"] {
+		t.Errorf("rotation key: got %v, want a key other than the previous one", rot["key_id"])
 	}
 	// The tenant shows its key and, once a round ran, its latest audit verification.
 	shown, _ := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	enc, _ := shown["encryption"].(map[string]any)
-	if enc == nil || enc["key_id"] != rot["key_id"] || enc["master_key_id"] != "test" || enc["created_at"] == nil || shown["audit_verification"] != nil {
-		t.Fatalf("encryption shown: %v", shown)
+	if enc == nil {
+		t.Fatalf("encryption shown: got none, want the key: %v", shown)
+	}
+	if enc["key_id"] != rot["key_id"] {
+		t.Errorf("encryption key: got %v, want %v", enc["key_id"], rot["key_id"])
+	}
+	if enc["master_key_id"] != "test" {
+		t.Errorf("encryption master key: got %v, want test", enc["master_key_id"])
+	}
+	if enc["created_at"] == nil {
+		t.Errorf("encryption created at: got none, want a time")
+	}
+	if shown["audit_verification"] != nil {
+		t.Errorf("audit verification before a round: got %v, want none", shown["audit_verification"])
 	}
 	verifier := &auditchain.Verifier{Pool: p.s.Pool, AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if _, err := verifier.Verify(ctx, uuid.MustParse(id)); err != nil {
@@ -780,8 +840,20 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	}
 	shown, _ = p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	ver, _ := shown["audit_verification"].(map[string]any)
-	if ver == nil || ver["ok"] != true || ver["head_seq"].(float64) < 1 || ver["broken_at"] != nil || ver["verified_at"] == nil {
-		t.Fatalf("verification shown: %v", shown)
+	if ver == nil {
+		t.Fatalf("verification shown: got none, want one: %v", shown)
+	}
+	if ver["ok"] != true {
+		t.Errorf("verification ok: got %v, want true", ver["ok"])
+	}
+	if seq := ver["head_seq"].(float64); seq < 1 {
+		t.Errorf("verification head seq: got %v, want at least 1", seq)
+	}
+	if ver["broken_at"] != nil {
+		t.Errorf("verification broken at: got %v, want none", ver["broken_at"])
+	}
+	if ver["verified_at"] == nil {
+		t.Errorf("verification verified at: got none, want a time")
 	}
 	listed, _ := p.must(200, "ops|alice", "GET", tenants+"?status=active&order_by=name", "")
 	found := false
@@ -796,8 +868,11 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&resealed); err != nil {
 		t.Fatalf("read the re-sealed house bank: %v", err)
 	}
-	if string(resealed) == string(sealed) || string(resealed[1:17]) != uuid.MustParse(rot["key_id"].(string)).String()[:0]+string(mustBytes(rot["key_id"].(string))) {
-		t.Fatalf("house bank not re-sealed under the new key")
+	if string(resealed) == string(sealed) {
+		t.Errorf("house bank: got the same cipher text, want it re-sealed")
+	}
+	if got, want := string(resealed[1:17]), string(mustBytes(rot["key_id"].(string))); got != want {
+		t.Errorf("house bank key id: got %x, want %x", got, want)
 	}
 	// The tenant's administrator still reads its house banks through the API (opened with the new key).
 	admin := pgtest.Actor{ID: uuid.MustParse(created["provisioned"].(map[string]any)["administrator_id"].(string)), Subject: "idp|ada", Kind: "human"}
@@ -898,8 +973,32 @@ func TestTenantFingerprint(t *testing.T) {
 		}
 	}
 	head, _ := fp["audit_chain_head"].(map[string]any)
-	if got["id"] != id || got["status"] != "active" || h.Get("ETag") == "" || rows["identity.principal"] < 1 || rows["tenancy.tenant_key"] != 1 || head == nil || head["seq"].(float64) < 1 || len(head["hash"].(string)) != 64 || fp["tenant_id"] != id {
-		t.Fatalf("fingerprint: %v %v", got, h)
+	if got["id"] != id {
+		t.Errorf("fingerprint id: got %v, want %s", got["id"], id)
+	}
+	if got["status"] != "active" {
+		t.Errorf("fingerprint status: got %v, want active", got["status"])
+	}
+	if h.Get("ETag") == "" {
+		t.Errorf("fingerprint ETag: got none, want the tenant's")
+	}
+	if n := rows["identity.principal"]; n < 1 {
+		t.Errorf("fingerprint identity.principal rows: got %v, want at least 1", n)
+	}
+	if n := rows["tenancy.tenant_key"]; n != 1 {
+		t.Errorf("fingerprint tenancy.tenant_key rows: got %v, want 1", n)
+	}
+	if fp["tenant_id"] != id {
+		t.Errorf("fingerprint tenant: got %v, want %s", fp["tenant_id"], id)
+	}
+	if head == nil {
+		t.Fatalf("fingerprint chain head: got none, want one: %v", fp)
+	}
+	if seq := head["seq"].(float64); seq < 1 {
+		t.Errorf("fingerprint chain head seq: got %v, want at least 1", seq)
+	}
+	if n := len(head["hash"].(string)); n != 64 {
+		t.Errorf("fingerprint chain head hash length: got %d, want 64", n)
 	}
 	// The same tenant twice gives the same fingerprint (computed_at aside).
 	again, _ := p.must(200, "ops|alice", "GET", tenants+"/"+id+"/fingerprint", "")
@@ -914,8 +1013,10 @@ func TestTenantFingerprint(t *testing.T) {
 	if status, _, _ := p.as("ops|alice", "POST", tenants+"/"+id+"/fingerprint", ""); status != 405 {
 		t.Fatalf("POST fingerprint: %d", status)
 	}
-	if status, m, _ := p.as("ops|alice", "GET", tenants+"/"+id+"/thumbprint", ""); status != 404 || m["detail"] != "No such endpoint." {
-		t.Fatalf("unknown sub-resource: %d %v", status, m)
+	if status, m, _ := p.as("ops|alice", "GET", tenants+"/"+id+"/thumbprint", ""); status != 404 {
+		t.Errorf("unknown sub-resource: got status %d, want 404: %v", status, m)
+	} else if m["detail"] != "No such endpoint." {
+		t.Errorf("unknown sub-resource: got detail %v, want No such endpoint.", m["detail"])
 	}
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", tenants+"/not-a-uuid/fingerprint", "")
 	reader := map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": []any{"erp:read"}})}
@@ -937,15 +1038,20 @@ func TestTenantFingerprint(t *testing.T) {
 	defer func() { p.s.Begin = nil }()
 	var total int
 	failingAt(0, &total)
-	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err != nil || total < 4 {
-		t.Fatalf("counting statements: %v after %d", err, total)
+	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err != nil {
+		t.Fatalf("counting statements: %v", err)
+	}
+	if total < 4 {
+		t.Fatalf("counting statements: got %d, want at least 4", total)
 	}
 	for _, n := range []int{1, 2, 3, total} {
-		count := 0
-		failingAt(n, &count)
-		if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); !errors.Is(err, pgtest.ErrInjected) {
-			t.Errorf("statement %d failing: %v", n, err)
-		}
+		t.Run(fmt.Sprintf("statement %d failing", n), func(t *testing.T) {
+			count := 0
+			failingAt(n, &count)
+			if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want the injected failure", err)
+			}
+		})
 	}
 	p.s.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err == nil || !strings.Contains(err.Error(), "database down") {
