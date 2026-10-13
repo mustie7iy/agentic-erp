@@ -1,10 +1,12 @@
 package sap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -196,7 +198,11 @@ func (o *ODataSource) page(ctx context.Context, httpc *http.Client, u string, sk
 			Results []map[string]any `json:"results"`
 		} `json:"d"`
 	}
-	if err := json.Unmarshal(body, &page); err != nil {
+	// Numbers stay as their text (json.Number): decoded as float64, an
+	// amount past 15-17 significant digits would be rounded (ADR-0005).
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	if err := dec.Decode(&page); err != nil {
 		return nil, fmt.Errorf("decode page: %w", err)
 	}
 	return page.D.Results, nil
@@ -230,8 +236,8 @@ func odataValue(v any) string {
 			return "X"
 		}
 		return ""
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
+	case json.Number:
+		return decimalText(t)
 	case string:
 		if strings.HasPrefix(t, "/Date(") && strings.HasSuffix(t, ")/") {
 			msStr := strings.TrimSuffix(strings.TrimPrefix(t, "/Date("), ")/")
@@ -246,4 +252,21 @@ func odataValue(v any) string {
 	default:
 		return fmt.Sprint(t)
 	}
+}
+
+// maxSpelledExp bounds the binary exponent decimalText spells out (about
+// 1,200 decimal digits), so an absurd number cannot become a huge string.
+const maxSpelledExp = 4096
+
+// decimalText is a JSON number as a plain decimal ("1.5e3" is "1500") with
+// every digit kept: the precision grows with the literal's length, so the
+// shortest decimal that reads back the same is the number itself. A number
+// too large or too small to spell out keeps its literal.
+func decimalText(n json.Number) string {
+	s := n.String()
+	f, _, err := big.ParseFloat(s, 10, 64+4*uint(len(s)), big.ToNearestEven)
+	if err != nil || f.MantExp(nil) > maxSpelledExp || f.MantExp(nil) < -maxSpelledExp {
+		return s
+	}
+	return f.Text('f', -1)
 }

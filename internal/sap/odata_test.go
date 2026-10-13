@@ -17,7 +17,7 @@ func TestODataValue(t *testing.T) {
 		"/Date(1767225600000)/":      "20260101",
 		"/Date(1767225600000+0000)/": "20260101",
 		"1234.50":                    "1234.50",
-		float64(3):                   "3",
+		json.Number("3"):             "3",
 	}
 	for in, want := range cases {
 		if got := odataValue(in); got != want {
@@ -100,6 +100,25 @@ func TestODataFilterEscapesQuotes(t *testing.T) {
 				t.Errorf("got $filter %q, want %q", filter, tc.want)
 			}
 		})
+	}
+}
+
+// A number the service sends unquoted keeps every digit: amounts beyond a
+// float64's 15-17 significant digits are not rounded on the way in.
+func TestODataNumbersKeepEveryDigit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"d":{"results":[{"Amount": 12345678901234567.89, "Count": 9007199254740993, "Small": 0.1, "Exp": 1.5e3, "Huge": 1e999999}]}}`))
+	}))
+	defer srv.Close()
+	results, err := (&ODataSource{}).page(context.Background(), srv.Client(), srv.URL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := odataRows(EntityMapping{Fields: map[string]string{"HSL": "Amount", "N": "Count", "S": "Small", "E": "Exp", "H": "Huge"}}, results)
+	for field, want := range map[string]string{"HSL": "12345678901234567.89", "N": "9007199254740993", "S": "0.1", "E": "1500", "H": "1e999999"} {
+		if got := rows[0][field]; got != want {
+			t.Errorf("%s: got %q, want %q", field, got, want)
+		}
 	}
 }
 
