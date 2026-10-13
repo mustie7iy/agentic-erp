@@ -164,13 +164,36 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	created, h := p.must(201, "ops|alice", "POST", tenants, body, "Idempotency-Key", key)
 	id := created["id"].(string)
 	prov := created["provisioned"].(map[string]any)
-	if created["status"] != "active" || h.Get("ETag") != `"1"` || h.Get("Location") != tenants+"/"+id || prov["configuration_version"] != float64(1) ||
-		len(prov["legal_entities"].(map[string]any)) != 2 || prov["tenant_id"] != id || h.Get("Idempotent-Replayed") != "" {
-		t.Fatalf("created: %v %v", created, h)
+	if created["status"] != "active" {
+		t.Errorf("created status: got %v, want active", created["status"])
+	}
+	if got := h.Get("ETag"); got != `"1"` {
+		t.Errorf("created ETag: got %s, want \"1\"", got)
+	}
+	if got := h.Get("Location"); got != tenants+"/"+id {
+		t.Errorf("created Location: got %s, want %s", got, tenants+"/"+id)
+	}
+	if prov["configuration_version"] != float64(1) {
+		t.Errorf("provisioned configuration version: got %v, want 1", prov["configuration_version"])
+	}
+	if n := len(prov["legal_entities"].(map[string]any)); n != 2 {
+		t.Errorf("provisioned legal entities: got %d, want 2", n)
+	}
+	if prov["tenant_id"] != id {
+		t.Errorf("provisioned tenant: got %v, want %s", prov["tenant_id"], id)
+	}
+	if got := h.Get("Idempotent-Replayed"); got != "" {
+		t.Errorf("created Idempotent-Replayed: got %q, want none", got)
 	}
 	again, h := p.must(201, "ops|alice", "POST", tenants, body, "Idempotency-Key", key)
-	if again["id"] != id || h.Get("Idempotent-Replayed") != "true" || again["provisioned"].(map[string]any)["administrator_id"] != prov["administrator_id"] {
-		t.Fatalf("replay: %v %v", again, h)
+	if again["id"] != id {
+		t.Errorf("replay id: got %v, want %s", again["id"], id)
+	}
+	if got := h.Get("Idempotent-Replayed"); got != "true" {
+		t.Errorf("replay Idempotent-Replayed: got %q, want true", got)
+	}
+	if got := again["provisioned"].(map[string]any)["administrator_id"]; got != prov["administrator_id"] {
+		t.Errorf("replay administrator: got %v, want %v", got, prov["administrator_id"])
 	}
 	p.problem(422, "request.idempotency_key_reused", "ops|alice", "POST", tenants, tenantBody(t, "Other"), "Idempotency-Key", key)
 	p.problem(422, "request.idempotency_key_reused", "ops|bob", "POST", tenants, body, "Idempotency-Key", key)
@@ -194,8 +217,11 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	// Listing: filters, order and pages across the cell.
 	second, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Beta"), "Idempotency-Key", "key-"+uuid.NewString())
 	page, _ := p.must(200, "ops|alice", "GET", tenants+"?status=active&page_size=1", "")
-	if items := page["items"].([]any); len(items) != 1 || page["next_page_token"] == nil {
-		t.Fatalf("first page: %v", page)
+	if n := len(page["items"].([]any)); n != 1 {
+		t.Errorf("first page: got %d tenants, want 1", n)
+	}
+	if page["next_page_token"] == nil {
+		t.Errorf("first page token: got none, want one")
 	}
 	seen := map[string]bool{}
 	next, pages := "", 0
@@ -214,8 +240,14 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 		}
 		next = page["next_page_token"].(string)
 	}
-	if !seen[id] || !seen[second["id"].(string)] || pages < 2 {
-		t.Fatalf("paged %d pages, saw %v", pages, seen)
+	if !seen[id] {
+		t.Errorf("paging: tenant %s not seen in %v", id, seen)
+	}
+	if !seen[second["id"].(string)] {
+		t.Errorf("paging: tenant %s not seen in %v", second["id"], seen)
+	}
+	if pages < 2 {
+		t.Errorf("paging: got %d pages, want at least 2", pages)
 	}
 	if first, _ := p.must(200, "ops|alice", "GET", tenants+"?order_by=name%20asc&page_size=1", ""); first["next_page_token"] == nil {
 		t.Fatalf("by name, one per page: %v", first)
@@ -236,20 +268,34 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 
 	// Reading one.
 	got, h := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
-	if got["name"] != "Acme" || h.Get("ETag") != `"1"` {
-		t.Fatalf("get: %v %v", got, h)
+	if got["name"] != "Acme" {
+		t.Errorf("get name: got %v, want Acme", got["name"])
+	}
+	if etag := h.Get("ETag"); etag != `"1"` {
+		t.Errorf("get ETag: got %s, want \"1\"", etag)
 	}
 	p.problem(404, "request.not_found", "ops|alice", "GET", tenants+"/"+uuid.NewString(), "")
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", tenants+"/not-a-uuid", "")
 	p.problem(404, "request.not_found", "ops|alice", "GET", controlplane.Base+"/nothing", "")
-	if code, m, h := p.as("ops|alice", "PUT", tenants, ""); code != 405 || h.Get("Allow") != "GET, POST" || m["code"] != "request.method_not_allowed" {
-		t.Fatalf("PUT: %d %v %v", code, m, h)
+	code, m, h := p.as("ops|alice", "PUT", tenants, "")
+	if code != 405 {
+		t.Errorf("PUT status: got %d, want 405: %v", code, m)
 	}
-	if code, _, h := p.as("ops|alice", "POST", tenants+"/"+id, ""); code != 405 || h.Get("Allow") != "GET" {
-		t.Fatalf("POST item: %d %v", code, h)
+	if got := h.Get("Allow"); got != "GET, POST" {
+		t.Errorf("PUT Allow: got %q, want %q", got, "GET, POST")
 	}
-	if code, _, h := p.as("ops|alice", "GET", tenants+"/"+id+":suspend", ""); code != 405 || h.Get("Allow") != "POST" {
-		t.Fatalf("GET custom: %d %v", code, h)
+	if m["code"] != "request.method_not_allowed" {
+		t.Errorf("PUT problem code: got %v, want request.method_not_allowed", m["code"])
+	}
+	if code, _, h := p.as("ops|alice", "POST", tenants+"/"+id, ""); code != 405 {
+		t.Errorf("POST item status: got %d, want 405", code)
+	} else if got := h.Get("Allow"); got != "GET" {
+		t.Errorf("POST item Allow: got %q, want GET", got)
+	}
+	if code, _, h := p.as("ops|alice", "GET", tenants+"/"+id+":suspend", ""); code != 405 {
+		t.Errorf("GET custom status: got %d, want 405", code)
+	} else if got := h.Get("Allow"); got != "POST" {
+		t.Errorf("GET custom Allow: got %q, want POST", got)
 	}
 
 	// Transitions: guarded by If-Match, refused in the wrong status, felt at the public API's door.
@@ -263,8 +309,14 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	p.problem(404, "request.not_found", "ops|alice", "POST", tenants+"/"+uuid.NewString()+":suspend", "", "If-Match", `"1"`)
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":resume", "", "If-Match", `"1"`)
 	suspended, h := p.must(200, "ops|alice", "POST", tenants+"/"+id+":suspend", "", "If-Match", `"1"`)
-	if suspended["status"] != "suspended" || suspended["version"] != float64(2) || h.Get("ETag") != `"2"` {
-		t.Fatalf("suspend: %v %v", suspended, h)
+	if suspended["status"] != "suspended" {
+		t.Errorf("suspend status: got %v, want suspended", suspended["status"])
+	}
+	if suspended["version"] != float64(2) {
+		t.Errorf("suspend version: got %v, want 2", suspended["version"])
+	}
+	if got := h.Get("ETag"); got != `"2"` {
+		t.Errorf("suspend ETag: got %s, want \"2\"", got)
 	}
 	public.Problem(403, "tenancy.tenant_inactive", "GET", "/v1/roles", "", "")
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":suspend", "", "If-Match", `"2"`)
@@ -274,14 +326,27 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	}
 	public.Must(200, "GET", "/v1/roles", "", "")
 	offboarded, _ := p.must(200, "ops|bob", "POST", tenants+"/"+id+":offboard", "", "If-Match", "*")
-	if offboarded["status"] != "offboarded" || offboarded["version"] != float64(4) {
-		t.Fatalf("offboard: %v", offboarded)
+	if offboarded["status"] != "offboarded" {
+		t.Errorf("offboard status: got %v, want offboarded", offboarded["status"])
+	}
+	if offboarded["version"] != float64(4) {
+		t.Errorf("offboard version: got %v, want 4", offboarded["version"])
 	}
 	public.Problem(403, "tenancy.tenant_inactive", "GET", "/v1/roles", "", "")
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":resume", "", "If-Match", `"4"`)
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":offboard", "", "If-Match", `"4"`)
-	if e := recorded.entries[uuid.MustParse(id)]; e.Status != directory.Offboarded || e.Cell != "test" || e.APIURL != "https://test.api.example.com" || e.Region != "eu-west" {
-		t.Fatalf("directory entry after the lifecycle: %+v", e)
+	dirEntry := recorded.entries[uuid.MustParse(id)]
+	if dirEntry.Status != directory.Offboarded {
+		t.Errorf("directory entry status: got %v, want %v", dirEntry.Status, directory.Offboarded)
+	}
+	if dirEntry.Cell != "test" {
+		t.Errorf("directory entry cell: got %s, want test", dirEntry.Cell)
+	}
+	if dirEntry.APIURL != "https://test.api.example.com" {
+		t.Errorf("directory entry API URL: got %s, want https://test.api.example.com", dirEntry.APIURL)
+	}
+	if dirEntry.Region != "eu-west" {
+		t.Errorf("directory entry region: got %s, want eu-west", dirEntry.Region)
 	}
 	if recorded.writes < 5 { // provisioning, suspend, resume, offboard, and the second tenant
 		t.Fatalf("%d directory writes", recorded.writes)
@@ -322,26 +387,57 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 		Operator string
 	}
 	entries, err := pgx.CollectRows(rows, pgx.RowToStructByPos[entry])
-	if err != nil || len(entries) != 4 {
-		t.Fatalf("audit: %v %v", entries, err)
+	if err != nil {
+		t.Fatalf("audit: %v", err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("audit entries: got %d, want 4: %+v", len(entries), entries)
 	}
 	alice := controlplane.OperatorFrom(reqctx.Claims{Issuer: p.is.URL, Subject: "ops|alice"})
-	if entries[0].Kind != "human" || entries[0].Operator != "ops|alice" || entries[0].Action != "tenancy.tenant.provision" {
-		t.Fatalf("provision entry: %+v", entries[0])
+	if entries[0].Kind != "human" {
+		t.Errorf("provision entry kind: got %s, want human", entries[0].Kind)
+	}
+	if entries[0].Operator != "ops|alice" {
+		t.Errorf("provision entry operator: got %s, want ops|alice", entries[0].Operator)
+	}
+	if entries[0].Action != "tenancy.tenant.provision" {
+		t.Errorf("provision entry action: got %s, want tenancy.tenant.provision", entries[0].Action)
 	}
 	for i, want := range []string{"suspend", "resume", "offboard"} {
 		e := entries[i+1]
-		if e.Kind != "system" || e.Action != "tenancy.tenant."+want || (want != "offboard" && (e.Actor != alice.ID || e.Operator != "ops|alice")) {
-			t.Errorf("%s: %+v", want, e)
+		if e.Kind != "system" {
+			t.Errorf("%s entry kind: got %s, want system", want, e.Kind)
+		}
+		if e.Action != "tenancy.tenant."+want {
+			t.Errorf("%s entry action: got %s, want tenancy.tenant.%s", want, e.Action, want)
+		}
+		if want == "offboard" {
+			continue
+		}
+		if e.Actor != alice.ID {
+			t.Errorf("%s entry actor: got %v, want %v", want, e.Actor, alice.ID)
+		}
+		if e.Operator != "ops|alice" {
+			t.Errorf("%s entry operator: got %s, want ops|alice", want, e.Operator)
 		}
 	}
-	if entries[3].Actor == alice.ID || entries[3].Operator != "ops|bob" {
-		t.Errorf("offboard by bob: %+v", entries[3])
+	if entries[3].Actor == alice.ID {
+		t.Errorf("offboard entry actor: got alice %v, want bob", entries[3].Actor)
+	}
+	if entries[3].Operator != "ops|bob" {
+		t.Errorf("offboard entry operator: got %s, want ops|bob", entries[3].Operator)
 	}
 	tx, _ := conn.Begin(ctx)
 	defer tx.Rollback(ctx)
-	if res, err := audit.Verify(ctx, tx, ten.ID); err != nil || res.BrokenAt != 0 || res.Checked < 4 {
-		t.Fatalf("chain: %+v %v", res, err)
+	res, err := audit.Verify(ctx, tx, ten.ID)
+	if err != nil {
+		t.Fatalf("chain: %v", err)
+	}
+	if res.BrokenAt != 0 {
+		t.Errorf("chain broken at: got %d, want 0", res.BrokenAt)
+	}
+	if res.Checked < 4 {
+		t.Errorf("chain checked: got %d, want at least 4", res.Checked)
 	}
 
 	// Erasure: not before the export, which the offboarding worker does; then on request, once.
@@ -356,20 +452,45 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant WHERE status = 'offboarded' AND exported_at IS NULL`).Scan(&pending); err != nil {
 		t.Fatalf("count tenants to export: %v", err)
 	}
-	if ex, _, err := p.s.Offboarding.RunOnce(ctx); err != nil || ex != pending {
-		t.Fatalf("export: got %d %v, want %d exported", ex, err, pending)
+	ex, _, err := p.s.Offboarding.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if ex != pending {
+		t.Fatalf("export: got %d exported, want %d", ex, pending)
 	}
 	after, afterH := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	off := after["offboarding"].(map[string]any)
-	if off["exported_at"] == nil || off["erase_after"] == nil || off["erased_at"] != nil || !strings.HasSuffix(off["export_ref"].(string), "/manifest.json") || afterH.Get("ETag") != `"5"` {
-		t.Fatalf("after the export: %v", after)
+	if off["exported_at"] == nil {
+		t.Errorf("after the export, exported at: got none, want a time")
+	}
+	if off["erase_after"] == nil {
+		t.Errorf("after the export, erase after: got none, want a time")
+	}
+	if off["erased_at"] != nil {
+		t.Errorf("after the export, erased at: got %v, want none", off["erased_at"])
+	}
+	if ref := off["export_ref"].(string); !strings.HasSuffix(ref, "/manifest.json") {
+		t.Errorf("after the export, export ref: got %s, want a manifest.json", ref)
+	}
+	if got := afterH.Get("ETag"); got != `"5"` {
+		t.Fatalf("after the export, ETag: got %s, want \"5\"", got)
 	}
 	p.problem(412, "request.version_mismatch", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
 	p.problem(404, "request.not_found", "ops|alice", "POST", tenants+"/"+uuid.NewString()+":erase", "", "If-Match", "*")
 	erased, erasedH := p.must(200, "ops|bob", "POST", tenants+"/"+id+":erase", "", "If-Match", `"5"`)
 	er := erased["erasure"].(map[string]any)
-	if erasedH.Get("ETag") != `"6"` || erased["offboarding"].(map[string]any)["erased_at"] == nil || er["rows"].(map[string]any)["identity.principal"] == nil || er["erased_at"] == nil {
-		t.Fatalf("erasure: %v", erased)
+	if got := erasedH.Get("ETag"); got != `"6"` {
+		t.Errorf("erasure ETag: got %s, want \"6\"", got)
+	}
+	if erased["offboarding"].(map[string]any)["erased_at"] == nil {
+		t.Errorf("erasure: offboarding erased at: got none, want a time")
+	}
+	if er["rows"].(map[string]any)["identity.principal"] == nil {
+		t.Errorf("erasure: identity.principal rows: got none, want a count")
+	}
+	if er["erased_at"] == nil {
+		t.Errorf("erasure: erased at: got none, want a time")
 	}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"6"`)
 	var n int
