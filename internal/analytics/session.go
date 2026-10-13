@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // Session holds the results of one conversation with the analytics agent,
@@ -181,25 +183,25 @@ func (s *Session) Rerun(rep *Report) (*Report, map[string]*Result, error) {
 // Save writes the report definition (JSON) and its rendered page (HTML).
 func (rep *Report) Save(dir string, results map[string]*Result) (htmlPath string, err error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return "", err
+		return "", fmt.Errorf("analytics: save report %s: %w", rep.ID, err)
 	}
 	// A Report holds only strings, numbers and nested structs, so marshaling
 	// cannot fail; rendering into memory with the fixed page template cannot
 	// fail either (Render only reports errors from its writer).
 	b, _ := json.MarshalIndent(rep, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, rep.ID+".json"), b, 0o600); err != nil {
-		return "", err
+		return "", fmt.Errorf("analytics: save report %s definition: %w", rep.ID, err)
 	}
 	var page bytes.Buffer
 	Render(&page, &rep.Spec, results, rep.Principal)
 	htmlPath = filepath.Join(dir, rep.ID+".html")
-	return htmlPath, os.WriteFile(htmlPath, page.Bytes(), 0o600)
+	return htmlPath, errs.Wrapf(os.WriteFile(htmlPath, page.Bytes(), 0o600), "analytics: save report %s page", rep.ID)
 }
 
 func LoadReport(path string) (*Report, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("analytics: load report: %w", err)
 	}
 	var rep Report
 	if err := json.Unmarshal(b, &rep); err != nil {

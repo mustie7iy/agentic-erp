@@ -70,7 +70,7 @@ func DefaultModel() (*Model, error) { return ParseModel(defaultModelYAML) }
 func LoadModel(path string) (*Model, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("analytics: load model: %w", err)
 	}
 	return ParseModel(b)
 }

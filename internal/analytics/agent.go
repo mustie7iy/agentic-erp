@@ -72,7 +72,7 @@ func toolText(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 	if !ok {
 		b, err := json.Marshal(v)
 		if err != nil {
-			return anthropic.BetaToolResultBlockParamContentUnion{}, err
+			return anthropic.BetaToolResultBlockParamContentUnion{}, fmt.Errorf("analytics: encode tool result: %w", err)
 		}
 		text = string(b)
 	}
@@ -170,7 +170,7 @@ func (a *Agent) Ask(ctx context.Context, s *Session, question string) (*Answer, 
 	})
 	msg, err := runner.RunToCompletion(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("analytics: run agent: %w", err)
 	}
 	if msg.StopReason == anthropic.BetaStopReasonRefusal {
 		return nil, fmt.Errorf("model declined: %s", msg.StopDetails.Explanation)
