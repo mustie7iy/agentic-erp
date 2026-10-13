@@ -431,7 +431,12 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 	m, err := ParseModel([]byte("dimensions: [{name: company}]\nmetrics:\n" +
 		"  - {name: units, type: count, source: t, aggregate: sum, dimensions: [company]}\n" +
 		"  - {name: docs, type: count, source: t, aggregate: count_distinct, dimensions: [company]}\n" +
-		"  - {name: docs_share, type: ratio, derived: {op: divide, left: docs, right: docs}}\n"))
+		"  - {name: docs_share, type: ratio, derived: {op: divide, left: docs, right: docs}}\n" +
+		"  - {name: units_share, type: ratio, derived: {op: divide, left: units, right: units}}\n" +
+		"  - {name: usd_units, type: money, source: t, aggregate: sum, filter: {company: [\"1000\"]}, dimensions: [company]}\n" +
+		"  - {name: jpy_units, type: money, source: t, aggregate: sum, filter: {company: [\"3000\"]}, dimensions: [company]}\n" +
+		"  - {name: units_gap, type: money, derived: {op: subtract, left: usd_units, right: jpy_units}}\n" +
+		"  - {name: units_rate, type: ratio, derived: {op: divide, left: usd_units, right: jpy_units}}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,12 +462,27 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})
-	t.Run("a ratio over currencies is still refused", func(t *testing.T) {
-		_, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"docs_share"}})
-		if want := "docs_share would add amounts in JPY and USD together"; err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("got %v, want %q", err, want)
+	// A ratio of distinct counts adds no amounts, so its cell may span
+	// currencies.
+	t.Run("a count ratio spans currencies", func(t *testing.T) {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"docs_share"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Rows[0][0], 1.0; got != want {
+			t.Errorf("got %v, want %v", got, want)
 		}
 	})
+	// A derived metric is refused when its sums together read several
+	// currencies: one sum spanning them, or each operand in its own.
+	for _, name := range []string{"units_share", "units_gap", "units_rate"} {
+		t.Run(name+" over currencies is refused", func(t *testing.T) {
+			_, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{name}})
+			if want := name + " would add amounts in JPY and USD together"; err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("got %v, want %q", err, want)
+			}
+		})
+	}
 	t.Run("one currency per group", func(t *testing.T) {
 		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"units"}, By: []string{"company"}})
 		if err != nil {

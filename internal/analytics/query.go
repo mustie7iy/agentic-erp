@@ -277,9 +277,9 @@ func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int,
 	ev := &cellEval{m: m, base: agg.base, key: key, curs: map[string]bool{}, summed: map[string]bool{}}
 	v, ok := ev.eval(name)
 	met := m.Metric(name)
-	if mixed := ev.mixedCurrencies(met); mixed != nil {
+	if len(ev.summed) > 1 {
 		return fmt.Errorf("%s would add amounts in %s together; break down by company or filter to one company",
-			name, strings.Join(sortedSet(mixed), " and "))
+			name, strings.Join(sortedSet(ev.summed), " and "))
 	}
 	if colCurrency[name] == nil {
 		colCurrency[name] = map[string]bool{}
@@ -301,27 +301,16 @@ func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int,
 // every base metric it reads so the caller can refuse mixed currencies.
 // summed holds only the currencies of sum aggregates: fact amounts are
 // minor units of the fact's currency (facts.go), so a sum is an amount
-// whatever the metric's type, while a distinct count is not.
+// whatever the metric's type, while a distinct count is not. A cell is
+// refused when its sums read several currencies, whether one sum spans
+// them or each operand of a derived metric is in its own; distinct
+// counts, and ratios of them, may span currencies.
 type cellEval struct {
 	m      *Model
 	base   map[string]map[string]*aggCell
 	key    string
 	curs   map[string]bool
 	summed map[string]bool
-}
-
-// mixedCurrencies returns the currencies the cell would add together, or
-// nil. A sum over facts in several currencies is refused for every metric
-// type, a Count included; otherwise a Count is exempt, since counting
-// documents across currencies is meaningful.
-func (ev *cellEval) mixedCurrencies(met *Metric) map[string]bool {
-	if len(ev.summed) > 1 {
-		return ev.summed
-	}
-	if len(ev.curs) > 1 && met.Type != Count {
-		return ev.curs
-	}
-	return nil
 }
 
 func (ev *cellEval) eval(n string) (float64, bool) {
