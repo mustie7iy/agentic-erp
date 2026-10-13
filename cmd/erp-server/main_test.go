@@ -96,7 +96,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		})
 	}()
 	a := <-addrs
-	get := func(u, token string) (*http.Response, map[string]any) {
+	get := func(u, token string) (int, map[string]any) {
 		req, _ := http.NewRequest("GET", u, nil)
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
@@ -108,10 +108,10 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		defer resp.Body.Close()
 		var body map[string]any
 		json.NewDecoder(resp.Body).Decode(&body)
-		return resp, body
+		return resp.StatusCode, body
 	}
-	if resp, _ := get("http://"+a[1]+"/readyz", ""); resp.StatusCode != 200 {
-		t.Fatalf("readyz %d", resp.StatusCode)
+	if code, _ := get("http://"+a[1]+"/readyz", ""); code != 200 {
+		t.Fatalf("readyz %d", code)
 	}
 	// The workers' backlogs are read on each scrape of the admin metrics (a
 	// read that outlasts its timeout on a loaded machine is left out of that
@@ -137,9 +137,9 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		}
 	}
 	token := is.Token(t, ten.ID, ten.Human.Subject, nil)
-	resp, page := get("http://"+a[0]+"/v1/operations", token)
-	if resp.StatusCode != 200 || len(page["items"].([]any)) != 1 {
-		t.Fatalf("list %d %v", resp.StatusCode, page)
+	code, page := get("http://"+a[0]+"/v1/operations", token)
+	if code != 200 || len(page["items"].([]any)) != 1 {
+		t.Fatalf("list %d %v", code, page)
 	}
 	op := page["items"].([]any)[0].(map[string]any)
 
@@ -494,16 +494,16 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	}
 	req, _ = http.NewRequest("GET", "http://"+a[0]+"/v1/roles", nil)
 	req.Header.Set("Authorization", "Bearer "+operator.Token)
-	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 401 {
-		t.Fatalf("operator on the public API: %v %v", resp, err)
+	if code := status(t, req); code != 401 {
+		t.Fatalf("operator on the public API: got %d, want 401", code)
 	}
 	if code, m := control("POST", "/tenants/"+created.TenantID+":suspend", `"1"`); code != 200 || m["status"] != "suspended" {
 		t.Fatalf("suspend: %d %v", code, m)
 	}
 	req, _ = http.NewRequest("GET", "http://"+a[0]+"/v1/roles", nil)
 	req.Header.Set("Authorization", "Bearer "+minted.Token)
-	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 403 {
-		t.Fatalf("suspended tenant on the public API: %v %v", resp, err)
+	if code := status(t, req); code != 403 {
+		t.Fatalf("suspended tenant on the public API: got %d, want 403", code)
 	}
 	if code, m := control("POST", "/tenants/"+created.TenantID+":resume", `"2"`); code != 200 || m["status"] != "active" {
 		t.Fatalf("resume: %d %v", code, m)
@@ -959,4 +959,17 @@ func TestWorkflowEngine(t *testing.T) {
 	if err := run(context.Background(), load(t, env), quiet(), nil); err == nil || !strings.Contains(err.Error(), "connecting to") {
 		t.Fatalf("started without its engine: %v", err)
 	}
+}
+
+// status sends the request and returns the response's status, its body closed.
+func status(t *testing.T, req *http.Request) int {
+	t.Helper()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode
 }

@@ -173,7 +173,7 @@ func (f fixed) RoundTrip(*http.Request) (*http.Response, error) {
 	if status == 0 {
 		status = 200
 	}
-	var body io.ReadCloser = io.NopCloser(strings.NewReader(f.body))
+	body := io.NopCloser(strings.NewReader(f.body))
 	if f.broken {
 		body = failingReader{}
 	}

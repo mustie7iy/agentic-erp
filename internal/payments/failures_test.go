@@ -59,7 +59,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		}
 		if _, err := h.PostPayment(ctx, r, uuid.New()); err == nil || !strings.Contains(err.Error(), "has no payment") {
-			return fmt.Errorf("unknown payment: %v", err)
+			return fmt.Errorf("unknown payment: %w", err)
 		}
 		_, err = h.FailRelease(ctx, r, problem.Conflict("payments.bank_file_invalid", "test"))
 		return err
@@ -118,14 +118,14 @@ func TestDatabaseFailures(t *testing.T) {
 	if err := apitest.InRequest(t, e.Tenant, e.Approver, func(ctx context.Context) error {
 		tx, _ := reqctx.TxFrom(ctx)
 		if _, _, err := h.Releaser(ctx, tx, run); err == nil || !strings.Contains(err.Error(), "not releasing") {
-			return fmt.Errorf("releaser of a proposed run: %v", err)
+			return fmt.Errorf("releaser of a proposed run: %w", err)
 		}
 		r, err := payments.GetRun(ctx, uuidOf(id(relB)))
 		if err != nil {
 			return err
 		}
 		if _, err := h.FinishRelease(ctx, r); err == nil || !strings.Contains(err.Error(), "not posted yet") {
-			return fmt.Errorf("finish before posting: %v", err)
+			return fmt.Errorf("finish before posting: %w", err)
 		}
 		return nil
 	}); err != nil {

@@ -2,6 +2,7 @@ package fieldcrypt
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -24,14 +25,14 @@ func TestSealOpenAndFingerprint(t *testing.T) {
 	if v, err := k.Open(tenant, a); err != nil || v != "DE89370400440532013000" {
 		t.Fatalf("open: %q %v", v, err)
 	}
-	if _, err := k.Open(other, a); err != ErrCorrupt {
+	if _, err := k.Open(other, a); !errors.Is(err, ErrCorrupt) {
 		t.Fatalf("another tenant opened the value: %v", err)
 	}
-	if _, err := k.Open(tenant, a[:5]); err != ErrCorrupt {
+	if _, err := k.Open(tenant, a[:5]); !errors.Is(err, ErrCorrupt) {
 		t.Fatal("truncated value opened")
 	}
 	bad := append([]byte{9}, a[1:]...)
-	if _, err := k.Open(tenant, bad); err != ErrCorrupt {
+	if _, err := k.Open(tenant, bad); !errors.Is(err, ErrCorrupt) {
 		t.Fatal("unknown version opened")
 	}
 	if k.Fingerprint(tenant, "de89 3704") != k.Fingerprint(tenant, "DE893704") {

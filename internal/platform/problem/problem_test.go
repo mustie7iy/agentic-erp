@@ -51,7 +51,7 @@ func TestConstructors(t *testing.T) {
 func TestErrorAndCause(t *testing.T) {
 	cause := errors.New("disk on fire")
 	p := Internal(cause)
-	if !errors.Is(p, cause) || Cause(p) != cause || !strings.Contains(p.Error(), "disk on fire") {
+	if !errors.Is(p, cause) || Cause(p) != cause || !strings.Contains(p.Error(), "disk on fire") { //nolint:errorlint // Cause must return the cause itself, not an error that wraps it
 		t.Fatal(p.Error())
 	}
 	if q := NotFound("missing"); strings.Contains(q.Error(), "<nil>") || Cause(q) != nil {

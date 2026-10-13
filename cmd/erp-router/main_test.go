@@ -74,8 +74,8 @@ func TestRoutesToTheCell(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(string(body), `"cell":"eu-1"`) || resp.Header.Get("X-Erp-Cell") != "eu-1" {
 		t.Fatalf("%d %s %v", resp.StatusCode, body, resp.Header)
 	}
-	if resp, err := http.Get(base + "/livez"); err != nil || resp.StatusCode != 200 {
-		t.Fatalf("livez: %v %v", resp, err)
+	if code := getStatus(t, base+"/livez"); code != 200 {
+		t.Fatalf("livez: got %d, want 200", code)
 	}
 	// The admin listener: liveness and metrics, and the global control plane for operators.
 	var adminBase string
@@ -86,8 +86,8 @@ func TestRoutesToTheCell(t *testing.T) {
 		t.Fatal("no admin listener")
 	}
 	for _, path := range []string{"/livez", "/metrics"} {
-		if resp, err := http.Get(adminBase + path); err != nil || resp.StatusCode != 200 {
-			t.Fatalf("admin %s: %v %v", path, resp, err)
+		if code := getStatus(t, adminBase+path); code != 200 {
+			t.Fatalf("admin %s: got %d, want 200", path, code)
 		}
 	}
 	req, _ = http.NewRequest("GET", adminBase+"/directory/v1/tenants/"+tenant.String(), nil)
@@ -148,4 +148,21 @@ func TestExitCodes(t *testing.T) {
 	defer func() { exit = nil }()
 	t.Setenv("ERP_DIRECTORY_URL", "")
 	main()
+}
+
+// getStatus gets the URL and returns the response's status, its body closed.
+func getStatus(t *testing.T, u string) int {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, u, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode
 }

@@ -390,10 +390,10 @@ func TestDatabaseFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	apitest.EveryFailure(t, f.Tenant, f.Approver, "next step", func(ctx context.Context) error {
-		_, err := e.Decider.Approve(ctx, multi, func(int32) error { return nil }, "")
+		_, err := e.Approve(ctx, multi, func(int32) error { return nil }, "")
 		return err
 	})
-	if _, err := e.Decider.Approve(context.Background(), multi, nil, ""); err == nil {
+	if _, err := e.Approve(context.Background(), multi, nil, ""); err == nil {
 		t.Error("approve outside a unit of work")
 	}
 	if err := apitest.InRequest(t, f.Tenant, f.Approver, func(ctx context.Context) error {

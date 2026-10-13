@@ -42,7 +42,11 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
   production); production refuses ERP_DEV_ISSUER and an engine without ERP_TEMPORAL_CODEC_KEY.
   TestProductionFailsClosed (9 cases); its refusal cases fail with the check disabled. Lint
   config unchanged. Reviewer: APPROVE.
-- [~] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero (R6a production, R6b tests)
+- [x] R6 nilerr, errorlint, staticcheck, bodyclose, exhaustive to zero (R6a production, R6b tests).
+  35 → 0 (nilerr 2, errorlint 11, staticcheck 13, bodyclose 6, exhaustive 3). One justified
+  nolint (problem.Cause identity check). Behaviour change: S3 ErrLocked and KMS ErrCorrupt keep
+  their cause in the chain (tests added). Reviewer: APPROVE (R6b after one fix: globalplane
+  assertion kept strict with errors.Is plus not-a-problem).
 
 ### Phase 2 — Shared helpers
 - [ ] R7 etag.IfMatch replaces the per-package ifMatch copies

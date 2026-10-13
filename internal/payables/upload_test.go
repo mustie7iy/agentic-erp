@@ -155,7 +155,7 @@ func TestDirectUploads(t *testing.T) {
 	r = e.API.Do(apitest.Req{Method: "POST", Path: "/v1/supplier-invoices:capture", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(),
 		Header: map[string][]string{"Content-Type": {"multipart/form-data; boundary=b"}},
 		Body:   "--b\r\nContent-Disposition: form-data; name=\"legal_entity_id\"\r\n\r\n" + e.DE.String() + "\r\n--b\r\nContent-Disposition: form-data; name=\"document\"\r\n\r\n" + strings.Repeat("x", payables.MaxDocument+1) + "\r\n--b--\r\n"})
-	if r.Code != 413 && !(r.Code == 422 && strings.Contains(r.Body.String(), "payables.document_too_large")) {
+	if r.Code != 413 && (r.Code != 422 || !strings.Contains(r.Body.String(), "payables.document_too_large")) {
 		t.Fatalf("oversized: %d %s", r.Code, r.Body)
 	}
 

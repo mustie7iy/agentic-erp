@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
@@ -215,7 +214,7 @@ func inRequest(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, failAt int, fn f
 	if err := database.SetActor(ctx, tx, a.ID); err != nil {
 		t.Fatal(err)
 	}
-	var used pgx.Tx = tx
+	used := tx
 	if failAt > 0 {
 		used = &pgtest.FailingTx{Tx: tx, FailAt: failAt}
 	}

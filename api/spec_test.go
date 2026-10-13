@@ -185,7 +185,7 @@ func TestDocument(t *testing.T) {
 	}
 	for _, req := range security {
 		for name := range req.(node) {
-			if s, ok := schemes[name].(node); !ok || !(s["scheme"] == "bearer" || s["type"] == "oauth2" || s["type"] == "openIdConnect") {
+			if s, ok := schemes[name].(node); !ok || s["scheme"] != "bearer" && s["type"] != "oauth2" && s["type"] != "openIdConnect" {
 				t.Errorf("security scheme %s must be an OAuth2/OIDC bearer scheme", name)
 			}
 		}

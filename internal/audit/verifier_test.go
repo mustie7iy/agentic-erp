@@ -179,7 +179,7 @@ func TestScheduledVerification(t *testing.T) {
 type brokenCommit struct{ pgx.Tx }
 
 func (b brokenCommit) Commit(ctx context.Context) error {
-	b.Tx.Rollback(ctx)
+	b.Rollback(ctx)
 	return errors.New("commit failed")
 }
 

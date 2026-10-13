@@ -217,7 +217,7 @@ func TestProposalWorkflow(t *testing.T) {
 type brokenCommit struct{ pgx.Tx }
 
 func (b *brokenCommit) Commit(ctx context.Context) error {
-	_ = b.Tx.Rollback(ctx)
+	_ = b.Rollback(ctx)
 	return errors.New("commit failed")
 }
 
