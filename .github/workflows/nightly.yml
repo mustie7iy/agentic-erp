@@ -56,7 +56,9 @@ jobs:
           done
           echo "the database did not come back with max_connections = 300" >&2; exit 1
       - name: Tests in a random order, three times
-        run: go test -race -shuffle=on -count=3 ./...
+        # Three race runs triple each package binary's time; go test's default
+        # 10 minutes per binary would stop the slowest (workflows, nfr) early.
+        run: go test -race -shuffle=on -count=3 -timeout 45m ./...
 
   nfr:
     runs-on: ubuntu-latest

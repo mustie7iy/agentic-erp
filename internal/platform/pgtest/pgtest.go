@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,7 +135,9 @@ func Exec(tb testing.TB, sql string, args ...any) {
 func EmptyDatabase(tb testing.TB) string {
 	tb.Helper()
 	ctx := context.Background()
-	name := fmt.Sprintf("erp_empty_%d", time.Now().UnixNano())
+	// Package binaries run in parallel against one server; a random name
+	// cannot collide where a clock reading could.
+	name := "erp_empty_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	Exec(tb, "CREATE DATABASE "+name)
 	tb.Cleanup(func() {
 		c, err := pgx.Connect(ctx, URL(tb))
@@ -147,7 +150,7 @@ func EmptyDatabase(tb testing.TB) string {
 			tb.Errorf("drop %s: %v", name, err)
 		}
 	})
-	u, _ := url.Parse(URL(tb))
+	u, _ := url.Parse(URL(tb)) // URL is the package database's, parsed and connected to by Main
 	u.Path = "/" + name
 	return u.String()
 }
