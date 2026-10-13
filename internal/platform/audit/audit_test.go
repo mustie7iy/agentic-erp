@@ -44,8 +44,12 @@ func verify(t *testing.T, pool *database.Pool, tenant uuid.UUID) audit.Result {
 func TestBufferedEntriesExtendTheChain(t *testing.T) {
 	pool := pgtest.Pool(t)
 	ten := pgtest.NewTenant(t)
-	if res := verify(t, pool, ten.ID); res.Checked != 0 || res.BrokenAt != 0 {
-		t.Fatalf("empty chain: %+v", res)
+	res := verify(t, pool, ten.ID)
+	if res.Checked != 0 {
+		t.Errorf("empty chain: Checked = %d, want 0", res.Checked)
+	}
+	if res.BrokenAt != 0 {
+		t.Errorf("empty chain: BrokenAt = %d, want 0", res.BrokenAt)
 	}
 	obj := uuid.New()
 	for i := 0; i < 3; i++ {
@@ -73,8 +77,12 @@ func TestBufferedEntriesExtendTheChain(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if res := verify(t, pool, ten.ID); res.Checked != 6 || res.BrokenAt != 0 {
-		t.Fatalf("chain: %+v", res)
+	res = verify(t, pool, ten.ID)
+	if res.Checked != 6 {
+		t.Errorf("chain: Checked = %d, want 6", res.Checked)
+	}
+	if res.BrokenAt != 0 {
+		t.Errorf("chain: BrokenAt = %d, want 0", res.BrokenAt)
 	}
 }
 
@@ -120,8 +128,15 @@ func TestTamperingIsDetected(t *testing.T) {
 		return res
 	}
 	// A range starts from its first event's stored predecessor.
-	if res := ranged(edited.ID, 3, 0); res.BrokenAt != 0 || res.Checked != 2 || res.LastSeq != 4 {
-		t.Fatalf("range after the edit: %+v", res)
+	res := ranged(edited.ID, 3, 0)
+	if res.BrokenAt != 0 {
+		t.Errorf("range after the edit: BrokenAt = %d, want 0", res.BrokenAt)
+	}
+	if res.Checked != 2 {
+		t.Errorf("range after the edit: Checked = %d, want 2", res.Checked)
+	}
+	if res.LastSeq != 4 {
+		t.Errorf("range after the edit: LastSeq = %d, want 4", res.LastSeq)
 	}
 	if res := ranged(edited.ID, 1, 2); res.BrokenAt != 2 {
 		t.Fatalf("range with the edit: %+v", res)
@@ -130,11 +145,19 @@ func TestTamperingIsDetected(t *testing.T) {
 	truncated := pgtest.NewTenant(t)
 	write(truncated, 3)
 	tamper(`DELETE FROM audit.audit_event WHERE tenant_id = $1 AND seq = 3`, truncated.ID)
-	if res := verify(t, pool, truncated.ID); res.BrokenAt != 3 || res.Checked != 2 {
-		t.Fatalf("deleted last event: %+v", res)
+	res = verify(t, pool, truncated.ID)
+	if res.BrokenAt != 3 {
+		t.Errorf("deleted last event: BrokenAt = %d, want 3", res.BrokenAt)
 	}
-	if res := ranged(truncated.ID, 1, 2); res.BrokenAt != 0 || res.LastSeq != 2 {
-		t.Fatalf("range before the deletion: %+v", res)
+	if res.Checked != 2 {
+		t.Errorf("deleted last event: Checked = %d, want 2", res.Checked)
+	}
+	res = ranged(truncated.ID, 1, 2)
+	if res.BrokenAt != 0 {
+		t.Errorf("range before the deletion: BrokenAt = %d, want 0", res.BrokenAt)
+	}
+	if res.LastSeq != 2 {
+		t.Errorf("range before the deletion: LastSeq = %d, want 2", res.LastSeq)
 	}
 	if res := ranged(truncated.ID, 2, 3); res.BrokenAt != 3 {
 		t.Fatalf("range over the deletion: %+v", res)
@@ -178,8 +201,12 @@ func TestConcurrentWritersKeepOneChain(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if res := verify(t, pool, ten.ID); res.Checked != 8 || res.BrokenAt != 0 {
-		t.Fatalf("%+v", res)
+	res := verify(t, pool, ten.ID)
+	if res.Checked != 8 {
+		t.Errorf("Checked = %d, want 8", res.Checked)
+	}
+	if res.BrokenAt != 0 {
+		t.Errorf("BrokenAt = %d, want 0", res.BrokenAt)
 	}
 }
 
@@ -205,14 +232,16 @@ func TestErrors(t *testing.T) {
 		"in a list":     {"items": []any{map[string]any{"ok": 1}, map[string]any{"email": "x"}}},
 		"value in list": {"refs": []any{"GB29NWBK60161331926819"}},
 	} {
-		if field, found := audit.Personal(detail); !found || field == "" {
-			t.Errorf("%s: not found in %v", name, detail)
-		}
-		if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
-			return audit.Write(ctx, tx, actor(ten), "", time.Now(), audit.Entry{Action: "x.y", ObjectType: "x", Outcome: "ok", Detail: detail})
-		}); err == nil || !strings.Contains(err.Error(), "personal data") {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			if field, found := audit.Personal(detail); !found || field == "" {
+				t.Errorf("Personal(%v) = %q, %v; want a field, true", detail, field, found)
+			}
+			if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+				return audit.Write(ctx, tx, actor(ten), "", time.Now(), audit.Entry{Action: "x.y", ObjectType: "x", Outcome: "ok", Detail: detail})
+			}); err == nil || !strings.Contains(err.Error(), "personal data") {
+				t.Errorf("Write: got %v, want a personal data error", err)
+			}
+		})
 	}
 	if field, found := audit.Personal(map[string]any{"supplier_id": "0192a000-0000-7000-8000-000000000301", "amount": "12.00", "status": "parked", "number": "BP90000003", "note": "paid @ once"}); found {
 		t.Errorf("identifiers flagged: %s", field)
