@@ -168,6 +168,40 @@ type multiFlag []string
 func (m *multiFlag) String() string     { return strings.Join(*m, "; ") }
 func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
+// callInput is the operation's input: the parameters (a comma makes a
+// list), the ETag and the body, read from a file when it starts with @.
+func callInput(operation string, params multiFlag, ifMatch, body string) (map[string]any, error) {
+	var err error
+	input := map[string]any{}
+	for _, p := range params {
+		name, value, ok := strings.Cut(p, "=")
+		if !ok {
+			return nil, fmt.Errorf("parameter %q: want name=value", p)
+		}
+		input[name] = value
+		if strings.Contains(value, ",") {
+			input[name] = strings.Split(value, ",")
+		}
+	}
+	if ifMatch != "" {
+		input["if_match"] = ifMatch
+	}
+	if body != "" {
+		raw := []byte(body)
+		if path, ok := strings.CutPrefix(body, "@"); ok {
+			if raw, err = os.ReadFile(path); err != nil { // #nosec G703 -- a file the user names on the command line
+				return nil, fmt.Errorf("call %s: read body: %w", operation, err)
+			}
+		}
+		var b any
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return nil, fmt.Errorf("body: %w", err)
+		}
+		input["body"] = b
+	}
+	return input, nil
+}
+
 // call performs one API operation, named by its operationId, and prints the
 // answer. Parameters are name=value; a body is JSON, or @file.
 func call(ctx context.Context, args []string) error {
@@ -190,32 +224,9 @@ func call(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	input := map[string]any{}
-	for _, p := range params {
-		name, value, ok := strings.Cut(p, "=")
-		if !ok {
-			return fmt.Errorf("parameter %q: want name=value", p)
-		}
-		input[name] = value
-		if strings.Contains(value, ",") {
-			input[name] = strings.Split(value, ",")
-		}
-	}
-	if *ifMatch != "" {
-		input["if_match"] = *ifMatch
-	}
-	if *body != "" {
-		raw := []byte(*body)
-		if path, ok := strings.CutPrefix(*body, "@"); ok {
-			if raw, err = os.ReadFile(path); err != nil { // #nosec G703 -- a file the user names on the command line
-				return fmt.Errorf("call %s: read body: %w", args[0], err)
-			}
-		}
-		var b any
-		if err := json.Unmarshal(raw, &b); err != nil {
-			return fmt.Errorf("body: %w", err)
-		}
-		input["body"] = b
+	input, err := callInput(args[0], params, *ifMatch, *body)
+	if err != nil {
+		return err
 	}
 	raw, _ := json.Marshal(input) // strings and decoded JSON
 	res, err := op.Execute(ctx, raw)

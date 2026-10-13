@@ -106,27 +106,7 @@ func queryCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', tabwriter.AlignRight)
-	for _, c := range r.Columns {
-		h := c.Name
-		if c.Currency != "" {
-			h += " (" + c.Currency + ")"
-		}
-		fmt.Fprintf(tw, "%s\t", h)
-	}
-	fmt.Fprintln(tw)
-	for _, row := range r.Rows {
-		for _, v := range row {
-			switch x := v.(type) {
-			case string:
-				fmt.Fprintf(tw, "%s\t", x)
-			case float64:
-				fmt.Fprintf(tw, "%.2f\t", x)
-			default:
-				fmt.Fprint(tw, "—\t")
-			}
-		}
-		fmt.Fprintln(tw)
-	}
+	printResult(tw, r)
 	tw.Flush()
 	fmt.Fprintf(out, "\n%s · %d rows · data through %s\n", r.ID, len(r.Rows), r.DataThrough)
 	if *csvOut != "" {
@@ -226,4 +206,30 @@ func parseFilter(s string) (analytics.Filter, error) {
 		return analytics.Filter{}, fmt.Errorf("filter %q: want \"dim op values\"", s)
 	}
 	return analytics.Filter{Dim: parts[0], Op: parts[1], Values: splitList(strings.Join(parts[2:], ""))}, nil
+}
+
+// printResult writes a query result as a table: a header with each
+// column's currency, then the rows.
+func printResult(tw *tabwriter.Writer, r *analytics.Result) {
+	for _, c := range r.Columns {
+		h := c.Name
+		if c.Currency != "" {
+			h += " (" + c.Currency + ")"
+		}
+		fmt.Fprintf(tw, "%s\t", h)
+	}
+	fmt.Fprintln(tw)
+	for _, row := range r.Rows {
+		for _, v := range row {
+			switch x := v.(type) {
+			case string:
+				fmt.Fprintf(tw, "%s\t", x)
+			case float64: //nolint:forbidigo // analytics results carry measures as float64 for display (internal/analytics is exempt); this only prints them
+				fmt.Fprintf(tw, "%.2f\t", x)
+			default:
+				fmt.Fprint(tw, "—\t")
+			}
+		}
+		fmt.Fprintln(tw)
+	}
 }

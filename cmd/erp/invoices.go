@@ -111,38 +111,20 @@ func invoices(ctx context.Context, args []string) error {
 			continue // entered by hand without an order: a person posts it
 		}
 		path := "/v1/supplier-invoices/" + inv.ID
-		got, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
+		clean, err := matchInvoice(ctx, c, path, inv)
 		if err != nil {
 			return err
-		}
-		resp, err := c.Do(ctx, http.MethodPost, path+":match", nil, nil, got.ETag)
-		if err != nil {
-			return err
-		}
-		var match struct {
-			IsClean bool `json:"is_clean"`
-		}
-		if err := resp.Decode(&match); err != nil {
-			return fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
 		}
 		action, body := "post", any(nil)
 		switch {
-		case !match.IsClean:
+		case !clean:
 			held = append(held, inv.DocumentNumber+" (match)")
 			continue
 		case minor(inv.Gross.Amount) > limit[inv.LegalEntityID]:
 			action, body = "hold", map[string]string{"reason": "Above the auto-post limit; a person posts it."}
 		}
-		got, err = c.Do(ctx, http.MethodGet, path, nil, nil, "")
-		if err != nil {
+		if err := settleInvoice(ctx, c, path, inv, action, body); err != nil {
 			return err
-		}
-		resp, err = c.Do(ctx, http.MethodPost, path+":"+action, nil, body, got.ETag)
-		if err != nil {
-			return err
-		}
-		if err := resp.Err(); err != nil {
-			return fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
 		}
 		if action == "hold" {
 			held = append(held, inv.DocumentNumber+" (limit)")
@@ -153,6 +135,43 @@ func invoices(ctx context.Context, args []string) error {
 	fmt.Fprintf(out, "Posted %d: %s\nHeld %d: %s\n", len(posted), strings.Join(posted, ", "), len(held), strings.Join(held, ", "))
 	if *withAgent {
 		return agentInvoices(ctx)
+	}
+	return nil
+}
+
+// matchInvoice matches the invoice at path against its order, on its
+// current version, and reports whether the match is clean.
+func matchInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice) (bool, error) {
+	got, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
+	if err != nil {
+		return false, err
+	}
+	resp, err := c.Do(ctx, http.MethodPost, path+":match", nil, nil, got.ETag)
+	if err != nil {
+		return false, err
+	}
+	var match struct {
+		IsClean bool `json:"is_clean"`
+	}
+	if err := resp.Decode(&match); err != nil {
+		return false, fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
+	}
+	return match.IsClean, nil
+}
+
+// settleInvoice posts or holds (action) the matched invoice at path, on
+// its version after the match.
+func settleInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice, action string, body any) error {
+	got, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
+	if err != nil {
+		return err
+	}
+	resp, err := c.Do(ctx, http.MethodPost, path+":"+action, nil, body, got.ETag)
+	if err != nil {
+		return err
+	}
+	if err := resp.Err(); err != nil {
+		return fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
 	}
 	return nil
 }

@@ -63,22 +63,9 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	metrics := telemetry.NewMetrics()
 	traced := telemetry.Middleware(log, metrics, tracenoop.NewTracerProvider())
 	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: cfg.Transport})
-	// The admin listener: liveness, metrics, and with operator issuers the
-	// global control plane (api/directory.yaml).
-	admin := http.NewServeMux()
-	admin.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
-	admin.Handle("GET /metrics", metrics.Handler())
-	if len(cfg.OperatorIssuers) > 0 {
-		operators, err := authn.New(ctx, cfg.OperatorIssuers, cfg.Static...)
-		if err != nil {
-			return err
-		}
-		pages, _ := pagination.NewCodec(cfg.PageTokenKey) // the key's length was checked with the configuration
-		admin.Handle(globalplane.Base+"/", traced(globalplane.Handler(&globalplane.Service{Directory: dir, Pages: pages}, operators, log)))
-		log.Info("global control plane served on the admin listener", "path", globalplane.Base, "operator_issuers", len(cfg.OperatorIssuers))
+	admin, err := adminMux(ctx, cfg, dir, metrics, traced, log)
+	if err != nil {
+		return err
 	}
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
@@ -113,4 +100,25 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	}
 	log.Info("erp-router stopped")
 	return serveErr
+}
+
+// adminMux is the admin listener's handler: liveness, metrics, and with
+// operator issuers the global control plane (api/directory.yaml).
+func adminMux(ctx context.Context, cfg router.Config, dir *directory.Postgres, metrics *telemetry.Metrics, traced func(http.Handler) http.Handler, log *slog.Logger) (*http.ServeMux, error) {
+	admin := http.NewServeMux()
+	admin.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+	admin.Handle("GET /metrics", metrics.Handler())
+	if len(cfg.OperatorIssuers) > 0 {
+		operators, err := authn.New(ctx, cfg.OperatorIssuers, cfg.Static...)
+		if err != nil {
+			return nil, err
+		}
+		pages, _ := pagination.NewCodec(cfg.PageTokenKey) // the key's length was checked with the configuration
+		admin.Handle(globalplane.Base+"/", traced(globalplane.Handler(&globalplane.Service{Directory: dir, Pages: pages}, operators, log)))
+		log.Info("global control plane served on the admin listener", "path", globalplane.Base, "operator_issuers", len(cfg.OperatorIssuers))
+	}
+	return admin, nil
 }
