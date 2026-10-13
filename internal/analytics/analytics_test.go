@@ -29,8 +29,6 @@ var (
 	ledgerRevenue map[string]int64 // company 1000 revenue per year, from the journal
 )
 
-func alpha(v string) string { return strings.TrimLeft(v, "0") }
-
 // twoYears builds the facts of mock SAP data for 2025 (full year) and 2026
 // (through September) for both company codes, the way loading them onto
 // the platform and reading them back through the API does.
@@ -69,10 +67,10 @@ func twoYears(t *testing.T) *Facts {
 			e := sap.GenerateMockThrough(y.seed, y.year, y.through)
 			names, accounts, recon := map[string]string{}, map[string]string{}, map[string]bool{}
 			for _, v := range e.LFA1 {
-				names[alpha(v.LIFNR)] = v.NAME1
+				names[sap.Alpha(v.LIFNR)] = v.NAME1
 			}
 			for _, a := range e.SKB1 {
-				accounts[alpha(a.SAKNR)], recon[alpha(a.SAKNR)] = a.TXT50, a.MITKZ == "K"
+				accounts[sap.Alpha(a.SAKNR)], recon[sap.Alpha(a.SAKNR)] = a.TXT50, a.MITKZ == "K"
 			}
 			currency := map[string]string{}
 			for _, c := range e.T001 {
@@ -80,10 +78,10 @@ func twoYears(t *testing.T) *Facts {
 			}
 			for _, l := range e.ACDOCA {
 				amt, _ := money.ParseDecimal(l.HSL, 2)
-				acct := alpha(l.RACCT)
+				acct := sap.Alpha(l.RACCT)
 				add("gl_lines", l.RBUKRS+"/"+l.GJAHR+"/"+l.BELNR, l.RBUKRS, l.BUDAT, currency[l.RBUKRS], int64(amt), map[string]string{
 					"account": acct, "account_name": accounts[acct], "account_type": types(acct), "document_type": l.BLART,
-					"vendor": alpha(l.LIFNR), "vendor_name": names[alpha(l.LIFNR)], "vendor_recon": strconv.FormatBool(recon[acct]),
+					"vendor": sap.Alpha(l.LIFNR), "vendor_name": names[sap.Alpha(l.LIFNR)], "vendor_recon": strconv.FormatBool(recon[acct]),
 					"cleared": strconv.FormatBool(recon[acct] && l.AUGBL != "")})
 				if l.RBUKRS == "1000" && acct == "400000" {
 					ledgerRevenue[l.GJAHR] -= int64(amt)
@@ -99,13 +97,13 @@ func twoYears(t *testing.T) *Facts {
 				price, _ := money.ParseDecimal(it.NETPR, 2)
 				unit, _ := strconv.ParseInt(it.PEINH, 10, 64)
 				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, int64(money.Extend(qty, price, max(unit, 1))), map[string]string{
-					"vendor": alpha(h.LIFNR), "vendor_name": names[alpha(h.LIFNR)], "account": alpha(it.SAKTO), "account_name": accounts[alpha(it.SAKTO)]})
+					"vendor": sap.Alpha(h.LIFNR), "vendor_name": names[sap.Alpha(h.LIFNR)], "account": sap.Alpha(it.SAKTO), "account_name": accounts[sap.Alpha(it.SAKTO)]})
 			}
 			for _, h := range e.RBKP {
 				status := map[string]string{"A": "parked", "5": "posted"}[h.RBSTAT]
 				gross, _ := money.ParseDecimal(h.RMWWR, 2)
 				add("ap_invoices", h.BELNR+"/"+h.GJAHR, h.BUKRS, h.BLDAT, h.WAERS, int64(gross), map[string]string{
-					"vendor": alpha(h.LIFNR), "vendor_name": names[alpha(h.LIFNR)], "invoice_status": status})
+					"vendor": sap.Alpha(h.LIFNR), "vendor_name": names[sap.Alpha(h.LIFNR)], "invoice_status": status})
 			}
 		}
 		fixtureFacts = f
