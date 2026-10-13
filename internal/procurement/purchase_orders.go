@@ -128,57 +128,77 @@ type orderHeader struct {
 func (e *Endpoints) orderItems(ctx context.Context, h orderHeader, in []ItemInput) ([]Item, error) {
 	items := make([]Item, len(in))
 	for i, it := range in {
-		field := fmt.Sprintf("items[%d]", i)
-		if err := checkItemNo(it.No, i, field); err != nil {
-			return nil, err
-		}
-		if _, err := quantity(it.Quantity, field+".quantity"); err != nil {
-			return nil, err
-		}
-		price, err := amount(it.Price, it.Currency, h.currency, h.exp, field+".unit_price", false)
+		item, err := e.orderItem(ctx, h, i, it)
 		if err != nil {
 			return nil, err
-		}
-		item := Item{No: int32(i + 1), MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-			UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID, OverDelivery: h.tolerance, TaxCode: it.TaxCode,
-			ContractItemNo: it.ContractItemNo}
-		if it.OverDelivery != nil {
-			pct, ok := new(big.Rat).SetString(*it.OverDelivery)
-			if !ok || pct.Sign() < 0 || pct.Cmp(big.NewRat(100, 1)) > 0 {
-				return nil, invalid("procurement.invalid_tolerance", field+".over_delivery_pct", "a percentage from 0 to 100")
-			}
-			item.OverDelivery = *it.OverDelivery
-		}
-		if it.ContractItemNo != nil {
-			if h.contract == nil {
-				return nil, invalid("procurement.invalid_contract_item", field+".contract_item_no", "contract items need the order's contract_id")
-			}
-			var ci *Item
-			for j := range h.contract.Items {
-				if h.contract.Items[j].No == *it.ContractItemNo {
-					ci = &h.contract.Items[j]
-				}
-			}
-			if ci == nil || ci.Unit != it.Unit {
-				return nil, invalid("procurement.invalid_contract_item", field+".contract_item_no", "an item of the contract in the same unit")
-			}
-			item.UnitPrice, item.PriceUnit = ci.UnitPrice, ci.PriceUnit
-		}
-		if err := e.account(ctx, h.le.ID, it.AccountID, field+".account_id"); err != nil {
-			return nil, err
-		}
-		if it.TaxCode != nil {
-			_, ok, err := e.Accounts.TaxCode(ctx, h.le.ID, *it.TaxCode, h.orderDate)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				return nil, invalid("procurement.unknown_tax_code", field+".tax_code", "a tax code of the legal entity valid on the order date")
-			}
 		}
 		items[i] = item
 	}
 	return items, nil
+}
+
+// orderItem validates item i of an order: number, quantity, price in the
+// order currency, tolerance, contract item, account and tax code.
+func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it ItemInput) (Item, error) {
+	field := fmt.Sprintf("items[%d]", i)
+	if err := checkItemNo(it.No, i, field); err != nil {
+		return Item{}, err
+	}
+	if _, err := quantity(it.Quantity, field+".quantity"); err != nil {
+		return Item{}, err
+	}
+	price, err := amount(it.Price, it.Currency, h.currency, h.exp, field+".unit_price", false)
+	if err != nil {
+		return Item{}, err
+	}
+	item := Item{No: int32(i + 1), MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
+		UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID, OverDelivery: h.tolerance, TaxCode: it.TaxCode,
+		ContractItemNo: it.ContractItemNo}
+	if it.OverDelivery != nil {
+		pct, ok := new(big.Rat).SetString(*it.OverDelivery)
+		if !ok || pct.Sign() < 0 || pct.Cmp(big.NewRat(100, 1)) > 0 {
+			return Item{}, invalid("procurement.invalid_tolerance", field+".over_delivery_pct", "a percentage from 0 to 100")
+		}
+		item.OverDelivery = *it.OverDelivery
+	}
+	if err := applyContractPrice(&item, h.contract, it, field); err != nil {
+		return Item{}, err
+	}
+	if err := e.account(ctx, h.le.ID, it.AccountID, field+".account_id"); err != nil {
+		return Item{}, err
+	}
+	if it.TaxCode != nil {
+		_, ok, err := e.Accounts.TaxCode(ctx, h.le.ID, *it.TaxCode, h.orderDate)
+		if err != nil {
+			return Item{}, err
+		}
+		if !ok {
+			return Item{}, invalid("procurement.unknown_tax_code", field+".tax_code", "a tax code of the legal entity valid on the order date")
+		}
+	}
+	return item, nil
+}
+
+// applyContractPrice gives an item on a contract item the contract's
+// price; the contract item must exist in the item's unit.
+func applyContractPrice(item *Item, contract *Contract, it ItemInput, field string) error {
+	if it.ContractItemNo == nil {
+		return nil
+	}
+	if contract == nil {
+		return invalid("procurement.invalid_contract_item", field+".contract_item_no", "contract items need the order's contract_id")
+	}
+	var ci *Item
+	for j := range contract.Items {
+		if contract.Items[j].No == *it.ContractItemNo {
+			ci = &contract.Items[j]
+		}
+	}
+	if ci == nil || ci.Unit != it.Unit {
+		return invalid("procurement.invalid_contract_item", field+".contract_item_no", "an item of the contract in the same unit")
+	}
+	item.UnitPrice, item.PriceUnit = ci.UnitPrice, ci.PriceUnit
+	return nil
 }
 
 func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item) error {
@@ -286,20 +306,9 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if err := checkExtensions(in.Extensions); err != nil {
 		return PurchaseOrder{}, err
 	}
-	var req Requisition
-	if in.RequisitionID != nil {
-		if req, err = getRequisition(ctx, tx, *in.RequisitionID, true); err != nil {
-			return PurchaseOrder{}, reference(err, "request.reference_not_found", "requisition_id", "no requisition with this id that you can access")
-		}
-		switch {
-		case req.Status != Approved:
-			return PurchaseOrder{}, statusConflict("requisition", req.Status, "ordering", Approved)
-		case req.LegalEntityID != le.ID || req.Currency != in.Currency:
-			return PurchaseOrder{}, invalid("procurement.requisition_mismatch", "requisition_id", "a requisition of the legal entity in the order currency")
-		}
-		if in.ContractID == nil {
-			in.ContractID = req.ContractID
-		}
+	req, err := orderedRequisition(ctx, tx, &in, le.ID)
+	if err != nil {
+		return PurchaseOrder{}, err
 	}
 	h, err := e.header(ctx, tx, le, in.SupplierID, in.Currency, in.OrderDate, in.ContractID, in.PurchasingOrgID)
 	if err != nil {
@@ -341,6 +350,29 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 		"items": len(items), "requisition_id": in.RequisitionID})
 }
 
+// orderedRequisition locks the requisition an order is created from, if
+// any: an approved requisition of the legal entity in the order currency,
+// whose contract the order takes unless it names its own.
+func orderedRequisition(ctx context.Context, tx pgx.Tx, in *NewOrder, le uuid.UUID) (Requisition, error) {
+	if in.RequisitionID == nil {
+		return Requisition{}, nil
+	}
+	req, err := getRequisition(ctx, tx, *in.RequisitionID, true)
+	if err != nil {
+		return Requisition{}, reference(err, "request.reference_not_found", "requisition_id", "no requisition with this id that you can access")
+	}
+	switch {
+	case req.Status != Approved:
+		return Requisition{}, statusConflict("requisition", req.Status, "ordering", Approved)
+	case req.LegalEntityID != le || req.Currency != in.Currency:
+		return Requisition{}, invalid("procurement.requisition_mismatch", "requisition_id", "a requisition of the legal entity in the order currency")
+	}
+	if in.ContractID == nil {
+		in.ContractID = req.ContractID
+	}
+	return req, nil
+}
+
 // OrderChange is a merge patch of a draft purchase order.
 type OrderChange struct {
 	PurchasingOrg, Contract     bool // the field was sent (nil value clears it)
@@ -377,31 +409,11 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	org, contract, supplier, currency, orderDate, term, ext := o.PurchasingOrgID, o.ContractID, o.SupplierID, o.Currency, o.OrderDate, o.PaymentTermCode, o.Extensions
-	if ch.PurchasingOrg {
-		org = ch.PurchasingOrgID
+	f, err := changedOrderHeader(o, ch)
+	if err != nil {
+		return PurchaseOrder{}, err
 	}
-	if ch.Contract {
-		contract = ch.ContractID
-	}
-	if ch.SupplierID != nil {
-		supplier = *ch.SupplierID
-	}
-	if ch.Currency != nil {
-		currency = *ch.Currency
-	}
-	if ch.OrderDate != nil {
-		orderDate = *ch.OrderDate
-	}
-	if currency != o.Currency && ch.Items == nil {
-		return PurchaseOrder{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
-	}
-	if ch.Extensions != nil {
-		ext = mergePatch(ext, ch.Extensions)
-		if err := checkExtensions(ext); err != nil {
-			return PurchaseOrder{}, err
-		}
-	}
+	org, contract, supplier, currency, orderDate, term, ext := f.org, f.contract, f.supplier, f.currency, f.orderDate, o.PaymentTermCode, f.ext
 	le, err := e.legalEntity(ctx, o.LegalEntityID)
 	if err != nil {
 		return PurchaseOrder{}, err
@@ -417,12 +429,7 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	in := ch.Items
 	if in == nil { // the current items are checked again against the new header
-		for _, it := range o.Items {
-			price := it.UnitPrice
-			in = append(in, ItemInput{MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-				Price: moneyOf(price, o.Currency, o.Exponent)["amount"], Currency: o.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID,
-				OverDelivery: &it.OverDelivery, TaxCode: it.TaxCode, ContractItemNo: it.ContractItemNo})
-		}
+		in = currentItems(o)
 	}
 	items, err := e.orderItems(ctx, h, in)
 	if err != nil {
@@ -441,6 +448,59 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		return PurchaseOrder{}, err
 	}
 	return updated, audit.Record(ctx, "procurement.purchase_order.update", "procurement.purchase_order", id, map[string]any{"items": len(updated.Items)})
+}
+
+// orderHeaderFields are the header fields of an order after a change.
+type orderHeaderFields struct {
+	org, contract *uuid.UUID
+	supplier      uuid.UUID
+	currency      string
+	orderDate     time.Time
+	ext           map[string]any
+}
+
+// changedOrderHeader applies a change to the order's header fields; a new
+// currency needs new items, and the merged extensions must be valid.
+func changedOrderHeader(o PurchaseOrder, ch OrderChange) (orderHeaderFields, error) {
+	f := orderHeaderFields{org: o.PurchasingOrgID, contract: o.ContractID, supplier: o.SupplierID, currency: o.Currency, orderDate: o.OrderDate, ext: o.Extensions}
+	if ch.PurchasingOrg {
+		f.org = ch.PurchasingOrgID
+	}
+	if ch.Contract {
+		f.contract = ch.ContractID
+	}
+	if ch.SupplierID != nil {
+		f.supplier = *ch.SupplierID
+	}
+	if ch.Currency != nil {
+		f.currency = *ch.Currency
+	}
+	if ch.OrderDate != nil {
+		f.orderDate = *ch.OrderDate
+	}
+	if f.currency != o.Currency && ch.Items == nil {
+		return orderHeaderFields{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
+	}
+	if ch.Extensions != nil {
+		f.ext = mergePatch(f.ext, ch.Extensions)
+		if err := checkExtensions(f.ext); err != nil {
+			return orderHeaderFields{}, err
+		}
+	}
+	return f, nil
+}
+
+// currentItems are an order's items as input, so that they can be checked
+// again against a changed header.
+func currentItems(o PurchaseOrder) []ItemInput {
+	var in []ItemInput
+	for _, it := range o.Items {
+		price := it.UnitPrice
+		in = append(in, ItemInput{MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
+			Price: moneyOf(price, o.Currency, o.Exponent)["amount"], Currency: o.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID,
+			OverDelivery: &it.OverDelivery, TaxCode: it.TaxCode, ContractItemNo: it.ContractItemNo})
+	}
+	return in
 }
 
 func orderEvent(o PurchaseOrder, extra map[string]any) map[string]any {

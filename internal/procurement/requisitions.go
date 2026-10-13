@@ -307,28 +307,11 @@ func (e *Endpoints) updateRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	supplier, contract, neededBy, currency, ext := r.SupplierID, r.ContractID, r.NeededBy, r.Currency, r.Extensions
-	if ch.Supplier {
-		supplier = ch.SupplierID
+	f, err := changedRequisitionHeader(r, ch)
+	if err != nil {
+		return Requisition{}, err
 	}
-	if ch.Contract {
-		contract = ch.ContractID
-	}
-	if ch.NeededBy {
-		neededBy = ch.NeededByDate
-	}
-	if ch.Currency != nil {
-		currency = *ch.Currency
-	}
-	if currency != r.Currency && ch.Items == nil {
-		return Requisition{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
-	}
-	if ch.Extensions != nil {
-		ext = mergePatch(ext, ch.Extensions)
-		if err := checkExtensions(ext); err != nil {
-			return Requisition{}, err
-		}
-	}
+	supplier, contract, neededBy, currency, ext := f.supplier, f.contract, f.neededBy, f.currency, f.ext
 	exp, err := exponent(ctx, tx, currency, "currency")
 	if err != nil {
 		return Requisition{}, err
@@ -359,6 +342,44 @@ func (e *Endpoints) updateRequisition(ctx context.Context, id uuid.UUID, ifMatch
 		return Requisition{}, err
 	}
 	return updated, audit.Record(ctx, "procurement.requisition.update", "procurement.requisition", id, map[string]any{"items": len(updated.Items)})
+}
+
+// requisitionHeaderFields are the header fields of a requisition after a
+// change.
+type requisitionHeaderFields struct {
+	supplier, contract *uuid.UUID
+	neededBy           *time.Time
+	currency           string
+	ext                map[string]any
+}
+
+// changedRequisitionHeader applies a change to the requisition's header
+// fields; a new currency needs new items, and the merged extensions must
+// be valid.
+func changedRequisitionHeader(r Requisition, ch RequisitionChange) (requisitionHeaderFields, error) {
+	f := requisitionHeaderFields{supplier: r.SupplierID, contract: r.ContractID, neededBy: r.NeededBy, currency: r.Currency, ext: r.Extensions}
+	if ch.Supplier {
+		f.supplier = ch.SupplierID
+	}
+	if ch.Contract {
+		f.contract = ch.ContractID
+	}
+	if ch.NeededBy {
+		f.neededBy = ch.NeededByDate
+	}
+	if ch.Currency != nil {
+		f.currency = *ch.Currency
+	}
+	if f.currency != r.Currency && ch.Items == nil {
+		return requisitionHeaderFields{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
+	}
+	if ch.Extensions != nil {
+		f.ext = mergePatch(f.ext, ch.Extensions)
+		if err := checkExtensions(f.ext); err != nil {
+			return requisitionHeaderFields{}, err
+		}
+	}
+	return f, nil
 }
 
 func requisitionEvent(name string, r Requisition, extra map[string]any) map[string]any {
