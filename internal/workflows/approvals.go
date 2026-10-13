@@ -57,7 +57,7 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 	var a *Approvals
 	for i := 0; i < in.Max; i++ {
 		if err := workflow.Sleep(ctx, in.After); err != nil {
-			return err
+			return err //nolint:wrapcheck // workflow result: Sleep fails only with the CanceledError the engine needs as it is to end the workflow as cancelled
 		}
 		input := EscalateInput{DeadlineInput: in}
 		if v > unguardedEscalation { // guardedEscalation or later
@@ -66,7 +66,7 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 		}
 		var pending bool
 		if err := workflow.ExecuteActivity(ctx, a.Escalate, input).Get(ctx, &pending); err != nil {
-			return err
+			return err //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
 		}
 		if !pending {
 			return nil
@@ -116,5 +116,5 @@ func (a *Approvals) Escalate(ctx context.Context, in EscalateInput) (bool, error
 	if err != nil || !pending {
 		return false, err
 	}
-	return true, tx.Commit(ctx)
+	return true, tx.Commit(ctx) //nolint:wrapcheck // activity result: the SDK takes the ApplicationError type from the error's Go type, which RetryPolicy.NonRetryableErrorTypes matches, so it stays unwrapped
 }

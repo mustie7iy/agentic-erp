@@ -30,7 +30,7 @@ func SimulateChange(ctx workflow.Context, in SimulateInput) error {
 	ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5}}
 	var a *Simulations
-	return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), a.Simulate, in).Get(ctx, nil)
+	return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), a.Simulate, in).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
 }
 
 // Simulations holds the simulation activity: the configuration worker's

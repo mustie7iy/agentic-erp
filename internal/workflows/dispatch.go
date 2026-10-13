@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 )
 
@@ -128,7 +129,7 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 	jobs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (pending, error) {
 		var p pending
 		err := r.Scan(&p.kind, &p.tenant, &p.operation, &p.run, &p.legalEntity, &p.number, &p.attempt)
-		return p, err
+		return p, errs.Wrapf(err, "scan queued operation")
 	})
 	if err != nil {
 		return 0, fmt.Errorf("dispatcher: reading queued operations: %w", err)
@@ -158,7 +159,7 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return n, err
+		return n, fmt.Errorf("dispatcher: committing the started workflows: %w", err)
 	}
 	return n, errors.Join(errs...)
 }
@@ -176,7 +177,7 @@ func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
 	pending, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (req, error) {
 		var q req
 		err := r.Scan(&q.tenant, &q.id)
-		return q, err
+		return q, errs.Wrapf(err, "scan approval request")
 	})
 	if err != nil {
 		return 0, fmt.Errorf("dispatcher: reading pending approval requests: %w", err)

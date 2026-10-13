@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -64,10 +65,10 @@ func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
 	if errors.As(err, &app) && app.Type() == ProblemError {
 		var why problem.Problem
 		if app.Details(&why) == nil {
-			return workflow.ExecuteActivity(ctx, a.FailRelease, in, why).Get(ctx, nil)
+			return workflow.ExecuteActivity(ctx, a.FailRelease, in, why).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
 		}
 	}
-	return err
+	return err //nolint:wrapcheck // workflow result: the engine reads its type (an activity's ApplicationError, a CanceledError) to fail or cancel the workflow; wrapping would record a generic failure
 }
 
 // inRelease runs fn in one transaction as the run's releaser, with the
@@ -92,7 +93,7 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 	if err := buf.Flush(rctx, tx, actor, "", clock.Now(p.Now)); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return tx.Commit(ctx) //nolint:wrapcheck // activity result: the SDK takes the ApplicationError type from the error's Go type, which RetryPolicy.NonRetryableErrorTypes matches, so it stays unwrapped
 }
 
 // asProblem turns a business problem into the non-retryable error the
@@ -100,7 +101,7 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 func asProblem(err error) error {
 	var why *problem.Problem
 	if errors.As(err, &why) && why.Status < 500 {
-		return temporal.NewNonRetryableApplicationError(why.Detail, ProblemError, err, *why)
+		return temporal.NewNonRetryableApplicationError(why.Detail, ProblemError, err, *why) //nolint:wrapcheck // constructs the engine's non-retryable ApplicationError with err as its cause; nothing to wrap
 	}
 	return err
 }
@@ -169,11 +170,12 @@ func (w *Releaser) pending(ctx context.Context) ([]ReleaseInput, error) {
 	rows, _ := tx.Query(ctx, `SELECT o.tenant_id, r.id, o.id FROM platform.operation o
 		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.release_operation_id = o.id
 		WHERE o.kind = $1 AND o.status IN ('queued', 'running') AND r.status = 'releasing' ORDER BY o.id`, payments.ReleaseKind)
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (ReleaseInput, error) {
+	jobs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ReleaseInput, error) {
 		var in ReleaseInput
 		err := row.Scan(&in.TenantID, &in.RunID, &in.OperationID)
-		return in, err
+		return in, errs.Wrapf(err, "scan release operation")
 	})
+	return jobs, errs.Wrapf(err, "read queued release operations")
 }
 
 // Release does one run's release: the steps of the workflow, in order.
