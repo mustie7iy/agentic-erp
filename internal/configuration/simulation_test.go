@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -306,13 +305,14 @@ func TestSimulationWorkerFailures(t *testing.T) {
 	}
 
 	// Run logs failed rounds and stops with its context.
-	var logs syncBuffer
+	var logs pgtest.SyncBuffer
 	failing := worker(t, fake)
 	failing.WorkerRole, failing.Interval, failing.Log = "no_such_role", time.Millisecond, slog.New(slog.NewTextHandler(&logs, nil))
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { failing.Run(runCtx); close(done) }()
-	pgtest.Eventually(t, 10*time.Second, func() bool { return logs.Len() > 0 }, "the failing worker logged nothing")
+	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
+	pgtest.Eventually(t, 10*time.Second, func() bool { return logs.String() != "" }, "the failing worker logged nothing")
 	cancel()
 	<-done
 	if !strings.Contains(logs.String(), "simulation failed") {
@@ -322,29 +322,6 @@ func TestSimulationWorkerFailures(t *testing.T) {
 	if n, err := worker(t, fixture.Deps().Simulator).RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("real simulator: %d %v", n, err)
 	}
-}
-
-type syncBuffer struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) Len() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Len()
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
 }
 
 var _ = apitest.NewKey
