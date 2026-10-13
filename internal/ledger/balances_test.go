@@ -1,7 +1,6 @@
 package ledger_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -127,7 +126,7 @@ func TestProjectorRuns(t *testing.T) {
 	for range 3 {
 		e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	}
-	logs := &lockedBuffer{}
+	logs := &pgtest.SyncBuffer{}
 	log := slog.New(slog.NewTextHandler(logs, nil))
 	if _, err := (&ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role"}).RunOnce(context.Background()); err == nil {
 		t.Fatal("projected with an unknown role")
@@ -243,22 +242,4 @@ func TestTrialBalanceBudget(t *testing.T) {
 	if p95 > time.Second {
 		t.Fatalf("trial balance p95 %v exceeds the 1 s budget", p95)
 	}
-}
-
-// lockedBuffer is a log sink the test may read while the projector writes.
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
 }
