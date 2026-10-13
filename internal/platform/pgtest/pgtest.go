@@ -81,49 +81,49 @@ func migrate(ctx context.Context, u string) error {
 }
 
 // URL is the package database's URL; the test is skipped without one.
-func URL(t testing.TB) string {
-	t.Helper()
+func URL(tb testing.TB) string {
+	tb.Helper()
 	if packageURL == "" {
-		t.Skip("DATABASE_URL not set")
+		tb.Skip("DATABASE_URL not set")
 	}
 	return packageURL
 }
 
 // Pool opens a pool on the package database, closed when the test ends.
-func Pool(t testing.TB) *database.Pool {
-	t.Helper()
-	p, err := database.Open(context.Background(), URL(t), database.DefaultSettings)
+func Pool(tb testing.TB) *database.Pool {
+	tb.Helper()
+	p, err := database.Open(context.Background(), URL(tb), database.DefaultSettings)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	t.Cleanup(p.Close)
+	tb.Cleanup(p.Close)
 	return p
 }
 
 // Admin is a superuser connection (bypasses row-level security) for fixtures
 // and assertions.
-func Admin(t testing.TB) *pgx.Conn {
-	t.Helper()
-	c, err := pgx.Connect(context.Background(), URL(t))
+func Admin(tb testing.TB) *pgx.Conn {
+	tb.Helper()
+	c, err := pgx.Connect(context.Background(), URL(tb))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	t.Cleanup(func() { _ = c.Close(context.Background()) }) // the test is over; closing loses nothing
+	tb.Cleanup(func() { _ = c.Close(context.Background()) }) // the test is over; closing loses nothing
 	return c
 }
 
 // Exec runs fixture SQL as superuser on a connection of its own, closed
 // right after, and fails the test on error.
-func Exec(t testing.TB, sql string, args ...any) {
-	t.Helper()
+func Exec(tb testing.TB, sql string, args ...any) {
+	tb.Helper()
 	ctx := context.Background()
-	c, err := pgx.Connect(ctx, URL(t))
+	c, err := pgx.Connect(ctx, URL(tb))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	defer func() { _ = c.Close(ctx) }() // the work on it is done or has failed; closing loses nothing
 	if _, err := c.Exec(ctx, sql, args...); err != nil {
-		t.Fatalf("pgtest: %v\n%s", err, sql)
+		tb.Fatalf("pgtest: %v\n%s", err, sql)
 	}
 }
 
@@ -146,10 +146,10 @@ type Tenant struct {
 }
 
 // NewTenant creates a tenant whose principals hold the given permissions.
-func NewTenant(t testing.TB, permissions ...string) Tenant {
-	t.Helper()
+func NewTenant(tb testing.TB, permissions ...string) Tenant {
+	tb.Helper()
 	ctx := context.Background()
-	c := Admin(t)
+	c := Admin(tb)
 	ten := Tenant{ID: uuid.Must(uuid.NewV7()), Permissions: permissions}
 	ten.Human = Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	ten.Agent = Actor{ID: uuid.Must(uuid.NewV7()), Kind: "agent"}
@@ -159,7 +159,7 @@ func NewTenant(t testing.TB, permissions ...string) Tenant {
 	}
 	must := func(sql string, args ...any) {
 		if _, err := c.Exec(ctx, sql, args...); err != nil {
-			t.Fatalf("pgtest: %v\n%s", err, sql)
+			tb.Fatalf("pgtest: %v\n%s", err, sql)
 		}
 	}
 	must(`INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Tenant', 'eu-west', 'EUR', 'active')`, ten.ID)
@@ -187,7 +187,7 @@ func NewTenant(t testing.TB, permissions ...string) Tenant {
 }
 
 // AllCompanies lets the actor act in every legal entity.
-func (ten Tenant) AllCompanies(t testing.TB, a Actor) {
-	t.Helper()
-	Exec(t, `UPDATE identity.principal SET all_companies = true, version = version + 1 WHERE tenant_id = $1 AND id = $2`, ten.ID, a.ID)
+func (ten Tenant) AllCompanies(tb testing.TB, a Actor) {
+	tb.Helper()
+	Exec(tb, `UPDATE identity.principal SET all_companies = true, version = version + 1 WHERE tenant_id = $1 AND id = $2`, ten.ID, a.ID)
 }
