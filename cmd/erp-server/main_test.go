@@ -105,9 +105,8 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
 		var body map[string]any
-		json.NewDecoder(resp.Body).Decode(&body)
+		readJSON(t, resp, &body)
 		return resp.StatusCode, body
 	}
 	if code, _ := get("http://"+a[1]+"/readyz", ""); code != 200 {
@@ -123,7 +122,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 			t.Fatal(err)
 		}
 		scraped, _ = io.ReadAll(mresp.Body)
-		mresp.Body.Close()
+		_ = mresp.Body.Close() // the scrape is already read; a close error cannot change what is asserted
 		if strings.Contains(string(scraped), "erp_outbox_backlog ") && strings.Contains(string(scraped), "erp_projection_backlog 0") &&
 			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") && strings.Contains(string(scraped), "erp_simulations_queued 0") {
 			break
@@ -152,7 +151,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	if err != nil || cresp.StatusCode != 200 {
 		t.Fatal(cresp.StatusCode, err)
 	}
-	cresp.Body.Close()
+	_ = cresp.Body.Close() // only the status is asserted; the body is not needed
 	nc, _ := nats.Connect(natsURL)
 	defer nc.Close()
 	js, _ := jetstream.New(nc)
@@ -197,10 +196,19 @@ func TestReadiness(t *testing.T) {
 		t.Fatal("database without migrations reported ready")
 	}
 	// A schema older than the binary is not ready.
-	c, _ := pgx.Connect(ctx, emptyURL)
-	defer c.Close(ctx)
-	c.Exec(ctx, "CREATE TABLE public.erp_schema_migration (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())")
-	c.Exec(ctx, "INSERT INTO public.erp_schema_migration VALUES (1, '000001_foundation', now())")
+	c, err := pgx.Connect(ctx, emptyURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close(ctx) }() // best-effort: the database is dropped at cleanup anyway
+	for _, sql := range []string{
+		"CREATE TABLE public.erp_schema_migration (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())",
+		"INSERT INTO public.erp_schema_migration VALUES (1, '000001_foundation', now())",
+	} {
+		if _, err := c.Exec(ctx, sql); err != nil {
+			t.Fatalf("old schema setup: %v", err)
+		}
+	}
 	if err := ready(empty)(ctx); err == nil || !strings.Contains(err.Error(), "schema version 1") {
 		t.Fatalf("old schema: %v", err)
 	}
@@ -214,8 +222,11 @@ func TestReadiness(t *testing.T) {
 	if err := migrate(ctx, short, quiet()); err != nil {
 		t.Fatal(err)
 	}
-	sc, _ := pgx.Connect(ctx, shortURL)
-	defer sc.Close(ctx)
+	sc, err := pgx.Connect(ctx, shortURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sc.Close(ctx) }() // best-effort: the database is dropped at cleanup anyway
 	if _, err := sc.Exec(ctx, `DO $$ DECLARE r record; BEGIN FOR r IN SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = 'audit' AND relname ~ '^audit_event_[0-9]{6}$' AND substr(relname, 13) > to_char(now(), 'YYYYMM')
 		LOOP EXECUTE format('DROP TABLE audit.%I', r.relname); END LOOP; END $$`); err != nil {
@@ -261,7 +272,7 @@ func TestStartupFailures(t *testing.T) {
 	is := authntest.New(t)
 	ctx := context.Background()
 	busy, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer busy.Close()
+	defer func() { _ = busy.Close() }() // best-effort cleanup of the port the cases collide with
 	cases := map[string]func(env map[string]string, cfg *config.Config){
 		"otlp endpoint": func(_ map[string]string, c *config.Config) { c.OTLPEndpoint = "not a url" },
 		"database": func(_ map[string]string, c *config.Config) {
@@ -362,7 +373,10 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 func TestAListenerFailureStopsTheServer(t *testing.T) {
 	is := authntest.New(t)
 	cfg := load(t, environment(t, is, ""))
-	err := run(context.Background(), cfg, quiet(), func(api, _ net.Listener) { api.Close() })
+	err := run(context.Background(), cfg, quiet(), func(api, _ net.Listener) {
+		// Closing provokes the serve error under test; a failed close shows as a nil error below.
+		_ = api.Close()
+	})
 	if err == nil {
 		t.Fatal("closed listener did not stop the server")
 	}
@@ -404,9 +418,15 @@ func emptyDatabase(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		c, _ := pgx.Connect(ctx, pgtest.URL(t))
-		c.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
-		c.Close(ctx)
+		c, err := pgx.Connect(ctx, pgtest.URL(t))
+		if err != nil {
+			t.Errorf("drop %s: %v", name, err)
+			return
+		}
+		defer func() { _ = c.Close(ctx) }() // the drop's outcome is checked; closing the admin connection is best-effort
+		if _, err := c.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+			t.Errorf("drop %s: %v", name, err)
+		}
 	})
 	u, _ := url.Parse(pgtest.URL(t))
 	u.Path = "/" + name
@@ -443,9 +463,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	delete(env, "ERP_OIDC_ISSUERS")
 	env["ERP_DEV_ISSUER"] = "true"
 	getenv := func(k string) string { return env[k] }
-	doc, _ := fixture.Document(t).Marshal()
-	file := filepath.Join(t.TempDir(), "config.yaml")
-	os.WriteFile(file, doc, 0o644)
+	file := configFile(t)
 	var stdout, stderr bytes.Buffer
 	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|ada", "-admin-name", "Ada", "-admin-email", "ada@example.com", "-config", file}
 	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
@@ -507,8 +525,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	var minted struct{ Token string }
-	json.NewDecoder(mint.Body).Decode(&minted)
-	mint.Body.Close()
+	readJSON(t, mint, &minted)
 	if mint.StatusCode != 200 || minted.Token == "" {
 		t.Fatalf("mint: %d", mint.StatusCode)
 	}
@@ -519,8 +536,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	var page map[string]any
-	json.NewDecoder(resp.Body).Decode(&page)
-	resp.Body.Close()
+	readJSON(t, resp, &page)
 	if resp.StatusCode != 200 || len(page["items"].([]any)) != 1 {
 		t.Fatalf("as the administrator: %d %v", resp.StatusCode, page)
 	}
@@ -531,8 +547,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	var operator struct{ Token string }
-	json.NewDecoder(mint.Body).Decode(&operator)
-	mint.Body.Close()
+	readJSON(t, mint, &operator)
 	control := func(method, path, ifMatch string) (int, map[string]any) {
 		req, _ := http.NewRequest(method, "http://"+a[1]+"/control/v1"+path, nil)
 		req.Header.Set("Authorization", "Bearer "+operator.Token)
@@ -543,9 +558,8 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
 		var m map[string]any
-		json.NewDecoder(resp.Body).Decode(&m)
+		readJSON(t, resp, &m)
 		return resp.StatusCode, m
 	}
 	if code, m := control("GET", "/tenants/"+created.TenantID, ""); code != 200 || m["status"] != "active" {
@@ -572,10 +586,12 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }() // best-effort: a read-only connection
 	var anchored int
 	for deadline := time.Now().Add(10 * time.Second); anchored == 0 && time.Now().Before(deadline); {
-		conn.QueryRow(ctx, `SELECT count(*) FROM audit.anchor WHERE tenant_id = $1`, created.TenantID).Scan(&anchored)
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM audit.anchor WHERE tenant_id = $1`, created.TenantID).Scan(&anchored); err != nil {
+			t.Fatalf("count anchors: %v", err)
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	if anchored == 0 {
@@ -679,9 +695,7 @@ func TestKeyRotationPolicy(t *testing.T) {
 	env := environment(t, is, "")
 	env["ERP_KEY_ROTATION_AGE"] = "1ns"
 	getenv := func(k string) string { return env[k] }
-	doc, _ := fixture.Document(t).Marshal()
-	file := filepath.Join(t.TempDir(), "config.yaml")
-	os.WriteFile(file, doc, 0o600)
+	file := configFile(t)
 	var stdout, stderr bytes.Buffer
 	if code := cli(context.Background(), []string{"provision", "-name", "Old", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|old", "-admin-name", "Old", "-config", file}, getenv, &stdout, &stderr, nil); code != 0 {
 		t.Fatalf("provision: %d %s", code, stderr.String())
@@ -689,7 +703,9 @@ func TestKeyRotationPolicy(t *testing.T) {
 	var created struct {
 		TenantID string `json:"tenant_id"`
 	}
-	json.Unmarshal(stdout.Bytes(), &created)
+	if err := json.Unmarshal(stdout.Bytes(), &created); err != nil {
+		t.Fatalf("provision output %q: %v", stdout.String(), err)
+	}
 	rotationInterval = 20 * time.Millisecond
 	defer func() { rotationInterval = time.Hour }()
 	cfg := load(t, env)
@@ -698,7 +714,9 @@ func TestKeyRotationPolicy(t *testing.T) {
 	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
 	var n int
 	for deadline := time.Now().Add(10 * time.Second); n < 2 && time.Now().Before(deadline); {
-		pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, created.TenantID).Scan(&n)
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, created.TenantID).Scan(&n); err != nil {
+			t.Fatalf("count keys: %v", err)
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()
@@ -715,9 +733,7 @@ func TestImportCommand(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
 	getenv := func(k string) string { return env[k] }
-	doc, _ := fixture.Document(t).Marshal()
-	file := filepath.Join(t.TempDir(), "config.yaml")
-	os.WriteFile(file, doc, 0o600)
+	file := configFile(t)
 	var stdout, stderr bytes.Buffer
 	if code := cli(context.Background(), []string{"provision", "-name", "Back", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|back", "-admin-name", "Back", "-config", file}, getenv, &stdout, &stderr, nil); code != 0 {
 		t.Fatalf("provision: %d %s", code, stderr.String())
@@ -725,7 +741,9 @@ func TestImportCommand(t *testing.T) {
 	var created struct {
 		TenantID uuid.UUID `json:"tenant_id"`
 	}
-	json.Unmarshal(stdout.Bytes(), &created)
+	if err := json.Unmarshal(stdout.Bytes(), &created); err != nil {
+		t.Fatalf("provision output %q: %v", stdout.String(), err)
+	}
 	// Offboarded, exported and erased by the worker; the trail wiped as a destination cell would find it.
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', version = version + 1 WHERE id = $1`, created.TenantID)
 	pool := pgtest.Pool(t)
@@ -744,7 +762,9 @@ func TestImportCommand(t *testing.T) {
 		t.Fatalf("import: %d %s %s", code, stdout.String(), stderr.String())
 	}
 	var status string
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT status FROM tenancy.tenant WHERE id = $1`, created.TenantID).Scan(&status)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT status FROM tenancy.tenant WHERE id = $1`, created.TenantID).Scan(&status); err != nil {
+		t.Fatalf("tenant status: %v", err)
+	}
 	if status != "active" {
 		t.Fatalf("tenant after the import: %s", status)
 	}
@@ -780,9 +800,7 @@ func TestImportCommand(t *testing.T) {
 func TestRewrapCommand(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
 	getenv := func(k string) string { return env[k] }
-	doc, _ := fixture.Document(t).Marshal()
-	file := filepath.Join(t.TempDir(), "config.yaml")
-	os.WriteFile(file, doc, 0o644)
+	file := configFile(t)
 	var stdout, stderr bytes.Buffer
 	// A tenant provisioned on the legacy master v1.
 	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|ada", "-admin-name", "Ada", "-config", file}
@@ -960,9 +978,8 @@ func TestWorkflowEngine(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
 		var m map[string]any
-		json.NewDecoder(resp.Body).Decode(&m)
+		readJSON(t, resp, &m)
 		return resp.StatusCode, m
 	}
 	code, op := call("POST", "/v1/payment-runs:propose", `{"legal_entity_id": "`+f.DE.String()+`", "house_bank_id": "`+bank.String()+`", "run_date": "2026-04-15", "due_by": "2026-04-15"}`)
@@ -984,7 +1001,9 @@ func TestWorkflowEngine(t *testing.T) {
 		t.Fatalf("run: %v", run)
 	}
 	var workflowID *string
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(op["id"].(string))).Scan(&workflowID)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM platform.operation WHERE id = $1`, uuid.MustParse(op["id"].(string))).Scan(&workflowID); err != nil {
+		t.Fatalf("operation's workflow id: %v", err)
+	}
 	if workflowID == nil || !strings.Contains(*workflowID, "payment_run") {
 		t.Fatalf("workflow id: %v", workflowID)
 	}
@@ -1000,8 +1019,7 @@ func TestWorkflowEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	var refused map[string]any
-	json.NewDecoder(resp.Body).Decode(&refused)
-	resp.Body.Close()
+	readJSON(t, resp, &refused)
 	if resp.StatusCode != 409 || refused["code"] != "payments.nothing_to_pay" {
 		t.Fatalf("release of an empty run: %d %v", resp.StatusCode, refused)
 	}
@@ -1031,4 +1049,31 @@ func status(t *testing.T, req *http.Request) int {
 		t.Fatal(err)
 	}
 	return resp.StatusCode
+}
+
+// readJSON decodes the response's JSON body into v and closes it; a body that is
+// not the JSON the test asserts on fails the test here rather than as a confusing
+// zero value later.
+func readJSON(t *testing.T, resp *http.Response, v any) {
+	t.Helper()
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		t.Fatalf("decode %s %s (%d): %v", resp.Request.Method, resp.Request.URL, resp.StatusCode, err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// configFile writes the fixture configuration document to a file and returns its path.
+func configFile(t *testing.T) string {
+	t.Helper()
+	doc, err := fixture.Document(t).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(file, doc, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return file
 }
