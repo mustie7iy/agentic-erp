@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -42,15 +43,17 @@ func TestAdmin(t *testing.T) {
 		code int
 	}{{healthy, "/livez", 200}, {healthy, "/readyz", 200}, {sick, "/readyz", 503}, {sick, "/livez", 200}, {healthy, "/metrics", 200},
 		{healthy, "/dev/token", 404}, {sick, "/dev/token", 201}, {healthy, "/control/v1/tenants", 404}, {sick, "/control/v1/tenants", 201}} {
-		rec := httptest.NewRecorder()
-		method := "GET"
-		if c.path == "/dev/token" {
-			method = "POST"
-		}
-		c.h.ServeHTTP(rec, httptest.NewRequest(method, c.path, nil))
-		if rec.Code != c.code {
-			t.Errorf("%s: %d", c.path, rec.Code)
-		}
+		t.Run(fmt.Sprintf("%s=%d", c.path, c.code), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			method := "GET"
+			if c.path == "/dev/token" {
+				method = "POST"
+			}
+			c.h.ServeHTTP(rec, httptest.NewRequest(method, c.path, nil))
+			if rec.Code != c.code {
+				t.Errorf("%s %s: got %d, want %d", method, c.path, rec.Code, c.code)
+			}
+		})
 	}
 }
 
@@ -70,15 +73,20 @@ func TestErrorMapping(t *testing.T) {
 	cases[&ogenerrors.DecodeParamError{Name: "If-Match", In: "header", Err: other}] = "request.invalid_parameter"
 	cases[&ogenerrors.DecodeParamError{Name: "id", In: "path", Err: validate.ErrFieldRequired}] = "request.invalid_parameter"
 	for err, code := range cases {
-		if p := toProblem(err); p.Code != code {
-			t.Errorf("%T: %s, want %s", err, p.Code, code)
-		}
+		t.Run(fmt.Sprintf("%T=%s", err, code), func(t *testing.T) {
+			if p := toProblem(err); p.Code != code {
+				t.Errorf("%T %v: got %s, want %s", err, err, p.Code, code)
+			}
+		})
 	}
 	var logs strings.Builder
 	rec := httptest.NewRecorder()
 	errorHandler(slog.New(slog.NewTextHandler(&logs, nil)))(context.Background(), rec, httptest.NewRequest("GET", "/x", nil), errors.New("boom"))
-	if rec.Code != 500 || !strings.Contains(logs.String(), "boom") {
-		t.Fatalf("%d %s", rec.Code, logs.String())
+	if rec.Code != 500 {
+		t.Errorf("error handler status: got %d, want 500", rec.Code)
+	}
+	if !strings.Contains(logs.String(), "boom") {
+		t.Errorf("error handler log: got %s, want it to mention boom", logs.String())
 	}
 	if _, err := (security{}).HandleOidc(context.Background(), "", gen.Oidc{}); err == nil {
 		t.Fatal("request without a principal accepted")
@@ -137,18 +145,36 @@ func TestQuotasAndDeadlines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec := get(h); rec.Code != 200 || rec.Header().Get("RateLimit-Remaining") != "0" {
-		t.Fatalf("first: %d %v", rec.Code, rec.Header())
+	rec := get(h)
+	if rec.Code != 200 {
+		t.Fatalf("first status: got %d, want 200 (%s)", rec.Code, rec.Body)
 	}
-	if rec := get(h); rec.Code != 429 || rec.Header().Get("Retry-After") == "" || !strings.Contains(rec.Body.String(), "request.rate_limited") {
-		t.Fatalf("second: %d %v %s", rec.Code, rec.Header(), rec.Body)
+	if got := rec.Header().Get("RateLimit-Remaining"); got != "0" {
+		t.Errorf("first RateLimit-Remaining: got %q, want 0", got)
+	}
+	rec = get(h)
+	if rec.Code != 429 {
+		t.Fatalf("second status: got %d, want 429 (%s)", rec.Code, rec.Body)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Errorf("second Retry-After: got empty, want set (%v)", rec.Header())
+	}
+	if !strings.Contains(rec.Body.String(), "request.rate_limited") {
+		t.Errorf("second body: got %s, want request.rate_limited", rec.Body)
 	}
 	expiring := base
 	expiring.RequestTimeout = time.Nanosecond
 	if h, err = New(expiring); err != nil {
 		t.Fatal(err)
 	}
-	if rec := get(h); rec.Code != 503 || rec.Header().Get("Retry-After") != "1" || !strings.Contains(rec.Body.String(), "platform.unavailable") {
-		t.Fatalf("expired: %d %v %s", rec.Code, rec.Header(), rec.Body)
+	rec = get(h)
+	if rec.Code != 503 {
+		t.Fatalf("expired status: got %d, want 503 (%s)", rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "1" {
+		t.Errorf("expired Retry-After: got %q, want 1", got)
+	}
+	if !strings.Contains(rec.Body.String(), "platform.unavailable") {
+		t.Errorf("expired body: got %s, want platform.unavailable", rec.Body)
 	}
 }
