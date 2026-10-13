@@ -181,7 +181,7 @@ func TestReadiness(t *testing.T) {
 	if err := ready(pgtest.Pool(t))(ctx); err != nil {
 		t.Fatal(err)
 	}
-	emptyURL := emptyDatabase(t)
+	emptyURL := pgtest.EmptyDatabase(t)
 	empty, err := database.Open(ctx, emptyURL, database.DefaultSettings)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ func TestReadiness(t *testing.T) {
 		t.Fatalf("old schema: %v", err)
 	}
 	// A partition horizon that got too short is not ready either; maintenance restores it.
-	shortURL := emptyDatabase(t)
+	shortURL := pgtest.EmptyDatabase(t)
 	short, err := database.Open(ctx, shortURL, database.DefaultSettings)
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestStartupFailures(t *testing.T) {
 		"api port":          func(_ map[string]string, c *config.Config) { c.HTTPAddr = busy.Addr().String() },
 		"admin port":        func(_ map[string]string, c *config.Config) { c.AdminAddr = busy.Addr().String() },
 		"migrations":        func(_ map[string]string, c *config.Config) { c.DatabaseURL = limitedUser(t) },
-		"partitions":        func(_ map[string]string, c *config.Config) { c.DatabaseURL, c.MigrateOnStart = emptyDatabase(t), false },
+		"partitions":        func(_ map[string]string, c *config.Config) { c.DatabaseURL, c.MigrateOnStart = pgtest.EmptyDatabase(t), false },
 	}
 	for name, mutate := range cases {
 		env := environment(t, is, "")
@@ -404,36 +404,12 @@ func TestExitCodes(t *testing.T) {
 
 // --- helpers ---------------------------------------------------------------
 
-func emptyDatabase(t *testing.T) string {
-	t.Helper()
-	ctx := context.Background()
-	admin := pgtest.Admin(t)
-	name := fmt.Sprintf("erp_empty_%d", time.Now().UnixNano())
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		c, err := pgx.Connect(ctx, pgtest.URL(t))
-		if err != nil {
-			t.Errorf("drop %s: %v", name, err)
-			return
-		}
-		defer func() { _ = c.Close(ctx) }() // the drop's outcome is checked; closing the admin connection is best-effort
-		if _, err := c.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop %s: %v", name, err)
-		}
-	})
-	u, _ := url.Parse(pgtest.URL(t))
-	u.Path = "/" + name
-	return u.String()
-}
-
 // limitedUser is a login that may connect but not create anything.
 func limitedUser(t *testing.T) string {
 	t.Helper()
 	pgtest.Exec(t, `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_test_limited') THEN
 		CREATE ROLE erp_test_limited LOGIN PASSWORD 'limited'; END IF; END $$`)
-	u, _ := url.Parse(emptyDatabase(t))
+	u, _ := url.Parse(pgtest.EmptyDatabase(t))
 	u.User = url.UserPassword("erp_test_limited", "limited")
 	return u.String()
 }
@@ -874,7 +850,7 @@ func countKeys(t *testing.T, master string) int {
 func TestDirectorySync(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
-	directoryURL := emptyDatabase(t)
+	directoryURL := pgtest.EmptyDatabase(t)
 	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
 	ten := pgtest.NewTenant(t)
 	directoryInterval = 20 * time.Millisecond

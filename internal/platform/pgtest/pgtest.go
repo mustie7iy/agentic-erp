@@ -127,6 +127,31 @@ func Exec(tb testing.TB, sql string, args ...any) {
 	}
 }
 
+// EmptyDatabase creates a database with nothing in it, dropped when the test
+// ends, and returns its URL. A test that needs a database to itself uses
+// one: the package database holds what every earlier test, and every
+// earlier run under -count, left in it.
+func EmptyDatabase(tb testing.TB) string {
+	tb.Helper()
+	ctx := context.Background()
+	name := fmt.Sprintf("erp_empty_%d", time.Now().UnixNano())
+	Exec(tb, "CREATE DATABASE "+name)
+	tb.Cleanup(func() {
+		c, err := pgx.Connect(ctx, URL(tb))
+		if err != nil {
+			tb.Errorf("drop %s: %v", name, err)
+			return
+		}
+		defer func() { _ = c.Close(ctx) }() // the drop's outcome is checked; closing the admin connection is best-effort
+		if _, err := c.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+			tb.Errorf("drop %s: %v", name, err)
+		}
+	})
+	u, _ := url.Parse(URL(tb))
+	u.Path = "/" + name
+	return u.String()
+}
+
 // Actor is a principal with the token subject that authenticates as it.
 type Actor struct {
 	ID      uuid.UUID
