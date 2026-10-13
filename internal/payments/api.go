@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -211,7 +212,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	rows, _ := tx.Query(ctx, q, args...)
 	exs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Exclusion, error) {
 		var x Exclusion
-		return x, wrapf(row.Scan(&x.SupplierID, &x.Reason, &x.Amount), "payments: scan exclusion")
+		return x, errs.Wrapf(row.Scan(&x.SupplierID, &x.Reason, &x.Amount), "scan exclusion")
 	})
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)

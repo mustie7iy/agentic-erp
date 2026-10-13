@@ -63,7 +63,10 @@ func getFile(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (BankFile,
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(f.LegalEntityID)) {
 		return BankFile{}, fileNotFound()
 	}
-	return f, err
+	if err != nil {
+		return BankFile{}, fmt.Errorf("payments: read bank file %s: %w", id, err)
+	}
+	return f, nil
 }
 
 // GetFile returns a bank file.

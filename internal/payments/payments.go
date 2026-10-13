@@ -38,6 +38,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -164,7 +165,7 @@ func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.HouseBankID, &r.RunDate, &r.DueBy, &r.Currency, &r.Exponent, &r.Total,
 		&r.Status, &r.ProposedBy, &r.DecidedBy, &r.DecidedAt, &r.OperationID, &r.ReleaseOpID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
-	return r, wrapf(err, "payments: scan payment run")
+	return r, errs.Wrapf(err, "scan payment run")
 }
 
 // load reads a run without company access; lock takes the row lock for a
@@ -178,7 +179,10 @@ func load(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Run, error) 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, problem.NotFound("No payment run with this id.")
 	}
-	return r, err
+	if err != nil {
+		return Run{}, fmt.Errorf("payments: read run %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // get reads a run of a legal entity the caller may act in.
@@ -239,17 +243,7 @@ func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
 	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
 		&p.Items, &p.CreatedAt, &p.CreatedBy)
-	return p, wrapf(err, "payments: scan payment")
-}
-
-// wrapf adds context to err and leaves nil alone, so a function that
-// returns its result together with the error keeps that single return
-// instead of a branch only a failing database reaches.
-func wrapf(err error, format string, args ...any) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf(format+": %w", append(args, err)...)
+	return p, errs.Wrapf(err, "scan payment")
 }
 
 // paymentsOf reads every payment of a run in end-to-end id order, the
@@ -257,7 +251,10 @@ func wrapf(err error, format string, args ...any) error {
 func paymentsOf(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Payment, error) {
 	rows, _ := tx.Query(ctx, paymentSelect+` WHERE p.payment_run_id = $1 ORDER BY p.end_to_end_id`, run)
 	pays, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Payment, error) { return scanPayment(r) })
-	return pays, wrapf(err, "payments: read the payments of run %s", run)
+	if err != nil {
+		return pays, fmt.Errorf("payments: read the payments of run %s: %w", run, err)
+	}
+	return pays, nil
 }
 
 // Exclusion is a supplier left out of a run.
@@ -286,7 +283,10 @@ func loadHouseBank(ctx context.Context, tx pgx.Tx, id uuid.UUID) (houseBank, boo
 	if errors.Is(err, pgx.ErrNoRows) {
 		return h, false, nil
 	}
-	return h, err == nil, wrapf(err, "payments: read house bank %s", id)
+	if err != nil {
+		return h, false, fmt.Errorf("payments: read house bank %s: %w", id, err)
+	}
+	return h, true, nil
 }
 
 func requireProposed(r Run, done string) error {
@@ -345,5 +345,8 @@ func (Reservations) RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UU
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
-	return number, err == nil, wrapf(err, "payments: find the run holding entry %d/%s", fiscalYear, entryID)
+	if err != nil {
+		return number, false, fmt.Errorf("payments: find the run holding entry %d/%s: %w", fiscalYear, entryID, err)
+	}
+	return number, true, nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -335,7 +336,7 @@ const fileSelect = `SELECT f.id, f.payment_run_id, r.legal_entity_id, f.format, 
 func scanFile(row pgx.Row) (BankFile, error) {
 	var f BankFile
 	err := row.Scan(&f.ID, &f.RunID, &f.LegalEntityID, &f.Format, &f.ObjectRef, &f.SHA256, &f.Status, &f.Version, &f.CreatedAt, &f.CreatedBy, &f.UpdatedAt)
-	return f, wrapf(err, "payments: scan bank file")
+	return f, errs.Wrapf(err, "scan bank file")
 }
 
 // createFile renders the run's pain.001 file and records it with its hash.
@@ -361,11 +362,15 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 			return BankFile{}, problem.Unavailable("The file store did not take the bank file; release the run again.", 30).WithCause(err)
 		}
 	}
-	return scanFile(tx.QueryRow(ctx, `WITH f AS (
+	f, err := scanFile(tx.QueryRow(ctx, `WITH f AS (
 			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by)
 			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8) RETURNING *
 		) SELECT f.id, f.payment_run_id, $9::uuid, f.format, f.object_ref, f.sha256, f.status, f.version, f.created_at, f.created_by, f.updated_at FROM f`,
 		p.TenantID, id, r.ID, Format, ref, sum[:], created, p.ID, r.LegalEntityID))
+	if err != nil {
+		return BankFile{}, fmt.Errorf("payments: record the bank file of run %s: %w", r.ID, err)
+	}
+	return f, nil
 }
 
 // render writes the run's payments as a pain.001.001.03 credit transfer

@@ -317,7 +317,10 @@ func Next(ctx context.Context, tx pgx.Tx) (Job, bool, error) {
 		return Job{}, false, nil
 	}
 	j.Cancelled = status == operations.Cancelled
-	return j, err == nil, wrapf(err, "payments: find the next proposal job")
+	if err != nil {
+		return j, false, fmt.Errorf("payments: find the next proposal job: %w", err)
+	}
+	return j, true, nil
 }
 
 // JobFor finds and locks one run's job: the run still proposing with its
@@ -334,7 +337,10 @@ func JobFor(ctx context.Context, tx pgx.Tx, run uuid.UUID) (Job, bool, error) {
 		return Job{}, false, nil
 	}
 	j.Cancelled = status == operations.Cancelled
-	return j, err == nil, wrapf(err, "payments: find the proposal job of run %s", run)
+	if err != nil {
+		return j, false, fmt.Errorf("payments: find the proposal job of run %s: %w", run, err)
+	}
+	return j, true, nil
 }
 
 // Process does a job as its proposer: it builds the run, or fails it when

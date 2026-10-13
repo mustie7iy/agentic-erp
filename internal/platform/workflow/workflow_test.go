@@ -119,7 +119,9 @@ func TestWorkerOnAClosedClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine.Close()
-	err = engine.Worker(ctx, "closed", func(r workflow.Registry) { r.RegisterWorkflowWithOptions(echo, sdkworkflow.RegisterOptions{Name: "Echo"}) })
+	err = engine.Worker(ctx, "closed", func(r workflow.Registry) {
+		r.RegisterWorkflowWithOptions(echo, sdkworkflow.RegisterOptions{Name: "Echo"})
+	})
 	if err == nil || !strings.Contains(err.Error(), "workflow: worker on queue closed") {
 		t.Errorf("got %v, want the refused worker reported with its queue", err)
 	}

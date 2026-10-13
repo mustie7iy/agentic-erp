@@ -52,8 +52,23 @@ func TestProposer(t *testing.T) {
 	if n, err := bad.RunOnce(context.Background()); err == nil || n != 0 || status() != "proposing" {
 		t.Fatalf("built without the app role: %d %v", n, err)
 	}
-	// Every statement of a round can fail; the job stays queued until one succeeds.
+	// Every statement of a round can fail, and so can its commit; the job
+	// stays queued until one succeeds.
 	pool := pgtest.Pool(t)
+	lost := proposer(t)
+	lost.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil || s.TenantID == uuid.Nil {
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
+	}
+	if _, err := lost.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("lost commit: got %v, want the injected failure", err)
+	}
+	if got := status(); got != "proposing" {
+		t.Fatalf("after a lost commit: got status %s, want proposing", got)
+	}
 	for failAt := 1; ; failAt++ {
 		w := proposer(t)
 		w.Timeout, w.Now = time.Minute, time.Now

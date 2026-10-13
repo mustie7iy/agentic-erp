@@ -73,7 +73,10 @@ single-return path whose failure no test can provoke from becoming its own branc
   Worker error paths tested, relay and keyring messages, two nolints replaced by code; errs.Wrapf
   added). Reviewer: APPROVE after the coverage fix.
 - [x] R11 wrapcheck: internal/ledger 59 → 0 (worktree agent, e8a5c92). Reviewer: APPROVE.
-- [ ] R12 wrapcheck: internal/payments
+- [x] R12 wrapcheck: internal/payments 40 → 0 (worktree agent, b2e7339; follow-up: local wrapf removed
+  for errs.Wrapf on scanners and covered branches elsewhere, load/getFile/createFile name their
+  ids, pgtest.FailingTx.FailCommit tests the proposer's lost commit). Reviewer: changes required,
+  then fixed.
 - [x] R13 wrapcheck: internal/procurement 42 → 0 (worktree agent; cherry-picked as a99637e, re-verified
   on the branch; expiry message de-duplicated). Reviewer: APPROVE.
 - [ ] R14 wrapcheck: internal/payables
@@ -237,3 +240,8 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
   (internal/nfr/harness.go Consistent) comments that such a 201 is "counted, not fatal" yet adds
   it to the errors that fail the run: a flaky check (or a lost response body under load) to look
   at in R30.
+- Phase 3: five test packages (procurement, offboarding, workflows, controlplane, audit) each
+  define a private brokenCommit; pgtest.FailingTx.FailCommit can replace them (R31).
+- Phase 3: a go-reviewer subagent ran `git checkout` in the shared checkout during a review and
+  restored it; no commit was lost. Reviews now run on `git show`/exports and are told not to
+  check out.

@@ -50,7 +50,10 @@ func (w *Proposer) tenants(ctx context.Context) ([]uuid.UUID, error) {
 		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
 		WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing'`, ProposeKind)
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-	return tenants, wrapf(err, "payments: list the tenants with proposal jobs")
+	if err != nil {
+		return tenants, fmt.Errorf("payments: list the tenants with proposal jobs: %w", err)
+	}
+	return tenants, nil
 }
 
 // one does the tenant's next job and reports whether there was one.
@@ -83,7 +86,10 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 	if err := buf.Flush(ctx, tx, p, "", clock.Now(w.Now)); err != nil {
 		return false, err
 	}
-	return true, wrapf(tx.Commit(ctx), "payments: commit the proposal of run %s", job.RunID)
+	if err := tx.Commit(ctx); err != nil {
+		return true, fmt.Errorf("payments: commit the proposal of run %s: %w", job.RunID, err)
+	}
+	return true, nil
 }
 
 // RunOnce does every job there is and returns how many it did. A tenant
