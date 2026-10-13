@@ -19,7 +19,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 )
 
@@ -127,7 +126,10 @@ func Open(ctx context.Context, url string) (*Postgres, error) {
 		// CREATE SCHEMA IF NOT EXISTS otherwise race into a unique violation
 		// on pg_namespace.
 		_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('directory.schema'));`+Schema)
-		return errs.Wrapf(err, "lock and create")
+		if err != nil {
+			return fmt.Errorf("lock and create: %w", err)
+		}
+		return nil
 	}); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("directory: schema: %w", err)
@@ -169,7 +171,10 @@ func (p *Postgres) Upsert(ctx context.Context, e Entry) error {
 			WHERE (directory.tenant.region, directory.tenant.cell, directory.tenant.api_url) IS DISTINCT FROM (EXCLUDED.region, EXCLUDED.cell, EXCLUDED.api_url)
 			   OR (directory.tenant.status <> 'read_only' AND directory.tenant.status <> EXCLUDED.status)`,
 			e.TenantID, e.Region, e.Cell, e.APIURL, e.Status)
-		return errs.Wrapf(err, "write tenant %s", e.TenantID)
+		if err != nil {
+			return fmt.Errorf("write tenant %s: %w", e.TenantID, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("directory: upsert: %w", err)
@@ -278,7 +283,10 @@ func (p *Postgres) ListTenants(ctx context.Context, f Filter, ks *pagination.Key
 			var e Entry
 			return e, r.Scan(e.fields()...)
 		})
-		return errs.Wrapf(err, "read tenants")
+		if err != nil {
+			return fmt.Errorf("read tenants: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("directory: list: %w", err)
@@ -298,7 +306,10 @@ func (p *Postgres) UpsertCell(ctx context.Context, c Cell) error {
 		_, err := tx.Exec(ctx, `INSERT INTO directory.cell (name, region, api_url, control_url, accepting) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (name) DO UPDATE SET region = EXCLUDED.region, api_url = EXCLUDED.api_url, control_url = EXCLUDED.control_url, accepting = EXCLUDED.accepting, updated_at = now()`,
 			c.Name, c.Region, c.APIURL, c.ControlURL, c.Accepting)
-		return errs.Wrapf(err, "write cell %s", c.Name)
+		if err != nil {
+			return fmt.Errorf("write cell %s: %w", c.Name, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("directory: upsert cell: %w", err)
@@ -315,7 +326,10 @@ func (p *Postgres) ListCells(ctx context.Context, region string) ([]Cell, error)
 			FROM directory.cell c WHERE $1 = '' OR c.region = $1 ORDER BY 6, c.name`, region)
 		var err error
 		cells, err = pgx.CollectRows(rows, pgx.RowToStructByPos[Cell])
-		return errs.Wrapf(err, "read cells")
+		if err != nil {
+			return fmt.Errorf("read cells: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("directory: list cells: %w", err)
@@ -347,7 +361,10 @@ func (p *Postgres) Place(ctx context.Context, key, region, cell string) (Cell, e
 			return fmt.Errorf("choose cell: %w", err)
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO directory.placement (idempotency_key, cell) VALUES ($1, $2) ON CONFLICT (idempotency_key) DO NOTHING`, key, chosen.Name)
-		return errs.Wrapf(err, "record placement of key %s in cell %s", key, chosen.Name)
+		if err != nil {
+			return fmt.Errorf("record placement of key %s in cell %s: %w", key, chosen.Name, err)
+		}
+		return nil
 	})
 	if errors.Is(err, ErrUnknownCell) {
 		return Cell{}, err

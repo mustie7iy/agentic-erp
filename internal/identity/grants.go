@@ -39,7 +39,10 @@ func getAssignment(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Rol
 	if errors.Is(err, pgx.ErrNoRows) {
 		return g, notFound("role assignment")
 	}
-	return g, errs.Wrapf(err, "identity: read role assignment %s", id)
+	if err != nil {
+		return g, fmt.Errorf("identity: read role assignment %s: %w", id, err)
+	}
+	return g, nil
 }
 
 // AssignRole grants a role to a principal for a period.
@@ -147,7 +150,10 @@ func getAccess(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Company
 	if errors.Is(err, pgx.ErrNoRows) {
 		return g, notFound("company access grant")
 	}
-	return g, errs.Wrapf(err, "identity: read company access %s", id)
+	if err != nil {
+		return g, fmt.Errorf("identity: read company access %s: %w", id, err)
+	}
+	return g, nil
 }
 
 // GrantAccess lets a principal act in a legal entity for a period.
@@ -239,7 +245,10 @@ func getSod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (SodRule, e
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, notFound("segregation-of-duties rule")
 	}
-	return r, errs.Wrapf(err, "identity: read segregation-of-duties rule %s", id)
+	if err != nil {
+		return r, fmt.Errorf("identity: read segregation-of-duties rule %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // CreateSodRule adds a rule, stored with its pair in canonical order. It is

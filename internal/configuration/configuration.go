@@ -326,16 +326,16 @@ func parse(doc json.RawMessage, field string) (*config.Config, error) {
 
 // failed reports the findings with error severity as a 422.
 func failed(findings []config.Finding) error {
-	var errs []problem.FieldError
+	var fields []problem.FieldError
 	for _, f := range findings {
 		if f.Severity == config.SevError {
-			errs = append(errs, problem.FieldError{Field: "proposed." + f.Path, Code: "invalid", Message: f.Message})
+			fields = append(fields, problem.FieldError{Field: "proposed." + f.Path, Code: "invalid", Message: f.Message})
 		}
 	}
-	if len(errs) == 0 {
+	if len(fields) == 0 {
 		return nil
 	}
-	return problem.Unprocessable("config.validation_failed", fmt.Sprintf("The proposed configuration has %d error(s).", len(errs)), errs...)
+	return problem.Unprocessable("config.validation_failed", fmt.Sprintf("The proposed configuration has %d error(s).", len(fields)), fields...)
 }
 
 // rangeTransitions checks number ranges against the base document: a range

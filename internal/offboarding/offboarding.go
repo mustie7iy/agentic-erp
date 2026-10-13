@@ -27,7 +27,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -167,7 +166,10 @@ func tables(ctx context.Context, tx pgx.Tx) ([]string, error) {
 		WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
 		ORDER BY 1`)
 	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	return names, errs.Wrapf(err, "offboarding: list tenant tables")
+	if err != nil {
+		return names, fmt.Errorf("offboarding: list tenant tables: %w", err)
+	}
+	return names, nil
 }
 
 // Export writes the tenant's data to the store, one JSON Lines object per

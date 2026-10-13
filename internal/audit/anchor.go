@@ -68,7 +68,10 @@ func (a *Anchorer) pending(ctx context.Context) ([]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT h.tenant_id FROM audit.chain_head h
 		WHERE h.seq > coalesce((SELECT max(x.seq) FROM audit.anchor x WHERE x.tenant_id = h.tenant_id), 0) ORDER BY h.tenant_id`)
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-	return tenants, errs.Wrapf(err, "list tenants to anchor")
+	if err != nil {
+		return tenants, fmt.Errorf("list tenants to anchor: %w", err)
+	}
+	return tenants, nil
 }
 
 // ObjectName is the name of a tenant's anchor at seq within KindAnchors.
@@ -120,7 +123,10 @@ func (a *Anchorer) anchor(ctx context.Context, tenant uuid.UUID) (Anchor, error)
 		tenant, head.Seq, hash, key, head.AnchoredAt); err != nil {
 		return Anchor{}, fmt.Errorf("record anchor %d: %w", head.Seq, err)
 	}
-	return head, errs.Wrapf(tx.Commit(ctx), "commit anchor %d", head.Seq)
+	if err := tx.Commit(ctx); err != nil {
+		return head, fmt.Errorf("commit anchor %d: %w", head.Seq, err)
+	}
+	return head, nil
 }
 
 // RunOnce anchors every tenant whose head moved and returns how many.
@@ -130,15 +136,15 @@ func (a *Anchorer) RunOnce(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("audit anchorer: %w", err)
 	}
 	n := 0
-	var errs []error
+	var failures []error
 	for _, t := range tenants {
 		if _, err := a.anchor(ctx, t); err != nil {
-			errs = append(errs, fmt.Errorf("audit anchorer: tenant %s: %w", t, err))
+			failures = append(failures, fmt.Errorf("audit anchorer: tenant %s: %w", t, err))
 			continue
 		}
 		n++
 	}
-	return n, errors.Join(errs...)
+	return n, errors.Join(failures...)
 }
 
 // Run anchors until ctx ends; errors are logged and retried next round.
@@ -169,7 +175,10 @@ func anchorsIn(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, from, to int64)
 		err := r.Scan(&s.Seq, &s.Hash, &s.ObjectRef, &s.AnchoredAt, &s.EventHash)
 		return s, errs.Wrapf(err, "scan anchor")
 	})
-	return anchors, errs.Wrapf(err, "audit: read anchors of tenant %s", tenant)
+	if err != nil {
+		return anchors, fmt.Errorf("audit: read anchors of tenant %s: %w", tenant, err)
+	}
+	return anchors, nil
 }
 
 type storedAnchor struct {
@@ -220,5 +229,8 @@ func holds(stored []byte, seq int64, hash []byte) bool {
 func lastAnchor(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (int64, error) {
 	var seq int64
 	err := tx.QueryRow(ctx, `SELECT coalesce(max(seq), 0) FROM audit.anchor WHERE tenant_id = $1`, tenant).Scan(&seq)
-	return seq, errs.Wrapf(err, "audit: read last anchor of tenant %s", tenant)
+	if err != nil {
+		return seq, fmt.Errorf("audit: read last anchor of tenant %s: %w", tenant, err)
+	}
+	return seq, nil
 }

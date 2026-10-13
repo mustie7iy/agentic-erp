@@ -16,7 +16,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // Re-onboarding (T24, ADR-0029): an export (ADR-0021) is also a tenant's
@@ -192,7 +191,10 @@ func (im *Importer) tenantRow(ctx context.Context, tx pgx.Tx, m manifest) error 
 	switch err := tx.QueryRow(ctx, `SELECT status, erased_at FROM tenancy.tenant WHERE id = $1`, m.TenantID).Scan(&status, &erased); {
 	case errors.Is(err, pgx.ErrNoRows):
 		_, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, $2, $3, $4, 'active')`, m.TenantID, t.Name, t.Region, t.GroupCurrency)
-		return errs.Wrapf(err, "offboarding: create tenant %s", m.TenantID)
+		if err != nil {
+			return fmt.Errorf("offboarding: create tenant %s: %w", m.TenantID, err)
+		}
+		return nil
 	case err != nil:
 		return fmt.Errorf("offboarding: read tenant %s: %w", m.TenantID, err)
 	case erased == nil:
@@ -200,7 +202,10 @@ func (im *Importer) tenantRow(ctx context.Context, tx pgx.Tx, m manifest) error 
 	}
 	_, err := tx.Exec(ctx, `UPDATE tenancy.tenant SET status = 'active', name = $2, region = $3, group_currency = $4,
 		exported_at = NULL, export_ref = NULL, erase_after = NULL, erased_at = NULL, version = version + 1 WHERE id = $1`, m.TenantID, t.Name, t.Region, t.GroupCurrency)
-	return errs.Wrapf(err, "offboarding: restore tenant %s", m.TenantID)
+	if err != nil {
+		return fmt.Errorf("offboarding: restore tenant %s: %w", m.TenantID, err)
+	}
+	return nil
 }
 
 // insert writes a table's rows from their JSON into the columns given (the
@@ -225,5 +230,8 @@ func (im *Importer) insert(ctx context.Context, tx pgx.Tx, table string, cols []
 func columns(ctx context.Context, tx pgx.Tx, table string) ([]string, error) {
 	rows, _ := tx.Query(ctx, `SELECT a.attname FROM pg_attribute a WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' ORDER BY a.attnum`, table)
 	cols, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	return cols, errs.Wrapf(err, "read catalog")
+	if err != nil {
+		return cols, fmt.Errorf("read catalog: %w", err)
+	}
+	return cols, nil
 }

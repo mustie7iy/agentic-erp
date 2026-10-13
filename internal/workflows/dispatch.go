@@ -135,13 +135,13 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("dispatcher: reading queued operations: %w", err)
 	}
 	n := 0
-	var errs []error
+	var failures []error
 	for _, j := range jobs {
 		s := j.start(d.Queue)
 		id := s.ID
 		started, err := d.Client.Start(ctx, s)
 		if err != nil {
-			errs = append(errs, err)
+			failures = append(failures, err)
 			continue
 		}
 		if _, err := tx.Exec(ctx, `UPDATE platform.operation SET workflow_id = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`, j.tenant, j.operation, id); err != nil {
@@ -155,13 +155,13 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 		k, err := d.watch(ctx, tx)
 		n += k
 		if err != nil {
-			errs = append(errs, err)
+			failures = append(failures, err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return n, fmt.Errorf("dispatcher: committing the started workflows: %w", err)
 	}
-	return n, errors.Join(errs...)
+	return n, errors.Join(failures...)
 }
 
 // DeadlineWorkflowID is the id of an approval request's deadline workflow.
@@ -183,13 +183,13 @@ func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
 		return 0, fmt.Errorf("dispatcher: reading pending approval requests: %w", err)
 	}
 	n := 0
-	var errs []error
+	var failures []error
 	for _, q := range pending {
 		id := DeadlineWorkflowID(q.tenant, q.id)
 		started, err := d.Client.Start(ctx, workflow.Start{ID: id, Queue: d.Queue, Name: DeadlineWorkflow,
 			Args: []any{DeadlineInput{TenantID: q.tenant, RequestID: q.id, After: d.Deadline, Max: d.Escalations}}})
 		if err != nil {
-			errs = append(errs, err)
+			failures = append(failures, err)
 			continue
 		}
 		if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET workflow_id = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`, q.tenant, q.id, id); err != nil {
@@ -199,7 +199,7 @@ func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
 			n++
 		}
 	}
-	return n, errors.Join(errs...)
+	return n, errors.Join(failures...)
 }
 
 // Run dispatches until ctx ends, logging failures and work done.

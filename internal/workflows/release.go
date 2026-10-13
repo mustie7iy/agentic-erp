@@ -175,7 +175,10 @@ func (w *Releaser) pending(ctx context.Context) ([]ReleaseInput, error) {
 		err := row.Scan(&in.TenantID, &in.RunID, &in.OperationID)
 		return in, errs.Wrapf(err, "scan release operation")
 	})
-	return jobs, errs.Wrapf(err, "read queued release operations")
+	if err != nil {
+		return jobs, fmt.Errorf("read queued release operations: %w", err)
+	}
+	return jobs, nil
 }
 
 // Release does one run's release: the steps of the workflow, in order.
@@ -207,15 +210,15 @@ func (w *Releaser) RunOnce(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("payment releaser: %w", err)
 	}
 	n := 0
-	var errs []error
+	var failures []error
 	for _, in := range jobs {
 		if err := w.Release(ctx, in); err != nil {
-			errs = append(errs, fmt.Errorf("payment releaser: run %s: %w", in.RunID, err))
+			failures = append(failures, fmt.Errorf("payment releaser: run %s: %w", in.RunID, err))
 			continue
 		}
 		n++
 	}
-	return n, errors.Join(errs...)
+	return n, errors.Join(failures...)
 }
 
 // Run releases until ctx ends; errors are logged and retried after the interval.

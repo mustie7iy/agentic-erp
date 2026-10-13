@@ -238,6 +238,8 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
   real-time timeout) while a reviewer ran the same database-heavy packages concurrently; it
   passed 5× alone and 3× under the hook's load with and without the change. Tests whose
   activities hit the database should set a test timeout: R30.
+- Phase 3: internal/nfr TestLoadShedsAHotPrincipal fails under concurrent load (relies on the
+  rate limiter refilling at 20/s; slow requests are never refused); passes alone: R30.
 - R8a: TestResilienceWorkerRestarts failed once in the full -race suite ("an entry answered 201
   without a readable id"); it passed 4× alone with and 4× without the change. The harness
   (internal/nfr/harness.go Consistent) comments that such a 201 is "counted, not fatal" yet adds

@@ -52,7 +52,10 @@ func getRole(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Role, err
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, notFound("role")
 	}
-	return r, errs.Wrapf(err, "identity: read role %s", id)
+	if err != nil {
+		return r, fmt.Errorf("identity: read role %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // CreateRole inserts an active role without permissions.
@@ -132,7 +135,10 @@ func getRolePermission(ctx context.Context, tx pgx.Tx, role, id uuid.UUID, lock 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return g, notFound("permission grant of this role")
 	}
-	return g, errs.Wrapf(err, "identity: read permission grant %s of role %s", id, role)
+	if err != nil {
+		return g, fmt.Errorf("identity: read permission grant %s of role %s: %w", id, role, err)
+	}
+	return g, nil
 }
 
 // GrantPermission adds an effective-dated permission to a role.

@@ -92,7 +92,10 @@ func getPrincipal(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Prin
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, notFound("principal")
 	}
-	return p, errs.Wrapf(err, "identity: read principal %s", id)
+	if err != nil {
+		return p, fmt.Errorf("identity: read principal %s: %w", id, err)
+	}
+	return p, nil
 }
 
 // ProfileInput is an agent profile as the API sends it.

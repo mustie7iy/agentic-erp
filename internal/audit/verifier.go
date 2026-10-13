@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 )
 
@@ -69,7 +68,10 @@ func (v *Verifier) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT tenant_id FROM audit.chain_head ORDER BY tenant_id`)
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-	return tenants, errs.Wrapf(err, "audit: list tenants with a chain")
+	if err != nil {
+		return tenants, fmt.Errorf("audit: list tenants with a chain: %w", err)
+	}
+	return tenants, nil
 }
 
 // Verify recomputes one tenant's whole chain, checks every anchor, records
