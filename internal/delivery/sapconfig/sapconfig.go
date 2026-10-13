@@ -85,15 +85,7 @@ func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {
 	for _, t := range e.T001 {
 		c.Companies = append(c.Companies, g.company(t))
 	}
-	for _, t := range e.T052 {
-		days := 0
-		fmt.Sscanf(t.ZTAG1, "%d", &days)
-		c.PaymentTerms = append(c.PaymentTerms, config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: days})
-	}
-	if len(c.PaymentTerms) == 0 {
-		c.PaymentTerms = []config.PaymentTerm{{Key: "NT30", Description: "Net 30 days", NetDays: 30}}
-		g.note("payment_terms", "T052 not in extract; added NT30 as a placeholder")
-	}
+	c.PaymentTerms = g.paymentTerms()
 	approver := opts.RequisitionApprover
 	g.note("purchasing.requisition_approval", "SAP release strategies are not in the extract; generated two tiers (up to 10,000: "+approver+
 		"; above: "+approver+" then process_owner)")
@@ -117,6 +109,39 @@ type gen struct {
 func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}) }
 
 func alpha(s string) string { return strings.TrimLeft(s, "0") }
+
+// paymentTerms is SAP's payment terms (T052), or a net-30 placeholder with
+// a note when the extract has none. Days are whole numbers in SAP; a term
+// whose days do not parse gets 0 (due at once) and a note.
+func (g *gen) paymentTerms() []config.PaymentTerm {
+	var out []config.PaymentTerm
+	for _, t := range g.e.T052 {
+		days, err := strconv.Atoi(strings.TrimSpace(t.ZTAG1))
+		if err != nil {
+			days = 0
+			g.note("payment_terms["+t.ZTERM+"].net_days", fmt.Sprintf("T052 days %q are not a whole number; used 0 (due at once)", t.ZTAG1))
+		}
+		out = append(out, config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: days})
+	}
+	if len(out) == 0 {
+		out = []config.PaymentTerm{{Key: "NT30", Description: "Net 30 days", NetDays: 30}}
+		g.note("payment_terms", "T052 not in extract; added NT30 as a placeholder")
+	}
+	return out
+}
+
+// wholePercent parses an SAP percentage ("2", "2.0", "2.5") to the whole
+// percent the configuration holds, dropping any fraction (a lower price
+// tolerance sends more invoices to a person, never fewer). exact is false
+// when a fraction was dropped, ok false when s is not a percentage.
+func wholePercent(s string) (pct int, exact, ok bool) {
+	whole, frac, _ := strings.Cut(strings.TrimSpace(s), ".")
+	pct, err := strconv.Atoi(whole)
+	if err != nil || strings.Trim(frac, "0123456789") != "" {
+		return 0, false, false
+	}
+	return pct, strings.Trim(frac, "0") == "", true
+}
 
 func (g *gen) company(t sap.T001) config.Company {
 	p := fmt.Sprintf("companies[%s]", t.BUKRS)
@@ -197,17 +222,26 @@ func (g *gen) apReconciliation(p, company string) string {
 }
 
 // invoiceTolerance is the company's price tolerance (T169G key PP), or 2%
-// and 5.00 with a note when SAP has none.
+// and 5.00 with a note when SAP has none. A percentage that does not parse
+// keeps the 2% default and one with a fraction is cut to whole percent,
+// each with a note.
 func (g *gen) invoiceTolerance(p, company string) config.Tolerance {
 	tolerance := config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}
 	found := false
 	for _, tol := range g.e.T169G {
-		if tol.BUKRS == company && tol.TOLSL == "PP" {
-			pct := 0
-			fmt.Sscanf(tol.PROZ, "%d", &pct)
-			tolerance = config.Tolerance{PricePercent: pct, PriceAbsolute: tol.WERTO}
-			found = true
+		if tol.BUKRS != company || tol.TOLSL != "PP" {
+			continue
 		}
+		tolerance, found = config.Tolerance{PricePercent: 2, PriceAbsolute: tol.WERTO}, true
+		pct, exact, ok := wholePercent(tol.PROZ)
+		switch {
+		case !ok:
+			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q is not a number; used 2%%", tol.PROZ))
+			continue
+		case !exact:
+			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q is not a whole percent; used %d%%", tol.PROZ, pct))
+		}
+		tolerance.PricePercent = pct
 	}
 	if !found {
 		g.note(p+".invoice_tolerance", "T169G key PP not found; used 2% / 5.00")

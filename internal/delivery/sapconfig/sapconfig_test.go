@@ -87,3 +87,45 @@ func TestGenerateGapsAndDefaults(t *testing.T) {
 		t.Fatal("no T030 means no input tax account; validation will flag it")
 	}
 }
+
+// SAP numbers that do not parse, or that the configuration cannot hold
+// exactly, are reported for the reviewer instead of silently defaulted.
+func TestUnparseableNumbersAreNoted(t *testing.T) {
+	cases := map[string]struct {
+		proz, ztag1 string
+		pct, days   int
+		value       string // how the notes name the value; "" means no notes
+	}{
+		"whole":            {"3", "30", 3, 30, ""},
+		"decimal zero":     {"3.0", "030", 3, 30, ""},
+		"decimal fraction": {"2.5", "2.5", 2, 0, `"2.5"`},
+		"not a number":     {"abc", "abc", 2, 0, `"abc"`},
+		"empty":            {"", "", 2, 0, `""`},
+	}
+	paths := []string{"companies[1000].invoice_tolerance.price_percent", "payment_terms[NT30].net_days"}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := sap.GenerateMock(42, "2026")
+			for i := range e.T169G {
+				e.T169G[i].PROZ = tc.proz
+			}
+			e.T052 = []sap.T052{{ZTERM: "NT30", ZTAG1: tc.ztag1, TEXT1: "Net 30 days"}}
+			c, notes := Generate(e, DefaultOptions())
+			if got := c.Company("1000").InvoiceTolerance.PricePercent; got != tc.pct {
+				t.Errorf("got price percent %d, want %d", got, tc.pct)
+			}
+			if got := c.PaymentTerm("NT30").NetDays; got != tc.days {
+				t.Errorf("got net days %d, want %d", got, tc.days)
+			}
+			all := notesText(notes)
+			for _, path := range paths {
+				if got, want := strings.Contains(all, path+": "), tc.value != ""; got != want {
+					t.Errorf("note on %s: got %v, want %v:\n%s", path, got, want, all)
+				}
+			}
+			if tc.value != "" && !strings.Contains(all, tc.value) {
+				t.Errorf("got notes without %s, want the value named:\n%s", tc.value, all)
+			}
+		})
+	}
+}
