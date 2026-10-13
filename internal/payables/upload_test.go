@@ -48,9 +48,23 @@ func TestDirectUploads(t *testing.T) {
 	pdf := "%PDF-1.7 " + strings.Repeat("x", 100)
 	// Create: a signed path on this API, PUT with the content type promised.
 	up, tag := e.Must(201, "POST", "/v1/uploads", `{"purpose":"supplier_invoice","content_type":"application/pdf"}`, "")
-	if up["status"] != "open" || up["method"] != "PUT" || up["max_bytes"].(float64) != payables.MaxUpload || tag != `"1"` ||
-		!strings.HasPrefix(up["url"].(string), "/v1/uploads/"+up["id"].(string)+"/content?") || up["headers"].(map[string]any)["Content-Type"] != "application/pdf" {
-		t.Fatalf("%v %v", up, tag)
+	if up["status"] != "open" {
+		t.Errorf("upload status: got %v, want open", up["status"])
+	}
+	if up["method"] != "PUT" {
+		t.Errorf("upload method: got %v, want PUT", up["method"])
+	}
+	if got := up["max_bytes"].(float64); got != payables.MaxUpload {
+		t.Errorf("upload max bytes: got %v, want %v", got, payables.MaxUpload)
+	}
+	if tag != `"1"` {
+		t.Errorf("upload etag: got %s, want \"1\"", tag)
+	}
+	if got, want := up["url"].(string), "/v1/uploads/"+up["id"].(string)+"/content?"; !strings.HasPrefix(got, want) {
+		t.Fatalf("upload url: got %s, want prefix %s", got, want)
+	}
+	if got := up["headers"].(map[string]any)["Content-Type"]; got != "application/pdf" {
+		t.Errorf("upload content type header: got %v, want application/pdf", got)
 	}
 	target := up["url"].(string)
 	put := func(url, body, contentType string) *problem.Problem {
@@ -93,8 +107,11 @@ func TestDirectUploads(t *testing.T) {
 		t.Fatalf("second put: %+v", p)
 	}
 	got, _ := e.Must(200, "GET", "/v1/uploads/"+up["id"].(string), "", "")
-	if got["status"] != "received" || got["size"].(float64) != float64(len(pdf)) {
-		t.Fatalf("%v", got)
+	if got["status"] != "received" {
+		t.Errorf("received upload status: got %v, want received", got["status"])
+	}
+	if size := got["size"].(float64); size != float64(len(pdf)) {
+		t.Errorf("received upload size: got %v, want %d", size, len(pdf))
 	}
 	// Captured by id: the invoice has the document, the upload is used and cannot be captured again.
 	res, code := captureUpload(up["id"].(string))
@@ -103,12 +120,18 @@ func TestDirectUploads(t *testing.T) {
 	}
 	inv, _ := e.Must(200, "GET", res["resource"].(string), "", "")
 	r := e.API.Do(apitest.Req{Method: "GET", Path: "/v1/supplier-invoices/" + inv["id"].(string) + "/document", Tenant: e.Tenant.ID, As: e.Tenant.Human})
-	if r.Code != 200 || r.Body.String() != pdf {
-		t.Fatalf("document: %d %q", r.Code, r.Body.String())
+	if r.Code != 200 {
+		t.Fatalf("document status: got %d, want 200: %s", r.Code, r.Body)
+	}
+	if got := r.Body.String(); got != pdf {
+		t.Errorf("document body: got %q, want %q", got, pdf)
 	}
 	got, _ = e.Must(200, "GET", "/v1/uploads/"+up["id"].(string), "", "")
-	if got["status"] != "used" || got["used_by"] != inv["id"] {
-		t.Fatalf("%v", got)
+	if got["status"] != "used" {
+		t.Errorf("consumed upload status: got %v, want used", got["status"])
+	}
+	if got["used_by"] != inv["id"] {
+		t.Errorf("consumed upload used by: got %v, want %v", got["used_by"], inv["id"])
 	}
 	if res, code := captureUpload(up["id"].(string)); code != 422 || res["code"] != "payables.upload_used" {
 		t.Fatalf("used: %d %v", code, res)
@@ -131,21 +154,31 @@ func TestDirectUploads(t *testing.T) {
 		"purpose":      {`{"purpose":"photo","content_type":"application/pdf"}`, "payables.unknown_upload_purpose"},
 		"content type": {`{"purpose":"supplier_invoice","content_type":"text/plain"}`, "payables.unsupported_content_type"},
 	} {
-		r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/uploads", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), Body: c.body})
-		if r.Code/100 != 4 || !strings.Contains(r.Body.String(), c.code) {
-			t.Errorf("%s: %d %s", name, r.Code, r.Body)
-		}
+		t.Run(name, func(t *testing.T) {
+			r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/uploads", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), Body: c.body})
+			if r.Code/100 != 4 {
+				t.Errorf("status: got %d, want 4xx: %s", r.Code, r.Body)
+			}
+			if !strings.Contains(r.Body.String(), c.code) {
+				t.Errorf("body: got %s, want it to contain %s", r.Body, c.code)
+			}
+		})
 	}
 	for name, body := range map[string]string{
 		"neither": "--b\r\nContent-Disposition: form-data; name=\"legal_entity_id\"\r\n\r\n" + e.DE.String() + "\r\n--b--\r\n",
 		"both": "--b\r\nContent-Disposition: form-data; name=\"legal_entity_id\"\r\n\r\n" + e.DE.String() + "\r\n--b\r\nContent-Disposition: form-data; name=\"document\"\r\n\r\n%PDF\r\n--b\r\nContent-Disposition: form-data; name=\"upload_id\"\r\n\r\n" +
 			up["id"].(string) + "\r\n--b--\r\n",
 	} {
-		r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/supplier-invoices:capture", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(),
-			Header: map[string][]string{"Content-Type": {"multipart/form-data; boundary=b"}}, Body: body})
-		if r.Code != 422 || !strings.Contains(r.Body.String(), "payables.capture_needs_document") {
-			t.Errorf("%s: %d %s", name, r.Code, r.Body)
-		}
+		t.Run(name, func(t *testing.T) {
+			r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/supplier-invoices:capture", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(),
+				Header: map[string][]string{"Content-Type": {"multipart/form-data; boundary=b"}}, Body: body})
+			if r.Code != 422 {
+				t.Errorf("status: got %d, want 422: %s", r.Code, r.Body)
+			}
+			if !strings.Contains(r.Body.String(), "payables.capture_needs_document") {
+				t.Errorf("body: got %s, want it to contain payables.capture_needs_document", r.Body)
+			}
+		})
 	}
 	if res, code := captureUpload(uuid.NewString()); code != 404 {
 		t.Fatalf("unknown upload: %d %v", code, res)
@@ -177,16 +210,18 @@ func TestDirectUploads(t *testing.T) {
 		h.Uploads = &payables.Uploads{}
 		return h
 	}()} {
-		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-			_, err := h.CaptureUpload(ctx, e.DE, uuid.MustParse(up3["id"].(string)))
-			return err
+		t.Run(name, func(t *testing.T) {
+			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+				_, err := h.CaptureUpload(ctx, e.DE, uuid.MustParse(up3["id"].(string)))
+				return err
+			})
+			if got := problem.From(err).Status; got != 503 {
+				t.Errorf("capture status: got %d, want 503: %v", got, err)
+			}
+			if _, err := h.GetUpload(context.Background(), gen.GetUploadParams{ID: uuid.MustParse(up3["id"].(string))}); problem.From(err).Status != 503 && !errors.Is(err, reqctx.ErrOutsideRequest) {
+				t.Errorf("get: got %v, want status 503 or reqctx.ErrOutsideRequest", err)
+			}
 		})
-		if problem.From(err).Status != 503 {
-			t.Errorf("%s: %v", name, err)
-		}
-		if _, err := h.GetUpload(context.Background(), gen.GetUploadParams{ID: uuid.MustParse(up3["id"].(string))}); problem.From(err).Status != 503 && !errors.Is(err, reqctx.ErrOutsideRequest) {
-			t.Errorf("%s get: %v", name, err)
-		}
 	}
 	if _, err := (&payables.Uploads{Objects: store}).Create(context.Background(), "supplier_invoice", "application/pdf"); err == nil {
 		t.Error("created outside a request")
@@ -209,15 +244,17 @@ func TestDirectUploads(t *testing.T) {
 	}
 	// A store that cannot be inspected or read when the upload is consumed.
 	for name, s := range map[string]blobstore.Store{"stat fails": failingStore{err: errors.New("store down")}, "get fails": statOnly{}} {
-		h := endpoints(x)
-		h.Uploads = &payables.Uploads{Objects: s}
-		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-			_, err := h.CaptureUpload(ctx, e.DE, uuid.MustParse(up3["id"].(string)))
-			return err
+		t.Run(name, func(t *testing.T) {
+			h := endpoints(x)
+			h.Uploads = &payables.Uploads{Objects: s}
+			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+				_, err := h.CaptureUpload(ctx, e.DE, uuid.MustParse(up3["id"].(string)))
+				return err
+			})
+			if got := problem.From(err).Status; got != 503 {
+				t.Errorf("capture status: got %d, want 503: %v", got, err)
+			}
 		})
-		if problem.From(err).Status != 503 {
-			t.Errorf("%s: %v", name, err)
-		}
 	}
 	// An upload larger than its limit when consumed (the limit lowered after the fact).
 	pdf3 := pdf + " v3"
@@ -318,12 +355,18 @@ func TestPresignedUploads(t *testing.T) {
 	}
 	inv, _ := e.Must(200, "GET", apitest.JSON(t, r)["resource"].(string), "", "")
 	r = e.API.Do(apitest.Req{Method: "GET", Path: "/v1/supplier-invoices/" + inv["id"].(string) + "/document", Tenant: e.Tenant.ID, As: e.Tenant.Human})
-	if r.Code != 200 || r.Body.String() != pdf {
-		t.Fatalf("document: %d %q", r.Code, r.Body.String())
+	if r.Code != 200 {
+		t.Fatalf("document status: got %d, want 200: %s", r.Code, r.Body)
+	}
+	if got := r.Body.String(); got != pdf {
+		t.Errorf("document body: got %q, want %q", got, pdf)
 	}
 	got, _ = e.Must(200, "GET", "/v1/uploads/"+up["id"].(string), "", "")
-	if got["status"] != "used" || got["size"].(float64) != float64(len(pdf)) {
-		t.Fatalf("%v", got)
+	if got["status"] != "used" {
+		t.Errorf("consumed upload status: got %v, want used", got["status"])
+	}
+	if size := got["size"].(float64); size != float64(len(pdf)) {
+		t.Errorf("consumed upload size: got %v, want %d", size, len(pdf))
 	}
 	// A store that cannot presign fails the create and the read.
 	odd := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects = blobstore.S3{Endpoint: "::", Bucket: "b"} })

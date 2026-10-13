@@ -53,9 +53,23 @@ func TestRegressionSuites(t *testing.T) {
 	// The invoices are dated March: a window long enough to reach them.
 	suite, tag := e.Must(201, "POST", "/v1/regression-suites", `{"name": "Baseline", "max_cases": 3, "window_days": 300}`, "")
 	cases := suite["cases"].([]any)
-	if suite["number"] != "RS-0001" || suite["config_version"] != float64(1) || suite["window_days"] != float64(300) || suite["case_count"] != float64(3) ||
-		len(cases) != 3 || tag != `"1"` {
-		t.Fatalf("suite: %v", suite)
+	if suite["number"] != "RS-0001" {
+		t.Errorf("suite number: got %v, want RS-0001", suite["number"])
+	}
+	if suite["config_version"] != float64(1) {
+		t.Errorf("suite config version: got %v, want 1", suite["config_version"])
+	}
+	if suite["window_days"] != float64(300) {
+		t.Errorf("suite window: got %v, want 300", suite["window_days"])
+	}
+	if suite["case_count"] != float64(3) {
+		t.Errorf("suite case count: got %v, want 3", suite["case_count"])
+	}
+	if len(cases) != 3 {
+		t.Errorf("suite cases: got %d, want 3", len(cases))
+	}
+	if tag != `"1"` {
+		t.Errorf("suite etag: got %s, want \"1\"", tag)
 	}
 	whys := []string{}
 	for _, c := range cases {
@@ -67,17 +81,32 @@ func TestRegressionSuites(t *testing.T) {
 		t.Fatalf("strata: %v", whys)
 	}
 	full, _ := e.Must(201, "POST", "/v1/regression-suites", `{"name": "Everything", "window_days": 300}`, "")
-	if full["number"] != "RS-0002" || full["case_count"] != float64(4) || len(full["strata"].([]any)) != 7 {
-		t.Fatalf("full suite: %v", full)
+	if full["number"] != "RS-0002" {
+		t.Errorf("full suite number: got %v, want RS-0002", full["number"])
+	}
+	if full["case_count"] != float64(4) {
+		t.Errorf("full suite case count: got %v, want 4", full["case_count"])
+	}
+	if got := len(full["strata"].([]any)); got != 7 {
+		t.Errorf("full suite strata: got %d, want 7", got)
 	}
 	got, _ := e.Must(200, "GET", "/v1/regression-suites/"+suite["id"].(string), "", "")
-	if got["name"] != "Baseline" || len(got["cases"].([]any)) != 3 {
-		t.Fatalf("get: %v", got)
+	if got["name"] != "Baseline" {
+		t.Errorf("get name: got %v, want Baseline", got["name"])
+	}
+	if n := len(got["cases"].([]any)); n != 3 {
+		t.Errorf("get cases: got %d, want 3", n)
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/regression-suites/"+uuid.NewString(), "", "")
 	page, _ := e.Must(200, "GET", "/v1/regression-suites?config_version=1&page_size=1", "", "")
-	if len(page["items"].([]any)) != 1 || page["items"].([]any)[0].(map[string]any)["number"] != "RS-0002" || page["next_page_token"] == nil {
-		t.Fatalf("list: %v", page)
+	if n := len(page["items"].([]any)); n != 1 {
+		t.Fatalf("list items: got %d, want 1: %v", n, page)
+	}
+	if got := page["items"].([]any)[0].(map[string]any)["number"]; got != "RS-0002" {
+		t.Errorf("list first: got %v, want RS-0002", got)
+	}
+	if page["next_page_token"] == nil {
+		t.Fatalf("list next page token: got none, want one: %v", page)
 	}
 	rest, _ := e.Must(200, "GET", "/v1/regression-suites?config_version=1&page_size=1&page_token="+page["next_page_token"].(string), "", "")
 	if len(rest["items"].([]any)) != 1 || rest["items"].([]any)[0].(map[string]any)["number"] != "RS-0001" {
@@ -118,9 +147,20 @@ func TestRegressionSuites(t *testing.T) {
 	}
 	// In suite order: the exception case keeps its quantity issue, the sampled held invoice posts.
 	f := replay(tolerant)
-	if len(f) != 2 || f[0].Case.DocumentNumber != twice["document_number"] || strings.Join(f[0].Issues, ",") != payables.IssueQtyReceived ||
-		f[1].Case.DocumentNumber != held["document_number"] || f[1].Decision != payables.DecisionAutoPost {
-		t.Fatalf("tolerant: %+v", f)
+	if len(f) != 2 {
+		t.Fatalf("tolerant failures: got %d, want 2: %+v", len(f), f)
+	}
+	if f[0].Case.DocumentNumber != twice["document_number"] {
+		t.Errorf("first failure: got %s, want %v", f[0].Case.DocumentNumber, twice["document_number"])
+	}
+	if got := strings.Join(f[0].Issues, ","); got != payables.IssueQtyReceived {
+		t.Errorf("first failure issues: got %s, want %s", got, payables.IssueQtyReceived)
+	}
+	if f[1].Case.DocumentNumber != held["document_number"] {
+		t.Errorf("second failure: got %s, want %v", f[1].Case.DocumentNumber, held["document_number"])
+	}
+	if f[1].Decision != payables.DecisionAutoPost {
+		t.Errorf("second failure decision: got %s, want %s", f[1].Decision, payables.DecisionAutoPost)
 	}
 	// A case whose invoice vanished is a failure of the replay, not a silent pass.
 	missing := append([]configuration.RegressionCase(nil), captured...)
@@ -143,10 +183,12 @@ func TestRegressionSuites(t *testing.T) {
 			return err
 		},
 	} {
-		if fn(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, fn)
+		t.Run(name, func(t *testing.T) {
+			if fn(context.Background()) == nil {
+				t.Error("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, fn)
+		})
 	}
 	// Without a maximum every invoice is a case, strata first.
 	var all []configuration.RegressionCase
@@ -168,8 +210,16 @@ func TestRegressionSuites(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("capture without the company: %v", err)
 	}
-	if len(all) != 4 || all[0].ExpectedDecision != payables.DecisionReview || strings.Contains(all[0].Why+all[1].Why+all[2].Why+all[3].Why, "near") {
-		t.Fatalf("without the company: %+v", all)
+	if len(all) != 4 {
+		t.Fatalf("without the company, cases: got %d, want 4: %+v", len(all), all)
+	}
+	if all[0].ExpectedDecision != payables.DecisionReview {
+		t.Errorf("without the company, first decision: got %s, want %s", all[0].ExpectedDecision, payables.DecisionReview)
+	}
+	for i, c := range all {
+		if strings.Contains(c.Why, "near") {
+			t.Errorf("without the company, case %d why: got %q, want no mention of near", i, c.Why)
+		}
 	}
 	_ = fmt.Sprint
 }
