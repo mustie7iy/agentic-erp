@@ -62,9 +62,18 @@ func TestGetOperation(t *testing.T) {
 		t.Fatalf("%d %s", r.Code, r.Body)
 	}
 	got := apitest.JSON(t, r)
-	if got["id"] != o.ID.String() || got["status"] != "queued" || got["kind"] != "payments.propose" || got["resource"] != nil ||
-		got["progress"].(map[string]any)["total"] != nil || got["created_by"] != ten.Human.ID.String() {
-		t.Fatalf("%v", got)
+	progress, _ := got["progress"].(map[string]any)
+	for field, c := range map[string]struct{ got, want any }{
+		"id":             {got["id"], o.ID.String()},
+		"status":         {got["status"], "queued"},
+		"kind":           {got["kind"], "payments.propose"},
+		"resource":       {got["resource"], nil},
+		"progress.total": {progress["total"], nil},
+		"created_by":     {got["created_by"], ten.Human.ID.String()},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	// A finished operation shows its result and error.
 	failed := start(t, ten, "integration.migrate")
@@ -72,9 +81,18 @@ func TestGetOperation(t *testing.T) {
 		result = '{"loaded": 5}', error = '{"type":"t","title":"Failed","status":422,"code":"integration.reconciliation_failed"}', version = version + 1
 		WHERE id = $1`, failed.ID)
 	got = apitest.JSON(t, api.Do(apitest.Req{Method: "GET", Path: "/v1/operations/" + failed.ID.String(), Tenant: ten.ID, As: ten.Human}))
-	if got["resource"] != "/v1/migration-runs/x" || got["progress"].(map[string]any)["total"] != float64(10) ||
-		got["result"].(map[string]any)["loaded"] != float64(5) || got["error"].(map[string]any)["code"] != "integration.reconciliation_failed" {
-		t.Fatalf("%v", got)
+	progress, _ = got["progress"].(map[string]any)
+	result, _ := got["result"].(map[string]any)
+	problemBody, _ := got["error"].(map[string]any)
+	for field, c := range map[string]struct{ got, want any }{
+		"resource":       {got["resource"], "/v1/migration-runs/x"},
+		"progress.total": {progress["total"], float64(10)},
+		"result.loaded":  {result["loaded"], float64(5)},
+		"error.code":     {problemBody["code"], "integration.reconciliation_failed"},
+	} {
+		if c.got != c.want {
+			t.Errorf("failed operation %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 }
 
@@ -98,10 +116,18 @@ func TestOperationAccess(t *testing.T) {
 		{"bad id", apitest.Req{Method: "GET", Path: "/v1/operations/not-a-uuid", Tenant: ten.ID, As: ten.Human}, 400, "request.invalid_parameter"},
 	}
 	for _, c := range cases {
-		r := api.Do(c.req)
-		if r.Code != c.code || apitest.JSON(t, r)["code"] != c.pc || r.Header().Get("Content-Type") != "application/problem+json" {
-			t.Errorf("%s: %d %s", c.name, r.Code, r.Body)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			r := api.Do(c.req)
+			if r.Code != c.code {
+				t.Errorf("got status %d, want %d: %s", r.Code, c.code, r.Body)
+			}
+			if ct := r.Header().Get("Content-Type"); ct != "application/problem+json" {
+				t.Errorf("got content type %q, want application/problem+json", ct)
+			}
+			if pc := apitest.JSON(t, r)["code"]; pc != c.pc {
+				t.Errorf("got problem %v, want %s", pc, c.pc)
+			}
+		})
 	}
 }
 
@@ -127,13 +153,16 @@ func TestListOperations(t *testing.T) {
 		return out
 	}
 	first := list("?kind=payments.propose&page_size=2")
-	if got := itemIDs(first); len(got) != 2 || got[0] != ids[2] || got[1] != ids[1] {
-		t.Fatalf("newest first: %v (ids %v)", got, ids)
+	if got, want := strings.Join(itemIDs(first), ","), ids[2]+","+ids[1]; got != want {
+		t.Fatalf("newest first: got %s, want %s", got, want)
 	}
 	tok := first["next_page_token"].(string)
 	second := list("?kind=payments.propose&page_size=2&page_token=" + tok)
-	if got := itemIDs(second); len(got) != 1 || got[0] != ids[0] || second["next_page_token"] != nil {
-		t.Fatalf("second page: %v", second)
+	if got := strings.Join(itemIDs(second), ","); got != ids[0] {
+		t.Fatalf("second page: got %s, want %s", got, ids[0])
+	}
+	if second["next_page_token"] != nil {
+		t.Fatalf("second page next_page_token: got %v, want none", second["next_page_token"])
 	}
 	asc := list("?kind=payments.propose&order_by=created_at%20asc")
 	if got := itemIDs(asc); len(got) != 3 || got[0] != ids[0] {
@@ -151,10 +180,12 @@ func TestListOperations(t *testing.T) {
 		"?page_token=garbage": "request.invalid_page_token",
 		"?kind=integration.migrate&page_token=" + tok: "request.invalid_page_token", // issued for other filters
 	} {
-		r := api.Do(apitest.Req{Method: "GET", Path: "/v1/operations" + query, Tenant: ten.ID, As: ten.Human})
-		if r.Code != 400 || apitest.JSON(t, r)["code"] != code {
-			t.Errorf("%s: %d %s", query, r.Code, r.Body)
-		}
+		t.Run(query, func(t *testing.T) {
+			r := api.Do(apitest.Req{Method: "GET", Path: "/v1/operations" + query, Tenant: ten.ID, As: ten.Human})
+			if r.Code != 400 || apitest.JSON(t, r)["code"] != code {
+				t.Errorf("got %d %s, want 400 %s", r.Code, r.Body, code)
+			}
+		})
 	}
 }
 
@@ -194,8 +225,17 @@ func TestCancelOperation(t *testing.T) {
 	}
 	r := api.Do(apitest.Req{Method: "POST", Path: path, Tenant: ten.ID, As: ten.Agent, Key: key, IfMatch: `"1"`})
 	got := apitest.JSON(t, r)
-	if r.Code != 200 || r.Header().Get("ETag") != `"2"` || got["status"] != "cancelled" || got["updated_by"] != ten.Agent.ID.String() {
-		t.Fatalf("cancel: %d %v", r.Code, got)
+	if r.Code != 200 {
+		t.Fatalf("cancel: got status %d, want 200: %v", r.Code, got)
+	}
+	if tag := r.Header().Get("ETag"); tag != `"2"` {
+		t.Errorf("cancel ETag: got %s, want %s", tag, `"2"`)
+	}
+	if got["status"] != "cancelled" {
+		t.Errorf("cancel status: got %v, want cancelled", got["status"])
+	}
+	if want := ten.Agent.ID.String(); got["updated_by"] != want {
+		t.Errorf("cancel updated_by: got %v, want %s", got["updated_by"], want)
 	}
 	// An operation without a workflow asks the engine nothing; one with a
 	// workflow has it cancelled; an engine that does not take the
@@ -204,19 +244,32 @@ func TestCancelOperation(t *testing.T) {
 		t.Fatalf("engine asked for %v", engine.cancelled)
 	}
 	for _, wf := range []string{"wf-ok", "wf-fail"} {
-		ox := start(t, ten, "payments.propose")
-		pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = $2, version = version + 1 WHERE id = $1`, ox.ID, wf)
-		if r := api.Do(apitest.Req{Method: "POST", Path: "/v1/operations/" + ox.ID.String() + ":cancel", Tenant: ten.ID, As: ten.Agent, Key: apitest.NewKey(), IfMatch: "*"}); r.Code != 200 {
-			t.Fatalf("cancel %s: %d %s", wf, r.Code, r.Body)
+		if !t.Run(wf, func(t *testing.T) {
+			ox := start(t, ten, "payments.propose")
+			pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = $2, version = version + 1 WHERE id = $1`, ox.ID, wf)
+			if r := api.Do(apitest.Req{Method: "POST", Path: "/v1/operations/" + ox.ID.String() + ":cancel", Tenant: ten.ID, As: ten.Agent, Key: apitest.NewKey(), IfMatch: "*"}); r.Code != 200 {
+				t.Fatalf("got %d %s, want 200", r.Code, r.Body)
+			}
+		}) {
+			t.FailNow()
 		}
 	}
-	if strings.Join(engine.cancelled, " ") != "wf-ok wf-fail" || !strings.Contains(logs.String(), "did not take the cancellation") {
-		t.Fatalf("engine: %v %s", engine.cancelled, logs.String())
+	if got := strings.Join(engine.cancelled, " "); got != "wf-ok wf-fail" {
+		t.Fatalf("engine cancellations: got %s, want wf-ok wf-fail", got)
+	}
+	if !strings.Contains(logs.String(), "did not take the cancellation") {
+		t.Fatalf("logs: got %s, want the refused cancellation logged", logs.String())
 	}
 	// A retry with the same key returns the same answer and changes nothing.
 	replay := api.Do(apitest.Req{Method: "POST", Path: path, Tenant: ten.ID, As: ten.Agent, Key: key, IfMatch: `"1"`})
-	if replay.Code != 200 || replay.Header().Get("Idempotent-Replayed") != "true" || replay.Header().Get("ETag") != `"2"` {
-		t.Fatalf("replay: %d %v", replay.Code, replay.Header())
+	if replay.Code != 200 {
+		t.Fatalf("replay: got status %d, want 200", replay.Code)
+	}
+	if got := replay.Header().Get("Idempotent-Replayed"); got != "true" {
+		t.Errorf("replay Idempotent-Replayed: got %q, want true", got)
+	}
+	if got := replay.Header().Get("ETag"); got != `"2"` {
+		t.Errorf("replay ETag: got %s, want %s", got, `"2"`)
 	}
 	if code, body := cancel(apitest.NewKey(), `"2"`); code != 409 || body["code"] != "platform.operation_not_cancellable" {
 		t.Fatalf("cancel twice: %d %v", code, body)
@@ -240,8 +293,14 @@ func TestCancelOperation(t *testing.T) {
 	if err := json.Unmarshal(payload, &ev); err != nil {
 		t.Fatalf("decode the event: %v", err)
 	}
-	if ev["status"] != "cancelled" || ev["operation_id"] != o.ID.String() || ev["error"] != nil {
-		t.Fatalf("event %v", ev)
+	if ev["status"] != "cancelled" {
+		t.Errorf("event status: got %v, want cancelled", ev["status"])
+	}
+	if ev["operation_id"] != o.ID.String() {
+		t.Errorf("event operation_id: got %v, want %s", ev["operation_id"], o.ID)
+	}
+	if ev["error"] != nil {
+		t.Errorf("event error: got %v, want nil", ev["error"])
 	}
 	// A running operation that recorded an error carries it in its completion event.
 	running := start(t, ten, "integration.migrate")
@@ -322,14 +381,16 @@ func TestDatabaseFailures(t *testing.T) {
 		pgtest.Exec(t, `DROP TRIGGER fail_event ON platform.outbox`)
 	})
 	for kind, withAudit := range map[string]bool{"test.fail_update": true, "test.fail_outbox": true, "test.no_audit": false} {
-		o := start(t, ten, kind)
-		err := inRequest(t, ten, ten.Human, withAudit, func(ctx context.Context) error {
-			_, err := e.CancelOperation(ctx, gen.CancelOperationParams{ID: o.ID, IfMatch: `"1"`})
-			return err
+		t.Run(kind, func(t *testing.T) {
+			o := start(t, ten, kind)
+			err := inRequest(t, ten, ten.Human, withAudit, func(ctx context.Context) error {
+				_, err := e.CancelOperation(ctx, gen.CancelOperationParams{ID: o.ID, IfMatch: `"1"`})
+				return err
+			})
+			if err == nil {
+				t.Errorf("got nil error, want the failure reported")
+			}
 		})
-		if err == nil {
-			t.Errorf("%s: failure not reported", kind)
-		}
 	}
 }
 
@@ -350,10 +411,19 @@ func TestSucceed(t *testing.T) {
 			t.Error("unencodable result accepted")
 		}
 		done, err := operations.Succeed(ctx, o.ID, "/v1/supplier-invoices/1", map[string]any{"fields": 3})
-		if err == nil && (done.Status != operations.Succeeded || *done.Resource != "/v1/supplier-invoices/1" || string(done.Result) != `{"fields": 3}`) {
-			t.Errorf("succeeded: %+v %s", done, done.Result)
+		if err != nil {
+			return err
 		}
-		return err
+		if done.Status != operations.Succeeded {
+			t.Errorf("succeeded status: got %v, want %v", done.Status, operations.Succeeded)
+		}
+		if *done.Resource != "/v1/supplier-invoices/1" {
+			t.Errorf("succeeded resource: got %s, want /v1/supplier-invoices/1", *done.Resource)
+		}
+		if string(done.Result) != `{"fields": 3}` {
+			t.Errorf("succeeded result: got %s, want %s", done.Result, `{"fields": 3}`)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
