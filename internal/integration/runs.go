@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -69,7 +70,7 @@ func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.ConnectorID, &r.Scope, &r.Mode, &r.IsRehearsal, &r.Status, &r.Report, &r.OperationID, &r.StartedAt, &r.FinishedAt,
 		&r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt)
-	return r, err
+	return r, errs.Wrapf(err, "scan migration run")
 }
 
 // getRun reads a run whose legal entities the caller may all act in.
@@ -87,7 +88,7 @@ func getRun(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Run, error
 		return Run{}, notFound("migration run")
 	}
 	if err != nil {
-		return Run{}, err
+		return Run{}, fmt.Errorf("integration: read migration run %s: %w", id, err)
 	}
 	for _, le := range r.Scope.LegalEntityIDs {
 		if !access.Allows(le) {
@@ -240,7 +241,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	var code string
 	var exp int
 	if _, err := pgx.ForEachRow(rows, []any{&code, &exp}, func() error { t.exponents[code] = exp; return nil }); err != nil {
-		return t, nil, c, err
+		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
 	}
 	src, err := e.source(ctx, c)
 	if err != nil {
@@ -366,7 +367,7 @@ func (e *Endpoints) hand(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 		return operations.Operation{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE integration.migration_run SET status = 'running', operation_id = $2, started_at = coalesce(started_at, now()), version = version + 1 WHERE id = $1`, r.ID, op.ID); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("integration: hand migration run %s to operation %s: %w", r.ID, op.ID, err)
 	}
 	return op, record(ctx, action, r.ID, map[string]any{"status": Running, "operation_id": op.ID, "by": p.ID, "workflow": true})
 }
@@ -408,7 +409,7 @@ func (e *Endpoints) Execute(ctx context.Context, id uuid.UUID) (operations.Opera
 			back = Loaded
 		}
 		if _, err := tx.Exec(ctx, `UPDATE integration.migration_run SET status = $2, version = version + 1 WHERE id = $1`, r.ID, back); err != nil {
-			return operations.Operation{}, err
+			return operations.Operation{}, fmt.Errorf("integration: put migration run %s back to %s: %w", r.ID, back, err)
 		}
 		if err := record(ctx, "integration.migration_run.fail", r.ID, map[string]any{"operation_id": op.ID, "code": why.Code, "detail": why.Detail, "status": back}); err != nil {
 			return operations.Operation{}, err
@@ -429,11 +430,11 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 		return finish(ctx, tx, p, r, op, Failed, "integration.migration_run.start", report)
 	}
 	if _, err := tx.Exec(ctx, `SAVEPOINT load`); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("integration: open the load savepoint of migration run %s: %w", r.ID, err)
 	}
 	var today time.Time
 	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&today); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("integration: read the load date of migration run %s: %w", r.ID, err)
 	}
 	existing, err := loadRefs(ctx, tx, system(c))
 	if err != nil {
@@ -461,7 +462,7 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	}
 	if hasErrors(l.issues) || r.IsRehearsal {
 		if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT load`); err != nil {
-			return operations.Operation{}, err
+			return operations.Operation{}, fmt.Errorf("integration: roll back the load of migration run %s: %w", r.ID, err)
 		}
 		audit.Discard(ctx) // what the load recorded did not happen
 		if hasErrors(l.issues) {
@@ -579,7 +580,7 @@ func (e *Endpoints) ListMigrationRuns(ctx context.Context, params gen.ListMigrat
 	rows, _ := tx.Query(ctx, q, args...)
 	runs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Run, error) { return scanRun(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("integration: list migration runs: %w", err)
 	}
 	runs, next := pagination.Page(ks, runs, func(r Run) (string, uuid.UUID) {
 		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID

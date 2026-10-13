@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -54,7 +56,7 @@ const connectorColumns = `id, kind, name, settings, secret_ref, status, version,
 func scanConnector(row pgx.Row) (Connector, error) {
 	var c Connector
 	err := row.Scan(&c.ID, &c.Kind, &c.Name, &c.Settings, &c.SecretRef, &c.Status, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
-	return c, err
+	return c, errs.Wrapf(err, "scan connector")
 }
 
 func getConnector(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Connector, error) {
@@ -66,7 +68,10 @@ func getConnector(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Conn
 	if noRows(err) {
 		return c, notFound("connector")
 	}
-	return c, err
+	if err != nil {
+		return c, fmt.Errorf("integration: read connector %s: %w", id, err)
+	}
+	return c, nil
 }
 
 // checkSettings validates the settings of the source kinds: sap_file needs
@@ -280,7 +285,7 @@ func (e *Endpoints) ListConnectors(ctx context.Context, params gen.ListConnector
 	rows, _ := tx.Query(ctx, q, args...)
 	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Connector, error) { return scanConnector(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("integration: list connectors: %w", err)
 	}
 	cs, next := pagination.Page(ks, cs, func(c Connector) (string, uuid.UUID) { return c.Name, c.ID })
 	page := gen.ConnectorPage{Items: make([]gen.Connector, len(cs))}

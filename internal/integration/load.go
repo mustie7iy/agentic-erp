@@ -3,6 +3,7 @@ package integration
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,8 +36,10 @@ func loadRefs(ctx context.Context, tx pgx.Tx, system string) (refs, error) {
 	out := refs{}
 	var object, key string
 	var id uuid.UUID
-	_, err := pgx.ForEachRow(rows, []any{&object, &key, &id}, func() error { out[object+"/"+key] = id; return nil })
-	return out, err
+	if _, err := pgx.ForEachRow(rows, []any{&object, &key, &id}, func() error { out[object+"/"+key] = id; return nil }); err != nil {
+		return out, fmt.Errorf("integration: read the external references of system %s: %w", system, err)
+	}
+	return out, nil
 }
 
 // loader loads one run's extract through the application services.
@@ -72,7 +75,7 @@ func (l *loader) issue(table, key, message string) {
 // error stops the load.
 func (l *loader) step(ctx context.Context, table, key string, fn func() error) (bool, error) {
 	if _, err := l.tx.Exec(ctx, `SAVEPOINT item`); err != nil {
-		return false, err
+		return false, fmt.Errorf("integration: open the savepoint for %s %s: %w", table, key, err)
 	}
 	if err := fn(); err != nil {
 		p := problem.From(err)
@@ -80,20 +83,25 @@ func (l *loader) step(ctx context.Context, table, key string, fn func() error) (
 			return false, err
 		}
 		if _, err := l.tx.Exec(ctx, `ROLLBACK TO SAVEPOINT item`); err != nil {
-			return false, err
+			return false, fmt.Errorf("integration: roll back the refused %s %s: %w", table, key, err)
 		}
 		l.issue(table, key, p.Code+": "+p.Detail)
 		return false, nil
 	}
-	_, err := l.tx.Exec(ctx, `RELEASE SAVEPOINT item`)
-	return err == nil, err
+	if _, err := l.tx.Exec(ctx, `RELEASE SAVEPOINT item`); err != nil {
+		return false, fmt.Errorf("integration: release the savepoint for %s %s: %w", table, key, err)
+	}
+	return true, nil
 }
 
 func (l *loader) addRef(ctx context.Context, entityType string, id uuid.UUID, object, key string) error {
 	l.refs[object+"/"+key] = id
 	_, err := l.tx.Exec(ctx, `INSERT INTO integration.external_ref (tenant_id, entity_type, entity_id, system, object, external_key, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, l.p.TenantID, entityType, id, l.system, object, key, l.p.ID)
-	return err
+	if err != nil {
+		return fmt.Errorf("integration: record the external reference %s/%s: %w", object, key, err)
+	}
+	return nil
 }
 
 func (l *loader) plain(minor int64, currency string) string {
