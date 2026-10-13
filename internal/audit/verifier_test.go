@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -33,7 +32,7 @@ func TestScheduledVerification(t *testing.T) {
 	if _, err := anchorer.RunOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	logs := &syncBuffer{}
+	logs := &pgtest.SyncBuffer{}
 	clock := time.Now().UTC().Truncate(time.Microsecond)
 	v := &audit.Verifier{Pool: pool, Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)), Now: func() time.Time { return clock }}
 	ok, _, err := v.RunOnce(ctx) // other tests' tenants anchored to stores of their own count as broken here
@@ -161,7 +160,8 @@ func TestScheduledVerification(t *testing.T) {
 	liveCtx, stopLive := context.WithCancel(ctx)
 	lived := make(chan struct{})
 	go func() { v.Run(liveCtx); close(lived) }()
-	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "audit verification round") },
+	t.Cleanup(func() { stopLive(); <-lived }) // stops the worker should the wait fail
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), `msg="audit verification round" verified=`) },
 		"no round logged")
 	stopLive()
 	<-lived
@@ -173,6 +173,7 @@ func TestScheduledVerification(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { v.Run(runCtx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "audit verification round failed") },
 		"logs: %s", logs)
 	cancel()
@@ -185,22 +186,4 @@ type brokenCommit struct{ pgx.Tx }
 func (b brokenCommit) Commit(ctx context.Context) error {
 	b.Rollback(ctx)
 	return errors.New("commit failed")
-}
-
-// syncBuffer is a log sink the test reads while the worker writes.
-type syncBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
 }

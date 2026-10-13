@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -318,7 +317,7 @@ func TestAnchoringFailures(t *testing.T) {
 		t.Fatalf("raced anchors: %v", got)
 	}
 	// Run loops, logs failures and stops with its context.
-	logs := &lockedWriter{}
+	logs := &pgtest.SyncBuffer{}
 	broken := anchorer(t, failingStore{err: errors.New("store down")})
 	broken.Log = slog.New(slog.NewTextHandler(logs, nil)) // the default interval: the first round runs at once
 	setup(t)                                              // a tenant to fail on
@@ -358,22 +357,4 @@ func TestAnchoringFailures(t *testing.T) {
 		t.Fatalf("deleted event: %v", res)
 	}
 	_ = trail.Entry{}
-}
-
-// lockedWriter is a log sink the test may read while the worker writes.
-type lockedWriter struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (l *lockedWriter) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.Write(p)
-}
-
-func (l *lockedWriter) String() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.String()
 }
