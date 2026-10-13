@@ -190,15 +190,9 @@ func (u *Uploads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
-	q := r.URL.Query()
-	id, err := uuid.Parse(r.PathValue("id"))
-	tenant, terr := uuid.Parse(q.Get("tenant"))
-	expires, eerr := strconv.ParseInt(q.Get("expires"), 10, 64)
-	if err != nil || terr != nil || eerr != nil || !hmac.Equal([]byte(q.Get("signature")), []byte(u.sign(tenant, id, q.Get("expires")))) {
-		return problem.Forbidden("payables.invalid_upload_url", "The upload URL is not valid.")
-	}
-	if u.now().Unix() > expires {
-		return problem.Forbidden("payables.upload_url_expired", "The upload URL has expired; start a new upload.")
+	id, tenant, err := u.checkURL(r)
+	if err != nil {
+		return err
 	}
 	if u.Objects == nil {
 		return problem.Unavailable("This server has no object storage.", 0)
@@ -219,19 +213,8 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 			return problem.New(http.StatusRequestEntityTooLarge, "payables.document_too_large", "Document too large",
 				fmt.Sprintf("Uploads are at most %d MB.", up.MaxBytes>>20)).WithCause(err)
 		}
-		err = u.Objects.Put(ctx, up.ObjectRef, body, blobstore.PutOptions{ContentType: up.ContentType})
-		if errors.Is(err, blobstore.ErrExists) {
-			// A PUT that stored the object but did not get to record it (a
-			// failed statement, a lost answer) is sent again: the same bytes
-			// are fine, others are not, since the store keeps the first.
-			stored, _, gerr := u.Objects.Get(ctx, up.ObjectRef)
-			if gerr != nil || !bytes.Equal(stored, body) {
-				return problem.Conflict("payables.upload_conflict", "This upload already holds a different document; start a new upload.")
-			}
-			err = nil
-		}
-		if err != nil {
-			return problem.Unavailable("The object store did not take the document; send it again.", 30).WithCause(err)
+		if err := u.store(ctx, up, body); err != nil {
+			return err
 		}
 		sum := sha256.Sum256(body)
 		if _, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'received', size = $2, sha256 = $3, version = version + 1 WHERE id = $1`, id, len(body), sum[:]); err != nil {
@@ -240,6 +223,41 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	})
+}
+
+// checkURL verifies the signature and expiry of an upload URL and returns
+// the upload and tenant it names.
+func (u *Uploads) checkURL(r *http.Request) (id, tenant uuid.UUID, err error) {
+	q := r.URL.Query()
+	id, err = uuid.Parse(r.PathValue("id"))
+	tenant, terr := uuid.Parse(q.Get("tenant"))
+	expires, eerr := strconv.ParseInt(q.Get("expires"), 10, 64)
+	if err != nil || terr != nil || eerr != nil || !hmac.Equal([]byte(q.Get("signature")), []byte(u.sign(tenant, id, q.Get("expires")))) {
+		return uuid.Nil, uuid.Nil, problem.Forbidden("payables.invalid_upload_url", "The upload URL is not valid.")
+	}
+	if u.now().Unix() > expires {
+		return uuid.Nil, uuid.Nil, problem.Forbidden("payables.upload_url_expired", "The upload URL has expired; start a new upload.")
+	}
+	return id, tenant, nil
+}
+
+// store puts an upload's document where the upload says.
+func (u *Uploads) store(ctx context.Context, up Upload, body []byte) error {
+	err := u.Objects.Put(ctx, up.ObjectRef, body, blobstore.PutOptions{ContentType: up.ContentType})
+	if errors.Is(err, blobstore.ErrExists) {
+		// A PUT that stored the object but did not get to record it (a
+		// failed statement, a lost answer) is sent again: the same bytes
+		// are fine, others are not, since the store keeps the first.
+		stored, _, gerr := u.Objects.Get(ctx, up.ObjectRef)
+		if gerr != nil || !bytes.Equal(stored, body) {
+			return problem.Conflict("payables.upload_conflict", "This upload already holds a different document; start a new upload.")
+		}
+		err = nil
+	}
+	if err != nil {
+		return problem.Unavailable("The object store did not take the document; send it again.", 30).WithCause(err)
+	}
+	return nil
 }
 
 // take reads the document of an upload for the operation consuming it, in

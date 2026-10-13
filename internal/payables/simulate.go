@@ -91,96 +91,109 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 	}
 	companies := map[uuid.UUID]tenancy.Entity{}
 	orders := map[uuid.UUID]procurement.Order{}
-	counts := map[string]map[string]int{"base": {}, "proposed": {}}
-	var changes []Decision
-	var breaks []Broken
-	moves := map[string]*Posting{}
-	move := func(co, key, from, to string, amount int64) {
-		if from == to {
-			return
-		}
-		k := co + "/" + key
-		if moves[k] == nil {
-			moves[k] = &Posting{Company: co, Key: key, Base: from, Proposed: to}
-		}
-		moves[k].Invoices++
-		moves[k].Amount += amount
-	}
+	t := &tally{counts: map[string]map[string]int{"base": {}, "proposed": {}}, moves: map[string]*Posting{}}
 	for _, v := range invoices {
-		le, ok := companies[v.LegalEntityID]
-		if !ok {
-			if le, _, err = s.LegalEntities.Entity(ctx, v.LegalEntityID); err != nil {
-				return configuration.Simulation{}, err
-			}
-			companies[v.LegalEntityID] = le
-		}
-		order, ok := orders[*v.PurchaseOrderID]
-		if !ok {
-			if order, _, err = s.Orders.Order(ctx, *v.PurchaseOrderID); err != nil {
-				return configuration.Simulation{}, err
-			}
-			orders[*v.PurchaseOrderID] = order
-		}
-		invoiced, err := invoicedQuantities(ctx, tx, *v.PurchaseOrderID, v.ID)
+		r, err := replay(ctx, tx, s.LegalEntities, s.Orders, v, companies, orders)
 		if err != nil {
 			return configuration.Simulation{}, err
 		}
-		before, after := base.Company(le.Code), proposed.Company(le.Code)
-		if after == nil {
-			breaks = append(breaks, Broken{v.ID, v.DocumentNumber, "company " + le.Code + " is not in the proposed configuration"})
-			continue
-		}
-		missing := ""
-		for _, it := range v.Items {
-			if it.TaxCode != nil && taxCode(after, *it.TaxCode) == nil {
-				missing = *it.TaxCode
-			}
-		}
-		if missing != "" {
-			breaks = append(breaks, Broken{v.ID, v.DocumentNumber, "tax code " + missing + " is not in the proposed configuration"})
-			continue
-		}
-		b, bi := decide(before, v, order, invoiced)
-		a, ai := decide(after, v, order, invoiced)
-		counts["base"][b]++
-		counts["proposed"][a]++
-		if b != a || len(bi) != len(ai) {
-			issues := make([]string, 0, len(ai))
-			for _, i := range ai {
-				issues = append(issues, i.Code)
-			}
-			changes = append(changes, Decision{v.ID, v.DocumentNumber, le.Code, b, a, issues})
-		}
-		if before != nil {
-			move(le.Code, "account_determination.input_tax", before.AccountDetermination.InputTax, after.AccountDetermination.InputTax, v.Tax)
-			move(le.Code, "account_determination.ap_reconciliation", before.AccountDetermination.APReconciliation, after.AccountDetermination.APReconciliation, v.Gross)
-			for _, it := range v.Items {
-				if it.TaxCode == nil {
-					continue
-				}
-				if was := taxCode(before, *it.TaxCode); was != nil {
-					tc := taxCode(after, *it.TaxCode)
-					move(le.Code, "tax_codes."+*it.TaxCode+".rate_percent", was.RatePercent, tc.RatePercent, it.Amount)
-					move(le.Code, "tax_codes."+*it.TaxCode+".account", was.Account, tc.Account, it.Amount)
-				}
-			}
+		t.invoice(r, base.Company(r.Company), proposed.Company(r.Company))
+	}
+	return t.result(window, len(invoices)), nil
+}
+
+// tally collects the outcome of replaying invoices under the base and the
+// proposed configuration.
+type tally struct {
+	counts  map[string]map[string]int
+	changes []Decision
+	breaks  []Broken
+	moves   map[string]*Posting
+}
+
+// invoice decides one invoice under both configurations and records a
+// break, a changed decision and the posting rules that move.
+func (t *tally) invoice(r replayed, before, after *config.Company) {
+	v, co := r.Invoice, r.Company
+	if after == nil {
+		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, "company " + co + " is not in the proposed configuration"})
+		return
+	}
+	missing := ""
+	for _, it := range v.Items {
+		if it.TaxCode != nil && taxCode(after, *it.TaxCode) == nil {
+			missing = *it.TaxCode
 		}
 	}
+	if missing != "" {
+		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, "tax code " + missing + " is not in the proposed configuration"})
+		return
+	}
+	b, bi := decide(before, v, r.Order, r.Invoiced)
+	a, ai := decide(after, v, r.Order, r.Invoiced)
+	t.counts["base"][b]++
+	t.counts["proposed"][a]++
+	if b != a || len(bi) != len(ai) {
+		issues := make([]string, 0, len(ai))
+		for _, i := range ai {
+			issues = append(issues, i.Code)
+		}
+		t.changes = append(t.changes, Decision{v.ID, v.DocumentNumber, co, b, a, issues})
+	}
+	if before != nil {
+		t.postingMoves(co, before, after, v)
+	}
+}
+
+// postingMoves records the posting rules an invoice is booked with that
+// the proposal changes: account determination and its items' tax codes.
+func (t *tally) postingMoves(co string, before, after *config.Company, v Invoice) {
+	t.move(co, "account_determination.input_tax", before.AccountDetermination.InputTax, after.AccountDetermination.InputTax, v.Tax)
+	t.move(co, "account_determination.ap_reconciliation", before.AccountDetermination.APReconciliation, after.AccountDetermination.APReconciliation, v.Gross)
+	for _, it := range v.Items {
+		if it.TaxCode == nil {
+			continue
+		}
+		if was := taxCode(before, *it.TaxCode); was != nil {
+			tc := taxCode(after, *it.TaxCode)
+			t.move(co, "tax_codes."+*it.TaxCode+".rate_percent", was.RatePercent, tc.RatePercent, it.Amount)
+			t.move(co, "tax_codes."+*it.TaxCode+".account", was.Account, tc.Account, it.Amount)
+		}
+	}
+}
+
+// move counts an invoice and its amount against a posting rule that
+// changes value.
+func (t *tally) move(co, key, from, to string, amount int64) {
+	if from == to {
+		return
+	}
+	k := co + "/" + key
+	if t.moves[k] == nil {
+		t.moves[k] = &Posting{Company: co, Key: key, Base: from, Proposed: to}
+	}
+	t.moves[k].Invoices++
+	t.moves[k].Amount += amount
+}
+
+// result is the simulation's verdict, summary and detail; it passes when
+// every invoice can be evaluated under the proposal.
+func (t *tally) result(window time.Duration, invoices int) configuration.Simulation {
 	postings := []Posting{}
-	for _, p := range moves {
+	for _, p := range t.moves {
 		postings = append(postings, *p)
 	}
 	sort.Slice(postings, func(i, j int) bool { return postings[i].Company+postings[i].Key < postings[j].Company+postings[j].Key })
 	detail := map[string]any{
-		"window_days": int(window.Hours() / 24), "invoices": len(invoices),
-		"decisions": map[string]any{"changed": len(changes), "unchanged": len(invoices) - len(changes) - len(breaks), "base": counts["base"], "proposed": counts["proposed"]},
-		"changes":   first(changes, examples), "breaks": first(breaks, examples), "postings": postings,
+		"window_days": int(window.Hours() / 24), "invoices": invoices,
+		"decisions": map[string]any{"changed": len(t.changes), "unchanged": invoices - len(t.changes) - len(t.breaks), "base": t.counts["base"], "proposed": t.counts["proposed"]},
+		"changes":   first(t.changes, examples), "breaks": first(t.breaks, examples), "postings": postings,
 	}
-	summary := fmt.Sprintf("%d invoices of the last %d days replayed: %d decided differently, %d posting rules move", len(invoices), int(window.Hours()/24), len(changes), len(postings))
-	if len(breaks) > 0 {
-		summary += fmt.Sprintf("; %d cannot be evaluated under the proposal", len(breaks))
+	summary := fmt.Sprintf("%d invoices of the last %d days replayed: %d decided differently, %d posting rules move", invoices, int(window.Hours()/24), len(t.changes), len(postings))
+	if len(t.breaks) > 0 {
+		summary += fmt.Sprintf("; %d cannot be evaluated under the proposal", len(t.breaks))
 	}
-	return configuration.Simulation{Passed: len(breaks) == 0, Summary: summary, Detail: detail}, nil
+	return configuration.Simulation{Passed: len(t.breaks) == 0, Summary: summary, Detail: detail}
 }
 
 func first[T any](list []T, n int) []T {

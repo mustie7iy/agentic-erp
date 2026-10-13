@@ -118,59 +118,82 @@ func (g Regression) Capture(ctx context.Context, doc *config.Config, window time
 	if err != nil {
 		return nil, err
 	}
-	type decided struct {
-		replayed
-		decision string
-		issues   []string
-	}
-	rs := make([]decided, 0, len(all))
+	rs := make([]decidedCase, 0, len(all))
 	for _, r := range all {
 		d, issues := outcome(doc.Company(r.Company), r)
-		rs = append(rs, decided{r, d, issues})
+		rs = append(rs, decidedCase{r, d, issues})
 	}
-	var cases []configuration.RegressionCase
-	picked := map[uuid.UUID]int{}
-	add := func(r decided, why string) {
-		if i, ok := picked[r.Invoice.ID]; ok {
-			// A case can cover several strata; record every reason.
-			if why != "sample" && !strings.Contains(cases[i].Why, why) {
-				cases[i].Why += "; " + why
-			}
-			return
+	s := &sample{max: maxCases, picked: map[uuid.UUID]int{}}
+	s.everyDecision(rs)
+	s.everyIssue(rs)
+	for _, r := range rs {
+		if near(r.Invoice.Gross, doc.Company(r.Company), r.Invoice.Exponent) {
+			s.add(r, "near the auto-post limit")
 		}
-		if maxCases > 0 && len(cases) >= maxCases {
-			return
-		}
-		picked[r.Invoice.ID] = len(cases)
-		cases = append(cases, configuration.RegressionCase{CaseNo: int32(len(cases) + 1), InvoiceID: r.Invoice.ID, DocumentNumber: r.Invoice.DocumentNumber,
-			LegalEntityID: r.Invoice.LegalEntityID, Company: r.Company, Why: why, ExpectedDecision: r.decision, ExpectedIssues: r.issues})
 	}
+	for _, r := range rs {
+		s.add(r, "sample")
+	}
+	return s.cases, nil
+}
+
+// decidedCase is a replayed invoice with the outcome it gets under the
+// captured configuration.
+type decidedCase struct {
+	replayed
+	decision string
+	issues   []string
+}
+
+// sample collects regression cases up to max (0: no limit), each invoice
+// once.
+type sample struct {
+	max    int
+	cases  []configuration.RegressionCase
+	picked map[uuid.UUID]int
+}
+
+// add takes an invoice into the sample for a reason, or adds the reason to
+// its case when it is already in.
+func (s *sample) add(r decidedCase, why string) {
+	if i, ok := s.picked[r.Invoice.ID]; ok {
+		// A case can cover several strata; record every reason.
+		if why != "sample" && !strings.Contains(s.cases[i].Why, why) {
+			s.cases[i].Why += "; " + why
+		}
+		return
+	}
+	if s.max > 0 && len(s.cases) >= s.max {
+		return
+	}
+	s.picked[r.Invoice.ID] = len(s.cases)
+	s.cases = append(s.cases, configuration.RegressionCase{CaseNo: int32(len(s.cases) + 1), InvoiceID: r.Invoice.ID, DocumentNumber: r.Invoice.DocumentNumber,
+		LegalEntityID: r.Invoice.LegalEntityID, Company: r.Company, Why: why, ExpectedDecision: r.decision, ExpectedIssues: r.issues})
+}
+
+// everyDecision takes the first invoice of each decision.
+func (s *sample) everyDecision(rs []decidedCase) {
 	for _, decision := range []string{DecisionAutoPost, DecisionReview, DecisionException} {
 		for _, r := range rs {
 			if r.decision == decision {
-				add(r, "decision "+decision)
+				s.add(r, "decision "+decision)
 				break
 			}
 		}
 	}
+}
+
+// everyIssue takes the first invoice with each kind of match issue.
+func (s *sample) everyIssue(rs []decidedCase) {
 	seen := map[string]bool{}
 	for _, r := range rs {
 		for _, code := range r.issues {
 			if !seen[code] {
 				seen[code] = true
-				add(r, "issue "+code)
+				s.add(r, "issue "+code)
 			}
 		}
 	}
-	for _, r := range rs {
-		if near(r.Invoice.Gross, doc.Company(r.Company), r.Invoice.Exponent) {
-			add(r, "near the auto-post limit")
-		}
-	}
-	for _, r := range rs {
-		add(r, "sample")
-	}
-	return cases, nil
 }
 
 // Replay implements configuration.Regressor: each case decided again under
