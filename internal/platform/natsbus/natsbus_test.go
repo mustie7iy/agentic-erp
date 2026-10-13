@@ -48,8 +48,14 @@ func TestPublishDeduplicatesByEventID(t *testing.T) {
 		t.Fatalf("stored %d messages, want 1 (de-duplicated)", info.State.Msgs)
 	}
 	got, err := stream.GetLastMsgForSubject(ctx, m.Subject)
-	if err != nil || got.Header.Get("ce-type") != m.Header["ce-type"] || string(got.Data) != `{"a":1}` {
-		t.Fatal(got, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ce, want := got.Header.Get("ce-type"), m.Header["ce-type"]; ce != want {
+		t.Errorf("ce-type: got %q, want %q", ce, want)
+	}
+	if string(got.Data) != `{"a":1}` {
+		t.Errorf("data: got %s, want %s", got.Data, `{"a":1}`)
 	}
 	// Subjects outside every stream are refused.
 	if err := bus.Publish(ctx, outbox.Message{ID: uuid.New(), Subject: "elsewhere.x"}); err == nil {

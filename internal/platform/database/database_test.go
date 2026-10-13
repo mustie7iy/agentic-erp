@@ -26,8 +26,14 @@ func TestScopeSetsRoleTenantAndTimeouts(t *testing.T) {
 		if err := tx.QueryRow(ctx, "SELECT current_user, current_setting('app.tenant_id'), current_setting('lock_timeout')").Scan(&role, &tenant, &lock); err != nil {
 			return err
 		}
-		if role != "erp_app" || tenant != ten.ID.String() || lock != "5s" {
-			t.Errorf("role %s tenant %s lock %s", role, tenant, lock)
+		if role != "erp_app" {
+			t.Errorf("current_user: got %q, want %q", role, "erp_app")
+		}
+		if want := ten.ID.String(); tenant != want {
+			t.Errorf("app.tenant_id: got %q, want %q", tenant, want)
+		}
+		if lock != "5s" {
+			t.Errorf("lock_timeout: got %q, want %q", lock, "5s")
 		}
 		// Row-level security: only this tenant's principals are visible.
 		var n int

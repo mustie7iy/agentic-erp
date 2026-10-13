@@ -35,15 +35,24 @@ func TestHandle(t *testing.T) {
 		llmtest.Final("Filed change request CR."))
 	a := &configagent.Agent{LLM: model.Runner(), API: api}
 	res, err := a.Handle(context.Background(), "Make NT14 21 days", []byte("version: 1"))
-	if err != nil || len(res.ChangeRequests) != 1 || res.Reply != "Filed change request CR." {
-		t.Fatalf("handle: %+v %v", res, err)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if len(res.ChangeRequests) != 1 {
+		t.Fatalf("handle change requests: got %v, want 1", res.ChangeRequests)
+	}
+	if want := "Filed change request CR."; res.Reply != want {
+		t.Errorf("handle reply: got %q, want %q", res.Reply, want)
 	}
 	if !strings.Contains(model.Requests[0], "Draft generated from the client's SAP customizing") {
 		t.Fatal("draft not given to the model")
 	}
 	cr, _ := f.Must(200, "GET", "/v1/change-requests/"+res.ChangeRequests[0], "", "")
-	if cr["status"] != "draft" || cr["author_id"] != f.Tenant.Agent.ID.String() {
-		t.Fatalf("change request: %v", cr)
+	if cr["status"] != "draft" {
+		t.Errorf("change request status: got %v, want draft", cr["status"])
+	}
+	if want := f.Tenant.Agent.ID.String(); cr["author_id"] != want {
+		t.Errorf("change request author_id: got %v, want %s", cr["author_id"], want)
 	}
 	if _, err := (&configagent.Agent{LLM: llmtest.New(t).Runner(), API: api}).Handle(context.Background(), "x", nil); err == nil {
 		t.Fatal("model failure hidden")

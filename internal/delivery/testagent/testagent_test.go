@@ -38,8 +38,14 @@ func TestReview(t *testing.T) {
 		}),
 		llmtest.Final("## UAT\n1. Post an invoice 2.5% above the order: it posts."))
 	rev, err := (&testagent.Agent{LLM: model.Runner(), API: api}).Review(context.Background(), id)
-	if err != nil || !rev.Recommended || rev.Scripts == "" {
-		t.Fatalf("review: %+v %v", rev, err)
+	if err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	if !rev.Recommended {
+		t.Error("review recommended: got false, want true")
+	}
+	if rev.Scripts == "" {
+		t.Error("review scripts: got none, want UAT scripts")
 	}
 	if _, err := (&testagent.Agent{LLM: llmtest.New(t).Runner(), API: api}).Review(context.Background(), id); err == nil {
 		t.Fatal("model failure hidden")
