@@ -19,27 +19,39 @@ func notesText(ns []Note) string {
 func TestGenerateFromMockSAP(t *testing.T) {
 	c, notes := Generate(sap.GenerateMock(42, "2026"), DefaultOptions())
 	us := c.Company("1000")
-	if us == nil || us.Currency != "USD" || us.Country != "US" || len(us.ChartOfAccounts) != 10 {
-		t.Fatalf("company 1000: %+v", us)
+	if us == nil {
+		t.Fatal("company 1000: got none, want it from T001")
 	}
-	if ad := us.AccountDetermination; ad.APReconciliation != "211000" || ad.InputTax != "140000" || ad.Bank != "100000" {
-		t.Fatalf("account determination from T030/LFB1: %+v", ad)
+	a := us.Account("211000")
+	if a == nil {
+		t.Fatal("account 211000: got none, want the reconciliation account from SKB1-MITKZ")
 	}
-	if a := us.Account("211000"); a == nil || !a.VendorReconciliation || a.Type != config.Liability {
-		t.Fatal("reconciliation account from SKB1-MITKZ")
+	if len(us.TaxCodes) != 2 {
+		t.Fatalf("tax codes of 1000 from T007A: got %d, want 2: %+v", len(us.TaxCodes), us.TaxCodes)
 	}
-	if len(us.TaxCodes) != 2 || us.TaxCodes[0].RatePercent != "8" || c.Company("2000").TaxCodes[0].RatePercent != "19" {
-		t.Fatalf("tax codes from T007A: %+v", us.TaxCodes)
-	}
-	if us.InvoiceTolerance.PricePercent != 2 || us.InvoiceTolerance.PriceAbsolute != "5.00" || us.HouseBank.IBAN != "GB33BUKB20201555555555" {
-		t.Fatal("tolerance from T169G and house bank from T012K")
-	}
-	if len(c.PaymentTerms) != 4 || c.PaymentTerm("NT45").NetDays != 45 {
-		t.Fatal("payment terms from T052")
-	}
-	if c.Payments.ReleaseRole != "Z_TREASURY_MGR" || c.Payments.VendorApproverRole != "vendor_master_approver" ||
-		c.Purchasing.RequisitionApproval[0].Steps[0].Role != "Z_PURCH_MGR" {
-		t.Fatalf("approval roles: %+v %+v", c.Payments, c.Purchasing)
+	for name, f := range map[string]struct{ got, want any }{
+		"company 1000 currency":                       {us.Currency, "USD"},
+		"company 1000 country":                        {us.Country, "US"},
+		"company 1000 chart of accounts":              {len(us.ChartOfAccounts), 10},
+		"AP reconciliation account from T030/LFB1":    {us.AccountDetermination.APReconciliation, "211000"},
+		"input tax account from T030":                 {us.AccountDetermination.InputTax, "140000"},
+		"bank account from T030":                      {us.AccountDetermination.Bank, "100000"},
+		"211000 is a vendor reconciliation account":   {a.VendorReconciliation, true},
+		"211000 type":                                 {a.Type, config.Liability},
+		"tax code rate of 1000 from T007A":            {us.TaxCodes[0].RatePercent, "8"},
+		"tax code rate of 2000 from T007A":            {c.Company("2000").TaxCodes[0].RatePercent, "19"},
+		"price tolerance percent from T169G":          {us.InvoiceTolerance.PricePercent, 2},
+		"price tolerance amount from T169G":           {us.InvoiceTolerance.PriceAbsolute, "5.00"},
+		"house bank IBAN from T012K":                  {us.HouseBank.IBAN, "GB33BUKB20201555555555"},
+		"payment terms from T052":                     {len(c.PaymentTerms), 4},
+		"NT45 net days from T052":                     {c.PaymentTerm("NT45").NetDays, 45},
+		"payment release role":                        {c.Payments.ReleaseRole, "Z_TREASURY_MGR"},
+		"vendor approver role":                        {c.Payments.VendorApproverRole, "vendor_master_approver"},
+		"requisition approval role of the first step": {c.Purchasing.RequisitionApproval[0].Steps[0].Role, "Z_PURCH_MGR"},
+	} {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", name, f.got, f.want)
+		}
 	}
 	ranges := map[string]bool{}
 	for _, n := range c.NumberRanges {
@@ -47,14 +59,14 @@ func TestGenerateFromMockSAP(t *testing.T) {
 	}
 	for _, key := range []string{"1000/journal_re/2026", "2000/journal_kz/2026", "1000/payment_run/2026", "2000/journal_ob/2026"} {
 		if !ranges[key] {
-			t.Errorf("no number range %s", key)
+			t.Errorf("number range %s: got none, want one", key)
 		}
 	}
 	all := notesText(notes)
 	for _, want := range []string{"auto_post_limit", "fiscal year variant", "release strategies", "bank_change_hold_days",
 		"provision these identity roles", "roles[Z_AP_CLERK]: SAP role"} {
 		if !strings.Contains(all, want) {
-			t.Errorf("missing note about %s", want)
+			t.Errorf("got notes without %s, want a note about it:\n%s", want, all)
 		}
 	}
 	if fs := config.Validate(c); config.HasErrors(fs) {
@@ -77,8 +89,14 @@ func TestGenerateGapsAndDefaults(t *testing.T) {
 			t.Errorf("missing note %q in:\n%s", want, all)
 		}
 	}
-	if c.PaymentTerm("NT30") == nil || c.Company("1000").InvoiceTolerance.PricePercent != 2 || len(c.NumberRanges) != 0 {
-		t.Fatal("placeholders for missing tables")
+	if c.PaymentTerm("NT30") == nil {
+		t.Error("payment term NT30 without T052: got none, want a placeholder")
+	}
+	if got := c.Company("1000").InvoiceTolerance.PricePercent; got != 2 {
+		t.Errorf("price tolerance without T169G: got %d, want the default 2", got)
+	}
+	if len(c.NumberRanges) != 0 {
+		t.Errorf("number ranges without ACDOCA: got %d, want none", len(c.NumberRanges))
 	}
 	if c.Company("1000").AccountDetermination.Bank != "100000" {
 		t.Fatal("bank account falls back to the house bank G/L account")
