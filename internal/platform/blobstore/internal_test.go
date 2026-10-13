@@ -33,6 +33,9 @@ func TestDirWriteFailures(t *testing.T) {
 	if err := d.Put(context.Background(), "tenants/x/c", []byte("1"), PutOptions{}); err == nil || !strings.Contains(err.Error(), "no links here") {
 		t.Fatalf("got link error %v, want the link's", err)
 	}
+	if left := temporaries(t, filepath.Join(root, "tenants", "x")); len(left) != 0 {
+		t.Errorf("got %v left after a failed link, want nothing", left)
+	}
 	link = os.Link
 	writeFile = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
 	defer func() { writeFile = os.WriteFile }()
@@ -76,6 +79,9 @@ func TestDirPutIsWholeOrNothing(t *testing.T) {
 	if err := d.Put(ctx, key, []byte("%PDF-1.7 whole"), PutOptions{}); err == nil || !strings.Contains(err.Error(), "crash") {
 		t.Fatalf("got Put error %v, want the write's", err)
 	}
+	if left := temporaries(t, filepath.Join(d.Root, "tenants", "x", "documents")); len(left) != 0 {
+		t.Errorf("got %v left after a failed write, want nothing", left)
+	}
 	if !errors.Is(during, ErrNotFound) {
 		t.Errorf("got Stat %v while the content was written, want ErrNotFound", during)
 	}
@@ -88,23 +94,84 @@ func TestDirPutIsWholeOrNothing(t *testing.T) {
 	}
 }
 
-// TestListSkipsTemporaryFiles: a temporary file a failed remove left behind
-// is not an object.
-func TestListSkipsTemporaryFiles(t *testing.T) {
+// temporaries lists the temporary files left in dir.
+func temporaries(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	var left []string
+	for _, e := range entries {
+		if strings.Contains(e.Name(), tempMark) {
+			left = append(left, e.Name())
+		}
+	}
+	return left
+}
+
+// TestErasureRemovesTemporaryFiles: what failed Puts left behind is part of
+// a tenant's content, so List reports it under its key and Delete removes
+// it, whether or not the key holds an object (ADR-0021).
+func TestErasureRemovesTemporaryFiles(t *testing.T) {
 	root := t.TempDir()
 	d := Dir{Root: root}
 	ctx := context.Background()
 	if err := d.Put(ctx, "tenants/x/a", []byte("1"), PutOptions{}); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "tenants", "x", "b"+tempMark+"123"), []byte("partial"), 0o600); err != nil {
-		t.Fatalf("leftover: %v", err)
+	dir := filepath.Join(root, "tenants", "x")
+	for _, name := range []string{"a" + tempMark + "1", "b" + tempMark + "1", "b" + tempMark + "2"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("partial"), 0o600); err != nil {
+			t.Fatalf("leftover %s: %v", name, err)
+		}
 	}
 	keys, err := d.List(ctx, "tenants/x/")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if strings.Join(keys, ",") != "tenants/x/a" {
-		t.Errorf("got %v, want [tenants/x/a]", keys)
+	if got := strings.Join(keys, ","); got != "tenants/x/a,tenants/x/b" {
+		t.Fatalf("got keys %s, want tenants/x/a,tenants/x/b", got)
+	}
+	for _, k := range keys {
+		if err := d.Delete(ctx, k); err != nil {
+			t.Fatalf("delete %s: %v", k, err)
+		}
+	}
+	if left := temporaries(t, dir); len(left) != 0 {
+		t.Errorf("got %v left after the erasure, want nothing", left)
+	}
+	if err := d.Delete(ctx, "tenants/gone/a"); err != nil {
+		t.Errorf("got %v deleting below a missing directory, want nil", err)
+	}
+}
+
+// TestDeleteReportsTemporaryFilesItCannotRemove: an erasure that cannot
+// remove what a failed Put left behind says so rather than leave it.
+func TestDeleteReportsTemporaryFilesItCannotRemove(t *testing.T) {
+	root := t.TempDir()
+	d := Dir{Root: root}
+	ctx := context.Background()
+	dir := filepath.Join(root, "tenants", "x")
+	stuck := filepath.Join(dir, "a"+tempMark+"1")
+	if err := os.MkdirAll(stuck, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stuck, "f"), nil, 0o600); err != nil {
+		t.Fatalf("fill: %v", err)
+	}
+	if err := d.Delete(ctx, "tenants/x/a"); err == nil {
+		t.Error("got nil from removing a non-empty leftover, want its error")
+	}
+	if err := os.Chmod(dir, 0o300); err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := d.Delete(ctx, "tenants/x/b"); err == nil {
+		t.Error("got nil from an unreadable directory, want its error")
 	}
 }

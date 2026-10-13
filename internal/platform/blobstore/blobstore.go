@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -123,7 +124,8 @@ func (d Dir) now() time.Time {
 func (d Dir) path(key string) string { return filepath.Join(d.Root, filepath.FromSlash(key)) }
 
 // createTemp, writeContent, link and writeFile are the filesystem calls Put
-// makes; tests replace them to fail a write.
+// makes; tests replace them to fail a write, so this package's tests do
+// not run in parallel.
 var (
 	createTemp   = os.CreateTemp
 	writeContent = (*os.File).Write
@@ -133,7 +135,8 @@ var (
 
 // tempMark separates a key from the random suffix of the temporary file its
 // content is written to. Keys cannot contain it (keyPattern), so a
-// temporary file never collides with a key and List skips it.
+// temporary file never collides with a key; List reports it under its key
+// and Delete removes it with the key.
 const tempMark = "#"
 
 // Put implements Store. The content is written to a temporary file and
@@ -151,7 +154,7 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 	}
 	tmp, err := writeTemp(p, content)
 	// Once linked, or after a failed write, the temporary name is not needed.
-	// A failed remove leaves a file List skips; the key stays free.
+	// A failed remove leaves a file the key's Delete removes; the key stays free.
 	defer func() { _ = os.Remove(tmp) }()
 	if err != nil {
 		return fmt.Errorf("blobstore: %w", err)
@@ -247,9 +250,12 @@ func (d Dir) List(_ context.Context, prefix string) ([]string, error) {
 	}
 	var keys []string
 	err := filepath.WalkDir(base, func(p string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || strings.HasSuffix(p, ".meta") || strings.Contains(entry.Name(), tempMark) {
+		if err != nil || entry.IsDir() || strings.HasSuffix(p, ".meta") {
 			return err
 		}
+		// A temporary file a failed Put left behind is listed under the key it
+		// was for, so an erasure deletes it with the key (ADR-0021).
+		p, _, _ = strings.Cut(p, tempMark)
 		rel, _ := filepath.Rel(d.Root, p) // p is below Root
 		if key := filepath.ToSlash(rel); strings.HasPrefix(key, prefix) {
 			keys = append(keys, key)
@@ -263,7 +269,7 @@ func (d Dir) List(_ context.Context, prefix string) ([]string, error) {
 		return nil, fmt.Errorf("blobstore: %w", err)
 	}
 	sort.Strings(keys)
-	return keys, nil
+	return slices.Compact(keys), nil
 }
 
 // Delete implements Eraser: the retention a Put recorded is honoured.
@@ -281,6 +287,27 @@ func (d Dir) Delete(_ context.Context, key string) error {
 	// behind holds no content, is skipped by List and is rewritten by the
 	// next Put of the key.
 	_ = os.Remove(d.path(key) + ".meta")
+	return d.removeTemporary(key)
+}
+
+// removeTemporary removes what failed Puts of key left behind: part of its
+// content, which an erasure must not leave.
+func (d Dir) removeTemporary(key string) error {
+	p := d.path(key)
+	entries, err := os.ReadDir(filepath.Dir(p))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("blobstore: %w", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), filepath.Base(p)+tempMark) {
+			if err := os.Remove(filepath.Join(filepath.Dir(p), e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("blobstore: %w", err)
+			}
+		}
+	}
 	return nil
 }
 
