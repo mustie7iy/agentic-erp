@@ -108,8 +108,27 @@ single-return path whose failure no test can provoke from becoming its own branc
   reviewed twice for the money and startup paths). Coverage 16784 of 16784 statements.
   - [x] R22a (pulled forward for R4) configuration SimulationWorker.process → process/evidence/
     advance; payments build → build/propose/proposal.insert. funlen −2. Reviewer: APPROVE.
-- [ ] R23 Unowned findings to zero: errcheck, forbidigo (production float/panic), gocritic
-  (added at the end of Phase 0 with the user's agreement)
+- [x] R23 Unowned findings to zero: errcheck, forbidigo (production float/panic), gocritic
+  (added at the end of Phase 0 with the user's agreement). Four worktree agents; every merge
+  reviewed (tests: APPROVE; production: APPROVE on the second pass).
+  - Production: errcheck 57 → 0, forbidigo 10 → 0 (each nolint with its reason), gocritic 1 → 0;
+    every dropped error carries a reason; llm.Must (unused) removed.
+  - Tests: errcheck 247 → 0 and gocritic 2 → 0 across cmd/*, db and internal/*: setup the test
+    relies on now stops it with the step named.
+  - Fixes found on the way, each with a failing-first test: directory tenant list status filter
+    (200 → 400), `erp call` unreadable answer, `erp migrate` report print failures (whole report,
+    via bufio.Writer), SAP OData numbers keep every digit (and a long or out-of-range literal is
+    kept), pgtest reports a failed database drop.
+  - Fixes the user asked for after the agents' reports: blobstore Dir.Put writes a temporary file
+    and links it under the key (a key holds a whole object or nothing; erasure removes leftovers,
+    also under a locked key and with "#" in Root); db/migrate unlock gives up after 10s.
+  - Lint tree-wide 451 → 132 (left: forbidigo 34 test time.Sleep → R30, thelper 62 and noctx 36
+    → R32). Coverage 16947 of 16947 statements; make test passes with -race.
+  - Deferred (logged): Dir sidecar written after the link (an anchor's retention can be lost on
+    a retried Put), no directory fsync after the link, temporary name length (245+ byte key
+    segments); cmd/erp other writes to out ignore errors (dev token at main.go, about 15 status
+    lines); pgtest scan helper (about 45 repeated admin Scan checks → R31); globalplane and
+    controlplane test do() helpers duplicated → apitest.
 
 ### Bug fixes found during Phases 3–4 (user: "fix all identified bugs first", before R23) — done
 Four worktree agents, each fix with a failing-first test, every merge reviewed on the branch.
