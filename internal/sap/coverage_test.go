@@ -29,12 +29,16 @@ func TestFileSourceAndWriteExtract(t *testing.T) {
 	if _, err := (FileSource{Path: filepath.Join(dir, "missing.json")}).Extract(context.Background(), Scope{}); err == nil {
 		t.Fatal("missing file")
 	}
-	os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := (FileSource{Path: filepath.Join(dir, "bad.json")}).Extract(context.Background(), Scope{}); err == nil {
 		t.Fatal("bad json")
 	}
 	blocker := filepath.Join(dir, "file")
-	os.WriteFile(blocker, nil, 0o644)
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := WriteExtract(filepath.Join(blocker, "a", "x.json"), &Extract{}); err == nil {
 		t.Fatal("directory creation failure")
 	}
@@ -88,7 +92,8 @@ func TestODataOptionsAndErrors(t *testing.T) {
 	var seen []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.URL.RawQuery)
-		json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": []map[string]any{
+		// A failed write reaches the source as a broken answer, which the test asserts on.
+		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": []map[string]any{
 			{"AccountingDocument": "1", "CompanyCode": "1000", "FiscalYear": "2026", "Extra": map[string]any{"x": 1}},
 		}}})
 	}))
@@ -127,9 +132,10 @@ func TestODataOptionsAndErrors(t *testing.T) {
 	fail("bad JSON", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("<html>")) })
 	fail("truncated body", func(w http.ResponseWriter, r *http.Request) {
 		conn, buf, _ := w.(http.Hijacker).Hijack()
-		buf.WriteString("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{\"d\":")
-		buf.Flush()
-		conn.Close()
+		// The answer is meant to break off: a write or close that fails breaks it off sooner, the same failure to the source.
+		_, _ = buf.WriteString("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{\"d\":")
+		_ = buf.Flush()
+		_ = conn.Close()
 	})
 	closed := httptest.NewServer(http.NotFoundHandler())
 	closed.Close()

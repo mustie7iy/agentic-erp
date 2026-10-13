@@ -48,7 +48,8 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 				"DocumentCurrency": "USD", "PurchaseOrderDate": "/Date(1767225600000)/",
 			})
 		}
-		json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": results}})
+		// A failed write reaches the source as a broken answer, which the test asserts on.
+		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": results}})
 	}))
 	defer srv.Close()
 
