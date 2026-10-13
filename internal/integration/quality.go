@@ -49,15 +49,6 @@ func (t target) hasRange(company, documentType string) bool {
 	return t.ranges[fmt.Sprintf("%s/%s/%d", company, documentType, t.year)]
 }
 
-// alpha strips SAP ALPHA-conversion leading zeros ("0000100001" -> "100001").
-func alpha(s string) string {
-	t := strings.TrimLeft(s, "0")
-	if t == "" && s != "" {
-		return "0"
-	}
-	return t
-}
-
 // sapDate converts SAP YYYYMMDD to a date.
 func sapDate(d string) (time.Time, error) {
 	t, err := time.Parse("20060102", d)
@@ -168,12 +159,12 @@ func (q *qualityCheck) accounts() {
 	q.account = map[string]sap.SKB1{}
 	for _, a := range q.e.SKB1 {
 		q.account[a.BUKRS+"/"+a.SAKNR] = a
-		got, ok := q.t.charts[a.BUKRS][alpha(a.SAKNR)]
+		got, ok := q.t.charts[a.BUKRS][sap.Alpha(a.SAKNR)]
 		switch {
 		case !ok:
-			q.add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "account %s is not in the legal entity's chart of accounts; add it through a configuration change", alpha(a.SAKNR))
+			q.add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "account %s is not in the legal entity's chart of accounts; add it through a configuration change", sap.Alpha(a.SAKNR))
 		case (a.MITKZ == "K") != (got.ReconciliationKind == "supplier"):
-			q.add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "account %s is a vendor reconciliation account on one side only", alpha(a.SAKNR))
+			q.add(SevError, "SKB1", a.BUKRS+"/"+a.SAKNR, "account %s is a vendor reconciliation account on one side only", sap.Alpha(a.SAKNR))
 		}
 	}
 }
@@ -235,8 +226,8 @@ func (q *qualityCheck) purchaseOrders() {
 
 func (q *qualityCheck) purchaseOrderItem(i sap.EKPO, h sap.EKKO) {
 	key := i.EBELN + "/" + i.EBELP
-	if _, ok := q.t.charts[h.BUKRS][alpha(i.SAKTO)]; !ok {
-		q.add(SevError, "EKPO", key, "G/L account %s is not in the chart of company %s", alpha(i.SAKTO), h.BUKRS)
+	if _, ok := q.t.charts[h.BUKRS][sap.Alpha(i.SAKTO)]; !ok {
+		q.add(SevError, "EKPO", key, "G/L account %s is not in the chart of company %s", sap.Alpha(i.SAKTO), h.BUKRS)
 	}
 	if err := quantity(i.MENGE); err != nil {
 		q.add(SevError, "EKPO", key, "%v", err)

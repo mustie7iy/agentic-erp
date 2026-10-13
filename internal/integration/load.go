@@ -139,7 +139,7 @@ func (l *loader) partners(ctx context.Context) error {
 		var in []partner.SupplierCompanyInput
 		for _, c := range companies[v.LIFNR] {
 			in = append(in, partner.SupplierCompanyInput{LegalEntityID: l.t.entities[c.BUKRS].ID,
-				ReconciliationAccountID: l.t.charts[c.BUKRS][alpha(c.AKONT)].ID, PaymentTermCode: c.ZTERM})
+				ReconciliationAccountID: l.t.charts[c.BUKRS][sap.Alpha(c.AKONT)].ID, PaymentTermCode: c.ZTERM})
 		}
 		var err error
 		if id, ok := l.refs["LFA1/"+v.LIFNR]; ok {
@@ -257,7 +257,7 @@ func (l *loader) orders(ctx context.Context) error {
 			priceUnit, _ := strconv.Atoi(it.PEINH)
 			description := cmp.Or(it.TXZ01, it.MATNR, "Item "+it.EBELP)
 			in.Items = append(in.Items, procurement.ItemInput{Description: description, Quantity: it.MENGE, Unit: unit,
-				Price: l.plain(price, h.WAERS), Currency: h.WAERS, PriceUnit: int32(max(priceUnit, 1)), AccountID: l.t.charts[h.BUKRS][alpha(it.SAKTO)].ID})
+				Price: l.plain(price, h.WAERS), Currency: h.WAERS, PriceUnit: int32(max(priceUnit, 1)), AccountID: l.t.charts[h.BUKRS][sap.Alpha(it.SAKTO)].ID})
 		}
 		done, err := l.step(ctx, "EKKO", h.EBELN, func() error {
 			o, err := l.e.Orders.CreateOrder(ctx, in)
@@ -376,7 +376,7 @@ func (l *loader) invoices(ctx context.Context) error {
 // reconciliation reports whether the account is a vendor reconciliation
 // account in the company.
 func (l *loader) reconciliation(company, account string) bool {
-	return l.t.charts[company][alpha(account)].ReconciliationKind == "supplier"
+	return l.t.charts[company][sap.Alpha(account)].ReconciliationKind == "supplier"
 }
 
 func documentKey(l sap.ACDOCA) string { return l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR }
@@ -445,7 +445,7 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 		if amt == 0 {
 			continue
 		}
-		pl := ledger.PostingLine{AccountID: l.t.charts[line.RBUKRS][alpha(line.RACCT)].ID, Amount: amt}
+		pl := ledger.PostingLine{AccountID: l.t.charts[line.RBUKRS][sap.Alpha(line.RACCT)].ID, Amount: amt}
 		if l.reconciliation(line.RBUKRS, line.RACCT) {
 			partnerID := l.vendors[line.LIFNR]
 			pl.PartnerID = &partnerID
@@ -516,7 +516,7 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, int64) 
 		}
 		amt, _ := l.t.amount(line.HSL, c.WAERS)
 		last = max(last, line.BUDAT)
-		account := alpha(line.RACCT)
+		account := sap.Alpha(line.RACCT)
 		switch {
 		case !l.reconciliation(c.BUKRS, line.RACCT):
 			balances[account] += amt

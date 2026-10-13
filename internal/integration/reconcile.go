@@ -47,7 +47,7 @@ func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r
 	rc := &reconciler{e: e, ext: ext, t: t, r: r, vendorOf: map[uuid.UUID]string{}, recon: map[string]bool{}}
 	for key, id := range r {
 		if lifnr, ok := strings.CutPrefix(key, "LFA1/"); ok {
-			rc.vendorOf[id] = alpha(lifnr)
+			rc.vendorOf[id] = sap.Alpha(lifnr)
 		}
 	}
 	for _, a := range ext.SKB1 {
@@ -126,10 +126,10 @@ func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[str
 		}
 		documents[documentKey(l)] = true
 		amt, _ := rc.t.amount(l.HSL, s.cur) // checked by the quality gate
-		sapTB[alpha(l.RACCT)] += amt
+		sapTB[sap.Alpha(l.RACCT)] += amt
 		sapDebits += max(amt, 0)
 		if l.LIFNR != "" && l.AUGBL == "" && rc.recon[s.cc+"/"+l.RACCT] {
-			sapOpen["vendor "+alpha(l.LIFNR)] += amt
+			sapOpen["vendor "+sap.Alpha(l.LIFNR)] += amt
 		}
 	}
 	totals, err := rc.e.Reports.Totals(ctx, s.le, int16(rc.t.year))

@@ -88,18 +88,10 @@ func TestGenerateGapsAndDefaults(t *testing.T) {
 	}
 }
 
-// Account numbers drop SAP's ALPHA zeros as the migration's alpha does
-// (internal/integration alpha_test.go has the same cases): the migration
-// finds journal accounts in the configured chart by that number, so an
-// all-zero account is "0" on both sides.
+// Account numbers drop SAP's ALPHA zeros with sap.Alpha, as the migration
+// does: it finds journal accounts in the configured chart by that number,
+// so an all-zero account is "0" on both sides.
 func TestAlphaMatchesTheMigration(t *testing.T) {
-	for in, want := range map[string]string{"0000100001": "100001", "0000000000": "0", "": "", "ABC": "ABC"} {
-		t.Run(in, func(t *testing.T) {
-			if got := alpha(in); got != want {
-				t.Errorf("got alpha(%q) = %q, want %q", in, got, want)
-			}
-		})
-	}
 	e := sap.GenerateMock(42, "2026")
 	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000000000", TXT50: "Zero"})
 	opts := DefaultOptions()

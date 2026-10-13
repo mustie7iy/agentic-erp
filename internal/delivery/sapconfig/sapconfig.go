@@ -108,19 +108,6 @@ type gen struct {
 
 func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}) }
 
-// alpha strips SAP ALPHA-conversion leading zeros ("0000100001" ->
-// "100001") exactly as the migration's alpha in internal/integration does:
-// the migration looks journal accounts up in the configured chart by this
-// number, so an all-zero account must be "0" here too, not "" (which no
-// chart account can be).
-func alpha(s string) string {
-	t := strings.TrimLeft(s, "0")
-	if t == "" && s != "" {
-		return "0"
-	}
-	return t
-}
-
 // paymentTerms is SAP's payment terms (T052), or a net-30 placeholder with
 // a note when the extract has none. Days are whole numbers in SAP; a term
 // whose days do not parse gets 0 (due at once) and a note.
@@ -169,15 +156,15 @@ func (g *gen) company(t sap.T001) config.Company {
 		}
 		switch r.KTOSL {
 		case "VST":
-			co.AccountDetermination.InputTax = alpha(r.KONTS)
+			co.AccountDetermination.InputTax = sap.Alpha(r.KONTS)
 		case "BNK":
-			co.AccountDetermination.Bank = alpha(r.KONTS)
+			co.AccountDetermination.Bank = sap.Alpha(r.KONTS)
 		}
 	}
 	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)
 	for _, tx := range g.e.T007A {
 		if tx.BUKRS == t.BUKRS {
-			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: alpha(tx.KONTS)})
+			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: sap.Alpha(tx.KONTS)})
 		}
 	}
 	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS)
@@ -185,7 +172,7 @@ func (g *gen) company(t sap.T001) config.Company {
 		if b.BUKRS == t.BUKRS {
 			co.HouseBank = config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT}
 			if co.AccountDetermination.Bank == "" {
-				co.AccountDetermination.Bank = alpha(b.HKONT)
+				co.AccountDetermination.Bank = sap.Alpha(b.HKONT)
 			}
 			break
 		}
@@ -201,7 +188,7 @@ func (g *gen) chartOfAccounts(p, company string) []config.Account {
 		if a.BUKRS != company {
 			continue
 		}
-		num := alpha(a.SAKNR)
+		num := sap.Alpha(a.SAKNR)
 		typ, err := g.opts.accountType(num)
 		if err != nil {
 			g.note(p+".chart_of_accounts["+num+"]", err.Error())
@@ -217,7 +204,7 @@ func (g *gen) apReconciliation(p, company string) string {
 	counts := map[string]int{}
 	for _, v := range g.e.LFB1 {
 		if v.BUKRS == company {
-			counts[alpha(v.AKONT)]++
+			counts[sap.Alpha(v.AKONT)]++
 		}
 	}
 	best := ""
