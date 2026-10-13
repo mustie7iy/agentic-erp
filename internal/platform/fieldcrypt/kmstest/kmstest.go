@@ -110,7 +110,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, "NotFoundException", "Key '"+in.KeyID+"' does not exist")
 		return
 	}
-	aad := []byte(contextOf(in.EncryptionContext))
+	s.operate(w, r, in, []byte(contextOf(in.EncryptionContext)))
+}
+
+// operate runs the operation the request targets (Encrypt or Decrypt)
+// under the encryption context aad, the lock held.
+func (s *Server) operate(w http.ResponseWriter, r *http.Request, in request, aad []byte) {
 	switch r.Header.Get("X-Amz-Target") {
 	case "TrentService.Encrypt":
 		nonce := make([]byte, s.aead.NonceSize())

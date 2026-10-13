@@ -114,6 +114,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.answer(w, http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.")
 		return
 	}
+	s.object(w, r, key, body)
+}
+
+// object answers a request for one object (delete, head, put, get), the
+// lock held.
+func (s *Server) object(w http.ResponseWriter, r *http.Request, key string, body []byte) {
 	switch r.Method {
 	case http.MethodDelete:
 		if o, exists := s.Objects[key]; exists {

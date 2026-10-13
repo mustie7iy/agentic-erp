@@ -170,18 +170,7 @@ func Personal(detail map[string]any) (string, bool) {
 func personal(path string, v any) (string, bool) {
 	switch x := v.(type) {
 	case map[string]any:
-		for k, child := range x {
-			p := k
-			if path != "" {
-				p = path + "." + k
-			}
-			if personalKeys[strings.ToLower(k)] {
-				return p, true
-			}
-			if found, ok := personal(p, child); ok {
-				return found, true
-			}
-		}
+		return personalField(path, x)
 	case []any:
 		for i, child := range x {
 			if found, ok := personal(fmt.Sprintf("%s[%d]", path, i), child); ok {
@@ -192,6 +181,24 @@ func personal(path string, v any) (string, bool) {
 		s := strings.ReplaceAll(x, " ", "")
 		if ibanLike.MatchString(s) || emailLike.MatchString(x) {
 			return path, true
+		}
+	}
+	return "", false
+}
+
+// personalField is personal for an object: a key that names personal
+// data, or a value that carries it.
+func personalField(path string, x map[string]any) (string, bool) {
+	for k, child := range x {
+		p := k
+		if path != "" {
+			p = path + "." + k
+		}
+		if personalKeys[strings.ToLower(k)] {
+			return p, true
+		}
+		if found, ok := personal(p, child); ok {
+			return found, true
 		}
 	}
 	return "", false
