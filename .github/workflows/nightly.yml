@@ -16,7 +16,48 @@ on:
 # suite, the consistency checks and trends, and fails on a regression, not
 # on the machine. The budgets at scale 1 are checked in a cell-sized
 # environment (05 §5.1, the first scalability gate).
+#
+# The shuffle job runs the whole suite three times in a random order, so a
+# test that depends on another's leftovers (a package variable, a row, a
+# hook) fails here rather than at random in CI. A failure prints the seed;
+# `go test -shuffle=<seed>` replays that order.
 jobs:
+  shuffle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install the Temporal CLI
+        # As in ci.yml: the workflow tests start its development server.
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+      - name: Raise the database connection limit
+        # As in ci.yml and the nfr job below.
+        run: |
+          PGPASSWORD=dev psql -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300"
+          docker restart $(docker ps -q --filter ancestor=postgres:17)
+          for i in $(seq 1 60); do
+            PGPASSWORD=dev psql -h localhost -U postgres -tAc "SHOW max_connections" 2>/dev/null | grep -qx 300 && exit 0
+            sleep 1
+          done
+          echo "the database did not come back with max_connections = 300" >&2; exit 1
+      - name: Tests in a random order, three times
+        run: go test -race -shuffle=on -count=3 ./...
+
   nfr:
     runs-on: ubuntu-latest
     timeout-minutes: 300
