@@ -88,7 +88,9 @@ func TestAuditEvents(t *testing.T) {
 	}
 	// A tampered chain is reported, not refused.
 	admin := pgtest.Admin(t)
-	admin.Exec(context.Background(), "SET session_replication_role = replica")
+	if _, err := admin.Exec(context.Background(), "SET session_replication_role = replica"); err != nil {
+		t.Fatalf("disable triggers: %v", err)
+	}
 	if _, err := admin.Exec(context.Background(), `UPDATE audit.audit_event SET detail = '{"i": 9}' WHERE tenant_id = $1 AND seq = 2`, c.Tenant.ID); err != nil {
 		t.Fatal(err)
 	}

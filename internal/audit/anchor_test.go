@@ -136,11 +136,15 @@ func TestAnchoring(t *testing.T) {
 	}
 	// An anchor object that no longer says what the row says breaks the chain at its sequence.
 	path := filepath.Join(root, filepath.FromSlash(key))
-	os.WriteFile(path, []byte(`{"seq": 3, "hash": "00"}`), 0o600)
+	if err := os.WriteFile(path, []byte(`{"seq": 3, "hash": "00"}`), 0o600); err != nil {
+		t.Fatalf("tamper with the anchor object: %v", err)
+	}
 	if res := verify(t, c, store, &one, nil); res["verified"] != false || res["first_broken_seq"] != float64(3) {
 		t.Fatalf("tampered object: %v", res)
 	}
-	os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove the anchor object: %v", err)
+	}
 	if res := verify(t, c, store, &one, nil); res["verified"] != false || res["first_broken_seq"] != float64(3) { // a removed anchor object is a finding, not an outage
 		t.Fatalf("missing object: %v", res)
 	}
@@ -152,7 +156,9 @@ func TestAnchoring(t *testing.T) {
 	}); err == nil || problem.From(err).Status < 500 {
 		t.Fatalf("store down: %v", err)
 	}
-	os.WriteFile(path, content, 0o600)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("restore the anchor object: %v", err)
+	}
 	// A rewritten event hash disagrees with its anchor (the chain check sees it too, later or at the same place).
 	pgtest.Exec(t, `DO $$ BEGIN SET LOCAL session_replication_role = replica;
 		UPDATE audit.audit_event SET hash = '\x`+strings.Repeat("ab", 32)+`' WHERE tenant_id = '`+c.Tenant.ID.String()+`' AND seq = 3; END $$`)
@@ -174,7 +180,9 @@ func TestAnchoring(t *testing.T) {
 		t.Fatal(err)
 	}
 	var at time.Time
-	pgtest.Admin(t).QueryRow(ctx, `SELECT anchored_at FROM audit.anchor WHERE tenant_id = $1 AND seq = $2`, other.Tenant.ID, head.Seq).Scan(&at)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT anchored_at FROM audit.anchor WHERE tenant_id = $1 AND seq = $2`, other.Tenant.ID, head.Seq).Scan(&at); err != nil {
+		t.Fatalf("read the recorded anchor: %v", err)
+	}
 	if !at.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("recorded the earlier anchor at %v", at)
 	}
@@ -182,7 +190,9 @@ func TestAnchoring(t *testing.T) {
 	third := setup(t)
 	head = headOf(t, third.Tenant.ID)
 	wrong, _ := json.Marshal(audit.Anchor{TenantID: third.Tenant.ID, Seq: head.Seq, Hash: strings.Repeat("00", 32)})
-	store.Put(ctx, blobstore.Key(third.Tenant.ID, blobstore.KindAnchors, audit.ObjectName(head.Seq)), wrong, blobstore.PutOptions{})
+	if err := store.Put(ctx, blobstore.Key(third.Tenant.ID, blobstore.KindAnchors, audit.ObjectName(head.Seq)), wrong, blobstore.PutOptions{}); err != nil {
+		t.Fatalf("store a disagreeing anchor: %v", err)
+	}
 	if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "tampered") {
 		t.Fatalf("disagreeing object: %v", err)
 	}
@@ -326,7 +336,9 @@ func TestAnchoringFailures(t *testing.T) {
 	<-done
 	// Verification against a store that cannot read is an error of the platform.
 	w = anchorer(t, store)
-	w.RunOnce(ctx)
+	if _, err := w.RunOnce(ctx); err != nil {
+		t.Fatalf("anchor before verifying: %v", err)
+	}
 	if err := apitest.InRequest(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) error {
 		h := endpoints()
 		h.Anchors = failingStore{err: errors.New("store down")}
