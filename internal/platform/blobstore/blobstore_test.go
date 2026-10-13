@@ -20,6 +20,26 @@ import (
 )
 
 // exercise puts and gets through any store: write once, typed, missing keys.
+// must fails the test when filesystem setup it relies on did not happen.
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// seal sets a directory's mode for a failure case and restores it at the end
+// of the test so the temporary directory can be removed.
+func seal(t *testing.T, dir string, mode os.FileMode) {
+	t.Helper()
+	must(t, os.Chmod(dir, mode))
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
 func exercise(t *testing.T, s blobstore.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -68,7 +88,7 @@ func TestDir(t *testing.T) {
 	if err := d.Put(context.Background(), key, []byte("<x/>"), blobstore.PutOptions{ContentType: "application/xml"}); err != nil {
 		t.Fatal(err)
 	}
-	os.Remove(filepath.Join(root, filepath.FromSlash(key)) + ".meta")
+	must(t, os.Remove(filepath.Join(root, filepath.FromSlash(key))+".meta"))
 	if _, ct, err := d.Get(context.Background(), key); err != nil || ct != "application/octet-stream" {
 		t.Fatalf("%s %v", ct, err)
 	}
@@ -77,20 +97,19 @@ func TestDir(t *testing.T) {
 	}
 	// Failures of the filesystem are reported, not hidden.
 	file := filepath.Join(root, "file")
-	os.WriteFile(file, nil, 0o600)
+	must(t, os.WriteFile(file, nil, 0o600))
 	if err := (blobstore.Dir{Root: file}).Put(context.Background(), "tenants/x/y", nil, blobstore.PutOptions{}); err == nil {
 		t.Error("mkdir below a file succeeded")
 	}
 	sealed := filepath.Join(root, "sealed")
-	os.MkdirAll(filepath.Join(sealed, "tenants"), 0o700)
-	os.Chmod(filepath.Join(sealed, "tenants"), 0o500)
-	defer os.Chmod(filepath.Join(sealed, "tenants"), 0o700)
+	must(t, os.MkdirAll(filepath.Join(sealed, "tenants"), 0o700))
+	seal(t, filepath.Join(sealed, "tenants"), 0o500)
 	if err := (blobstore.Dir{Root: sealed}).Put(context.Background(), "tenants/x", nil, blobstore.PutOptions{}); err == nil || errors.Is(err, blobstore.ErrExists) {
 		t.Errorf("create in a read-only directory: %v", err)
 	}
 	unreadable := filepath.Join(root, "tenants", "u")
-	os.MkdirAll(filepath.Dir(unreadable), 0o700)
-	os.WriteFile(unreadable, []byte("x"), 0o000)
+	must(t, os.MkdirAll(filepath.Dir(unreadable), 0o700))
+	must(t, os.WriteFile(unreadable, []byte("x"), 0o000))
 	if _, _, err := d.Get(context.Background(), "tenants/u"); err == nil || errors.Is(err, blobstore.ErrNotFound) {
 		t.Errorf("unreadable: %v", err)
 	}
@@ -208,7 +227,7 @@ func TestStatAndPresignedUploads(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close() // the body is not read; the status code is the answer
 		return resp.StatusCode
 	}
 	if code := put(u, "image/png"); code != http.StatusForbidden {
@@ -275,7 +294,10 @@ func TestListAndDelete(t *testing.T) {
 				t.Fatalf("%s: %v", name, err)
 			}
 		}
-		st.Put(ctx, tenant+"-other/documents/c", []byte("y"), blobstore.PutOptions{}) // another tenant whose id starts the same
+		// Another tenant whose id starts the same.
+		if err := st.Put(ctx, tenant+"-other/documents/c", []byte("y"), blobstore.PutOptions{}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
 		keys, err := store.List(ctx, tenant+"/")
 		if err != nil || len(keys) != 5 || keys[0] != tenant+"/audit/anchors/000000000001.json" || keys[4] != tenant+"/uploads/u1" {
 			t.Fatalf("%s: list: %v %v", name, keys, err)
@@ -353,7 +375,7 @@ func TestListAndDelete(t *testing.T) {
 	// A directory store whose object cannot be removed (a directory in its place), and a
 	// directory it cannot walk; one without a clock deletes an object whose retention ended.
 	bad := blobstore.Dir{Root: t.TempDir()}
-	os.MkdirAll(filepath.Join(bad.Root, "tenants/x/documents/a/sub"), 0o700)
+	must(t, os.MkdirAll(filepath.Join(bad.Root, "tenants/x/documents/a/sub"), 0o700))
 	if err := bad.Delete(ctx, "tenants/x/documents/a"); err == nil {
 		t.Fatal("removed a directory as an object")
 	}
@@ -361,13 +383,14 @@ func TestListAndDelete(t *testing.T) {
 		t.Fatalf("list in an empty root: %v", err)
 	}
 	if runtime.GOOS != "windows" && os.Getuid() != 0 {
-		os.Chmod(filepath.Join(bad.Root, "tenants/x/documents/a/sub"), 0)
-		defer os.Chmod(filepath.Join(bad.Root, "tenants/x/documents/a/sub"), 0o700)
+		seal(t, filepath.Join(bad.Root, "tenants/x/documents/a/sub"), 0)
 		if _, err := bad.List(ctx, "tenants/"); err == nil {
 			t.Fatal("listed through an unreadable directory")
 		}
 	}
-	bad.Put(ctx, "tenants/y/audit/anchors/1", []byte("x"), blobstore.PutOptions{RetainUntil: time.Now().Add(-time.Hour)})
+	if err := bad.Put(ctx, "tenants/y/audit/anchors/1", []byte("x"), blobstore.PutOptions{RetainUntil: time.Now().Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
 	if err := bad.Delete(ctx, "tenants/y/audit/anchors/1"); err != nil {
 		t.Fatalf("delete after retention without a clock: %v", err)
 	}

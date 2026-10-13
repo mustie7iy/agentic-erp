@@ -16,7 +16,9 @@ func TestDirWriteFailures(t *testing.T) {
 	root := t.TempDir()
 	d := Dir{Root: root}
 	readOnly := filepath.Join(root, "ro")
-	os.WriteFile(readOnly, nil, 0o600)
+	if err := os.WriteFile(readOnly, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	openFile = func(string, int, os.FileMode) (*os.File, error) { return os.Open(readOnly) }
 	defer func() { openFile = os.OpenFile }()
 	if err := d.Put(context.Background(), "tenants/x/a", []byte("1"), PutOptions{}); err == nil || errors.Is(err, ErrExists) {
