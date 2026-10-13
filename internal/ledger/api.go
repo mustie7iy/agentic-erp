@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 func tag[T any](v T) gen.OptString { return gen.NewOptString(etag.Of(&v)) }
@@ -407,19 +408,26 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 		}
 		return b.AccountID.String(), b.ID
 	})
+	page := balancesToAPI(balances, ledger, le, params.FiscalYear, group, exps)
+	if next != "" {
+		page.NextPageToken.SetTo(next)
+	}
+	return &gen.BalancePageHeaders{Response: page}, nil
+}
+
+// balancesToAPI renders balances of a ledger and fiscal year with their
+// amounts in transaction, local and group currency.
+func balancesToAPI(balances []Balance, ledger uuid.UUID, le tenancy.Entity, fiscalYear int32, group string, exps map[string]int) gen.BalancePage {
 	page := gen.BalancePage{Items: make([]gen.Balance, len(balances))}
 	for i, b := range balances {
 		lc, gc := exps[le.LocalCurrency], exps[group]
-		page.Items[i] = gen.Balance{LedgerID: ledger, LegalEntityID: le.ID, AccountID: b.AccountID, FiscalYear: params.FiscalYear,
+		page.Items[i] = gen.Balance{LedgerID: ledger, LegalEntityID: le.ID, AccountID: b.AccountID, FiscalYear: fiscalYear,
 			FiscalPeriod: int32(b.FiscalPeriod), Currency: b.CurrencyTC, Debit: money2(b.DebitTC, b.CurrencyTC, b.ExpTC),
 			Credit: money2(b.CreditTC, b.CurrencyTC, b.ExpTC), DebitLc: money2(b.DebitLC, le.LocalCurrency, lc),
 			CreditLc: money2(b.CreditLC, le.LocalCurrency, lc), DebitGc: money2(b.DebitGC, group, gc), CreditGc: money2(b.CreditGC, group, gc),
 			UpdatedAt: b.UpdatedAt}
 	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.BalancePageHeaders{Response: page}, nil
+	return page
 }
 
 // CreateExchangeRate implements POST /v1/exchange-rates.
