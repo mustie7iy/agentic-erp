@@ -225,10 +225,10 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 // invoice_exception request (unless a held invoice already has one); a
 // clean match releases a hold the match had set. It returns the events of
 // the transition, if any.
-func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, m Match, issues int) ([]outbox.Event, error) {
+func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, m Match, issueCount int) ([]outbox.Event, error) {
 	switch {
 	case !m.IsClean && (v.Status == Parked || v.WorkflowRequestID == nil):
-		held, err := e.holdForException(ctx, tx, p, v, issues)
+		held, err := e.holdForException(ctx, tx, p, v, issueCount)
 		if err != nil {
 			return nil, err
 		}
@@ -248,13 +248,13 @@ func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 
 // holdForException opens an invoice_exception approval request and puts
 // the invoice on hold, linked to the request when one is needed.
-func (e *Endpoints) holdForException(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, issues int) (Invoice, error) {
+func (e *Endpoints) holdForException(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, issueCount int) (Invoice, error) {
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.InvoiceException, ObjectID: v.ID,
 		Title: "Invoice exception " + v.DocumentNumber + " (" + v.SupplierReference + ")", Amount: &v.Gross, Currency: &v.Currency})
 	if err != nil {
 		return Invoice{}, err
 	}
-	reason := fmt.Sprintf("%s%d issue(s)", matchHold, issues)
+	reason := fmt.Sprintf("%s%d issue(s)", matchHold, issueCount)
 	var r *uuid.UUID
 	if needed {
 		r = &request

@@ -123,8 +123,9 @@ func (e *Endpoints) storeDocument(ctx context.Context, tenant uuid.UUID, sum [sh
 	return objectRef, nil
 }
 
-// capturedInput turns an extraction into invoice input: supplier, currency
-// and items come from the purchase order the document prints.
+// capturedInput turns an extraction into invoice input: supplier and items
+// come from the purchase order the document prints, whose currency the
+// document must match.
 func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, ext *capture.Extraction) (Input, error) {
 	if ext.PurchaseOrder == "" {
 		return Input{}, problem.Unprocessable("payables.capture_needs_order",
