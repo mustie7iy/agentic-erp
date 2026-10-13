@@ -72,7 +72,7 @@ func (p *plane) do(method, path, body string, headers map[string]string) (int, m
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read to the end below; closing a read body loses nothing
 	var m map[string]any
 	raw, _ := io.ReadAll(resp.Body)
 	if len(raw) > 0 {
@@ -130,12 +130,16 @@ func (c *fakeCell) handler(name string) http.Handler {
 			return
 		}
 		var in map[string]any
-		json.Unmarshal(body, &in)
+		if err := json.Unmarshal(body, &in); err != nil { // the plane sent something that is not a tenant request
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("ETag", `"1"`)
 		w.Header().Set("Location", "/control/v1/tenants/"+uuid.NewString())
 		w.WriteHeader(http.StatusCreated)
 		id := uuid.Must(uuid.NewV7())
-		json.NewEncoder(w).Encode(map[string]any{"id": id, "name": in["name"], "region": in["region"], "status": "active", "version": 1, "provisioned": map[string]any{"configuration_version": 1}})
+		// A failed write reaches the plane as a broken answer, which the test sees there.
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "name": in["name"], "region": in["region"], "status": "active", "version": 1, "provisioned": map[string]any{"configuration_version": 1}})
 	})
 }
 
@@ -154,6 +158,12 @@ func TestGlobalControlPlane(t *testing.T) {
 	} {
 		if err := p.dir.UpsertCell(ctx, c); err != nil {
 			t.Fatal(err)
+		}
+	}
+	upsertCell := func(c directory.Cell) {
+		t.Helper()
+		if err := p.dir.UpsertCell(ctx, c); err != nil {
+			t.Fatalf("upsert cell %s: %v", c.Name, err)
 		}
 	}
 	// Cells, with and without a region.
@@ -208,14 +218,14 @@ func TestGlobalControlPlane(t *testing.T) {
 		t.Fatalf("retry: %v", retried)
 	}
 	// A cell that does not answer is a 502; the placement is kept for the retry.
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: true})
+	upsertCell(directory.Cell{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: true})
 	p.problem(502, "platform.cell_unreachable", "ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString())
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-bad", Region: region, APIURL: "https://b.api.example.com", ControlURL: "::", Accepting: true})
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: false})
+	upsertCell(directory.Cell{Name: region + "-bad", Region: region, APIURL: "https://b.api.example.com", ControlURL: "::", Accepting: true})
+	upsertCell(directory.Cell{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: false})
 	if status, _, _ := p.as("ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString()); status != 503 {
 		t.Fatalf("cell with a bad control URL: %d", status)
 	}
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-bad", Region: region, APIURL: "https://b.api.example.com", ControlURL: "::", Accepting: false})
+	upsertCell(directory.Cell{Name: region + "-bad", Region: region, APIURL: "https://b.api.example.com", ControlURL: "::", Accepting: false})
 	// A cell whose answer breaks off is unreachable too.
 	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "1000")
@@ -223,9 +233,9 @@ func TestGlobalControlPlane(t *testing.T) {
 		w.Write([]byte(`{"id":`))
 	}))
 	defer truncated.Close()
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-cut", Region: region, APIURL: "https://c.api.example.com", ControlURL: truncated.URL, Accepting: true})
+	upsertCell(directory.Cell{Name: region + "-cut", Region: region, APIURL: "https://c.api.example.com", ControlURL: truncated.URL, Accepting: true})
 	p.problem(502, "platform.cell_unreachable", "ops|alice", "POST", "/directory/v1/tenants", strings.Replace(body, `"name":"Acme"`, `"name":"Cut","cell":"`+region+`-cut"`, 1), "Idempotency-Key", "key-"+uuid.NewString())
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-cut", Region: region, APIURL: "https://c.api.example.com", ControlURL: truncated.URL, Accepting: false})
+	upsertCell(directory.Cell{Name: region + "-cut", Region: region, APIURL: "https://c.api.example.com", ControlURL: truncated.URL, Accepting: false})
 	// Request rules: key, body, region, size.
 	if status, _, _ := p.as("ops|alice", "POST", "/directory/v1/tenants", `{"region":"`+region+`","name":"`+strings.Repeat("x", 5<<20)+`"}`, "Idempotency-Key", "key-"+uuid.NewString()); status != 413 {
 		t.Fatalf("oversized: %d", status)
@@ -246,7 +256,7 @@ func TestGlobalControlPlane(t *testing.T) {
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":freeze", "", "If-Match", `"2"`)
 	p.problem(400, "request.invalid_body", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{}`, "If-Match", `"2"`)
 	p.problem(422, "tenancy.unknown_cell", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"nowhere"}`, "If-Match", `"2"`)
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-us", Region: "us-east", APIURL: "https://us.api.example.com", ControlURL: "http://us:9090", Accepting: true})
+	upsertCell(directory.Cell{Name: region + "-us", Region: "us-east", APIURL: "https://us.api.example.com", ControlURL: "http://us:9090", Accepting: true})
 	p.problem(422, "tenancy.region_mismatch", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"`+region+`-us"}`, "If-Match", `"2"`)
 	moved, h := p.must(200, "ops|bob", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"`+region+`-2"}`, "If-Match", `"2"`)
 	if moved["cell"] != region+"-2" || moved["api_url"] != "https://2.api.example.com" || moved["status"] != "read_only" || h.Get("ETag") != `"3"` {
