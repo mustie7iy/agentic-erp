@@ -75,7 +75,7 @@ single-return path whose failure no test can provoke from becoming its own branc
 - [x] R11 wrapcheck: internal/ledger 59 → 0 (worktree agent, e8a5c92). Reviewer: APPROVE.
 - [x] R12 wrapcheck: internal/payments 40 → 0 (worktree agent, b2e7339; follow-up: local wrapf removed
   for errs.Wrapf on scanners and covered branches elsewhere, load/getFile/createFile name their
-  ids, pgtest.FailingTx.FailCommit tests the proposer's lost commit). Reviewer: changes required,
+  ids, pgtest.FailingTx.FailCommit tests the proposer's failed commit). Reviewer: changes required,
   then fixed.
 - [x] R13 wrapcheck: internal/procurement 42 → 0 (worktree agent; cherry-picked as a99637e, re-verified
   on the branch; expiry message de-duplicated). Reviewer: APPROVE.
@@ -241,7 +241,8 @@ Not assigned to any step in the brief (for R40 "every linter at zero" they need 
   it to the errors that fail the run: a flaky check (or a lost response body under load) to look
   at in R30.
 - Phase 3: five test packages (procurement, offboarding, workflows, controlplane, audit) each
-  define a private brokenCommit; pgtest.FailingTx.FailCommit can replace them (R31).
+  define a private brokenCommit; pgtest.FailingTx.FailCommit can replace them (R31). A second
+  mode that commits and then reports failure would let run-twice tests cover a lost commit.
 - Phase 3: a go-reviewer subagent ran `git checkout` in the shared checkout during a review and
   restored it; no commit was lost. Reviews now run on `git show`/exports and are told not to
   check out.

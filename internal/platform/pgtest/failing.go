@@ -18,7 +18,7 @@ var ErrInjected = errors.New("pgtest: injected failure")
 // Count set, the statements of every FailingTx sharing it are counted
 // together, so a handler spanning several transactions is covered too.
 // With FailCommit, Commit fails with ErrInjected and commits nothing, for the
-// paths that handle a lost commit.
+// paths that handle a failed commit.
 type FailingTx struct {
 	pgx.Tx
 	FailAt     int

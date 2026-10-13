@@ -64,10 +64,10 @@ func TestProposer(t *testing.T) {
 		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
 	if _, err := lost.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
-		t.Fatalf("lost commit: got %v, want the injected failure", err)
+		t.Fatalf("failed commit: got %v, want the injected failure", err)
 	}
 	if got := status(); got != "proposing" {
-		t.Fatalf("after a lost commit: got status %s, want proposing", got)
+		t.Fatalf("after a failed commit: got status %s, want proposing", got)
 	}
 	for failAt := 1; ; failAt++ {
 		w := proposer(t)
