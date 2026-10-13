@@ -1,12 +1,10 @@
 package procurement_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -32,7 +30,7 @@ func TestContractExpiry(t *testing.T) {
 	draft := e.contract(t, e.Vendor.String(), "")
 	// Validity is set by the calendar: the first two end yesterday, the draft too.
 	pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = current_date - 400, valid_to = current_date - 1, version = version + 1 WHERE id IN ($1, $2)`, uuid.MustParse(id(past)), uuid.MustParse(id(draft)))
-	logs := &syncBuffer{}
+	logs := &pgtest.SyncBuffer{}
 	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil))}
 	n, err := x.RunOnce(ctx)
 	if err != nil || n != 1 {
@@ -107,40 +105,24 @@ func TestContractExpiry(t *testing.T) {
 		t.Fatalf("expire with the database down: %v", err)
 	}
 	// Run logs a failed round and a quiet one, and stops with the context.
-	runCtx, cancel := context.WithCancel(ctx)
+	failCtx, stopFailing := context.WithCancel(ctx)
 	failed := make(chan struct{})
-	go func() { x.Run(runCtx); close(failed) }()
+	go func() { x.Run(failCtx); close(failed) }()
+	t.Cleanup(func() { stopFailing(); <-failed }) // stops the worker should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "contract expiry round failed") },
 		"no failed round logged: %s", logs)
-	cancel()
+	stopFailing()
 	<-failed // the worker reads x.Begin, which the test changes next
 	x.Begin = nil
 	x.Interval = time.Hour
-	runCtx, cancel = context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { x.Run(runCtx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "expired=1") },
 		"no expiring round logged: %s", logs)
 	cancel()
 	<-done
-}
-
-// syncBuffer collects the worker's logs from its goroutine.
-type syncBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
 }
 
 type brokenCommit struct{ pgx.Tx }
