@@ -175,11 +175,12 @@ func TestRelayToJetStream(t *testing.T) {
 		_, err := outbox.Add(ctx, outbox.Event{Context: "platform", Name: "operation_completed", AggregateID: uuid.New(), Payload: 1})
 		return err
 	})
-	var buf safeBuffer
+	var buf pgtest.SyncBuffer
 	relay := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: bus, Cell: "eu1", Interval: 10 * time.Millisecond,
 		Log: slog.New(slog.NewTextHandler(&buf, nil))}
 	done := make(chan struct{})
 	go func() { relay.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }() // stops the relay should the wait fail; deferred so it runs before the bus closes
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var n int
 		if err := pgtest.Admin(t).QueryRow(context.Background(), "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&n); err != nil {
@@ -191,26 +192,9 @@ func TestRelayToJetStream(t *testing.T) {
 	<-done
 }
 
-type safeBuffer struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (s *safeBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *safeBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
-}
-
 func TestRelayLogsErrorsAndKeepsRunning(t *testing.T) {
 	pool := pgtest.Pool(t)
-	var buf safeBuffer
+	var buf pgtest.SyncBuffer
 	relay := &outbox.Relay{Pool: pool, Role: "no_such_role", Publisher: &recorder{}, Cell: "eu1", Interval: 5 * time.Millisecond,
 		Log: slog.New(slog.NewTextHandler(&buf, nil))}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
