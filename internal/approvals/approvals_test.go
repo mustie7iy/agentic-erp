@@ -62,9 +62,23 @@ func (r recorder) Cancelled(_ context.Context, id, _ uuid.UUID, c string) error 
 func TestApproveThroughTheAPI(t *testing.T) {
 	f := setup(t)
 	r := partnerChange(t, f, "Approved Partner")
-	if r["object_type"] != "partner_change" || r["requester_id"] != f.Tenant.Human.ID.String() || r["current_step"] != float64(1) ||
-		len(r["steps"].([]any)) != 1 || r["amount"] != nil || r["completed_at"] != nil {
-		t.Fatalf("request: %v", r)
+	if r["object_type"] != "partner_change" {
+		t.Errorf("object_type: got %v, want partner_change", r["object_type"])
+	}
+	if want := f.Tenant.Human.ID.String(); r["requester_id"] != want {
+		t.Errorf("requester_id: got %v, want %s", r["requester_id"], want)
+	}
+	if r["current_step"] != float64(1) {
+		t.Errorf("current_step: got %v, want 1", r["current_step"])
+	}
+	if steps := r["steps"].([]any); len(steps) != 1 {
+		t.Errorf("steps: got %d (%v), want 1", len(steps), steps)
+	}
+	if r["amount"] != nil {
+		t.Errorf("amount: got %v, want none", r["amount"])
+	}
+	if r["completed_at"] != nil {
+		t.Errorf("completed_at: got %v, want none", r["completed_at"])
 	}
 	f.Problem(403, "workflow.own_request", "POST", path(r, "approve"), "", tag(r))
 	f.As(f.Approver).Problem(412, "request.version_mismatch", "POST", path(r, "approve"), "", `"9"`)
@@ -80,9 +94,23 @@ func TestApproveThroughTheAPI(t *testing.T) {
 
 	got, etag := f.As(f.Approver).Must(200, "POST", path(r, "approve"), `{"comment": "Checked"}`, tag(r))
 	d := got["decisions"].([]any)[0].(map[string]any)
-	if got["status"] != "approved" || got["completed_at"] == nil || d["decision"] != "approve" || d["comment"] != "Checked" ||
-		got["steps"].([]any)[0].(map[string]any)["approvals"] != float64(1) || etag != tag(got) {
-		t.Fatalf("approved: %v", got)
+	if got["status"] != "approved" {
+		t.Errorf("status: got %v, want approved", got["status"])
+	}
+	if got["completed_at"] == nil {
+		t.Error("completed_at: got none, want a time")
+	}
+	if d["decision"] != "approve" {
+		t.Errorf("decision: got %v, want approve", d["decision"])
+	}
+	if d["comment"] != "Checked" {
+		t.Errorf("comment: got %v, want Checked", d["comment"])
+	}
+	if n := got["steps"].([]any)[0].(map[string]any)["approvals"]; n != float64(1) {
+		t.Errorf("step approvals: got %v, want 1", n)
+	}
+	if etag != tag(got) {
+		t.Errorf("ETag: got %s, want %s", etag, tag(got))
 	}
 	if partner, _ := f.Must(200, "GET", "/v1/business-partners?name_prefix=Approved", "", ""); partner["items"].([]any)[0].(map[string]any)["status"] != "active" {
 		t.Fatalf("partner: %v", partner)
@@ -91,8 +119,14 @@ func TestApproveThroughTheAPI(t *testing.T) {
 	f.Problem(409, "workflow.not_pending", "POST", path(r, "cancel"), `{"comment": "Late"}`, tag(got))
 	f.Problem(404, "request.not_found", "GET", "/v1/approval-requests/"+uuid.NewString(), "", "")
 	completed := apitest.Published(t, f.Tenant, outbox.Event{Context: "workflow", Name: "approval_completed"})
-	if len(completed) != 1 || completed[0]["outcome"] != "approved" || completed[0]["decided_by"] != f.Approver.ID.String() {
-		t.Fatalf("completed: %v", completed)
+	if len(completed) != 1 {
+		t.Fatalf("approval_completed events: got %d (%v), want 1", len(completed), completed)
+	}
+	if completed[0]["outcome"] != "approved" {
+		t.Errorf("completed outcome: got %v, want approved", completed[0]["outcome"])
+	}
+	if want := f.Approver.ID.String(); completed[0]["decided_by"] != want {
+		t.Errorf("completed decided_by: got %v, want %s", completed[0]["decided_by"], want)
 	}
 	if requested := apitest.Published(t, f.Tenant, outbox.Event{Context: "workflow", Name: "approval_requested"}); len(requested) != 1 {
 		t.Fatalf("requested: %v", requested)
@@ -127,8 +161,11 @@ func TestRejectAndCancel(t *testing.T) {
 	cancelled := partnerChange(t, f, "Cancelled Partner")
 	f.As(f.Approver).Problem(403, "workflow.not_requester", "POST", path(cancelled, "cancel"), `{"comment": "Mine"}`, tag(cancelled))
 	got, _ = f.Must(200, "POST", path(cancelled, "cancel"), `{"comment": "Withdrawn"}`, tag(cancelled))
-	if got["status"] != "cancelled" || got["decisions"].([]any)[0].(map[string]any)["decision"] != "cancel" {
-		t.Fatalf("cancelled: %v", got)
+	if got["status"] != "cancelled" {
+		t.Errorf("status: got %v, want cancelled", got["status"])
+	}
+	if d := got["decisions"].([]any)[0].(map[string]any)["decision"]; d != "cancel" {
+		t.Errorf("decision: got %v, want cancel", d)
 	}
 	f.Problem(412, "request.version_mismatch", "POST", path(got, "cancel"), `{"comment": "Again"}`, `"9"`)
 	f.As(f.Approver).Problem(412, "request.version_mismatch", "POST", path(got, "reject"), `{"comment": "Late"}`, `"9"`)
@@ -196,14 +233,25 @@ func TestSteps(t *testing.T) {
 	any := func(int32) error { return nil }
 	small := open(500000) // 5,000.00 EUR: one step
 	r, err := as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return approvals.GetRequest(ctx, small) })
-	if err != nil || len(r.Steps) != 1 || *r.Amount != 500000 {
-		t.Fatalf("small: %+v %v", r, err)
+	if err != nil {
+		t.Fatalf("small: %v", err)
+	}
+	if len(r.Steps) != 1 {
+		t.Errorf("small steps: got %d, want 1", len(r.Steps))
+	}
+	if r.Amount == nil || *r.Amount != 500000 {
+		t.Errorf("small amount: got %v, want 500000", r.Amount)
 	}
 	large := open(5000000) // 50,000.00 EUR: two steps
 	pgtest.Exec(t, `UPDATE workflow.approval_step SET required = 2 WHERE request_id = $1 AND step_no = 1`, large)
-	if r, err = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); err != nil ||
-		r.CurrentStep != 1 || r.Steps[0].Approvals != 1 {
-		t.Fatalf("first approval: %+v %v", r, err)
+	if r, err = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); err != nil {
+		t.Fatalf("first approval: %v", err)
+	}
+	if r.CurrentStep != 1 {
+		t.Errorf("first approval current step: got %d, want 1", r.CurrentStep)
+	}
+	if len(r.Steps) == 0 || r.Steps[0].Approvals != 1 {
+		t.Errorf("first approval step 1: got %+v, want 1 approval", r.Steps)
 	}
 	if _, err = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); problem.From(err).Code != "workflow.already_approved" {
 		t.Fatalf("second approval by the same person: %v", err)
@@ -238,9 +286,11 @@ func TestSteps(t *testing.T) {
 		"approve": func(ctx context.Context) (approvals.Request, error) { return orphan.Approve(ctx, agentReq, any, "") },
 		"reject":  func(ctx context.Context) (approvals.Request, error) { return orphan.Reject(ctx, agentReq, any, "r") },
 	} {
-		if _, err = as(f.Approver, fn); err == nil || !strings.Contains(err.Error(), "no handler") {
-			t.Errorf("%s without a handler: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			if _, err := as(f.Approver, fn); err == nil || !strings.Contains(err.Error(), "no handler") {
+				t.Errorf("%s without a handler: got %v, want a no handler error", name, err)
+			}
+		})
 	}
 	if _, err = as(f.Tenant.Human, func(ctx context.Context) (approvals.Request, error) { return orphan.Cancel(ctx, agentReq, any, "c") }); err == nil {
 		t.Error("cancel without a handler")
@@ -258,9 +308,11 @@ func TestSteps(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return approvals.GetRequest(ctx, agentReq) }); r.Status != approvals.Cancelled ||
-		len(calls) != 3 {
-		t.Fatalf("withdrawn: %+v %v", r, calls)
+	if r, _ = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return approvals.GetRequest(ctx, agentReq) }); r.Status != approvals.Cancelled {
+		t.Errorf("withdrawn status: got %v, want %v", r.Status, approvals.Cancelled)
+	}
+	if len(calls) != 3 {
+		t.Errorf("owner calls after withdrawing: got %v, want 3 calls", calls)
 	}
 }
 
@@ -307,9 +359,11 @@ func TestOpenRefusals(t *testing.T) {
 		t.Fatalf("second request: %v", err)
 	}
 	for name, code := range map[string]string{"decision_one_approval_per_actor": "workflow.already_approved"} {
-		if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name}); p.Code != code {
-			t.Errorf("%s: %v", name, p)
-		}
+		t.Run(name, func(t *testing.T) {
+			if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name}); p.Code != code {
+				t.Errorf("problem code: got %s, want %s", p.Code, code)
+			}
+		})
 	}
 	// A tenant without configuration cannot open requests.
 	bare := pgtest.NewTenant(t)
@@ -377,10 +431,12 @@ func TestDatabaseFailures(t *testing.T) {
 		}},
 	}
 	for name, c := range calls2 {
-		if err := c.call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, f.Tenant, c.as, name, c.call)
+		t.Run(name, func(t *testing.T) {
+			if err := c.call(context.Background()); err == nil {
+				t.Errorf("%s outside a unit of work: got nil, want an error", name)
+			}
+			apitest.EveryFailure(t, f.Tenant, c.as, name, c.call)
+		})
 	}
 	// A two-step request moving to its second step fails like the others.
 	two := int64(5000000)
