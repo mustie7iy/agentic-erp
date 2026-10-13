@@ -300,29 +300,46 @@ func TestStartupFailures(t *testing.T) {
 	}
 }
 
-// TestABusFailureStopsTheWorkersFirst: when the bus cannot be connected or
-// its streams cannot be made, the workers have already started; run returns
-// only once every one of them stopped, so the pool it then closes is no
-// longer in use.
-func TestABusFailureStopsTheWorkersFirst(t *testing.T) {
+// TestAStartupFailureStopsTheWorkersFirst: when the bus cannot be connected,
+// its streams cannot be made or a listener cannot be opened, the workers
+// (and, for a listener, the relay) have already started; run returns only
+// once every one of them stopped, so the pool it then closes is no longer in
+// use.
+func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 	is := authntest.New(t)
+	var lc net.ListenConfig
+	busy, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = busy.Close() }) // only holds the port; nothing is written
 	cases := []struct {
-		name string
-		nats func() string
+		name   string
+		nats   func() string
+		mutate func(*config.Config)
 	}{
-		{"bus unreachable", func() string { return "nats://127.0.0.1:1" }},
-		{"streams refused", func() string { return natstest.Plain(t) }},
+		{"bus unreachable", func() string { return "nats://127.0.0.1:1" }, func(*config.Config) {}},
+		{"streams refused", func() string { return natstest.Plain(t) }, func(*config.Config) {}},
+		{"api port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.HTTPAddr = busy.Addr().String() }},
+		{"admin port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.AdminAddr = busy.Addr().String() }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var s *server
 			startWorkersHook = func(srv *server, runCtx context.Context) { s = srv; srv.startWorkers(runCtx) }
 			defer func() { startWorkersHook = (*server).startWorkers }()
-			if err := run(context.Background(), load(t, environment(t, is, c.nats())), quiet(), nil); err == nil {
-				t.Fatal("got no error, want the bus failure")
+			cfg := load(t, environment(t, is, c.nats()))
+			c.mutate(&cfg)
+			if err := run(context.Background(), cfg, quiet(), nil); err == nil {
+				t.Fatal("got no error, want the startup failure")
 			}
 			if s == nil {
-				t.Fatal("got no workers started, want them started before the bus")
+				t.Fatal("got no workers started, want them started before the failure")
+			}
+			// The workflow worker's end is read, as at a shutdown, so its
+			// failure (when it had one) is part of run's error.
+			if n := len(s.workerErr); n != 0 {
+				t.Errorf("got %d unread workflow worker results, want 0", n)
 			}
 			workers := []struct {
 				name string

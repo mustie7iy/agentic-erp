@@ -149,15 +149,21 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	return s.serve(ctx, cancel, started)
 }
 
-// abort ends a startup that failed after the workers started: it stops them
-// and waits, as a shutdown does, so that run's deferred closes (the pool,
-// the engine, the directory) never run under a worker still using them. The
-// relay has not started on this path, so its end is marked here.
+// abort ends a startup that failed after the workers started but before
+// the relay did: it marks the relay's end and stops the rest.
 func (s *server) abort(cancel context.CancelFunc, err error) error {
-	cancel()
 	close(s.relayDone)
+	return s.stop(cancel, err)
+}
+
+// stop stops the workers and waits for them, so that run's deferred closes
+// (the pool, the engine, the directory) never run under a worker still using
+// them, and returns err joined with the workflow worker's failure, when it
+// had one.
+func (s *server) stop(cancel context.CancelFunc, err error) error {
+	cancel()
 	s.wait()
-	return errors.Join(err, <-s.workerErr) // the workflow worker's failure, when it had one, as serve reports it
+	return errors.Join(err, <-s.workerErr)
 }
 
 // server is what run wires together, one step after the other, before it
@@ -480,7 +486,7 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started func(api, admin net.Listener)) error {
 	apiLn, adminLn, err := listen(s.cfg)
 	if err != nil {
-		return err
+		return s.stop(cancel, err) // the relay is running and marks its own end
 	}
 	servers := []*http.Server{
 		{Handler: s.apiHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
@@ -507,10 +513,9 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 		// in time is abandoned with the process, so its error changes nothing.
 		_ = srv.Shutdown(shutdownCtx)
 	}
-	cancel()
-	s.wait()
+	err = s.stop(cancel, serveErr) // nil after a requested shutdown; set when a listener or the workflow worker failed
 	s.log.Info("erp-server stopped")
-	return errors.Join(serveErr, <-s.workerErr) // nil after a requested shutdown; set when a listener or the workflow worker failed
+	return err
 }
 
 // listen opens the API and admin listeners; when the second fails the
