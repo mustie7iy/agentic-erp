@@ -58,14 +58,18 @@ func (m *memory) Upsert(_ context.Context, e directory.Entry) error {
 	return nil
 }
 
+// TestPostgresDirectory counts cells, tenants and placements, so it keeps
+// its directory in a database of its own: the package one holds the cells
+// and tenants other tests, and earlier runs under -count, registered.
 func TestPostgresDirectory(t *testing.T) {
 	ctx := context.Background()
-	dir, err := directory.Open(ctx, pgtest.URL(t))
+	dirURL := pgtest.EmptyDatabase(t)
+	dir, err := directory.Open(ctx, dirURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer dir.Close()
-	again, err := directory.Open(ctx, pgtest.URL(t)) // the schema is created once
+	again, err := directory.Open(ctx, dirURL) // the schema is created once
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +220,7 @@ func TestPostgresDirectory(t *testing.T) {
 		t.Fatalf("limited user: %v", err)
 	}
 	// Lookups failing are reported.
-	closed, _ := directory.Open(ctx, pgtest.URL(t))
+	closed, _ := directory.Open(ctx, dirURL)
 	closed.Close()
 	if _, err := closed.Lookup(ctx, tenant); err == nil || errors.Is(err, directory.ErrUnknown) {
 		t.Fatalf("closed lookup: %v", err)
