@@ -19,12 +19,24 @@ func TestCodec(t *testing.T) {
 	other, _ := NewCodec([]byte(strings.Repeat("o", 32)))
 	plain, _ := converter.GetDefaultDataConverter().ToPayload(map[string]any{"run_id": "0192a000-0000-7000-8000-000000000001"})
 	sealed, err := c.Encode([]*commonpb.Payload{plain})
-	if err != nil || string(sealed[0].Metadata[converter.MetadataEncoding]) != encodingSealed || strings.Contains(string(sealed[0].Data), "run_id") {
-		t.Fatalf("sealed: %v %v", sealed, err)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if got := string(sealed[0].Metadata[converter.MetadataEncoding]); got != encodingSealed {
+		t.Errorf("sealed encoding: got %s, want %s", got, encodingSealed)
+	}
+	if got := string(sealed[0].Data); strings.Contains(got, "run_id") {
+		t.Errorf("sealed data: got %q, want no plain text", got)
 	}
 	opened, err := c.Decode(sealed)
-	if err != nil || string(opened[0].Data) != string(plain.Data) || string(opened[0].Metadata[converter.MetadataEncoding]) != string(plain.Metadata[converter.MetadataEncoding]) {
-		t.Fatalf("opened: %v %v", opened, err)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if got, want := string(opened[0].Data), string(plain.Data); got != want {
+		t.Errorf("opened data: got %s, want %s", got, want)
+	}
+	if got, want := string(opened[0].Metadata[converter.MetadataEncoding]), string(plain.Metadata[converter.MetadataEncoding]); got != want {
+		t.Errorf("opened encoding: got %s, want %s", got, want)
 	}
 	if passed, err := c.Decode([]*commonpb.Payload{plain}); err != nil || passed[0] != plain {
 		t.Fatalf("plain payload: %v %v", passed, err)
@@ -41,7 +53,10 @@ func TestCodec(t *testing.T) {
 	if _, err := c.Decode([]*commonpb.Payload{garbage}); err == nil {
 		t.Fatal("sealed garbage decoded")
 	}
-	if dataConverter(nil) != converter.GetDefaultDataConverter() || dataConverter(c) == converter.GetDefaultDataConverter() {
-		t.Fatal("data converters")
+	if got := dataConverter(nil); got != converter.GetDefaultDataConverter() {
+		t.Errorf("dataConverter(nil): got %v, want the default converter", got)
+	}
+	if got := dataConverter(c); got == converter.GetDefaultDataConverter() {
+		t.Errorf("dataConverter(codec): got the default converter, want one that seals")
 	}
 }
