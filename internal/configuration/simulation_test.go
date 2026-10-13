@@ -312,9 +312,7 @@ func TestSimulationWorkerFailures(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { failing.Run(runCtx); close(done) }()
-	for logs.Len() == 0 {
-		time.Sleep(time.Millisecond)
-	}
+	pgtest.Eventually(t, 10*time.Second, func() bool { return logs.Len() > 0 }, "the failing worker logged nothing")
 	cancel()
 	<-done
 	if !strings.Contains(logs.String(), "simulation failed") {
