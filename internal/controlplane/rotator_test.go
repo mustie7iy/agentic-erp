@@ -168,7 +168,7 @@ func TestARotationFailureDoesNotStopTheRound(t *testing.T) {
 		ids = append(ids, id)
 	}
 	slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
-	stuck, behind := ids[0], ids[1] // the round takes tenants in id order: the failing one first
+	stuck, behind := ids[0], ids[1] // the round takes tenants in id order: the failing one before the other
 	pool := p.s.Pool
 	k := &controlplane.KeyRotator{Pool: pool, Keys: apitest.FieldKeys(), AppRole: "erp_app", WorkerRole: "erp_worker", Age: 24 * time.Hour,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -178,9 +178,12 @@ func TestARotationFailureDoesNotStopTheRound(t *testing.T) {
 			}
 			return pool.Begin(ctx, s)
 		}}
-	_, err := k.RunOnce(ctx)
+	rotated, err := k.RunOnce(ctx)
 	if !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), stuck.String()) {
 		t.Fatalf("round error: got %v, want the injected failure of tenant %s", err, stuck)
+	}
+	if rotated < 1 {
+		t.Errorf("rotated: got %d, want at least 1 (the tenant behind)", rotated)
 	}
 	var keys int
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, behind).Scan(&keys); err != nil {
