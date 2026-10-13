@@ -157,17 +157,41 @@ func (w *Worker) pending(ctx context.Context) (toExport, toErase []uuid.UUID, er
 	return toExport, toErase, nil
 }
 
-// tables lists the tenant tables: every table with a tenant_id column,
-// partitioned parents rather than their partitions.
-func tables(ctx context.Context, tx pgx.Tx) ([]string, error) {
-	rows, _ := tx.Query(ctx, `SELECT format('%I.%I', ns.nspname, c.relname) FROM pg_class c
+// tenantTable is a tenant table: the name an export records it under and
+// its schema and table, from which SQL's identifier is built.
+type tenantTable struct {
+	Name   string // schema.table, as format('%I.%I') renders it
+	Schema string
+	Table  string
+}
+
+// ident is the table's quoted identifier for SQL.
+func (t tenantTable) ident() string { return pgx.Identifier{t.Schema, t.Table}.Sanitize() }
+
+// tenantTables lists the tenant tables: every table with a tenant_id
+// column, partitioned parents rather than their partitions.
+func tenantTables(ctx context.Context, tx pgx.Tx) ([]tenantTable, error) {
+	rows, _ := tx.Query(ctx, `SELECT format('%I.%I', ns.nspname, c.relname), ns.nspname, c.relname FROM pg_class c
 		JOIN pg_namespace ns ON ns.oid = c.relnamespace
 		JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
 		WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
 		ORDER BY 1`)
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	list, err := pgx.CollectRows(rows, pgx.RowToStructByPos[tenantTable])
 	if err != nil {
-		return names, fmt.Errorf("offboarding: list tenant tables: %w", err)
+		return list, fmt.Errorf("offboarding: list tenant tables: %w", err)
+	}
+	return list, nil
+}
+
+// tables lists the tenant tables' names, as an export records them.
+func tables(ctx context.Context, tx pgx.Tx) ([]string, error) {
+	list, err := tenantTables(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(list))
+	for i, t := range list {
+		names[i] = t.Name
 	}
 	return names, nil
 }

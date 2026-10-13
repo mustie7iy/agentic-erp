@@ -110,30 +110,59 @@ func tableParts(m manifest) (map[string][]exportedTable, []string) {
 
 // importTenant writes the tenant into the cell within tx: its row, then
 // its tables' rows once each table is found empty, then checks the audit
-// chain head.
+// chain head. The manifest's table names are resolved first: no statement
+// uses a name the cell does not export.
 func (im *Importer) importTenant(ctx context.Context, tx pgx.Tx, m manifest, order []string, parts map[string][]exportedTable, out *Imported) error {
-	if err := im.tenantRow(ctx, tx, m); err != nil {
-		return err
-	}
-	if err := checkEmpty(ctx, tx, m.TenantID, order); err != nil {
-		return err
-	}
-	rows, cols, err := im.readTables(ctx, tx, order, parts)
+	idents, err := resolveTables(ctx, tx, order)
 	if err != nil {
 		return err
 	}
-	if err := im.insertInPasses(ctx, tx, order, cols, rows, out); err != nil {
+	if err := im.tenantRow(ctx, tx, m); err != nil {
+		return err
+	}
+	if err := checkEmpty(ctx, tx, m.TenantID, order, idents); err != nil {
+		return err
+	}
+	rows, cols, err := im.readTables(ctx, tx, order, idents, parts)
+	if err != nil {
+		return err
+	}
+	if err := im.insertInPasses(ctx, tx, order, idents, cols, rows, out); err != nil {
 		return err
 	}
 	return checkChainHead(ctx, tx, m)
 }
 
+// resolveTables maps each table the manifest names to its quoted
+// identifier. The manifest itself is not hash-checked, so its names are
+// untrusted: only the tenant tables this cell exports are accepted, and
+// any other name is refused before a statement uses it.
+func resolveTables(ctx context.Context, tx pgx.Tx, order []string) (map[string]string, error) {
+	list, err := tenantTables(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]string, len(list))
+	for _, t := range list {
+		known[t.Name] = t.ident()
+	}
+	idents := make(map[string]string, len(order))
+	for _, name := range order {
+		ident, ok := known[name]
+		if !ok {
+			return nil, fmt.Errorf("offboarding: the manifest names %q, which is not a table this cell exports", name)
+		}
+		idents[name] = ident
+	}
+	return idents, nil
+}
+
 // checkEmpty refuses the import when a table already holds rows of the
 // tenant.
-func checkEmpty(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, order []string) error {
+func checkEmpty(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, order []string, idents map[string]string) error {
 	for _, name := range order {
 		var n int64
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+name+` WHERE tenant_id = $1`, tenant).Scan(&n); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+idents[name]+` WHERE tenant_id = $1`, tenant).Scan(&n); err != nil {
 			return fmt.Errorf("offboarding: count rows of %s: %w", name, err)
 		}
 		if n > 0 {
@@ -145,12 +174,12 @@ func checkEmpty(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, order []string
 
 // readTables reads every table's insertable columns and its rows from the
 // store, each part checked against the manifest.
-func (im *Importer) readTables(ctx context.Context, tx pgx.Tx, order []string, parts map[string][]exportedTable) (map[string][]json.RawMessage, map[string][]string, error) {
+func (im *Importer) readTables(ctx context.Context, tx pgx.Tx, order []string, idents map[string]string, parts map[string][]exportedTable) (map[string][]json.RawMessage, map[string][]string, error) {
 	rows := map[string][]json.RawMessage{}
 	cols := map[string][]string{}
 	for _, name := range order {
 		var err error
-		if cols[name], err = columns(ctx, tx, name); err != nil {
+		if cols[name], err = columns(ctx, tx, idents[name]); err != nil {
 			return nil, nil, fmt.Errorf("offboarding: columns of %s: %w", name, err)
 		}
 		for _, p := range parts[name] {
@@ -187,12 +216,12 @@ func (im *Importer) readPart(ctx context.Context, name string, p exportedTable, 
 // reference rows not yet inserted wait for the next pass; each table's
 // insert runs under a savepoint so a foreign key violation does not end
 // the transaction.
-func (im *Importer) insertInPasses(ctx context.Context, tx pgx.Tx, order []string, cols map[string][]string, rows map[string][]json.RawMessage, out *Imported) error {
+func (im *Importer) insertInPasses(ctx context.Context, tx pgx.Tx, order []string, idents map[string]string, cols map[string][]string, rows map[string][]json.RawMessage, out *Imported) error {
 	todo := order
 	for pass := 1; len(todo) > 0; pass++ {
 		var next []string
 		for _, name := range todo {
-			n, wait, err := im.insertTable(ctx, tx, name, cols[name], rows[name])
+			n, wait, err := im.insertTable(ctx, tx, name, idents[name], cols[name], rows[name])
 			if err != nil {
 				return err
 			}
@@ -214,12 +243,12 @@ func (im *Importer) insertInPasses(ctx context.Context, tx pgx.Tx, order []strin
 // insertTable inserts a table's rows under a savepoint. When they
 // reference rows not inserted yet, the savepoint is rolled back and wait
 // is set: the table waits for the next pass.
-func (im *Importer) insertTable(ctx context.Context, tx pgx.Tx, name string, cols []string, rows []json.RawMessage) (n int64, wait bool, err error) {
+func (im *Importer) insertTable(ctx context.Context, tx pgx.Tx, name, ident string, cols []string, rows []json.RawMessage) (n int64, wait bool, err error) {
 	sp, err := tx.Begin(ctx)
 	if err != nil {
 		return 0, false, fmt.Errorf("offboarding: open savepoint for %s: %w", name, err)
 	}
-	n, err = im.insert(ctx, sp, name, cols, rows)
+	n, err = im.insert(ctx, sp, ident, cols, rows)
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) && pg.Code == "23503" { // foreign_key_violation
 		if err := sp.Rollback(ctx); err != nil {
@@ -289,13 +318,13 @@ func (im *Importer) tenantRow(ctx context.Context, tx pgx.Tx, m manifest) error 
 
 // insert writes a table's rows from their JSON into the columns given (the
 // table's, without the generated ones the database computes), and lets the
-// database check the rest.
-func (im *Importer) insert(ctx context.Context, tx pgx.Tx, table string, cols []string, rows []json.RawMessage) (int64, error) {
+// database check the rest. ident is the table's quoted identifier.
+func (im *Importer) insert(ctx context.Context, tx pgx.Tx, ident string, cols []string, rows []json.RawMessage) (int64, error) {
 	list := make([]string, len(cols))
 	for i, c := range cols {
 		list[i] = pgx.Identifier{c}.Sanitize()
 	}
-	stmt := fmt.Sprintf(`INSERT INTO %s (%s) SELECT %s FROM json_populate_record(NULL::%s, $1::json)`, table, strings.Join(list, ", "), strings.Join(list, ", "), table)
+	stmt := fmt.Sprintf(`INSERT INTO %s (%s) SELECT %s FROM json_populate_record(NULL::%s, $1::json)`, ident, strings.Join(list, ", "), strings.Join(list, ", "), ident)
 	for i, row := range rows {
 		if _, err := tx.Exec(ctx, stmt, string(row)); err != nil {
 			return 0, fmt.Errorf("insert row %d: %w", i+1, err)
@@ -305,9 +334,9 @@ func (im *Importer) insert(ctx context.Context, tx pgx.Tx, table string, cols []
 }
 
 // columns lists a table's columns that can be inserted: not generated, not
-// dropped.
-func columns(ctx context.Context, tx pgx.Tx, table string) ([]string, error) {
-	rows, _ := tx.Query(ctx, `SELECT a.attname FROM pg_attribute a WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' ORDER BY a.attnum`, table)
+// dropped. ident is the table's quoted identifier.
+func columns(ctx context.Context, tx pgx.Tx, ident string) ([]string, error) {
+	rows, _ := tx.Query(ctx, `SELECT a.attname FROM pg_attribute a WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' ORDER BY a.attnum`, ident)
 	cols, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
 		return cols, fmt.Errorf("read catalog: %w", err)

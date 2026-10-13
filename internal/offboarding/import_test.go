@@ -331,3 +331,48 @@ func (b brokenSavepoint) Rollback(ctx context.Context) error {
 	}
 	return b.Tx.Rollback(ctx)
 }
+
+// TestImportRefusesUnexportedTables: the manifest is not hash-checked, so
+// a table name in it is untrusted. A name the cell does not export, or one
+// carrying SQL, is refused before any statement uses it: a sentinel
+// sequence the payload would advance (nextval survives the rollback) is
+// left as it was.
+func TestImportRefusesUnexportedTables(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	store := blobstore.Dir{Root: t.TempDir()}
+	im := &offboarding.Importer{Pool: pool, Store: store, AppRole: "erp_app"}
+	sentinel := "public.b1_sentinel_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	pgtest.Exec(t, `CREATE SEQUENCE `+sentinel+`; GRANT USAGE, SELECT, UPDATE ON SEQUENCE `+sentinel+` TO erp_app`)
+	t.Cleanup(func() { pgtest.Exec(t, `DROP SEQUENCE IF EXISTS `+sentinel) })
+	tenant := uuid.Must(uuid.NewV7())
+	tenantRow := `{"id":"` + tenant.String() + `","name":"Imported","region":"eu-west","group_currency":"EUR","status":"active"}`
+	cases := map[string]string{
+		"unknown table": sentinel,
+		"injection":     `(SELECT nextval('` + sentinel + `') AS n, $1::uuid AS tenant_id) s`,
+	}
+	for name, table := range cases {
+		t.Run(name, func(t *testing.T) {
+			d := "tenants/" + tenant.String() + "/exports/" + strings.ReplaceAll(name, " ", "-")
+			tables, err := json.Marshal([]map[string]any{{"name": table, "part": 1, "key": d + "/part.jsonl", "rows": 1, "bytes": 1, "sha256": "00"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			key := d + "/manifest.json"
+			body := `{"tenant_id":"` + tenant.String() + `","tenant":` + tenantRow + `,"exported_at":"2026-10-12T00:00:00Z","tables":` + string(tables) + `}`
+			if err := store.Put(ctx, key, []byte(body), blobstore.PutOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			_, err = im.Import(ctx, key)
+			if err == nil || !strings.Contains(err.Error(), "not a table this cell exports") {
+				t.Errorf("got %v, want a refusal of the table name", err)
+			}
+			if called := count(t, `SELECT count(*) FROM `+sentinel+` WHERE is_called`); called != 0 {
+				t.Error("got the sentinel sequence advanced, want the payload never run")
+			}
+			if n := count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1`, tenant); n != 0 {
+				t.Errorf("got %d tenant rows, want the import rolled back", n)
+			}
+		})
+	}
+}
