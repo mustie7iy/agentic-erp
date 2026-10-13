@@ -19,6 +19,42 @@ func env(m map[string]string) func(string) string { return func(k string) string
 
 var key = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
 
+// field is one value a test expects Load to produce; got and want must be
+// comparable and of the same type.
+type field struct {
+	name      string
+	got, want any
+}
+
+// checkFields reports every field whose value is not the one expected.
+func checkFields(t *testing.T, fields []field) {
+	t.Helper()
+	for _, f := range fields {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", f.name, f.got, f.want)
+		}
+	}
+}
+
+// mustLoad loads the configuration of the settings, failing the test on an error.
+func mustLoad(t *testing.T, m map[string]string) Config {
+	t.Helper()
+	c, err := Load(env(m))
+	if err != nil {
+		t.Fatalf("load: got %v, want no error", err)
+	}
+	return c
+}
+
+// copyOf is a copy of the settings, for a case that changes some of them.
+func copyOf(m map[string]string) map[string]string {
+	mm := make(map[string]string, len(m))
+	for k, v := range m {
+		mm[k] = v
+	}
+	return mm
+}
+
 func valid() map[string]string {
 	return map[string]string{
 		"DATABASE_URL":       "postgres://x",
@@ -29,15 +65,33 @@ func valid() map[string]string {
 }
 
 func TestDefaults(t *testing.T) {
-	c, err := Load(env(valid()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.HTTPAddr != ":8080" || c.AdminAddr != ":9090" || c.AppRole != "erp_app" || c.RelayRole != "erp_relay" || c.ProjectorRole != "erp_projector" || c.WorkerRole != "erp_worker" || c.ControlRole != "erp_control" || len(c.OperatorIssuers) != 0 || c.BankOutboxDir != "" || len(c.FieldKey) != 32 || c.Cell != "local" ||
-		c.MigrateOnStart || c.LogLevel != slog.LevelInfo || c.ShutdownTimeout != 20*time.Second || len(c.Issuers) != 1 || len(c.PageTokenKey) != 32 ||
-		c.RequestTimeout != 30*time.Second || c.DBMaxConns != 0 || c.DevIssuer || c.Objects.Enabled() || c.Objects.Region != "us-east-1" || c.Objects.Retention != 87600*time.Hour || c.TenantQuota != (ratelimit.Quota{Rate: 2000, Burst: 10000}) || c.PrincipalQuota != (ratelimit.Quota{Rate: 50, Burst: 100}) {
-		t.Fatalf("%+v", c)
-	}
+	c := mustLoad(t, valid())
+	checkFields(t, []field{
+		{"HTTPAddr", c.HTTPAddr, ":8080"},
+		{"AdminAddr", c.AdminAddr, ":9090"},
+		{"AppRole", c.AppRole, "erp_app"},
+		{"RelayRole", c.RelayRole, "erp_relay"},
+		{"ProjectorRole", c.ProjectorRole, "erp_projector"},
+		{"WorkerRole", c.WorkerRole, "erp_worker"},
+		{"ControlRole", c.ControlRole, "erp_control"},
+		{"OperatorIssuers", len(c.OperatorIssuers), 0},
+		{"BankOutboxDir", c.BankOutboxDir, ""},
+		{"FieldKey length", len(c.FieldKey), 32},
+		{"Cell", c.Cell, "local"},
+		{"MigrateOnStart", c.MigrateOnStart, false},
+		{"LogLevel", c.LogLevel, slog.LevelInfo},
+		{"ShutdownTimeout", c.ShutdownTimeout, 20 * time.Second},
+		{"Issuers", len(c.Issuers), 1},
+		{"PageTokenKey length", len(c.PageTokenKey), 32},
+		{"RequestTimeout", c.RequestTimeout, 30 * time.Second},
+		{"DBMaxConns", c.DBMaxConns, int32(0)},
+		{"DevIssuer", c.DevIssuer, false},
+		{"Objects enabled", c.Objects.Enabled(), false},
+		{"Objects region", c.Objects.Region, "us-east-1"},
+		{"Objects retention", c.Objects.Retention, 87600 * time.Hour},
+		{"TenantQuota", c.TenantQuota, ratelimit.Quota{Rate: 2000, Burst: 10000}},
+		{"PrincipalQuota", c.PrincipalQuota, ratelimit.Quota{Rate: 50, Burst: 100}},
+	})
 }
 
 func TestOverrides(t *testing.T) {
@@ -45,65 +99,92 @@ func TestOverrides(t *testing.T) {
 	m["ERP_CELL"], m["ERP_MIGRATE_ON_START"], m["ERP_LOG_LEVEL"], m["ERP_SHUTDOWN_TIMEOUT"], m["ERP_NATS_URL"] = "eu1", "true", "debug", "5s", "nats://n"
 	m["ANTHROPIC_API_KEY"], m["ERP_BANK_OUTBOX_DIR"], m["ERP_EXTRACT_DIR"] = "key", t.TempDir(), t.TempDir()
 	m["ERP_REQUEST_TIMEOUT"], m["ERP_DB_MAX_CONNS"], m["ERP_RATE_LIMIT_TENANT"], m["ERP_RATE_LIMIT_PRINCIPAL"] = "10s", "40", "off", "5"
-	c, err := Load(env(m))
-	if err != nil || !c.LLMEnabled || c.BankOutboxDir != m["ERP_BANK_OUTBOX_DIR"] || c.ExtractDir != m["ERP_EXTRACT_DIR"] || c.Cell != "eu1" || !c.MigrateOnStart || c.LogLevel != slog.LevelDebug || c.ShutdownTimeout != 5*time.Second || c.NATSURL != "nats://n" ||
-		c.RequestTimeout != 10*time.Second || c.DBMaxConns != 40 || c.TenantQuota != (ratelimit.Quota{}) || c.PrincipalQuota != (ratelimit.Quota{Rate: 5, Burst: 5}) {
-		t.Fatal(c, err)
-	}
+	c := mustLoad(t, m)
+	checkFields(t, []field{
+		{"LLMEnabled", c.LLMEnabled, true},
+		{"BankOutboxDir", c.BankOutboxDir, m["ERP_BANK_OUTBOX_DIR"]},
+		{"ExtractDir", c.ExtractDir, m["ERP_EXTRACT_DIR"]},
+		{"Cell", c.Cell, "eu1"},
+		{"MigrateOnStart", c.MigrateOnStart, true},
+		{"LogLevel", c.LogLevel, slog.LevelDebug},
+		{"ShutdownTimeout", c.ShutdownTimeout, 5 * time.Second},
+		{"NATSURL", c.NATSURL, "nats://n"},
+		{"RequestTimeout", c.RequestTimeout, 10 * time.Second},
+		{"DBMaxConns", c.DBMaxConns, int32(40)},
+		{"TenantQuota", c.TenantQuota, ratelimit.Quota{}},
+		{"PrincipalQuota", c.PrincipalQuota, ratelimit.Quota{Rate: 5, Burst: 5}},
+	})
 	// With the development issuer the identity providers are optional, and still validated when given.
 	m = valid()
 	delete(m, "ERP_OIDC_ISSUERS")
 	m["ERP_DEV_ISSUER"] = "true"
-	if c, err := Load(env(m)); err != nil || !c.DevIssuer || len(c.Issuers) != 0 {
-		t.Fatal(c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"DevIssuer", c.DevIssuer, true}, {"Issuers", len(c.Issuers), 0}})
 	m["ERP_OIDC_ISSUERS"] = "[]"
 	if _, err := Load(env(m)); err == nil {
 		t.Fatal("empty issuer list accepted")
 	}
 	// Master keys: a ring from ERP_FIELD_KEYS, or one master from the legacy key.
 	m = valid()
-	if c, err := Load(env(m)); err != nil || len(c.FieldKeys) != 1 || c.FieldKeys[0].ID != "v1" || len(c.FieldKeys[0].Secret) != 32 {
-		t.Fatal(c, err)
+	c = mustLoad(t, m)
+	if len(c.FieldKeys) != 1 {
+		t.Fatalf("legacy key ring: got %d keys, want 1", len(c.FieldKeys))
 	}
+	checkFields(t, []field{{"FieldKeys[0] id", c.FieldKeys[0].ID, "v1"}, {"FieldKeys[0] secret length", len(c.FieldKeys[0].Secret), 32}})
 	m["ERP_FIELD_KEYS"] = "k2=" + key + ", k1=" + key
-	if c, err := Load(env(m)); err != nil || len(c.FieldKeys) != 2 || c.FieldKeys[0].ID != "k2" || c.FieldKeys[1].ID != "k1" {
-		t.Fatal(c, err)
+	c = mustLoad(t, m)
+	if len(c.FieldKeys) != 2 {
+		t.Fatalf("key ring: got %d keys, want 2", len(c.FieldKeys))
 	}
+	checkFields(t, []field{{"FieldKeys[0] id", c.FieldKeys[0].ID, "k2"}, {"FieldKeys[1] id", c.FieldKeys[1].ID, "k1"}})
 	delete(m, "ERP_FIELD_KEY")
-	if c, err := Load(env(m)); err != nil || len(c.FieldKey) != 0 || len(c.FieldKeys) != 2 {
-		t.Fatalf("ring without a legacy key: %+v %v", c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"ring without a legacy key, FieldKey length", len(c.FieldKey), 0}, {"ring without a legacy key, FieldKeys", len(c.FieldKeys), 2}})
 	for _, bad := range []string{"k1", "k1=short", "bad id!=" + key, key} {
-		m["ERP_FIELD_KEYS"] = bad
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KEYS") {
-			t.Fatalf("%s: %v", bad, err)
-		}
+		t.Run("field keys "+bad, func(t *testing.T) {
+			mm := copyOf(m)
+			mm["ERP_FIELD_KEYS"] = bad
+			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KEYS") {
+				t.Errorf("got %v, want an error naming ERP_FIELD_KEYS", err)
+			}
+		})
 	}
 	// Operator issuers are optional and validated when given.
 	m = valid()
 	m["ERP_OPERATOR_ISSUERS"], m["ERP_DB_CONTROL_ROLE"] = `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "ops_role"
-	if c, err := Load(env(m)); err != nil || len(c.OperatorIssuers) != 1 || c.OperatorIssuers[0].Audience != "erp-control" || c.ControlRole != "ops_role" {
-		t.Fatal(c, err)
+	c = mustLoad(t, m)
+	if len(c.OperatorIssuers) != 1 {
+		t.Fatalf("operator issuers: got %d, want 1", len(c.OperatorIssuers))
 	}
+	checkFields(t, []field{{"operator audience", c.OperatorIssuers[0].Audience, "erp-control"}, {"ControlRole", c.ControlRole, "ops_role"}})
 	for _, bad := range []string{"[]", "nope"} {
-		m["ERP_OPERATOR_ISSUERS"] = bad
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OPERATOR_ISSUERS") {
-			t.Fatalf("%s: %v", bad, err)
-		}
+		t.Run("operator issuers "+bad, func(t *testing.T) {
+			mm := copyOf(m)
+			mm["ERP_OPERATOR_ISSUERS"] = bad
+			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_OPERATOR_ISSUERS") {
+				t.Errorf("got %v, want an error naming ERP_OPERATOR_ISSUERS", err)
+			}
+		})
 	}
 	// Object storage: a directory or an S3 service, complete, never both.
 	m = valid()
 	m["ERP_OBJECT_DIR"], m["ERP_OBJECT_RETENTION"] = t.TempDir(), "0"
-	if c, err := Load(env(m)); err != nil || !c.Objects.Enabled() || c.Objects.Dir != m["ERP_OBJECT_DIR"] || c.Objects.Retention != 0 {
-		t.Fatal(c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{
+		{"Objects enabled", c.Objects.Enabled(), true},
+		{"Objects dir", c.Objects.Dir, m["ERP_OBJECT_DIR"]},
+		{"Objects retention", c.Objects.Retention, time.Duration(0)},
+	})
 	m = valid()
 	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"], m["ERP_OBJECT_S3_REGION"] = "http://localhost:9000", "erp", "eu-west-1"
 	m["ERP_OBJECT_S3_ACCESS_KEY"], m["ERP_OBJECT_S3_SECRET_KEY"] = "ak", "sk"
-	if c, err := Load(env(m)); err != nil || !c.Objects.Enabled() || c.Objects.Bucket != "erp" || c.Objects.Region != "eu-west-1" || c.Objects.SecretKey != "sk" {
-		t.Fatal(c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{
+		{"Objects enabled", c.Objects.Enabled(), true},
+		{"Objects bucket", c.Objects.Bucket, "erp"},
+		{"Objects region", c.Objects.Region, "eu-west-1"},
+		{"Objects secret key", c.Objects.SecretKey, "sk"},
+	})
 	for name, change := range map[string]func(){
 		"both":         func() { m["ERP_OBJECT_DIR"] = t.TempDir() },
 		"no bucket":    func() { delete(m, "ERP_OBJECT_S3_BUCKET") },
@@ -112,15 +193,14 @@ func TestOverrides(t *testing.T) {
 		"negative":     func() { m["ERP_OBJECT_RETENTION"] = "-1h" },
 		"no directory": func() { delete(m, "ERP_OBJECT_S3_ENDPOINT"); m["ERP_OBJECT_DIR"] = "/no/such/dir" },
 	} {
-		saved := map[string]string{}
-		for k, v := range m {
-			saved[k] = v
-		}
-		change()
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OBJECT") {
-			t.Errorf("%s: %v", name, err)
-		}
-		m = saved
+		t.Run(name, func(t *testing.T) {
+			saved := copyOf(m)
+			defer func() { m = saved }()
+			change()
+			if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OBJECT") {
+				t.Errorf("got %v, want an error naming ERP_OBJECT", err)
+			}
+		})
 	}
 }
 
@@ -133,7 +213,7 @@ func TestEveryProblemIsReported(t *testing.T) {
 	for _, want := range []string{"DATABASE_URL", "ERP_CELL", "ERP_OIDC_ISSUERS", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_BANK_OUTBOX_DIR", "ERP_EXTRACT_DIR", "ERP_MIGRATE_ON_START", "ERP_LOG_LEVEL", "ERP_SHUTDOWN_TIMEOUT",
 		"ERP_REQUEST_TIMEOUT", "ERP_DB_MAX_CONNS", "ERP_RATE_LIMIT_TENANT", "ERP_RATE_LIMIT_PRINCIPAL", "ERP_DEV_ISSUER"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s not reported: %v", want, err)
+			t.Errorf("%s: got %v, want it reported", want, err)
 		}
 	}
 }
