@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,8 +48,8 @@ const periodSelect = `SELECT * FROM (SELECT s.id, s.legal_entity_id, s.ledger_id
 
 func scanPeriod(row pgx.Row) (Period, error) {
 	var p Period
-	err := row.Scan(&p.ID, &p.LegalEntityID, &p.LedgerID, &p.CalendarID, &p.FiscalYear, &p.Period, &p.StartDate, &p.EndDate,
-		&p.IsSpecial, &p.Status, &p.Version, &p.UpdatedAt, &p.UpdatedBy)
+	err := wrapScan("fiscal period", row.Scan(&p.ID, &p.LegalEntityID, &p.LedgerID, &p.CalendarID, &p.FiscalYear, &p.Period, &p.StartDate, &p.EndDate,
+		&p.IsSpecial, &p.Status, &p.Version, &p.UpdatedAt, &p.UpdatedBy))
 	return p, err
 }
 
@@ -59,7 +60,7 @@ func getPeriod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Period,
 	}
 	if lock {
 		if _, err := tx.Exec(ctx, `SELECT FROM ledger.period_status WHERE id = $1 FOR UPDATE`, id); err != nil {
-			return Period{}, err
+			return Period{}, fmt.Errorf("ledger: lock fiscal period %s: %w", id, err)
 		}
 	}
 	p, err := scanPeriod(tx.QueryRow(ctx, periodSelect+` WHERE id = $1`, id))
@@ -105,7 +106,7 @@ func changePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, 
 		return Period{}, problem.Conflict("ledger.invalid_period_status", "The period is "+p.Status+"; this requires status "+from+".")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.period_status SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, to, actor.ID); err != nil {
-		return Period{}, err
+		return Period{}, fmt.Errorf("ledger: %s fiscal period %s: %w", action, id, err)
 	}
 	updated, err := getPeriod(ctx, tx, id, false)
 	if err != nil {

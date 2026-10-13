@@ -93,10 +93,10 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year,
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
-	err := row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
+	err := wrapScan("journal entry", row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
 		&e.DocumentDate, &e.PostingDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
 		&e.Reference, &e.HeaderText, &e.SourceContext, &e.SourceDocumentID, &e.ReversalOfID, &e.ReversalOfYear, &e.ReversedByID,
-		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines)
+		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines))
 	return e, err
 }
 
@@ -158,7 +158,7 @@ func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgerID uu
 			"; a fiscal year is set up by a number range for it in the configuration.",
 			problem.FieldError{Field: "posting_date", Code: "no_fiscal_period", Message: "a date in a fiscal year that is set up"})
 	case err != nil:
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("ledger: posting period of %s on %s: %w", e.ID, day, err)
 	case *status != Open:
 		return 0, 0, problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; postings dated %s need it open.", year, number, *status, day))
 	}
@@ -189,7 +189,7 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.documentType, docNumber, d.documentDate, d.postingDate,
 		d.currencyTC, d.currencyLC, d.currencyGC, d.rateTCLC, d.rateLCGC, d.reference, d.headerText, d.sourceContext, d.sourceDocumentID,
 		reversalOf, reversalYear, p.ID); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: post entry %s: %w", id, err)
 	}
 	n := len(d.lines)
 	nos, accounts, partners := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n)
@@ -207,7 +207,7 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 			AS x(n, a, tc, lc, gc, pa, tx, q, u, t)`,
 		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.postingDate, nos, accounts, tcs, lcs, gcs, partners,
 		taxes, quantities, units, texts); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", id, err)
 	}
 	posted, err := getEntry(ctx, tx, id)
 	if err != nil {
@@ -219,7 +219,7 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.balance_projection (tenant_id, event_id, fiscal_year, journal_entry_id) VALUES ($1, $2, $3, $4)`,
 		p.TenantID, event, year, id); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: post entry %s: queue projection: %w", id, err)
 	}
 	return posted, nil
 }
@@ -312,7 +312,10 @@ func ledgerID(ctx context.Context, tx pgx.Tx, requested *uuid.UUID) (uuid.UUID, 
 		return id, problem.Unprocessable("ledger.unknown_ledger", "No such ledger; the leading ledger is created with the tenant's first configuration.",
 			problem.FieldError{Field: "ledger_id", Code: "not_found", Message: "a ledger of the tenant"})
 	}
-	return id, err
+	if err != nil {
+		return id, fmt.Errorf("ledger: resolve ledger: %w", err)
+	}
+	return id, nil
 }
 
 // exponents returns the minor-unit digits of the currencies.
@@ -322,7 +325,10 @@ func exponents(ctx context.Context, tx pgx.Tx, codes ...string) (map[string]int,
 	var code string
 	var exp int
 	_, err := pgx.ForEachRow(rows, []any{&code, &exp}, func() error { out[code] = exp; return nil })
-	return out, err
+	if err != nil {
+		return out, fmt.Errorf("ledger: currency exponents %v: %w", codes, err)
+	}
+	return out, nil
 }
 
 // account is what a posting needs to know about an account in a legal entity.
@@ -347,7 +353,7 @@ func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, 
 	var id uuid.UUID
 	var a account
 	if _, err := pgx.ForEachRow(rows, []any{&id, &a.kind, &a.status, &a.set, &a.blocked}, func() error { accounts[id] = a; return nil }); err != nil {
-		return err
+		return fmt.Errorf("ledger: check accounts in %s: %w", le, err)
 	}
 	type partnerKey struct {
 		partner uuid.UUID
@@ -411,7 +417,7 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 	var missing *string
 	if err := tx.QueryRow(ctx, `SELECT min(c) FROM unnest($1::text[]) AS c WHERE NOT EXISTS (SELECT FROM ledger.tax_code t
 		WHERE t.legal_entity_id = $2 AND t.code = c AND t.valid_from <= $3 AND (t.valid_to IS NULL OR t.valid_to > $3))`, codes, le, date).Scan(&missing); err != nil {
-		return err
+		return fmt.Errorf("ledger: check tax codes in %s: %w", le, err)
 	}
 	if missing != nil {
 		return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+*missing+" is not valid in this legal entity on the posting date.",
@@ -437,7 +443,10 @@ func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (stri
 			fmt.Sprintf("No average exchange rate from %s to %s is valid on %s.", from, to, date.Format(time.DateOnly)),
 			problem.FieldError{Field: "posting_date", Code: "no_exchange_rate", Message: "record the rate first"})
 	}
-	return r, err
+	if err != nil {
+		return r, fmt.Errorf("ledger: rate %s/%s on %s: %w", from, to, date.Format(time.DateOnly), err)
+	}
+	return r, nil
 }
 
 var errTooLarge = problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")
@@ -614,7 +623,7 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	var cleared bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2)`,
 		orig.FiscalYear, orig.ID).Scan(&cleared); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: reverse entry %s: %w", orig.ID, err)
 	}
 	if cleared {
 		return Entry{}, problem.Conflict("ledger.entry_cleared", "Lines of the journal entry are cleared; an entry with cleared lines cannot be reversed.")
@@ -648,7 +657,7 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.reversal (tenant_id, original_year, original_entry_id, reversal_year, reversal_entry_id)
 		VALUES ($1, $2, $3, $4, $5)`, p.TenantID, orig.FiscalYear, orig.ID, rev.FiscalYear, rev.ID); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: reverse entry %s: record reversal %s: %w", orig.ID, rev.ID, err)
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "journal_entry_reversed", AggregateType: "ledger.journal_entry", AggregateID: orig.ID,
 		Payload: map[string]any{"journal_entry_id": orig.ID, "fiscal_year": orig.FiscalYear, "legal_entity_id": orig.LegalEntityID,

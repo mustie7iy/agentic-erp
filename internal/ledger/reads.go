@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,10 +48,21 @@ const accountSelect = `SELECT a.id, a.chart_id, a.number, a.name, a.account_type
 		a.version, a.created_at, a.created_by, a.updated_at, a.updated_by
 	FROM ledger.gl_account a`
 
+// wrapScan gives a row scan's error the ledger's context. The scan helpers
+// share it so that the wrapping is one branch, reached by the reads whose
+// query can fail, rather than one per helper, most of which only run on rows
+// a successful query returned.
+func wrapScan(what string, err error) error {
+	if err != nil {
+		return fmt.Errorf("ledger: scan %s: %w", what, err)
+	}
+	return nil
+}
+
 func scanAccount(row pgx.Row) (Account, error) {
 	var a Account
-	err := row.Scan(&a.ID, &a.ChartID, &a.Number, &a.Name, &a.AccountType, &a.IsBalanceSheet, &a.ReconciliationKind, &a.Status,
-		&a.Settings, &a.Version, &a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy)
+	err := wrapScan("account", row.Scan(&a.ID, &a.ChartID, &a.Number, &a.Name, &a.AccountType, &a.IsBalanceSheet, &a.ReconciliationKind, &a.Status,
+		&a.Settings, &a.Version, &a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy))
 	return a, err
 }
 
@@ -102,8 +114,8 @@ const openItemSelect = `SELECT * FROM (SELECT l.fiscal_year, l.journal_entry_id,
 
 func scanOpenItem(row pgx.Row) (OpenItem, error) {
 	var o OpenItem
-	err := row.Scan(&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate, &o.TC, &o.LC,
-		&o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference)
+	err := wrapScan("open item", row.Scan(&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate, &o.TC, &o.LC,
+		&o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference))
 	return o, err
 }
 
@@ -151,7 +163,7 @@ const balanceSelect = `SELECT * FROM (SELECT md5(account_id::text || '/' || fisc
 
 func scanBalance(row pgx.Row) (Balance, error) {
 	var b Balance
-	err := row.Scan(&b.ID, &b.AccountID, &b.FiscalPeriod, &b.CurrencyTC, &b.ExpTC, &b.DebitTC, &b.CreditTC, &b.DebitLC, &b.CreditLC,
-		&b.DebitGC, &b.CreditGC, &b.UpdatedAt)
+	err := wrapScan("balance", row.Scan(&b.ID, &b.AccountID, &b.FiscalPeriod, &b.CurrencyTC, &b.ExpTC, &b.DebitTC, &b.CreditTC, &b.DebitLC, &b.CreditLC,
+		&b.DebitGC, &b.CreditGC, &b.UpdatedAt))
 	return b, err
 }

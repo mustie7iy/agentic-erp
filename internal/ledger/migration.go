@@ -34,7 +34,10 @@ func (Accounts) Chart(ctx context.Context, legalEntity uuid.UUID) (map[string]Ch
 	var number string
 	var a ChartAccount
 	_, err = pgx.ForEachRow(rows, []any{&number, &a.ID, &a.Type, &a.ReconciliationKind}, func() error { out[number] = a; return nil })
-	return out, err
+	if err != nil {
+		return out, fmt.Errorf("ledger: chart of %s: %w", legalEntity, err)
+	}
+	return out, nil
 }
 
 // Clear records open items as cleared by an entry already posted, without
@@ -89,7 +92,7 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, legalEntity, date, by.FiscalYear, by.EntryID, actor.ID); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, fmt.Errorf("ledger: record migrated clearing %s: %w", id, err)
 	}
 	if err := markCleared(ctx, tx, actor.TenantID, id, items); err != nil {
 		return uuid.Nil, err
@@ -132,7 +135,10 @@ func (Reports) Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int
 		t.Debits += debits
 		return nil
 	})
-	return t, err
+	if err != nil {
+		return t, fmt.Errorf("ledger: totals of %s %d: %w", legalEntity, fiscalYear, err)
+	}
+	return t, nil
 }
 
 // OpenPayables sums the legal entity's open supplier items of the fiscal
@@ -153,5 +159,8 @@ func (Reports) OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYe
 	var partner uuid.UUID
 	var sum int64
 	_, err = pgx.ForEachRow(rows, []any{&partner, &sum}, func() error { out[partner] = sum; return nil })
-	return out, err
+	if err != nil {
+		return out, fmt.Errorf("ledger: open payables of %s %d: %w", legalEntity, fiscalYear, err)
+	}
+	return out, nil
 }

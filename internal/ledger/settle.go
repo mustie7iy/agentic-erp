@@ -46,11 +46,15 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
 		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, currency, documentDateTo)
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
+	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem
-		err := r.Scan(&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount)
+		err := wrapScan("payable item", r.Scan(&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount))
 		return p, err
 	})
+	if err != nil {
+		return items, fmt.Errorf("ledger: payable items of %s in %s: %w", legalEntity, currency, err)
+	}
+	return items, nil
 }
 
 // References returns the reference of each entry, or its document number
@@ -65,7 +69,10 @@ func (OpenItems) References(ctx context.Context, entries []uuid.UUID) (map[uuid.
 	var id uuid.UUID
 	var ref string
 	_, err = pgx.ForEachRow(rows, []any{&id, &ref}, func() error { out[id] = ref; return nil })
-	return out, err
+	if err != nil {
+		return out, fmt.Errorf("ledger: references of %d entries: %w", len(entries), err)
+	}
+	return out, nil
 }
 
 // Settlement pays open items from a bank account.
@@ -177,7 +184,7 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, le.ID, in.PostingDate, entry.FiscalYear, entry.ID, actor.ID); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: settle with entry %s: record clearing %s: %w", entry.ID, id, err)
 	}
 	cleared := make([]ItemRef, 0, 2*len(items))
 	payload := make([]map[string]any, len(items))

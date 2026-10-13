@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,7 +87,10 @@ func (Postings) IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UU
 	}
 	var cleared bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2)`, fiscalYear, entryID).Scan(&cleared)
-	return cleared, err
+	if err != nil {
+		return cleared, fmt.Errorf("ledger: is entry %s cleared: %w", entryID, err)
+	}
+	return cleared, nil
 }
 
 // Determination returns the account automatic postings use for the key
@@ -101,7 +105,10 @@ func (Accounts) Determination(ctx context.Context, legalEntity uuid.UUID, key st
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, false, nil
 	}
-	return id, err == nil, err
+	if err != nil {
+		return id, false, fmt.Errorf("ledger: account determination %s in %s: %w", key, legalEntity, err)
+	}
+	return id, true, nil
 }
 
 // IsPostable reports whether the account is active, set up and not blocked
@@ -116,7 +123,10 @@ func (Accounts) IsPostable(ctx context.Context, legalEntity, account uuid.UUID) 
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
 		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none')`, legalEntity, account).Scan(&ok)
-	return ok, err
+	if err != nil {
+		return ok, fmt.Errorf("ledger: is account %s postable in %s: %w", account, legalEntity, err)
+	}
+	return ok, nil
 }
 
 // TaxCode is a tax code valid on a date.
@@ -140,7 +150,10 @@ func (Accounts) TaxCode(ctx context.Context, legalEntity uuid.UUID, code string,
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TaxCode{}, false, nil
 	}
-	return t, err == nil, err
+	if err != nil {
+		return t, false, fmt.Errorf("ledger: tax code %s in %s: %w", code, legalEntity, err)
+	}
+	return t, true, nil
 }
 
 // Calendar answers questions about legal entities' fiscal calendars.
@@ -168,5 +181,8 @@ func (c Calendar) FiscalYear(ctx context.Context, legalEntity uuid.UUID, date ti
 		return 0, problem.Unprocessable("ledger.no_fiscal_period", "No fiscal year of the legal entity covers "+date.Format(time.DateOnly)+
 			"; a fiscal year is set up by a number range for it in the configuration.")
 	}
-	return year, err
+	if err != nil {
+		return year, fmt.Errorf("ledger: fiscal year of %s on %s: %w", legalEntity, date.Format(time.DateOnly), err)
+	}
+	return year, nil
 }

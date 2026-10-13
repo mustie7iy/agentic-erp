@@ -134,7 +134,7 @@ func (e *Endpoints) ListAccounts(ctx context.Context, params gen.ListAccountsPar
 	rows, _ := tx.Query(ctx, q, args...)
 	accounts, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Account, error) { return scanAccount(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list accounts: %w", err)
 	}
 	accounts, next := pagination.Page(ks, accounts, func(a Account) (string, uuid.UUID) { return a.Number, a.ID })
 	page := gen.AccountPage{Items: make([]gen.Account, len(accounts))}
@@ -182,7 +182,7 @@ func (e *Endpoints) ListFiscalPeriods(ctx context.Context, params gen.ListFiscal
 	rows, _ := tx.Query(ctx, q, args...)
 	periods, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Period, error) { return scanPeriod(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list fiscal periods: %w", err)
 	}
 	periods, next := pagination.Page(ks, periods, func(p Period) (string, uuid.UUID) {
 		if ks.Field() == "period" {
@@ -278,7 +278,7 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	rows, _ := tx.Query(ctx, q, args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) { return scanEntry(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list journal entries: %w", err)
 	}
 	entries, next := pagination.Page(ks, entries, func(je Entry) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
@@ -334,7 +334,7 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 	rows, _ := tx.Query(ctx, q, args...)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OpenItem, error) { return scanOpenItem(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list open items: %w", err)
 	}
 	items, next := pagination.Page(ks, items, func(o OpenItem) (string, uuid.UUID) { return o.PostingDate.Format(time.DateOnly), o.ID })
 	page := gen.OpenItemPage{Items: make([]gen.OpenItem, len(items))}
@@ -385,7 +385,7 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 		return empty, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list balances %s: find ledger: %w", le.ID, err)
 	}
 	group, err := e.LegalEntities.GroupCurrency(ctx)
 	if err != nil {
@@ -399,7 +399,7 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	rows, _ := tx.Query(ctx, q, args...)
 	balances, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Balance, error) { return scanBalance(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list balances %s: %w", le.ID, err)
 	}
 	balances, next := pagination.Page(ks, balances, func(b Balance) (string, uuid.UUID) {
 		if ks.Field() == "fiscal_period" {
@@ -468,7 +468,7 @@ func (e *Endpoints) ListExchangeRates(ctx context.Context, params gen.ListExchan
 	rows, _ := tx.Query(ctx, q, args...)
 	rates, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Rate, error) { return scanRate(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list exchange rates: %w", err)
 	}
 	rates, next := pagination.Page(ks, rates, func(r Rate) (string, uuid.UUID) { return r.ValidFrom.Format(time.DateOnly), r.ID })
 	page := gen.ExchangeRatePage{Items: make([]gen.ExchangeRate, len(rates))}
@@ -527,7 +527,7 @@ func (e *Endpoints) ListClearings(ctx context.Context, params gen.ListClearingsP
 	rows, _ := tx.Query(ctx, q, args...)
 	clearings, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Clearing, error) { return scanClearing(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list clearings: %w", err)
 	}
 	clearings, next := pagination.Page(ks, clearings, func(c Clearing) (string, uuid.UUID) { return c.ClearingDate.Format(time.DateOnly), c.ID })
 	page := gen.ClearingPage{Items: make([]gen.Clearing, len(clearings))}

@@ -80,7 +80,7 @@ func (s Setup) Check(ctx context.Context, base, proposed *config.Config) ([]conf
 			WHERE calendar_id = $1 AND period = 1 ORDER BY 1`, le.FiscalCalendarID)
 		months, err := pgx.CollectRows(rows, pgx.RowTo[int32])
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ledger: check company %s: fiscal year start: %w", co.Code, err)
 		}
 		if len(months) > 0 && !slices.Contains(months, int32(co.FiscalYearStartMonth)) {
 			add(p+".fiscal_year_start_month", "the legal entity's fiscal calendar starts its years in month %d", months[0])
@@ -95,7 +95,7 @@ func (s Setup) Check(ctx context.Context, base, proposed *config.Config) ([]conf
 				AND (d.code IS NULL OR d.rate::numeric <> t.rate_pct OR d.number <> g.number) ORDER BY 1`, le.ID, codes, rates, numbers)
 		today, err := pgx.CollectRows(rows, pgx.RowTo[string])
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ledger: check company %s: tax codes changed today: %w", co.Code, err)
 		}
 		for _, code := range today {
 			add(p+".tax_codes["+code+"]", "the tax code already changed today; change it again from tomorrow")
@@ -134,7 +134,7 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by)
 		SELECT $1, $2, '0L', 'Leading ledger', true, 'IFRS', $3 WHERE NOT EXISTS (SELECT FROM ledger.ledger)`,
 		p.TenantID, uuid.Must(uuid.NewV7()), p.ID); err != nil {
-		return err
+		return fmt.Errorf("ledger: apply leading ledger: %w", err)
 	}
 	for _, co := range doc.Companies {
 		le, ok, err := s.LegalEntities.EntityByCode(ctx, co.Code)
@@ -150,7 +150,7 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 				ON CONFLICT (tenant_id, code) DO NOTHING RETURNING id
 			) SELECT id FROM ins UNION ALL SELECT id FROM ledger.chart_of_accounts WHERE code = $3 LIMIT 1`,
 			p.TenantID, uuid.Must(uuid.NewV7()), co.Code, co.Name, p.ID).Scan(&chart); err != nil {
-			return err
+			return fmt.Errorf("ledger: apply company %s: chart of accounts: %w", co.Code, err)
 		}
 		var ids []uuid.UUID
 		var numbers, names, types, kinds []string
@@ -168,16 +168,16 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 			ON CONFLICT (tenant_id, chart_id, number) DO UPDATE SET name = EXCLUDED.name, status = 'active', version = g.version + 1, updated_by = $3
 			WHERE (g.name, g.status) IS DISTINCT FROM (EXCLUDED.name, 'active')`,
 			p.TenantID, chart, p.ID, ids, numbers, names, types, kinds); err != nil {
-			return err
+			return fmt.Errorf("ledger: apply company %s: accounts: %w", co.Code, err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE ledger.gl_account SET status = 'inactive', version = version + 1, updated_by = $3
 			WHERE chart_id = $1 AND status <> 'inactive' AND NOT number = ANY($2)`, chart, numbers, p.ID); err != nil {
-			return err
+			return fmt.Errorf("ledger: apply company %s: deactivate accounts: %w", co.Code, err)
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, is_open_item_managed, created_by, updated_by)
 			SELECT $1, $2, id, reconciliation_kind <> 'none', $4, $4 FROM ledger.gl_account WHERE chart_id = $3 AND number = ANY($5)
 			ON CONFLICT DO NOTHING`, p.TenantID, le.ID, chart, p.ID, numbers); err != nil {
-			return err
+			return fmt.Errorf("ledger: apply company %s: company accounts: %w", co.Code, err)
 		}
 		ad := co.AccountDetermination
 		if _, err := tx.Exec(ctx, `INSERT INTO ledger.account_determination AS d (tenant_id, legal_entity_id, key, account_id, updated_by)
@@ -186,7 +186,7 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 			WHERE d.account_id <> EXCLUDED.account_id`,
 			p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss"},
 			[]string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss}); err != nil {
-			return err
+			return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 		}
 		if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {
 			return err
@@ -213,7 +213,7 @@ func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, 
 		WHERE t.legal_entity_id = $1 AND t.valid_to IS NULL AND t.valid_from < current_date
 			AND NOT EXISTS (SELECT FROM doc WHERE doc.code = t.code AND doc.rate = t.rate_pct AND doc.account_id = t.account_id)`,
 		le, p.ID, codes, descriptions, rates, numbers, chart); err != nil {
-		return err
+		return fmt.Errorf("ledger: end tax codes of %s: %w", le, err)
 	}
 	_, err := tx.Exec(ctx, `WITH `+doc+`
 		INSERT INTO ledger.tax_code (tenant_id, legal_entity_id, code, description, direction, rate_pct, account_id, valid_from, created_by)
@@ -223,7 +223,10 @@ func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, 
 		FROM doc WHERE NOT EXISTS (SELECT FROM ledger.tax_code t WHERE t.legal_entity_id = $1 AND t.code = doc.code
 			AND (t.valid_to IS NULL OR t.valid_to > current_date))`,
 		le, p.ID, codes, descriptions, rates, numbers, chart, p.TenantID, calendar)
-	return err
+	if err != nil {
+		return fmt.Errorf("ledger: start tax codes of %s: %w", le, err)
+	}
+	return nil
 }
 
 // calendar creates the legal entity's fiscal calendar if needed and the
@@ -234,7 +237,7 @@ func (s Setup) calendar(ctx context.Context, tx pgx.Tx, p reqctx.Principal, cale
 		SELECT $1, $2, 'C' || lpad((count(*) + 1)::text, 3, '0'), $3, $4, $5, $6 FROM ledger.fiscal_calendar
 		ON CONFLICT (tenant_id, id) DO NOTHING`,
 		p.TenantID, calendar, "Fiscal year from "+time.Month(co.FiscalYearStartMonth).String(), normalPeriods, specialPeriods, p.ID); err != nil {
-		return err
+		return fmt.Errorf("ledger: fiscal calendar %s: %w", calendar, err)
 	}
 	var years, periods []int32
 	var starts, ends []time.Time
@@ -256,11 +259,11 @@ func (s Setup) calendar(ctx context.Context, tx pgx.Tx, p reqctx.Principal, cale
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.fiscal_period (tenant_id, calendar_id, fiscal_year, period, start_date, end_date, is_special)
 		SELECT $1, $2, y, n, s, e, sp FROM unnest($3::smallint[], $4::smallint[], $5::date[], $6::date[], $7::bool[]) AS x(y, n, s, e, sp)
 		ON CONFLICT DO NOTHING`, p.TenantID, calendar, years, periods, starts, ends, special); err != nil {
-		return err
+		return fmt.Errorf("ledger: fiscal calendar %s: periods: %w", calendar, err)
 	}
 	var ledgers []uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT array_agg(id ORDER BY id) FROM ledger.ledger`).Scan(&ledgers); err != nil {
-		return err
+		return fmt.Errorf("ledger: fiscal calendar %s: ledgers: %w", calendar, err)
 	}
 	var ids, ledgerIDs []uuid.UUID
 	var statusYears, statusPeriods []int32
@@ -273,7 +276,10 @@ func (s Setup) calendar(ctx context.Context, tx pgx.Tx, p reqctx.Principal, cale
 	_, err := tx.Exec(ctx, `INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
 		SELECT $1, i, $2, l, $3, y, n, 'closed', $4 FROM unnest($5::uuid[], $6::uuid[], $7::smallint[], $8::smallint[]) AS x(i, l, y, n)
 		ON CONFLICT DO NOTHING`, p.TenantID, legalEntity, calendar, p.ID, ids, ledgerIDs, statusYears, statusPeriods)
-	return err
+	if err != nil {
+		return fmt.Errorf("ledger: fiscal calendar %s: period status of %s: %w", calendar, legalEntity, err)
+	}
+	return nil
 }
 
 type period struct {
@@ -317,5 +323,8 @@ func (Accounts) IsReconciliationAccount(ctx context.Context, legalEntity, accoun
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
 		WHERE a.id = $2 AND a.reconciliation_kind = $3 AND a.status = 'active')`, legalEntity, account, kind).Scan(&ok)
-	return ok, err
+	if err != nil {
+		return ok, fmt.Errorf("ledger: is account %s a %s reconciliation account in %s: %w", account, kind, legalEntity, err)
+	}
+	return ok, nil
 }

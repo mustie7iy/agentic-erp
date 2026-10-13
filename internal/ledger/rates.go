@@ -49,7 +49,7 @@ const rateColumns = `id, rate_type, from_currency, to_currency, valid_from, rate
 
 func scanRate(row pgx.Row) (Rate, error) {
 	var r Rate
-	err := row.Scan(&r.ID, &r.RateType, &r.FromCurrency, &r.ToCurrency, &r.ValidFrom, &r.Rate, &r.Source, &r.CreatedAt, &r.CreatedBy)
+	err := wrapScan("exchange rate", row.Scan(&r.ID, &r.RateType, &r.FromCurrency, &r.ToCurrency, &r.ValidFrom, &r.Rate, &r.Source, &r.CreatedAt, &r.CreatedBy))
 	return r, err
 }
 

@@ -56,7 +56,7 @@ const clearingSelect = `SELECT c.id, c.legal_entity_id, c.clearing_date, c.clear
 
 func scanClearing(row pgx.Row) (Clearing, error) {
 	var c Clearing
-	err := row.Scan(&c.ID, &c.LegalEntityID, &c.ClearingDate, &c.EntryYear, &c.EntryID, &c.CreatedAt, &c.CreatedBy, &c.Items)
+	err := wrapScan("clearing", row.Scan(&c.ID, &c.LegalEntityID, &c.ClearingDate, &c.EntryYear, &c.EntryID, &c.CreatedAt, &c.CreatedBy, &c.Items))
 	return c, err
 }
 
@@ -164,7 +164,7 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, p.TenantID, id, le.ID, date, entry.FiscalYear, entry.ID, p.ID); err != nil {
-		return Clearing{}, err
+		return Clearing{}, fmt.Errorf("ledger: create clearing %s: %w", id, err)
 	}
 	cleared := slices.Clone(refs)
 	for _, l := range entry.Lines {
@@ -218,7 +218,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 		items = append(items, it)
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: load %d open items: %w", len(refs), err)
 	}
 	return items, nil
 }
@@ -231,5 +231,8 @@ func markCleared(ctx context.Context, tx pgx.Tx, tenant, clearing uuid.UUID, ref
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO ledger.clearing_item (tenant_id, fiscal_year, journal_entry_id, line_no, clearing_id)
 		SELECT $1, y, je, n, $2 FROM unnest($3::smallint[], $4::uuid[], $5::int[]) AS x(y, je, n)`, tenant, clearing, years, entries, nos)
-	return err
+	if err != nil {
+		return fmt.Errorf("ledger: mark items cleared by %s: %w", clearing, err)
+	}
+	return nil
 }
