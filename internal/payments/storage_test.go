@@ -67,10 +67,14 @@ func TestBankFilesAreKept(t *testing.T) {
 	files, _ = e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(second), "", "")
 	file = files["items"].([]any)[0].(map[string]any)
 	path := filepath.Join(root, filepath.FromSlash(blobstore.Key(e.Tenant.ID, blobstore.KindBankFiles, id(file)+".xml")))
-	os.WriteFile(path, []byte("<Document>tampered</Document>"), 0o600)
+	if err := os.WriteFile(path, []byte("<Document>tampered</Document>"), 0o600); err != nil {
+		t.Fatalf("tamper with the bank file: %v", err)
+	}
 	e.Problem(409, "payments.bank_file_changed", "GET", "/v1/bank-files/"+id(file)+"/content", "", "")
 	e.Problem(409, "payments.bank_file_changed", "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
-	os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove the bank file: %v", err)
+	}
 	e.Problem(503, "platform.unavailable", "GET", "/v1/bank-files/"+id(file)+"/content", "", "")
 	// A server without object storage cannot serve a stored file; one whose store fails neither.
 	plain := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Connector = e.connector })
