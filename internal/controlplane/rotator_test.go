@@ -96,11 +96,11 @@ func TestKeyRotationPolicy(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &brokenCommit{Tx: tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
 	age()
-	if _, err := k.Rotate(ctx, id); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("commit: %v", err)
+	if _, err := k.Rotate(ctx, id); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("commit: got %v, want the injected failure", err)
 	}
 	k.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
 	if _, err := k.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "pool down") {

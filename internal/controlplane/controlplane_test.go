@@ -579,23 +579,15 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &brokenCommit{Tx: tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
-	if _, err := s.Transition(ctx, op, created.ID, "resume", "*"); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("commit: %v", err)
+	if _, err := s.Transition(ctx, op, created.ID, "resume", "*"); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("commit: got %v, want the injected failure", err)
 	}
 	s.Begin = nil
 	if got, err := s.Get(ctx, created.ID); err != nil || got.Status != controlplane.Suspended {
 		t.Fatalf("after the failed commit: %+v %v", got, err)
 	}
-}
-
-// brokenCommit is a transaction whose commit fails.
-type brokenCommit struct{ pgx.Tx }
-
-func (b *brokenCommit) Commit(ctx context.Context) error {
-	_ = b.Rollback(ctx)
-	return errors.New("commit failed")
 }
 
 // TestProvisioningKeyUniqueness: two provisioning requests with the same
@@ -723,10 +715,10 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &brokenCommit{Tx: tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
-	if _, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*"); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("commit: %v", err)
+	if _, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*"); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("commit: got %v, want the injected failure", err)
 	}
 	p.s.Begin = nil
 }
