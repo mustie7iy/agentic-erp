@@ -21,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -95,10 +96,23 @@ func scanUpload(row pgx.Row) (Upload, error) {
 	var up Upload
 	err := row.Scan(&up.ID, &up.Purpose, &up.ContentType, &up.MaxBytes, &up.ObjectRef, &up.Status, &up.Size, &up.SHA256, &up.UsedBy, &up.ExpiresAt,
 		&up.CreatedAt, &up.CreatedBy, &up.UpdatedAt, &up.Version)
+	return up, errs.Wrapf(err, "scan upload")
+}
+
+// readUpload reads an upload; lock takes the row lock for a change.
+func readUpload(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Upload, error) {
+	q := `SELECT ` + uploadColumns + ` FROM payables.upload WHERE id = $1`
+	if lock {
+		q += ` FOR UPDATE`
+	}
+	up, err := scanUpload(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Upload{}, problem.NotFound("No such upload.")
 	}
-	return up, err
+	if err != nil {
+		return Upload{}, fmt.Errorf("payables: read upload %s: %w", id, err)
+	}
+	return up, nil
 }
 
 // Create starts an upload in the request's transaction.
@@ -119,8 +133,12 @@ func (u *Uploads) Create(ctx context.Context, purpose, contentType string) (Uplo
 	id := uuid.Must(uuid.NewV7())
 	up := Upload{ID: id, Purpose: purpose, ContentType: contentType, MaxBytes: MaxUpload, ObjectRef: blobstore.Key(p.TenantID, blobstore.KindUploads, id.String()),
 		Status: "open", ExpiresAt: u.now().Add(UploadTTL).UTC(), CreatedBy: p.ID}
-	return scanUpload(tx.QueryRow(ctx, `INSERT INTO payables.upload (tenant_id, id, purpose, content_type, max_bytes, object_ref, status, expires_at, created_by)
+	created, err := scanUpload(tx.QueryRow(ctx, `INSERT INTO payables.upload (tenant_id, id, purpose, content_type, max_bytes, object_ref, status, expires_at, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8) RETURNING `+uploadColumns, p.TenantID, id, purpose, contentType, MaxUpload, up.ObjectRef, up.ExpiresAt, p.ID))
+	if err != nil {
+		return Upload{}, fmt.Errorf("payables: create upload %s: %w", id, err)
+	}
+	return created, nil
 }
 
 // Get reads an upload in the request's transaction.
@@ -129,7 +147,7 @@ func (u *Uploads) Get(ctx context.Context, id uuid.UUID) (Upload, error) {
 	if err != nil {
 		return Upload{}, err
 	}
-	return scanUpload(tx.QueryRow(ctx, `SELECT `+uploadColumns+` FROM payables.upload WHERE id = $1`, id))
+	return readUpload(ctx, tx, id, false)
 }
 
 // Target is where an upload's bytes go.
@@ -186,7 +204,7 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 		return problem.Unavailable("This server has no object storage.", 0)
 	}
 	return u.inTx(r.Context(), database.Scope{Role: u.AppRole, TenantID: tenant}, func(ctx context.Context, tx pgx.Tx) error {
-		up, err := scanUpload(tx.QueryRow(ctx, `SELECT `+uploadColumns+` FROM payables.upload WHERE id = $1 FOR UPDATE`, id))
+		up, err := readUpload(ctx, tx, id, true)
 		if err != nil {
 			return err
 		}
@@ -217,7 +235,7 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 		}
 		sum := sha256.Sum256(body)
 		if _, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'received', size = $2, sha256 = $3, version = version + 1 WHERE id = $1`, id, len(body), sum[:]); err != nil {
-			return err
+			return fmt.Errorf("payables: mark upload %s received: %w", id, err)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return nil
@@ -227,7 +245,7 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 // take reads the document of an upload for the operation consuming it, in
 // the request's transaction, locking the upload; mark then closes it.
 func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID, purpose string) ([]byte, Upload, error) {
-	up, err := scanUpload(tx.QueryRow(ctx, `SELECT `+uploadColumns+` FROM payables.upload WHERE id = $1 FOR UPDATE`, id))
+	up, err := readUpload(ctx, tx, id, true)
 	if err != nil {
 		return nil, Upload{}, err
 	}
@@ -264,8 +282,11 @@ func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID, purpose str
 // mark closes an upload as used by a resource.
 func (u *Uploads) mark(ctx context.Context, tx pgx.Tx, up Upload, content []byte, usedBy uuid.UUID) error {
 	sum := sha256.Sum256(content)
-	_, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'used', size = $2, sha256 = $3, used_by = $4, version = version + 1 WHERE id = $1`, up.ID, len(content), sum[:], usedBy)
-	return err
+	if _, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'used', size = $2, sha256 = $3, used_by = $4, version = version + 1 WHERE id = $1`,
+		up.ID, len(content), sum[:], usedBy); err != nil {
+		return fmt.Errorf("payables: mark upload %s used: %w", up.ID, err)
+	}
+	return nil
 }
 
 func (e *Endpoints) uploadToAPI(ctx context.Context, tenant uuid.UUID, up Upload) (*gen.Upload, error) {

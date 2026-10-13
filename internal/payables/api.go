@@ -220,7 +220,7 @@ func (e *Endpoints) ListSupplierInvoices(ctx context.Context, params gen.ListSup
 	rows, _ := tx.Query(ctx, q, args...)
 	invoices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("payables: list supplier invoices: %w", err)
 	}
 	invoices, next := pagination.Page(ks, invoices, func(v Invoice) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
@@ -353,7 +353,7 @@ func (e *Endpoints) ListMatchResults(ctx context.Context, params gen.ListMatchRe
 	rows, _ := tx.Query(ctx, q, args...)
 	matches, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Match, error) { return scanMatch(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("payables: list match results of invoice %s: %w", params.ID, err)
 	}
 	matches, next := pagination.Page(ks, matches, func(m Match) (string, uuid.UUID) {
 		return m.EvaluatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), m.ID

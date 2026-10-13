@@ -2,6 +2,7 @@ package payables
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -48,7 +49,7 @@ func invoicesOnOrders(ctx context.Context, les LegalEntities, orders Orders, sin
 		ORDER BY i.invoice_date DESC, i.id DESC LIMIT $2`, since, limit)
 	invoices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("payables: read invoices on orders since %s: %w", since.Format(time.DateOnly), err)
 	}
 	companies := map[uuid.UUID]tenancy.Entity{}
 	known := map[uuid.UUID]procurement.Order{}

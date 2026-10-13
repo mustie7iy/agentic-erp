@@ -87,7 +87,7 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 		ORDER BY i.invoice_date DESC, i.id DESC LIMIT $2`, clock.Now(s.Now).Add(-window), limit)
 	invoices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
 	if err != nil {
-		return configuration.Simulation{}, err
+		return configuration.Simulation{}, fmt.Errorf("payables: read invoices to simulate: %w", err)
 	}
 	companies := map[uuid.UUID]tenancy.Entity{}
 	orders := map[uuid.UUID]procurement.Order{}

@@ -33,6 +33,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -216,7 +217,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 		&v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256, &v.CaptureObjectRef,
 		&v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
 		&v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
-	return v, err
+	return v, errs.Wrapf(err, "scan invoice")
 }
 
 func notFound() error { return problem.NotFound("No supplier invoice with this id.") }
@@ -226,14 +227,17 @@ func notFound() error { return problem.NotFound("No supplier invoice with this i
 func load(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Invoice, error) {
 	if lock {
 		if _, err := tx.Exec(ctx, `SELECT FROM payables.supplier_invoice WHERE id = $1 FOR UPDATE`, id); err != nil {
-			return Invoice{}, err
+			return Invoice{}, fmt.Errorf("payables: lock invoice %s: %w", id, err)
 		}
 	}
 	v, err := scanInvoice(tx.QueryRow(ctx, invoiceSelect+` WHERE i.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Invoice{}, notFound()
 	}
-	return v, err
+	if err != nil {
+		return Invoice{}, fmt.Errorf("payables: read invoice %s: %w", id, err)
+	}
+	return v, nil
 }
 
 // get reads an invoice of a legal entity the caller may act in.
@@ -339,7 +343,7 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 		return checked{}, invalid("payables.unknown_currency", "gross_amount.currency", "The currency is not known.")
 	}
 	if err != nil {
-		return checked{}, err
+		return checked{}, fmt.Errorf("payables: read exponent of currency %s: %w", c.currency, err)
 	}
 	parse := func(a Amount, field string) (int64, error) {
 		if a.Currency != c.currency {
@@ -470,11 +474,13 @@ func putItems(ctx context.Context, tx pgx.Tx, tenant, invoice uuid.UUID, items [
 			po_item_no = EXCLUDED.po_item_no, description = EXCLUDED.description, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
 			amount = EXCLUDED.amount, tax_code = EXCLUDED.tax_code, account_id = EXCLUDED.account_id, is_removed = false`,
 		tenant, invoice, nos, pos, poItems, descriptions, quantities, units, amounts, taxes, accounts); err != nil {
-		return err
+		return fmt.Errorf("payables: write items of invoice %s: %w", invoice, err)
 	}
-	_, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice_item SET is_removed = true WHERE supplier_invoice_id = $1 AND item_no > $2 AND NOT is_removed`,
-		invoice, n)
-	return err
+	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice_item SET is_removed = true WHERE supplier_invoice_id = $1 AND item_no > $2 AND NOT is_removed`,
+		invoice, n); err != nil {
+		return fmt.Errorf("payables: remove items of invoice %s: %w", invoice, err)
+	}
+	return nil
 }
 
 // record publishes the events and adds the audit entry of a change.
@@ -493,8 +499,10 @@ func amount(minor int64, currency string, exp int) map[string]string {
 
 func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
 	var d time.Time
-	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	return d, err
+	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d); err != nil {
+		return time.Time{}, fmt.Errorf("payables: read current date: %w", err)
+	}
+	return d, nil
 }
 
 // Count is how many of the invoices exist.
@@ -504,6 +512,8 @@ func (Invoices) Count(ctx context.Context, ids []uuid.UUID) (int, error) {
 		return 0, err
 	}
 	var n int
-	err = tx.QueryRow(ctx, `SELECT count(*) FROM payables.supplier_invoice WHERE id = ANY($1)`, ids).Scan(&n)
-	return n, err
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM payables.supplier_invoice WHERE id = ANY($1)`, ids).Scan(&n); err != nil {
+		return 0, fmt.Errorf("payables: count %d invoices: %w", len(ids), err)
+	}
+	return n, nil
 }

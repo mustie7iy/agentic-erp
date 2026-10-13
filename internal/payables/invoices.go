@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,7 +62,7 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)`,
 		p.TenantID, id, number, in.LegalEntityID, in.SupplierID, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax,
 		c.purchaseOrder, in.status, in.holdReason, in.source, ref, in.sha, in.Extensions, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: insert invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
 		return Invoice{}, err
@@ -164,7 +165,7 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
 			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, version = version + 1, updated_by = $10 WHERE id = $1`,
 		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: update invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
 		return Invoice{}, err
@@ -215,7 +216,7 @@ func joinStatuses(s []string) string {
 func transition(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, status string, holdReason *string, request *uuid.UUID) (Invoice, error) {
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = $2, hold_reason = $3, workflow_request_id = $4, version = version + 1,
 		updated_by = $5 WHERE id = $1`, v.ID, status, holdReason, request, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: move invoice %s to %s: %w", v.ID, status, err)
 	}
 	return load(ctx, tx, v.ID, false)
 }
@@ -376,7 +377,9 @@ func (Invoices) HasInvoices(ctx context.Context, purchaseOrder uuid.UUID) (bool,
 		return false, err
 	}
 	var ok bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM payables.supplier_invoice WHERE purchase_order_id = $1 AND status NOT IN ('cancelled', 'rejected'))`,
-		purchaseOrder).Scan(&ok)
-	return ok, err
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM payables.supplier_invoice WHERE purchase_order_id = $1 AND status NOT IN ('cancelled', 'rejected'))`,
+		purchaseOrder).Scan(&ok); err != nil {
+		return false, fmt.Errorf("payables: check invoices of purchase order %s: %w", purchaseOrder, err)
+	}
+	return ok, nil
 }

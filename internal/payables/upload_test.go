@@ -191,6 +191,11 @@ func TestDirectUploads(t *testing.T) {
 	if _, err := (&payables.Uploads{Objects: store}).Create(context.Background(), "supplier_invoice", "application/pdf"); err == nil {
 		t.Error("created outside a request")
 	}
+	// The statement that creates an upload failing is reported.
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "create upload", func(ctx context.Context) error {
+		_, err := (&payables.Uploads{Objects: store}).Create(ctx, "supplier_invoice", "application/pdf")
+		return err
+	})
 	if _, err := endpoints(x).CaptureUpload(context.Background(), e.DE, uuid.MustParse(up3["id"].(string))); err == nil {
 		t.Error("captured outside a request")
 	}

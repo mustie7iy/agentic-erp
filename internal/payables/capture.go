@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -70,7 +71,7 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	sum := sha256.Sum256(document)
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM payables.supplier_invoice WHERE capture_sha256 = $1)`, sum[:]).Scan(&exists); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("payables: check capture of document %x: %w", sum, err)
 	}
 	if exists {
 		return operations.Operation{}, problem.Conflict("payables.already_captured", "This document has already been captured.")
@@ -118,7 +119,7 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	}
 	var exp int
 	if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, order.Currency).Scan(&exp); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("payables: read exponent of currency %s: %w", order.Currency, err)
 	}
 	amountOf := func(s, what string) (Amount, error) {
 		m, err := money.ParseDecimal(s, exp)

@@ -3,6 +3,7 @@ package payables
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 		var clean *bool
 		err := tx.QueryRow(ctx, `SELECT is_clean FROM payables.match_result WHERE supplier_invoice_id = $1 ORDER BY evaluated_at DESC LIMIT 1`, id).Scan(&clean)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return Invoice{}, err
+			return Invoice{}, fmt.Errorf("payables: read latest match of invoice %s: %w", id, err)
 		}
 		if clean == nil || !*clean {
 			return Invoice{}, problem.Conflict("payables.match_required",
@@ -99,7 +100,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'posted', posting_date = $2, journal_entry_year = $3, journal_entry_id = $4,
 		version = version + 1, updated_by = $5 WHERE id = $1`, id, *date, entry.FiscalYear, entry.ID, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: mark invoice %s posted: %w", id, err)
 	}
 	posted, err := load(ctx, tx, id, false)
 	if err != nil {
@@ -169,7 +170,7 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'reversed', reversal_entry_year = $2, reversal_entry_id = $3,
 		version = version + 1, updated_by = $4 WHERE id = $1`, id, rev.FiscalYear, rev.ID, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: mark invoice %s reversed: %w", id, err)
 	}
 	reversed, err := load(ctx, tx, id, false)
 	if err != nil {

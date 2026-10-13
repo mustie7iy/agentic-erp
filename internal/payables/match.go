@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -50,7 +51,7 @@ const matchColumns = `id, supplier_invoice_id, evaluated_at, is_clean, issues, c
 func scanMatch(row pgx.Row) (Match, error) {
 	var m Match
 	err := row.Scan(&m.ID, &m.InvoiceID, &m.EvaluatedAt, &m.IsClean, &m.Issues, &m.ConfigVersion, &m.EvaluatedBy)
-	return m, err
+	return m, errs.Wrapf(err, "scan match result")
 }
 
 // GetMatch returns a match result of an invoice the caller may see.
@@ -64,7 +65,7 @@ func GetMatch(ctx context.Context, id uuid.UUID) (Match, error) {
 		return Match{}, problem.NotFound("No match result with this id.")
 	}
 	if err != nil {
-		return Match{}, err
+		return Match{}, fmt.Errorf("payables: read match result %s: %w", id, err)
 	}
 	if _, err := get(ctx, tx, m.InvoiceID, false); err != nil {
 		if problem.From(err).Status == 404 {
@@ -95,8 +96,10 @@ func invoicedQuantities(ctx context.Context, tx pgx.Tx, order, exclude uuid.UUID
 	invoiced := map[int32]string{}
 	var no int32
 	var qty string
-	_, err := pgx.ForEachRow(rows, []any{&no, &qty}, func() error { invoiced[no] = qty; return nil })
-	return invoiced, err
+	if _, err := pgx.ForEachRow(rows, []any{&no, &qty}, func() error { invoiced[no] = qty; return nil }); err != nil {
+		return nil, fmt.Errorf("payables: read quantities invoiced on order %s: %w", order, err)
+	}
+	return invoiced, nil
 }
 
 // evaluate is the three-way match: the invoice against its order, the
