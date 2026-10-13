@@ -50,7 +50,7 @@ func (r *Runner) RunTools(ctx context.Context, tools []anthropic.BetaTool, param
 	runner := r.Client.Beta.Messages.NewToolRunner(tools, anthropic.BetaToolRunnerParams{BetaMessageNewParams: params, MaxIterations: maxIterations})
 	msg, err := runner.RunToCompletion(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("llm: run tools: %w", err)
 	}
 	return msg, Check(msg)
 }
@@ -80,7 +80,7 @@ func Result(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 	if !ok {
 		b, err := json.Marshal(v)
 		if err != nil {
-			return anthropic.BetaToolResultBlockParamContentUnion{}, err
+			return anthropic.BetaToolResultBlockParamContentUnion{}, fmt.Errorf("llm: encode tool result: %w", err)
 		}
 		text = string(b)
 	}

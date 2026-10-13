@@ -154,7 +154,7 @@ func Parse(b []byte) (*Config, error) {
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
 	return Parse(b)
 }

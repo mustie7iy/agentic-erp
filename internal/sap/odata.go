@@ -96,7 +96,7 @@ func (o *ODataSource) Extract(ctx context.Context, scope Scope) (*Extract, error
 		for _, cc := range companyFilter(em, scope) {
 			rows, err := o.fetch(ctx, em, cc, scope.FiscalYear)
 			if err != nil {
-				return nil, fmt.Errorf("%s (%s/%s): %w", em.Table, em.Service, em.Entity, err)
+				return nil, fmt.Errorf("sap: extract %s (%s/%s): %w", em.Table, em.Service, em.Entity, err)
 			}
 			tables[em.Table] = append(tables[em.Table], rows...)
 		}
@@ -155,18 +155,18 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 		u := fmt.Sprintf("%s/sap/opu/odata/sap/%s/%s?%s", strings.TrimRight(o.BaseURL, "/"), em.Service, em.Entity, q.Encode())
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build request for page at offset %d: %w", skip, err)
 		}
 		req.SetBasicAuth(o.User, o.Password)
 		req.Header.Set("Accept", "application/json")
 		resp, err := httpc.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("request page at offset %d: %w", skip, err)
 		}
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read page at offset %d: %w", skip, err)
 		}
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("HTTP %d: %.300s", resp.StatusCode, body)

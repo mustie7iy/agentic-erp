@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // NoTransaction marks a migration that must run outside a transaction, such
@@ -84,18 +86,18 @@ func apply(ctx context.Context, conn *pgx.Conn, m Migration, v int) error {
 	record := "INSERT INTO public.erp_schema_migration (version, name) VALUES ($1, $2)"
 	if strings.HasPrefix(m.Up, NoTransaction) {
 		if _, err := conn.Exec(ctx, m.Up); err != nil {
-			return err
+			return fmt.Errorf("run without a transaction: %w", err)
 		}
 		_, err := conn.Exec(ctx, record, v, m.Name)
-		return err
+		return errs.Wrapf(err, "record version %d", v)
 	}
-	return pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+	return errs.Wrapf(pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
 		if _, err := tx.Conn().PgConn().Exec(ctx, m.Up).ReadAll(); err != nil {
-			return err
+			return fmt.Errorf("run: %w", err)
 		}
 		_, err := tx.Exec(ctx, record, v, m.Name)
-		return err
-	})
+		return errs.Wrapf(err, "record version %d", v)
+	}), "in a transaction")
 }
 
 // CurrentVersion is the highest applied version, or 0 on an empty database.

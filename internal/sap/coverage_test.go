@@ -38,6 +38,9 @@ func TestFileSourceAndWriteExtract(t *testing.T) {
 	if err := WriteExtract(filepath.Join(blocker, "a", "x.json"), &Extract{}); err == nil {
 		t.Fatal("directory creation failure")
 	}
+	if err := WriteExtract(dir, &Extract{}); err == nil {
+		t.Fatal("write failure")
+	}
 }
 
 func TestFilterScopeKeepsOnlyTheScope(t *testing.T) {

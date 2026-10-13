@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // Client calls the API as one principal.
@@ -64,7 +66,7 @@ func (r Response) Decode(into any) error {
 	if err := r.Err(); err != nil {
 		return err
 	}
-	return json.Unmarshal(r.Body, into)
+	return errs.Wrapf(json.Unmarshal(r.Body, into), "decode response body")
 }
 
 // Do performs a call. Unsafe calls get a fresh Idempotency-Key; ifMatch,

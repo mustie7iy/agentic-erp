@@ -88,7 +88,7 @@ func (c *ClaudeExtractor) Extract(ctx context.Context, pdf []byte) (*Extraction,
 	params.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: schema}
 	msg, err := c.LLM.Client.Beta.Messages.New(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("capture: extract invoice: %w", err)
 	}
 	if err := llm.Check(msg); err != nil {
 		return nil, err

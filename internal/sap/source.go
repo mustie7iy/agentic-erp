@@ -31,11 +31,11 @@ func (f FileSource) Name() string { return "file:" + f.Path }
 func (f FileSource) Extract(_ context.Context, scope Scope) (*Extract, error) {
 	data, err := os.ReadFile(f.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sap: read extract %s: %w", f.Path, err)
 	}
 	var all Extract
 	if err := json.Unmarshal(data, &all); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", f.Path, err)
+		return nil, fmt.Errorf("sap: parse extract %s: %w", f.Path, err)
 	}
 	return FilterScope(&all, scope), nil
 }
@@ -43,10 +43,13 @@ func (f FileSource) Extract(_ context.Context, scope Scope) (*Extract, error) {
 // WriteExtract saves an extract as JSON.
 func WriteExtract(path string, e *Extract) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return fmt.Errorf("sap: create directory of extract %s: %w", path, err)
 	}
 	data, _ := json.MarshalIndent(e, "", "  ") // plain data: cannot fail
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("sap: write extract %s: %w", path, err)
+	}
+	return nil
 }
 
 // FilterScope keeps only rows belonging to the scope's company codes and
