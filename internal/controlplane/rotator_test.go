@@ -31,7 +31,9 @@ func TestKeyRotationPolicy(t *testing.T) {
 		Log: slog.New(slog.NewTextHandler(&logs, nil))}
 	keys := func() int {
 		var n int
-		pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, id).Scan(&n)
+		if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, id).Scan(&n); err != nil {
+			t.Fatalf("count tenant keys: %v", err)
+		}
 		return n
 	}
 	age := func() { // the active key gets older than the policy allows

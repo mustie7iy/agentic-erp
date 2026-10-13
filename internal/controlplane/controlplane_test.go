@@ -90,7 +90,7 @@ func (p *plane) do(method, path, body string, headers map[string]string) (int, m
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read to the end below; closing a read body loses nothing
 	var m map[string]any
 	raw, _ := io.ReadAll(resp.Body)
 	if len(raw) > 0 {
@@ -355,7 +355,9 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"6"`)
 	var n int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, uuid.MustParse(id)).Scan(&n)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, uuid.MustParse(id)).Scan(&n); err != nil {
+		t.Fatalf("count principals: %v", err)
+	}
 	if n != 0 {
 		t.Fatalf("%d principals left after the erasure", n)
 	}
@@ -594,7 +596,9 @@ func TestProvisioningKeyUniqueness(t *testing.T) {
 		t.Fatalf("second: %v", err)
 	}
 	var n int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM platform.idempotency_key WHERE key = $1`, provisioning.KeyPrefix+req.Idempotency.Key).Scan(&n)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM platform.idempotency_key WHERE key = $1`, provisioning.KeyPrefix+req.Idempotency.Key).Scan(&n); err != nil {
+		t.Fatalf("count idempotency keys: %v", err)
+	}
 	if n != 1 {
 		t.Fatalf("%d keys", n)
 	}
@@ -614,7 +618,9 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 		t.Fatalf("provisioned tenant keys: %v", keys)
 	}
 	var sealed []byte
-	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&sealed)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&sealed); err != nil {
+		t.Fatalf("read the sealed house bank: %v", err)
+	}
 	if sealed[0] != 2 {
 		t.Fatalf("house bank sealed with format %d", sealed[0])
 	}
@@ -655,7 +661,9 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 		t.Fatalf("listing lacks the fields: %v", listed)
 	}
 	var resealed []byte
-	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&resealed)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&resealed); err != nil {
+		t.Fatalf("read the re-sealed house bank: %v", err)
+	}
 	if string(resealed) == string(sealed) || string(resealed[1:17]) != uuid.MustParse(rot["key_id"].(string)).String()[:0]+string(mustBytes(rot["key_id"].(string))) {
 		t.Fatalf("house bank not re-sealed under the new key")
 	}
@@ -665,7 +673,9 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	public.Must(200, "GET", "/v1/config-versions?is_active=true", "", "")
 	// Recorded in the tenant's chain as the operator.
 	var action, operator string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT action, detail->>'operator' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.rotate_key'`, uuid.MustParse(id)).Scan(&action, &operator)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT action, detail->>'operator' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.rotate_key'`, uuid.MustParse(id)).Scan(&action, &operator); err != nil {
+		t.Fatalf("read the rotation audit: %v", err)
+	}
 	if operator != "ops|alice" {
 		t.Fatalf("audit: %s %s", action, operator)
 	}
