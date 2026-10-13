@@ -106,35 +106,50 @@ func (m *Model) index() error {
 		m.byName[met.Name] = met
 	}
 	for i := range m.Metrics {
-		met := &m.Metrics[i]
-		switch {
-		case met.Derived != nil:
-			l, r := m.byName[met.Derived.Left], m.byName[met.Derived.Right]
-			if l == nil || r == nil {
-				return fmt.Errorf("semantic model: %s derives from unknown metric", met.Name)
-			}
-			if met.Derived.Op != "subtract" && met.Derived.Op != "divide" {
-				return fmt.Errorf("semantic model: %s has unknown op %q", met.Name, met.Derived.Op)
-			}
-		case met.Source != "":
-			if met.Aggregate != "sum" && met.Aggregate != "count_distinct" {
-				return fmt.Errorf("semantic model: %s has unknown aggregate %q", met.Name, met.Aggregate)
-			}
-			if met.Sign == 0 {
-				met.Sign = 1
-			}
-			for _, d := range met.Dimensions {
-				if !dims[d] {
-					return fmt.Errorf("semantic model: %s uses undeclared dimension %s", met.Name, d)
-				}
-			}
-		default:
-			return fmt.Errorf("semantic model: %s needs a source or a derivation", met.Name)
+		if err := m.checkMetric(&m.Metrics[i], dims); err != nil {
+			return err
 		}
 	}
 	for word, metric := range m.Defaults {
 		if m.byName[metric] == nil {
 			return fmt.Errorf("semantic model: default %q points to unknown metric %s", word, metric)
+		}
+	}
+	return nil
+}
+
+// checkMetric validates one metric once all metrics are indexed, so a
+// derivation may refer to metrics declared after it.
+func (m *Model) checkMetric(met *Metric, dims map[string]bool) error {
+	switch {
+	case met.Derived != nil:
+		l, r := m.byName[met.Derived.Left], m.byName[met.Derived.Right]
+		if l == nil || r == nil {
+			return fmt.Errorf("semantic model: %s derives from unknown metric", met.Name)
+		}
+		if met.Derived.Op != "subtract" && met.Derived.Op != "divide" {
+			return fmt.Errorf("semantic model: %s has unknown op %q", met.Name, met.Derived.Op)
+		}
+		return nil
+	case met.Source != "":
+		return checkSourceMetric(met, dims)
+	default:
+		return fmt.Errorf("semantic model: %s needs a source or a derivation", met.Name)
+	}
+}
+
+// checkSourceMetric validates a metric read from a fact table and
+// defaults its sign to +1.
+func checkSourceMetric(met *Metric, dims map[string]bool) error {
+	if met.Aggregate != "sum" && met.Aggregate != "count_distinct" {
+		return fmt.Errorf("semantic model: %s has unknown aggregate %q", met.Name, met.Aggregate)
+	}
+	if met.Sign == 0 {
+		met.Sign = 1
+	}
+	for _, d := range met.Dimensions {
+		if !dims[d] {
+			return fmt.Errorf("semantic model: %s uses undeclared dimension %s", met.Name, d)
 		}
 	}
 	return nil
