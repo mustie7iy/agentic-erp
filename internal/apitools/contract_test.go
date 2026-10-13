@@ -141,7 +141,10 @@ func TestMalformedContract(t *testing.T) {
 		})
 	}
 	t.Run("parameter with a description and no schema", func(t *testing.T) {
-		c, _ := load([]byte(op + "      parameters:\n        - {name: q, in: query, description: Search text.}\n"))
+		c, err := load([]byte(op + "      parameters:\n        - {name: q, in: query, description: Search text.}\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
 		tool, err := c.tool("makeX")
 		if err != nil {
 			t.Fatal(err)
@@ -157,6 +160,7 @@ func TestMalformedContract(t *testing.T) {
 func TestEveryOperationBuilds(t *testing.T) {
 	c := embedded()
 	paths, _ := c.spec["paths"].(map[string]any)
+	built := 0
 	for path, item := range paths {
 		methods, _ := item.(map[string]any)
 		for method, v := range methods {
@@ -168,6 +172,12 @@ func TestEveryOperationBuilds(t *testing.T) {
 			if _, err := c.operation(id, true); err != nil {
 				t.Errorf("%s %s: got %v, want no error", method, path, err)
 			}
+			built++
 		}
+	}
+	// The contract has well over a hundred operations; none would mean the
+	// loop above checked nothing.
+	if built < 100 {
+		t.Errorf("got %d operations, want the contract's (over 100)", built)
 	}
 }
