@@ -430,7 +430,7 @@ func TestDispatcher(t *testing.T) {
 	stopped := make(chan struct{})
 	go func() { d.Run(runCtx); close(stopped) }()
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "workflow dispatch failed") },
-		"the dispatcher did not log its failed round: %s", logs.String())
+		"the dispatcher did not log its failed round: %s", logs)
 	cancel()
 	<-stopped
 	d.Begin = nil
@@ -440,7 +440,7 @@ func TestDispatcher(t *testing.T) {
 	done := make(chan struct{})
 	go func() { d.Run(runCtx); close(done) }()
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "workflows started") },
-		"the dispatcher did not log the workflows it started: %s", logs.String())
+		"the dispatcher did not log the workflows it started: %s", logs)
 	cancel()
 	<-done
 }
@@ -564,7 +564,7 @@ func TestReleaseWorkflow(t *testing.T) {
 	stopped := make(chan struct{})
 	go func() { w.Run(runCtx); close(stopped) }()
 	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "payment release failed") },
-		"the releaser did not log its failed round: %s", logs.String())
+		"the releaser did not log its failed round: %s", logs)
 	cancel()
 	<-stopped // before Begin is replaced: the loop reads it
 	pool := pgtest.Pool(t)
