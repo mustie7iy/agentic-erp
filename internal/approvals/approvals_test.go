@@ -184,8 +184,16 @@ func TestRejectAndCancel(t *testing.T) {
 		}
 		return out
 	}
-	if got := list("status=pending&object_type=partner_change"); len(got) != 2 || !strings.Contains(got[0]["title"].(string), "") {
-		t.Fatalf("inbox: %v", got)
+	inbox := list("status=pending&object_type=partner_change")
+	if len(inbox) != 2 {
+		t.Fatalf("inbox: got %d requests, want 2: %v", len(inbox), inbox)
+	}
+	// Newest first: the tenant's fourth and third partner changes, the first
+	// two having been rejected and cancelled above.
+	for i, want := range []string{"PC00000004", "PC00000003"} {
+		if title, _ := inbox[i]["title"].(string); !strings.Contains(title, want) {
+			t.Errorf("inbox[%d] title: got %q, want one naming %s", i, title, want)
+		}
 	}
 	page := list("page_size=3")
 	if len(page) != 4 || page[3]["next"] == nil {
