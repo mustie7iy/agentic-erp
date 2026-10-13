@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
@@ -162,11 +163,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 func (s *Server) authentic(r *http.Request, body []byte) bool {
 	if r.URL.Query().Get("X-Amz-Signature") != "" {
 		ok, made, ttl := sigv4.Verify(r, AccessKey, SecretKey, Region, "s3")
-		now := time.Now()
-		if s.Now != nil {
-			now = s.Now()
-		}
-		return ok && now.Before(made.Add(ttl))
+		return ok && s.now().Before(made.Add(ttl))
 	}
 	got := r.Header.Get("Authorization")
 	when, err := time.Parse("20060102T150405Z", r.Header.Get("X-Amz-Date"))
@@ -181,10 +178,7 @@ func (s *Server) authentic(r *http.Request, body []byte) bool {
 }
 
 func (s *Server) now() time.Time {
-	if s.Now != nil {
-		return s.Now()
-	}
-	return time.Now()
+	return clock.Now(s.Now)
 }
 
 // list answers ListObjectsV2: the keys with the prefix, sorted, PageSize

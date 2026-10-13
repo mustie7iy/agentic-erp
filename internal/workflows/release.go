@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -88,11 +89,7 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 	if err := fn(rctx, tx, r); err != nil {
 		return err
 	}
-	now := time.Now
-	if p.Now != nil {
-		now = p.Now
-	}
-	if err := buf.Flush(rctx, tx, actor, "", now()); err != nil {
+	if err := buf.Flush(rctx, tx, actor, "", clock.Now(p.Now)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

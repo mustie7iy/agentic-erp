@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 )
 
@@ -53,10 +54,7 @@ func (a *Anchorer) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) 
 }
 
 func (a *Anchorer) now() time.Time {
-	if a.Now != nil {
-		return a.Now()
-	}
-	return time.Now()
+	return clock.Now(a.Now)
 }
 
 // pending lists the tenants whose chain head is past their last anchor.

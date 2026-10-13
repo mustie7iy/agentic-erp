@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -112,11 +113,7 @@ func near(gross int64, co *config.Company, exp int) bool {
 // under doc, sampled so that every behaviour is covered, not just the
 // common one.
 func (g Regression) Capture(ctx context.Context, doc *config.Config, window time.Duration, maxCases int) ([]configuration.RegressionCase, error) {
-	now := time.Now
-	if g.Now != nil {
-		now = g.Now
-	}
-	all, err := invoicesOnOrders(ctx, g.LegalEntities, g.Orders, now().Add(-window), 2000)
+	all, err := invoicesOnOrders(ctx, g.LegalEntities, g.Orders, clock.Now(g.Now).Add(-window), 2000)
 	if err != nil {
 		return nil, err
 	}

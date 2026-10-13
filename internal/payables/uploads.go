@@ -19,6 +19,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -85,10 +86,7 @@ func (u *Uploads) inTx(ctx context.Context, scope database.Scope, fn func(contex
 }
 
 func (u *Uploads) now() time.Time {
-	if u.Now != nil {
-		return u.Now()
-	}
-	return time.Now()
+	return clock.Now(u.Now)
 }
 
 const uploadColumns = `id, purpose, content_type, max_bytes, object_ref, status, size, sha256, used_by, expires_at, created_at, created_by, updated_at, version`

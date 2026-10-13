@@ -12,6 +12,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -53,10 +54,7 @@ func (d *DevIssuer) Static() Static {
 }
 
 func (d *DevIssuer) now() time.Time {
-	if d.Now != nil {
-		return d.Now()
-	}
-	return time.Now()
+	return clock.Now(d.Now)
 }
 
 // Token mints a token for the subject in the tenant; with no tenant

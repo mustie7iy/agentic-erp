@@ -25,6 +25,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -57,10 +58,7 @@ func (w *Worker) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 }
 
 func (w *Worker) now() time.Time {
-	if w.Now != nil {
-		return w.Now().UTC()
-	}
-	return time.Now().UTC()
+	return clock.Now(w.Now).UTC()
 }
 
 // Export is what an export did.

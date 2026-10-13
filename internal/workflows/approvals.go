@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 )
 
@@ -108,11 +109,7 @@ func (a *Approvals) Escalate(ctx context.Context, in EscalateInput) (bool, error
 		return false, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	now := time.Now
-	if a.Now != nil {
-		now = a.Now
-	}
-	pending, err := approvals.Escalate(ctx, tx, in.TenantID, in.RequestID, in.Prior, now().UTC())
+	pending, err := approvals.Escalate(ctx, tx, in.TenantID, in.RequestID, in.Prior, clock.Now(a.Now).UTC())
 	if errors.Is(err, approvals.ErrEscalationCount) {
 		return false, temporal.NewNonRetryableApplicationError(err.Error(), "EscalationCount", err) //nolint:wrapcheck // constructs the engine's error with err as its cause; nothing to wrap
 	}

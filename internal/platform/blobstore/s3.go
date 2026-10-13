@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
@@ -53,10 +54,7 @@ func (s S3) client() *http.Client {
 }
 
 func (s S3) now() time.Time {
-	if s.Now != nil {
-		return s.Now()
-	}
-	return time.Now()
+	return clock.Now(s.Now)
 }
 
 func (s S3) url(key string) string {

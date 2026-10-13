@@ -17,6 +17,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -95,11 +96,7 @@ func (p *Payments) Propose(ctx context.Context, in ProposeInput) error {
 	if err := p.Endpoints.Process(rctx, job); err != nil {
 		return err
 	}
-	now := time.Now
-	if p.Now != nil {
-		now = p.Now
-	}
-	if err := buf.Flush(rctx, tx, actor, "", now()); err != nil {
+	if err := buf.Flush(rctx, tx, actor, "", clock.Now(p.Now)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

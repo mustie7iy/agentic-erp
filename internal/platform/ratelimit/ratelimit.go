@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -81,10 +82,7 @@ type state struct {
 }
 
 func (l *Limiter) now() time.Time {
-	if l.Now != nil {
-		return l.Now()
-	}
-	return time.Now()
+	return clock.Now(l.Now)
 }
 
 // take spends one token of the key's bucket under q.

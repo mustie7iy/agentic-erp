@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // Credentials sign requests. SessionToken and Expires are empty for
@@ -233,10 +235,7 @@ type Cached struct {
 
 // Credentials implements Provider.
 func (c *Cached) Credentials(ctx context.Context) (Credentials, error) {
-	now := time.Now()
-	if c.Now != nil {
-		now = c.Now()
-	}
+	now := clock.Now(c.Now)
 	early := c.Early
 	if early <= 0 {
 		early = 5 * time.Minute

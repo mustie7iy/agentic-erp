@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -78,11 +79,7 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 	if err := w.Endpoints.Process(ctx, job); err != nil {
 		return false, err
 	}
-	now := time.Now
-	if w.Now != nil {
-		now = w.Now
-	}
-	if err := buf.Flush(ctx, tx, p, "", now()); err != nil {
+	if err := buf.Flush(ctx, tx, p, "", clock.Now(w.Now)); err != nil {
 		return false, err
 	}
 	return true, tx.Commit(ctx)

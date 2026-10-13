@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 )
@@ -374,10 +375,7 @@ type cached struct {
 }
 
 func (c *Cache) now() time.Time {
-	if c.Now != nil {
-		return c.Now()
-	}
-	return time.Now()
+	return clock.Now(c.Now)
 }
 
 // Lookup implements Store from the cache, else from the store.

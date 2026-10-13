@@ -12,6 +12,7 @@ import (
 
 	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 )
@@ -44,10 +45,7 @@ func (v *Verifier) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) 
 }
 
 func (v *Verifier) now() time.Time {
-	if v.Now != nil {
-		return v.Now().UTC()
-	}
-	return time.Now().UTC()
+	return clock.Now(v.Now).UTC()
 }
 
 // Verification is one round's result for one tenant.

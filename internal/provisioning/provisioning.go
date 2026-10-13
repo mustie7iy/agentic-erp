@@ -19,6 +19,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -101,10 +102,7 @@ func (p *Provisioner) begin(ctx context.Context, s database.Scope) (pgx.Tx, erro
 }
 
 func (p *Provisioner) now() time.Time {
-	if p.Now != nil {
-		return p.Now()
-	}
-	return time.Now()
+	return clock.Now(p.Now)
 }
 
 func invalid(field, msg string) error {

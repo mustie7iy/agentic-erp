@@ -26,6 +26,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -133,10 +134,7 @@ func (s *Service) begin(ctx context.Context, scope database.Scope) (pgx.Tx, erro
 }
 
 func (s *Service) now() time.Time {
-	if s.Now != nil {
-		return s.Now()
-	}
-	return time.Now()
+	return clock.Now(s.Now)
 }
 
 // columns are the tenant's row plus, as JSON, its active key and its

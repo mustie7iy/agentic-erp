@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -75,18 +76,15 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 	if err != nil {
 		return configuration.Simulation{}, err
 	}
-	window, limit, now := s.Window, s.Limit, time.Now
+	window, limit := s.Window, s.Limit
 	if window <= 0 {
 		window = 90 * 24 * time.Hour
 	}
 	if limit <= 0 {
 		limit = 2000
 	}
-	if s.Now != nil {
-		now = s.Now
-	}
 	rows, _ := tx.Query(ctx, invoiceSelect+` WHERE i.purchase_order_id IS NOT NULL AND i.status IN ('parked', 'on_hold', 'posted') AND i.invoice_date >= $1
-		ORDER BY i.invoice_date DESC, i.id DESC LIMIT $2`, now().Add(-window), limit)
+		ORDER BY i.invoice_date DESC, i.id DESC LIMIT $2`, clock.Now(s.Now).Add(-window), limit)
 	invoices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
 	if err != nil {
 		return configuration.Simulation{}, err

@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // Errors a store reports.
@@ -114,10 +116,7 @@ type Dir struct {
 }
 
 func (d Dir) now() time.Time {
-	if d.Now != nil {
-		return d.Now()
-	}
-	return time.Now()
+	return clock.Now(d.Now)
 }
 
 func (d Dir) path(key string) string { return filepath.Join(d.Root, filepath.FromSlash(key)) }

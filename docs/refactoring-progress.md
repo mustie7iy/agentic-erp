@@ -52,9 +52,13 @@ Each step: lint before → after for its scope, tests, reviewer verdict, commit.
 - [x] R7 etag.IfMatch replaces the per-package ifMatch copies: 11 copies deleted, 51 calls
   moved; parameters named ifMatch untouched. Lint unchanged (one-liners were below dupl's
   threshold). Reviewer: APPROVE.
-- [~] R8 One helper for injectable Begin / Now
+- [x] R8 One helper for injectable Begin / Now
   - [x] R8a database.BeginFunc and BeginOr: 16 begin methods delegate in one line, 16 fields
     typed BeginFunc. Lint unchanged. Reviewer: APPROVE.
+  - [x] R8b internal/platform/clock.Now: 13 now() methods delegate, 7 inline fallbacks and 3
+    variants (awscreds, blobstoretest, payables simulate) replaced; no `.Now != nil` left.
+    Reviewer: APPROVE. Noted: some code reads time.Now() with no Now field (controlplane
+    rotator, procurement expiry, fieldcrypt keyring, analytics session/render): R30 candidates.
 - [ ] R9 Remaining dupl findings
 
 ### Phase 3 — Error context

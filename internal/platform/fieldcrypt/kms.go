@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
@@ -97,10 +98,7 @@ func (k KMS) client() *http.Client {
 }
 
 func (k KMS) now() time.Time {
-	if k.Now != nil {
-		return k.Now()
-	}
-	return time.Now()
+	return clock.Now(k.Now)
 }
 
 // kmsError is a failed KMS call: the service's exception type and message.

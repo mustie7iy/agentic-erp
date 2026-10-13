@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -129,11 +130,7 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 	if err := w.process(ctx, tx, p, j); err != nil {
 		return false, err
 	}
-	now := time.Now
-	if w.Now != nil {
-		now = w.Now
-	}
-	if err := buf.Flush(ctx, tx, p, "", now()); err != nil {
+	if err := buf.Flush(ctx, tx, p, "", clock.Now(w.Now)); err != nil {
 		return false, err
 	}
 	return true, tx.Commit(ctx)

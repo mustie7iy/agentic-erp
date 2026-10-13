@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -76,11 +77,7 @@ func (m *Migrations) Execute(ctx context.Context, in MigrateInput) error {
 	if _, err := m.Endpoints.Execute(rctx, in.RunID); err != nil {
 		return err
 	}
-	now := time.Now
-	if m.Now != nil {
-		now = m.Now
-	}
-	if err := buf.Flush(rctx, tx, actor, "", now()); err != nil {
+	if err := buf.Flush(rctx, tx, actor, "", clock.Now(m.Now)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
