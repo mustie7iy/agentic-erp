@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -89,9 +90,9 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	addrs := make(chan [2]string, 1)
 	done := make(chan int, 1)
-	var logs bytes.Buffer
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
 	go func() {
-		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &syncWriter{w: &logs}, func(api, admin net.Listener) {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(api, admin net.Listener) {
 			addrs <- [2]string{api.Addr().String(), admin.Addr().String()}
 		})
 	}()
@@ -114,21 +115,18 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	}
 	// The workers' backlogs are read on each scrape of the admin metrics (a
 	// read that outlasts its timeout on a loaded machine is left out of that
-	// scrape, so a few scrapes are allowed).
+	// scrape, so the test scrapes until every backlog is there).
 	var scraped []byte
-	for attempt := 0; attempt < 5; attempt++ {
+	pgtest.Eventually(t, 30*time.Second, func() bool {
 		mresp, err := http.Get("http://" + a[1] + "/metrics")
 		if err != nil {
 			t.Fatal(err)
 		}
 		scraped, _ = io.ReadAll(mresp.Body)
 		_ = mresp.Body.Close() // the scrape is already read; a close error cannot change what is asserted
-		if strings.Contains(string(scraped), "erp_outbox_backlog ") && strings.Contains(string(scraped), "erp_projection_backlog 0") &&
-			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") && strings.Contains(string(scraped), "erp_simulations_queued 0") {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+		return strings.Contains(string(scraped), "erp_outbox_backlog ") && strings.Contains(string(scraped), "erp_projection_backlog 0") &&
+			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") && strings.Contains(string(scraped), "erp_simulations_queued 0")
+	}, "metrics lack a backlog:\n%s", lazy(func() string { return string(scraped) }))
 	for _, want := range []string{"erp_outbox_backlog ", "erp_projection_backlog 0", "erp_payment_proposals_queued 0", "erp_simulations_queued 0",
 		"erp_outbox_lag_seconds ", "erp_projection_lag_seconds 0"} {
 		if !strings.Contains(string(scraped), want) {
@@ -157,18 +155,14 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	js, _ := jetstream.New(nc)
 	stream, _ := js.Stream(context.Background(), natsbus.StreamName("test", "platform"))
 	subject := fmt.Sprintf("erp.test.platform.%s.operation_completed", ten.ID)
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if m, err := stream.GetLastMsgForSubject(context.Background(), subject); err == nil {
-			if m.Header.Get("ce-subject") != op["id"] {
-				t.Fatalf("event subject %s", m.Header.Get("ce-subject"))
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("event not relayed")
-		}
-		time.Sleep(20 * time.Millisecond)
+	var relayed *jetstream.RawStreamMsg
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		m, err := stream.GetLastMsgForSubject(context.Background(), subject)
+		relayed = m
+		return err == nil
+	}, "event %s not relayed", subject)
+	if relayed.Header.Get("ce-subject") != op["id"] {
+		t.Fatalf("event subject %s", relayed.Header.Get("ce-subject"))
 	}
 
 	cancel()
@@ -176,10 +170,6 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, logs.String())
 	}
 }
-
-type syncWriter struct{ w io.Writer }
-
-func (s *syncWriter) Write(p []byte) (int, error) { return s.w.Write(p) }
 
 func TestReadiness(t *testing.T) {
 	ctx := context.Background()
@@ -248,7 +238,7 @@ func TestReadiness(t *testing.T) {
 }
 
 func TestMaintenanceRetries(t *testing.T) {
-	var logs bytes.Buffer
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
 	ctx, cancel := context.WithCancel(context.Background())
 	runs := 0
 	done := make(chan struct{})
@@ -259,7 +249,7 @@ func TestMaintenanceRetries(t *testing.T) {
 				cancel()
 			}
 			return errors.New("not now")
-		}, slog.New(slog.NewTextHandler(&syncWriter{w: &logs}, nil)))
+		}, slog.New(slog.NewTextHandler(&logs, nil)))
 		close(done)
 	}()
 	<-done
@@ -508,9 +498,9 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	addrs := make(chan [2]string, 1)
 	done := make(chan int, 1)
-	var logs bytes.Buffer
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
 	go func() {
-		done <- cli(ctx, nil, getenv, io.Discard, &syncWriter{w: &logs}, func(api, admin net.Listener) {
+		done <- cli(ctx, nil, getenv, io.Discard, &logs, func(api, admin net.Listener) {
 			addrs <- [2]string{api.Addr().String(), admin.Addr().String()}
 		})
 	}()
@@ -587,16 +577,13 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close(context.Background()) }() // best-effort: a read-only connection
-	var anchored int
-	for deadline := time.Now().Add(10 * time.Second); anchored == 0 && time.Now().Before(deadline); {
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		var anchored int
 		if err := conn.QueryRow(ctx, `SELECT count(*) FROM audit.anchor WHERE tenant_id = $1`, created.TenantID).Scan(&anchored); err != nil {
 			t.Fatalf("count anchors: %v", err)
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if anchored == 0 {
-		t.Fatal("no anchor written")
-	}
+		return anchored > 0
+	}, "no anchor written")
 	if objects, _ := filepath.Glob(filepath.Join(env["ERP_OBJECT_DIR"], "tenants", created.TenantID, "audit", "anchors", "*.json")); len(objects) == 0 {
 		t.Fatal("no anchor object")
 	}
@@ -615,11 +602,11 @@ func TestObjectStores(t *testing.T) {
 	serve := func(env map[string]string) string {
 		cfg := load(t, env)
 		runCtx, cancel := context.WithCancel(ctx)
-		var logs bytes.Buffer
+		var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
 		started := make(chan struct{})
 		done := make(chan error, 1)
 		go func() {
-			done <- run(runCtx, cfg, slog.New(slog.NewTextHandler(&syncWriter{w: &logs}, nil)), func(net.Listener, net.Listener) { close(started) })
+			done <- run(runCtx, cfg, slog.New(slog.NewTextHandler(&logs, nil)), func(net.Listener, net.Listener) { close(started) })
 		}()
 		select {
 		case <-started:
@@ -645,19 +632,12 @@ func TestObjectStores(t *testing.T) {
 	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
 	anchorInterval = 20 * time.Millisecond
 	defer func() { anchorInterval = time.Minute }()
-	cfg := load(t, env)
-	runCtx, cancel := context.WithCancel(ctx)
-	done := make(chan error, 1)
-	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
+	anchored := func(key string) func() bool { return func() bool { _, ok := s3.Object(key); return ok } }
+	stop := background(load(t, env), quiet())
+	defer func() { _ = stop() }() // stops a server a failed wait left running before anchorInterval is reset; the wait's failure is the one reported
 	key := "tenants/" + ten.ID.String() + "/audit/anchors/000000000001.json"
-	for deadline := time.Now().Add(10 * time.Second); ; {
-		if _, ok := s3.Object(key); ok || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	cancel()
-	if err := <-done; err != nil {
+	pgtest.Eventually(t, 30*time.Second, anchored(key), "no anchor %s in S3: %v", key, lazy(func() string { return fmt.Sprint(s3.Keys()) }))
+	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
 	if o, ok := s3.Object(key); !ok || o.LockMode != "COMPLIANCE" || o.ContentType != "application/json" {
@@ -669,19 +649,11 @@ func TestObjectStores(t *testing.T) {
 	delete(env, "ERP_OBJECT_S3_ACCESS_KEY")
 	delete(env, "ERP_OBJECT_S3_SECRET_KEY")
 	env["AWS_ACCESS_KEY_ID"], env["AWS_SECRET_ACCESS_KEY"], env["AWS_SESSION_TOKEN"] = blobstoretest.AccessKey, blobstoretest.SecretKey, "ambient-session"
-	cfg = load(t, env)
-	runCtx, cancel = context.WithCancel(ctx)
-	done = make(chan error, 1)
-	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
+	stopAmbient := background(load(t, env), quiet())
+	defer func() { _ = stopAmbient() }() // as stop above
 	key = "tenants/" + ten2.ID.String() + "/audit/anchors/000000000001.json"
-	for deadline := time.Now().Add(10 * time.Second); ; {
-		if _, ok := s3.Object(key); ok || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	cancel()
-	if err := <-done; err != nil {
+	pgtest.Eventually(t, 30*time.Second, anchored(key), "no anchor %s in S3 with ambient credentials: %v", key, lazy(func() string { return fmt.Sprint(s3.Keys()) }))
+	if err := stopAmbient(); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := s3.Object(key); !ok {
@@ -708,35 +680,43 @@ func TestKeyRotationPolicy(t *testing.T) {
 	}
 	rotationInterval = 20 * time.Millisecond
 	defer func() { rotationInterval = time.Hour }()
-	cfg := load(t, env)
-	runCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
-	stopped := false
-	defer func() {
-		// A Fatalf below must stop the server before rotationInterval is
-		// reset, or the server outlives the test and races the reset.
-		if !stopped {
-			cancel()
-			<-done
-		}
-	}()
-	var n int
-	for deadline := time.Now().Add(10 * time.Second); n < 2 && time.Now().Before(deadline); {
-		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, created.TenantID).Scan(&n); err != nil {
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	stop := background(load(t, env), slog.New(slog.NewTextHandler(&logs, nil)))
+	// A failed wait must stop the server before rotationInterval is reset,
+	// or the server outlives the test and races the reset.
+	defer func() { _ = stop() }() // the wait's failure is the one reported
+	// One connection for every check: pgtest.Admin opens a new one per call
+	// and keeps it to the end of the test, which a slow round turned into
+	// more connections than the database allows.
+	admin := pgtest.Admin(t)
+	n := 0
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, created.TenantID).Scan(&n); err != nil {
 			t.Fatalf("count keys: %v", err)
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	cancel()
-	stopped = true
-	if err := <-done; err != nil {
+		return n >= 2
+	}, "%v keys: the policy did not rotate; logs:\n%s", lazy(func() string { return fmt.Sprint(n) }), &logs)
+	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
-	if n < 2 {
-		t.Fatalf("%d keys: the policy did not rotate", n)
-	}
 }
+
+// background runs the server on cfg until stop is called; stop cancels it,
+// waits for it and returns run's error, and may be called again, so a
+// deferred stop ends a server that a failed wait left running before the
+// test resets the intervals it read.
+func background(cfg config.Config, log *slog.Logger) (stop func() error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, cfg, log, nil) }()
+	return sync.OnceValue(func() error { cancel(); return <-done })
+}
+
+// lazy formats as what f returns when the message is built, so a failed
+// wait reports the last value its condition saw, not the one when it began.
+type lazy func() string
+
+func (f lazy) String() string { return f() }
 
 // TestImportCommand brings an erased tenant back from its export.
 func TestImportCommand(t *testing.T) {
@@ -891,28 +871,20 @@ func TestDirectorySync(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	directoryInterval = 20 * time.Millisecond
 	defer func() { directoryInterval = time.Minute }()
-	cfg := load(t, env)
-	runCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- run(runCtx, cfg, quiet(), nil) }()
+	stop := background(load(t, env), quiet())
+	defer func() { _ = stop() }() // stops a server a failed wait left running before directoryInterval is reset; the wait's failure is the one reported
 	dir, err := directory.Open(context.Background(), pgtest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer dir.Close()
 	var entry directory.Entry
-	for deadline := time.Now().Add(10 * time.Second); ; {
-		if e, err := dir.Lookup(context.Background(), ten.ID); err == nil {
-			entry = e
-			break
-		}
-		if time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	cancel()
-	if err := <-done; err != nil {
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		e, err := dir.Lookup(context.Background(), ten.ID)
+		entry = e
+		return err == nil
+	}, "tenant %s not in the directory", ten.ID)
+	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
 	if entry.Cell != "test" || entry.APIURL != "https://test.api.example.com" || entry.Status != directory.Active {
@@ -966,9 +938,9 @@ func TestWorkflowEngine(t *testing.T) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	addrs := make(chan string, 1)
 	done := make(chan error, 1)
-	var logs bytes.Buffer
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
 	go func() {
-		done <- run(runCtx, cfg, slog.New(slog.NewTextHandler(&syncWriter{w: &logs}, nil)), func(api, _ net.Listener) { addrs <- api.Addr().String() })
+		done <- run(runCtx, cfg, slog.New(slog.NewTextHandler(&logs, nil)), func(api, _ net.Listener) { addrs <- api.Addr().String() })
 	}()
 	var addr string
 	select {
@@ -997,13 +969,10 @@ func TestWorkflowEngine(t *testing.T) {
 		t.Fatalf("propose: %d %v", code, op)
 	}
 	var final map[string]any
-	for deadline := time.Now().Add(60 * time.Second); ; {
+	pgtest.Eventually(t, 60*time.Second, func() bool {
 		_, final = call("GET", "/v1/operations/"+op["id"].(string), "")
-		if final["status"] == "succeeded" || final["status"] == "failed" || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+		return final["status"] == "succeeded" || final["status"] == "failed"
+	}, "operation did not finish: %v\n%s", lazy(func() string { return fmt.Sprint(final) }), &logs)
 	if final["status"] != "succeeded" {
 		t.Fatalf("operation: %v\n%s", final, logs.String())
 	}
