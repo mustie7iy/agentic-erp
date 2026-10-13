@@ -3,6 +3,7 @@ package sap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -22,9 +23,11 @@ func TestODataValue(t *testing.T) {
 		json.Number("0.00"):          "0",
 	}
 	for in, want := range cases {
-		if got := odataValue(in); got != want {
-			t.Errorf("odataValue(%v) = %q, want %q", in, got, want)
-		}
+		t.Run(fmt.Sprintf("%T(%v)", in, in), func(t *testing.T) {
+			if got := odataValue(in); got != want {
+				t.Errorf("odataValue(%v): got %q, want %q", in, got, want)
+			}
+		})
 	}
 }
 
@@ -66,8 +69,11 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 	if len(e.EKKO) != total {
 		t.Fatalf("want %d POs across pages, got %d", total, len(e.EKKO))
 	}
-	if e.EKKO[0].BEDAT != "20260101" || e.EKKO[0].WAERS != "USD" {
-		t.Fatalf("field mapping wrong: %+v", e.EKKO[0])
+	if got := e.EKKO[0].BEDAT; got != "20260101" {
+		t.Errorf("BEDAT: got %q, want %q", got, "20260101")
+	}
+	if got := e.EKKO[0].WAERS; got != "USD" {
+		t.Errorf("WAERS: got %q, want %q", got, "USD")
 	}
 	if len(filters) != 3 || filters[0] != "CompanyCode eq '1000'" {
 		t.Fatalf("unexpected paging/filters: %v", filters)
