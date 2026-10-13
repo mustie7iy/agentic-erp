@@ -100,8 +100,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		return err
 	}
 	// With a context that cannot end, Shutdown fails only when an exporter
-	// fails to stop, which the OTLP HTTP client never does; spans the last
-	// export loses are reported through otel's error handler, not here.
+	// fails to stop, which the OTLP HTTP client never does (the experimental
+	// OTEL_GO_X_OBSERVABILITY instruments aside, which are not enabled);
+	// spans the last export loses are reported through otel's error handler.
 	defer func() { _ = tp.Shutdown(context.WithoutCancel(ctx)) }()
 	s := &server{cfg: cfg, log: log, tp: tp}
 	if s.pool, err = openPool(ctx, cfg); err != nil {

@@ -146,7 +146,11 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 	}
 	_, werr := f.Write(content)
 	if err := errors.Join(werr, f.Close()); err != nil {
-		_ = os.Remove(p) // best effort on a path that already fails: the write error is the one reported
+		// Best effort on a path that already fails, whose write error is the
+		// one reported. Should the remove fail too, a partial file stays under
+		// the key and a later Put of it answers ErrExists; writing to a
+		// temporary file and renaming it into place would close that gap.
+		_ = os.Remove(p)
 		return fmt.Errorf("blobstore: %w", err)
 	}
 	meta := contentType(opts) + "\n"
