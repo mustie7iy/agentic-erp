@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -230,12 +231,9 @@ func TestOffboardingLifecycle(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { w.Run(runCtx); close(done) }()
-	for deadline := time.Now().Add(10 * time.Second); count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1 AND exported_at IS NOT NULL`, third.Tenant.ID) == 0; {
-		if time.Now().After(deadline) {
-			t.Fatal("the running worker did not export the tenant")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		return count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1 AND exported_at IS NOT NULL`, third.Tenant.ID) > 0
+	}, "the running worker did not export the tenant")
 	cancel()
 	<-done
 }
@@ -461,10 +459,16 @@ func TestOffboardingFailures(t *testing.T) {
 	w.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	w.Interval = time.Millisecond
 	runCtx, cancel := context.WithCancel(ctx)
-	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
+	// A second transaction begun means the first round failed, was logged
+	// and the worker waited its interval: the failing round has run whole.
+	var begun atomic.Int32
+	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) {
+		begun.Add(1)
+		return nil, errors.New("pool down")
+	}
 	done := make(chan struct{})
 	go func() { w.Run(runCtx); close(done) }()
-	time.Sleep(5 * time.Millisecond)
+	pgtest.Eventually(t, 10*time.Second, func() bool { return begun.Load() >= 2 }, "the running worker did not begin a second round")
 	cancel()
 	<-done
 }
