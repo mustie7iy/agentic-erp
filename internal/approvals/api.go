@@ -85,7 +85,7 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	rows, _ := tx.Query(ctx, q, args...)
 	requests, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Request, error) { return scanRequest(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("approvals: list approval requests: %w", err)
 	}
 	requests, next := pagination.Page(ks, requests, func(r Request) (string, uuid.UUID) {
 		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID

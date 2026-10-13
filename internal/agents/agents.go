@@ -22,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -68,7 +69,7 @@ func scanSession(row pgx.Row) (Session, error) {
 	var s Session
 	err := row.Scan(&s.ID, &s.AgentID, &s.Purpose, &s.Model, &s.Status, &s.InputTokens, &s.OutputTokens, &s.Cost, &s.Currency, &s.Exponent,
 		&s.StartedAt, &s.EndedAt, &s.Version, &s.UpdatedAt)
-	return s, err
+	return s, errs.Wrapf(err, "scan agent session")
 }
 
 func getSession(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Session, error) {
@@ -80,7 +81,10 @@ func getSession(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Sessio
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, problem.NotFound("No agent session with this id.")
 	}
-	return s, err
+	if err != nil {
+		return s, fmt.Errorf("agents: read session %s: %w", id, err)
+	}
+	return s, nil
 }
 
 // ownRunning loads a session the caller may write to: its own, running.
@@ -112,7 +116,7 @@ func StartSession(ctx context.Context, purpose, model string) (Session, error) {
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO agents.session (tenant_id, id, agent_id, purpose, model, status, cost_currency)
 		VALUES ($1, $2, $3, $4, $5, 'running', 'USD')`, p.TenantID, id, p.ID, purpose, model); err != nil {
-		return Session{}, err
+		return Session{}, fmt.Errorf("agents: insert session %s: %w", id, err)
 	}
 	s, err := getSession(ctx, tx, id, false)
 	if err != nil {
@@ -163,7 +167,7 @@ func EndSession(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, u 
 	}
 	if _, err := tx.Exec(ctx, `UPDATE agents.session SET status = $2, input_tokens = $3, output_tokens = $4, cost = $5, cost_currency = $6,
 		ended_at = now(), version = version + 1 WHERE id = $1`, id, u.Status, u.InputTokens, u.OutputTokens, cost, currency); err != nil {
-		return Session{}, err
+		return Session{}, fmt.Errorf("agents: end session %s: %w", id, err)
 	}
 	ended, err := getSession(ctx, tx, id, false)
 	if err != nil {
@@ -189,7 +193,7 @@ const toolCallColumns = `session_id, seq, tool, input, result_summary, is_error,
 func scanToolCall(row pgx.Row) (ToolCall, error) {
 	var c ToolCall
 	err := row.Scan(&c.SessionID, &c.Seq, &c.Tool, &c.Input, &c.ResultSummary, &c.IsError, &c.CalledAt)
-	return c, err
+	return c, errs.Wrapf(err, "scan tool call")
 }
 
 // RecordToolCall appends a tool call to the caller's running session. Tool
@@ -202,9 +206,13 @@ func RecordToolCall(ctx context.Context, session uuid.UUID, tool string, input m
 	if _, err := ownRunning(ctx, tx, p, session, func() error { return problem.NotFound("No agent session with this id.") }); err != nil {
 		return ToolCall{}, err
 	}
-	return scanToolCall(tx.QueryRow(ctx, `INSERT INTO agents.tool_call (tenant_id, session_id, seq, tool, input, result_summary, is_error)
+	c, err := scanToolCall(tx.QueryRow(ctx, `INSERT INTO agents.tool_call (tenant_id, session_id, seq, tool, input, result_summary, is_error)
 		SELECT $1, $2, coalesce(max(seq), 0) + 1, $3, $4, $5, $6 FROM agents.tool_call WHERE session_id = $2
 		RETURNING `+toolCallColumns, p.TenantID, session, tool, input, summary, isError))
+	if err != nil {
+		return ToolCall{}, fmt.Errorf("agents: record tool call on session %s: %w", session, err)
+	}
+	return c, nil
 }
 
 // Recommendation is a row of agents.recommendation with its session's agent.
@@ -231,7 +239,7 @@ func scanRecommendation(row pgx.Row) (Recommendation, error) {
 	var r Recommendation
 	err := row.Scan(&r.ID, &r.SessionID, &r.AgentID, &r.ObjectType, &r.ObjectID, &r.Kind, &r.Content, &r.Outcome, &r.DecidedBy, &r.Version,
 		&r.CreatedAt, &r.UpdatedAt)
-	return r, err
+	return r, errs.Wrapf(err, "scan recommendation")
 }
 
 func getRecommendation(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Recommendation, error) {
@@ -243,7 +251,10 @@ func getRecommendation(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, problem.NotFound("No recommendation with this id.")
 	}
-	return r, err
+	if err != nil {
+		return r, fmt.Errorf("agents: read recommendation %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // NewRecommendation is a recommendation as an agent makes it.
@@ -269,7 +280,7 @@ func Recommend(ctx context.Context, in NewRecommendation) (Recommendation, error
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO agents.recommendation (tenant_id, id, session_id, object_type, object_id, kind, content)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, p.TenantID, id, in.SessionID, in.ObjectType, in.ObjectID, in.Kind, in.Content); err != nil {
-		return Recommendation{}, err
+		return Recommendation{}, fmt.Errorf("agents: insert recommendation %s: %w", id, err)
 	}
 	r, err := getRecommendation(ctx, tx, id, false)
 	if err != nil {
@@ -304,7 +315,7 @@ func Decide(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, outcom
 	}
 	if _, err := tx.Exec(ctx, `UPDATE agents.recommendation SET outcome = $2, decided_by = $3, version = version + 1 WHERE id = $1`,
 		id, outcome, p.ID); err != nil {
-		return Recommendation{}, err
+		return Recommendation{}, fmt.Errorf("agents: decide recommendation %s: %w", id, err)
 	}
 	decided, err := getRecommendation(ctx, tx, id, false)
 	if err != nil {
@@ -406,7 +417,7 @@ func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentS
 	rows, _ := tx.Query(ctx, q, args...)
 	sessions, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Session, error) { return scanSession(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("agents: list sessions: %w", err)
 	}
 	sessions, next := pagination.Page(ks, sessions, func(s Session) (string, uuid.UUID) { return instant(s.StartedAt), s.ID })
 	page := gen.AgentSessionPage{Items: make([]gen.AgentSession, len(sessions))}
@@ -462,7 +473,7 @@ func (e *Endpoints) ListAgentToolCalls(ctx context.Context, params gen.ListAgent
 		params.ID, after, size+1)
 	calls, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ToolCall, error) { return scanToolCall(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("agents: list tool calls of session %s: %w", params.ID, err)
 	}
 	page := gen.AgentToolCallPage{Items: []gen.AgentToolCall{}}
 	if len(calls) > size {
@@ -537,7 +548,7 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 	rows, _ := tx.Query(ctx, q, args...)
 	recs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Recommendation, error) { return scanRecommendation(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("agents: list recommendations: %w", err)
 	}
 	recs, next := pagination.Page(ks, recs, func(r Recommendation) (string, uuid.UUID) { return instant(r.CreatedAt), r.ID })
 	page := gen.RecommendationPage{Items: make([]gen.Recommendation, len(recs))}

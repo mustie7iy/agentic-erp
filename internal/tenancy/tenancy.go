@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -71,7 +73,7 @@ func scanLE(row pgx.Row) (LegalEntity, error) {
 	var e LegalEntity
 	err := row.Scan(&e.ID, &e.Code, &e.Name, &e.CountryCode, &e.LocalCurrency, &e.FiscalCalendarID, &e.Status, &e.Extensions,
 		&e.Version, &e.CreatedAt, &e.CreatedBy, &e.UpdatedAt, &e.UpdatedBy)
-	return e, err
+	return e, errs.Wrapf(err, "scan legal entity")
 }
 
 // OrgUnit is a row of tenancy.org_unit.
@@ -96,7 +98,7 @@ func scanOU(row pgx.Row) (OrgUnit, error) {
 	var u OrgUnit
 	err := row.Scan(&u.ID, &u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.ParentID, &u.Status, &u.Version,
 		&u.CreatedAt, &u.CreatedBy, &u.UpdatedAt, &u.UpdatedBy)
-	return u, err
+	return u, errs.Wrapf(err, "scan org unit")
 }
 
 // OrgUnitKinds are the kinds the database accepts.
@@ -155,7 +157,10 @@ func getLE(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (LegalEntity
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(e.ID)) {
 		return LegalEntity{}, notFound("legal entity")
 	}
-	return e, err
+	if err != nil {
+		return e, fmt.Errorf("tenancy: read legal entity %s: %w", id, err)
+	}
+	return e, nil
 }
 
 func getOU(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (OrgUnit, error) {
@@ -171,7 +176,10 @@ func getOU(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (OrgUnit, er
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(u.LegalEntityID)) {
 		return OrgUnit{}, notFound("org unit")
 	}
-	return u, err
+	if err != nil {
+		return u, fmt.Errorf("tenancy: read org unit %s: %w", id, err)
+	}
+	return u, nil
 }
 
 // NewLegalEntity is the input of CreateLegalEntity.
@@ -199,7 +207,7 @@ func CreateLegalEntity(ctx context.Context, in NewLegalEntity) (LegalEntity, err
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'inactive', $8, $9, $9) RETURNING `+leColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), in.Code, in.Name, in.CountryCode, in.LocalCurrency, in.FiscalCalendarID, in.Extensions, p.ID))
 	if err != nil {
-		return LegalEntity{}, err
+		return LegalEntity{}, fmt.Errorf("tenancy: insert legal entity %s: %w", in.Code, err)
 	}
 	return e, audit.Record(ctx, "tenancy.legal_entity.create", "tenancy.legal_entity", e.ID, map[string]any{"code": e.Code},
 		outbox.Event{Context: "tenancy", Name: "legal_entity_created", AggregateType: "tenancy.legal_entity", AggregateID: e.ID,
@@ -241,7 +249,7 @@ func UpdateLegalEntity(ctx context.Context, id uuid.UUID, ifMatch func(int32) er
 	updated, err := scanLE(tx.QueryRow(ctx, `UPDATE tenancy.legal_entity SET name = $2, extensions = $3, version = version + 1, updated_by = $4
 		WHERE id = $1 RETURNING `+leColumns, id, name, ext, p.ID))
 	if err != nil {
-		return LegalEntity{}, err
+		return LegalEntity{}, fmt.Errorf("tenancy: update legal entity %s: %w", id, err)
 	}
 	return updated, audit.Record(ctx, "tenancy.legal_entity.update", "tenancy.legal_entity", id, changed(e.Name != name, "name", jsonDiffers(e.Extensions, ext), "extensions"))
 }
@@ -297,7 +305,7 @@ func changeLegalEntityStatus(ctx context.Context, id uuid.UUID, ifMatch func(int
 	updated, err := scanLE(tx.QueryRow(ctx, `UPDATE tenancy.legal_entity SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+leColumns, id, t.to, p.ID))
 	if err != nil {
-		return LegalEntity{}, err
+		return LegalEntity{}, fmt.Errorf("tenancy: %s legal entity %s: %w", t.action, id, err)
 	}
 	var events []outbox.Event
 	if t.event != "" {
@@ -337,7 +345,7 @@ func CreateOrgUnit(ctx context.Context, in NewOrgUnit) (OrgUnit, error) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'inactive', $8, $8) RETURNING `+ouColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), in.LegalEntityID, in.Kind, in.Code, in.Name, in.ParentID, p.ID))
 	if err != nil {
-		return OrgUnit{}, err
+		return OrgUnit{}, fmt.Errorf("tenancy: insert org unit %s: %w", in.Code, err)
 	}
 	return u, audit.Record(ctx, "tenancy.org_unit.create", "tenancy.org_unit", u.ID, map[string]any{"code": u.Code, "kind": u.Kind},
 		outbox.Event{Context: "tenancy", Name: "org_unit_created", AggregateType: "tenancy.org_unit", AggregateID: u.ID,
@@ -373,7 +381,7 @@ func checkParent(ctx context.Context, tx pgx.Tx, legalEntity, self uuid.UUID, pa
 		SELECT coalesce(bool_or(id = $1 AND legal_entity_id = $2), false), coalesce(bool_or(id = $3), false) FROM up`, *parent, legalEntity, self).Scan(&sameEntity, &cycle)
 	switch {
 	case err != nil:
-		return err
+		return fmt.Errorf("tenancy: check parent %s of org unit %s: %w", *parent, self, err)
 	case !sameEntity:
 		return problem.Unprocessable("tenancy.invalid_parent", "The parent must be an org unit of the same legal entity.",
 			problem.FieldError{Field: "parent_id", Code: "invalid", Message: "no org unit with this id in the legal entity"})
@@ -417,7 +425,7 @@ func UpdateOrgUnit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error,
 	updated, err := scanOU(tx.QueryRow(ctx, `UPDATE tenancy.org_unit SET name = $2, parent_id = $3, version = version + 1, updated_by = $4
 		WHERE id = $1 RETURNING `+ouColumns, id, name, parent, p.ID))
 	if err != nil {
-		return OrgUnit{}, err
+		return OrgUnit{}, fmt.Errorf("tenancy: update org unit %s: %w", id, err)
 	}
 	return updated, audit.Record(ctx, "tenancy.org_unit.update", "tenancy.org_unit", id,
 		changed(u.Name != name, "name", !sameParent(u.ParentID, parent), "parent_id"))
@@ -446,7 +454,7 @@ func changeOrgUnitStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 	updated, err := scanOU(tx.QueryRow(ctx, `UPDATE tenancy.org_unit SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+ouColumns, id, t.to, p.ID))
 	if err != nil {
-		return OrgUnit{}, err
+		return OrgUnit{}, fmt.Errorf("tenancy: %s org unit %s: %w", t.action, id, err)
 	}
 	var events []outbox.Event
 	if t.event != "" {

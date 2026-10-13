@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/go-faster/jx"
 	"github.com/google/uuid"
@@ -122,7 +123,7 @@ func (e *Endpoints) ListLegalEntities(ctx context.Context, params gen.ListLegalE
 	rows, _ := tx.Query(ctx, q, args...)
 	les, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (LegalEntity, error) { return scanLE(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tenancy: list legal entities: %w", err)
 	}
 	les, next := pagination.Page(ks, les, func(l LegalEntity) (string, uuid.UUID) {
 		if ks.Field() == "name" {
@@ -239,7 +240,7 @@ func (e *Endpoints) ListOrgUnits(ctx context.Context, params gen.ListOrgUnitsPar
 	rows, _ := tx.Query(ctx, q, args...)
 	units, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OrgUnit, error) { return scanOU(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tenancy: list org units: %w", err)
 	}
 	units, next := pagination.Page(ks, units, func(u OrgUnit) (string, uuid.UUID) {
 		if ks.Field() == "name" {
@@ -318,7 +319,10 @@ func (Directory) LegalEntityByCode(ctx context.Context, code string) (id uuid.UU
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, "", false, nil
 	}
-	return id, status, err == nil, err
+	if err != nil {
+		return id, status, false, fmt.Errorf("tenancy: read legal entity %s: %w", code, err)
+	}
+	return id, status, true, nil
 }
 
 // LegalEntityStatus returns the status of the legal entity, or ok = false
@@ -333,7 +337,10 @@ func (Directory) LegalEntityStatus(ctx context.Context, id uuid.UUID) (status st
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
-	return status, err == nil, err
+	if err != nil {
+		return status, false, fmt.Errorf("tenancy: read status of legal entity %s: %w", id, err)
+	}
+	return status, true, nil
 }
 
 // Entity is what other contexts read about a legal entity.
@@ -368,7 +375,10 @@ func entity(ctx context.Context, where string, arg any) (Entity, bool, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Entity{}, false, nil
 	}
-	return e, err == nil, err
+	if err != nil {
+		return e, false, fmt.Errorf("tenancy: read legal entity %v: %w", arg, err)
+	}
+	return e, true, nil
 }
 
 // GroupCurrency is the tenant's group currency, the third currency of every
@@ -379,8 +389,10 @@ func (Directory) GroupCurrency(ctx context.Context) (string, error) {
 		return "", err
 	}
 	var c string
-	err = tx.QueryRow(ctx, `SELECT group_currency FROM tenancy.tenant WHERE id = $1`, p.TenantID).Scan(&c)
-	return c, err
+	if err := tx.QueryRow(ctx, `SELECT group_currency FROM tenancy.tenant WHERE id = $1`, p.TenantID).Scan(&c); err != nil {
+		return c, fmt.Errorf("tenancy: read group currency: %w", err)
+	}
+	return c, nil
 }
 
 // Unit is what other contexts read about an org unit.
@@ -402,5 +414,8 @@ func (Directory) OrgUnit(ctx context.Context, id uuid.UUID) (Unit, bool, error) 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Unit{}, false, nil
 	}
-	return u, err == nil, err
+	if err != nil {
+		return u, false, fmt.Errorf("tenancy: read org unit %s: %w", id, err)
+	}
+	return u, true, nil
 }

@@ -54,7 +54,7 @@ func Escalate(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, prior *int16
 		return escalatedBefore(ctx, tx, id, prior)
 	}
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("approvals: escalate request %s: %w", id, err)
 	}
 	if _, err := outbox.Write(ctx, tx, tenant, EscalatorActor, "", outbox.Event{Context: "workflow", Name: "approval_escalated", AggregateType: "workflow.approval_request", AggregateID: id,
 		Payload: map[string]any{"approval_request_id": id, "object_type": r.objectType, "object_id": r.objectID, "current_step": r.step, "escalations": r.count,

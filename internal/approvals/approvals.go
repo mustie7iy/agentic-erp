@@ -30,6 +30,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -147,20 +148,23 @@ func scanRequest(row pgx.Row) (Request, error) {
 	var r Request
 	err := row.Scan(&r.ID, &r.ObjectType, &r.ObjectID, &r.Title, &r.RequesterID, &r.Amount, &r.Currency, &r.Exponent, &r.PolicyID,
 		&r.Status, &r.CurrentStep, &r.CompletedAt, &r.Escalations, &r.EscalatedAt, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.Steps, &r.Decisions)
-	return r, err
+	return r, errs.Wrapf(err, "scan approval request")
 }
 
 func getRequest(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Request, error) {
 	if lock {
 		if _, err := tx.Exec(ctx, `SELECT FROM workflow.approval_request WHERE id = $1 FOR UPDATE`, id); err != nil {
-			return Request{}, err
+			return Request{}, fmt.Errorf("approvals: lock request %s: %w", id, err)
 		}
 	}
 	r, err := scanRequest(tx.QueryRow(ctx, requestSelect+` WHERE r.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Request{}, problem.NotFound("No approval request with this id.")
 	}
-	return r, err
+	if err != nil {
+		return Request{}, fmt.Errorf("approvals: read request %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // GetRequest returns an approval request.
@@ -202,7 +206,7 @@ func steps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([
 	case Requisition:
 		var exp int
 		if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, *in.Currency).Scan(&exp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("approvals: read exponent of currency %s: %w", *in.Currency, err)
 		}
 		for _, t := range doc.Purchasing.RequisitionApproval {
 			limit, _ := money.ParseDecimal(t.UpTo, exp) // validated with the document; "" is the last tier
@@ -259,7 +263,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 	id = uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO workflow.approval_request (tenant_id, id, object_type, object_id, title, requester_id, amount, currency, status, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $6)`, p.TenantID, id, in.ObjectType, in.ObjectID, in.Title, p.ID, in.Amount, in.Currency); err != nil {
-		return uuid.Nil, false, err
+		return uuid.Nil, false, fmt.Errorf("approvals: insert request %s for %s %s: %w", id, in.ObjectType, in.ObjectID, err)
 	}
 	nos, required := make([]int16, len(policy)), make([]int16, len(policy))
 	for i, s := range policy {
@@ -267,7 +271,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO workflow.approval_step (tenant_id, request_id, step_no, role_id, required)
 		SELECT $1, $2, n, r, q FROM unnest($3::smallint[], $4::uuid[], $5::smallint[]) AS x(n, r, q)`, p.TenantID, id, nos, roles, required); err != nil {
-		return uuid.Nil, false, err
+		return uuid.Nil, false, fmt.Errorf("approvals: insert steps of request %s: %w", id, err)
 	}
 	r, err := getRequest(ctx, tx, id, false)
 	if err != nil {
@@ -298,7 +302,7 @@ func (Approvals) Withdraw(ctx context.Context, objectType string, objectID uuid.
 		return nil
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("approvals: find pending request of %s %s: %w", objectType, objectID, err)
 	}
 	return complete(ctx, tx, p, id, Cancelled, comment)
 }
@@ -315,7 +319,7 @@ func moneyOf(r Request) any {
 func complete(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, outcome, comment string) error {
 	if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET status = $2, completed_at = now(), version = version + 1 WHERE id = $1`,
 		id, outcome); err != nil {
-		return err
+		return fmt.Errorf("approvals: complete request %s as %s: %w", id, outcome, err)
 	}
 	r, err := getRequest(ctx, tx, id, false)
 	if err != nil {
@@ -387,7 +391,10 @@ func (d Decider) insertDecision(ctx context.Context, tx pgx.Tx, p reqctx.Princip
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO workflow.decision (tenant_id, id, request_id, step_no, actor_id, actor_kind, decision, comment)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, p.TenantID, uuid.Must(uuid.NewV7()), r.ID, r.CurrentStep, p.ID, p.Kind, decision, c)
-	return err
+	if err != nil {
+		return fmt.Errorf("approvals: insert %s decision on request %s: %w", decision, r.ID, err)
+	}
+	return nil
 }
 
 // notify calls the owning context of the request's object type.
@@ -420,7 +427,7 @@ func (d Decider) Approve(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 	case step.Approvals+1 < step.Required:
 	case int(r.CurrentStep) < len(r.Steps):
 		if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET current_step = current_step + 1, version = version + 1 WHERE id = $1`, id); err != nil {
-			return Request{}, err
+			return Request{}, fmt.Errorf("approvals: advance request %s: %w", id, err)
 		}
 	default:
 		if err := complete(ctx, tx, p, id, Approved, comment); err != nil {
