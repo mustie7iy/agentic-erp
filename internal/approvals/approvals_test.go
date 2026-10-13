@@ -24,7 +24,10 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"partner.supplier.read", "partner.supplier.create", "partner.supplier.change"}
 
-func setup(t *testing.T) fixture.Env { return fixture.New(t, perms...) }
+func setup(t *testing.T) fixture.Env {
+	t.Helper()
+	return fixture.New(t, perms...)
+}
 
 // partnerChange requests a new partner and returns its pending approval request.
 func partnerChange(t *testing.T, f fixture.Env, name string) map[string]any {

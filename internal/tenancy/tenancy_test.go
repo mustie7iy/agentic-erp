@@ -31,6 +31,7 @@ func org(t *testing.T) pgtest.Tenant {
 type client struct{ apitest.Client }
 
 func newClient(t *testing.T, ten pgtest.Tenant, as pgtest.Actor) client {
+	t.Helper()
 	return client{apitest.Client{T: t, API: apitest.New(t), Tenant: ten, As: as}}
 }
 

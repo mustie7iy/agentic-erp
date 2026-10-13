@@ -73,6 +73,7 @@ func endpoints(c payments.Connector) *payments.Endpoints {
 
 // proposer is the worker on the package database.
 func proposer(t *testing.T) *payments.Proposer {
+	t.Helper()
 	return &payments.Proposer{Endpoints: endpoints(nil), Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker"}
 }
 

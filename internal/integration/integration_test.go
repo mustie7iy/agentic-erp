@@ -115,6 +115,7 @@ func count(t *testing.T, sql string, args ...any) int {
 }
 
 func (e env) entries(t *testing.T) int {
+	t.Helper()
 	return count(t, `SELECT count(*) FROM ledger.journal_entry WHERE tenant_id = $1`, e.Tenant.ID)
 }
 

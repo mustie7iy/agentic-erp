@@ -24,11 +24,13 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 func provisioner(t *testing.T) *provisioning.Provisioner {
+	t.Helper()
 	keys := apitest.FieldKeys()
 	return &provisioning.Provisioner{Pool: pgtest.Pool(t), AppRole: "erp_app", Keys: keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})}
 }
 
 func request(t *testing.T) provisioning.Request {
+	t.Helper()
 	email := "ada@example.com"
 	return provisioning.Request{Name: "Acme", Region: "eu-west", GroupCurrency: "eur",
 		Administrator: provisioning.Administrator{Subject: "idp|ada", DisplayName: "Ada", Email: &email}, Document: fixture.Document(t)}

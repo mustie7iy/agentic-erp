@@ -173,6 +173,7 @@ func count(t *testing.T, sql string, args ...any) int {
 }
 
 func operations(t *testing.T, ten pgtest.Tenant) int {
+	t.Helper()
 	return count(t, "SELECT count(*) FROM platform.operation WHERE tenant_id = $1", ten.ID)
 }
 

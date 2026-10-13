@@ -35,6 +35,7 @@ func (f failingStore) Get(context.Context, string) ([]byte, string, error)      
 func (f failingStore) Stat(context.Context, string) (int64, string, error)             { return 0, "", f.err }
 
 func anchorer(t *testing.T, store blobstore.Store) *audit.Anchorer {
+	t.Helper()
 	return &audit.Anchorer{Pool: pgtest.Pool(t), Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Retention: 10 * 365 * 24 * time.Hour,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC) }}
 }

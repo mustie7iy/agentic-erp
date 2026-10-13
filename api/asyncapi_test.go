@@ -91,7 +91,8 @@ func (d asyncDoc) deref(t *testing.T, m map[string]any) map[string]any {
 
 // headerTypeConsts returns every `type` const declared in a message's
 // headers schema, looking through allOf.
-func headerTypeConsts(d asyncDoc, t *testing.T, headers map[string]any) []string {
+func headerTypeConsts(t *testing.T, d asyncDoc, headers map[string]any) []string {
+	t.Helper()
 	var out []string
 	var walk func(map[string]any)
 	walk = func(s map[string]any) {
@@ -199,7 +200,7 @@ func TestAsyncAPIMessages(t *testing.T) {
 			t.Errorf("message %s payload is not an object schema", key)
 		}
 
-		consts := headerTypeConsts(d, t, asMap(msg["headers"]))
+		consts := headerTypeConsts(t, d, asMap(msg["headers"]))
 		if len(consts) != 1 {
 			t.Errorf("message %s: want exactly one CloudEvents type const in headers, got %v", key, consts)
 			continue
@@ -296,7 +297,7 @@ func TestAsyncAPIChannels(t *testing.T) {
 				t.Errorf("message %s is on channels %s and %s", ref, prev, chName)
 			}
 			onChannel[ref] = chName
-			for _, ceType := range headerTypeConsts(d, t, asMap(msg["headers"])) {
+			for _, ceType := range headerTypeConsts(t, d, asMap(msg["headers"])) {
 				if parts := strings.Split(ceType, "."); len(parts) < 4 || parts[3] != ctx {
 					t.Errorf("channel %s carries %s whose type %q is not in context %q", chName, ref, ceType, ctx)
 				}

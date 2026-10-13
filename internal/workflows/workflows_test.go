@@ -100,6 +100,7 @@ func (e env) propose(t *testing.T, runDate string) (op map[string]any, run strin
 }
 
 func activities(t *testing.T) *workflows.Payments {
+	t.Helper()
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &workflows.Payments{Pool: pgtest.Pool(t), AppRole: "erp_app", Endpoints: httpapi.Payments(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys()})}
 }
@@ -699,6 +700,7 @@ func simulationAsked(t *testing.T) (env, workflows.SimulateInput, string) {
 }
 
 func simulations(t *testing.T) *workflows.Simulations {
+	t.Helper()
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &workflows.Simulations{Worker: &configuration.SimulationWorker{Dependencies: httpapi.Configuration(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys()}),
 		Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker"}}
