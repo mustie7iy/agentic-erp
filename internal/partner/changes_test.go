@@ -29,12 +29,27 @@ func TestUpdateChange(t *testing.T) {
 		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE999999999"}, {"scheme": "DE_TAX_NO", "value": "12/345/67890"}],
 		"extensions": {"cost_object_hint": null, "segment": "B2B", "routing": {"desk": "north"}}}`, e.le, e.recon, e.date(0), e.date(3), e.date(30))
 	c, tag := e.Must(201, "POST", "/v1/partner-changes", e.update(pid, payload), "")
-	if c["kind"] != "update" || c["status"] != "pending" || tag != `"2"` || c["workflow_request_id"] == nil {
-		t.Fatalf("change: %v", c)
+	if c["kind"] != "update" {
+		t.Errorf("change kind: got %v, want update", c["kind"])
+	}
+	if c["status"] != "pending" {
+		t.Errorf("change status: got %v, want pending", c["status"])
+	}
+	if tag != `"2"` {
+		t.Errorf("change tag: got %s, want \"2\"", tag)
+	}
+	if c["workflow_request_id"] == nil {
+		t.Error("change workflow_request_id: got nil, want a request")
 	}
 	pl := c["payload"].(map[string]any)
-	if pl["language"] != nil || pl["legal_name"] != "Muster Aktiengesellschaft" || strings.Contains(fmt.Sprint(pl), "DE999999999") {
-		t.Fatalf("payload: %v", pl)
+	if pl["language"] != nil {
+		t.Errorf("payload language: got %v, want null", pl["language"])
+	}
+	if pl["legal_name"] != "Muster Aktiengesellschaft" {
+		t.Errorf("payload legal_name: got %v, want Muster Aktiengesellschaft", pl["legal_name"])
+	}
+	if strings.Contains(fmt.Sprint(pl), "DE999999999") {
+		t.Errorf("payload: got the plain tax identifier in %v, want it hidden", pl)
 	}
 	if _, ok := pl["language"]; !ok {
 		t.Fatalf("cleared language missing from payload: %v", pl)
@@ -42,37 +57,75 @@ func TestUpdateChange(t *testing.T) {
 	e.Problem(409, "partner.change_pending", "POST", "/v1/partner-changes", e.update(pid, `{"name": "Again"}`), "")
 	e.mustApply(t, id(c))
 	got, _ := e.Must(200, "GET", "/v1/business-partners/"+pid, "", "")
-	if got["name"] != "Muster AG" || got["legal_name"] != "Muster Aktiengesellschaft" || got["language"] != nil ||
-		strings.Join([]string{got["roles"].([]any)[0].(string), got["roles"].([]any)[1].(string)}, ",") != "customer,supplier" ||
-		got["supplier_companies"].([]any)[0].(map[string]any)["payment_term_code"] != "NT60" {
-		t.Fatalf("partner after update: %v", got)
+	for field, want := range map[string]any{"name": "Muster AG", "legal_name": "Muster Aktiengesellschaft", "language": nil} {
+		if got[field] != want {
+			t.Errorf("partner %s: got %v, want %v", field, got[field], want)
+		}
 	}
-	if ext := got["extensions"].(map[string]any); ext["segment"] != "B2B" || ext["cost_object_hint"] != nil || ext["routing"].(map[string]any)["desk"] != "north" {
-		t.Fatalf("extensions: %v", ext)
+	if roles := got["roles"].([]any); fmt.Sprint(roles) != "[customer supplier]" {
+		t.Errorf("partner roles: got %v, want [customer supplier]", roles)
+	}
+	if term := got["supplier_companies"].([]any)[0].(map[string]any)["payment_term_code"]; term != "NT60" {
+		t.Errorf("payment term: got %v, want NT60", term)
+	}
+	ext := got["extensions"].(map[string]any)
+	if ext["segment"] != "B2B" {
+		t.Errorf("extension segment: got %v, want B2B", ext["segment"])
+	}
+	if ext["cost_object_hint"] != nil {
+		t.Errorf("extension cost_object_hint: got %v, want none", ext["cost_object_hint"])
+	}
+	if desk := ext["routing"].(map[string]any)["desk"]; desk != "north" {
+		t.Errorf("extension routing.desk: got %v, want north", desk)
 	}
 	addrs := got["addresses"].([]any)
 	if len(addrs) != 3 {
 		t.Fatalf("addresses: %v", addrs)
 	}
 	old, current, remit := addrs[0].(map[string]any), addrs[1].(map[string]any), addrs[2].(map[string]any)
-	if old["valid_to"] != e.date(0) || current["line1"] != "Neue Strasse 2" || current["valid_to"] != nil || remit["valid_from"] != e.date(3) {
-		t.Fatalf("address replacement: %v", addrs)
+	if old["valid_to"] != e.date(0) {
+		t.Errorf("old address valid_to: got %v, want %s", old["valid_to"], e.date(0))
+	}
+	if current["line1"] != "Neue Strasse 2" {
+		t.Errorf("current address line1: got %v, want Neue Strasse 2", current["line1"])
+	}
+	if current["valid_to"] != nil {
+		t.Errorf("current address valid_to: got %v, want none", current["valid_to"])
+	}
+	if remit["valid_from"] != e.date(3) {
+		t.Errorf("remit-to address valid_from: got %v, want %s", remit["valid_from"], e.date(3))
 	}
 	taxes := got["tax_identifiers"].([]any)
-	if len(taxes) != 2 || taxes[1].(map[string]any)["value_last4"] != "9999" {
-		t.Fatalf("tax identifiers: %v", taxes)
+	if len(taxes) != 2 {
+		t.Fatalf("tax identifiers: got %d %v, want 2", len(taxes), taxes)
+	}
+	if last4 := taxes[1].(map[string]any)["value_last4"]; last4 != "9999" {
+		t.Errorf("tax identifier last 4: got %v, want 9999", last4)
 	}
 	updated := e.events(t, "business_partner_updated")
-	if len(updated) != 1 || updated[0]["name"] != "Muster AG" || updated[0]["language"] != nil ||
-		!strings.Contains(fmt.Sprint(updated[0]["changed_fields"]), "supplier_company."+e.le.String()) ||
-		!strings.Contains(fmt.Sprint(updated[0]["changed_fields"]), "tax_identifier.DE_TAX_NO") {
-		t.Fatalf("updated events: %v", updated)
+	if len(updated) != 1 {
+		t.Fatalf("updated events: got %d %v, want 1", len(updated), updated)
+	}
+	if updated[0]["name"] != "Muster AG" {
+		t.Errorf("updated event name: got %v, want Muster AG", updated[0]["name"])
+	}
+	if updated[0]["language"] != nil {
+		t.Errorf("updated event language: got %v, want null", updated[0]["language"])
+	}
+	for _, want := range []string{"supplier_company." + e.le.String(), "tax_identifier.DE_TAX_NO"} {
+		if fields := fmt.Sprint(updated[0]["changed_fields"]); !strings.Contains(fields, want) {
+			t.Errorf("updated event changed_fields: got %s, want it to contain %s", fields, want)
+		}
 	}
 	// A minimal change publishes only what it names.
 	c2, _ := e.Must(201, "POST", "/v1/partner-changes", e.update(pid, `{"legal_name": null, "language": "en"}`), "")
 	e.mustApply(t, id(c2))
-	if u := e.events(t, "business_partner_updated")[1]; fmt.Sprint(u["changed_fields"]) != "[legal_name language]" || u["legal_name"] != nil {
-		t.Fatalf("second update: %v", u)
+	u := e.events(t, "business_partner_updated")[1]
+	if fields := fmt.Sprint(u["changed_fields"]); fields != "[legal_name language]" {
+		t.Errorf("second update changed_fields: got %s, want [legal_name language]", fields)
+	}
+	if u["legal_name"] != nil {
+		t.Errorf("second update legal_name: got %v, want null", u["legal_name"])
 	}
 	// An address dated from tomorrow ends the current one tomorrow.
 	c3, _ := e.Must(201, "POST", "/v1/partner-changes", e.update(pid, fmt.Sprintf(`{"addresses": [{"purpose": "legal", "line1": "Dritte 3",
@@ -113,9 +166,15 @@ func TestUpdateRefusals(t *testing.T) {
 		{"tax scheme twice", e.update(pid, `{"tax_identifiers": [{"scheme": "EU_VAT", "value": "1"}, {"scheme": "EU_VAT", "value": "2"}]}`), "partner.duplicate_tax_scheme"},
 	}
 	for _, c := range cases {
-		if got, m, _ := e.Do("POST", "/v1/partner-changes", c.body, ""); got != 422 || m["code"] != c.code {
-			t.Errorf("%s: %d %v, want 422 %s", c.name, got, m, c.code)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			got, m, _ := e.in(t).Do("POST", "/v1/partner-changes", c.body, "")
+			if got != 422 {
+				t.Errorf("status: got %d, want 422 (%v)", got, m)
+			}
+			if m["code"] != c.code {
+				t.Errorf("code: got %v, want %s", m["code"], c.code)
+			}
+		})
 	}
 	// A customer that becomes a supplier may get supplier data in the same change.
 	e.Must(201, "POST", "/v1/partner-changes", e.update(id(customer), strings.Replace(company, `{"supplier_companies"`, `{"roles": ["customer", "supplier"], "supplier_companies"`, 1)), "")
@@ -134,25 +193,49 @@ func TestBankChanges(t *testing.T) {
 	e.Problem(422, "partner.unknown_country", "POST", path, strings.Replace(body("12345678", "domestic", e.date(0)), `"DE"`, `"QQ"`, 1), "")
 	e.Problem(404, "request.not_found", "POST", "/v1/business-partners/"+uuid.NewString()+"/bank-accounts", body("12345678", "domestic", e.date(0)), "")
 	c, _ := e.Must(201, "POST", path, body("12345678", "domestic", e.date(2)), "")
-	if c["kind"] != "bank_change" || c["payload"].(map[string]any)["action"] != "add" ||
-		c["payload"].(map[string]any)["bank_account"].(map[string]any)["account_last4"] != "5678" {
-		t.Fatalf("bank change: %v", c)
+	if c["kind"] != "bank_change" {
+		t.Errorf("bank change kind: got %v, want bank_change", c["kind"])
+	}
+	cp := c["payload"].(map[string]any)
+	if cp["action"] != "add" {
+		t.Errorf("bank change action: got %v, want add", cp["action"])
+	}
+	if last4 := cp["bank_account"].(map[string]any)["account_last4"]; last4 != "5678" {
+		t.Errorf("bank change account_last4: got %v, want 5678", last4)
 	}
 	e.Problem(409, "partner.change_pending", "POST", path, body("87654321", "domestic", e.date(2)), "")
 	e.mustApply(t, id(c))
 	all, _ := e.Must(200, "GET", path, "", "")
 	items := all["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("accounts after the change: got %d %v, want 2", len(items), items)
+	}
 	first, second := items[0].(map[string]any), items[1].(map[string]any)
-	if len(items) != 2 || first["valid_to"] != e.date(2) || first["ended_by"] != e.ten.Human.ID.String() || first["ended_at"] == nil ||
-		second["valid_from"] != e.date(2) || second["account_scheme"] != "domestic" {
-		t.Fatalf("accounts after the change: %v", items)
+	for field, want := range map[string]any{"valid_to": e.date(2), "ended_by": e.ten.Human.ID.String()} {
+		if first[field] != want {
+			t.Errorf("first account %s: got %v, want %v", field, first[field], want)
+		}
+	}
+	if first["ended_at"] == nil {
+		t.Error("first account ended_at: got nil, want a time")
+	}
+	for field, want := range map[string]any{"valid_from": e.date(2), "account_scheme": "domestic"} {
+		if second[field] != want {
+			t.Errorf("second account %s: got %v, want %v", field, second[field], want)
+		}
 	}
 	changed := e.events(t, "bank_account_changed")
-	if last := changed[len(changed)-1]; last["ended_bank_account_id"] != id(first) || last["ended_valid_to"] != e.date(2) || last["bic"] != nil {
-		t.Fatalf("bank account changed: %v", last)
+	last := changed[len(changed)-1]
+	for field, want := range map[string]any{"ended_bank_account_id": id(first), "ended_valid_to": e.date(2), "bic": nil} {
+		if last[field] != want {
+			t.Errorf("bank account changed %s: got %v, want %v", field, last[field], want)
+		}
 	}
-	if today, _ := e.Must(200, "GET", path+"?valid_on="+e.date(0), "", ""); len(today["items"].([]any)) != 1 || id(today["items"].([]any)[0].(map[string]any)) != id(first) {
-		t.Fatalf("valid today: %v", today)
+	today, _ := e.Must(200, "GET", path+"?valid_on="+e.date(0), "", "")
+	if items := today["items"].([]any); len(items) != 1 {
+		t.Fatalf("valid today: got %d %v, want 1", len(items), items)
+	} else if got := id(items[0].(map[string]any)); got != id(first) {
+		t.Errorf("valid today: got %s, want %s", got, id(first))
 	}
 	if paged, _ := e.Must(200, "GET", path+"?page_size=1", "", ""); paged["next_page_token"] == nil {
 		t.Fatalf("paging: %v", paged)
@@ -173,15 +256,23 @@ func TestBankChanges(t *testing.T) {
 	_, firstTag := e.Must(200, "GET", path+"/"+id(first), "", "")
 	e.Problem(422, "partner.invalid_end", "POST", ended, endBody(e.date(2)), firstTag)
 	ec, _ := e.Must(200, "POST", end, endBody(e.date(10)), tag)
-	if ec["payload"].(map[string]any)["bank_account_id"] != id(acct) || ec["payload"].(map[string]any)["valid_to"] != e.date(10) {
-		t.Fatalf("end change: %v", ec)
+	ep := ec["payload"].(map[string]any)
+	if ep["bank_account_id"] != id(acct) {
+		t.Errorf("end change bank_account_id: got %v, want %s", ep["bank_account_id"], id(acct))
+	}
+	if ep["valid_to"] != e.date(10) {
+		t.Errorf("end change valid_to: got %v, want %s", ep["valid_to"], e.date(10))
 	}
 	e.mustApply(t, id(ec))
 	if got, _ := e.Must(200, "GET", path+"/"+id(second), "", ""); got["valid_to"] != e.date(10) {
 		t.Fatalf("not ended: %v", got)
 	}
-	if last := e.events(t, "bank_account_changed"); last[len(last)-1]["bank_account_id"] != nil || last[len(last)-1]["ended_bank_account_id"] != id(second) || last[len(last)-1]["valid_to"] != e.date(10) {
-		t.Fatalf("end event: %v", last[len(last)-1])
+	changed = e.events(t, "bank_account_changed")
+	last = changed[len(changed)-1]
+	for field, want := range map[string]any{"bank_account_id": nil, "ended_bank_account_id": id(second), "valid_to": e.date(10)} {
+		if last[field] != want {
+			t.Errorf("end event %s: got %v, want %v", field, last[field], want)
+		}
 	}
 	// An end that is no longer earlier than the account's end is refused on apply.
 	_, tag = e.Must(200, "GET", path+"/"+id(second), "", "")
@@ -211,8 +302,14 @@ func TestPorts(t *testing.T) {
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		check := func(p string, le uuid.UUID, kind, want string) {
 			got, err := partner.Postings{}.PostingBlock(ctx, uuid.MustParse(p), le, kind)
-			if err != nil || !strings.Contains(got, want) || (want == "" && got != "") {
-				t.Errorf("%s %s: %q %v, want %q", p, kind, got, err, want)
+			if err != nil {
+				t.Errorf("%s %s: %v", p, kind, err)
+			}
+			if want == "" && got != "" {
+				t.Errorf("%s %s: got %q, want no block", p, kind, got)
+			}
+			if !strings.Contains(got, want) {
+				t.Errorf("%s %s: got %q, want it to contain %q", p, kind, got, want)
 			}
 		}
 		check(id(active), e.le, "supplier", "")
@@ -242,8 +339,10 @@ func TestPorts(t *testing.T) {
 	if f, err := terms.Check(context.Background(), nil, proposed); err != nil || f != nil {
 		t.Fatalf("first version: %v %v", f, err)
 	}
-	if f, _ := terms.Check(context.Background(), base, proposed); len(f) != 1 || f[0].Path != "payment_terms[NT90]" {
-		t.Fatalf("removed term: %v", f)
+	if f, _ := terms.Check(context.Background(), base, proposed); len(f) != 1 {
+		t.Fatalf("removed term: got %d findings %v, want 1", len(f), f)
+	} else if f[0].Path != "payment_terms[NT90]" {
+		t.Errorf("removed term: got %s, want payment_terms[NT90]", f[0].Path)
 	}
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error { return terms.Apply(ctx, proposed) }); err != nil {
 		t.Fatal(err)
@@ -251,8 +350,17 @@ func TestPorts(t *testing.T) {
 	var desc string
 	var days, version int
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT description, net_days, version FROM partner.payment_term WHERE tenant_id = $1 AND code = 'NT30'`,
-		e.ten.ID).Scan(&desc, &days, &version); err != nil || desc != "Net thirty" || days != 31 || version != 2 {
-		t.Fatalf("NT30: %s %d %d %v", desc, days, version, err)
+		e.ten.ID).Scan(&desc, &days, &version); err != nil {
+		t.Fatalf("read NT30: %v", err)
+	}
+	if desc != "Net thirty" {
+		t.Errorf("NT30 description: got %s, want Net thirty", desc)
+	}
+	if days != 31 {
+		t.Errorf("NT30 net days: got %d, want 31", days)
+	}
+	if version != 2 {
+		t.Errorf("NT30 version: got %d, want 2", version)
 	}
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error { return terms.Apply(ctx, proposed) }); err != nil {
 		t.Fatal(err)
