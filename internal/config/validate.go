@@ -145,6 +145,29 @@ func (v *validator) company(p string, co *Company) {
 	if co.FiscalYearStartMonth < 1 || co.FiscalYearStartMonth > 12 {
 		v.err(p+".fiscal_year_start_month", "must be 1-12")
 	}
+	v.chartOfAccounts(p, co)
+	v.accountDetermination(p, co)
+	v.taxCodes(p, co)
+	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
+		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
+	}
+	v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, decimalsFor(co.Currency))
+	v.amount(p+".auto_post_limit", co.AutoPostLimit, decimalsFor(co.Currency))
+	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
+		v.err(p+".gr_over_delivery_percent", "must be 0-100")
+	}
+	if !ValidIBAN(co.HouseBank.IBAN) {
+		v.err(p+".house_bank.iban", "IBAN %q fails the ISO 13616 check", co.HouseBank.IBAN)
+	}
+	if !bicRe.MatchString(co.HouseBank.BIC) {
+		v.err(p+".house_bank.bic", "BIC %q is not a valid SWIFT code", co.HouseBank.BIC)
+	}
+}
+
+// chartOfAccounts checks the company's accounts: valid, unique numbers and
+// types, and at least one vendor reconciliation account, which must be a
+// liability.
+func (v *validator) chartOfAccounts(p string, co *Company) {
 	types := map[AccountType]bool{Asset: true, Liability: true, Equity: true, Revenue: true, Expense: true}
 	nums := map[string]bool{}
 	recon := 0
@@ -173,6 +196,11 @@ func (v *validator) company(p string, co *Company) {
 	if recon == 0 {
 		v.err(p+".chart_of_accounts", "no vendor reconciliation account")
 	}
+}
+
+// accountDetermination checks that each determined account is in the chart
+// with the type its use needs; the FX accounts are optional.
+func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
 		a := co.Account(number)
@@ -196,7 +224,11 @@ func (v *validator) company(p string, co *Company) {
 	if ad.FXLoss != "" {
 		check("fx_loss", ad.FXLoss, Expense, false)
 	}
+}
 
+// taxCodes checks the company's tax codes: unique, a rate of at most 100%
+// and an account in the chart.
+func (v *validator) taxCodes(p string, co *Company) {
 	codes := map[string]bool{}
 	for _, t := range co.TaxCodes {
 		tp := fmt.Sprintf("%s.tax_codes[%s]", p, t.Code)
@@ -213,20 +245,6 @@ func (v *validator) company(p string, co *Company) {
 	}
 	if len(co.TaxCodes) == 0 {
 		v.warn(p+".tax_codes", "no tax codes; captured invoices cannot be checked for tax rate")
-	}
-	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
-		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
-	}
-	v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, decimalsFor(co.Currency))
-	v.amount(p+".auto_post_limit", co.AutoPostLimit, decimalsFor(co.Currency))
-	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
-		v.err(p+".gr_over_delivery_percent", "must be 0-100")
-	}
-	if !ValidIBAN(co.HouseBank.IBAN) {
-		v.err(p+".house_bank.iban", "IBAN %q fails the ISO 13616 check", co.HouseBank.IBAN)
-	}
-	if !bicRe.MatchString(co.HouseBank.BIC) {
-		v.err(p+".house_bank.bic", "BIC %q is not a valid SWIFT code", co.HouseBank.BIC)
 	}
 }
 
@@ -270,14 +288,19 @@ func (v *validator) purchasing(c *Config) {
 				prev = m
 			}
 		}
-		for j, s := range t.Steps {
-			sp := fmt.Sprintf("%s.steps[%d]", p, j)
-			if strings.TrimSpace(s.Role) == "" {
-				v.err(sp+".role", "the role is required")
-			}
-			if s.Approvals < 1 {
-				v.err(sp+".approvals", "must be at least 1")
-			}
+		v.approvalSteps(p, t.Steps)
+	}
+}
+
+// approvalSteps checks the steps of one requisition approval tier.
+func (v *validator) approvalSteps(p string, steps []ApprovalStep) {
+	for j, s := range steps {
+		sp := fmt.Sprintf("%s.steps[%d]", p, j)
+		if strings.TrimSpace(s.Role) == "" {
+			v.err(sp+".role", "the role is required")
+		}
+		if s.Approvals < 1 {
+			v.err(sp+".approvals", "must be at least 1")
 		}
 	}
 }
