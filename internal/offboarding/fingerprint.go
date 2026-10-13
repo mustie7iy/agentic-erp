@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,7 +53,7 @@ func TakeFingerprint(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, now time.
 		}
 		var n int64
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+name+` WHERE tenant_id = $1`, tenant).Scan(&n); err != nil {
-			return Fingerprint{}, err
+			return Fingerprint{}, fmt.Errorf("offboarding: count rows of %s: %w", name, err)
 		}
 		fp.Tables = append(fp.Tables, TableCount{Name: name, Rows: n})
 	}
@@ -70,7 +71,7 @@ func readHead(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*ChainHead, err
 	case errors.Is(err, pgx.ErrNoRows):
 		return nil, nil
 	case err != nil:
-		return nil, err
+		return nil, fmt.Errorf("offboarding: read audit chain head of tenant %s: %w", tenant, err)
 	}
 	head.Hash = hex.EncodeToString(hash)
 	return &head, nil

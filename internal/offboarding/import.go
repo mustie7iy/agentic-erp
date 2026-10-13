@@ -16,6 +16,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // Re-onboarding (T24, ADR-0029): an export (ADR-0021) is also a tenant's
@@ -90,7 +91,7 @@ func (im *Importer) Import(ctx context.Context, ref string) (Imported, error) {
 		for _, name := range order {
 			var n int64
 			if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+name+` WHERE tenant_id = $1`, m.TenantID).Scan(&n); err != nil {
-				return err
+				return fmt.Errorf("offboarding: count rows of %s: %w", name, err)
 			}
 			if n > 0 {
 				return fmt.Errorf("offboarding: %s already holds %d rows of the tenant; import into an empty or erased tenant", name, n)
@@ -130,13 +131,13 @@ func (im *Importer) Import(ctx context.Context, ref string) (Imported, error) {
 			for _, name := range todo {
 				sp, err := tx.Begin(ctx)
 				if err != nil {
-					return err
+					return fmt.Errorf("offboarding: open savepoint for %s: %w", name, err)
 				}
 				n, err := im.insert(ctx, sp, name, cols[name], rows[name])
 				var pg *pgconn.PgError
 				if errors.As(err, &pg) && pg.Code == "23503" { // foreign_key_violation
 					if err := sp.Rollback(ctx); err != nil {
-						return err
+						return fmt.Errorf("offboarding: roll back savepoint for %s: %w", name, err)
 					}
 					next = append(next, name)
 					continue
@@ -145,7 +146,7 @@ func (im *Importer) Import(ctx context.Context, ref string) (Imported, error) {
 					return fmt.Errorf("offboarding: inserting into %s: %w", name, err)
 				}
 				if err := sp.Commit(ctx); err != nil {
-					return err
+					return fmt.Errorf("offboarding: release savepoint for %s: %w", name, err)
 				}
 				out.Rows[name] = n
 				out.Tables++
@@ -191,15 +192,15 @@ func (im *Importer) tenantRow(ctx context.Context, tx pgx.Tx, m manifest) error 
 	switch err := tx.QueryRow(ctx, `SELECT status, erased_at FROM tenancy.tenant WHERE id = $1`, m.TenantID).Scan(&status, &erased); {
 	case errors.Is(err, pgx.ErrNoRows):
 		_, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, $2, $3, $4, 'active')`, m.TenantID, t.Name, t.Region, t.GroupCurrency)
-		return err
+		return errs.Wrapf(err, "offboarding: create tenant %s", m.TenantID)
 	case err != nil:
-		return err
+		return fmt.Errorf("offboarding: read tenant %s: %w", m.TenantID, err)
 	case erased == nil:
 		return fmt.Errorf("offboarding: tenant %s is %s in this cell and not erased; import into an empty or erased tenant", m.TenantID, status)
 	}
 	_, err := tx.Exec(ctx, `UPDATE tenancy.tenant SET status = 'active', name = $2, region = $3, group_currency = $4,
 		exported_at = NULL, export_ref = NULL, erase_after = NULL, erased_at = NULL, version = version + 1 WHERE id = $1`, m.TenantID, t.Name, t.Region, t.GroupCurrency)
-	return err
+	return errs.Wrapf(err, "offboarding: restore tenant %s", m.TenantID)
 }
 
 // insert writes a table's rows from their JSON into the columns given (the
@@ -211,9 +212,9 @@ func (im *Importer) insert(ctx context.Context, tx pgx.Tx, table string, cols []
 		list[i] = pgx.Identifier{c}.Sanitize()
 	}
 	stmt := fmt.Sprintf(`INSERT INTO %s (%s) SELECT %s FROM json_populate_record(NULL::%s, $1::json)`, table, strings.Join(list, ", "), strings.Join(list, ", "), table)
-	for _, row := range rows {
+	for i, row := range rows {
 		if _, err := tx.Exec(ctx, stmt, string(row)); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("insert row %d: %w", i+1, err)
 		}
 	}
 	return int64(len(rows)), nil
@@ -223,5 +224,6 @@ func (im *Importer) insert(ctx context.Context, tx pgx.Tx, table string, cols []
 // dropped.
 func columns(ctx context.Context, tx pgx.Tx, table string) ([]string, error) {
 	rows, _ := tx.Query(ctx, `SELECT a.attname FROM pg_attribute a WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' ORDER BY a.attnum`, table)
-	return pgx.CollectRows(rows, pgx.RowTo[string])
+	cols, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	return cols, errs.Wrapf(err, "read catalog")
 }
