@@ -132,48 +132,34 @@ func TestProjectorRuns(t *testing.T) {
 	if _, err := (&ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role"}).RunOnce(context.Background()); err == nil {
 		t.Fatal("projected with an unknown role")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		(&ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role", Interval: time.Millisecond, Log: log}).Run(ctx)
-		close(done)
-	}()
-	// The failure is logged within an interval or two; under a loaded
-	// race-detector run that can take longer than a fixed sleep.
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logs.String(), "balance projection failed"); {
-		if time.Now().After(deadline) {
-			cancel()
-			<-done
-			t.Fatalf("logs: %s", logs.String())
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	cancel()
-	<-done
+	stop := runProjector(t, &ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role", Interval: time.Millisecond, Log: log})
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "balance projection failed") },
+		"logs: %s", logs)
+	stop()
 	// Batches of one: full batches follow each other at once.
-	ctx, cancel = context.WithCancel(context.Background())
-	done = make(chan struct{})
-	go func() {
-		(&ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector", Batch: 1, Log: log}).Run(ctx)
-		close(done)
-	}()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
+	stop = runProjector(t, &ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector", Batch: 1, Log: log})
+	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var pending int
 		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending); err != nil {
 			t.Fatalf("count pending projections: %v", err)
 		}
-		if pending == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("projector did not catch up")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	cancel()
-	<-done
+		return pending == 0
+	}, "projector did not catch up")
+	stop()
 	(&ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector"}).Run(canceled())
+}
+
+// runProjector runs p until the returned stop is called, which waits for it
+// to return. The test's cleanup stops it too, so a failing wait does not
+// leave it running.
+func runProjector(t *testing.T, p *ledger.Projector) (stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
+	stop = sync.OnceFunc(func() { cancel(); <-done })
+	t.Cleanup(stop)
+	return stop
 }
 
 func canceled() context.Context {
