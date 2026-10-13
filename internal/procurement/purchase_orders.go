@@ -58,10 +58,12 @@ const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purcha
 
 func scanOrder(row pgx.Row) (PurchaseOrder, error) {
 	var o PurchaseOrder
-	err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.PurchasingOrgID, &o.SupplierID, &o.Currency, &o.Exponent, &o.OrderDate,
+	if err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.PurchasingOrgID, &o.SupplierID, &o.Currency, &o.Exponent, &o.OrderDate,
 		&o.PaymentTermCode, &o.RequisitionID, &o.ContractID, &o.Status, &o.Extensions, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt,
-		&o.UpdatedBy, &o.Items)
-	return o, err
+		&o.UpdatedBy, &o.Items); err != nil {
+		return PurchaseOrder{}, fmt.Errorf("scan purchase order: %w", err)
+	}
+	return o, nil
 }
 
 func getOrder(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (PurchaseOrder, error) {
@@ -77,7 +79,10 @@ func getOrder(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Purchase
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(o.LegalEntityID)) {
 		return PurchaseOrder{}, notFound("purchase order")
 	}
-	return o, err
+	if err != nil {
+		return PurchaseOrder{}, fmt.Errorf("procurement: get purchase order %s: %w", id, err)
+	}
+	return o, nil
 }
 
 // GetOrder returns a purchase order.
@@ -196,7 +201,7 @@ func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items
 			account_id = EXCLUDED.account_id, over_delivery_pct = EXCLUDED.over_delivery_pct, tax_code = EXCLUDED.tax_code,
 			contract_item_no = EXCLUDED.contract_item_no, is_removed = false`,
 		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, tolerances, taxes, contractItems); err != nil {
-		return err
+		return fmt.Errorf("procurement: write items of purchase order %s: %w", id, err)
 	}
 	return removeItems(ctx, tx, "procurement.purchase_order_item", "purchase_order_id", id, n)
 }
@@ -318,7 +323,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13, $13)`,
 		p.TenantID, id, number, le.ID, in.PurchasingOrgID, in.SupplierID, in.Currency, in.OrderDate, term, in.RequisitionID, in.ContractID,
 		in.Extensions, p.ID); err != nil {
-		return PurchaseOrder{}, err
+		return PurchaseOrder{}, fmt.Errorf("procurement: create purchase order %s: %w", number, err)
 	}
 	if err := writeOrderItems(ctx, tx, p.TenantID, id, items); err != nil {
 		return PurchaseOrder{}, err
@@ -429,7 +434,7 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET purchasing_org_id = $2, supplier_id = $3, currency = $4, order_date = $5,
 		payment_term_code = $6, contract_id = $7, extensions = $8, version = version + 1, updated_by = $9 WHERE id = $1`,
 		id, org, supplier, currency, orderDate, term, contract, ext, p.ID); err != nil {
-		return PurchaseOrder{}, err
+		return PurchaseOrder{}, fmt.Errorf("procurement: update purchase order %s: %w", id, err)
 	}
 	updated, err := getOrder(ctx, tx, id, false)
 	if err != nil {
@@ -465,7 +470,7 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	value := o.Total()
 	if o.ContractID != nil {
 		if _, err := tx.Exec(ctx, `SELECT FROM procurement.contract WHERE id = $1 FOR UPDATE`, *o.ContractID); err != nil {
-			return PurchaseOrder{}, err
+			return PurchaseOrder{}, fmt.Errorf("procurement: release purchase order %s: lock contract %s: %w", id, *o.ContractID, err)
 		}
 		c, err := usableContract(ctx, tx, *o.ContractID, o.LegalEntityID, o.SupplierID, o.Currency, o.OrderDate)
 		if err != nil {
@@ -478,12 +483,12 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		if value != 0 {
 			if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract_release (tenant_id, contract_id, purchase_order_id, value, released_at, released_by)
 				VALUES ($1, $2, $3, $4, clock_timestamp(), $5)`, p.TenantID, c.ID, id, value, p.ID); err != nil {
-				return PurchaseOrder{}, err
+				return PurchaseOrder{}, fmt.Errorf("procurement: release purchase order %s: consume contract %s: %w", id, c.ID, err)
 			}
 		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'released', version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
-		return PurchaseOrder{}, err
+		return PurchaseOrder{}, fmt.Errorf("procurement: release purchase order %s: %w", id, err)
 	}
 	released, err := getOrder(ctx, tx, id, false)
 	if err != nil {
@@ -515,7 +520,7 @@ func (e *Endpoints) closeOrder(ctx context.Context, id uuid.UUID, ifMatch func(i
 		return PurchaseOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'closed', version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
-		return PurchaseOrder{}, err
+		return PurchaseOrder{}, fmt.Errorf("procurement: close purchase order %s: %w", id, err)
 	}
 	closed, err := getOrder(ctx, tx, id, false)
 	if err != nil {
@@ -539,7 +544,7 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	var received bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM procurement.goods_movement_item WHERE purchase_order_id = $1)`, id).Scan(&received); err != nil {
-		return PurchaseOrder{}, err
+		return PurchaseOrder{}, fmt.Errorf("procurement: cancel purchase order %s: check receipts: %w", id, err)
 	}
 	if received {
 		return PurchaseOrder{}, problem.Conflict("procurement.order_received", "Goods were received against the order; it cannot be cancelled.")
@@ -557,12 +562,12 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if o.Status == Released && o.ContractID != nil && o.Total() != 0 {
 		if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract_release (tenant_id, contract_id, purchase_order_id, value, released_at, released_by)
 			VALUES ($1, $2, $3, $4, clock_timestamp(), $5)`, p.TenantID, *o.ContractID, id, -o.Total(), p.ID); err != nil {
-			return PurchaseOrder{}, err
+			return PurchaseOrder{}, fmt.Errorf("procurement: cancel purchase order %s: return contract %s consumption: %w", id, *o.ContractID, err)
 		}
 		releasedValue = moneyOf(o.Total(), o.Currency, o.Exponent)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'cancelled', version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
-		return PurchaseOrder{}, err
+		return PurchaseOrder{}, fmt.Errorf("procurement: cancel purchase order %s: %w", id, err)
 	}
 	if o.RequisitionID != nil {
 		req, err := getRequisition(ctx, tx, *o.RequisitionID, true)

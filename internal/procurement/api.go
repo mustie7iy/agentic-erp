@@ -251,7 +251,7 @@ func (e *Endpoints) ListRequisitions(ctx context.Context, params gen.ListRequisi
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Requisition, error) { return scanRequisition(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("procurement: list requisitions: %w", err)
 	}
 	list, next := pagination.Page(ks, list, func(r Requisition) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
@@ -364,7 +364,7 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Contract, error) { return scanContract(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("procurement: list contracts: %w", err)
 	}
 	list, next := pagination.Page(ks, list, func(c Contract) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
@@ -492,7 +492,7 @@ func (e *Endpoints) ListPurchaseOrders(ctx context.Context, params gen.ListPurch
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PurchaseOrder, error) { return scanOrder(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("procurement: list purchase orders: %w", err)
 	}
 	list, next := pagination.Page(ks, list, func(o PurchaseOrder) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
@@ -615,7 +615,7 @@ func (e *Endpoints) ListGoodsReceipts(ctx context.Context, params gen.ListGoodsR
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (GoodsReceipt, error) { return scanReceipt(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("procurement: list goods receipts: %w", err)
 	}
 	list, next := pagination.Page(ks, list, func(g GoodsReceipt) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {

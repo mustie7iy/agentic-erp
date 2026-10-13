@@ -3,6 +3,7 @@ package procurement
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -57,7 +58,10 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, false, nil
 	}
-	return o, err == nil, err
+	if err != nil {
+		return Order{}, false, fmt.Errorf("procurement: read purchase order %s: %w", id, err)
+	}
+	return o, true, nil
 }
 
 // OrderByNumber returns the id of the legal entity's purchase order with
@@ -72,7 +76,10 @@ func (Orders) OrderByNumber(ctx context.Context, legalEntity uuid.UUID, number s
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, false, nil
 	}
-	return id, err == nil, err
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("procurement: find purchase order %s: %w", number, err)
+	}
+	return id, true, nil
 }
 
 // CreateOrder creates a draft purchase order, as POST /v1/purchase-orders
@@ -103,5 +110,8 @@ func (Orders) Value(ctx context.Context, ids []uuid.UUID) (int, int64, error) {
 	err = tx.QueryRow(ctx, `SELECT count(*), coalesce(sum((SELECT coalesce(sum(round(i.quantity * i.unit_price / i.price_unit)), 0)
 			FROM procurement.purchase_order_item i WHERE i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND NOT i.is_removed)), 0)::bigint
 		FROM procurement.purchase_order o WHERE o.id = ANY($1)`, ids).Scan(&n, &value)
-	return n, value, err
+	if err != nil {
+		return 0, 0, fmt.Errorf("procurement: value %d purchase orders: %w", len(ids), err)
+	}
+	return n, value, nil
 }

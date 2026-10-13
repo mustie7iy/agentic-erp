@@ -121,8 +121,10 @@ func mergePatch(target, patch map[string]any) map[string]any {
 // are numbered by.
 func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
 	var d time.Time
-	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	return d, err
+	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d); err != nil {
+		return time.Time{}, fmt.Errorf("procurement: read current date: %w", err)
+	}
+	return d, nil
 }
 
 // exponent returns the currency's minor-unit digits; an unknown currency is
@@ -134,7 +136,10 @@ func exponent(ctx context.Context, tx pgx.Tx, currency, field string) (int, erro
 		return 0, problem.Unprocessable("procurement.unknown_currency", "The currency is not known.",
 			problem.FieldError{Field: field, Code: "unknown", Message: "an ISO 4217 currency in the reference data"})
 	}
-	return exp, err
+	if err != nil {
+		return 0, fmt.Errorf("procurement: read currency %s exponent: %w", currency, err)
+	}
+	return exp, nil
 }
 
 // amount parses a money value in the document currency.
@@ -267,5 +272,8 @@ func checkItemNo(given *int32, i int, field string) error {
 // removeItems marks the items beyond the first n removed.
 func removeItems(ctx context.Context, tx pgx.Tx, table, column string, doc uuid.UUID, n int) error {
 	_, err := tx.Exec(ctx, `UPDATE `+table+` SET is_removed = true WHERE `+column+` = $1 AND item_no > $2 AND NOT is_removed`, doc, n)
-	return err
+	if err != nil {
+		return fmt.Errorf("procurement: remove items of %s %s: %w", table, doc, err)
+	}
+	return nil
 }

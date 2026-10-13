@@ -48,7 +48,11 @@ func (x *ContractExpirer) due(ctx context.Context) ([]uuid.UUID, error) {
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM procurement.contract WHERE status = 'active' AND valid_to < current_date ORDER BY tenant_id`)
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("procurement: list tenants with contracts due: %w", err)
+	}
+	return tenants, nil
 }
 
 // Expire moves one tenant's active contracts past their validity to
@@ -66,17 +70,17 @@ func (x *ContractExpirer) Expire(ctx context.Context, tenant uuid.UUID) (int, er
 	rows, _ := tx.Query(ctx, `SELECT id FROM procurement.contract WHERE status = 'active' AND valid_to < current_date ORDER BY id FOR UPDATE`)
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("procurement: list contracts due in tenant %s: %w", tenant, err)
 	}
 	actor := reqctx.Principal{ID: ExpirerActor, Kind: reqctx.KindSystem, TenantID: tenant}
 	now := time.Now().UTC()
 	for _, id := range ids {
 		c, err := scanContract(tx.QueryRow(ctx, contractSelect+` WHERE c.id = $1`, id))
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("procurement: expire contract %s: %w", id, err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE procurement.contract SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, Expired, ExpirerActor); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("procurement: expire contract %s: %w", id, err)
 		}
 		payload := map[string]any{"contract_id": id, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
 			"valid_to": c.ValidTo.Format(time.DateOnly), "consumed_value": moneyOf(c.ConsumedValue, c.Currency, c.Exponent), "previous_status": Active, "status": Expired}
@@ -89,7 +93,7 @@ func (x *ContractExpirer) Expire(ctx context.Context, tenant uuid.UUID) (int, er
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("procurement: commit contract expiry in tenant %s: %w", tenant, err)
 	}
 	return len(ids), nil
 }

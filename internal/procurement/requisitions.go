@@ -94,9 +94,11 @@ const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.
 
 func scanRequisition(row pgx.Row) (Requisition, error) {
 	var r Requisition
-	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.RequesterID, &r.SupplierID, &r.ContractID, &r.Currency, &r.Exponent,
-		&r.NeededBy, &r.Status, &r.WorkflowRequestID, &r.Extensions, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy, &r.Items)
-	return r, err
+	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.RequesterID, &r.SupplierID, &r.ContractID, &r.Currency, &r.Exponent,
+		&r.NeededBy, &r.Status, &r.WorkflowRequestID, &r.Extensions, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy, &r.Items); err != nil {
+		return Requisition{}, fmt.Errorf("scan requisition: %w", err)
+	}
+	return r, nil
 }
 
 // getRequisition loads a requisition of a legal entity the caller may act
@@ -114,7 +116,10 @@ func getRequisition(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Re
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(r.LegalEntityID)) {
 		return Requisition{}, notFound("requisition")
 	}
-	return r, err
+	if err != nil {
+		return Requisition{}, fmt.Errorf("procurement: get requisition %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // GetRequisition returns a requisition.
@@ -167,7 +172,7 @@ func writeRequisitionItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID,
 			quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit,
 			account_id = EXCLUDED.account_id, is_removed = false`,
 		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts); err != nil {
-		return err
+		return fmt.Errorf("procurement: write items of requisition %s: %w", id, err)
 	}
 	return removeItems(ctx, tx, "procurement.requisition_item", "requisition_id", id, n)
 }
@@ -251,7 +256,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 			currency, needed_by, status, extensions, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $5, $5)`,
 		p.TenantID, id, number, le.ID, p.ID, supplier, in.ContractID, in.Currency, in.NeededBy, in.Extensions); err != nil {
-		return Requisition{}, err
+		return Requisition{}, fmt.Errorf("procurement: create requisition %s: %w", number, err)
 	}
 	if err := writeRequisitionItems(ctx, tx, p.TenantID, id, items); err != nil {
 		return Requisition{}, err
@@ -347,7 +352,7 @@ func (e *Endpoints) updateRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.requisition SET supplier_id = $2, contract_id = $3, needed_by = $4, currency = $5, extensions = $6,
 		version = version + 1, updated_by = $7 WHERE id = $1`, id, supplier, contract, neededBy, currency, ext, p.ID); err != nil {
-		return Requisition{}, err
+		return Requisition{}, fmt.Errorf("procurement: update requisition %s: %w", id, err)
 	}
 	updated, err := getRequisition(ctx, tx, id, false)
 	if err != nil {
@@ -368,7 +373,7 @@ func requisitionEvent(name string, r Requisition, extra map[string]any) map[stri
 func setStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Requisition, status string, request *uuid.UUID, name string, extra map[string]any) (Requisition, error) {
 	if _, err := tx.Exec(ctx, `UPDATE procurement.requisition SET status = $2, workflow_request_id = $3, version = version + 1, updated_by = $4 WHERE id = $1`,
 		r.ID, status, request, p.ID); err != nil {
-		return Requisition{}, err
+		return Requisition{}, fmt.Errorf("procurement: set requisition %s status %s: %w", r.ID, status, err)
 	}
 	updated, err := getRequisition(ctx, tx, r.ID, false)
 	if err != nil {

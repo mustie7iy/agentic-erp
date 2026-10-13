@@ -47,9 +47,11 @@ const contractSelect = `SELECT c.id, c.document_number, c.legal_entity_id, c.sup
 
 func scanContract(row pgx.Row) (Contract, error) {
 	var c Contract
-	err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.SupplierID, &c.Currency, &c.Exponent, &c.ValidFrom, &c.ValidTo,
-		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items)
-	return c, err
+	if err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.SupplierID, &c.Currency, &c.Exponent, &c.ValidFrom, &c.ValidTo,
+		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items); err != nil {
+		return Contract{}, fmt.Errorf("scan contract: %w", err)
+	}
+	return c, nil
 }
 
 func getContract(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Contract, error) {
@@ -65,7 +67,10 @@ func getContract(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Contr
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(c.LegalEntityID)) {
 		return Contract{}, notFound("contract")
 	}
-	return c, err
+	if err != nil {
+		return Contract{}, fmt.Errorf("procurement: get contract %s: %w", id, err)
+	}
+	return c, nil
 }
 
 // GetContract returns a contract.
@@ -114,7 +119,7 @@ func writeContractItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, it
 	}
 	// Removed first, so a material key can move to another item number.
 	if _, err := tx.Exec(ctx, `UPDATE procurement.contract_item SET is_removed = true WHERE contract_id = $1 AND NOT is_removed`, id); err != nil {
-		return err
+		return fmt.Errorf("procurement: remove items of contract %s: %w", id, err)
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO procurement.contract_item AS i (tenant_id, contract_id, item_no, material_id, material_key, description,
 			unit_price, price_unit, uom_code, account_id)
@@ -124,7 +129,10 @@ func writeContractItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, it
 			description = EXCLUDED.description, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit, uom_code = EXCLUDED.uom_code,
 			account_id = EXCLUDED.account_id, is_removed = false`,
 		tenant, id, nos, materials, keys, descriptions, prices, priceUnits, units, accounts)
-	return err
+	if err != nil {
+		return fmt.Errorf("procurement: write items of contract %s: %w", id, err)
+	}
+	return nil
 }
 
 func checkValidity(from, to time.Time) error {
@@ -184,7 +192,7 @@ func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contrac
 			valid_to, target_value, status, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $10)`,
 		p.TenantID, id, number, le.ID, in.SupplierID, in.Currency, in.ValidFrom, in.ValidTo, target, p.ID); err != nil {
-		return Contract{}, err
+		return Contract{}, fmt.Errorf("procurement: create contract %s: %w", number, err)
 	}
 	if err := writeContractItems(ctx, tx, p.TenantID, id, items); err != nil {
 		return Contract{}, err
@@ -253,7 +261,7 @@ func (e *Endpoints) updateContract(ctx context.Context, id uuid.UUID, ifMatch fu
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.contract SET valid_from = $2, valid_to = $3, target_value = $4, version = version + 1, updated_by = $5
 		WHERE id = $1`, id, from, to, target, p.ID); err != nil {
-		return Contract{}, err
+		return Contract{}, fmt.Errorf("procurement: update contract %s: %w", id, err)
 	}
 	updated, err := getContract(ctx, tx, id, false)
 	if err != nil {
@@ -285,7 +293,7 @@ func changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 		return Contract{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.contract SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, t.to, p.ID); err != nil {
-		return Contract{}, err
+		return Contract{}, fmt.Errorf("procurement: %s contract %s: %w", t.action, id, err)
 	}
 	updated, err := getContract(ctx, tx, id, false)
 	if err != nil {
