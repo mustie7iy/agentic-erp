@@ -133,8 +133,11 @@ func TestValidationWarnings(t *testing.T) {
 	if HasErrors(fs) {
 		t.Fatalf("warnings only expected: %v", fs)
 	}
-	if len(fs) != 1 || fs[0].String() == "" {
-		t.Fatalf("want 1 warning, got %v", fs)
+	if len(fs) != 1 {
+		t.Fatalf("warnings: got %v, want 1", fs)
+	}
+	if fs[0].String() == "" {
+		t.Fatalf("warning text: got empty, want a description of %#v", fs[0])
 	}
 }
 
@@ -143,9 +146,11 @@ func TestValidIBAN(t *testing.T) {
 		"GB33BUKB20201555555555": true, "DE89 3704 0044 0532 0130 00": true,
 		"GB33BUKB20201555555556": false, "XX": false, "1234567890123456": false, "GB33BUKB2020155555555!": false,
 	} {
-		if ValidIBAN(iban) != want {
-			t.Errorf("ValidIBAN(%q) != %v", iban, want)
-		}
+		t.Run(iban, func(t *testing.T) {
+			if got := ValidIBAN(iban); got != want {
+				t.Errorf("ValidIBAN(%q): got %v, want %v", iban, got, want)
+			}
+		})
 	}
 }
 
@@ -186,11 +191,20 @@ func TestDiffTiers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(changes) != 1 || changes[0].Path != tc.path || changes[0].Tier != tc.tier {
-				t.Fatalf("want one change %s at %v, got %v", tc.path, tc.tier, changes)
+			if len(changes) != 1 {
+				t.Fatalf("changes: got %v, want one change at %s", changes, tc.path)
 			}
-			if changes[0].String() == "" || MaxTier(changes) != tc.tier {
-				t.Fatal("String/MaxTier")
+			if changes[0].Path != tc.path {
+				t.Errorf("path: got %s, want %s", changes[0].Path, tc.path)
+			}
+			if changes[0].Tier != tc.tier {
+				t.Errorf("tier: got %v, want %v", changes[0].Tier, tc.tier)
+			}
+			if changes[0].String() == "" {
+				t.Errorf("String: got empty, want a description of %#v", changes[0])
+			}
+			if got := MaxTier(changes); got != tc.tier {
+				t.Errorf("MaxTier: got %v, want %v", got, tc.tier)
 			}
 		})
 	}
@@ -198,14 +212,30 @@ func TestDiffTiers(t *testing.T) {
 	c := fixture(t)
 	c.PaymentTerms = c.PaymentTerms[1:]
 	changes, _ := Diff(base, c)
-	if len(changes) != 1 || changes[0].Path != "payment_terms[NT14]" || changes[0].Old != "(removed)" || !strings.HasPrefix(changes[0].String(), "-") {
-		t.Fatalf("removal: %v", changes)
+	if len(changes) != 1 {
+		t.Fatalf("removal changes: got %v, want 1", changes)
 	}
-	if changes, _ := Diff(base, fixture(t)); len(changes) != 0 || MaxTier(changes) != 0 {
-		t.Fatal("identical configs must not differ")
+	if got := changes[0].Path; got != "payment_terms[NT14]" {
+		t.Errorf("removal path: got %s, want payment_terms[NT14]", got)
 	}
-	if Tier(0).String() != "no change" || TierStructural.String() == "" {
-		t.Fatal("tier names")
+	if got := changes[0].Old; got != "(removed)" {
+		t.Errorf("removal old: got %s, want (removed)", got)
+	}
+	if got := changes[0].String(); !strings.HasPrefix(got, "-") {
+		t.Errorf("removal String: got %q, want a - prefix", got)
+	}
+	same, _ := Diff(base, fixture(t))
+	if len(same) != 0 {
+		t.Errorf("identical configs: got %v, want no changes", same)
+	}
+	if got := MaxTier(same); got != 0 {
+		t.Errorf("identical configs MaxTier: got %v, want 0", got)
+	}
+	if got := Tier(0).String(); got != "no change" {
+		t.Errorf("Tier(0): got %q, want no change", got)
+	}
+	if TierStructural.String() == "" {
+		t.Error("TierStructural: got empty name, want one")
 	}
 	if classify("unknown.path") != TierPostingRelated {
 		t.Fatal("unmatched paths default to posting-relevant")
@@ -214,17 +244,34 @@ func TestDiffTiers(t *testing.T) {
 
 func TestRuntime(t *testing.T) {
 	c := fixture(t)
-	if ApprovalSteps(TierCosmetic) != nil || len(ApprovalSteps(TierOperational)) != 1 || len(ApprovalSteps(TierPostingRelated)) != 2 ||
-		ApprovalSteps(TierStructural)[0].Role != "solution_architect" {
-		t.Fatal("approval steps by tier")
+	if got := ApprovalSteps(TierCosmetic); got != nil {
+		t.Errorf("cosmetic approval steps: got %v, want none", got)
 	}
-	if RequiredEvidence(TierOperational) != nil || len(RequiredEvidence(TierPostingRelated)) != 2 || RequiredEvidence(TierStructural)[1] != "regression" {
-		t.Fatal("evidence by tier")
+	if got := len(ApprovalSteps(TierOperational)); got != 1 {
+		t.Errorf("operational approval steps: got %d, want 1", got)
+	}
+	if got := len(ApprovalSteps(TierPostingRelated)); got != 2 {
+		t.Errorf("posting-relevant approval steps: got %d, want 2", got)
+	}
+	if got := ApprovalSteps(TierStructural)[0].Role; got != "solution_architect" {
+		t.Errorf("structural first approver: got %s, want solution_architect", got)
+	}
+	if got := RequiredEvidence(TierOperational); got != nil {
+		t.Errorf("operational evidence: got %v, want none", got)
+	}
+	if got := len(RequiredEvidence(TierPostingRelated)); got != 2 {
+		t.Errorf("posting-relevant evidence: got %d, want 2", got)
+	}
+	if got := RequiredEvidence(TierStructural)[1]; got != "regression" {
+		t.Errorf("structural second evidence: got %s, want regression", got)
 	}
 	if got := strings.Join(c.RoleNames(), ","); got != "Z_PURCH_MGR,process_owner,Z_TREASURY_MGR,vendor_master_approver,controller,solution_architect" {
 		t.Fatalf("role names: %s", got)
 	}
-	if c.PaymentTerm("NT30") == nil || c.PaymentTerm("X") != nil {
-		t.Fatal("lookups")
+	if c.PaymentTerm("NT30") == nil {
+		t.Error("PaymentTerm(NT30): got nil, want the term")
+	}
+	if got := c.PaymentTerm("X"); got != nil {
+		t.Errorf("PaymentTerm(X): got %v, want nil", got)
 	}
 }
