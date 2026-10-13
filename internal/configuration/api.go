@@ -246,7 +246,7 @@ func (e *Endpoints) GetConfigVersion(ctx context.Context, params gen.GetConfigVe
 		return nil, problem.NotFound("No configuration version with this id.")
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: read configuration version %s: %w", params.ID, err)
 	}
 	out := versionToAPI(v)
 	return &gen.ConfigVersionHeaders{ETag: gen.NewOptString(etag.Of(&out)), Response: out}, nil
