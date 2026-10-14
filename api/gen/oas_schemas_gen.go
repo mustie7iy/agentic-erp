@@ -12226,9 +12226,10 @@ type MatchResult struct {
 	ConfigVersion int32 `json:"config_version"`
 	// Principal that ran the match.
 	EvaluatedBy uuid.UUID `json:"evaluated_by"`
-	// The invoice flow's decision on a clean or unevaluable match, in the response of `:match` only (it is
-	// not stored): the rule regression suites and simulations apply. Absent when the match found issues
-	// (the invoice is held and decided on its exception request) and on reads of the history.
+	// The invoice flow's decision on a clean match, in the response of `:match` only (it is not stored,
+	// and the ETag is that of the stored result): the rule regression suites and simulations apply. Absent
+	// when the match found issues (the invoice is held and decided on its exception request) and on reads
+	// of the history.
 	Decision OptMatchDecision `json:"decision"`
 }
 

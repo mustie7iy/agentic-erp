@@ -287,7 +287,8 @@ compared. An invoice without a rate, or whose gross amount is out of range
 in the company's currency, is not evaluable rather than a failure for the
 whole tenant: its match is recorded (an item beyond the percentage
 tolerance is flagged, as its variance cannot be compared with the absolute
-one) with the decision `not_evaluable` (F12b), a simulation reports it as
+one), a clean match answers the decision `not_evaluable` (F12b), a
+simulation reports it as
 one it cannot evaluate, and a regression suite records it as
 `not_evaluable` (issue `no_exchange_rate` or `amount_too_large`).
 

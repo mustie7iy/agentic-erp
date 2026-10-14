@@ -309,7 +309,8 @@ is the rule simulations and regression suites apply (03 §3.9): the gross is
 converted at the average rate of the invoice date and compared exactly. A
 match with issues has no `decision` (the invoice is held and decided on its
 exception request), and neither do reads of the match history, as the
-decision is not stored. Clients act on the server's decision rather than
+decision is not stored; the ETag of the `:match` response is that of the
+stored result. Clients act on the server's decision rather than
 compare amounts themselves; a server without the field leaves the decision
 unavailable, not guessed.
 

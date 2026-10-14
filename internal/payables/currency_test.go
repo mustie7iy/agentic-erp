@@ -168,7 +168,9 @@ func TestMatchNotEvaluable(t *testing.T) {
 	}
 	beyond := e.foreignInvoice(t, po, "USD", "US-2", "130.00", "0.00", "130.00")
 	m = e.act(t, 200, beyond, "match", "")
-	if got, want := decision(m), "not_evaluable: no_exchange_rate"; got != want {
+	// The match has an issue, so the invoice is held and decided on its
+	// exception request, with no decision.
+	if got, want := decision(m), "absent"; got != want {
 		t.Errorf("decision beyond the tolerance: got %q, want %q", got, want)
 	}
 	issues, _ := m["issues"].([]any) // absent issues fail the length check
@@ -179,6 +181,58 @@ func TestMatchNotEvaluable(t *testing.T) {
 	if got := issues[0].(map[string]any)["message"]; got != want {
 		t.Errorf("issue: got %q, want %q", got, want)
 	}
+}
+
+// auditedDecision is the decision the audit record of an invoice's latest
+// match carries, or "absent".
+func (e env) auditedDecision(t *testing.T, invoice string) string {
+	t.Helper()
+	var got string
+	pgtest.Scan(t, `SELECT coalesce(detail->>'decision', 'absent') FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2
+		AND action = 'payables.supplier_invoice.match' ORDER BY seq DESC LIMIT 1`, []any{e.Tenant.ID, invoice}, &got)
+	return got
+}
+
+// TestMatchDecisionOnlyOnACleanMatch: the decision is answered by :match
+// on a clean match and recorded in its audit detail; a match with issues
+// has none, nor do reads of the match history, which carry the ETag the
+// :match response had.
+func TestMatchDecisionOnlyOnACleanMatch(t *testing.T) {
+	e := foreign(t)
+	e.rate(t, "JPY", "EUR", "0.0062")
+	po := e.orderIn(t, "JPY", 1000)
+	t.Run("clean", func(t *testing.T) {
+		e := e.in(t)
+		inv := e.foreignInvoice(t, po, "JPY", "JP-1", "10000", "0", "10000")
+		m, tag := e.Must(200, "POST", "/v1/supplier-invoices/"+inv+":match", "", e.tag(t, inv))
+		if got, want := decision(m), "auto_post: gross 62.00 EUR is within the auto-post limit 50000.00 EUR"; got != want {
+			t.Errorf("decision: got %q, want %q", got, want)
+		}
+		if got, want := e.auditedDecision(t, inv), "auto_post"; got != want {
+			t.Errorf("audited decision: got %q, want %q", got, want)
+		}
+		read, readTag := e.Must(200, "GET", "/v1/match-results/"+m["id"].(string), "", "")
+		if got, want := decision(read), "absent"; got != want {
+			t.Errorf("decision read back: got %q, want %q", got, want)
+		}
+		if readTag != tag {
+			t.Errorf("ETag read back: got %s, want %s", readTag, tag)
+		}
+		list, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+inv+"/match-results", "", "")
+		if got, want := decision(list["items"].([]any)[0].(map[string]any)), "absent"; got != want {
+			t.Errorf("decision in the history: got %q, want %q", got, want)
+		}
+	})
+	t.Run("with issues", func(t *testing.T) {
+		e := e.in(t)
+		inv := e.foreignInvoice(t, po, "JPY", "JP-2", "10900", "0", "10900") // 900 JPY = 5.58 EUR beyond 5.00
+		if got, want := decision(e.act(t, 200, inv, "match", "")), "absent"; got != want {
+			t.Errorf("decision: got %q, want %q", got, want)
+		}
+		if got, want := e.auditedDecision(t, inv), "absent"; got != want {
+			t.Errorf("audited decision: got %q, want %q", got, want)
+		}
+	})
 }
 
 // day is the day the window of simulations and suites ends.

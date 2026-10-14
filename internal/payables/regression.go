@@ -185,6 +185,8 @@ func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, t
 // compared with its company's amounts is not evaluable, with the code of
 // the reason as its issue.
 func outcome(lim limits, r replayed) (string, []string) {
+	// decide evaluates an unevaluable invoice too, whose issues are then
+	// dropped: one rule, at the cost of a match per such invoice.
 	decision, issues := decide(lim, r)
 	if decision.Outcome == DecisionNotEvaluable {
 		return decision.Outcome, []string{decision.Reason}

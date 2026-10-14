@@ -114,17 +114,24 @@ func settle(ctx context.Context, c *apitools.Client, w io.Writer, inv parkedInvo
 	fmt.Fprintf(w, "%s: %s (%s)\n", inv.DocumentNumber, d.Outcome, d.Reason)
 	switch d.Outcome {
 	case "auto_post":
-		done.posted = append(done.posted, inv.DocumentNumber)
-		return settleInvoice(ctx, c, path, inv, "post", nil)
+		return listIfDone(&done.posted, inv.DocumentNumber, settleInvoice(ctx, c, path, inv, "post", nil))
 	case "review":
-		done.held = append(done.held, inv.DocumentNumber+" (review)")
-		return settleInvoice(ctx, c, path, inv, "hold", map[string]string{"reason": "Above the auto-post limit; a person posts it."})
+		return listIfDone(&done.held, inv.DocumentNumber+" (review)",
+			settleInvoice(ctx, c, path, inv, "hold", map[string]string{"reason": "Above the auto-post limit; a person posts it."}))
 	case "not_evaluable":
-		done.held = append(done.held, inv.DocumentNumber+" (not_evaluable: "+d.Reason+")")
-		return settleInvoice(ctx, c, path, inv, "hold", map[string]string{"reason": "The auto-post rule cannot evaluate it (" + d.Reason + "); a person posts it."})
+		return listIfDone(&done.held, inv.DocumentNumber+" (not_evaluable: "+d.Reason+")",
+			settleInvoice(ctx, c, path, inv, "hold", map[string]string{"reason": "The auto-post rule cannot evaluate it (" + d.Reason + "); a person posts it."}))
 	}
 	done.parked = append(done.parked, inv.DocumentNumber)
 	return nil
+}
+
+// listIfDone lists an invoice once the action on it succeeded (err nil).
+func listIfDone(list *[]string, invoice string, err error) error {
+	if err == nil {
+		*list = append(*list, invoice)
+	}
+	return err
 }
 
 // matchInvoice matches the invoice at path against its order, on its

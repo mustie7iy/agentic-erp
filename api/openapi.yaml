@@ -15341,7 +15341,7 @@ components:
           readOnly: true
         decision:
           $ref: "#/components/schemas/MatchDecision"
-          description: "The invoice flow's decision on a clean or unevaluable match, in the response of `:match` only (it is not stored): the rule regression suites and simulations apply. Absent when the match found issues (the invoice is held and decided on its exception request) and on reads of the history."
+          description: "The invoice flow's decision on a clean match, in the response of `:match` only (it is not stored, and the ETag is that of the stored result): the rule regression suites and simulations apply. Absent when the match found issues (the invoice is held and decided on its exception request) and on reads of the history."
           readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"

@@ -46,9 +46,11 @@ type Match struct {
 	Issues        []Issue
 	ConfigVersion int32
 	EvaluatedBy   uuid.UUID
-	// Decision is the invoice flow's decision on a clean or unevaluable
-	// match, set by MatchInvoice only: it is not stored, as the limit and
-	// the rate it was taken with may change before the invoice is posted.
+	// Decision is the invoice flow's decision on a clean match, set by
+	// MatchInvoice only: it is not stored, as the limit and the rate it was
+	// taken with may change before the invoice is posted. A match with
+	// issues has none: the invoice is held and decided on its exception
+	// request.
 	Decision *Verdict
 }
 
@@ -91,13 +93,14 @@ type limits struct {
 	priceAbsolute *big.Rat // major units of the company's currency
 	absoluteText  string   // as configured, for messages
 	autoPost      *big.Rat // major units of the company's currency
+	autoPostText  string   // as configured, for reasons
 }
 
 // companyLimits reads a company's tolerances and auto-post limit; a
 // company the configuration does not have has none.
 func companyLimits(co *config.Company) (limits, error) {
 	if co == nil {
-		return limits{priceAbsolute: new(big.Rat), absoluteText: "0", autoPost: new(big.Rat)}, nil
+		return limits{priceAbsolute: new(big.Rat), absoluteText: "0", autoPost: new(big.Rat), autoPostText: "0"}, nil
 	}
 	absolute, err := money.ParseDecimalRat(co.InvoiceTolerance.PriceAbsolute)
 	if err != nil {
@@ -108,7 +111,8 @@ func companyLimits(co *config.Company) (limits, error) {
 		return limits{}, fmt.Errorf("payables: company %s: auto_post_limit: %w", co.Code, err)
 	}
 	return limits{pricePercent: int64(co.InvoiceTolerance.PricePercent), priceAbsolute: absolute,
-		absoluteText: strings.TrimSpace(co.InvoiceTolerance.PriceAbsolute), autoPost: autoPost}, nil
+		absoluteText: strings.TrimSpace(co.InvoiceTolerance.PriceAbsolute), autoPost: autoPost,
+		autoPostText: strings.TrimSpace(co.AutoPostLimit)}, nil
 }
 
 // invoicedQuantities sums, per order item, what other posted invoices
@@ -277,8 +281,7 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	}
 	events = append(events, followUp...)
 	detail := map[string]any{"match_result_id": m.ID, "issues": len(issues)}
-	if decision.Outcome != DecisionException {
-		// An invoice with issues is decided on its exception request.
+	if m.IsClean {
 		m.Decision = &decision
 		detail["decision"] = decision.Outcome
 	}

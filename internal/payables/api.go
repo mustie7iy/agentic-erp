@@ -233,7 +233,11 @@ func (e *Endpoints) MatchSupplierInvoice(ctx context.Context, params gen.MatchSu
 		return nil, err
 	}
 	rep := matchToAPI(m)
-	return &gen.MatchSupplierInvoiceOKHeaders{ETag: gen.NewOptString(etag.Of(&rep)), Response: rep}, nil
+	// The ETag is that of the stored match result, as GET answers it,
+	// without the decision only this response carries.
+	stored := rep
+	stored.Decision = gen.OptMatchDecision{}
+	return &gen.MatchSupplierInvoiceOKHeaders{ETag: gen.NewOptString(etag.Of(&stored)), Response: rep}, nil
 }
 
 // PostSupplierInvoice implements POST /v1/supplier-invoices/{id}:post.

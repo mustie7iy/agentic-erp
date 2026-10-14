@@ -278,7 +278,7 @@ func decide(lim limits, r replayed) (Verdict, []Issue) {
 		return Verdict{DecisionException, fmt.Sprintf("%d match issue(s)", len(issues))}, issues
 	}
 	c := r.Conversion
-	gross, limit := r.Gross.Plain(c.ToExp)+" "+c.To, lim.autoPost.FloatString(c.ToExp)+" "+c.To
+	gross, limit := r.Gross.Plain(c.ToExp)+" "+c.To, lim.autoPostText+" "+c.To
 	if money.Rat(r.Gross, c.ToExp).Cmp(lim.autoPost) > 0 {
 		return Verdict{DecisionReview, "gross " + gross + " is above the auto-post limit " + limit}, issues
 	}
