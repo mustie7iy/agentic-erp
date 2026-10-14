@@ -117,7 +117,11 @@ func (m Minor) Format(decimals int) string {
 	return fmt.Sprintf("%s%s.%0*d", sign, b.String(), decimals, v%scale)
 }
 
-func (m Minor) String() string { return m.Format(2) }
+// String renders the raw minor units, "123456 minor", for logs and %v. A
+// Minor does not know its currency, so String cannot place the decimal
+// point: with two digits assumed, a JPY or BHD amount printed wrong. Use
+// Format or Plain with the currency's exponent for anything a person reads.
+func (m Minor) String() string { return strconv.FormatInt(int64(m), 10) + " minor" }
 
 // Plain renders minor units with the currency's minor-unit digits and no
 // separators, "-1234.56" or "100": the API format (ADR-0005).

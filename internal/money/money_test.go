@@ -83,7 +83,10 @@ func TestExtendAndPercentLarge(t *testing.T) {
 }
 
 func TestFormat(t *testing.T) {
-	if s := Minor(-123456789).String(); s != "-1,234,567.89" {
+	if s := Minor(-123456789).Format(2); s != "-1,234,567.89" {
+		t.Errorf("got %s", s)
+	}
+	if s := Minor(-123456789).String(); s != "-123456789 minor" {
 		t.Errorf("got %s", s)
 	}
 	if s := Minor(5).Decimal(); s != "0.05" {
