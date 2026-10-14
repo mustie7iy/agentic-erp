@@ -39,10 +39,14 @@ type app struct {
 	release chan struct{} // closed to let /slow finish
 }
 
-func newApp(t *testing.T, pool *database.Pool) *app {
+func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 	t.Helper()
 	is := authntest.New(t)
-	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
+	trusted := []authn.Issuer{is.Config()}
+	for _, o := range also {
+		trusted = append(trusted, o.Config())
+	}
+	v, err := authn.New(context.Background(), authn.Development, trusted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,6 +381,47 @@ func TestPrincipalResolution(t *testing.T) {
 	pgtest.Exec(t, "UPDATE tenancy.tenant SET status = 'suspended', version = version + 1 WHERE id = $1", ten.ID)
 	if c := get(ten.ID, ten.Human.Subject); c != 403 {
 		t.Fatalf("suspended tenant: %d", c)
+	}
+}
+
+// TestPrincipalsBoundToIssuer: a principal is its issuer's subject, not any
+// trusted issuer's (ADR-0010, F7). Another trusted issuer, say another
+// tenant's identity provider, that names the same subject in this tenant
+// never resolves to this tenant's principal.
+func TestPrincipalsBoundToIssuer(t *testing.T) {
+	other := authntest.NewSeparate(t)
+	a := newApp(t, pgtest.Pool(t), other)
+	ten := pgtest.NewTenant(t)
+	read := func(is *authntest.Issuer, tenant uuid.UUID, subject string) (int, map[string]string) {
+		r := httptest.NewRequest("GET", "/read", nil)
+		r.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, subject, nil))
+		rec := httptest.NewRecorder()
+		a.handler.ServeHTTP(rec, r)
+		var body map[string]string
+		_ = json.Unmarshal(rec.Body.Bytes(), &body) // the status is checked first; a non-JSON body leaves the map empty
+		return rec.Code, body
+	}
+	if code, body := read(a.issuer, ten.ID, ten.Human.Subject); code != 200 || body["principal"] != ten.Human.ID.String() {
+		t.Fatalf("own issuer: got %d %v, want 200 as %s", code, body, ten.Human.ID)
+	}
+	code, body := read(other, ten.ID, ten.Human.Subject)
+	if code != 403 {
+		t.Fatalf("other issuer, same subject: got %d %v, want 403", code, body)
+	}
+	if body["code"] != "identity.principal_unknown" {
+		t.Errorf("other issuer, same subject: got problem %v, want identity.principal_unknown", body["code"])
+	}
+	// The other issuer's own tenant has a principal with the same subject:
+	// each issuer's token resolves to its own principal, never the other's.
+	ten2 := pgtest.NewTenant(t)
+	theirs := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, 'Theirs', 'active', $2, $2)`, ten2.ID, theirs, other.URL, ten.Human.Subject)
+	if code, body := read(other, ten2.ID, ten.Human.Subject); code != 200 || body["principal"] != theirs.String() {
+		t.Errorf("other issuer in its tenant: got %d %v, want 200 as %s", code, body, theirs)
+	}
+	if code, _ := read(a.issuer, ten2.ID, ten.Human.Subject); code != 403 {
+		t.Errorf("own issuer in the other tenant: got %d, want 403", code)
 	}
 }
 

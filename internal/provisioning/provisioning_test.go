@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -26,7 +27,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 func provisioner(t *testing.T) *provisioning.Provisioner {
 	t.Helper()
 	keys := apitest.FieldKeys()
-	return &provisioning.Provisioner{Pool: pgtest.Pool(t), AppRole: "erp_app", Keys: keys, Configuration: app.Configuration(app.Config{FieldKeys: keys})}
+	return &provisioning.Provisioner{Pool: pgtest.Pool(t), AppRole: "erp_app", Keys: keys, Issuer: authntest.URL(t), Configuration: app.Configuration(app.Config{FieldKeys: keys})}
 }
 
 func request(t *testing.T) provisioning.Request {
@@ -160,6 +161,14 @@ func TestProvisioningRefusals(t *testing.T) {
 				t.Errorf("status: got %d (%v), want 4xx", pr.Status, err)
 			}
 		})
+	}
+	// A cell that trusts several tenant issuers cannot tell which one the
+	// administrator's subject belongs to (ADR-0010), so it refuses.
+	several := provisioner(t)
+	several.Issuer = ""
+	_, err := several.Provision(ctx, request(t))
+	if pr := problem.From(err); pr.Code != "provisioning.issuer_ambiguous" {
+		t.Errorf("several issuers: got %v, want provisioning.issuer_ambiguous", err)
 	}
 }
 

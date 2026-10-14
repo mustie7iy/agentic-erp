@@ -139,8 +139,8 @@ func person(t *testing.T, f fixture.Env, name string, roles ...string) pgtest.Ac
 	t.Helper()
 	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	a.Subject = "human|" + a.ID.String()
-	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, all_companies, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, $4, true, 'active', $2, $2)`, f.Tenant.ID, a.ID, a.Subject, name)
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, all_companies, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, $5, true, 'active', $2, $2)`, f.Tenant.ID, a.ID, pgtest.Issuer(t), a.Subject, name)
 	pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
 		SELECT $1, gen_random_uuid(), $2, id, current_date - 1, $2 FROM identity.role WHERE tenant_id = $1 AND code = ANY($3)`, f.Tenant.ID, a.ID, roles)
 	return a

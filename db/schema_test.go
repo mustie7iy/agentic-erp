@@ -986,3 +986,73 @@ func TestExclusionReasons(t *testing.T) {
 	}
 	failsWith(t, asApp(t, f.tenant, exclude("item_lost")), "payment_exclusion_reason_code_check")
 }
+
+// TestPrincipalsAreTheirIssuersSubjects: a principal's issuer and subject
+// are unique per tenant (000038, ADR-0010); the unique index the unit of
+// work resolves tokens with is built and valid.
+func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	insert := func(issuer, subject string) func(pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human',$3,$4,'P','active',$5,$5)",
+				f.tenant, id(), issuer, subject, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, insert("https://a.example.com", "idp|bo"))
+	failsWith(t, asApp(t, f.tenant, insert("https://a.example.com", "idp|bo")), "duplicate key")
+	var valid, unique bool
+	if err := testDB.QueryRow(context.Background(), "SELECT indisvalid, indisunique FROM pg_index WHERE indexrelid = 'identity.principal_issuer_subject'::regclass").Scan(&valid, &unique); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	if !valid || !unique {
+		t.Errorf("principal_issuer_subject: got valid %v unique %v, want both", valid, unique)
+	}
+}
+
+// TestPrincipalIssuerBackfill: 000037 binds the principals that exist
+// before it to the development issuer, the single issuer of the
+// installations that hold any, and leaves agents without one; a fresh
+// install has nothing to backfill.
+func TestPrincipalIssuerBackfill(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	var before []Migration
+	for _, m := range Migrations() {
+		if v, _ := m.Version(); v < 37 { // the names were checked by TestMigrationFiles
+			before = append(before, m)
+		}
+	}
+	if _, err := migrate(ctx, conn, before); err != nil {
+		t.Fatal(err)
+	}
+	tenant, human, agent := id(), id(), id()
+	for _, s := range []struct {
+		sql  string
+		args []any
+	}{
+		{"INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", []any{tenant}},
+		{"INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','idp|ann','Ann','active',$2,$2)", []any{tenant, human}},
+		{"INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1,$2,'agent','Agent','active',$3,$3)", []any{tenant, agent, human}},
+	} {
+		if _, err := conn.Exec(ctx, s.sql, s.args...); err != nil {
+			t.Fatalf("%s: %v", s.sql, err)
+		}
+	}
+	if _, err := Migrate(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		id   uuid.UUID
+		want string
+	}{{"human", human, "erp-dev"}, {"agent", agent, "(none)"}} {
+		var got string
+		if err := conn.QueryRow(ctx, "SELECT coalesce(external_issuer, '(none)') FROM identity.principal WHERE id = $1", c.id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != c.want {
+			t.Errorf("%s issuer: got %s, want %s", c.name, got, c.want)
+		}
+	}
+}

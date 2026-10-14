@@ -46,7 +46,7 @@ func service(t *testing.T) *controlplane.Service {
 	}
 	keys := apitest.FieldKeys()
 	return &controlplane.Service{Pool: pool, AppRole: "erp_app", ControlRole: "erp_control", Pages: pages, Keys: keys,
-		Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: "erp_app", Keys: keys, Configuration: app.Configuration(app.Config{FieldKeys: keys})}}
+		Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: "erp_app", Keys: keys, Issuer: authntest.URL(t), Configuration: app.Configuration(app.Config{FieldKeys: keys})}}
 }
 
 // plane is the control plane on a listener with an operator identity provider.
@@ -212,7 +212,7 @@ func (s *lifecycle) operatorsOnly(t *testing.T) {
 	if code, _, _ := p.do("GET", tenants, "", map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.New(), "idp|ada", nil)}); code != 401 {
 		t.Fatalf("tenant token: %d", code)
 	}
-	if code, _, _ := p.do("GET", tenants, "", map[string]string{"Authorization": "Bearer " + authntest.New(t).Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil})}); code != 401 {
+	if code, _, _ := p.do("GET", tenants, "", map[string]string{"Authorization": "Bearer " + authntest.NewSeparate(t).Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil})}); code != 401 {
 		t.Fatalf("untrusted operator: %d", code)
 	}
 }

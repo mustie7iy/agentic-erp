@@ -90,6 +90,25 @@ type KMS struct {
 	SecretKey string // ERP_FIELD_KMS_SECRET_KEY
 }
 
+// TenantIssuer is the one issuer of tenants' tokens the cell trusts (the
+// development issuer or the only entry of ERP_OIDC_ISSUERS), or empty when
+// it trusts several. A new tenant's first administrator is bound to it
+// with their subject (ADR-0010), since a provisioning request names no
+// issuer.
+func (c Config) TenantIssuer() string {
+	var urls []string
+	if c.DevIssuer {
+		urls = append(urls, authn.DevIssuerURL)
+	}
+	for _, is := range c.Issuers {
+		urls = append(urls, is.URL)
+	}
+	if len(urls) != 1 {
+		return ""
+	}
+	return urls[0]
+}
+
 // Enabled reports whether a KMS master is configured.
 func (k KMS) Enabled() bool { return k.Key != "" }
 

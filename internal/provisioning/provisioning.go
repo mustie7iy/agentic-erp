@@ -91,7 +91,12 @@ type Provisioner struct {
 	AppRole       string              // erp_app: the role the tenant's own rows are written as
 	Keys          *fieldcrypt.Keyring // gives the tenant its own data key; nil leaves it on the legacy key
 	Configuration configuration.Dependencies
-	Now           func() time.Time
+	// Issuer is the identity provider (OIDC iss) new administrators are
+	// bound to with their subject (ADR-0010): the one tenant issuer the cell
+	// trusts. Empty when it trusts several, and then provisioning is refused,
+	// since the contract cannot name the administrator's issuer yet.
+	Issuer string
+	Now    func() time.Time
 	// Begin starts the transaction; nil means Pool.Begin. Tests replace it
 	// to inject database failures.
 	Begin database.BeginFunc
@@ -137,6 +142,10 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	if err := req.check(); err != nil {
 		return Result{}, err
 	}
+	if p.Issuer == "" {
+		return Result{}, problem.Unprocessable("provisioning.issuer_ambiguous",
+			"This cell trusts several identity providers, and a provisioning request cannot name the administrator's yet; provision in a cell that trusts one.")
+	}
 	res := Result{TenantID: uuid.Must(uuid.NewV7()), AdministratorID: uuid.Must(uuid.NewV7())}
 	tx, err := p.begin(ctx, database.Scope{TenantID: res.TenantID})
 	if err != nil {
@@ -170,7 +179,7 @@ func (p *Provisioner) populate(ctx context.Context, tx pgx.Tx, req Request, res 
 			return err
 		}
 	}
-	if err := createAdministrator(ctx, tx, req, res); err != nil {
+	if err := createAdministrator(ctx, tx, p.Issuer, req, res); err != nil {
 		return err
 	}
 	if err := createRolesAndEntities(ctx, req, res); err != nil {
@@ -208,8 +217,8 @@ func (p *Provisioner) createTenant(ctx context.Context, tx pgx.Tx, req Request, 
 
 // createAdministrator creates the administrator and AdministratorRole with
 // every permission, and assigns the role to the administrator.
-func createAdministrator(ctx context.Context, tx pgx.Tx, req Request, res *Result) error {
-	admin := identity.FirstAdministrator{TenantID: res.TenantID, ID: res.AdministratorID, Subject: req.Administrator.Subject,
+func createAdministrator(ctx context.Context, tx pgx.Tx, issuer string, req Request, res *Result) error {
+	admin := identity.FirstAdministrator{TenantID: res.TenantID, ID: res.AdministratorID, Issuer: issuer, Subject: req.Administrator.Subject,
 		DisplayName: strings.TrimSpace(req.Administrator.DisplayName), Email: req.Administrator.Email}
 	if err := identity.CreateFirstAdministrator(ctx, tx, admin); err != nil {
 		return fmt.Errorf("provisioning: administrator: %w", problem.From(err))

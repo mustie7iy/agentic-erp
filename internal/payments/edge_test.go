@@ -311,8 +311,8 @@ func TestListsAndAccess(t *testing.T) {
 	// People without access to company 2000 see none of it.
 	us := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	us.Subject = "human|" + us.ID.String()
-	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, 'US only', 'active', $2, $2)`, e.Tenant.ID, us.ID, us.Subject)
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, 'US only', 'active', $2, $2)`, e.Tenant.ID, us.ID, pgtest.Issuer(t), us.Subject)
 	pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
 		SELECT $1, gen_random_uuid(), $2, id, current_date - 1, $2 FROM identity.role WHERE tenant_id = $1 AND code = 'all'`, e.Tenant.ID, us.ID)
 	pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)

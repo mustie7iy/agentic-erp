@@ -597,3 +597,26 @@ func TestProductionFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// TestTenantIssuer: the issuer new administrators are bound to is the one
+// tenant issuer the cell trusts, and none when it trusts several.
+func TestTenantIssuer(t *testing.T) {
+	const one, two = `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`,
+		`[{"issuer":"https://a.example.com","audience":"erp-api"},{"issuer":"https://b.example.com","audience":"erp-api"}]`
+	for _, c := range []struct {
+		name, issuers, dev, want string
+	}{
+		{"one issuer", one, "", "https://idp.example.com"},
+		{"development issuer", "", "true", "erp-dev"},
+		{"development and one more", one, "true", ""},
+		{"two issuers", two, "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			m["ERP_OIDC_ISSUERS"], m["ERP_DEV_ISSUER"] = c.issuers, c.dev
+			if got := mustLoad(t, m).TenantIssuer(); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}

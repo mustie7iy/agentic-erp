@@ -28,3 +28,19 @@ for people and agents alike.
 ## Consequences
 - Every handler calls one authorization function with the action and the
   resource; tests cover the full matrix (as in Phase 1).
+
+## Amendment (2026-10-14)
+
+A principal is the subject of one identity provider: the unit of work
+resolves a token to the principal whose issuer and subject are the token's
+`iss` and `sub` in the tenant it names (`identity.principal.external_issuer`
+next to `external_subject`), never by the subject alone. Tenants bring
+their own identity providers and every trusted issuer may name any tenant,
+so two issuers can issue the same subject; matching the subject alone let
+one tenant's identity provider sign in as another tenant's principal. A
+token whose issuer and subject match no principal of its tenant is refused
+(403 `identity.principal_unknown`). Until the contract can name an issuer,
+a principal created through the API is bound to the issuer its creating
+administrator signed in with, and a new tenant's first administrator to
+the cell's only tenant issuer; a cell that trusts several refuses to
+provision. (03-data-model §3.4 has the schema and the backfill.)

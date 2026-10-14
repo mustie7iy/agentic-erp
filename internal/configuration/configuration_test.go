@@ -396,8 +396,8 @@ func TestTiersEvidenceAndWithdrawal(t *testing.T) {
 	// Only the author changes or withdraws a request.
 	other := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	other.Subject = "human|" + other.ID.String()
-	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, 'Other', 'active', $2, $2)`, e.ten.ID, other.ID, other.Subject)
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, 'Other', 'active', $2, $2)`, e.ten.ID, other.ID, pgtest.Issuer(t), other.Subject)
 	pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
 		SELECT $1, gen_random_uuid(), $2, role_id, current_date - 1, $2 FROM identity.principal_role WHERE principal_id = $3`, e.ten.ID, other.ID, e.ten.Human.ID)
 	colleague := apitest.Client{T: t, API: e.API, Tenant: e.ten, As: other}

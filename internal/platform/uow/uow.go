@@ -212,14 +212,18 @@ func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	return nil
 }
 
-// resolve finds the active principal for the token in an active tenant.
+// resolve finds the active principal for the token in an active tenant. A
+// principal is the subject of one issuer (ADR-0010, F7): every trusted
+// issuer may name any tenant, so a subject alone would let one tenant's
+// identity provider sign in as another tenant's principal whose subject it
+// also issues.
 func resolve(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal, error) {
 	var tenantStatus string
 	var id *uuid.UUID
 	var kind, status *string
 	err := tx.QueryRow(ctx, `SELECT t.status, p.id, p.kind, p.status FROM tenancy.tenant t
-		LEFT JOIN identity.principal p ON p.tenant_id = t.id AND p.external_subject = $2
-		WHERE t.id = $1`, c.TenantID, c.Subject).Scan(&tenantStatus, &id, &kind, &status)
+		LEFT JOIN identity.principal p ON p.tenant_id = t.id AND p.external_issuer = $2 AND p.external_subject = $3
+		WHERE t.id = $1`, c.TenantID, c.Issuer, c.Subject).Scan(&tenantStatus, &id, &kind, &status)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return reqctx.Principal{}, problem.Unauthorized("The token's tenant is not known here.")

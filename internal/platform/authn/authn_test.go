@@ -52,7 +52,7 @@ func TestVerifyAcceptsValidTokens(t *testing.T) {
 }
 
 func TestVerifyRejectsBadTokens(t *testing.T) {
-	is, untrusted := authntest.New(t), authntest.New(t)
+	is, untrusted := authntest.New(t), authntest.NewSeparate(t)
 	v := verifier(t, is)
 	tenant := uuid.New()
 	valid := is.Token(t, tenant, "s", nil)
@@ -102,7 +102,7 @@ func TestNewValidatesConfiguration(t *testing.T) {
 }
 
 func TestOperatorTokens(t *testing.T) {
-	is, other := authntest.New(t), authntest.New(t)
+	is, other := authntest.New(t), authntest.NewSeparate(t)
 	v := verifier(t, is)
 	ctx := context.Background()
 	// An operator token names no tenant; a tenant's token is not an operator's and the reverse.

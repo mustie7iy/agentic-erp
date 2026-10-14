@@ -19,18 +19,19 @@ import (
 type FirstAdministrator struct {
 	TenantID    uuid.UUID
 	ID          uuid.UUID
-	Subject     string // subject at the identity provider
+	Issuer      string // the identity provider (OIDC iss) whose tokens authenticate them (ADR-0010)
+	Subject     string // subject at that identity provider
 	DisplayName string
 	Email       *string
 }
 
 // CreateFirstAdministrator creates the administrator in tx: a human with
 // access to every company, active, who created themselves since nobody
-// comes before them. A constraint violation is returned wrapped, for the
-// caller's problem mapping.
+// comes before them, bound to their issuer and subject. A constraint
+// violation is returned wrapped, for the caller's problem mapping.
 func CreateFirstAdministrator(ctx context.Context, tx pgx.Tx, a FirstAdministrator) error {
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, email, all_companies, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, $4, $5, true, 'active', $2, $2)`, a.TenantID, a.ID, a.Subject, a.DisplayName, a.Email); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, email, all_companies, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, $5, $6, true, 'active', $2, $2)`, a.TenantID, a.ID, a.Issuer, a.Subject, a.DisplayName, a.Email); err != nil {
 		return fmt.Errorf("identity: create administrator %s: %w", a.ID, err)
 	}
 	return nil

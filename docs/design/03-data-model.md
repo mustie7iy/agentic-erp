@@ -138,6 +138,7 @@ erDiagram
   principal {
     uuid id PK
     text kind "human | agent | service"
+    text external_issuer "IdP issuer (iss)"
     text external_subject "IdP subject"
     text display_name
     text status
@@ -173,6 +174,25 @@ erDiagram
 
 Agents are principals like people, with their own roles. A trigger rejects
 granting an `is_approval` permission to a role held by an agent.
+
+A token authenticates the principal whose `external_issuer` and
+`external_subject` are its `iss` and `sub`, in the tenant it names: every
+trusted issuer may name any tenant, so the subject alone would let one
+tenant's identity provider sign in as another tenant's principal whose
+subject it also issues (ADR-0010, amended 2026-10-14). People and services
+carry both; agents carry an issuer only when they have a subject. The
+contract names no issuer, so a principal is bound to the issuer of the
+administrator who creates it, and a new tenant's first administrator to
+the cell's only tenant issuer (a cell that trusts several refuses to
+provision, `provisioning.issuer_ambiguous`). `principal_issuer_subject`
+(tenant, issuer, subject) is unique. Migration 000037 added the column
+(expand step) and bound the principals that existed to the development
+issuer `erp-dev`, the single issuer of the only installations that had any
+(no record says which issuer created a principal; elsewhere it matches no
+token, so such a principal is refused until re-bound). The contract step,
+in a later release, requires the issuer of every principal with a subject
+and drops `principal_subject` (the subject alone unique per tenant), which
+the previous release still relies on.
 
 Role permissions, role assignments, company access and SoD rules are
 **effective-dated assignments**: each has its own id, a validity range that

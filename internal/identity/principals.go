@@ -162,8 +162,13 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 			problem.FieldError{Field: "agent_profile", Code: "agents_only", Message: "required for agents, not allowed otherwise"})
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, email, all_companies, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $8)`,
+	// A subject is bound to its issuer (ADR-0010): the contract names no
+	// issuer, so the new principal is a subject of the identity provider the
+	// administrator creating it signed in with, the tenant's. The
+	// administrator resolved through that issuer, so it is never NULL here.
+	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, email, all_companies, status, created_by, updated_by)
+		VALUES ($1, $2, $3, CASE WHEN $4::text IS NOT NULL THEN (SELECT a.external_issuer FROM identity.principal a WHERE a.tenant_id = $1 AND a.id = $8) END,
+			$4, $5, $6, $7, 'active', $8, $8)`,
 		actor.TenantID, id, in.Kind, in.ExternalSubject, in.DisplayName, in.Email, in.AllCompanies, actor.ID); err != nil {
 		return Principal{}, fmt.Errorf("identity: insert principal %s: %w", id, err)
 	}

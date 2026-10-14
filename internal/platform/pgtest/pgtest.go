@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/db"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 )
 
@@ -174,6 +175,14 @@ func EmptyDatabase(tb testing.TB) string {
 	return u.String()
 }
 
+// Issuer is the issuer the principals of tests are bound to with their
+// subject (ADR-0010): the test identity provider, whose tokens the tests
+// mint. A test that inserts a principal itself records it.
+func Issuer(tb testing.TB) string {
+	tb.Helper()
+	return authntest.URL(tb)
+}
+
 // Actor is a principal with the token subject that authenticates as it.
 type Actor struct {
 	ID      uuid.UUID
@@ -210,9 +219,12 @@ func NewTenant(tb testing.TB, permissions ...string) Tenant {
 		}
 	}
 	must(`INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Tenant', 'eu-west', 'EUR', 'active')`, ten.ID)
+	// Bound to the test identity provider, whose tokens the tests mint
+	// (ADR-0010: a principal is its issuer's subject).
+	issuer := Issuer(tb)
 	for _, a := range []Actor{ten.Human, ten.Agent, ten.Service} {
-		must(`INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, $3, 'active', $2, $2)`, ten.ID, a.ID, a.Kind, a.Subject)
+		must(`INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $3, 'active', $2, $2)`, ten.ID, a.ID, a.Kind, issuer, a.Subject)
 	}
 	human, machine := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	must(`INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, 'all', 'All', 'active', $3, $3), ($1, $4, 'machine', 'Machine', 'active', $3, $3)`,

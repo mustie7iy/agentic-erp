@@ -324,8 +324,10 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   under the run's key and accepts it when it pays the same, so a data correction cannot strand
   the run. Reviews: four rounds of blocking findings fixed (deadlock risk, cross-tenant lock key, lock
   table, contract migration on the same branch); final re-review of a6897c6 pending.
-- [ ] F7 Security defaults fail closed (user: ERP_ENV required; production refuses an operator
-  token without roles, ADR-0027 amended; principals bound to issuer + subject, with a migration)
+- [x] F7 Security defaults fail closed (user: ERP_ENV required; production refuses an operator
+  token without roles, ADR-0027 amended; principals bound to issuer + subject, with a migration).
+  Migrations 000037 (column, backfill to erp-dev) and 000038 (unique index, concurrently); the
+  contract step (drop principal_subject, require the issuer) waits for a later release.
 - [x] R56 Duplication and money residue: money.ParseRat, platform/currency.Exponent (six lookups;
   a currency read failure is no longer a 422), new(v) for ptr/ptrTo, app builds each port once,
   uow.Job; pain.001 control sum checked; Minor.String prints raw minor units; money.Diff.

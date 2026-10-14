@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -80,6 +81,9 @@ func TestAFailedNATSStartLeavesNoServer(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { newRestartable = natstest.NewRestartable })
+	// The test identity provider serves for the whole test binary; started
+	// here, it is not counted as the stack's.
+	authntest.New(t)
 	before := servingTestServers()
 	tb := &abortingTB{TB: t}
 	done := make(chan struct{})

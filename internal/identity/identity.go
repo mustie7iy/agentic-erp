@@ -35,6 +35,9 @@ func init() {
 		"principal_subject": func() *problem.Problem {
 			return problem.Conflict("identity.subject_taken", "Another principal already has this identity provider subject.")
 		},
+		"principal_issuer_subject": func() *problem.Problem {
+			return problem.Conflict("identity.subject_taken", "Another principal already has this identity provider subject.")
+		},
 		"role_tenant_id_code_key": func() *problem.Problem {
 			return problem.Conflict("identity.role_code_taken", "Another role already has this code.")
 		},

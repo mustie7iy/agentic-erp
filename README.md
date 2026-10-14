@@ -236,11 +236,14 @@ verified by comparing the two cells' fingerprints with `erp directory verify`,
 `erp directory`, [ADR-0023](docs/design/adr/0023-global-control-plane.md)).
 Each cell registers itself with `ERP_CELL_REGION`, `ERP_CELL_CONTROL_URL`
 and `ERP_CELL_ACCEPTING`. Tokens must
-carry the tenant id in the `tenant_id` claim, and the subject must be a
-provisioned principal of that tenant; operator tokens name no tenant and
-work only on the control plane; a `roles` claim on them narrows what an
+carry the tenant id in the `tenant_id` claim, and their issuer and subject
+must be those of a provisioned principal of that tenant (a principal is
+bound to one issuer: at provisioning the cell's only tenant issuer, through
+the API the creating administrator's); operator tokens name no tenant and
+work only on the control plane; a `roles` claim on them says what an
 operator may do (`erp:read`, `erp:provision`, `erp:operate`, `erp:admin`,
-[ADR-0027](docs/design/adr/0027-operator-roles.md)). `ERP_KEY_ROTATION_AGE`
+[ADR-0027](docs/design/adr/0027-operator-roles.md)), and with
+`ERP_ENV=production` a token without it may do nothing. `ERP_KEY_ROTATION_AGE`
 rotates tenant keys older than that age without an operator
 ([ADR-0028](docs/design/adr/0028-key-rotation-policy.md)). Every operation in the contract is
 served: implemented ones run, the rest answer `501` until their context moves
