@@ -665,6 +665,49 @@ func (s *devLogin) shutdown(t *testing.T) {
 	}
 }
 
+// TestProductionOperatorWithoutRoles: the server passes ERP_ENV through to
+// the operator verifier, so in production an operator token without a roles
+// claim holds no role on the control plane (ADR-0027, amended), while one
+// that carries the role is let through. The environment is production's:
+// an object store, the default audit verification, no development issuer.
+func TestProductionOperatorWithoutRoles(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["ERP_ENV"] = "production"
+	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
+	ctx, cancel := context.WithCancel(context.Background())
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	admin := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(_, a net.Listener) { admin <- a.Addr().String() })
+	}()
+	stop := sync.OnceValue(func() int { cancel(); return <-done })
+	defer stop()
+	var base string
+	select {
+	case a := <-admin:
+		base = "http://" + a + "/control/v1/tenants/"
+	case code := <-done:
+		done <- code // the deferred stop reads the exit code again
+		t.Fatalf("stopped before serving: %d\n%s", code, logs.String())
+	}
+	get := func(extra map[string]any) int {
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
+		req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", extra))
+		return status(t, req)
+	}
+	if got := get(map[string]any{"tenant_id": nil}); got != http.StatusForbidden {
+		t.Errorf("no roles claim: got %d, want 403", got)
+	}
+	if got := get(map[string]any{"tenant_id": nil, "roles": []string{"erp:read"}}); got != http.StatusNotFound {
+		t.Errorf("with erp:read: got %d, want 404 (an unknown tenant, past the role check)", got)
+	}
+	if code := stop(); code != 0 {
+		t.Errorf("stop: exit code got %d, want 0\n%s", code, logs.String())
+	}
+}
+
 // TestObjectStores: without object storage the server warns and runs; with
 // an S3-compatible store it anchors chain heads there.
 func TestObjectStores(t *testing.T) {

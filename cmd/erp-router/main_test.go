@@ -169,6 +169,53 @@ func TestExitCodes(t *testing.T) {
 	main()
 }
 
+// TestProductionOperatorWithoutRoles: the router passes ERP_ENV through to
+// the operator verifier, so in production an operator token without a roles
+// claim holds no role on the global control plane (ADR-0027, amended),
+// while one that carries the role is let through.
+func TestProductionOperatorWithoutRoles(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is)
+	env["ERP_ENV"] = "production"
+	ctx, cancel := context.WithCancel(context.Background())
+	var logs bytes.Buffer
+	adminAddr := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, func(k string) string { return env[k] }, &logs, func(_, admin net.Listener) { adminAddr <- admin.Addr().String() })
+	}()
+	defer func() {
+		cancel()
+		if code := <-done; code != 0 {
+			t.Errorf("stop: exit code got %d, want 0 (logs %s)", code, logs.String())
+		}
+	}()
+	var base string
+	select {
+	case a := <-adminAddr:
+		base = "http://" + a
+	case code := <-done:
+		done <- code // the deferred stop reads the exit code again
+		t.Fatalf("stopped before serving: %d %s", code, logs.String())
+	}
+	get := func(extra map[string]any) int {
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", base+"/directory/v1/tenants/"+uuid.NewString(), nil)
+		req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", extra))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close() // only the status is asserted
+		return resp.StatusCode
+	}
+	if got := get(map[string]any{"tenant_id": nil}); got != http.StatusForbidden {
+		t.Errorf("no roles claim: got %d, want 403", got)
+	}
+	if got := get(map[string]any{"tenant_id": nil, "roles": []string{"erp:read"}}); got != http.StatusNotFound {
+		t.Errorf("with erp:read: got %d, want 404 (an unknown tenant, past the role check)", got)
+	}
+}
+
 // getStatus gets the URL and returns the response's status, its body closed.
 func getStatus(t *testing.T, u string) int {
 	t.Helper()
