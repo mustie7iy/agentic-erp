@@ -2,7 +2,6 @@ package payables_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -242,17 +241,47 @@ func checkNotDecimals(t *testing.T, e env, cases []configuration.RegressionCase)
 	}
 }
 
-// TestGrossOutOfRangeInTheCompanysCurrency: an invoice whose gross amount
-// is out of range in the company's currency can be neither compared with
-// its limits nor posted; replaying it fails rather than wrapping.
-func TestGrossOutOfRangeInTheCompanysCurrency(t *testing.T) {
+// TestUnevaluableInvoices: an invoice that cannot be compared with its
+// company's amounts, for want of a rate on its invoice date or because its
+// gross amount is out of range in the company's currency, is reported by
+// the simulation as one that cannot be evaluated and captured as
+// not_evaluable. It does not fail every simulation, capture and replay of
+// the tenant: entering an invoice needs no rate.
+func TestUnevaluableInvoices(t *testing.T) {
 	e := foreign(t)
 	e.rate(t, "JPY", "EUR", "1000000")
-	po := e.orderIn(t, "JPY", 1_000_000_000_000)
-	e.foreignInvoice(t, po, "JPY", "JP-1", "10000000000000", "0", "10000000000000")
-	_, err := e.capture(t, fixture.Document(t))
-	pgtest.WantErr(t, err, "payables: replay invoice SI")
-	if !errors.Is(err, money.ErrOverflow) {
-		t.Errorf("capture: got %v, want %v", err, money.ErrOverflow)
+	huge := e.orderIn(t, "JPY", 1_000_000_000_000)
+	e.foreignInvoice(t, huge, "JPY", "JP-1", "10000000000000", "0", "10000000000000")
+	usd := e.orderIn(t, "USD", 1200)
+	e.foreignInvoice(t, usd, "USD", "US-1", "120.00", "0.00", "120.00")
+	base := fixture.Document(t)
+	sim, err := e.simulate(t, base, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sim.Passed {
+		t.Error("simulation passed: got true, want false")
+	}
+	var reasons []string
+	for _, b := range sim.Detail["breaks"].([]broken) {
+		reasons = append(reasons, b.Reason)
+	}
+	if got, want := strings.Join(reasons, " | "), "no average exchange rate from USD to EUR on 2026-03-10 | gross amount 10000000000000 JPY cannot be converted into EUR: ledger: convert JPY into EUR: "+money.ErrOverflow.Error(); got != want {
+		t.Errorf("breaks: got %q, want %q", got, want)
+	}
+	cases, err := e.capture(t, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 2 {
+		t.Fatalf("cases: got %d, want 2: %+v", len(cases), cases)
+	}
+	for _, c := range cases {
+		if c.ExpectedDecision != payables.DecisionNotEvaluable {
+			t.Errorf("case %s decision: got %s, want %s", c.DocumentNumber, c.ExpectedDecision, payables.DecisionNotEvaluable)
+		}
+	}
+	if err := e.replay(t, base, cases); err != nil {
+		t.Errorf("replay: got %v, want no error", err)
 	}
 }

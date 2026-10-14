@@ -380,7 +380,13 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   limit, simulation evidence), exactly, with parse errors handled: ledger.Rates converts at the
   posting rate (average, valid on the document's date), approvals takes it through a Rates port,
   payables reads a company's limits once with ParseDecimalRat; a missing rate is 422
-  ledger.no_exchange_rate.
+  ledger.no_exchange_rate for a submission or a match, and an invoice a simulation or suite
+  cannot convert is reported (broken / not_evaluable) instead of failing the tenant's
+  governance. Regression suites captured before F12 decided foreign-currency invoices
+  unconverted: re-capture them after deploying.
+- [ ] F12b The CLI's auto-post rule (cmd/erp invoices) still compares the raw gross with the
+  limit, read at the digits each figure happens to have; deciding it on the server (the match
+  returning the decision, or the gross in the company's currency) needs a contract change
 - [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
   Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
   panic); a period close locks only a period the caller may see; provision and rewrap report a

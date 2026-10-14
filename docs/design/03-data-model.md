@@ -273,11 +273,19 @@ requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the invoice price tolerance
 (`invoice_tolerance.price_absolute`) and the auto-post limit
 (`auto_post_limit`). A document in another currency is converted into the
-company's currency at the ledger's average rate valid on its date (the
-rate a posting uses: a requisition on the day it was raised, an invoice on
-its invoice date) and then compared exactly with the configured figure.
-Without a rate the step is refused (422 `ledger.no_exchange_rate`); the raw
-numbers of two currencies are never compared.
+company's currency with the ledger's posting lookup (the latest average
+rate of the pair, inverted when only the reverse is recorded) on the
+document's date: a requisition on the day it was raised (UTC), so a
+resubmission is routed at the same rate, an invoice on its invoice date
+(a posting converts on the posting date instead). The converted amount is
+rounded half away from zero to the company's minor units, as it would be
+posted, and that figure is compared exactly with the configured one: a
+variance worth 5.004 EUR is 5.00 EUR and within a 5.00 tolerance. Without
+a rate a requisition's submission and an invoice's match are refused (422
+`ledger.no_exchange_rate`); the raw numbers of two currencies are never
+compared. A simulation reports such an invoice as one it cannot evaluate,
+and a regression suite records it as `not_evaluable`, rather than failing
+for the whole tenant.
 
 ## 3.6 Business partners (`partner`)
 

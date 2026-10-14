@@ -22,6 +22,10 @@ const (
 	DecisionAutoPost  = "auto_post" // clean within the auto-post limit: the rule posts it
 	DecisionReview    = "review"    // clean above the limit: a person posts it
 	DecisionException = "exception" // the match found issues: held, decided on an approval request
+	// DecisionNotEvaluable: the invoice cannot be compared with its
+	// company's amounts (no exchange rate on its date); a regression case
+	// records it so that a rate recorded later shows as a change.
+	DecisionNotEvaluable = "not_evaluable"
 )
 
 // Simulation replays the supplier invoices on purchase orders of the last
@@ -124,6 +128,10 @@ func (t *tally) invoice(r replayed, before, after *config.Company) error {
 	v, co := r.Invoice, r.Company
 	if after == nil {
 		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, "company " + co + " is not in the proposed configuration"})
+		return nil
+	}
+	if r.Unevaluable != "" {
+		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, r.Unevaluable})
 		return nil
 	}
 	missing := ""

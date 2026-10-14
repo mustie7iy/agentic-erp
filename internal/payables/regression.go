@@ -2,6 +2,7 @@ package payables
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -46,6 +48,11 @@ type replayed struct {
 	// amount converted.
 	Conversion ledger.Conversion
 	Gross      money.Minor
+	// Unevaluable says why the invoice cannot be compared with its
+	// company's amounts (no rate on its date, a gross amount out of range
+	// in the company's currency), or is "". Such an invoice is reported,
+	// not a reason to fail every simulation and suite of the tenant.
+	Unevaluable string
 }
 
 // sources are the ports replaying an invoice reads through.
@@ -126,25 +133,52 @@ func replay(ctx context.Context, tx pgx.Tx, src sources, v Invoice, c *replayCac
 		}
 		c.orders[*v.PurchaseOrderID] = order
 	}
-	conv, err := c.conversion(ctx, src.rates, v, le.LocalCurrency)
-	if err != nil {
+	r := replayed{Invoice: v, Company: le.Code, Order: order}
+	if err := c.inCompany(ctx, src.rates, &r, le.LocalCurrency); err != nil {
 		return replayed{}, err
-	}
-	// Out of range in the company's currency, the gross amount could be
-	// neither compared with the limits nor posted.
-	gross, err := conv.Convert(v.Gross)
-	if err != nil {
-		return replayed{}, fmt.Errorf("payables: replay invoice %s: %w", v.DocumentNumber, err)
 	}
 	invoiced, err := invoicedQuantities(ctx, tx, *v.PurchaseOrderID, v.ID)
 	if err != nil {
 		return replayed{}, err
 	}
-	return replayed{Invoice: v, Company: le.Code, Order: order, Invoiced: invoiced, Conversion: conv, Gross: gross}, nil
+	r.Invoiced = invoiced
+	return r, nil
 }
 
-// outcome is a decision with its issue codes.
+// inCompany sets the conversion of the invoice into the company's currency
+// and its gross amount converted, or why it cannot be converted: no rate
+// valid on the invoice date, or a gross amount out of range there, which
+// could be neither compared with the limits nor posted.
+func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, to string) error {
+	v := r.Invoice
+	conv, err := c.conversion(ctx, rates, v, to)
+	var p *problem.Problem
+	if errors.As(err, &p) && p.Code == "ledger.no_exchange_rate" {
+		r.Unevaluable = fmt.Sprintf("no average exchange rate from %s to %s on %s", v.Currency, to, v.InvoiceDate.Format(time.DateOnly))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// Convert fails only for a result out of range (money.ErrOverflow): the
+	// rate and exponents come from the database. The reason carries the
+	// error either way.
+	gross, err := conv.Convert(v.Gross)
+	if err != nil {
+		r.Unevaluable = fmt.Sprintf("gross amount %s %s cannot be converted into %s: %v", v.Gross.Plain(v.Exponent), v.Currency, to, err)
+		return nil
+	}
+	r.Conversion, r.Gross = conv, gross
+	return nil
+}
+
+// outcome is a decision with its issue codes; an invoice that cannot be
+// compared with its company's amounts is not evaluable, with the reason as
+// its issue.
 func outcome(lim limits, r replayed) (string, []string) {
+	if r.Unevaluable != "" {
+		return DecisionNotEvaluable, []string{r.Unevaluable}
+	}
 	decision, issues := decide(lim, r)
 	codes := make([]string, 0, len(issues))
 	for _, i := range issues {
