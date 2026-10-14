@@ -514,6 +514,9 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 		if line.RBUKRS != c.BUKRS {
 			continue
 		}
+		// Parsed and in range: the quality gate refuses an extract whose
+		// company lines add up to more than an amount holds (journal), which
+		// bounds the balances and cleared sum here.
 		amt, _ := l.t.amount(line.HSL, c.WAERS)
 		last = max(last, line.BUDAT)
 		account := sap.Alpha(line.RACCT)

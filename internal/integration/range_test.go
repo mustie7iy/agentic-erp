@@ -26,3 +26,26 @@ func TestQualityGateRefusesLineOutOfRange(t *testing.T) {
 		t.Errorf("run status: got %v, want failed", got["status"])
 	}
 }
+
+// Journal lines whose sums are out of range fail the quality gate: a
+// document of 92233720368547758.07 twice and 0.02 wrapped to zero and
+// counted as balanced, and the opening balances summed per account
+// wrapped the same way and posted with their sign reversed.
+func TestQualityGateRefusesJournalOutOfRange(t *testing.T) {
+	e := setup(t)
+	x := tiny()
+	line := func(no, account, amount string) sap.ACDOCA {
+		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000009", DOCLN: no, RACCT: account, HSL: amount, BUDAT: "20260301", BLART: "SA"}
+	}
+	x.ACDOCA = append(x.ACDOCA, line("000001", "0000100000", "92233720368547758.07"), line("000002", "0000100000", "92233720368547758.07"),
+		line("000003", "0000520000", "0.02"))
+	write(t, e.dir, "journal.json", x)
+	run := e.run(t, e.connector(t, "journal.json"), "documents", false, e.DE.String())
+	_, got := e.act(t, run, "start")
+	quality := fmt.Sprint(got["report"].(map[string]any)["quality"])
+	for _, want := range []string{"off by more than an amount holds", "the journal lines of company 2000 add up to more than an amount holds"} {
+		if !strings.Contains(quality, want) {
+			t.Errorf("quality gate: got %s, want it to report %q", quality, want)
+		}
+	}
+}

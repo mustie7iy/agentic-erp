@@ -254,8 +254,12 @@ func (q *qualityCheck) movements() {
 }
 
 // journalScan accumulates what the Universal Journal lines add up to.
+// sizes holds each company's line amounts without sign: their sum bounds
+// every sum the load and the reconciliation form of the company's lines
+// (balances per account, debits, open and cleared items).
 type journalScan struct {
-	docTotals    map[string]money.Minor
+	docLines     map[string][]money.Minor
+	sizes        map[string][]money.Minor
 	openByVendor map[string]bool
 	noRange      map[string]bool
 }
@@ -263,13 +267,18 @@ type journalScan struct {
 // journal checks the Universal Journal: every document must balance, hit
 // known accounts and have a number range for its document type.
 func (q *qualityCheck) journal() {
-	s := journalScan{docTotals: map[string]money.Minor{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}}
+	s := journalScan{docLines: map[string][]money.Minor{}, sizes: map[string][]money.Minor{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}}
 	for _, l := range q.e.ACDOCA {
 		q.journalLine(l, &s)
 	}
-	for _, key := range sortedKeys(s.docTotals) {
-		if total := s.docTotals[key]; total != 0 {
-			q.add(SevError, "ACDOCA", key, "document does not balance (off by %d minor units)", total)
+	for _, key := range sortedKeys(s.docLines) {
+		if total, err := money.Sum(s.docLines[key]...); err != nil || total != 0 {
+			q.add(SevError, "ACDOCA", key, "document does not balance (off by %s minor units)", offBy(total, err))
+		}
+	}
+	for _, cc := range sortedKeys(s.sizes) {
+		if _, err := money.Sum(s.sizes[cc]...); err != nil {
+			q.add(SevError, "ACDOCA", cc, "the journal lines of company %s add up to more than an amount holds", cc)
 		}
 	}
 	for _, id := range sortedKeys(s.openByVendor) {
@@ -293,7 +302,8 @@ func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)
 		return
 	}
-	s.docTotals[key] += amt
+	s.docLines[key] = append(s.docLines[key], amt)
+	s.sizes[l.RBUKRS] = append(s.sizes[l.RBUKRS], amt.Abs()) // parsed amounts are never -2^63
 	a, ok := q.account[l.RBUKRS+"/"+l.RACCT]
 	if !ok {
 		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "account %s missing from chart of accounts", l.RACCT)
@@ -375,4 +385,12 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// offBy renders a document's imbalance, which can be out of range.
+func offBy(total money.Minor, err error) string {
+	if err != nil {
+		return "more than an amount holds in"
+	}
+	return strconv.FormatInt(int64(total), 10)
 }
