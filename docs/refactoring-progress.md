@@ -306,14 +306,30 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - [ ] R55 Re-review until 9.5. First re-review after Phase 7: **9.0 / 10** (architecture 9.2,
   error handling 9.1, concurrency and tenancy 8.4, SQL 9.7, tests 9.3, readability 9.2,
   duplication 8.8, money 9.3). Round two below.
-- [ ] F5 The ledger API cannot reverse or clear another context's document or a reserved item
-- [ ] F6 A releasing run cannot get stuck; a proposal cannot race an invoice reversal
+- [x] F5 The ledger API cannot reverse or clear another context's document or a reserved item.
+  :reverse refuses payables entries (409 ledger.entry_owned_elsewhere, naming
+  /v1/supplier-invoices/{id}:reverse); integration entries stay reversible. Items a payment run
+  holds are reserved in ledger-owned state (migration 000034, ledger.item_reservation), set by
+  payments through the Postings port it already used (no new dependency, no ADR); manual and
+  other clearings refuse a reserved item (409 ledger.item_reserved); Payable leaves reserved
+  items out, so a stale reservation holds back one item; entry locks share 1,024 buckets so a
+  100,000-item run cannot exhaust the lock table. Release note: 000037 (reconciles reservations
+  with the live runs, idempotent) must ship in a later release than 000034, once no instance
+  from before 000034 is serving.
+- [x] F6 A releasing run cannot get stuck; a proposal cannot race an invoice reversal. RunOf takes
+  the proposals lock; a release drops a payment that can never post (supplier excluded with
+  item_reversed or item_not_open, migrations 000035/000036; new additive PaymentExcluded event
+  and the two codes in reason_code's enum, user approved); a retried release keeps one bank file
+  under the run's key and accepts it when it pays the same, so a data correction cannot strand
+  the run. Reviews: three rounds of blocking findings fixed; re-review nothing blocking.
 - [ ] F7 Security defaults fail closed (user: ERP_ENV required; production refuses an operator
   token without roles, ADR-0027 amended; principals bound to issuer + subject, with a migration)
-- [ ] R56 Duplication and money residue (rat, currency exponent lookup, ptr, app ports, uow
-  job helper, pain001 sum, Minor.String, Diff)
-- [ ] R57 Error-handling and readability residue (release store failure, rates guard,
-  integration discards, pgx rows idiom documented, erp-server shutdown, two long tests)
+- [x] R56 Duplication and money residue: money.ParseRat, platform/currency.Exponent (six lookups;
+  a currency read failure is no longer a 422), new(v) for ptr/ptrTo, app builds each port once,
+  uow.Job; pain.001 control sum checked; Minor.String prints raw minor units; money.Diff.
+- [x] R57 Error-handling and readability residue: CreateRate refuses a non-decimal rate (was a
+  nil dereference); the loader's discards say why; CLAUDE.md accepts pgx's rows, _ := tx.Query;
+  erp-server's workers stop on one WaitGroup; TestDispatcher and the key-rotation test in steps.
 
 ## Baseline
 
