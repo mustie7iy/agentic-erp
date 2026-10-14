@@ -246,3 +246,68 @@ func TestReversedItemsAreNotCleared(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestReversalClearsThePair clears the open items of a reversed entry
+// against the matching lines of its reversal, in the reversal's
+// transaction, with the reversal as the clearing document: neither entry
+// stays an open item, and the clearing balances.
+func TestReversalClearsThePair(t *testing.T) {
+	e := setup(t)
+	expense, ap := e.account(t, "2000", "520000"), e.account(t, "2000", "211000")
+	sup := e.supplier.String()
+	invoice, tag := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-01", "EUR", line{expense, "100.00", ""}, line{ap, "-60.00", sup},
+		line{ap, "-40.00", sup}), "")
+	reversal, _ := e.Must(200, "POST", "/v1/journal-entries/"+invoice["id"].(string)+":reverse", `{"posting_date": "2026-03-10"}`, tag)
+
+	page, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+sup, "", "")
+	if got := apitest.List(t, page, "items"); len(got) != 0 {
+		t.Errorf("open items after the reversal: got %v, want none", got)
+	}
+	clearings, _ := e.Must(200, "GET", "/v1/clearings?legal_entity_id="+e.de.String(), "", "")
+	list := apitest.List(t, clearings, "items")
+	if len(list) != 1 {
+		t.Fatalf("clearings: got %d %v, want 1", len(list), list)
+	}
+	c := list[0].(map[string]any)
+	if c["clearing_entry_id"] != reversal["id"] {
+		t.Errorf("clearing entry: got %v, want the reversal %v", c["clearing_entry_id"], reversal["id"])
+	}
+	if c["clearing_date"] != "2026-03-10" {
+		t.Errorf("clearing date: got %v, want the reversal's posting date 2026-03-10", c["clearing_date"])
+	}
+	if got := len(apitest.List(t, c, "items")); got != 2 {
+		t.Errorf("clearing items: got %d, want the original's 2 supplier lines", got)
+	}
+	var lines int
+	var tc, lc, gc int64
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*), coalesce(sum(l.amount_tc), 0), coalesce(sum(l.amount_lc), 0),
+			coalesce(sum(l.amount_gc), 0)
+		FROM ledger.clearing_item i JOIN ledger.journal_line l ON l.tenant_id = i.tenant_id AND l.fiscal_year = i.fiscal_year
+			AND l.journal_entry_id = i.journal_entry_id AND l.line_no = i.line_no
+		WHERE i.tenant_id = $1 AND i.clearing_id = $2`, e.ten.ID, uuid.MustParse(c["id"].(string))).Scan(&lines, &tc, &lc, &gc); err != nil {
+		t.Fatal(err)
+	}
+	if lines != 4 {
+		t.Errorf("cleared lines: got %d, want 4 (two of the original, two of the reversal)", lines)
+	}
+	if tc != 0 || lc != 0 || gc != 0 {
+		t.Errorf("cleared lines sum: got %d/%d/%d, want 0/0/0", tc, lc, gc)
+	}
+	cleared := events(t, e.ten, "items_cleared")
+	if len(cleared) != 1 {
+		t.Fatalf("items_cleared events: got %d %v, want 1", len(cleared), cleared)
+	}
+	if cleared[0]["clearing_id"] != c["id"] {
+		t.Errorf("items_cleared clearing_id: got %v, want %v", cleared[0]["clearing_id"], c["id"])
+	}
+	var audited int
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event
+		WHERE tenant_id = $1 AND action = 'ledger.clearing.create' AND object_id = $2`, e.ten.ID, uuid.MustParse(c["id"].(string))).Scan(&audited); err != nil {
+		t.Fatal(err)
+	}
+	if audited != 1 {
+		t.Errorf("audit records of the clearing: got %d, want 1", audited)
+	}
+	// Nothing clears the pair again.
+	e.Problem(409, "ledger.entry_reversed", "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{invoice, 2}, ref{reversal, 2}), "")
+}

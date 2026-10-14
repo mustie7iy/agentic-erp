@@ -72,10 +72,10 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 		switch {
 		case !it.found || !it.recon || it.legalEntity != legalEntity:
 			return uuid.Nil, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
-		case !it.open:
-			return uuid.Nil, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
 		case it.reversed:
 			return uuid.Nil, reversedItem(i)
+		case !it.open:
+			return uuid.Nil, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
 		}
 		s := perPartner[*it.partner]
 		if s == nil {

@@ -36,6 +36,7 @@ func TestDatabaseFailures(t *testing.T) {
 	cl, _ := e.Must(201, "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{inv, 2}, ref{pay, 1}), "")
 	inv2, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
 	pay2, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-16", "EUR", line{ap, "5.00", e.supplier.String()}, line{bank, "-5.00", ""}), "")
+	inv3, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
 	rate, _ := e.Must(201, "POST", "/v1/exchange-rates", `{"rate_type": "average", "from_currency": "GBP", "to_currency": "EUR", "valid_from": "2026-01-01", "rate": "1.1", "source": "x"}`, "")
 	periods, _ := e.Must(200, "GET", "/v1/fiscal-periods?legal_entity_id="+e.de.String()+"&order_by=period&page_size=1", "", "")
 	period := uuid.MustParse(periods["items"].([]any)[0].(map[string]any)["id"].(string))
@@ -62,6 +63,11 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"reverse": func(ctx context.Context) error {
 			_, err := h.ReverseJournalEntry(ctx, gen.OptJournalEntryReverse{}, gen.ReverseJournalEntryParams{ID: id(je), IfMatch: "*"})
+			return err
+		},
+		// The reversal of an entry with open items also clears the pair.
+		"reverse an invoice": func(ctx context.Context) error {
+			_, err := h.ReverseJournalEntry(ctx, gen.OptJournalEntryReverse{}, gen.ReverseJournalEntryParams{ID: id(inv3), IfMatch: "*"})
 			return err
 		},
 		"open items": func(ctx context.Context) error {

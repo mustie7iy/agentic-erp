@@ -343,6 +343,10 @@ Rules enforced in the database:
 - Posting requires the period to be open for the legal entity and ledger.
 - A line is cleared at most once (`clearing_item` unique on the line).
 - Open items are lines on reconciliation accounts without a clearing item.
+- A reversal clears the original's open items against the matching lines of
+  the reversal, in the same transaction, with the reversal as the clearing
+  entry (as SAP does); no other clearing or settlement takes a line of a
+  reversed entry or of a reversal.
 - `period_balance` is maintained by an idempotent projector (ADR-0006).
 - `journal_line` is partitioned by `fiscal_year`.
 - `period_status` (one row per legal entity, ledger, year and period) has a

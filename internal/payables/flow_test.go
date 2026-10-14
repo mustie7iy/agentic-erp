@@ -82,6 +82,11 @@ func TestCleanMatchPostAndReverse(t *testing.T) {
 		t.Fatalf("reversed events: %v", ev)
 	}
 	e.Problem(409, "payables.invalid_status", "POST", "/v1/supplier-invoices/"+id(inv)+":reverse", `{"reason": "again"}`, e.tag(t, id(inv)))
+	// The reversal clears the invoice's open item against its own.
+	open, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+e.Supplier.String(), "", "")
+	if got := open["items"].([]any); len(got) != 0 {
+		t.Errorf("open items of the reversed invoice: got %v, want none", got)
+	}
 	// The reference is free again for the corrected invoice.
 	again := e.clean(t, po, "INV-1")
 	e.act(t, 200, id(again), "match", "")

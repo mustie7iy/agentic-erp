@@ -35,7 +35,8 @@ type PayableItem struct {
 // Payable returns the legal entity's open supplier items in the currency
 // with a document date on or before the date, ordered by partner and item.
 // Lines of a reversed entry or of a reversal are left out: the reversal
-// cancelled them, and Settle refuses them.
+// cancelled them, and Settle refuses them. A reversal clears them, so this
+// matters only for entries reversed before reversals cleared the pair.
 func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency string, documentDateTo time.Time) ([]PayableItem, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -144,7 +145,11 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	id, err := clearSettled(ctx, tx, actor, le.ID, in.PostingDate, entry, items)
+	offsets := make([]int32, len(items))
+	for i := range items {
+		offsets[i] = int32(i + 1)
+	}
+	id, err := clearWithEntry(ctx, tx, actor, le.ID, in.PostingDate, entry, items, offsets)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -191,18 +196,21 @@ func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, l
 	return b, nil
 }
 
-// clearSettled records the settlement entry as the clearing of the items,
-// clears each item with its offsetting line (line i+1 of the entry), and
-// publishes items_cleared.
-func clearSettled(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, le uuid.UUID, date time.Time, entry Entry, items []item) (uuid.UUID, error) {
+// clearWithEntry records a posted entry as the clearing document of the
+// items, clears each item with the entry's line that offsets it (line
+// offsets[i] for items[i]), and publishes items_cleared. A settlement's
+// entry offsets item i with line i+1; a reversal offsets each line with the
+// line of the same position.
+func clearWithEntry(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, le uuid.UUID, date time.Time, entry Entry, items []item,
+	offsets []int32) (uuid.UUID, error) {
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, le, date, entry.FiscalYear, entry.ID, actor.ID); err != nil {
-		return uuid.Nil, fmt.Errorf("ledger: settle with entry %s: record clearing %s: %w", entry.ID, id, err)
+		return uuid.Nil, fmt.Errorf("ledger: clear with entry %s: record clearing %s: %w", entry.ID, id, err)
 	}
 	cleared := make([]ItemRef, 0, 2*len(items))
 	for i, it := range items {
-		cleared = append(cleared, it.ref, ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: int32(i + 1)})
+		cleared = append(cleared, it.ref, ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: offsets[i]})
 	}
 	payload := clearedItemsPayload(items, entry)
 	if err := markCleared(ctx, tx, actor.TenantID, id, cleared); err != nil {
@@ -226,10 +234,10 @@ func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines
 		switch {
 		case !it.found || !it.recon || it.legalEntity != legalEntity:
 			return nil, 0, 0, 0, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
-		case !it.open:
-			return nil, 0, 0, 0, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
 		case it.reversed:
 			return nil, 0, 0, 0, reversedItem(i)
+		case !it.open:
+			return nil, 0, 0, 0, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
 		case it.currency != in.Currency || it.ledger != items[0].ledger:
 			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
 		}

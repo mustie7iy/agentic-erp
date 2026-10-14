@@ -213,10 +213,10 @@ func requireClearable(i int, it, first item, legalEntity uuid.UUID) error {
 	case !it.found || !it.recon || it.legalEntity != legalEntity:
 		return problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.",
 			problem.FieldError{Field: field, Code: "not_an_open_item", Message: "a line on a supplier or customer reconciliation account"})
-	case !it.open:
-		return problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
 	case it.reversed:
 		return reversedItem(i)
+	case !it.open:
+		return problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
 	case it.currency != first.currency || it.ledger != first.ledger:
 		return problem.Unprocessable("ledger.mixed_items", "The items of one clearing share their ledger and transaction currency.",
 			problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + first.currency + " of the same ledger"})
@@ -278,8 +278,10 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 
 // reversedItem refuses item i, a line of a reversed journal entry or of a
 // reversal: the reversal cancelled it, so it is not an open item to settle.
-// Callers check it after the item is known to be an open item of the legal
-// entity, so the refusal tells nothing about other legal entities.
+// Callers check it after the item is known to be a line on a
+// reconciliation account of the legal entity, so the refusal tells nothing
+// about other legal entities, and before whether it is cleared: the
+// reversal clears the pair (clearReversal), and the refusal names why.
 func reversedItem(i int) *problem.Problem {
 	return problem.Conflict("ledger.entry_reversed", "Item "+fmt.Sprint(i+1)+
 		" is a line of a reversed journal entry or of a reversal; the reversal cancelled it, so it cannot be cleared.")
@@ -319,4 +321,43 @@ func markCleared(ctx context.Context, tx pgx.Tx, tenant, clearing uuid.UUID, ref
 		return fmt.Errorf("ledger: mark items cleared by %s: %w", clearing, err)
 	}
 	return nil
+}
+
+// clearReversal clears the open items of a reversed entry against the
+// matching lines of its reversal, with the reversal as the clearing
+// document, as SAP does: the pair cancels out, so neither entry stays an
+// open item, and nothing clears its lines again (a line is cleared once,
+// and other clearings of a reversed entry's lines are refused). It runs in
+// the reversal's transaction, which holds the exclusive lock on the
+// original; it locks the reversal the same way. The reversal's lines are
+// the original's negated, in the same order, so each pair nets to zero in
+// every currency. An entry without open items needs no clearing.
+func clearReversal(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, orig, rev Entry) error {
+	if err := lockEntries(ctx, tx, false, []uuid.UUID{rev.ID}); err != nil {
+		return err
+	}
+	refs := make([]ItemRef, len(orig.Lines))
+	for i, l := range orig.Lines {
+		refs[i] = ItemRef{FiscalYear: orig.FiscalYear, EntryID: orig.ID, LineNo: l.LineNo}
+	}
+	loaded, err := loadItems(ctx, tx, refs)
+	if err != nil {
+		return err
+	}
+	var items []item
+	var offsets []int32
+	for i, it := range loaded {
+		if it.recon {
+			items, offsets = append(items, it), append(offsets, rev.Lines[i].LineNo)
+		}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	id, err := clearWithEntry(ctx, tx, actor, orig.LegalEntityID, rev.PostingDate, rev, items, offsets)
+	if err != nil {
+		return err
+	}
+	return audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",
+		Detail: map[string]any{"items": len(items), "clearing_entry_id": rev.ID, "document_number": rev.DocumentNumber, "reversal_of_id": orig.ID}})
 }

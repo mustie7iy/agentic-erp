@@ -645,7 +645,8 @@ func convertLines(lines []Line, rateLC, rateGC string, expTC, expLC, expGC int) 
 // reverseJournalEntry posts the reversal of an entry: every amount negated
 // in all three currencies at the original rates, on the original posting
 // date unless another is given. Reversals and entries with cleared lines
-// cannot be reversed.
+// cannot be reversed. The reversal clears the entry's open items against
+// its own (clearReversal).
 func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMatch func(Entry) error, postingDate *time.Time, headerText *string) (Entry, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -692,6 +693,9 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.reversal (tenant_id, original_year, original_entry_id, reversal_year, reversal_entry_id)
 		VALUES ($1, $2, $3, $4, $5)`, p.TenantID, orig.FiscalYear, orig.ID, rev.FiscalYear, rev.ID); err != nil {
 		return Entry{}, fmt.Errorf("ledger: reverse entry %s: record reversal %s: %w", orig.ID, rev.ID, err)
+	}
+	if err := clearReversal(ctx, tx, p, orig, rev); err != nil {
+		return Entry{}, err
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "journal_entry_reversed", AggregateType: "ledger.journal_entry", AggregateID: orig.ID,
 		Payload: map[string]any{"journal_entry_id": orig.ID, "fiscal_year": orig.FiscalYear, "legal_entity_id": orig.LegalEntityID,
