@@ -16,7 +16,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
-	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -138,25 +137,13 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 	if err != nil {
 		return Clearing{}, err
 	}
-	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, p.TenantID, id, le.ID, date, entry.FiscalYear, entry.ID, p.ID); err != nil {
-		return Clearing{}, fmt.Errorf("ledger: create clearing %s: %w", id, err)
-	}
-	cleared := slices.Clone(refs)
-	for _, l := range entry.Lines {
-		cleared = append(cleared, ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: l.LineNo})
-	}
-	if err := markCleared(ctx, tx, p.TenantID, id, cleared); err != nil {
+	// The entry's line i+1 offsets item i (clearingLines), as a settlement's does.
+	id, err := clearWithEntry(ctx, tx, p, le.ID, date, entry, items, leadingLines(len(items)))
+	if err != nil {
 		return Clearing{}, err
 	}
 	c, err := getClearing(ctx, tx, id)
 	if err != nil {
-		return Clearing{}, err
-	}
-	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
-		Payload: map[string]any{"clearing_id": id, "legal_entity_id": le.ID, "clearing_date": date.Format(time.DateOnly),
-			"clearing_entry_id": entry.ID, "clearing_entry_year": entry.FiscalYear, "items": clearedItemsPayload(items, entry)}}); err != nil {
 		return Clearing{}, err
 	}
 	return c, audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",

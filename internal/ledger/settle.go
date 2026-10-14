@@ -186,11 +186,7 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	offsets := make([]int32, len(items))
-	for i := range items {
-		offsets[i] = int32(i + 1)
-	}
-	id, err := clearWithEntry(ctx, tx, actor, le.ID, in.PostingDate, entry, items, offsets)
+	id, err := clearWithEntry(ctx, tx, actor, le.ID, in.PostingDate, entry, items, leadingLines(len(items)))
 	if err != nil {
 		return Entry{}, err
 	}
@@ -268,6 +264,17 @@ func clearWithEntry(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, le u
 		return uuid.Nil, err
 	}
 	return id, nil
+}
+
+// leadingLines are the line numbers 1..n: the lines of an entry that
+// offsets n items in their order, one line per item, as a settlement's and
+// a clearing's entry do.
+func leadingLines(n int) []int32 {
+	lines := make([]int32, n)
+	for i := range lines {
+		lines[i] = int32(i + 1)
+	}
+	return lines
 }
 
 // settledItemLines offsets each item on its account at its original
