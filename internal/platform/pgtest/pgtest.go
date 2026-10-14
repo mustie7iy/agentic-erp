@@ -102,7 +102,9 @@ func Pool(tb testing.TB) *database.Pool {
 }
 
 // Admin is a superuser connection (bypasses row-level security) for fixtures
-// and assertions.
+// and assertions. Each call opens a new connection, held until the test
+// ends: take one before a loop or a polling wait, never inside it, or a slow
+// run holds hundreds and the database refuses the next client.
 func Admin(tb testing.TB) *pgx.Conn {
 	tb.Helper()
 	c, err := pgx.Connect(context.Background(), URL(tb))
@@ -111,6 +113,23 @@ func Admin(tb testing.TB) *pgx.Conn {
 	}
 	tb.Cleanup(func() { _ = c.Close(context.Background()) }) // the test is over; closing loses nothing
 	return c
+}
+
+// Scan runs a superuser query on a connection of its own, closed right
+// after, scans its one row into dest and fails the test on error. Unlike
+// Admin it holds no connection afterwards, so a test may call it in a loop
+// or a polling wait.
+func Scan(tb testing.TB, sql string, args []any, dest ...any) {
+	tb.Helper()
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, URL(tb))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	defer func() { _ = c.Close(ctx) }() // the read is done or has failed; closing loses nothing
+	if err := c.QueryRow(ctx, sql, args...).Scan(dest...); err != nil {
+		tb.Fatalf("pgtest: %v\n%s", err, sql)
+	}
 }
 
 // Exec runs fixture SQL as superuser on a connection of its own, closed

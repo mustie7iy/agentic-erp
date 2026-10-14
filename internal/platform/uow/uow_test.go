@@ -166,9 +166,7 @@ func (a *app) do(c call) *httptest.ResponseRecorder {
 func count(t *testing.T, sql string, args ...any) int {
 	t.Helper()
 	var n int
-	if err := pgtest.Admin(t).QueryRow(context.Background(), sql, args...).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
+	pgtest.Scan(t, sql, args, &n) // a connection per call, closed after: count runs in polling waits
 	return n
 }
 

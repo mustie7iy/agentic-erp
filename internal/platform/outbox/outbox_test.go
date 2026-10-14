@@ -191,9 +191,10 @@ func TestRelayToJetStream(t *testing.T) {
 	done := make(chan struct{})
 	go func() { relay.Run(ctx); close(done) }()
 	defer func() { cancel(); <-done }() // stops the relay should the wait fail; deferred so it runs before the bus closes
+	admin := pgtest.Admin(t)            // one connection for every check: Admin opens a new one per call
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var n int
-		if err := pgtest.Admin(t).QueryRow(context.Background(), "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&n); err != nil {
+		if err := admin.QueryRow(context.Background(), "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		return n == 0

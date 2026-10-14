@@ -55,9 +55,7 @@ func (b brokenEraser) Delete(context.Context, string) error { return b.del }
 func count(t *testing.T, sql string, args ...any) int64 {
 	t.Helper()
 	var n int64
-	if err := pgtest.Admin(t).QueryRow(context.Background(), sql, args...).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
+	pgtest.Scan(t, sql, args, &n) // a connection per call, closed after: count runs in polling waits
 	return n
 }
 

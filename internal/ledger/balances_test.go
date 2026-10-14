@@ -158,9 +158,10 @@ func TestProjectorRuns(t *testing.T) {
 	stop()
 	// Batches of one: full batches follow each other at once.
 	stop = runProjector(t, &ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector", Batch: 1, Log: log})
+	admin := pgtest.Admin(t) // one connection for every check: Admin opens a new one per call
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var pending int
-		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending); err != nil {
+		if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending); err != nil {
 			t.Fatalf("count pending projections: %v", err)
 		}
 		return pending == 0

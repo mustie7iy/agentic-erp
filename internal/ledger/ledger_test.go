@@ -113,10 +113,11 @@ func (e env) in(t *testing.T) env {
 func (e env) account(tb testing.TB, company, number string) string {
 	tb.Helper()
 	page, _ := e.Must(200, "GET", "/v1/accounts?number="+number, "", "")
+	admin := pgtest.Admin(tb)
 	for _, it := range page["items"].([]any) {
 		a := it.(map[string]any)
 		var chart string
-		if err := pgtest.Admin(tb).QueryRow(context.Background(), `SELECT code FROM ledger.chart_of_accounts WHERE id = $1`, a["chart_id"]).Scan(&chart); err != nil {
+		if err := admin.QueryRow(context.Background(), `SELECT code FROM ledger.chart_of_accounts WHERE id = $1`, a["chart_id"]).Scan(&chart); err != nil {
 			tb.Fatalf("read chart of account: %v", err)
 		}
 		if chart == company {
