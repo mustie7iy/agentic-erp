@@ -119,6 +119,8 @@ func upload(ctx context.Context, c *apitools.Client, doc []byte, contentType str
 	}
 	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	if resp.StatusCode >= 300 {
+		// The refusal's status is the error; its body only explains it, so
+		// a body cut off still reports the status with what arrived.
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return "", fmt.Errorf("uploading the document: %d %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
@@ -149,7 +151,10 @@ func capture(ctx context.Context, c *apitools.Client, fields map[string]string, 
 		return nil, fmt.Errorf("capture: send: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
-	raw, _ := io.ReadAll(resp.Body)
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil { // an answer cut off is not one that is not JSON
+		return nil, fmt.Errorf("capture: read the answer (%d): %w", resp.StatusCode, err)
+	}
 	var m map[string]any
 	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {
 		return nil, fmt.Errorf("the API answered %d with a body that is not JSON", resp.StatusCode)

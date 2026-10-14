@@ -73,6 +73,10 @@ func TestCaptureCommand(t *testing.T) {
 			case "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d33":
 				w.WriteHeader(500)
 				w.Write([]byte(`<html>`))
+			case "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d44": // an answer cut off: shorter than its declared length
+				w.Header().Set("Content-Length", "100")
+				w.WriteHeader(202)
+				w.Write([]byte(`{"id"`))
 			default:
 				w.WriteHeader(202)
 				w.Write([]byte(`{"id": "op1", "kind": "payables.capture", "status": "succeeded"}`))
@@ -112,13 +116,14 @@ func TestCaptureCommand(t *testing.T) {
 		t.Fatalf("requests:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
 	printFails(t, "capture", "-legal-entity", le, "-file", small)
-	// Failures: the PUT refused, no object storage, the capture refused, an answer that is not JSON, and usage.
+	// Failures: the PUT refused, no object storage, the capture refused, an answer that is not JSON or is cut off, and usage.
 	fails(t, "uploading the document: 403", "capture", "-legal-entity", le, "-file", small, "-upload")
 	fails(t, "503 platform.unavailable", "capture", "-legal-entity", le, "-file", small, "-upload")
 	fails(t, "upload URL", "capture", "-legal-entity", le, "-file", small, "-upload")
 	fails(t, "connect", "capture", "-legal-entity", le, "-file", small, "-upload")
 	fails(t, "422 payables.unreadable_document", "capture", "-legal-entity", "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d22", "-file", small)
 	fails(t, "not JSON", "capture", "-legal-entity", "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d33", "-file", small)
+	fails(t, "capture: read the answer (202)", "capture", "-legal-entity", "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d44", "-file", small)
 	fails(t, "-legal-entity and -file are required", "capture", "-file", small)
 	fails(t, "is not an id", "capture", "-legal-entity", "acme", "-file", small)
 	fails(t, "no such file", "capture", "-legal-entity", le, "-file", filepath.Join(dir, "none.pdf"))

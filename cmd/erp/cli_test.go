@@ -584,6 +584,9 @@ func TestTenantsCommand(t *testing.T) {
 			w.Write([]byte(`{"code": "tenancy.invalid_transition", "detail": "The tenant is offboarded; offboard applies to active or suspended tenants."}`))
 		case r.URL.Path == "/control/v1/tenants/plain":
 			w.Write([]byte(`not json`))
+		case r.URL.Path == "/control/v1/tenants/cut": // an answer cut off: shorter than its declared length
+			w.Header().Set("Content-Length", "100")
+			w.Write([]byte(`{"id"`))
 		default:
 			w.WriteHeader(404)
 			w.Write([]byte(`{"code": "request.not_found", "detail": "No tenant with this id."}`))
@@ -643,6 +646,7 @@ func TestTenantsCommand(t *testing.T) {
 	fails(t, "-id is required", "tenants", "fingerprint")
 	fails(t, "request.not_found", "tenants", "suspend", "-id", "nope")
 	fails(t, "not JSON", "tenants", "get", "-id", "plain")
+	fails(t, "control plane GET /control/v1/tenants/cut: read the answer (200)", "tenants", "get", "-id", "cut")
 	fails(t, "usage", "tenants")
 	fails(t, "unknown command", "tenants", "destroy")
 	fails(t, "-id is required", "tenants", "get")

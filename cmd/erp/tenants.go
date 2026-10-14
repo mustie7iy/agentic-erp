@@ -98,7 +98,10 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 		return nil, nil, fmt.Errorf("control plane %s %s: %w", method, path, err)
 	}
 	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
-	raw, _ := io.ReadAll(resp.Body)
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil { // an answer cut off is not one that is not JSON
+		return nil, nil, fmt.Errorf("control plane %s %s: read the answer (%d): %w", method, path, resp.StatusCode, err)
+	}
 	var m map[string]any
 	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {
 		return nil, nil, fmt.Errorf("the control plane answered %d with a body that is not JSON: is the URL its admin listener?", resp.StatusCode)
