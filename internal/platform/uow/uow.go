@@ -2,7 +2,8 @@
 // (ADR-0014): one database transaction scoped to the tenant and actor, the
 // principal resolved and required active, idempotency for unsafe methods in
 // the same transaction (ADR-0008), audit entries written last (ADR-0011) and
-// the response sent only after commit.
+// the response sent only after commit. Act is the same unit of work for a
+// job that runs without a request: a worker round or a workflow activity.
 package uow
 
 import (
@@ -21,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -147,6 +149,24 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	}
 	rec.send(w)
 	return nil
+}
+
+// Act runs fn as actor in tx: the unit of work of a job that has no request
+// (a worker round, a workflow activity, provisioning). It records the actor
+// for the row triggers, puts the transaction, the actor and an audit buffer
+// in fn's context, and writes fn's audit entries (ADR-0011) once fn has
+// succeeded, stamped now (the wall clock when now is nil). The caller
+// begins the transaction, reads what decides the actor and commits, so its
+// errors keep the context only it knows.
+func Act(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now func() time.Time, fn func(ctx context.Context) error) error {
+	if err := database.SetActor(ctx, tx, actor.ID); err != nil {
+		return err
+	}
+	ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor))
+	if err := fn(ctx); err != nil {
+		return err
+	}
+	return buf.Flush(ctx, tx, actor, reqctx.TraceID(ctx), clock.Now(now))
 }
 
 // businessOutcome lists the 4xx answers that are the result of running the
