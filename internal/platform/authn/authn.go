@@ -28,7 +28,8 @@ const DefaultTenantClaim = "tenant_id"
 const DefaultRolesClaim = "roles"
 
 // Operator roles (ADR-0027). A token without a roles claim holds every
-// role; one with the claim holds what it lists, and RoleAdmin implies all.
+// role; one with the claim holds what it lists (nothing when the claim is
+// malformed), and RoleAdmin implies all.
 const (
 	RoleRead      = "erp:read"      // list and read tenants, cells, entries
 	RoleProvision = "erp:provision" // provision tenants
@@ -37,7 +38,8 @@ const (
 )
 
 // OperatorAllowed reports whether the operator's roles permit an operation
-// that requires role.
+// that requires role. Nil roles mean the token had no roles claim; the
+// verifier never returns nil for a claim that is present.
 func OperatorAllowed(c reqctx.Claims, role string) bool {
 	if c.Roles == nil {
 		return true
@@ -158,25 +160,35 @@ func (v *Verifier) verify(ctx context.Context, raw string) (reqctx.Claims, strin
 	var claims map[string]any
 	_ = tok.Claims(&claims) // the payload was decoded during verification
 	s, _ := claims[is.tenantClaim].(string)
-	return reqctx.Claims{Issuer: iss, Subject: tok.Subject, Roles: roles(claims[is.rolesClaim])}, s, nil
+	var rs []string
+	if raw, present := claims[is.rolesClaim]; present {
+		rs = roles(raw)
+	}
+	return reqctx.Claims{Issuer: iss, Subject: tok.Subject, Roles: rs}, s, nil
 }
 
-// roles reads a roles claim: a JSON array of strings, or one string of
-// space-separated roles (the scope style); absent or malformed is nil.
+// roles reads a present roles claim: a JSON array of strings, or one string
+// of space-separated roles (the scope style). Only an absent claim means
+// every role (ADR-0027); a malformed one (null, a number, an object, an
+// array holding anything but strings) fails closed as no role at all, never
+// nil, so a broken issuer cannot widen access.
 func roles(v any) []string {
+	out := []string{}
 	switch c := v.(type) {
 	case []any:
-		out := []string{}
 		for _, r := range c {
-			if s, ok := r.(string); ok && s != "" {
+			s, ok := r.(string)
+			if !ok {
+				return []string{}
+			}
+			if s != "" {
 				out = append(out, s)
 			}
 		}
-		return out
 	case string:
-		return strings.Fields(c)
+		out = append(out, strings.Fields(c)...)
 	}
-	return nil
+	return out
 }
 
 // unverifiedIssuer reads `iss` to choose the verifier; nothing else is

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -209,11 +210,18 @@ func TestOperatorRoles(t *testing.T) {
 		claim any
 		roles []string
 	}{
-		"array":   {[]any{"erp:read", "erp:operate"}, []string{"erp:read", "erp:operate"}},
-		"scope":   {"erp:read erp:provision", []string{"erp:read", "erp:provision"}},
-		"empty":   {[]any{}, []string{}},
-		"garbage": {42, nil},
-		"mixed":   {[]any{"erp:read", 7, ""}, []string{"erp:read"}},
+		"array":  {[]any{"erp:read", "erp:operate"}, []string{"erp:read", "erp:operate"}},
+		"scope":  {"erp:read erp:provision", []string{"erp:read", "erp:provision"}},
+		"empty":  {[]any{}, []string{}},
+		"blanks": {[]any{"erp:read", ""}, []string{"erp:read"}},
+		// A claim that is present but malformed holds no role: only an
+		// absent claim means every role (ADR-0027).
+		"number": {42, []string{}},
+		"object": {map[string]any{"erp:admin": true}, []string{}},
+		"bool":   {true, []string{}},
+		"null":   {nil, []string{}},
+		"mixed":  {[]any{"erp:read", 7}, []string{}},
+		"nested": {[]any{[]any{"erp:admin"}}, []string{}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			claims, err := v.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil, "roles": c.claim}))
@@ -223,8 +231,11 @@ func TestOperatorRoles(t *testing.T) {
 			if got, want := strings.Join(claims.Roles, ","), strings.Join(c.roles, ","); got != want {
 				t.Errorf("got roles %s, want %s", got, want)
 			}
-			if (claims.Roles == nil) != (c.roles == nil) {
-				t.Errorf("got roles nil %v, want nil %v", claims.Roles == nil, c.roles == nil)
+			if got, want := claims.Roles == nil, c.roles == nil; got != want {
+				t.Errorf("got roles nil %v, want nil %v", got, want)
+			}
+			if got, want := authn.OperatorAllowed(claims, authn.RoleAdmin), slices.Contains(c.roles, authn.RoleAdmin); got != want {
+				t.Errorf("got admin allowed %v, want %v", got, want)
 			}
 		})
 	}
