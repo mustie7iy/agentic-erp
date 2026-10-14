@@ -240,6 +240,20 @@ Each a separate Fix commit with a test that fails before the fix.
     8. Architecture housekeeping: the composition root lives in platform/httpapi; 26 package docs
        cite no ADR; the layout test does not cover cmd/; cross-schema SQL (R41 gap).
 
+### Phase 7 — To 9.5 (user: "fix until 9.5 is achieved", after R42 scored 8.2)
+Fixes are Fix commits with a failing-first test; a new migration is allowed, existing ones are not
+edited. Re-review after each group until the whole-codebase score reaches 9.5.
+- [ ] F1 A reversed supplier invoice cannot be paid (review gap 1)
+- [ ] F2 Payment release safe against overlap and a lost completion; bank file unique per run (gap 2)
+- [ ] F3 Ledger refuses to clear a reversed entry; reversal and clearing serialise (gaps 1, 5)
+- [ ] F4 Security settings fail closed (gap 6)
+- [ ] R50 Duplicated helpers moved to internal/platform (gap 3)
+- [ ] R51 Money typed as money.Minor; conversion and checked sums in money (gap 4)
+- [ ] R52 Test structure (gap 7)
+- [ ] R53 Architecture housekeeping (gap 8)
+- [ ] R54 Deferred items from earlier phases
+- [ ] R55 Re-review until 9.5
+
 ## Baseline
 
 Recorded 2026-10-12 at 9a99827 (R0a config), PostgreSQL 17 via `make db-up`.
