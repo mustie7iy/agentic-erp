@@ -24,9 +24,67 @@ import (
 func TestRegressionSuites(t *testing.T) {
 	fx := fixture.New(t, append(perms, "config.regression.manage", "config.change.read")...)
 	e := env{Env: fx, expense: fx.Account(t, "2000", "520000"), tax: fx.Account(t, "2000", "140000"), ap: fx.Account(t, "2000", "211000")}
+	var (
+		held, twice, full map[string]any
+		captured          []configuration.RegressionCase
+	)
+	base := fixture.Document(t)
+	tolerant := fixture.Document(t)
+	tolerant.Companies[1].InvoiceTolerance.PricePercent = 10
+	today := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+	if !t.Run("invoices in every stratum", func(t *testing.T) { held, twice = regressionInvoices(t, e.in(t)) }) {
+		t.FailNow()
+	}
+	if !t.Run("capture and list suites", func(t *testing.T) { full = regressionSuites(t, e.in(t)) }) {
+		t.FailNow()
+	}
+	if !t.Run("replay", func(t *testing.T) {
+		// Replay: unchanged under the base, the held invoice changes under a wider tolerance.
+		for _, c := range full["cases"].([]any) {
+			m := c.(map[string]any)
+			var issues []string
+			for _, i := range m["expected_issues"].([]any) {
+				issues = append(issues, i.(string))
+			}
+			captured = append(captured, configuration.RegressionCase{CaseNo: int32(m["case_no"].(float64)), InvoiceID: uuid.MustParse(m["supplier_invoice_id"].(string)),
+				DocumentNumber: m["document_number"].(string), Company: m["company"].(string), ExpectedDecision: m["expected_decision"].(string), ExpectedIssues: issues})
+		}
+		checkReplay(t, e, base, tolerant, captured, held, twice)
+	}) {
+		t.FailNow()
+	}
+	if !t.Run("every statement failing", func(t *testing.T) {
+		for name, fn := range map[string]func(ctx context.Context) error{
+			"capture": func(ctx context.Context) error {
+				_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return today }}.Capture(ctx, base, 90*24*time.Hour, 0)
+				return err
+			},
+			"replay": func(ctx context.Context) error {
+				_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}}.Replay(ctx, tolerant, captured)
+				return err
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if fn(context.Background()) == nil {
+					t.Error("outside a unit of work: got nil error, want an error")
+				}
+				apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, fn)
+			})
+		}
+	}) {
+		t.FailNow()
+	}
+	t.Run("capture without a maximum or the company", func(t *testing.T) { checkCaptureAll(t, e, base, today) })
+	_ = fmt.Sprint
+}
+
+// regressionInvoices enters invoices of each kind the suite stratifies: an
+// auto-post, two exceptions and one near the auto-post limit. It returns the
+// held exception and the one with two issues.
+func regressionInvoices(t *testing.T, e env) (held, twice map[string]any) {
+	t.Helper()
 	// An empty window has nothing to capture.
 	e.Problem(422, "config.no_cases", "POST", "/v1/regression-suites", `{"name": "Empty"}`, "")
-
 	po := e.order(t, e.Supplier, "PO-1")
 	e.receive(t, po, 1, "10")
 	e.receive(t, po, 2, "5")
@@ -35,9 +93,9 @@ func TestRegressionSuites(t *testing.T) {
 	e.act(t, 200, id(posted), "post", "")
 	po2 := e.order(t, e.Supplier, "PO-2")
 	e.receive(t, po2, 1, "10")
-	held, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-2", "154.70", "24.70", poItem(po2, 1, "10", "EA", "130.00")), "")
+	held, _ = e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-2", "154.70", "24.70", poItem(po2, 1, "10", "EA", "130.00")), "")
 	e.act(t, 200, id(held), "match", "") // exception: price variance
-	twice, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-3", "185.64", "29.64", poItem(po2, 1, "12", "EA", "156.00")), "")
+	twice, _ = e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-3", "185.64", "29.64", poItem(po2, 1, "12", "EA", "156.00")), "")
 	e.act(t, 200, id(twice), "match", "") // exception: price variance and quantity
 	// Near the auto-post limit of 50,000.00: 48,000 net on a large order.
 	big := uuid.Must(uuid.NewV7())
@@ -49,7 +107,13 @@ func TestRegressionSuites(t *testing.T) {
 	e.receive(t, big, 1, "1")
 	large, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-4", "57120.00", "9120.00", poItem(big, 1, "1", "EA", "48000.00")), "")
 	e.act(t, 200, id(large), "match", "")
+	return held, twice
+}
 
+// regressionSuites captures a sampled suite and a full one, reads and lists
+// them, and returns the full one.
+func regressionSuites(t *testing.T, e env) map[string]any {
+	t.Helper()
 	// The invoices are dated March: a window long enough to reach them.
 	suite, tag := e.Must(201, "POST", "/v1/regression-suites", `{"name": "Baseline", "max_cases": 3, "window_days": 300}`, "")
 	cases := suite["cases"].([]any)
@@ -90,6 +154,13 @@ func TestRegressionSuites(t *testing.T) {
 	if got := len(full["strata"].([]any)); got != 7 {
 		t.Errorf("full suite strata: got %d, want 7", got)
 	}
+	checkSuiteReads(t, e, suite)
+	return full
+}
+
+// checkSuiteReads reads the sampled suite and lists both.
+func checkSuiteReads(t *testing.T, e env, suite map[string]any) {
+	t.Helper()
 	got, _ := e.Must(200, "GET", "/v1/regression-suites/"+suite["id"].(string), "", "")
 	if got["name"] != "Baseline" {
 		t.Errorf("get name: got %v, want Baseline", got["name"])
@@ -116,21 +187,13 @@ func TestRegressionSuites(t *testing.T) {
 		t.Fatalf("other version: %v", none)
 	}
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/regression-suites?order_by=name", "", "")
+}
 
-	// Replay: unchanged under the base, the held invoice changes under a wider tolerance.
-	base := fixture.Document(t)
-	tolerant := fixture.Document(t)
-	tolerant.Companies[1].InvoiceTolerance.PricePercent = 10
-	var captured []configuration.RegressionCase
-	for _, c := range full["cases"].([]any) {
-		m := c.(map[string]any)
-		var issues []string
-		for _, i := range m["expected_issues"].([]any) {
-			issues = append(issues, i.(string))
-		}
-		captured = append(captured, configuration.RegressionCase{CaseNo: int32(m["case_no"].(float64)), InvoiceID: uuid.MustParse(m["supplier_invoice_id"].(string)),
-			DocumentNumber: m["document_number"].(string), Company: m["company"].(string), ExpectedDecision: m["expected_decision"].(string), ExpectedIssues: issues})
-	}
+// checkReplay replays the captured cases under the base configuration (no
+// failures) and the tolerant one (the held invoice posts), and with a case
+// whose invoice vanished.
+func checkReplay(t *testing.T, e env, base, tolerant *config.Config, captured []configuration.RegressionCase, held, twice map[string]any) {
+	t.Helper()
 	replay := func(doc *config.Config) []configuration.RegressionFailure {
 		t.Helper()
 		var failures []configuration.RegressionFailure
@@ -171,26 +234,13 @@ func TestRegressionSuites(t *testing.T) {
 	}); err == nil {
 		t.Fatal("missing invoice replayed")
 	}
+}
 
-	today := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
-	for name, fn := range map[string]func(ctx context.Context) error{
-		"capture": func(ctx context.Context) error {
-			_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return today }}.Capture(ctx, base, 90*24*time.Hour, 0)
-			return err
-		},
-		"replay": func(ctx context.Context) error {
-			_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}}.Replay(ctx, tolerant, captured)
-			return err
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if fn(context.Background()) == nil {
-				t.Error("outside a unit of work: got nil error, want an error")
-			}
-			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, fn)
-		})
-	}
-	// Without a maximum every invoice is a case, strata first.
+// checkCaptureAll: without a maximum every invoice is a case, strata first;
+// a configuration without the company decides its invoices without
+// tolerances or limit, and is never near a limit.
+func checkCaptureAll(t *testing.T, e env, base *config.Config, today time.Time) {
+	t.Helper()
 	var all []configuration.RegressionCase
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
 		all, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return today }}.Capture(ctx, base, 90*24*time.Hour, 0)
@@ -201,7 +251,6 @@ func TestRegressionSuites(t *testing.T) {
 	if len(all) != 4 || all[3].Why != "sample" {
 		t.Fatalf("all cases: %+v", all)
 	}
-	// A configuration without the company decides its invoices without tolerances or limit, and is never near a limit.
 	gone := fixture.Document(t)
 	gone.Companies = gone.Companies[:1]
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
@@ -221,5 +270,4 @@ func TestRegressionSuites(t *testing.T) {
 			t.Errorf("without the company, case %d why: got %q, want no mention of near", i, c.Why)
 		}
 	}
-	_ = fmt.Sprint
 }
