@@ -16519,7 +16519,8 @@ type PaymentExclusion struct {
 	// Supplier.
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
+	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
 	ReasonCode string `json:"reason_code"`
 	// Amount that would otherwise have been paid.
 	Amount Money `json:"amount"`

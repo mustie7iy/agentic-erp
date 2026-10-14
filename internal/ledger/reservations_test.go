@@ -91,7 +91,9 @@ func TestReservations(t *testing.T) {
 		}
 	}
 	for name, call := range map[string]func(ctx context.Context) error{
-		"reserve":     func(ctx context.Context) error { return postings().Reserve(ctx, ledger.Owner{Context: "payments", ID: uuid.New()}, []ledger.ItemRef{b}) },
+		"reserve": func(ctx context.Context) error {
+			return postings().Reserve(ctx, ledger.Owner{Context: "payments", ID: uuid.New()}, []ledger.ItemRef{b})
+		},
 		"release":     func(ctx context.Context) error { return postings().Release(ctx, run.ID, nil) },
 		"release one": func(ctx context.Context) error { return postings().Release(ctx, run.ID, []ledger.ItemRef{b}) },
 	} {
@@ -105,4 +107,37 @@ func TestReservations(t *testing.T) {
 	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error { return postings().Reserve(ctx, other, nil) }); err != nil {
 		t.Errorf("reserve nothing: got %v, want nil", err)
 	}
+}
+
+// TestUnpayable says which items can no longer be settled, and why.
+func TestUnpayable(t *testing.T) {
+	e := setup(t)
+	open := settlePost(t, e, e.de, "2000", "EUR", 1000, "INV-O")
+	reversed := settlePost(t, e, e.de, "2000", "EUR", 2000, "INV-R")
+	cleared := settlePost(t, e, e.de, "2000", "EUR", 3000, "INV-C")
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		if _, err := postings().Reverse(ctx, reversed.EntryID, nil, nil); err != nil {
+			return err
+		}
+		_, err := postings().Settle(ctx, settlementOf(t, e, e.de, "2000", "EUR", "2026-04-15", cleared))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	expense := ledger.ItemRef{FiscalYear: open.FiscalYear, EntryID: open.EntryID, LineNo: 1}
+	call := func(ctx context.Context) error {
+		got, err := ledger.OpenItems{}.Unpayable(ctx, []ledger.ItemRef{open, reversed, cleared, expense})
+		if err != nil {
+			return err
+		}
+		want := map[ledger.ItemRef]string{reversed: ledger.ItemReversed, cleared: ledger.ItemNotOpen, expense: ledger.ItemNotOpen}
+		if fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("unpayable: got %v, want %v", got, want)
+		}
+		return nil
+	}
+	if call(context.Background()) == nil {
+		t.Error("outside a unit of work: got no error, want one")
+	}
+	apitest.EveryFailure(t, e.ten, e.ten.Human, "unpayable", call)
 }

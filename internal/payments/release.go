@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -139,12 +140,16 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	if err != nil {
 		return false, err
 	}
-	if p.JournalEntryID != nil {
+	if p.JournalEntryID != nil || p.Excluded {
 		return false, nil
 	}
-	items := make([]ledger.ItemRef, len(p.Items))
-	for i, it := range p.Items {
-		items[i] = ledger.ItemRef{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo}
+	items := itemRefs(p)
+	unpayable, err := e.OpenItems.Unpayable(ctx, items)
+	if err != nil {
+		return false, err
+	}
+	if len(unpayable) > 0 {
+		return false, e.dropPayment(ctx, tx, r, p, unpayable)
 	}
 	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
 	if err != nil {
@@ -160,25 +165,82 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment SET journal_entry_year = $2, journal_entry_id = $3 WHERE id = $1`, p.ID, entry.FiscalYear, entry.ID); err != nil {
 		return false, fmt.Errorf("payments: record the posting of payment %s: %w", p.ID, err)
 	}
-	var done, total int64
-	if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE journal_entry_id IS NOT NULL), count(*) FROM payments.payment WHERE payment_run_id = $1`, r.ID).Scan(&done, &total); err != nil {
-		return false, fmt.Errorf("payments: count the posted payments of run %s: %w", r.ID, err)
-	}
-	return true, operations.Report(ctx, *r.ReleaseOpID, done, total)
+	return true, report(ctx, tx, r)
 }
 
-// paymentOf reads one payment of the run.
-func paymentOf(ctx context.Context, tx pgx.Tx, run, pay uuid.UUID) (Payment, error) {
-	pays, err := paymentsOf(ctx, tx, run)
-	if err != nil {
-		return Payment{}, err
+// report records the release's progress on its operation: the payments
+// posted out of those the run makes.
+func report(ctx context.Context, tx pgx.Tx, r Run) error {
+	var done, total int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE journal_entry_id IS NOT NULL), count(*) FROM payments.payment p
+		WHERE payment_run_id = $1 AND NOT `+dropped, r.ID).Scan(&done, &total); err != nil {
+		return fmt.Errorf("payments: count the posted payments of run %s: %w", r.ID, err)
 	}
-	for _, p := range pays {
-		if p.ID == pay {
-			return p, nil
+	return operations.Report(ctx, *r.ReleaseOpID, done, total)
+}
+
+// itemRefs are the open items a payment settles.
+func itemRefs(p Payment) []ledger.ItemRef {
+	items := make([]ledger.ItemRef, len(p.Items))
+	for i, it := range p.Items {
+		items[i] = ledger.ItemRef{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo}
+	}
+	return items
+}
+
+// dropPayment takes a payment that can never post out of its releasing
+// run: an item it settles was reversed, or is no longer open, since the
+// proposal (neither changes back). Its supplier is excluded with the
+// reason, its items are freed here and in the ledger, the run's total no
+// longer counts it, and the release goes on with the other payments, so a
+// run is never stuck releasing on a payment no retry can post. The run is
+// read FOR UPDATE by the release step, and a dropped payment is skipped by
+// every later step, so it is dropped once.
+func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, r Run, p Payment, unpayable map[ledger.ItemRef]string) error {
+	_, actor, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	reason := ItemNotOpen
+	for _, why := range unpayable {
+		if why == ledger.ItemReversed {
+			reason = ItemReversed
 		}
 	}
-	return Payment{}, fmt.Errorf("payments: run %s has no payment %s", run, pay)
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
+		VALUES ($1, $2, $3, $4, $5)`, actor.TenantID, r.ID, p.SupplierID, reason, p.Amount); err != nil {
+		return fmt.Errorf("payments: exclude supplier %s from run %s: %w", p.SupplierID, r.ID, err)
+	}
+	freed, err := tx.Exec(ctx, `UPDATE payments.payment_item SET is_active = false WHERE payment_id = $1 AND is_active`, p.ID)
+	if err != nil {
+		return fmt.Errorf("payments: free the items of payment %s: %w", p.ID, err)
+	}
+	if err := e.Postings.Release(ctx, r.ID, itemRefs(p)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET total_amount = total_amount - $2, version = version + 1, updated_by = $3 WHERE id = $1`,
+		r.ID, p.Amount, actor.ID); err != nil {
+		return fmt.Errorf("payments: take payment %s out of the total of run %s: %w", p.ID, r.ID, err)
+	}
+	if err := report(ctx, tx, r); err != nil {
+		return err
+	}
+	return record(ctx, "payments.payment_run.drop_payment", r.ID, map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID,
+		"reason": reason, "freed_items": freed.RowsAffected()},
+		runEvent(r, "payment_excluded", map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID, "reason_code": reason,
+			"amount": money.EventAmount(p.Amount, r.Currency, r.Exponent), "released_item_count": freed.RowsAffected()}))
+}
+
+// paymentOf reads one payment of the run, dropped or not.
+func paymentOf(ctx context.Context, tx pgx.Tx, run, pay uuid.UUID) (Payment, error) {
+	p, err := scanPayment(tx.QueryRow(ctx, paymentSelect+` WHERE p.id = $1 AND p.payment_run_id = $2`, pay, run))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Payment{}, fmt.Errorf("payments: run %s has no payment %s", run, pay)
+	}
+	if err != nil {
+		return Payment{}, fmt.Errorf("payments: read payment %s of run %s: %w", pay, run, err)
+	}
+	return p, nil
 }
 
 // FinishRelease ends a release whose payments are all posted: the bank file
@@ -196,6 +258,9 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	pays, err := paymentsOf(ctx, tx, r.ID)
 	if err != nil {
 		return Run{}, err
+	}
+	if len(pays) == 0 {
+		return Run{}, problem.Conflict("payments.nothing_to_pay", "The release dropped every payment of the run, whose items can no longer be paid; reject it.")
 	}
 	for _, pay := range pays {
 		if pay.JournalEntryID == nil {
@@ -303,6 +368,35 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 		if reason != "" {
 			return problem.Conflict("payments.proposal_outdated", "Supplier "+pay.SupplierID.String()+" can no longer be paid as proposed ("+reason+
 				"); reject the run and propose again.")
+		}
+	}
+	return e.recheckItems(ctx, r, pays)
+}
+
+// recheckItems refuses the release of a proposed run with an item that
+// can no longer be paid: reversed, or no longer open, since the proposal.
+// Nothing is posted yet, so the run is rejected and proposed again. A
+// releasing run being resumed is not refused: its posted payments cleared
+// their items, and its release drops a payment that can never post
+// (dropPayment), where a refusal would leave the run releasing for good.
+func (e *Endpoints) recheckItems(ctx context.Context, r Run, pays []Payment) error {
+	if r.Status != Proposed {
+		return nil
+	}
+	var items []ledger.ItemRef
+	for _, pay := range pays {
+		items = append(items, itemRefs(pay)...)
+	}
+	unpayable, err := e.OpenItems.Unpayable(ctx, items)
+	if err != nil {
+		return err
+	}
+	for _, pay := range pays {
+		for _, it := range itemRefs(pay) {
+			if why, ok := unpayable[it]; ok {
+				return problem.Conflict("payments.proposal_outdated", fmt.Sprintf("An item the payment to supplier %s settles (%d/%s line %d) is %s since the proposal; reject the run and propose again.",
+					pay.SupplierID, it.FiscalYear, it.EntryID, it.LineNo, map[string]string{ledger.ItemReversed: "reversed", ledger.ItemNotOpen: "no longer open"}[why]))
+			}
 		}
 	}
 	return nil

@@ -955,3 +955,29 @@ func TestItemReservationsHoldOnce(t *testing.T) {
 	failsWith(t, asApp(t, f.tenant, release(run1)), "already released")
 	mustApp(t, f.tenant, reserve(run2, inv))
 }
+
+// TestExclusionReasons: a run excludes a supplier for one of the known
+// reasons, among them the two a release drops a payment for (000035).
+func TestExclusionReasons(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb, run := id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+			VALUES ($1,$2,'PR1',$3,$4,'2026-07-31','2026-07-31','USD',0,'releasing',$5,$5,$5)`, f.tenant, run, f.entity, hb, f.actor)
+	})
+	exclude := func(reason string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount) VALUES ($1,$2,$3,$4,100)`,
+				f.tenant, run, id(), reason)
+		}
+	}
+	for _, reason := range []string{"item_reversed", "item_not_open", "debit_balance"} {
+		mustApp(t, f.tenant, exclude(reason))
+	}
+	failsWith(t, asApp(t, f.tenant, exclude("item_lost")), "payment_exclusion_reason_code_check")
+}

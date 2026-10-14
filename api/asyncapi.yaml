@@ -245,6 +245,7 @@ channels:
       PaymentRunProposed: {$ref: '#/components/messages/PaymentRunProposed'}
       PaymentRunReleased: {$ref: '#/components/messages/PaymentRunReleased'}
       PaymentRunRejected: {$ref: '#/components/messages/PaymentRunRejected'}
+      PaymentExcluded: {$ref: '#/components/messages/PaymentExcluded'}
       BankFileTransmitted: {$ref: '#/components/messages/BankFileTransmitted'}
       PaymentRunFailed: {$ref: '#/components/messages/PaymentRunFailed'}
       BankFileCreated: {$ref: '#/components/messages/BankFileCreated'}
@@ -398,6 +399,7 @@ operations:
       - $ref: '#/channels/payments/messages/PaymentRunProposed'
       - $ref: '#/channels/payments/messages/PaymentRunReleased'
       - $ref: '#/channels/payments/messages/PaymentRunRejected'
+      - $ref: '#/channels/payments/messages/PaymentExcluded'
       - $ref: '#/channels/payments/messages/BankFileTransmitted'
       - $ref: '#/channels/payments/messages/PaymentRunFailed'
       - $ref: '#/channels/payments/messages/BankFileCreated'
@@ -1009,6 +1011,22 @@ components:
         - name: rejected
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000001b, source: /erp/eu-1/payments, type: com.example.erp.payments.payment_run_rejected.v1, subject: 0192a000-0000-7000-8000-000000000801, time: '2026-10-19T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_item_count: 212, status: rejected}
+    PaymentExcluded:
+      name: PaymentExcluded
+      title: Payment dropped from a releasing run
+      summary: A payment of a releasing run could never post and was dropped; its items are free again.
+      description: Emitted by the release of a payment run when a payment it has not posted yet settles an item that was reversed, or is no longer open, since the proposal. The supplier is excluded with `reason_code` (`item_reversed` or `item_not_open`), the payment's items are deactivated, the run's total no longer counts it, and the release goes on with the other payments. Subject is the payment run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.payment_excluded.v1}
+      payload: {$ref: '#/components/schemas/PaymentExcludedV1'}
+      examples:
+        - name: dropped
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000081, source: /erp/eu-1/payments, type: com.example.erp.payments.payment_excluded.v1, subject: 0192a000-0000-7000-8000-000000000801, time: '2026-10-19T11:02:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, payment_id: 0192a000-0000-7000-8000-000000000806, supplier_id: 0192a000-0000-7000-8000-000000000301, reason_code: item_reversed, amount: {amount: '40.00', currency: EUR}, released_item_count: 1, status: releasing}
     BankFileTransmitted:
       name: BankFileTransmitted
       title: Bank file transmitted
@@ -2424,6 +2442,19 @@ components:
         workflow_request_id: {$ref: '#/components/schemas/NullableUuid'}
         released_item_count: {type: integer, minimum: 0, description: Payment items deactivated (open items free for another run).}
         status: {type: string, description: 'Open enum; rejected in v1.'}
+    PaymentExcludedV1:
+      type: object
+      required: [payment_run_id, document_number, legal_entity_id, payment_id, supplier_id, reason_code, amount, released_item_count, status]
+      properties:
+        payment_run_id: {$ref: '#/components/schemas/Uuid'}
+        document_number: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        payment_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_id: {$ref: '#/components/schemas/Uuid'}
+        reason_code: {type: string, description: 'Open enum; item_reversed or item_not_open in v1.'}
+        amount: {$ref: '#/components/schemas/Money'}
+        released_item_count: {type: integer, minimum: 0, description: Payment items deactivated (open items free for another run).}
+        status: {type: string, description: 'Open enum; releasing in v1.'}
     BankFileTransmittedV1:
       type: object
       required: [bank_file_id, payment_run_id, format, sha256, status]

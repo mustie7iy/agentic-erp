@@ -66,6 +66,37 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 	return items, nil
 }
 
+// Why an item can no longer be settled (OpenItems.Unpayable).
+const (
+	ItemReversed = "reversed" // a line of a reversed entry or of a reversal
+	ItemNotOpen  = "not_open" // cleared, or not an open item at all
+)
+
+// Unpayable returns, for each of the items that can no longer be settled,
+// why: ItemReversed or ItemNotOpen. Items still open are left out. These
+// are lasting: neither changes back, so a payment of such an item can
+// never post.
+func (OpenItems) Unpayable(ctx context.Context, refs []ItemRef) (map[ItemRef]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := loadItems(ctx, tx, refs)
+	if err != nil {
+		return nil, err
+	}
+	out := map[ItemRef]string{}
+	for _, it := range items {
+		switch {
+		case it.reversed:
+			out[it.ref] = ItemReversed
+		case !it.found || !it.recon || !it.open:
+			out[it.ref] = ItemNotOpen
+		}
+	}
+	return out, nil
+}
+
 // References returns the reference of each entry, or its document number
 // when it has none: what a payment tells the supplier it settles.
 func (OpenItems) References(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error) {

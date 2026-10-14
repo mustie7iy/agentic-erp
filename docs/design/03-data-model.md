@@ -584,6 +584,24 @@ the database or by a row lock:
   its invoice cannot be reversed (409 `payables.invoice_in_payment_run`)
   and a resumed release never pays a reversed invoice. Once the payment is
   posted the item is cleared, and the payment is reversed first.
+- **A payment that can never post is dropped, not retried.** Before posting
+  a payment the release asks the ledger whether its items can still be
+  settled (`OpenItems.Unpayable`). One reversed, or no longer open, since the
+  proposal (both lasting; possible only for runs proposed before the ledger
+  reservations, or by a direct change) makes the payment unpostable: the
+  release excludes its supplier with `item_reversed` or `item_not_open`
+  (exclusion reasons widened by migrations 000035/000036), deactivates its
+  items and ends their ledger reservation, takes its amount out of the run's
+  total, audits `payments.payment_run.drop_payment` and publishes
+  `payment_excluded`, and goes on; the bank file and `payment_count` cover
+  the payments left. A dropped payment is one whose supplier has an
+  exclusion in the run, and every later release step skips it. A release
+  that drops every payment fails with `payments.nothing_to_pay`, which
+  returns the run (nothing posted) to `proposed`, to be rejected. Without
+  this a releasing run with a posted payment and one that can never post
+  stayed releasing for good: `:reject` needs `proposed`, and every resumed
+  release failed again. `:release` of a proposed run re-checks the items as
+  well as the suppliers (409 `payments.proposal_outdated`).
 
 ## 3.11 Workflow (`workflow`)
 

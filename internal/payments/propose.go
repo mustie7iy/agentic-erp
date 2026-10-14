@@ -27,6 +27,10 @@ const (
 	BankChangePending = "bank_change_pending"
 	BankChangeHold    = "bank_change_hold"
 	DebitBalance      = "debit_balance"
+	// A release drops a payment whose item was reversed, or is no longer
+	// open, since the proposal (dropPayment).
+	ItemReversed = "item_reversed"
+	ItemNotOpen  = "item_not_open"
 )
 
 // Proposal is what a client asks to pay.

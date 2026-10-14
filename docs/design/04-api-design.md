@@ -200,7 +200,13 @@ new operation and posts only what is left; steps of the cancelled
 operation still running then do nothing. While the run is releasing, an
 invoice whose payment is not posted yet cannot be reversed
 (`409 payables.invoice_in_payment_run`), so the resumed release never pays a
-reversed invoice. A run has at most one bank file.
+reversed invoice. A payment that can never post (an item reversed, or no
+longer open, since the proposal) is dropped by the release rather than
+failing it again on every resume: its supplier is excluded with
+`item_reversed` or `item_not_open`, its items are freed and
+`PaymentExcluded` is published; a release that drops every payment fails
+with `payments.nothing_to_pay` and returns the run to `proposed`. A run has
+at most one bank file.
 
 ## 4.9 Security
 

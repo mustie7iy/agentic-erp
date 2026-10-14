@@ -91,6 +91,7 @@ type LegalEntities interface {
 type OpenItems interface {
 	Payable(ctx context.Context, legalEntity uuid.UUID, currency string, documentDateTo time.Time) ([]ledger.PayableItem, error)
 	References(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
+	Unpayable(ctx context.Context, items []ledger.ItemRef) (map[ledger.ItemRef]string, error)
 }
 
 // Postings posts payments and reserves the open items a live run holds
@@ -243,26 +244,34 @@ type Payment struct {
 	Items            []Item
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
+	Excluded         bool // dropped by the release (dropPayment): the supplier is excluded with the reason
 }
+
+// dropped says whether payment p was dropped by its run's release: its
+// supplier has an exclusion, which a payment of the run otherwise never
+// has (a proposal pays or excludes each supplier).
+const dropped = `EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id AND x.payment_run_id = p.payment_run_id
+		AND x.supplier_id = p.supplier_id)`
 
 const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_account_id, p.amount, p.end_to_end_id, p.journal_entry_year,
 		p.journal_entry_id, (SELECT json_agg(json_build_object('fiscal_year', i.item_fiscal_year, 'journal_entry_id', i.item_entry_id,
 			'line_no', i.item_line_no, 'amount', i.amount, 'due_date', i.due_date, 'is_active', i.is_active)
 			ORDER BY i.item_fiscal_year, i.item_entry_id, i.item_line_no)
-		 FROM payments.payment_item i WHERE i.tenant_id = p.tenant_id AND i.payment_id = p.id), p.created_at, p.created_by
+		 FROM payments.payment_item i WHERE i.tenant_id = p.tenant_id AND i.payment_id = p.id), p.created_at, p.created_by,
+		` + dropped + ` AS is_dropped
 	FROM payments.payment p`
 
 func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
 	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
-		&p.Items, &p.CreatedAt, &p.CreatedBy)
+		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded)
 	return p, errs.Wrapf(err, "scan payment")
 }
 
-// paymentsOf reads every payment of a run in end-to-end id order, the
-// order of the bank file.
+// paymentsOf reads the payments a run makes, in end-to-end id order, the
+// order of the bank file; payments its release dropped are left out.
 func paymentsOf(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Payment, error) {
-	rows, _ := tx.Query(ctx, paymentSelect+` WHERE p.payment_run_id = $1 ORDER BY p.end_to_end_id`, run)
+	rows, _ := tx.Query(ctx, paymentSelect+` WHERE p.payment_run_id = $1 AND NOT `+dropped+` ORDER BY p.end_to_end_id`, run)
 	pays, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Payment, error) { return scanPayment(r) })
 	if err != nil {
 		return pays, fmt.Errorf("payments: read the payments of run %s: %w", run, err)

@@ -912,11 +912,16 @@ type Invoker interface {
 	// The F110 release step, a direct human transition (not an approval request), as an operation
 	// (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its
 	// items (one transaction per payment, progress on the operation), and the bank file is produced; the
-	// run is `released` when the operation succeeds. Every supplier is checked again before anything is
-	// posted (409 `payments.proposal_outdated`). Human-only. Segregation of duties: the proposer can never
-	// release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs
-	// from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing`
-	// after a failed release operation, which resumes it.
+	// run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is
+	// checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet
+	// whose item was reversed, or is no longer open, since the proposal can never post: the release drops
+	// it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's
+	// total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release
+	// that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to
+	// be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
+	// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
+	// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
+	// operation, which resumes it.
 	//
 	// POST /v1/payment-runs/{id}:release
 	ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error)
@@ -24107,11 +24112,16 @@ func (c *Client) sendReleaseContract(ctx context.Context, params ReleaseContract
 // The F110 release step, a direct human transition (not an approval request), as an operation
 // (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its
 // items (one transaction per payment, progress on the operation), and the bank file is produced; the
-// run is `released` when the operation succeeds. Every supplier is checked again before anything is
-// posted (409 `payments.proposal_outdated`). Human-only. Segregation of duties: the proposer can never
-// release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs
-// from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing`
-// after a failed release operation, which resumes it.
+// run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is
+// checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet
+// whose item was reversed, or is no longer open, since the proposal can never post: the release drops
+// it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's
+// total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release
+// that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to
+// be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
+// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
+// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
+// operation, which resumes it.
 //
 // POST /v1/payment-runs/{id}:release
 func (c *Client) ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error) {
