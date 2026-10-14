@@ -107,7 +107,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	// OTEL_GO_X_OBSERVABILITY instruments aside, which are not enabled);
 	// spans the last export loses are reported through otel's error handler.
 	defer func() { _ = tp.Shutdown(context.WithoutCancel(ctx)) }()
-	s := &server{cfg: cfg, log: log, tp: tp}
+	s := &server{cfg: cfg, log: log, tp: tp, failed: make(chan struct{})}
 	if s.pool, err = openPool(ctx, cfg); err != nil {
 		return err
 	}
@@ -158,12 +158,13 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 
 // stop stops the workers and waits for them, so that run's deferred closes
 // (the pool, the engine, the directory) never run under a worker still using
-// them, and returns err joined with the workflow worker's failure, when it
-// had one.
+// them, and returns err joined with a critical worker's failure, when one
+// had one. Once wait returned, every worker's fail happened before, so
+// failure is read without a lock.
 func (s *server) stop(cancel context.CancelFunc, err error) error {
 	cancel()
 	s.wait()
-	return errors.Join(err, <-s.workerErr)
+	return errors.Join(err, s.failure)
 }
 
 // server is what run wires together, one step after the other, before it
@@ -197,9 +198,12 @@ type server struct {
 	workers sync.WaitGroup
 	mu      sync.Mutex
 	running map[string]bool
-	// workerErr is the workflow worker's end: nil after a requested shutdown,
-	// the failure when it could not start (joined into the server's exit).
-	workerErr chan error
+	// failed is closed when a critical worker (spawnCritical) fails, which
+	// serve watches to stop the server; failure is that first failure,
+	// joined into the server's exit by stop.
+	failed   chan struct{}
+	failOnce sync.Once
+	failure  error
 }
 
 // openPool opens the database pool with the configured size.
@@ -373,18 +377,18 @@ func (s *server) startProjections(runCtx context.Context) {
 // the queued operations.
 func (s *server) startOperations(runCtx context.Context) {
 	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
-	s.workerErr = make(chan error, 1)
 	if engine == nil {
 		proposer := &payments.Proposer{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("proposer", func() { proposer.Run(runCtx) })
 		releaser := &workflows.Releaser{Payments: &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}, Pool: pool, WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("releaser", func() { releaser.Run(runCtx) })
-		s.workerErr <- nil
 		return
 	}
 	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}
-	s.spawn("workflow worker", func() {
-		s.workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
+	// Without its worker a replica's dispatcher would hand workflows to the
+	// engine that this replica never runs, so the worker is critical.
+	s.spawnCritical("workflow worker", func() error {
+		return engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
 			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
 				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole})
 		})
@@ -458,8 +462,8 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 	return nil
 }
 
-// serve opens the listeners and serves until ctx ends or a listener fails,
-// then shuts the servers down, stops the workers (cancel) and waits for
+// serve opens the listeners and serves until ctx ends, a listener fails or
+// a critical worker fails, then shuts the servers down, stops the workers (cancel) and waits for
 // them.
 func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started func(api, admin net.Listener)) error {
 	apiLn, adminLn, err := listen(s.cfg)
@@ -483,6 +487,8 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 	select {
 	case <-ctx.Done():
 	case serveErr = <-errc:
+	case <-s.failed: // stop joins the worker's failure into the exit
+		s.log.Error("a critical worker failed; the server stops")
 	}
 	shutdownCtx, done := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
 	defer done()
@@ -491,7 +497,7 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 		// in time is abandoned with the process, so its error changes nothing.
 		_ = srv.Shutdown(shutdownCtx)
 	}
-	err = s.stop(cancel, serveErr) // nil after a requested shutdown; set when a listener or the workflow worker failed
+	err = s.stop(cancel, serveErr) // nil after a requested shutdown; set when a listener or a critical worker failed
 	s.log.Info("erp-server stopped")
 	return err
 }
@@ -527,6 +533,27 @@ func (s *server) spawn(name string, fn func()) {
 		s.mu.Lock()
 		s.running[name] = false
 		s.mu.Unlock()
+	})
+}
+
+// spawnCritical runs fn through spawn as a worker the replica cannot serve
+// without: fn returns nil once runCtx ends, and an error when it could not
+// run, which fails the server. The other workers log a failed round and try
+// again on the next one, so a transient database error does not stop a
+// replica; their Run returns nothing to fail with.
+func (s *server) spawnCritical(name string, fn func() error) {
+	s.spawn(name, func() {
+		if err := fn(); err != nil {
+			s.fail(fmt.Errorf("erp-server: %s: %w", name, err))
+		}
+	})
+}
+
+// fail records the first critical worker's failure and closes failed.
+func (s *server) fail(err error) {
+	s.failOnce.Do(func() {
+		s.failure = err
+		close(s.failed)
 	})
 }
 

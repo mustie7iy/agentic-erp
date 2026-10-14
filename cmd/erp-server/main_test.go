@@ -346,11 +346,6 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 			if s == nil {
 				t.Fatal("got no workers started, want them started before the failure")
 			}
-			// The workflow worker's end is read, as at a shutdown, so its
-			// failure (when it had one) is part of run's error.
-			if n := len(s.workerErr); n != 0 {
-				t.Errorf("got %d unread workflow worker results, want 0", n)
-			}
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			for _, name := range []string{"projector", "simulator", "proposer", "releaser", "maintenance", "expirer"} {
@@ -1156,6 +1151,50 @@ func TestWorkflowEngine(t *testing.T) {
 	env["ERP_TEMPORAL_ADDRESS"] = "127.0.0.1:1"
 	delete(env, "ERP_TEMPORAL_CODEC_KEY")
 	pgtest.WantErr(t, run(context.Background(), load(t, env), quiet(), nil), "connecting to")
+}
+
+// TestAFailedWorkflowWorkerStopsTheServer: the engine is reachable but the
+// workflow worker cannot start (its namespace does not exist). A replica
+// that kept serving would queue workflows its dispatcher hands to no
+// worker of its own, and nothing would say so until shutdown; instead the
+// server stops with the worker's error and a non-zero exit, its workers
+// stopped before the pool closes.
+func TestAFailedWorkflowWorkerStopsTheServer(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["ERP_TEMPORAL_ADDRESS"] = workflowtest.Server(t)
+	env["ERP_TEMPORAL_NAMESPACE"] = "no-such-namespace-" + uuid.NewString()[:8]
+	env["ERP_TEMPORAL_TASK_QUEUE"] = "erp-test-" + uuid.NewString()[:8]
+	env["ERP_TEMPORAL_CODEC_KEY"] = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
+	var s *server
+	startWorkersHook = func(srv *server, runCtx context.Context) { s = srv; srv.startWorkers(runCtx) }
+	defer func() { startWorkersHook = (*server).startWorkers }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	done := make(chan int, 1)
+	go func() { done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, nil) }()
+	var code int
+	select {
+	case code = <-done:
+	case <-time.After(30 * time.Second):
+		cancel()
+		<-done
+		t.Fatalf("got the server serving without its workflow worker, want it stopped\n%s", logs.String())
+	}
+	if code != 1 {
+		t.Errorf("exit code: got %d, want 1", code)
+	}
+	if !strings.Contains(logs.String(), "workflow: worker on queue") {
+		t.Errorf("logs: got %s, want the workflow worker's failure", logs.String())
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for name, running := range s.running {
+		if running {
+			t.Errorf("%s: got still running after run returned, want stopped", name)
+		}
+	}
 }
 
 // status sends the request and returns the response's status, its body closed.
