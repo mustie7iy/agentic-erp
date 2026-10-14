@@ -64,10 +64,18 @@ func Pain001(b Batch) ([]byte, error) {
 	if err := b.validate(); err != nil {
 		return nil, err
 	}
-	var total money.Minor
+	amounts := make([]money.Minor, len(b.Payments))
+	for i, p := range b.Payments {
+		amounts[i] = p.Amount
+	}
+	// The control sum is what the bank checks the file against: a wrapped
+	// sum would be a wrong file, so it is refused instead.
+	total, err := money.Sum(amounts...)
+	if err != nil {
+		return nil, fmt.Errorf("bankfile: control sum of %d payments: %w", len(amounts), err)
+	}
 	txs := make([]cdtTrfTxInf, 0, len(b.Payments))
 	for _, p := range b.Payments {
-		total += p.Amount
 		acct := account{}
 		if ValidIBAN(p.CreditorAccount) {
 			acct.IBAN = strings.ReplaceAll(p.CreditorAccount, " ", "")

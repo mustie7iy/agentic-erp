@@ -2,6 +2,7 @@ package bankfile
 
 import (
 	"encoding/xml"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -98,13 +99,14 @@ func TestPain001(t *testing.T) {
 
 func TestPain001Validation(t *testing.T) {
 	cases := map[string]func(b *Batch){
-		"message id":  func(b *Batch) { b.MessageID = "" },
-		"debtor iban": func(b *Batch) { b.DebtorIBAN = "GB00BUKB20201555555555" },
-		"currency":    func(b *Batch) { b.Currency = "US" },
-		"no payments": func(b *Batch) { b.Payments = nil },
-		"date":        func(b *Batch) { b.ExecutionDate = "9 Oct" },
-		"amount":      func(b *Batch) { b.Payments[0].Amount = 0 },
-		"creditor":    func(b *Batch) { b.Payments[1].CreditorName = " " },
+		"message id":         func(b *Batch) { b.MessageID = "" },
+		"debtor iban":        func(b *Batch) { b.DebtorIBAN = "GB00BUKB20201555555555" },
+		"currency":           func(b *Batch) { b.Currency = "US" },
+		"no payments":        func(b *Batch) { b.Payments = nil },
+		"date":               func(b *Batch) { b.ExecutionDate = "9 Oct" },
+		"amount":             func(b *Batch) { b.Payments[0].Amount = 0 },
+		"creditor":           func(b *Batch) { b.Payments[1].CreditorName = " " },
+		"total out of range": func(b *Batch) { b.Payments[0].Amount, b.Payments[1].Amount = math.MaxInt64, 1 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
