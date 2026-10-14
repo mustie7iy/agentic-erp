@@ -32,3 +32,12 @@ deployment decides when to require them by emitting the claim.
 - A lost roles claim on an issuer that emitted it before widens access
   silently; a deployment that requires roles should make the issuer always
   emit the claim, empty when needed.
+
+## Amendment (2026-10-14)
+
+A roles claim that is present but malformed (not a JSON array of strings or a
+space-separated string: a number, an object, a boolean, `null`, or an array
+holding anything but strings) holds no role, so the token is refused every
+control-plane operation (403 `authz.operator_role`). Only an absent claim
+means every role; a claim the issuer meant to send but got wrong must not
+widen access.
