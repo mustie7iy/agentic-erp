@@ -284,8 +284,9 @@ variance worth 5.004 EUR is 5.00 EUR and within a 5.00 tolerance. Without
 a rate a requisition's submission and an invoice's match are refused (422
 `ledger.no_exchange_rate`); the raw numbers of two currencies are never
 compared. A simulation reports such an invoice as one it cannot evaluate,
-and a regression suite records it as `not_evaluable`, rather than failing
-for the whole tenant.
+and a regression suite records it as `not_evaluable` (issue
+`no_exchange_rate` or `amount_too_large`), rather than failing for the
+whole tenant.
 
 ## 3.6 Business partners (`partner`)
 
@@ -557,7 +558,9 @@ or within the absolute tolerance once converted into the company's currency
 at the average rate of the invoice date (§3.5). Simulations and regression
 suites decide the auto-post limit the same way, and the amounts a changed
 posting rule moves are each converted into the company's currency before
-they are added up.
+they are added up. The CLI's auto-post rule (`erp invoices`) does not yet:
+it still compares the invoice's gross amount with the limit as they stand
+(F12b, which needs the decision or the converted gross from the server).
 
 `upload` (ADR-0020) records a direct upload of a document above the
 request limit: purpose, content type, size limit, the object key the bytes

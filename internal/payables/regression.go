@@ -53,6 +53,9 @@ type replayed struct {
 	// in the company's currency), or is "". Such an invoice is reported,
 	// not a reason to fail every simulation and suite of the tenant.
 	Unevaluable string
+	// unevaluableCode is the stable code of Unevaluable, the issue of its
+	// regression case: no_exchange_rate or amount_too_large.
+	unevaluableCode string
 }
 
 // sources are the ports replaying an invoice reads through.
@@ -155,17 +158,19 @@ func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, t
 	var p *problem.Problem
 	if errors.As(err, &p) && p.Code == "ledger.no_exchange_rate" {
 		r.Unevaluable = fmt.Sprintf("no average exchange rate from %s to %s on %s", v.Currency, to, v.InvoiceDate.Format(time.DateOnly))
+		r.unevaluableCode = "no_exchange_rate"
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	// Convert fails only for a result out of range (money.ErrOverflow): the
-	// rate and exponents come from the database. The reason carries the
-	// error either way.
+	// Convert fails only for a result out of range (money.ErrOverflow), as
+	// the rate and exponents come from the database; the reason carries the
+	// error, whatever it is.
 	gross, err := conv.Convert(v.Gross)
 	if err != nil {
 		r.Unevaluable = fmt.Sprintf("gross amount %s %s cannot be converted into %s: %v", v.Gross.Plain(v.Exponent), v.Currency, to, err)
+		r.unevaluableCode = "amount_too_large"
 		return nil
 	}
 	r.Conversion, r.Gross = conv, gross
@@ -173,11 +178,11 @@ func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, t
 }
 
 // outcome is a decision with its issue codes; an invoice that cannot be
-// compared with its company's amounts is not evaluable, with the reason as
-// its issue.
+// compared with its company's amounts is not evaluable, with the code of
+// the reason as its issue.
 func outcome(lim limits, r replayed) (string, []string) {
 	if r.Unevaluable != "" {
-		return DecisionNotEvaluable, []string{r.Unevaluable}
+		return DecisionNotEvaluable, []string{r.unevaluableCode}
 	}
 	decision, issues := decide(lim, r)
 	codes := make([]string, 0, len(issues))

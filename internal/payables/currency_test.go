@@ -276,10 +276,15 @@ func TestUnevaluableInvoices(t *testing.T) {
 	if len(cases) != 2 {
 		t.Fatalf("cases: got %d, want 2: %+v", len(cases), cases)
 	}
+	var issues []string
 	for _, c := range cases {
 		if c.ExpectedDecision != payables.DecisionNotEvaluable {
 			t.Errorf("case %s decision: got %s, want %s", c.DocumentNumber, c.ExpectedDecision, payables.DecisionNotEvaluable)
 		}
+		issues = append(issues, c.ExpectedIssues...)
+	}
+	if got, want := strings.Join(issues, ","), "no_exchange_rate,amount_too_large"; got != want {
+		t.Errorf("case issues: got %s, want %s", got, want)
 	}
 	if err := e.replay(t, base, cases); err != nil {
 		t.Errorf("replay: got %v, want no error", err)
