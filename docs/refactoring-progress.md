@@ -384,9 +384,13 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   cannot convert is reported (broken / not_evaluable) instead of failing the tenant's
   governance. Regression suites captured before F12 decided foreign-currency invoices
   unconverted: re-capture them after deploying.
-- [ ] F12b The CLI's auto-post rule (cmd/erp invoices) still compares the raw gross with the
-  limit, read at the digits each figure happens to have; deciding it on the server (the match
-  returning the decision, or the gross in the company's currency) needs a contract change
+- [x] F12b The auto-post decision is taken on the server: the match answers `decision`
+  (auto_post | review | not_evaluable, with a reason; additive contract change the user
+  approved) from payables.decide, the one rule simulations and regression suites apply, and
+  `erp invoices` acts on it instead of comparing the raw gross with the limit; a server without
+  the field leaves the invoice parked, decision unavailable. An invoice without a rate is now
+  matched and not_evaluable rather than refused with 422; regression cases list
+  not_evaluable in the contract.
 - [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
   Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
   panic); a period close locks only a period the caller may see; provision and rewrap report a

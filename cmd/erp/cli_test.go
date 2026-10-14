@@ -275,12 +275,10 @@ const invoicePath = "/v1/supplier-invoices/i1"
 
 func parked(r routes) routes {
 	base := routes{
-		"GET /v1/config-versions": {ok(`{"items": [{"document": {"companies": [{"code": "1000", "auto_post_limit": "100.00"}]}}]}`)},
-		"GET /v1/legal-entities":  {ok(`{"items": [{"id": "le", "code": "1000"}]}`)},
 		"GET /v1/supplier-invoices": {ok(`{"items": [{"id": "i0", "document_number": "5100", "legal_entity_id": "le"},
 			{"id": "i1", "document_number": "5101", "legal_entity_id": "le", "purchase_order_id": "po", "gross_amount": {"amount": "10.00"}}]}`)},
 		"GET " + invoicePath:             {ok(`{}`)},
-		"POST " + invoicePath + ":match": {ok(`{"is_clean": true}`)},
+		"POST " + invoicePath + ":match": {ok(`{"is_clean": true, "decision": {"outcome": "auto_post", "reason": "within"}}`)},
 		"POST " + invoicePath + ":post":  {ok(`{}`)},
 		"GET /v1/recommendations":        {ok(`{"items": []}`)},
 	}
@@ -296,11 +294,6 @@ func TestInvoicesErrors(t *testing.T) {
 		r    routes
 		want string
 	}{
-		"config aborted":     {routes{"GET /v1/config-versions": {aborted}}, "EOF"},
-		"config garbled":     {routes{"GET /v1/config-versions": {ok(`{`)}}, "unexpected end"},
-		"no configuration":   {routes{"GET /v1/config-versions": {ok(`{"items": []}`)}}, "no active configuration"},
-		"entities aborted":   {routes{"GET /v1/legal-entities": {aborted}}, "EOF"},
-		"entities garbled":   {routes{"GET /v1/legal-entities": {ok(`{`)}}, "unexpected end"},
 		"invoices aborted":   {routes{"GET /v1/supplier-invoices": {aborted}}, "EOF"},
 		"invoices garbled":   {routes{"GET /v1/supplier-invoices": {ok(`{`)}}, "unexpected end"},
 		"invoice aborted":    {routes{"GET " + invoicePath: {aborted}}, "EOF"},
@@ -331,6 +324,48 @@ func TestInvoicesErrors(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "invoices", "-agent")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN is not set", "invoices")
+}
+
+// TestInvoicesDecision: the rule acts on the decision the server's match
+// answers, never on its own comparison of the gross amount with the limit
+// (F12b). The invoice of 10.00 is below the configured 100.00 as numbers,
+// but the server, converting it into the company's currency, may review
+// it. A server that answers no decision leaves the invoice parked.
+func TestInvoicesDecision(t *testing.T) {
+	const posted, held = "POST " + invoicePath + ":post", "POST " + invoicePath + ":hold"
+	for name, c := range map[string]struct {
+		match string
+		want  []string
+	}{
+		"auto_post": {`{"is_clean": true, "decision": {"outcome": "auto_post", "reason": "gross 6.20 EUR is within the auto-post limit 100.00 EUR"}}`,
+			[]string{"5101: auto_post (gross 6.20 EUR is within the auto-post limit 100.00 EUR)", "Posted 1: 5101", "Held 0:"}},
+		"review": {`{"is_clean": true, "decision": {"outcome": "review", "reason": "gross 240.00 EUR is above the auto-post limit 100.00 EUR"}}`,
+			[]string{"5101: review (gross 240.00 EUR is above the auto-post limit 100.00 EUR)", "Posted 0:", "Held 1: 5101 (review)"}},
+		"not_evaluable": {`{"is_clean": true, "decision": {"outcome": "not_evaluable", "reason": "no_exchange_rate"}}`,
+			[]string{"5101: not_evaluable (no_exchange_rate)", "Posted 0:", "Held 1: 5101 (not_evaluable: no_exchange_rate)"}},
+		"missing": {`{"is_clean": true}`,
+			[]string{"5101: decision unavailable (the server does not return it)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
+		"unknown": {`{"is_clean": true, "decision": {"outcome": "escalate", "reason": "new rule"}}`,
+			[]string{"5101: escalate (new rule)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// A call the decision does not call for is refused, failing the command.
+			r := routes{"POST " + invoicePath + ":match": {ok(c.match)}, posted: {{409, `{"code": "unexpected"}`}}, held: {{409, `{"code": "unexpected"}`}}}
+			switch name {
+			case "auto_post":
+				r[posted] = []reply{ok(`{}`)}
+			case "review", "not_evaluable":
+				r[held] = []reply{ok(`{}`)}
+			}
+			fakeAPI(t, parked(r))
+			got := must(t, "invoices")
+			for _, want := range c.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+				}
+			}
+		})
+	}
 }
 
 func TestAgentErrors(t *testing.T) {
