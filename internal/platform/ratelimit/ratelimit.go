@@ -126,8 +126,8 @@ func (l *Limiter) take(key string, q Quota, now time.Time) state {
 // the unit of work, so a refused request costs no transaction. A principal
 // is its issuer and subject (ADR-0010), so another trusted issuer minting
 // the same subject has its own bucket and cannot spend the real principal's
-// quota. The principal's quota is checked first, so a hot principal's refused requests
-// do not count against its tenant.
+// quota. The principal's quota is checked first, so a hot principal's
+// refused requests do not count against its tenant.
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := reqctx.ClaimsFrom(r.Context())
@@ -168,8 +168,8 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 }
 
 // principalKey names a principal's bucket. The issuer is quoted so its end
-// is unambiguous: issuer "…/a" with subject "b" and issuer "…" with subject
-// "a/b" are different principals.
+// is unambiguous even when it holds the separator: issuer "x y" with
+// subject "z" and issuer "x" with subject "y z" are different principals.
 func principalKey(c reqctx.Claims) string {
 	return c.TenantID.String() + " " + strconv.Quote(c.Issuer) + " " + c.Subject
 }

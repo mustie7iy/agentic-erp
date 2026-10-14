@@ -141,11 +141,12 @@ func TestPrincipalBucketsAreKeyedByIssuer(t *testing.T) {
 	if got := send("https://idp.example", "alice"); got != 204 {
 		t.Errorf("real alice after the rogue issuer's request: got %d, want 204 (separate buckets)", got)
 	}
-	// An issuer and subject that concatenate to the same text are still two principals.
-	if got := send("https://idp.example/a", "b"); got != 204 {
-		t.Fatalf("issuer .../a, subject b: got %d, want 204", got)
+	// An issuer and subject that join to the same text around the key's
+	// separator are still two principals.
+	if got := send("x y", "z"); got != 204 {
+		t.Fatalf(`issuer "x y", subject "z": got %d, want 204`, got)
 	}
-	if got := send("https://idp.example", "a/b"); got != 204 {
-		t.Errorf("issuer ..., subject a/b: got %d, want 204 (separate buckets)", got)
+	if got := send("x", "y z"); got != 204 {
+		t.Errorf(`issuer "x", subject "y z": got %d, want 204 (separate buckets)`, got)
 	}
 }
