@@ -66,33 +66,9 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	if err != nil {
 		return uuid.Nil, err
 	}
-	type amounts struct{ tc, lc []money.Minor }
-	perPartner := map[uuid.UUID]*amounts{}
-	payload := make([]map[string]any, len(loaded))
-	for i, it := range loaded {
-		switch {
-		case !it.found || !it.recon || it.legalEntity != legalEntity:
-			return uuid.Nil, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
-		case it.reversed:
-			return uuid.Nil, reversedItem(i)
-		case !it.open:
-			return uuid.Nil, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
-		case it.reservedBy != nil:
-			return uuid.Nil, reservedItem(i, *it.reservedBy)
-		}
-		s := perPartner[*it.partner]
-		if s == nil {
-			s = &amounts{}
-			perPartner[*it.partner] = s
-		}
-		s.tc, s.lc = append(s.tc, it.tc), append(s.lc, it.lc)
-		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
-			"account_id": it.account, "partner_id": it.partner, "amount_tc": money.EventAmount(it.tc, it.currency, exps[it.currency])}
-	}
-	for partner, s := range perPartner {
-		if !netsToZero(s.tc...) || !netsToZero(s.lc...) {
-			return uuid.Nil, problem.Unprocessable("ledger.clearing_not_balanced", "The items of partner "+partner.String()+" do not net to zero in transaction and local currency.")
-		}
+	payload, err := migratedItems(loaded, legalEntity, exps)
+	if err != nil {
+		return uuid.Nil, err
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
@@ -109,6 +85,41 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	}
 	return id, audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",
 		Detail: map[string]any{"items": len(items), "clearing_entry_id": by.EntryID, "migrated": true}})
+}
+
+// migratedItems checks the items a migrated clearing settles (open items of
+// the legal entity, not reversed, not reserved, netting to zero per partner
+// in transaction and local currency) and returns their event payload.
+func migratedItems(loaded []item, legalEntity uuid.UUID, exps map[string]int) ([]map[string]any, error) {
+	type amounts struct{ tc, lc []money.Minor }
+	perPartner := map[uuid.UUID]*amounts{}
+	payload := make([]map[string]any, len(loaded))
+	for i, it := range loaded {
+		switch {
+		case !it.found || !it.recon || it.legalEntity != legalEntity:
+			return nil, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
+		case it.reversed:
+			return nil, reversedItem(i)
+		case !it.open:
+			return nil, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+		case it.reservedBy != nil:
+			return nil, reservedItem(i, *it.reservedBy)
+		}
+		s := perPartner[*it.partner]
+		if s == nil {
+			s = &amounts{}
+			perPartner[*it.partner] = s
+		}
+		s.tc, s.lc = append(s.tc, it.tc), append(s.lc, it.lc)
+		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
+			"account_id": it.account, "partner_id": it.partner, "amount_tc": money.EventAmount(it.tc, it.currency, exps[it.currency])}
+	}
+	for partner, s := range perPartner {
+		if !netsToZero(s.tc...) || !netsToZero(s.lc...) {
+			return nil, problem.Unprocessable("ledger.clearing_not_balanced", "The items of partner "+partner.String()+" do not net to zero in transaction and local currency.")
+		}
+	}
+	return payload, nil
 }
 
 // Reports answers reconciliation questions about the ledger.
