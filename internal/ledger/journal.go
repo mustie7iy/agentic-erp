@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -328,14 +329,10 @@ func ledgerID(ctx context.Context, tx pgx.Tx, requested *uuid.UUID) (uuid.UUID, 
 }
 
 // exponents returns the minor-unit digits of the currencies.
-func exponents(ctx context.Context, tx pgx.Tx, codes ...string) (map[string]int, error) {
-	rows, _ := tx.Query(ctx, `SELECT code, exponent FROM ref.currency WHERE code = ANY($1)`, codes)
-	out := map[string]int{}
-	var code string
-	var exp int
-	_, err := pgx.ForEachRow(rows, []any{&code, &exp}, func() error { out[code] = exp; return nil })
+func exponents(ctx context.Context, tx pgx.Tx, codes ...string) (currency.Exponents, error) {
+	out, err := currency.LoadCodes(ctx, tx, codes...)
 	if err != nil {
-		return out, fmt.Errorf("ledger: currency exponents %v: %w", codes, err)
+		return nil, fmt.Errorf("ledger: currency exponents %v: %w", codes, err)
 	}
 	return out, nil
 }

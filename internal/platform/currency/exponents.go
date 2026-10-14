@@ -17,7 +17,7 @@ import (
 // ref.currency holds them.
 type Exponents map[string]int
 
-// Rows is the part of a transaction Load needs.
+// Rows is the part of a transaction Load and LoadCodes need.
 type Rows interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
@@ -25,12 +25,25 @@ type Rows interface {
 // Load reads every currency's exponent from ref.currency, for checking a
 // document whose currencies are not known in advance (a configuration).
 func Load(ctx context.Context, q Rows) (Exponents, error) {
-	rows, _ := q.Query(ctx, `SELECT code, exponent FROM ref.currency`) // a failed query reports through the rows, read below
+	return read(ctx, q, "", `SELECT code, exponent FROM ref.currency`)
+}
+
+// LoadCodes reads the exponents of the named currencies from ref.currency.
+// A code ref.currency does not hold is absent from the result, for the
+// caller to refuse in its own terms.
+func LoadCodes(ctx context.Context, q Rows, codes ...string) (Exponents, error) {
+	return read(ctx, q, fmt.Sprintf(" of %v", codes), `SELECT code, exponent FROM ref.currency WHERE code = ANY($1)`, codes)
+}
+
+// read collects the code and exponent rows a query returns; which names
+// the currencies read in a failure.
+func read(ctx context.Context, q Rows, which, sql string, args ...any) (Exponents, error) {
+	rows, _ := q.Query(ctx, sql, args...) // a failed query reports through the rows, read below
 	out := Exponents{}
 	var code string
 	var exp int
 	if _, err := pgx.ForEachRow(rows, []any{&code, &exp}, func() error { out[code] = exp; return nil }); err != nil {
-		return nil, fmt.Errorf("currency: read exponents: %w", err)
+		return nil, fmt.Errorf("currency: read exponents%s: %w", which, err)
 	}
 	return out, nil
 }

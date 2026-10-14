@@ -3,6 +3,7 @@ package currency_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -49,4 +50,29 @@ func TestExponent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadCodes(t *testing.T) {
+	ctx := context.Background()
+	tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // read-only; nothing to keep
+	t.Run("the named codes only", func(t *testing.T) {
+		got, err := currency.LoadCodes(ctx, tx, "JPY", "BHD", "XXQ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := currency.Exponents{"JPY": 0, "BHD": 3}
+		if !maps.Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+	t.Run("a failed read", func(t *testing.T) {
+		_, err := currency.LoadCodes(ctx, &pgtest.FailingTx{Tx: tx, FailAt: 1}, "EUR")
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Errorf("got %v, want the injected failure", err)
+		}
+	})
 }

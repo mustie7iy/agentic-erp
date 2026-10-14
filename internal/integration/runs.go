@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -217,7 +218,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	if c.Status != "active" {
 		return target{}, nil, c, problem.Conflict("integration.connector_disabled", "The run's connector is disabled.")
 	}
-	t := target{charts: map[string]map[string]ledger.ChartAccount{}, terms: map[string]bool{}, ranges: map[string]bool{}, exponents: map[string]int{},
+	t := target{charts: map[string]map[string]ledger.ChartAccount{}, terms: map[string]bool{}, ranges: map[string]bool{},
 		year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
 	if t.entities, err = e.entities(ctx, r.Scope); err != nil {
 		return t, nil, c, err
@@ -239,10 +240,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	for _, n := range doc.NumberRanges {
 		t.ranges[n.Key()] = true
 	}
-	rows, _ := tx.Query(ctx, `SELECT code, exponent FROM ref.currency`)
-	var code string
-	var exp int
-	if _, err := pgx.ForEachRow(rows, []any{&code, &exp}, func() error { t.exponents[code] = exp; return nil }); err != nil {
+	if t.exponents, err = currency.Load(ctx, tx); err != nil {
 		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
 	}
 	src, err := e.source(ctx, c)
