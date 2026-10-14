@@ -22,9 +22,9 @@ var shared = map[string]bool{"money": true}
 // package serves the contexts and imports none of them.
 var platformUsers = map[string]bool{"platform/fixture": true}
 
-// compositionRoot is the unit that wires every context's
-// handlers into the API and their ports together, and so, like a command,
-// may import any context.
+// compositionRoot is the package that wires every context's handlers into
+// the API and their ports together, and so, like a command, may import any
+// context; its sub-packages (apitest) may not.
 const compositionRoot = "app"
 
 // testSupport are packages only tests and other test support may import:
@@ -158,7 +158,7 @@ func TestImportRules(t *testing.T) {
 			}
 			switch {
 			case from == to, strings.HasPrefix(to, "platform/"), shared[to]:
-			case strings.HasPrefix(from, "cmd/"), from == compositionRoot: // a command and the composition root wire contexts together
+			case strings.HasPrefix(from, "cmd/"), pkg == compositionRoot: // a command and the composition root wire contexts together
 			case strings.HasPrefix(from, "platform/"):
 				if !platformUsers[from] {
 					t.Errorf("%s imports %s: a platform package may not depend on a context", pkg, dep)

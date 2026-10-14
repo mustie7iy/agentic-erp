@@ -46,7 +46,9 @@ type Pipeline struct {
 	RequestTimeout time.Duration
 	// Routes are served beside the generated server, keyed by ServeMux
 	// pattern, outside authentication and the unit of work: they
-	// authenticate themselves (a signed URL, for example).
+	// authenticate themselves (a signed URL, for example). A malformed
+	// pattern, or one that conflicts with "/", panics in New: it is wiring
+	// fixed at startup, not input.
 	Routes  map[string]http.Handler
 	Log     *slog.Logger
 	Metrics *telemetry.Metrics

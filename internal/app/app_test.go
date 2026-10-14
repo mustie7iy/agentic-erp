@@ -26,7 +26,9 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 // TestQuotasAndDeadlines checks the hardening in the request chain: the
 // rate limiter answers before the unit of work, and a request past its
-// deadline is a 503 the client can retry.
+// deadline is a 503 the client can retry. The chain is platform/httpapi's,
+// but the check runs here because it needs a real operation behind the
+// unit of work (the database answering the deadline).
 func TestQuotasAndDeadlines(t *testing.T) {
 	is := authntest.New(t)
 	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
