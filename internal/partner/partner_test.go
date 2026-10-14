@@ -133,7 +133,29 @@ func (e env) events(t *testing.T, name string) []map[string]any {
 }
 
 func TestCreateAndRead(t *testing.T) {
-	e := setup(t)
+	s := &createAndRead{e: setup(t)}
+	if !t.Run("create a supplier", s.createSupplier) {
+		t.FailNow()
+	}
+	t.Run("read the partner and its change", s.readPartnerAndChange)
+	if !t.Run("a customer with the same identifiers", s.createCustomerWithTheSameIdentifiers) {
+		t.FailNow()
+	}
+	t.Run("list and page", s.listAndPagePartners)
+	t.Run("the service sees no company data", s.serviceSeesNoCompanyData)
+	t.Run("list changes", s.listPartnerChanges)
+}
+
+// createAndRead is TestCreateAndRead's scenario: the supplier and its
+// create change, made by the first step.
+type createAndRead struct {
+	e    env
+	p, c map[string]any
+}
+
+// createSupplier creates a supplier and checks it and its create change, masked.
+func (s *createAndRead) createSupplier(t *testing.T) {
+	e := s.e.in(t)
 	p, c := e.create(t, e.supplier("Muster Industrie GmbH", 0))
 	for field, want := range map[string]any{"status": "pending", "number": "BP00000001", "kind": "organization"} {
 		if p[field] != want {
@@ -203,6 +225,13 @@ func TestCreateAndRead(t *testing.T) {
 	if created[0]["status"] != "pending" {
 		t.Errorf("created event status: got %v, want pending", created[0]["status"])
 	}
+	s.p, s.c = p, c
+}
+
+// readPartnerAndChange reads the partner and its change back.
+func (s *createAndRead) readPartnerAndChange(t *testing.T) {
+	e := s.e.in(t)
+	p, c := s.p, s.c
 	got, tag := e.Must(200, "GET", "/v1/business-partners/"+id(p), "", "")
 	if got["name"] != "Muster Industrie GmbH" {
 		t.Errorf("get name: got %v, want Muster Industrie GmbH", got["name"])
@@ -222,7 +251,13 @@ func TestCreateAndRead(t *testing.T) {
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/business-partners/"+uuid.NewString(), "", "")
 	e.Problem(404, "request.not_found", "GET", "/v1/partner-changes/"+uuid.NewString(), "", "")
+}
 
+// createCustomerWithTheSameIdentifiers applies the supplier's change and creates a
+// person who is a customer, with the supplier's identifiers.
+func (s *createAndRead) createCustomerWithTheSameIdentifiers(t *testing.T) {
+	e := s.e.in(t)
+	c := s.c
 	// A person who is a customer, and the same identifiers again: warnings
 	// once the first partner's bank account exists.
 	e.mustApply(t, id(c))
@@ -237,7 +272,11 @@ func TestCreateAndRead(t *testing.T) {
 	if strings.Join(codes, ",") != "partner.duplicate_tax_identifier,partner.duplicate_bank_account" {
 		t.Fatalf("warnings: %v", c2["warnings"])
 	}
+}
 
+// listAndPagePartners lists the supplier and the customer by every filter and order.
+func (s *createAndRead) listAndPagePartners(t *testing.T) {
+	e := s.e.in(t)
 	list := func(e env, q string) []string {
 		page, _ := e.Must(200, "GET", "/v1/business-partners"+q, "", "")
 		var out []string
@@ -290,7 +329,12 @@ func TestCreateAndRead(t *testing.T) {
 		t.Errorf("by number, page 2: got %v, want BP00000002 first", rest)
 	}
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/business-partners?order_by=status", "", "")
+}
 
+// serviceSeesNoCompanyData reads the supplier as the service, which has no company access.
+func (s *createAndRead) serviceSeesNoCompanyData(t *testing.T) {
+	e := s.e.in(t)
+	p := s.p
 	// The service has no company access: it sees the partner, not its company data.
 	svc := e.Client
 	svc.As = e.ten.Service
@@ -300,7 +344,11 @@ func TestCreateAndRead(t *testing.T) {
 	if page, _ := svc.Must(200, "GET", "/v1/business-partners?number=BP00000001", "", ""); len(page["items"].([]any)[0].(map[string]any)["supplier_companies"].([]any)) != 0 {
 		t.Fatalf("listed company data outside access: %v", page)
 	}
+}
 
+// listPartnerChanges lists the two create changes.
+func (s *createAndRead) listPartnerChanges(t *testing.T) {
+	e := s.e.in(t)
 	changes, _ := e.Must(200, "GET", "/v1/partner-changes?order_by=created_at%20desc&page_size=1", "", "")
 	if number := changes["items"].([]any)[0].(map[string]any)["number"]; number != "PC00000002" {
 		t.Errorf("changes: got %v first, want PC00000002", number)

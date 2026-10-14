@@ -42,6 +42,31 @@ func day(offset int) string { return time.Now().UTC().AddDate(0, 0, offset).Form
 
 func TestPrincipals(t *testing.T) {
 	c, ten := admin(t)
+	s := &principals{c: c, ten: ten}
+	if !t.Run("create", s.createPrincipals) {
+		t.FailNow()
+	}
+	if !t.Run("read and update", s.readAndUpdatePrincipals) {
+		t.FailNow()
+	}
+	if !t.Run("block", s.blockPrincipal) {
+		t.FailNow()
+	}
+	t.Run("list", s.listPrincipals)
+}
+
+// principals is TestPrincipals' scenario: the principals the first step
+// creates.
+type principals struct {
+	c                    apitest.Client
+	ten                  pgtest.Tenant
+	human, agent, bridge map[string]any
+}
+
+// createPrincipals creates a human, an agent and a service, and is refused
+// principals that break the rules.
+func (s *principals) createPrincipals(t *testing.T) {
+	c := s.c.In(t)
 	human, tag := c.Must(201, "POST", "/v1/principals", `{"kind": "human", "external_subject": "auth0|jonas", "display_name": "Jonas Weber",
 		"email": "jonas@example.com"}`, "")
 	if human["status"] != "active" {
@@ -96,7 +121,13 @@ func TestPrincipals(t *testing.T) {
 			}
 		})
 	}
+	s.human, s.agent, s.bridge = human, agent, bridge
+}
 
+// readAndUpdatePrincipals reads the human back and patches it and the agent.
+func (s *principals) readAndUpdatePrincipals(t *testing.T) {
+	c, ten := s.c.In(t), s.ten
+	human, agent := s.human, s.agent
 	got, tag := c.Must(200, "GET", "/v1/principals/"+id(human), "", "")
 	if got["email"] != "jonas@example.com" {
 		t.Errorf("email: got %v, want jonas@example.com", got["email"])
@@ -153,11 +184,15 @@ func TestPrincipals(t *testing.T) {
 	if changes[1]["monthly_budget"] != nil {
 		t.Errorf("second profile event monthly budget: got %v, want none", changes[1]["monthly_budget"])
 	}
+}
 
+// blockPrincipal blocks the fixture's service, whose token is then refused.
+func (s *principals) blockPrincipal(t *testing.T) {
+	c, ten := s.c.In(t), s.ten
 	// Blocking: never yourself; a blocked principal's token is refused.
 	c.Problem(409, "identity.cannot_block_self", "POST", "/v1/principals/"+ten.Human.ID.String()+":block", `{"reason": "r"}`, `"1"`)
 	c.Problem(412, "request.version_mismatch", "POST", "/v1/principals/"+ten.Service.ID.String()+":block", `{"reason": "r"}`, `"9"`)
-	got, _ = c.Must(200, "POST", "/v1/principals/"+ten.Service.ID.String()+":block", `{"reason": "Key leaked"}`, `"1"`)
+	got, _ := c.Must(200, "POST", "/v1/principals/"+ten.Service.ID.String()+":block", `{"reason": "Key leaked"}`, `"1"`)
 	if got["status"] != "blocked" {
 		t.Fatal(got)
 	}
@@ -186,7 +221,12 @@ func TestPrincipals(t *testing.T) {
 	if blocked[0]["kind"] != "service" {
 		t.Errorf("blocked event kind: got %v, want service", blocked[0]["kind"])
 	}
+}
 
+// listPrincipals lists by kind and status, by name (default) or creation time.
+func (s *principals) listPrincipals(t *testing.T) {
+	c, ten := s.c.In(t), s.ten
+	human, agent, bridge := s.human, s.agent, s.bridge
 	// Lists: by kind and status, by name (default) or creation time.
 	list := func(q string) map[string]any { m, _ := c.Must(200, "GET", "/v1/principals"+q, "", ""); return m }
 	if got := ids(list("?kind=agent")); len(got) != 2 { // the fixture's agent and the new one
@@ -224,6 +264,33 @@ func TestIdentityAdministrationIsHumanOnly(t *testing.T) {
 
 func TestRolesAndPermissions(t *testing.T) {
 	c, ten := admin(t)
+	s := &rolesAndPermissions{c: c, ten: ten}
+	if !t.Run("create and update a role", s.createRole) {
+		t.FailNow()
+	}
+	if !t.Run("grant permissions", s.grantPermissions) {
+		t.FailNow()
+	}
+	if !t.Run("end grants", s.endGrants) {
+		t.FailNow()
+	}
+	t.Run("grant history", s.grantHistory)
+	t.Run("events", s.roleEvents)
+	t.Run("list roles", s.listRoles)
+}
+
+// rolesAndPermissions is TestRolesAndPermissions' scenario: the role and
+// the grants the first steps make.
+type rolesAndPermissions struct {
+	c                   apitest.Client
+	ten                 pgtest.Tenant
+	role, grant, future map[string]any
+	path, gtag          string
+}
+
+// createRole creates the AP_CLERK role, refuses its code again and patches it.
+func (s *rolesAndPermissions) createRole(t *testing.T) {
+	c := s.c.In(t)
 	role, tag := c.Must(201, "POST", "/v1/roles", `{"code": "AP_CLERK", "name": "AP clerk", "description": "Captures invoices"}`, "")
 	if role["status"] != "active" {
 		t.Errorf("role status: got %v, want active", role["status"])
@@ -245,7 +312,13 @@ func TestRolesAndPermissions(t *testing.T) {
 	}
 	c.Problem(412, "request.version_mismatch", "PATCH", path, `{}`, `"1"`)
 	c.Problem(404, "request.not_found", "PATCH", "/v1/roles/"+uuid.NewString(), `{}`, `"1"`)
+	s.role, s.path = role, path
+}
 
+// grantPermissions grants one permission from today and one in the future, and is
+// refused grants that break the rules.
+func (s *rolesAndPermissions) grantPermissions(t *testing.T) {
+	c, path := s.c.In(t), s.path
 	grant, gtag := c.Must(201, "POST", path+"/permissions", `{"permission_code": "payables.invoice.capture"}`, "")
 	if grant["valid_from"] != day(0) {
 		t.Errorf("grant valid from: got %v, want %s", grant["valid_from"], day(0))
@@ -280,13 +353,19 @@ func TestRolesAndPermissions(t *testing.T) {
 		})
 	}
 	c.Problem(404, "request.not_found", "POST", "/v1/roles/"+uuid.NewString()+"/permissions", `{"permission_code": "payables.invoice.read"}`, "")
-	got, _ = c.Must(200, "GET", path, "", "")
+	got, _ := c.Must(200, "GET", path, "", "")
 	if fmt.Sprint(got["permission_codes"]) != "[payables.invoice.capture]" { // the future grant is not in force yet
 		t.Fatalf("permission codes: %v", got["permission_codes"])
 	}
+	s.grant, s.gtag, s.future = grant, gtag, future
+}
 
+// endGrants ends grants, refusing the stale, the past, the later and the early end.
+func (s *rolesAndPermissions) endGrants(t *testing.T) {
+	c, ten := s.c.In(t), s.ten
+	role, path, grant, gtag, future := s.role, s.path, s.grant, s.gtag, s.future
 	gpath := path + "/permissions/" + id(grant)
-	_, tag = c.Must(200, "GET", gpath, "", "")
+	_, tag := c.Must(200, "GET", gpath, "", "")
 	if tag != gtag {
 		t.Fatalf("etag %s, created with %s", tag, gtag)
 	}
@@ -338,7 +417,11 @@ func TestRolesAndPermissions(t *testing.T) {
 	if got, _ := c.Must(200, "GET", path, "", ""); fmt.Sprint(got["permission_codes"]) != "[payables.invoice.capture]" {
 		t.Fatalf("ended today: %v", got["permission_codes"])
 	}
+}
 
+// grantHistory lists the role's grants, in pages and on a day.
+func (s *rolesAndPermissions) grantHistory(t *testing.T) {
+	c, path, future := s.c.In(t), s.path, s.future
 	all, _ := c.Must(200, "GET", path+"/permissions", "", "")
 	if len(ids(all)) != 3 {
 		t.Fatalf("history: %v", all)
@@ -349,7 +432,11 @@ func TestRolesAndPermissions(t *testing.T) {
 		t.Fatalf("valid on: %v", on)
 	}
 	c.Problem(404, "request.not_found", "GET", "/v1/roles/"+uuid.NewString()+"/permissions", "", "")
+}
 
+// roleEvents checks the role and grant events published.
+func (s *rolesAndPermissions) roleEvents(t *testing.T) {
+	ten := s.ten
 	granted := events(t, ten, "role_permission_granted")
 	endedEvents := events(t, ten, "role_permission_ended")
 	roles := events(t, ten, "role_created")
@@ -374,7 +461,11 @@ func TestRolesAndPermissions(t *testing.T) {
 	if roles[0]["code"] != "AP_CLERK" {
 		t.Errorf("role event code: got %v, want AP_CLERK", roles[0]["code"])
 	}
+}
 
+// listRoles lists roles by code and by name, in pages.
+func (s *rolesAndPermissions) listRoles(t *testing.T) {
+	c := s.c.In(t)
 	// Lists of roles.
 	c.Must(201, "POST", "/v1/roles", `{"code": "AA_FIRST", "name": "Zeta"}`, "")
 	byCode, _ := c.Must(200, "GET", "/v1/roles?page_size=1", "", "")
