@@ -52,7 +52,7 @@ func twoYears(t *testing.T) *Facts {
 			}
 			return "expense"
 		}
-		add := func(table, id, company, date, currency string, amount int64, dims map[string]string) {
+		add := func(table, id, company, date, currency string, amount money.Minor, dims map[string]string) {
 			iso := date[:4] + "-" + date[4:6] + "-" + date[6:]
 			fy, fm, _ := fiscal(iso, m.Calendar.FiscalYearStartMonth)
 			dims["company"], dims["posting_date"] = company, iso
@@ -80,7 +80,7 @@ func twoYears(t *testing.T) *Facts {
 			for _, l := range e.ACDOCA {
 				amt, _ := money.ParseDecimal(l.HSL, 2)
 				acct := sap.Alpha(l.RACCT)
-				add("gl_lines", l.RBUKRS+"/"+l.GJAHR+"/"+l.BELNR, l.RBUKRS, l.BUDAT, currency[l.RBUKRS], int64(amt), map[string]string{
+				add("gl_lines", l.RBUKRS+"/"+l.GJAHR+"/"+l.BELNR, l.RBUKRS, l.BUDAT, currency[l.RBUKRS], amt, map[string]string{
 					"account": acct, "account_name": accounts[acct], "account_type": types(acct), "document_type": l.BLART,
 					"vendor": sap.Alpha(l.LIFNR), "vendor_name": names[sap.Alpha(l.LIFNR)], "vendor_recon": strconv.FormatBool(recon[acct]),
 					"cleared": strconv.FormatBool(recon[acct] && l.AUGBL != "")})
@@ -97,13 +97,13 @@ func twoYears(t *testing.T) *Facts {
 				qty, _ := money.ParseQty(it.MENGE)
 				price, _ := money.ParseDecimal(it.NETPR, 2)
 				unit, _ := strconv.ParseInt(it.PEINH, 10, 64)
-				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, int64(money.Extend(qty, price, max(unit, 1))), map[string]string{
+				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, money.Extend(qty, price, max(unit, 1)), map[string]string{
 					"vendor": sap.Alpha(h.LIFNR), "vendor_name": names[sap.Alpha(h.LIFNR)], "account": sap.Alpha(it.SAKTO), "account_name": accounts[sap.Alpha(it.SAKTO)]})
 			}
 			for _, h := range e.RBKP {
 				status := map[string]string{"A": "parked", "5": "posted"}[h.RBSTAT]
 				gross, _ := money.ParseDecimal(h.RMWWR, 2)
-				add("ap_invoices", h.BELNR+"/"+h.GJAHR, h.BUKRS, h.BLDAT, h.WAERS, int64(gross), map[string]string{
+				add("ap_invoices", h.BELNR+"/"+h.GJAHR, h.BUKRS, h.BLDAT, h.WAERS, gross, map[string]string{
 					"vendor": sap.Alpha(h.LIFNR), "vendor_name": names[sap.Alpha(h.LIFNR)], "invoice_status": status})
 			}
 		}

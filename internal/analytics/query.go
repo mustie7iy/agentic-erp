@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // Query is a semantic query: which metrics, broken down by which
@@ -159,7 +161,7 @@ func sharedDimensions(m *Model, measures []string) (map[string]bool, error) {
 // tracked so money from companies with different currencies is never
 // added together.
 type aggCell struct {
-	sum        int64
+	sum        money.Minor
 	ids        map[string]bool
 	currencies map[string]bool
 }
@@ -203,7 +205,7 @@ func (agg *aggregation) addMetric(b string, met *Metric, f *Facts, p Principal, 
 		if met.Aggregate == "count_distinct" {
 			c.ids[fact.ID] = true
 		} else {
-			c.sum += fact.Amount * met.Sign
+			c.sum += fact.Amount * money.Minor(met.Sign)
 		}
 	}
 }

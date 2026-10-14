@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // LargeFacts builds synthetic fact tables for one company: per invoice a
@@ -24,7 +25,7 @@ func LargeFacts(vendors, invoices int) *analytics.Facts {
 		vendor := fmt.Sprintf("V%06d", i%vendors)
 		month := 1 + i%9
 		date := fmt.Sprintf("2026-%02d-%02d", month, 1+i%28)
-		net := int64((1 + i%20) * (1_000 + i%50_000))
+		net := money.Minor((1 + i%20) * (1_000 + i%50_000))
 		tax := net * 8 / 100
 		dims := func(extra map[string]string) map[string]string {
 			d := map[string]string{"company": "1000", "posting_date": date, "fiscal_year": "2026", "fiscal_month": strconv.Itoa(month),
@@ -37,7 +38,7 @@ func LargeFacts(vendors, invoices int) *analytics.Facts {
 		id := fmt.Sprintf("INV%07d", i)
 		for _, l := range []struct {
 			account, typ string
-			amount       int64
+			amount       money.Minor
 			recon        bool
 		}{{"510000", "expense", net, false}, {"140000", "asset", tax, false}, {"211000", "liability", -(net + tax), true}} {
 			f.Tables["gl_lines"] = append(f.Tables["gl_lines"], analytics.Fact{ID: "JE" + id, Amount: l.amount, Currency: "USD",

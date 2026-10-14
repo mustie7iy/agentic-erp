@@ -3,13 +3,15 @@ package analytics
 import (
 	"fmt"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // Fact is one row of a fact table. Amount is in minor units of Currency.
 type Fact struct {
 	ID       string
 	Dims     map[string]string
-	Amount   int64
+	Amount   money.Minor
 	Currency string
 }
 

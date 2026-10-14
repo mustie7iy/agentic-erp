@@ -27,13 +27,13 @@ type amount struct {
 
 // minor converts an API amount, which carries its currency's minor-unit
 // digits, to minor units.
-func (a amount) minor() (int64, error) {
+func (a amount) minor() (money.Minor, error) {
 	decimals := 0
 	if i := strings.IndexByte(a.Amount, '.'); i >= 0 {
 		decimals = len(a.Amount) - i - 1
 	}
 	m, err := money.ParseDecimal(a.Amount, decimals)
-	return int64(m), err
+	return m, err
 }
 
 // list reads every page of a list operation.
@@ -260,7 +260,7 @@ func (b *factBuilder) addOrder(le legalEntity, o order, chart map[string]account
 			return fmt.Errorf("purchase order %s: %w", o.ID, err)
 		}
 		b.f.Tables["po_lines"] = append(b.f.Tables["po_lines"], Fact{ID: o.ID, Dims: dims,
-			Amount: int64(money.Extend(qty, money.Minor(price), max(it.PriceUnit, 1))), Currency: it.UnitPrice.Currency})
+			Amount: money.Extend(qty, price, max(it.PriceUnit, 1)), Currency: it.UnitPrice.Currency})
 	}
 	return nil
 }
