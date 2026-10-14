@@ -378,9 +378,11 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   at the ledger's rate for its date before comparing, and a missing rate refuses the step.
 - [ ] F12 Configured amounts compared in the company's currency (thresholds, tolerances, auto-post
   limit, simulation evidence), exactly, with parse errors handled
-- [ ] R59 Round-four residue: createClearing through clearWithEntry, one currency loader, money.Rat,
-  MonthlyBudget as money.Minor, Render validates, period lock after the access check, keyring
-  errors, analytics value comparison
+- [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
+  Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
+  panic); a period close locks only a period the caller may see; provision and rewrap report a
+  keyring they cannot build (rewrap panicked on no master); analytics compares numeric values
+  exactly (17-digit codes compared equal). Reviewer: APPROVE.
 
 ## Baseline
 
