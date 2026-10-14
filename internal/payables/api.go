@@ -93,6 +93,9 @@ func matchToAPI(m Match) gen.MatchResult {
 		}
 		out.Issues[i] = issue
 	}
+	if m.Decision != nil {
+		out.Decision.SetTo(gen.MatchDecision{Outcome: m.Decision.Outcome, Reason: m.Decision.Reason})
+	}
 	return out
 }
 

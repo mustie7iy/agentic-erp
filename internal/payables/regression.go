@@ -159,6 +159,9 @@ func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, t
 	if errors.As(err, &p) && p.Code == "ledger.no_exchange_rate" {
 		r.Unevaluable = fmt.Sprintf("no average exchange rate from %s to %s on %s", v.Currency, to, v.InvoiceDate.Format(time.DateOnly))
 		r.unevaluableCode = "no_exchange_rate"
+		// A conversion without a rate: the match flags a variance it would
+		// need to convert (priceVariance).
+		r.Conversion = ledger.Conversion{From: v.Currency, To: to}
 		return nil
 	}
 	if err != nil {
@@ -167,13 +170,14 @@ func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, t
 	// Convert fails only for a result out of range (money.ErrOverflow), as
 	// the rate and exponents come from the database; the reason carries the
 	// error, whatever it is.
+	r.Conversion = conv
 	gross, err := conv.Convert(v.Gross)
 	if err != nil {
 		r.Unevaluable = fmt.Sprintf("gross amount %s %s cannot be converted into %s: %v", v.Gross.Plain(v.Exponent), v.Currency, to, err)
 		r.unevaluableCode = "amount_too_large"
 		return nil
 	}
-	r.Conversion, r.Gross = conv, gross
+	r.Gross = gross
 	return nil
 }
 
@@ -181,15 +185,15 @@ func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, t
 // compared with its company's amounts is not evaluable, with the code of
 // the reason as its issue.
 func outcome(lim limits, r replayed) (string, []string) {
-	if r.Unevaluable != "" {
-		return DecisionNotEvaluable, []string{r.unevaluableCode}
-	}
 	decision, issues := decide(lim, r)
+	if decision.Outcome == DecisionNotEvaluable {
+		return decision.Outcome, []string{decision.Reason}
+	}
 	codes := make([]string, 0, len(issues))
 	for _, i := range issues {
 		codes = append(codes, i.Code)
 	}
-	return decision, codes
+	return decision.Outcome, codes
 }
 
 // near is within 20% of the auto-post limit, either side, compared

@@ -106,14 +106,79 @@ func TestToleranceInTheCompanysCurrency(t *testing.T) {
 	}
 }
 
-// TestNoRateRefusesTheMatch: without a rate from the invoice's currency to
-// the company's, the match is refused rather than comparing the raw
-// numbers.
-func TestNoRateRefusesTheMatch(t *testing.T) {
+// decision is the decision a match answers, "outcome: reason", or
+// "absent".
+func decision(m map[string]any) string {
+	d, ok := m["decision"].(map[string]any)
+	if !ok {
+		return "absent"
+	}
+	return fmt.Sprint(d["outcome"], ": ", d["reason"])
+}
+
+// TestMatchDecisionInTheCompanysCurrency: the match answers the invoice
+// flow's decision, its gross converted into EUR and compared with the
+// 50,000.00 EUR auto-post limit (F12b). 7,000,000 JPY is 43,400.00 EUR,
+// posted automatically although the number is above 50,000; 30,000.000 BHD
+// is 72,000.00 EUR, reviewed although the number is below it.
+func TestMatchDecisionInTheCompanysCurrency(t *testing.T) {
 	e := foreign(t)
+	e.rate(t, "JPY", "EUR", "0.0062")
+	e.rate(t, "BHD", "EUR", "2.4")
+	for _, c := range []struct {
+		currency    string
+		price       int64
+		gross, none string
+		want        string
+	}{
+		{"JPY", 700_000, "7000000", "0", "auto_post: gross 43400.00 EUR is within the auto-post limit 50000.00 EUR, near it"},
+		{"BHD", 3_000_000, "30000.000", "0.000", "review: gross 72000.00 EUR is above the auto-post limit 50000.00 EUR"},
+	} {
+		t.Run(c.currency, func(t *testing.T) {
+			e := e.in(t)
+			inv := e.foreignInvoice(t, e.orderIn(t, c.currency, c.price), c.currency, c.currency+"-1", c.gross, c.none, c.gross)
+			if got := decision(e.act(t, 200, inv, "match", "")); got != c.want {
+				t.Errorf("decision: got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestMatchNotEvaluable: without a rate from the invoice's currency to the
+// company's, the match is recorded and its decision is not_evaluable with
+// the stable code as the reason; the raw numbers are never compared. An
+// item beyond the percentage tolerance cannot be compared with the
+// absolute one, so it is flagged. A gross amount out of range in the
+// company's currency is not evaluable either.
+func TestMatchNotEvaluable(t *testing.T) {
+	e := foreign(t)
+	e.rate(t, "JPY", "EUR", "1000000")
+	huge := e.foreignInvoice(t, e.orderIn(t, "JPY", 1_000_000_000_000), "JPY", "JP-1", "10000000000000", "0", "10000000000000")
+	if got, want := decision(e.act(t, 200, huge, "match", "")), "not_evaluable: amount_too_large"; got != want {
+		t.Errorf("decision out of range: got %q, want %q", got, want)
+	}
 	po := e.orderIn(t, "USD", 1200)
 	inv := e.foreignInvoice(t, po, "USD", "US-1", "120.00", "0.00", "120.00")
-	e.Problem(422, "ledger.no_exchange_rate", "POST", "/v1/supplier-invoices/"+inv+":match", "", e.tag(t, inv))
+	m := e.act(t, 200, inv, "match", "")
+	if got, want := decision(m), "not_evaluable: no_exchange_rate"; got != want {
+		t.Errorf("decision: got %q, want %q", got, want)
+	}
+	if m["is_clean"] != true {
+		t.Errorf("is_clean: got %v, want true: %v", m["is_clean"], m["issues"])
+	}
+	beyond := e.foreignInvoice(t, po, "USD", "US-2", "130.00", "0.00", "130.00")
+	m = e.act(t, 200, beyond, "match", "")
+	if got, want := decision(m), "not_evaluable: no_exchange_rate"; got != want {
+		t.Errorf("decision beyond the tolerance: got %q, want %q", got, want)
+	}
+	issues, _ := m["issues"].([]any) // absent issues fail the length check
+	if len(issues) != 1 {
+		t.Fatalf("issues: got %v, want one price variance", issues)
+	}
+	const want = "order item 1: invoiced 130.00 but the order price gives 120.00, a variance that cannot be compared with the tolerance of 5.00 EUR without an average rate from USD"
+	if got := issues[0].(map[string]any)["message"]; got != want {
+		t.Errorf("issue: got %q, want %q", got, want)
+	}
 }
 
 // day is the day the window of simulations and suites ends.

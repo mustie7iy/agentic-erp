@@ -154,14 +154,15 @@ func (t *tally) invoice(r replayed, before, after *config.Company) error {
 	}
 	b, bi := decide(was, r)
 	a, ai := decide(is, r)
-	t.counts["base"][b]++
-	t.counts["proposed"][a]++
-	if b != a || len(bi) != len(ai) {
+	t.counts["base"][b.Outcome]++
+	t.counts["proposed"][a.Outcome]++
+	// The reasons name the limits, so only the outcomes are compared.
+	if b.Outcome != a.Outcome || len(bi) != len(ai) {
 		issues := make([]string, 0, len(ai))
 		for _, i := range ai {
 			issues = append(issues, i.Code)
 		}
-		t.changes = append(t.changes, Decision{v.ID, v.DocumentNumber, co, b, a, issues})
+		t.changes = append(t.changes, Decision{v.ID, v.DocumentNumber, co, b.Outcome, a.Outcome, issues})
 	}
 	if before != nil {
 		t.postingMoves(co, before, after, r)
@@ -253,16 +254,37 @@ func taxCode(co *config.Company, code string) *config.TaxCode {
 	return nil
 }
 
-// decide is the invoice flow's decision under a company's limits: the
-// gross amount is compared with the auto-post limit in the company's
-// currency.
-func decide(lim limits, r replayed) (string, []Issue) {
+// Verdict is the invoice flow's decision on a matched invoice and why.
+type Verdict struct {
+	Outcome string // DecisionAutoPost, DecisionReview, DecisionException or DecisionNotEvaluable
+	// Reason is the converted gross and the limit; for not_evaluable the
+	// stable code (no_exchange_rate, amount_too_large), a regression case's
+	// issue.
+	Reason string
+}
+
+// decide is the invoice flow's decision under a company's limits, the one
+// rule the match, simulations and regression suites apply (F12b), with the
+// match issues. An invoice that cannot be converted into the company's
+// currency is not evaluable; one with issues is an exception; a clean one
+// is posted automatically when its gross amount in the company's currency
+// is within the auto-post limit, compared exactly, and reviewed above it.
+func decide(lim limits, r replayed) (Verdict, []Issue) {
 	issues := evaluate(r.Invoice, r.Order, r.Invoiced, lim, r.Conversion)
+	if r.Unevaluable != "" {
+		return Verdict{DecisionNotEvaluable, r.unevaluableCode}, issues
+	}
 	if len(issues) > 0 {
-		return DecisionException, issues
+		return Verdict{DecisionException, fmt.Sprintf("%d match issue(s)", len(issues))}, issues
 	}
-	if money.Rat(r.Gross, r.Conversion.ToExp).Cmp(lim.autoPost) > 0 {
-		return DecisionReview, nil
+	c := r.Conversion
+	gross, limit := r.Gross.Plain(c.ToExp)+" "+c.To, lim.autoPost.FloatString(c.ToExp)+" "+c.To
+	if money.Rat(r.Gross, c.ToExp).Cmp(lim.autoPost) > 0 {
+		return Verdict{DecisionReview, "gross " + gross + " is above the auto-post limit " + limit}, issues
 	}
-	return DecisionAutoPost, nil
+	reason := "gross " + gross + " is within the auto-post limit " + limit
+	if near(r, lim) {
+		reason += ", near it"
+	}
+	return Verdict{DecisionAutoPost, reason}, issues
 }

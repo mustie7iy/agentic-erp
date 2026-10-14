@@ -179,7 +179,7 @@ func TestDecideAtTheLimit(t *testing.T) {
 			}
 			r := replayed{Invoice: Invoice{Exponent: 0, Gross: gross, Items: []Item{{ItemNo: 1, Amount: gross}}}, Order: procurement.Order{Status: "released"},
 				Conversion: jpy, Gross: eur}
-			if got, issues := decide(lim, r); got != want {
+			if got, issues := decide(lim, r); got.Outcome != want {
 				t.Errorf("decision: got %s (%v), want %s", got, issues, want)
 			}
 		})

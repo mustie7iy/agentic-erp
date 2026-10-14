@@ -300,6 +300,19 @@ and role administration) are never exposed as agent tools.
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |
 | platform | `operations` | `:cancel` |
 
+`:match` on a supplier invoice answers the match result with the invoice
+flow's `decision` (F12b): `outcome` `auto_post` (clean, gross within the
+company's auto-post limit), `review` (above it) or `not_evaluable` (the
+gross cannot be converted into the company's currency; `reason` is the
+stable code `no_exchange_rate` or `amount_too_large`), with a `reason`. It
+is the rule simulations and regression suites apply (03 §3.9): the gross is
+converted at the average rate of the invoice date and compared exactly. A
+match with issues has no `decision` (the invoice is held and decided on its
+exception request), and neither do reads of the match history, as the
+decision is not stored. Clients act on the server's decision rather than
+compare amounts themselves; a server without the field leaves the decision
+unavailable, not guessed.
+
 ## 4.15 Control plane
 
 Tenants are not resources of the public API: the tenant comes from the

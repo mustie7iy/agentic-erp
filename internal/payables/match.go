@@ -46,6 +46,10 @@ type Match struct {
 	Issues        []Issue
 	ConfigVersion int32
 	EvaluatedBy   uuid.UUID
+	// Decision is the invoice flow's decision on a clean or unevaluable
+	// match, set by MatchInvoice only: it is not stored, as the limit and
+	// the rate it was taken with may change before the invoice is posted.
+	Decision *Verdict
 }
 
 const matchColumns = `id, supplier_invoice_id, evaluated_at, is_clean, issues, config_version, evaluated_by`
@@ -204,6 +208,12 @@ func priceVariance(it Item, oi procurement.OrderItem, lim limits, conv ledger.Co
 	if diff <= byPct && diff >= -byPct {
 		return ""
 	}
+	if conv.Rate == "" {
+		// No rate into the company's currency (inCompany): the variance
+		// cannot be compared with the absolute tolerance, so it is flagged.
+		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance that cannot be compared with the tolerance of %s %s without an average rate from %s",
+			format(it.Amount), format(want), lim.absoluteText, conv.To, conv.From)
+	}
 	inCompany, err := conv.Convert(diff)
 	if err != nil {
 		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance out of range in %s", format(it.Amount), format(want), conv.To)
@@ -241,27 +251,17 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return Match{}, err
 	}
-	le, _, err := e.LegalEntities.Entity(ctx, v.LegalEntityID)
+	// The inputs and the decision are those a simulation or regression
+	// suite replays: an invoice without a rate is matched and not evaluable.
+	r, err := replay(ctx, tx, sources{e.LegalEntities, e.Orders, e.Rates}, v, newReplayCache())
 	if err != nil {
 		return Match{}, err
 	}
-	order, _, err := e.Orders.Order(ctx, *v.PurchaseOrderID)
+	lim, err := companyLimits(doc.Company(r.Company))
 	if err != nil {
 		return Match{}, err
 	}
-	invoiced, err := invoicedQuantities(ctx, tx, *v.PurchaseOrderID, id)
-	if err != nil {
-		return Match{}, err
-	}
-	lim, err := companyLimits(doc.Company(le.Code))
-	if err != nil {
-		return Match{}, err
-	}
-	conv, err := e.Rates.Conversion(ctx, v.Currency, le.LocalCurrency, v.InvoiceDate)
-	if err != nil {
-		return Match{}, err
-	}
-	issues := evaluate(v, order, invoiced, lim, conv)
+	decision, issues := decide(lim, r)
 	m, err := scanMatch(tx.QueryRow(ctx, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, issues,
 		config_version, evaluated_by) VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7) RETURNING `+matchColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), id, len(issues) == 0, issues, version, p.ID))
@@ -276,7 +276,13 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 		return Match{}, err
 	}
 	events = append(events, followUp...)
-	return m, record(ctx, "payables.supplier_invoice.match", id, map[string]any{"match_result_id": m.ID, "issues": len(issues)}, events...)
+	detail := map[string]any{"match_result_id": m.ID, "issues": len(issues)}
+	if decision.Outcome != DecisionException {
+		// An invoice with issues is decided on its exception request.
+		m.Decision = &decision
+		detail["decision"] = decision.Outcome
+	}
+	return m, record(ctx, "payables.supplier_invoice.match", id, detail, events...)
 }
 
 // applyMatch acts on a recorded match: issues hold the invoice and open an
