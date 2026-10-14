@@ -19,51 +19,109 @@ import (
 // clears the supplier's items and the bank file is transmitted.
 func TestProposeReleaseTransmit(t *testing.T) {
 	e := setup(t)
-	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier GmbH", "2026-01-01", "", "create")
-	inv1 := e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
-	e.credit(t, e.Supplier, "30.00", "2026-03-02")
-	e.invoice(t, e.Supplier, "INV-2", "50.00", "2026-03-05")
-	later := e.invoice(t, e.Supplier, "INV-3", "250.00", "2026-03-20") // due 19 April, after the due date
+	var (
+		inv1, later, op, run, file map[string]any
+		tag                        string
+	)
+	if !t.Run("propose", func(t *testing.T) {
+		e := e.in(t)
+		e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier GmbH", "2026-01-01", "", "create")
+		inv1 = e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
+		e.credit(t, e.Supplier, "30.00", "2026-03-02")
+		e.invoice(t, e.Supplier, "INV-2", "50.00", "2026-03-05")
+		later = e.invoice(t, e.Supplier, "INV-3", "250.00", "2026-03-20") // due 19 April, after the due date
+		op = e.propose(t, "2026-04-15", "2026-04-15")
+		if op["kind"] != "payments.propose" {
+			t.Errorf("operation kind: got %v, want payments.propose", op["kind"])
+		}
+		if op["status"] != "queued" {
+			t.Errorf("operation status: got %v, want queued", op["status"])
+		}
+		if got := op["resource"].(string); !strings.HasPrefix(got, "/v1/payment-runs/") {
+			t.Fatalf("operation resource: got %s, want a payment run", got)
+		}
+		run, _ = e.Must(200, "GET", op["resource"].(string), "", "")
+		if run["status"] != "proposing" {
+			t.Errorf("run status: got %v, want proposing", run["status"])
+		}
+		if run["operation_id"] != op["id"] {
+			t.Errorf("run operation: got %v, want %v", run["operation_id"], op["id"])
+		}
+		if run["proposed_by"] != e.Tenant.Human.ID.String() {
+			t.Errorf("run proposed by: got %v, want %v", run["proposed_by"], e.Tenant.Human.ID)
+		}
+		if got := run["document_number"].(string); !strings.HasPrefix(got, "PR") {
+			t.Errorf("run document number: got %s, want prefix PR", got)
+		}
+		if got := run["total_amount"].(map[string]any)["amount"]; got != "0.00" {
+			t.Errorf("run total while proposing: got %v, want 0.00", got)
+		}
+		if n := work(t); n != 1 {
+			t.Fatalf("worker did %d jobs", n)
+		}
+	}) {
+		t.FailNow()
+	}
+	if !t.Run("proposed run", func(t *testing.T) {
+		e := e.in(t)
+		run, tag = e.Must(200, "GET", op["resource"].(string), "", "")
+		if run["status"] != "proposed" {
+			t.Errorf("run status: got %v, want proposed", run["status"])
+		}
+		if got := run["total_amount"].(map[string]any)["amount"]; got != "120.00" {
+			t.Errorf("run total: got %v, want 120.00", got)
+		}
+		if tag != `"2"` {
+			t.Errorf("run etag: got %s, want \"2\"", tag)
+		}
+		checkProposeOperation(t, e, op)
+		checkProposedPayment(t, e, run, inv1)
+	}) {
+		t.FailNow()
+	}
+	if !t.Run("release", func(t *testing.T) { checkRelease(t, e.in(t), run, inv1, later, tag) }) {
+		t.FailNow()
+	}
+	if !t.Run("transmit", func(t *testing.T) { file = checkTransmit(t, e.in(t), run) }) {
+		t.FailNow()
+	}
+	t.Run("status report", func(t *testing.T) {
+		e := e.in(t)
+		// The bank's status report: acknowledged, once; a rejection no longer applies.
+		report := "/v1/bank-files/" + id(file) + ":report"
+		e.Problem(412, "request.version_mismatch", "POST", report, `{"outcome": "accepted"}`, `"1"`)
+		e.Problem(400, "request.invalid_body", "POST", report, `{}`, `"2"`)
+		e.Problem(422, "payments.invalid_outcome", "POST", report, `{"outcome": "lost"}`, `"2"`)
+		e.Problem(422, "payments.reason_required", "POST", report, `{"outcome": "rejected"}`, `"2"`)
+		acked, tag := e.Must(200, "POST", report, `{"outcome": "accepted", "reference": "pain.002-0001"}`, `"2"`)
+		if acked["status"] != "acknowledged" {
+			t.Errorf("acknowledged status: got %v, want acknowledged", acked["status"])
+		}
+		if tag != `"3"` {
+			t.Errorf("acknowledged etag: got %s, want \"3\"", tag)
+		}
+		ev := events(t, e.Tenant, "bank_file_acknowledged")
+		if len(ev) != 1 {
+			t.Fatalf("acknowledged events: got %d, want 1: %v", len(ev), ev)
+		}
+		if ev[0]["previous_status"] != "transmitted" {
+			t.Errorf("acknowledged event previous status: got %v, want transmitted", ev[0]["previous_status"])
+		}
+		if ev[0]["status"] != "acknowledged" {
+			t.Errorf("acknowledged event status: got %v, want acknowledged", ev[0]["status"])
+		}
+		if ev[0]["report_reference"] != "pain.002-0001" {
+			t.Errorf("acknowledged event report reference: got %v, want pain.002-0001", ev[0]["report_reference"])
+		}
+		e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "accepted"}`, `"3"`)
+		e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "rejected", "reason": "AC01"}`, `"3"`)
+		e.Problem(404, "request.not_found", "POST", "/v1/bank-files/0192a000-0000-7000-8000-00000000dead:report", `{"outcome": "rejected", "reason": "AC01"}`, "*")
+	})
+}
 
-	op := e.propose(t, "2026-04-15", "2026-04-15")
-	if op["kind"] != "payments.propose" {
-		t.Errorf("operation kind: got %v, want payments.propose", op["kind"])
-	}
-	if op["status"] != "queued" {
-		t.Errorf("operation status: got %v, want queued", op["status"])
-	}
-	if got := op["resource"].(string); !strings.HasPrefix(got, "/v1/payment-runs/") {
-		t.Fatalf("operation resource: got %s, want a payment run", got)
-	}
-	run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
-	if run["status"] != "proposing" {
-		t.Errorf("run status: got %v, want proposing", run["status"])
-	}
-	if run["operation_id"] != op["id"] {
-		t.Errorf("run operation: got %v, want %v", run["operation_id"], op["id"])
-	}
-	if run["proposed_by"] != e.Tenant.Human.ID.String() {
-		t.Errorf("run proposed by: got %v, want %v", run["proposed_by"], e.Tenant.Human.ID)
-	}
-	if got := run["document_number"].(string); !strings.HasPrefix(got, "PR") {
-		t.Errorf("run document number: got %s, want prefix PR", got)
-	}
-	if got := run["total_amount"].(map[string]any)["amount"]; got != "0.00" {
-		t.Errorf("run total while proposing: got %v, want 0.00", got)
-	}
-	if n := work(t); n != 1 {
-		t.Fatalf("worker did %d jobs", n)
-	}
-	run, tag := e.Must(200, "GET", op["resource"].(string), "", "")
-	if run["status"] != "proposed" {
-		t.Errorf("run status: got %v, want proposed", run["status"])
-	}
-	if got := run["total_amount"].(map[string]any)["amount"]; got != "120.00" {
-		t.Errorf("run total: got %v, want 120.00", got)
-	}
-	if tag != `"2"` {
-		t.Errorf("run etag: got %s, want \"2\"", tag)
-	}
+// checkProposeOperation checks the finished proposal operation.
+func checkProposeOperation(t *testing.T, e env, op map[string]any) {
+	t.Helper()
 	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
 	if done["status"] != "succeeded" {
 		t.Errorf("operation status: got %v, want succeeded", done["status"])
@@ -77,6 +135,12 @@ func TestProposeReleaseTransmit(t *testing.T) {
 	if got := done["result"].(map[string]any)["payment_count"]; got != float64(1) {
 		t.Errorf("operation payment count: got %v, want 1", got)
 	}
+}
+
+// checkProposedPayment checks the proposed run's one payment, its items and
+// the proposed event.
+func checkProposedPayment(t *testing.T, e env, run, inv1 map[string]any) {
+	t.Helper()
 	pays := e.payments(t, run)
 	pay := pays[0].(map[string]any)
 	items := pay["items"].([]any)
@@ -124,13 +188,17 @@ func TestProposeReleaseTransmit(t *testing.T) {
 	if ev[0]["exclusion_count"] != float64(0) {
 		t.Errorf("proposed event exclusion count: got %v, want 0", ev[0]["exclusion_count"])
 	}
+}
 
-	// The proposer can never decide the run; agents never release.
+// checkRelease: the proposer can never decide the run and agents never
+// release; the approver's release posts the payment, which clears the
+// items it pays.
+func checkRelease(t *testing.T, e env, run, inv1, later map[string]any, tag string) {
+	t.Helper()
 	path := "/v1/payment-runs/" + id(run)
 	e.Problem(403, "identity.sod_conflict", "POST", path+":release", "", tag)
 	e.Problem(403, "identity.sod_conflict", "POST", path+":reject", `{"reason": "no"}`, tag)
 	e.As(e.Tenant.Agent).Problem(403, "identity.agent_not_allowed", "POST", path+":release", "", tag)
-
 	released := e.release(t, run, `{"comment": "checked"}`)
 	if released["decided_by"] != e.Approver.ID.String() {
 		t.Errorf("released decided by: got %v, want %v", released["decided_by"], e.Approver.ID)
@@ -138,14 +206,36 @@ func TestProposeReleaseTransmit(t *testing.T) {
 	if released["decided_at"] == nil {
 		t.Errorf("released decided at: got none, want a time")
 	}
-	done, _ = e.Must(200, "GET", "/v1/operations/"+released["release_operation_id"].(string), "", "")
+	done, _ := e.Must(200, "GET", "/v1/operations/"+released["release_operation_id"].(string), "", "")
 	if got := done["progress"].(map[string]any)["done"]; got != float64(1) {
 		t.Errorf("release operation progress: got %v, want 1", got)
 	}
 	if done["result"].(map[string]any)["bank_file_id"] == nil {
 		t.Errorf("release operation bank file: got none, want one: %v", done)
 	}
-	pay = e.payments(t, run)[0].(map[string]any)
+	checkPaymentEntry(t, e, run)
+	open, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+e.Supplier.String(), "", "")
+	if items := open["items"].([]any); len(items) != 1 || items[0].(map[string]any)["journal_entry_id"] != later["journal_entry_id"] {
+		t.Fatalf("open items after payment: %v", open)
+	}
+	e.Problem(409, "payables.invoice_cleared", "POST", "/v1/supplier-invoices/"+id(inv1)+":reverse", `{"reason": "r"}`, `"2"`)
+	ev := events(t, e.Tenant, "payment_run_released")
+	if len(ev) != 1 {
+		t.Fatalf("released events: got %d, want 1: %v", len(ev), ev)
+	}
+	if ev[0]["payment_count"] != float64(1) {
+		t.Errorf("released event payment count: got %v, want 1", ev[0]["payment_count"])
+	}
+	if ev[0]["workflow_request_id"] != nil {
+		t.Errorf("released event workflow request: got %v, want none", ev[0]["workflow_request_id"])
+	}
+	e.decide(t, 409, run, "release", "")
+}
+
+// checkPaymentEntry checks the journal entry the released payment posted.
+func checkPaymentEntry(t *testing.T, e env, run map[string]any) {
+	t.Helper()
+	pay := e.payments(t, run)[0].(map[string]any)
 	je, _ := e.Must(200, "GET", "/v1/journal-entries/"+pay["journal_entry_id"].(string), "", "")
 	lines := je["lines"].([]any)
 	if je["document_type"] != "ZP" {
@@ -167,23 +257,12 @@ func TestProposeReleaseTransmit(t *testing.T) {
 	if got := bank["amount"].(map[string]any)["amount"]; got != "-120.00" {
 		t.Errorf("bank line amount: got %v, want -120.00", got)
 	}
-	open, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+e.Supplier.String(), "", "")
-	if items := open["items"].([]any); len(items) != 1 || items[0].(map[string]any)["journal_entry_id"] != later["journal_entry_id"] {
-		t.Fatalf("open items after payment: %v", open)
-	}
-	e.Problem(409, "payables.invoice_cleared", "POST", "/v1/supplier-invoices/"+id(inv1)+":reverse", `{"reason": "r"}`, `"2"`)
-	ev = events(t, e.Tenant, "payment_run_released")
-	if len(ev) != 1 {
-		t.Fatalf("released events: got %d, want 1: %v", len(ev), ev)
-	}
-	if ev[0]["payment_count"] != float64(1) {
-		t.Errorf("released event payment count: got %v, want 1", ev[0]["payment_count"])
-	}
-	if ev[0]["workflow_request_id"] != nil {
-		t.Errorf("released event workflow request: got %v, want none", ev[0]["workflow_request_id"])
-	}
-	e.decide(t, 409, run, "release", "")
+}
 
+// checkTransmit checks the run's bank file and transmits it; it returns the
+// file as transmitted.
+func checkTransmit(t *testing.T, e env, run map[string]any) map[string]any {
+	t.Helper()
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := files["items"].([]any)[0].(map[string]any)
 	created := events(t, e.Tenant, "bank_file_created")
@@ -227,35 +306,7 @@ func TestProposeReleaseTransmit(t *testing.T) {
 		t.Fatalf("transmitted events: %v", ev)
 	}
 	e.Problem(409, "payments.invalid_status", "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"2"`)
-	// The bank's status report: acknowledged, once; a rejection no longer applies.
-	report := "/v1/bank-files/" + id(file) + ":report"
-	e.Problem(412, "request.version_mismatch", "POST", report, `{"outcome": "accepted"}`, `"1"`)
-	e.Problem(400, "request.invalid_body", "POST", report, `{}`, `"2"`)
-	e.Problem(422, "payments.invalid_outcome", "POST", report, `{"outcome": "lost"}`, `"2"`)
-	e.Problem(422, "payments.reason_required", "POST", report, `{"outcome": "rejected"}`, `"2"`)
-	acked, tag := e.Must(200, "POST", report, `{"outcome": "accepted", "reference": "pain.002-0001"}`, `"2"`)
-	if acked["status"] != "acknowledged" {
-		t.Errorf("acknowledged status: got %v, want acknowledged", acked["status"])
-	}
-	if tag != `"3"` {
-		t.Errorf("acknowledged etag: got %s, want \"3\"", tag)
-	}
-	ev = events(t, e.Tenant, "bank_file_acknowledged")
-	if len(ev) != 1 {
-		t.Fatalf("acknowledged events: got %d, want 1: %v", len(ev), ev)
-	}
-	if ev[0]["previous_status"] != "transmitted" {
-		t.Errorf("acknowledged event previous status: got %v, want transmitted", ev[0]["previous_status"])
-	}
-	if ev[0]["status"] != "acknowledged" {
-		t.Errorf("acknowledged event status: got %v, want acknowledged", ev[0]["status"])
-	}
-	if ev[0]["report_reference"] != "pain.002-0001" {
-		t.Errorf("acknowledged event report reference: got %v, want pain.002-0001", ev[0]["report_reference"])
-	}
-	e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "accepted"}`, `"3"`)
-	e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "rejected", "reason": "AC01"}`, `"3"`)
-	e.Problem(404, "request.not_found", "POST", "/v1/bank-files/0192a000-0000-7000-8000-00000000dead:report", `{"outcome": "rejected", "reason": "AC01"}`, "*")
+	return file
 }
 
 func TestExclusions(t *testing.T) {
