@@ -127,7 +127,9 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 		return false, fmt.Errorf("configuration: claim a queued simulation: %w", err)
 	}
 	p := reqctx.Principal{ID: j.By, Kind: j.ByKind, TenantID: tenant}
-	if err := uow.Act(ctx, tx, p, w.Now, func(ctx context.Context) error { return w.process(ctx, tx, p, j) }); err != nil {
+	if err := uow.Act(ctx, tx, p, w.Now, func(ctx context.Context) error {
+		return w.process(ctx, tx, p, j)
+	}); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {

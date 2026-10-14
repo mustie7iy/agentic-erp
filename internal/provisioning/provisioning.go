@@ -147,7 +147,9 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 		return Result{}, err
 	}
 	principal := reqctx.Principal{ID: res.AdministratorID, Kind: identity.Human, TenantID: res.TenantID}
-	if err := uow.Act(ctx, tx, principal, p.Now, func(ctx context.Context) error { return p.populate(ctx, tx, req, &res) }); err != nil {
+	if err := uow.Act(ctx, tx, principal, p.Now, func(ctx context.Context) error {
+		return p.populate(ctx, tx, req, &res)
+	}); err != nil {
 		return Result{}, err
 	}
 	if err := p.recordIdempotency(ctx, tx, req.Idempotency, res); err != nil {

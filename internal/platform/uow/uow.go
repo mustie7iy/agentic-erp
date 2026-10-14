@@ -157,7 +157,8 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 // in fn's context, and writes fn's audit entries (ADR-0011) once fn has
 // succeeded, stamped now (the wall clock when now is nil). The caller
 // begins the transaction, reads what decides the actor and commits, so its
-// errors keep the context only it knows.
+// errors keep the context only it knows. Middleware does not use it: a
+// request's audit flush depends on the response status (finish).
 func Act(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now func() time.Time, fn func(ctx context.Context) error) error {
 	if err := database.SetActor(ctx, tx, actor.ID); err != nil {
 		return err

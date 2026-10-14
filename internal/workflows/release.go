@@ -95,7 +95,9 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 	if r.ReleaseOpID == nil || *r.ReleaseOpID != in.OperationID {
 		return nil
 	}
-	if err := uow.Act(ctx, tx, actor, p.Now, func(ctx context.Context) error { return fn(ctx, tx, r) }); err != nil {
+	if err := uow.Act(ctx, tx, actor, p.Now, func(ctx context.Context) error {
+		return fn(ctx, tx, r)
+	}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

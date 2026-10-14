@@ -76,7 +76,9 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 		return false, err
 	}
 	p := reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: tenant}
-	if err := uow.Act(ctx, tx, p, w.Now, func(ctx context.Context) error { return w.Endpoints.Process(ctx, job) }); err != nil {
+	if err := uow.Act(ctx, tx, p, w.Now, func(ctx context.Context) error {
+		return w.Endpoints.Process(ctx, job)
+	}); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {

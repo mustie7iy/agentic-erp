@@ -64,18 +64,15 @@ func TestLoop(t *testing.T) {
 			t.Errorf("got %d rounds, want 3", rounds)
 		}
 	})
-	t.Run("a failed round is logged and retried", func(t *testing.T) {
+	t.Run("a failed round is logged and waits for the interval even when it asks for another", func(t *testing.T) {
 		rounds := 0
-		logged := run(t, time.Millisecond, time.Hour, func(_ context.Context, cancel context.CancelFunc) (bool, error) {
+		logged := run(t, time.Hour, time.Hour, func(_ context.Context, cancel context.CancelFunc) (bool, error) {
 			rounds++
-			if rounds == 2 {
-				cancel()
-				return false, nil
-			}
+			time.AfterFunc(50*time.Millisecond, cancel) // ends the wait: a round 2 would mean no wait
 			return true, errors.New("boom")
 		})
-		if rounds != 2 {
-			t.Errorf("got %d rounds, want 2", rounds)
+		if rounds != 1 {
+			t.Errorf("got %d rounds, want 1", rounds)
 		}
 		if !strings.Contains(logged, `msg="round failed" error=boom`) {
 			t.Errorf("got log %q, want the failure", logged)

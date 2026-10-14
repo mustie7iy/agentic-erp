@@ -88,7 +88,9 @@ func (p *Payments) Propose(ctx context.Context, in ProposeInput) error {
 		return err
 	}
 	actor := reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: in.TenantID}
-	if err := uow.Act(ctx, tx, actor, p.Now, func(ctx context.Context) error { return p.Endpoints.Process(ctx, job) }); err != nil {
+	if err := uow.Act(ctx, tx, actor, p.Now, func(ctx context.Context) error {
+		return p.Endpoints.Process(ctx, job)
+	}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
