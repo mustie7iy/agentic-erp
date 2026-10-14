@@ -8,9 +8,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 type ref struct {
@@ -183,4 +185,51 @@ func TestPostingToANewSupplier(t *testing.T) {
 	_, tag := e.Must(200, "GET", "/v1/business-partners/"+bp["id"].(string), "", "")
 	e.Must(200, "POST", "/v1/business-partners/"+bp["id"].(string)+":block", `{"reason": "Fraud suspected"}`, tag)
 	e.Problem(422, "ledger.partner_not_postable", "POST", "/v1/journal-entries", body, "")
+}
+
+// TestReversedItemsAreNotCleared refuses to clear, settle or pay the lines
+// of a reversed entry or of its reversal: the reversal cancelled them.
+func TestReversedItemsAreNotCleared(t *testing.T) {
+	e := setup(t)
+	bank, expense, ap := e.account(t, "2000", "100000"), e.account(t, "2000", "520000"), e.account(t, "2000", "211000")
+	invoice, tag := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-01", "EUR", line{expense, "100.00", ""}, line{ap, "-100.00", e.supplier.String()}), "")
+	reversal, _ := e.Must(200, "POST", "/v1/journal-entries/"+invoice["id"].(string)+":reverse", "", tag)
+	e.Problem(409, "ledger.entry_reversed", "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{invoice, 2}, ref{reversal, 2}), "")
+
+	item := func(m map[string]any) ledger.ItemRef {
+		return ledger.ItemRef{FiscalYear: int16(m["fiscal_year"].(float64)), EntryID: uuid.MustParse(m["id"].(string)), LineNo: 2}
+	}
+	text := "Payment"
+	settle := func(items ...ledger.ItemRef) ledger.Settlement {
+		return ledger.Settlement{LegalEntityID: e.de, DocumentType: "SA", PostingDate: date("2026-03-31"), Currency: "EUR",
+			BankAccountID: uuid.MustParse(bank), HeaderText: &text, SourceContext: "payments", SourceDocumentID: uuid.New(), Items: items}
+	}
+	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		for name, call := range map[string]func() error{
+			"settle the original": func() error { _, err := postings().Settle(ctx, settle(item(invoice))); return err },
+			"settle the reversal": func() error { _, err := postings().Settle(ctx, settle(item(reversal))); return err },
+			"settle both":         func() error { _, err := postings().Settle(ctx, settle(item(invoice), item(reversal))); return err },
+			"clear by migration": func() error {
+				_, err := postings().Clear(ctx, e.de, date("2026-03-31"), item(reversal), []ledger.ItemRef{item(invoice), item(reversal)})
+				return err
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if got := problem.From(call()).Code; got != "ledger.entry_reversed" {
+					t.Errorf("code: got %s, want ledger.entry_reversed", got)
+				}
+			})
+		}
+		items, err := ledger.OpenItems{}.Payable(ctx, e.de, "EUR", date("2026-12-31"))
+		if err != nil {
+			return err
+		}
+		if len(items) != 0 {
+			t.Errorf("payable items: got %+v, want none", items)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

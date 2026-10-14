@@ -90,7 +90,7 @@ func GetClearing(ctx context.Context, id uuid.UUID) (Clearing, error) {
 // item is an open item to clear, with what clearing needs to know about it.
 type item struct {
 	ref                              ItemRef
-	found, open, recon               bool
+	found, open, recon, reversed     bool
 	legalEntity, ledger              uuid.UUID
 	account                          uuid.UUID
 	partner                          *uuid.UUID
@@ -234,7 +234,9 @@ func clearedItemsPayload(items []item, entry Entry) []map[string]any {
 }
 
 // loadItems reads the journal lines to clear, in the order of refs; lines
-// that do not exist come back with found false.
+// that do not exist come back with found false. It refuses lines of a
+// reversed entry or of a reversal: the reversal cancelled them, so they are
+// not open items to settle.
 func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	years, entries, nos := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
 	for i, r := range refs {
@@ -243,7 +245,10 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	rows, _ := tx.Query(ctx, `SELECT x.ord, l.journal_entry_id IS NOT NULL, ci.line_no IS NULL, coalesce(a.reconciliation_kind IN ('supplier', 'customer'), false),
 			coalesce(l.legal_entity_id, $4), coalesce(l.ledger_id, $4), coalesce(l.account_id, $4), l.partner_id,
 			coalesce(l.amount_tc, 0), coalesce(l.amount_lc, 0), coalesce(l.amount_gc, 0), coalesce(e.currency_tc, ''),
-			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, '')
+			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, ''),
+			EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = l.tenant_id
+				AND ((r.original_year = l.fiscal_year AND r.original_entry_id = l.journal_entry_id)
+					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
 		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
@@ -255,12 +260,18 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	var it item
 	var ord int64
 	if _, err := pgx.ForEachRow(rows, []any{&ord, &it.found, &it.open, &it.recon, &it.legalEntity, &it.ledger, &it.account, &it.partner,
-		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC}, func() error {
+		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC, &it.reversed}, func() error {
 		it.ref = refs[ord-1]
 		items = append(items, it)
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("ledger: load %d open items: %w", len(refs), err)
+	}
+	for i, it := range items {
+		if it.reversed {
+			return nil, problem.Conflict("ledger.entry_reversed", "Item "+fmt.Sprint(i+1)+
+				" is a line of a reversed journal entry or of a reversal; the reversal cancelled it, so it cannot be cleared.")
+		}
 	}
 	return items, nil
 }
