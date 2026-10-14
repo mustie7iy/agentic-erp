@@ -11,11 +11,10 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
-	"github.com/mustie7iy/agentic-erp/internal/procurement"
-	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Decisions the invoice flow takes on a matched invoice.
@@ -34,6 +33,7 @@ const (
 type Simulation struct {
 	LegalEntities LegalEntities
 	Orders        Orders
+	Rates         Rates
 	Window        time.Duration // how far back invoices are replayed; default 90 days
 	Limit         int           // at most this many invoices, newest first; default 2000
 	Now           func() time.Time
@@ -65,6 +65,9 @@ type Posting struct {
 	Proposed string      `json:"proposed"`
 	Invoices int         `json:"invoices"`
 	Amount   money.Minor `json:"amount"` // minor units of the company's currency
+	// amounts are the invoices' amounts in the company's currency, added
+	// up once, in any order, into Amount.
+	amounts []money.Minor
 }
 
 // examples is how many changes and breaks the detail lists.
@@ -89,15 +92,16 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 	if err != nil {
 		return configuration.Simulation{}, fmt.Errorf("payables: read invoices to simulate: %w", err)
 	}
-	companies := map[uuid.UUID]tenancy.Entity{}
-	orders := map[uuid.UUID]procurement.Order{}
+	cache := newReplayCache()
 	t := &tally{counts: map[string]map[string]int{"base": {}, "proposed": {}}, moves: map[string]*Posting{}}
 	for _, v := range invoices {
-		r, err := replay(ctx, tx, s.LegalEntities, s.Orders, v, companies, orders)
+		r, err := replay(ctx, tx, sources{s.LegalEntities, s.Orders, s.Rates}, v, cache)
 		if err != nil {
 			return configuration.Simulation{}, err
 		}
-		t.invoice(r, base.Company(r.Company), proposed.Company(r.Company))
+		if err := t.invoice(r, base.Company(r.Company), proposed.Company(r.Company)); err != nil {
+			return configuration.Simulation{}, err
+		}
 	}
 	return t.result(window, len(invoices))
 }
@@ -109,18 +113,18 @@ type tally struct {
 	changes []Decision
 	breaks  []Broken
 	moves   map[string]*Posting
-	// err is the first amount a posting rule moves that is out of range;
-	// result returns it rather than a total that wrapped.
+	// err is the first amount a posting rule moves that is out of range in
+	// the company's currency; result returns it.
 	err error
 }
 
 // invoice decides one invoice under both configurations and records a
 // break, a changed decision and the posting rules that move.
-func (t *tally) invoice(r replayed, before, after *config.Company) {
+func (t *tally) invoice(r replayed, before, after *config.Company) error {
 	v, co := r.Invoice, r.Company
 	if after == nil {
 		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, "company " + co + " is not in the proposed configuration"})
-		return
+		return nil
 	}
 	missing := ""
 	for _, it := range v.Items {
@@ -130,10 +134,18 @@ func (t *tally) invoice(r replayed, before, after *config.Company) {
 	}
 	if missing != "" {
 		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, "tax code " + missing + " is not in the proposed configuration"})
-		return
+		return nil
 	}
-	b, bi := decide(before, v, r.Order, r.Invoiced)
-	a, ai := decide(after, v, r.Order, r.Invoiced)
+	was, err := companyLimits(before)
+	if err != nil {
+		return err
+	}
+	is, err := companyLimits(after)
+	if err != nil {
+		return err
+	}
+	b, bi := decide(was, r)
+	a, ai := decide(is, r)
 	t.counts["base"][b]++
 	t.counts["proposed"][a]++
 	if b != a || len(bi) != len(ai) {
@@ -144,30 +156,33 @@ func (t *tally) invoice(r replayed, before, after *config.Company) {
 		t.changes = append(t.changes, Decision{v.ID, v.DocumentNumber, co, b, a, issues})
 	}
 	if before != nil {
-		t.postingMoves(co, before, after, v)
+		t.postingMoves(co, before, after, r)
 	}
+	return nil
 }
 
 // postingMoves records the posting rules an invoice is booked with that
 // the proposal changes: account determination and its items' tax codes.
-func (t *tally) postingMoves(co string, before, after *config.Company, v Invoice) {
-	t.move(co, "account_determination.input_tax", before.AccountDetermination.InputTax, after.AccountDetermination.InputTax, v.Tax)
-	t.move(co, "account_determination.ap_reconciliation", before.AccountDetermination.APReconciliation, after.AccountDetermination.APReconciliation, v.Gross)
+func (t *tally) postingMoves(co string, before, after *config.Company, r replayed) {
+	v := r.Invoice
+	t.move(co, "account_determination.input_tax", before.AccountDetermination.InputTax, after.AccountDetermination.InputTax, v.Tax, r.Conversion)
+	t.move(co, "account_determination.ap_reconciliation", before.AccountDetermination.APReconciliation, after.AccountDetermination.APReconciliation,
+		v.Gross, r.Conversion)
 	for _, it := range v.Items {
 		if it.TaxCode == nil {
 			continue
 		}
 		if was := taxCode(before, *it.TaxCode); was != nil {
 			tc := taxCode(after, *it.TaxCode)
-			t.move(co, "tax_codes."+*it.TaxCode+".rate_percent", was.RatePercent, tc.RatePercent, it.Amount)
-			t.move(co, "tax_codes."+*it.TaxCode+".account", was.Account, tc.Account, it.Amount)
+			t.move(co, "tax_codes."+*it.TaxCode+".rate_percent", was.RatePercent, tc.RatePercent, it.Amount, r.Conversion)
+			t.move(co, "tax_codes."+*it.TaxCode+".account", was.Account, tc.Account, it.Amount, r.Conversion)
 		}
 	}
 }
 
-// move counts an invoice and its amount against a posting rule that
-// changes value.
-func (t *tally) move(co, key, from, to string, amount money.Minor) {
+// move counts an invoice and its amount, converted into the company's
+// currency, against a posting rule that changes value.
+func (t *tally) move(co, key, from, to string, amount money.Minor, conv ledger.Conversion) {
 	if from == to {
 		return
 	}
@@ -176,11 +191,11 @@ func (t *tally) move(co, key, from, to string, amount money.Minor) {
 		t.moves[k] = &Posting{Company: co, Key: key, Base: from, Proposed: to}
 	}
 	t.moves[k].Invoices++
-	sum, err := money.Sum(t.moves[k].Amount, amount)
+	v, err := conv.Convert(amount)
 	if err != nil && t.err == nil {
 		t.err = fmt.Errorf("payables: simulate: amount moved by %s: %w", k, err)
 	}
-	t.moves[k].Amount = sum
+	t.moves[k].amounts = append(t.moves[k].amounts, v)
 }
 
 // result is the simulation's verdict, summary and detail; it passes when
@@ -195,6 +210,13 @@ func (t *tally) result(window time.Duration, invoices int) (configuration.Simula
 		postings = append(postings, *p)
 	}
 	sort.Slice(postings, func(i, j int) bool { return postings[i].Company+postings[i].Key < postings[j].Company+postings[j].Key })
+	for i := range postings {
+		sum, err := money.Sum(postings[i].amounts...)
+		if err != nil {
+			return configuration.Simulation{}, fmt.Errorf("payables: simulate: amount moved by %s/%s: %w", postings[i].Company, postings[i].Key, err)
+		}
+		postings[i].Amount = sum
+	}
 	detail := map[string]any{
 		"window_days": int(window.Hours() / 24), "invoices": invoices,
 		"decisions": map[string]any{"changed": len(t.changes), "unchanged": invoices - len(t.changes) - len(t.breaks), "base": t.counts["base"], "proposed": t.counts["proposed"]},
@@ -223,19 +245,15 @@ func taxCode(co *config.Company, code string) *config.TaxCode {
 	return nil
 }
 
-// decide is the invoice flow's decision under a company's configuration.
-func decide(co *config.Company, v Invoice, order procurement.Order, invoiced map[int32]string) (string, []Issue) {
-	var t config.Tolerance
-	limit := ""
-	if co != nil {
-		t, limit = co.InvoiceTolerance, co.AutoPostLimit
-	}
-	issues := evaluate(v, order, invoiced, t)
+// decide is the invoice flow's decision under a company's limits: the
+// gross amount is compared with the auto-post limit in the company's
+// currency.
+func decide(lim limits, r replayed) (string, []Issue) {
+	issues := evaluate(r.Invoice, r.Order, r.Invoiced, lim, r.Conversion)
 	if len(issues) > 0 {
 		return DecisionException, issues
 	}
-	l, _ := money.ParseDecimal(limit, v.Exponent) // validated with the document; "" is zero
-	if v.Gross > l {
+	if r.Gross.Major(r.Conversion.ToExp).Cmp(lim.autoPost) > 0 {
 		return DecisionReview, nil
 	}
 	return DecisionAutoPost, nil

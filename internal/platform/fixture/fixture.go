@@ -73,9 +73,13 @@ func Document(tb testing.TB) *config.Config {
 	return c
 }
 
+// rates converts document amounts into their company's currency, as the
+// API wires it.
+var rates = ledger.Rates{LegalEntities: tenancy.Directory{}}
+
 // Approvals is the workflow port the API wires.
 func Approvals() approvals.Approvals {
-	return approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
+	return approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}, Rates: rates}
 }
 
 // Deps is what the API wires into the configuration context.
@@ -83,8 +87,8 @@ func Deps() configuration.Dependencies {
 	return configuration.Dependencies{LegalEntities: tenancy.Directory{}, Approvals: Approvals(),
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys()}},
-		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
-		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}}, Actors: identity.Actors{}}
+		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
+		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}, Actors: identity.Actors{}}
 }
 
 // Env is a configured tenant.

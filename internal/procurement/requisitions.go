@@ -430,8 +430,10 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
+	// The thresholds are in the company's currency: the amount is converted
+	// at the rate of the day the requisition was raised, its document date.
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: id,
-		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency})
+		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency, LegalEntityID: r.LegalEntityID, Date: r.CreatedAt.UTC()})
 	if err != nil {
 		return Requisition{}, err
 	}

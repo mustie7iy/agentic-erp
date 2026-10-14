@@ -25,7 +25,7 @@ func (s simulation) run(tb testing.TB, from, to *config.Config, window time.Dura
 	tb.Helper()
 	var sim configuration.Simulation
 	err := apitest.InRequest(tb, s.e.Tenant, s.e.Tenant.Human, func(ctx context.Context) (err error) {
-		sim, err = payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Window: window, Now: func() time.Time { return s.today }}.Simulate(ctx, from, to)
+		sim, err = payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Window: window, Now: func() time.Time { return s.today }}.Simulate(ctx, from, to)
 		return err
 	})
 	if err != nil {
@@ -89,7 +89,7 @@ func TestSimulationReplaysInvoices(t *testing.T) {
 	}
 	t.Run("every statement failing", func(t *testing.T) {
 		simulate := func(ctx context.Context) error {
-			_, err := payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return s.today }}.Simulate(ctx, base, tolerant)
+			_, err := payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Now: func() time.Time { return s.today }}.Simulate(ctx, base, tolerant)
 			return err
 		}
 		if simulate(context.Background()) == nil {

@@ -3,6 +3,7 @@ package payables
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -27,8 +29,11 @@ import (
 type Regression struct {
 	LegalEntities LegalEntities
 	Orders        Orders
+	Rates         Rates
 	Now           func() time.Time
 }
+
+func (g Regression) sources() sources { return sources{g.LegalEntities, g.Orders, g.Rates} }
 
 // replayed is an invoice with everything its decision depends on.
 type replayed struct {
@@ -36,11 +41,51 @@ type replayed struct {
 	Company  string
 	Order    procurement.Order
 	Invoiced map[int32]string
+	// Conversion takes the invoice's amounts into the company's currency,
+	// the currency of its configured amounts (F12); Gross is the gross
+	// amount converted.
+	Conversion ledger.Conversion
+	Gross      money.Minor
+}
+
+// sources are the ports replaying an invoice reads through.
+type sources struct {
+	legalEntities LegalEntities
+	orders        Orders
+	rates         Rates
+}
+
+// replayCache keeps what replaying reads once: legal entities, orders and
+// conversions by currency, company currency and date.
+type replayCache struct {
+	companies   map[uuid.UUID]tenancy.Entity
+	orders      map[uuid.UUID]procurement.Order
+	conversions map[string]ledger.Conversion
+}
+
+func newReplayCache() *replayCache {
+	return &replayCache{companies: map[uuid.UUID]tenancy.Entity{}, orders: map[uuid.UUID]procurement.Order{},
+		conversions: map[string]ledger.Conversion{}}
+}
+
+// conversion is the conversion of an invoice's amounts into its company's
+// currency at the rate of its invoice date.
+func (c *replayCache) conversion(ctx context.Context, rates Rates, v Invoice, to string) (ledger.Conversion, error) {
+	k := v.Currency + "/" + to + "/" + v.InvoiceDate.Format(time.DateOnly)
+	if conv, ok := c.conversions[k]; ok {
+		return conv, nil
+	}
+	conv, err := rates.Conversion(ctx, v.Currency, to, v.InvoiceDate)
+	if err != nil {
+		return conv, err
+	}
+	c.conversions[k] = conv
+	return conv, nil
 }
 
 // invoicesOnOrders reads the invoices on purchase orders of the window,
 // newest first, with their orders and what was invoiced before.
-func invoicesOnOrders(ctx context.Context, les LegalEntities, orders Orders, since time.Time, limit int) ([]replayed, error) {
+func invoicesOnOrders(ctx context.Context, src sources, since time.Time, limit int) ([]replayed, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
@@ -51,11 +96,10 @@ func invoicesOnOrders(ctx context.Context, les LegalEntities, orders Orders, sin
 	if err != nil {
 		return nil, fmt.Errorf("payables: read invoices on orders since %s: %w", since.Format(time.DateOnly), err)
 	}
-	companies := map[uuid.UUID]tenancy.Entity{}
-	known := map[uuid.UUID]procurement.Order{}
+	cache := newReplayCache()
 	out := make([]replayed, 0, len(invoices))
 	for _, v := range invoices {
-		r, err := replay(ctx, tx, les, orders, v, companies, known)
+		r, err := replay(ctx, tx, src, v, cache)
 		if err != nil {
 			return nil, err
 		}
@@ -64,35 +108,44 @@ func invoicesOnOrders(ctx context.Context, les LegalEntities, orders Orders, sin
 	return out, nil
 }
 
-// replay gathers one invoice's inputs, through the caches.
-func replay(ctx context.Context, tx pgx.Tx, les LegalEntities, orders Orders, v Invoice, companies map[uuid.UUID]tenancy.Entity,
-	known map[uuid.UUID]procurement.Order) (replayed, error) {
-	le, ok := companies[v.LegalEntityID]
+// replay gathers one invoice's inputs, through the cache.
+func replay(ctx context.Context, tx pgx.Tx, src sources, v Invoice, c *replayCache) (replayed, error) {
+	le, ok := c.companies[v.LegalEntityID]
 	if !ok {
 		var err error
-		if le, _, err = les.Entity(ctx, v.LegalEntityID); err != nil {
+		if le, _, err = src.legalEntities.Entity(ctx, v.LegalEntityID); err != nil {
 			return replayed{}, err
 		}
-		companies[v.LegalEntityID] = le
+		c.companies[v.LegalEntityID] = le
 	}
-	order, ok := known[*v.PurchaseOrderID]
+	order, ok := c.orders[*v.PurchaseOrderID]
 	if !ok {
 		var err error
-		if order, _, err = orders.Order(ctx, *v.PurchaseOrderID); err != nil {
+		if order, _, err = src.orders.Order(ctx, *v.PurchaseOrderID); err != nil {
 			return replayed{}, err
 		}
-		known[*v.PurchaseOrderID] = order
+		c.orders[*v.PurchaseOrderID] = order
+	}
+	conv, err := c.conversion(ctx, src.rates, v, le.LocalCurrency)
+	if err != nil {
+		return replayed{}, err
+	}
+	// Out of range in the company's currency, the gross amount could be
+	// neither compared with the limits nor posted.
+	gross, err := conv.Convert(v.Gross)
+	if err != nil {
+		return replayed{}, fmt.Errorf("payables: replay invoice %s: %w", v.DocumentNumber, err)
 	}
 	invoiced, err := invoicedQuantities(ctx, tx, *v.PurchaseOrderID, v.ID)
 	if err != nil {
 		return replayed{}, err
 	}
-	return replayed{Invoice: v, Company: le.Code, Order: order, Invoiced: invoiced}, nil
+	return replayed{Invoice: v, Company: le.Code, Order: order, Invoiced: invoiced, Conversion: conv, Gross: gross}, nil
 }
 
 // outcome is a decision with its issue codes.
-func outcome(co *config.Company, r replayed) (string, []string) {
-	decision, issues := decide(co, r.Invoice, r.Order, r.Invoiced)
+func outcome(lim limits, r replayed) (string, []string) {
+	decision, issues := decide(lim, r)
 	codes := make([]string, 0, len(issues))
 	for _, i := range issues {
 		codes = append(codes, i.Code)
@@ -100,36 +153,38 @@ func outcome(co *config.Company, r replayed) (string, []string) {
 	return decision, codes
 }
 
-// near is within 20% of the auto-post limit, either side: from l×8/10 to
-// l×12/10, truncated. Neither product is formed, since a limit near the
-// range would wrap: l×8/10 is (l/10)×8 + (l%10)×8/10, and gross ≤ l×12/10
-// is gross-l ≤ l/5, which cannot wrap once gross is above the lower bound.
-func near(gross money.Minor, co *config.Company, exp int) bool {
-	if co == nil {
+// near is within 20% of the auto-post limit, either side, compared
+// exactly in the company's currency: from l×8/10 to l×12/10.
+func near(r replayed, lim limits) bool {
+	if lim.autoPost.Sign() <= 0 {
 		return false
 	}
-	l, _ := money.ParseDecimal(co.AutoPostLimit, exp) // validated with the document
-	return l > 0 && gross >= l/10*8+l%10*8/10 && gross-l <= l/5
+	gross := r.Gross.Major(r.Conversion.ToExp)
+	return gross.Cmp(new(big.Rat).Mul(lim.autoPost, big.NewRat(8, 10))) >= 0 && gross.Cmp(new(big.Rat).Mul(lim.autoPost, big.NewRat(12, 10))) <= 0
 }
 
 // Capture implements configuration.Regressor: the window's invoices decided
 // under doc, sampled so that every behaviour is covered, not just the
 // common one.
 func (g Regression) Capture(ctx context.Context, doc *config.Config, window time.Duration, maxCases int) ([]configuration.RegressionCase, error) {
-	all, err := invoicesOnOrders(ctx, g.LegalEntities, g.Orders, clock.Now(g.Now).Add(-window), 2000)
+	all, err := invoicesOnOrders(ctx, g.sources(), clock.Now(g.Now).Add(-window), 2000)
 	if err != nil {
 		return nil, err
 	}
 	rs := make([]decidedCase, 0, len(all))
 	for _, r := range all {
-		d, issues := outcome(doc.Company(r.Company), r)
-		rs = append(rs, decidedCase{r, d, issues})
+		lim, err := companyLimits(doc.Company(r.Company))
+		if err != nil {
+			return nil, err
+		}
+		d, issues := outcome(lim, r)
+		rs = append(rs, decidedCase{r, d, issues, near(r, lim)})
 	}
 	s := &sample{max: maxCases, picked: map[uuid.UUID]int{}}
 	s.everyDecision(rs)
 	s.everyIssue(rs)
 	for _, r := range rs {
-		if near(r.Invoice.Gross, doc.Company(r.Company), r.Invoice.Exponent) {
+		if r.near {
 			s.add(r, "near the auto-post limit")
 		}
 	}
@@ -145,6 +200,7 @@ type decidedCase struct {
 	replayed
 	decision string
 	issues   []string
+	near     bool // near the auto-post limit
 }
 
 // sample collects regression cases up to max (0: no limit), each invoice
@@ -205,19 +261,22 @@ func (g Regression) Replay(ctx context.Context, doc *config.Config, cases []conf
 	if err != nil {
 		return nil, err
 	}
-	companies := map[uuid.UUID]tenancy.Entity{}
-	known := map[uuid.UUID]procurement.Order{}
+	cache := newReplayCache()
 	failures := []configuration.RegressionFailure{}
 	for _, c := range cases {
 		v, err := load(ctx, tx, c.InvoiceID, false)
 		if err != nil {
 			return nil, err
 		}
-		r, err := replay(ctx, tx, g.LegalEntities, g.Orders, v, companies, known)
+		r, err := replay(ctx, tx, g.sources(), v, cache)
 		if err != nil {
 			return nil, err
 		}
-		decision, issues := outcome(doc.Company(r.Company), r)
+		lim, err := companyLimits(doc.Company(r.Company))
+		if err != nil {
+			return nil, err
+		}
+		decision, issues := outcome(lim, r)
 		if decision != c.ExpectedDecision || !slices.Equal(issues, c.ExpectedIssues) {
 			failures = append(failures, configuration.RegressionFailure{Case: c, Decision: decision, Issues: issues})
 		}

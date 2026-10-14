@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,7 +30,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -178,11 +176,20 @@ func GetRequest(ctx context.Context, id uuid.UUID) (Request, error) {
 	return getRequest(ctx, tx, id, false)
 }
 
+// Rates converts a requisition's amount into its company's currency
+// (ledger context): the approval thresholds are in that currency (F12). It
+// returns the amount in minor units of the company's currency with that
+// currency's digits, and refuses when no rate is valid on the date.
+type Rates interface {
+	ToCompany(ctx context.Context, legalEntity uuid.UUID, currency string, date time.Time, amount money.Minor) (money.Minor, int, error)
+}
+
 // Approvals opens and withdraws approval requests for the contexts that
 // own the objects.
 type Approvals struct {
 	Settings Settings
 	Roles    Roles
+	Rates    Rates
 }
 
 // NewRequest is what an owning context asks approval for.
@@ -193,6 +200,11 @@ type NewRequest struct {
 	Amount     *money.Minor // minor units of Currency; selects the requisition tier
 	Currency   *string      // with Amount
 	Tier       int          // configuration change tier
+	// LegalEntityID and Date place a requisition: its amount is converted
+	// into the legal entity's currency at the rate valid on the date
+	// before it is compared with the thresholds.
+	LegalEntityID uuid.UUID
+	Date          time.Time
 }
 
 // policyStep is a step as the configuration names it.
@@ -202,17 +214,17 @@ type policyStep struct {
 }
 
 // requisitionSteps are the steps of the first tier whose threshold the
-// requisition's amount does not exceed.
-func requisitionSteps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([]policyStep, error) {
+// requisition's amount, in its company's currency, does not exceed.
+func requisitionSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
-	exp, err := currency.Exponent(ctx, tx, *in.Currency, nil) // the requisition's currency is in the reference data
+	minor, exp, err := rates.ToCompany(ctx, in.LegalEntityID, *in.Currency, in.Date, *in.Amount)
 	if err != nil {
-		return nil, fmt.Errorf("approvals: policy steps: %w", err)
+		return nil, err
 	}
 	// A threshold is validated with each company currency's digits, which
-	// may be more than the requisition's, so amount and threshold are
-	// compared exactly rather than read at the requisition's digits.
-	amount := new(big.Rat).SetFrac(big.NewInt(int64(*in.Amount)), new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil))
+	// may be more than this company's, so amount and threshold are compared
+	// exactly rather than read at the company's digits.
+	amount := minor.Major(exp)
 	for _, t := range doc.Purchasing.RequisitionApproval {
 		if t.UpTo != "" { // "" is the last tier
 			limit, err := money.ParseDecimalRat(t.UpTo) // the grammar the document was validated with
@@ -232,11 +244,11 @@ func requisitionSteps(ctx context.Context, tx pgx.Tx, doc *config.Config, in New
 }
 
 // steps resolves the steps the active configuration requires.
-func steps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([]policyStep, error) {
+func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
 	switch in.ObjectType {
 	case Requisition:
-		return requisitionSteps(ctx, tx, doc, in)
+		return requisitionSteps(ctx, rates, doc, in)
 	case PartnerChange:
 		out = append(out, policyStep{doc.Payments.VendorApproverRole, 1})
 	case ConfigChange:
@@ -263,7 +275,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 	if err != nil {
 		return uuid.Nil, false, err
 	}
-	policy, err := steps(ctx, tx, doc, in)
+	policy, err := steps(ctx, a.Rates, doc, in)
 	if err != nil || len(policy) == 0 {
 		return uuid.Nil, false, err
 	}

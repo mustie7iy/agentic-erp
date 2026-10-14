@@ -376,8 +376,11 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   below. User decision: configured money amounts (requisition thresholds, invoice tolerances,
   the auto-post limit) mean the company's currency; a document in another currency is converted
   at the ledger's rate for its date before comparing, and a missing rate refuses the step.
-- [ ] F12 Configured amounts compared in the company's currency (thresholds, tolerances, auto-post
-  limit, simulation evidence), exactly, with parse errors handled
+- [x] F12 Configured amounts compared in the company's currency (thresholds, tolerances, auto-post
+  limit, simulation evidence), exactly, with parse errors handled: ledger.Rates converts at the
+  posting rate (average, valid on the document's date), approvals takes it through a Rates port,
+  payables reads a company's limits once with ParseDecimalRat; a missing rate is 422
+  ledger.no_exchange_rate.
 - [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
   Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
   panic); a period close locks only a period the caller may see; provision and rewrap report a

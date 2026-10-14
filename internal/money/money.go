@@ -199,3 +199,10 @@ func (m Minor) Abs() Minor {
 	}
 	return m
 }
+
+// Major is the amount in major units of a currency with exp minor-unit
+// digits, exactly: what a figure read with ParseDecimalRat, such as a
+// configured limit, is compared with.
+func (m Minor) Major(exp int) *big.Rat {
+	return new(big.Rat).SetFrac(big.NewInt(int64(m)), new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil))
+}

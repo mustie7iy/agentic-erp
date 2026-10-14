@@ -268,6 +268,17 @@ activation, each owning context applies its part to its own relational tables
 to `partner`...). Domain tables are therefore always typed and constrained,
 and every change to them traces back to an approved change request.
 
+The document's money amounts are in the company's currency: the
+requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
+in the currency of the requisition's company), the invoice price tolerance
+(`invoice_tolerance.price_absolute`) and the auto-post limit
+(`auto_post_limit`). A document in another currency is converted into the
+company's currency at the ledger's average rate valid on its date (the
+rate a posting uses: a requisition on the day it was raised, an invoice on
+its invoice date) and then compared exactly with the configured figure.
+Without a rate the step is refused (422 `ledger.no_exchange_rate`); the raw
+numbers of two currencies are never compared.
+
 ## 3.6 Business partners (`partner`)
 
 ```mermaid
@@ -531,6 +542,14 @@ A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
 level, not just detectable. `match_result` keeps the history of every match
 evaluation with the configuration version used.
+
+The match compares an item's price variance with the company's tolerances:
+within the percentage of the expected amount (in the invoice's currency),
+or within the absolute tolerance once converted into the company's currency
+at the average rate of the invoice date (§3.5). Simulations and regression
+suites decide the auto-post limit the same way, and the amounts a changed
+posting rule moves are each converted into the company's currency before
+they are added up.
 
 `upload` (ADR-0020) records a direct upload of a document above the
 request limit: purpose, content type, size limit, the object key the bytes

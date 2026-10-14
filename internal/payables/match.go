@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -76,15 +78,33 @@ func GetMatch(ctx context.Context, id uuid.UUID) (Match, error) {
 	return m, nil
 }
 
-// tolerance is the company's invoice tolerance.
-func tolerance(doc *config.Config, company string) config.Tolerance {
-	var t config.Tolerance
-	for _, c := range doc.Companies {
-		if c.Code == company {
-			t = c.InvoiceTolerance
-		}
+// limits are a company's configured amounts for the invoice flow. The
+// absolute ones are in the company's currency (F12) and read exactly:
+// validated with that currency's digits, they are compared with an
+// invoice's amounts converted into it, never read at the invoice's digits.
+type limits struct {
+	pricePercent  int64
+	priceAbsolute *big.Rat // major units of the company's currency
+	absoluteText  string   // as configured, for messages
+	autoPost      *big.Rat // major units of the company's currency
+}
+
+// companyLimits reads a company's tolerances and auto-post limit; a
+// company the configuration does not have has none.
+func companyLimits(co *config.Company) (limits, error) {
+	if co == nil {
+		return limits{priceAbsolute: new(big.Rat), absoluteText: "0", autoPost: new(big.Rat)}, nil
 	}
-	return t
+	absolute, err := money.ParseDecimalRat(co.InvoiceTolerance.PriceAbsolute)
+	if err != nil {
+		return limits{}, fmt.Errorf("payables: company %s: invoice_tolerance.price_absolute: %w", co.Code, err)
+	}
+	autoPost, err := money.ParseDecimalRat(co.AutoPostLimit)
+	if err != nil {
+		return limits{}, fmt.Errorf("payables: company %s: auto_post_limit: %w", co.Code, err)
+	}
+	return limits{pricePercent: int64(co.InvoiceTolerance.PricePercent), priceAbsolute: absolute,
+		absoluteText: strings.TrimSpace(co.InvoiceTolerance.PriceAbsolute), autoPost: autoPost}, nil
 }
 
 // invoicedQuantities sums, per order item, what other posted invoices
@@ -103,10 +123,11 @@ func invoicedQuantities(ctx context.Context, tx pgx.Tx, order, exclude uuid.UUID
 }
 
 // evaluate is the three-way match: the invoice against its order, the
-// receipts and what was invoiced before, within the tolerance. It is a
-// pure function of its inputs, so a simulation can run it under a proposed
-// configuration.
-func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t config.Tolerance) []Issue {
+// receipts and what was invoiced before, within the company's tolerances,
+// conv converting the invoice's amounts into the company's currency. It is
+// a pure function of its inputs, so a simulation can run it under a
+// proposed configuration.
+func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, lim limits, conv ledger.Conversion) []Issue {
 	issues := []Issue{}
 	add := func(code string, item *int32, format string, a ...any) {
 		issues = append(issues, Issue{Code: code, ItemNo: item, Message: fmt.Sprintf(format, a...)})
@@ -118,7 +139,6 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 	if order.Status != "released" {
 		add(IssueOrderNotOpen, nil, "purchase order %s is %s", order.DocumentNumber, order.Status)
 	}
-	absolute, _ := money.ParseDecimal(t.PriceAbsolute, v.Exponent) // validated with the document; "" is zero
 	items := map[int32]int{}
 	for i, oi := range order.Items {
 		items[oi.ItemNo] = i
@@ -128,7 +148,7 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 			continue
 		}
 		oi := order.Items[items[*it.POItemNo]]
-		if why := priceVariance(it, oi, absolute, int64(t.PricePercent), format); why != "" {
+		if why := priceVariance(it, oi, lim, conv, format); why != "" {
 			add(IssuePriceVariance, &it.ItemNo, "order item %d: %s", oi.ItemNo, why)
 		}
 		total := new(big.Rat).Add(money.ParseRat(it.Quantity), money.ParseRat(orDefault(invoiced[oi.ItemNo], "0")))
@@ -162,8 +182,11 @@ func totalMismatch(v Invoice, format func(money.Minor) string) string {
 // priceVariance says why the invoiced amount of an item is outside the
 // tolerance of what the order price gives for its quantity (quantity ×
 // unit price / price unit, rounded half away from zero), or "" when it is
-// within. An expected amount or variance out of range is outside.
-func priceVariance(it Item, oi procurement.OrderItem, absolute money.Minor, pct int64, format func(money.Minor) string) string {
+// within. The variance is within when it is within the percentage of the
+// expected amount, or when its value in the company's currency is within
+// the absolute tolerance. An expected amount or variance out of range is
+// outside.
+func priceVariance(it Item, oi procurement.OrderItem, lim limits, conv ledger.Conversion, format func(money.Minor) string) string {
 	want, err := money.Scale(oi.UnitPrice, it.Quantity, int64(oi.PriceUnit))
 	if err != nil {
 		return fmt.Sprintf("invoiced %s but the order price gives an amount out of range", format(it.Amount))
@@ -174,15 +197,22 @@ func priceVariance(it Item, oi procurement.OrderItem, absolute money.Minor, pct 
 	}
 	// Only a percentage above 100 of an amount near the range fails; the
 	// item is then flagged rather than let through.
-	byPct, err := money.Percent(want.Abs(), pct)
+	byPct, err := money.Percent(want.Abs(), lim.pricePercent)
 	if err != nil {
 		return fmt.Sprintf("invoiced %s but the order price gives %s, whose percentage tolerance is out of range", format(it.Amount), format(want))
 	}
-	allowed := max(absolute, byPct)
-	if diff > allowed || diff < -allowed {
-		return fmt.Sprintf("invoiced %s but the order price gives %s (variance %s, tolerance %s)", format(it.Amount), format(want), format(diff), format(allowed))
+	if diff <= byPct && diff >= -byPct {
+		return ""
 	}
-	return ""
+	inCompany, err := conv.Convert(diff)
+	if err != nil {
+		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance out of range in %s", format(it.Amount), format(want), conv.To)
+	}
+	if new(big.Rat).Abs(inCompany.Major(conv.ToExp)).Cmp(lim.priceAbsolute) <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("invoiced %s but the order price gives %s (variance %s, tolerance %s or %s %s)",
+		format(it.Amount), format(want), format(diff), format(byPct), lim.absoluteText, conv.To)
 }
 
 // MatchInvoice evaluates a PO-based invoice against its order and goods
@@ -223,7 +253,15 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return Match{}, err
 	}
-	issues := evaluate(v, order, invoiced, tolerance(doc, le.Code))
+	lim, err := companyLimits(doc.Company(le.Code))
+	if err != nil {
+		return Match{}, err
+	}
+	conv, err := e.Rates.Conversion(ctx, v.Currency, le.LocalCurrency, v.InvoiceDate)
+	if err != nil {
+		return Match{}, err
+	}
+	issues := evaluate(v, order, invoiced, lim, conv)
 	m, err := scanMatch(tx.QueryRow(ctx, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, issues,
 		config_version, evaluated_by) VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7) RETURNING `+matchColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), id, len(issues) == 0, issues, version, p.ID))

@@ -237,7 +237,7 @@ func TestSteps(t *testing.T) {
 			var needed bool
 			var err error
 			id, needed, err = fixture.Approvals().Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: uuid.New(), Title: "PR",
-				Amount: &amount, Currency: &eur})
+				Amount: &amount, Currency: &eur, LegalEntityID: f.DE})
 			if err == nil && !needed {
 				t.Error("no approval needed")
 			}
@@ -410,7 +410,7 @@ func TestDatabaseFailures(t *testing.T) {
 	eur, amount := "EUR", money.Minor(100)
 	newRequest := func(ctx context.Context) (uuid.UUID, error) {
 		id, _, err := fixture.Approvals().Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: uuid.New(), Title: "T",
-			Amount: &amount, Currency: &eur})
+			Amount: &amount, Currency: &eur, LegalEntityID: f.DE})
 		return id, err
 	}
 	var ids []uuid.UUID
@@ -469,7 +469,7 @@ func TestDatabaseFailures(t *testing.T) {
 	var multi uuid.UUID
 	if err := apitest.Committed(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) (err error) {
 		multi, _, err = fixture.Approvals().Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: uuid.New(), Title: "T",
-			Amount: &two, Currency: &eur})
+			Amount: &two, Currency: &eur, LegalEntityID: f.DE})
 		return err
 	}); err != nil {
 		t.Fatal(err)

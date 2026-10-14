@@ -52,7 +52,7 @@ func endpoints(x capture.Extractor) *payables.Endpoints {
 	return &payables.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Orders: procurement.Orders{},
 		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
 		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
-		Settings: configuration.Settings{}, Approvals: fixture.Approvals(), Payments: payments.Reservations{}, OrderNumbers: orderNumbers{}, Extractor: x}
+		Settings: configuration.Settings{}, Rates: rates, Approvals: fixture.Approvals(), Payments: payments.Reservations{}, OrderNumbers: orderNumbers{}, Extractor: x}
 }
 
 func extraction() *capture.Extraction {

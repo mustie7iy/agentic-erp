@@ -252,8 +252,10 @@ Decisions taken while building it:
   the deciding transaction, so the decision and its effect commit together.
   The events are still published.
 - **Approval policy is the active configuration document**: requisitions by
-  amount tier (`purchasing.requisition_approval`, compared in the
-  requisition's currency), partner changes by
+  amount tier (`purchasing.requisition_approval`, in the company's
+  currency: the requisition's amount is converted at the ledger's average
+  rate of the day it was raised, and a missing rate refuses the submission
+  with 422 `ledger.no_exchange_rate`), partner changes by
   `payments.vendor_approver_role`, configuration changes by tier
   (`config.ApprovalSteps`), invoice exceptions by `process_owner`. Roles are
   identity roles whose code is the document's role name; a missing role

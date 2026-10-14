@@ -119,6 +119,12 @@ type Calendar interface {
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
 }
 
+// Rates converts an invoice's amounts into its company's currency, the
+// currency of the configured tolerances and limits (ledger context, F12).
+type Rates interface {
+	Conversion(ctx context.Context, from, to string, date time.Time) (ledger.Conversion, error)
+}
+
 // Settings reads the active configuration: tolerances and limits
 // (configuration context).
 type Settings interface {
@@ -149,6 +155,7 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Rates         Rates
 	Approvals     Opener
 	Payments      Payments
 	OrderNumbers  OrderNumbers      // resolves the order number a captured document prints

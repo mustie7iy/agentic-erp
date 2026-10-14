@@ -56,11 +56,11 @@ func TestRegressionSuites(t *testing.T) {
 	if !t.Run("every statement failing", func(t *testing.T) {
 		for name, fn := range map[string]func(ctx context.Context) error{
 			"capture": func(ctx context.Context) error {
-				_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return today }}.Capture(ctx, base, 90*24*time.Hour, 0)
+				_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Now: func() time.Time { return today }}.Capture(ctx, base, 90*24*time.Hour, 0)
 				return err
 			},
 			"replay": func(ctx context.Context) error {
-				_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}}.Replay(ctx, tolerant, captured)
+				_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}.Replay(ctx, tolerant, captured)
 				return err
 			},
 		} {
@@ -198,7 +198,7 @@ func checkReplay(t *testing.T, e env, base, tolerant *config.Config, captured []
 		t.Helper()
 		var failures []configuration.RegressionFailure
 		if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-			failures, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}}.Replay(ctx, doc, captured)
+			failures, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}.Replay(ctx, doc, captured)
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -229,7 +229,7 @@ func checkReplay(t *testing.T, e env, base, tolerant *config.Config, captured []
 	missing := append([]configuration.RegressionCase(nil), captured...)
 	missing[0].InvoiceID = uuid.New()
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}}.Replay(ctx, base, missing)
+		_, err := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}.Replay(ctx, base, missing)
 		return err
 	}); err == nil {
 		t.Fatal("missing invoice replayed")
@@ -243,7 +243,7 @@ func checkCaptureAll(t *testing.T, e env, base *config.Config, today time.Time) 
 	t.Helper()
 	var all []configuration.RegressionCase
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-		all, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return today }}.Capture(ctx, base, 90*24*time.Hour, 0)
+		all, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Now: func() time.Time { return today }}.Capture(ctx, base, 90*24*time.Hour, 0)
 		return err
 	}); err != nil {
 		t.Fatalf("capture without a maximum: %v", err)
@@ -254,7 +254,7 @@ func checkCaptureAll(t *testing.T, e env, base *config.Config, today time.Time) 
 	gone := fixture.Document(t)
 	gone.Companies = gone.Companies[:1]
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-		all, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Now: func() time.Time { return today }}.Capture(ctx, gone, 90*24*time.Hour, 0)
+		all, err = payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Now: func() time.Time { return today }}.Capture(ctx, gone, 90*24*time.Hour, 0)
 		return err
 	}); err != nil {
 		t.Fatalf("capture without the company: %v", err)

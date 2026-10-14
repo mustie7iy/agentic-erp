@@ -8,12 +8,18 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
+
+// rates converts invoice amounts into the company's currency, as the API
+// wires it.
+var rates = ledger.Rates{LegalEntities: tenancy.Directory{}}
 
 var perms = []string{"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "payables.invoice.hold",
 	"payables.invoice.review", "ledger.entry.read", "ledger.entry.post", "ledger.clearing.post"}

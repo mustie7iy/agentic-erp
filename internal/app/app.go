@@ -152,8 +152,8 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
 		Approvals: opener(),
-		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
-		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
+		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 		Actors:    identity.Actors{},
 	}
 }
@@ -189,7 +189,7 @@ func procurementEndpoints(cfg Config) *procurement.Endpoints {
 func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoints {
 	return &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
 		Orders: procurement.Orders{}, Postings: postings(), Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
-		Calendar: calendar(), Settings: configuration.Settings{}, Approvals: opener(),
+		Calendar: calendar(), Settings: configuration.Settings{}, Rates: rates(), Approvals: opener(),
 		Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads}
 }
 
@@ -200,8 +200,12 @@ func uploads(cfg Config) *payables.Uploads {
 
 // opener opens approval requests with the tenant's policies and roles.
 func opener() approvals.Approvals {
-	return approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
+	return approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}, Rates: rates()}
 }
+
+// rates converts document amounts into their company's currency for the
+// contexts that compare them with configured amounts.
+func rates() ledger.Rates { return ledger.Rates{LegalEntities: tenancy.Directory{}} }
 
 // postings posts journal entries for the contexts that post.
 func postings() ledger.Postings {
