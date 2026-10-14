@@ -55,7 +55,7 @@ func (q Quota) limited() bool { return q.Rate > 0 }
 // is the usual trade-off until limits move to the gateway.
 type Limiter struct {
 	Tenant    Quota // per tenant, keyed by tenant id
-	Principal Quota // per principal, keyed by tenant and subject
+	Principal Quota // per principal, keyed by tenant, issuer and subject
 	Now       func() time.Time
 
 	mu      sync.Mutex
@@ -123,8 +123,10 @@ func (l *Limiter) take(key string, q Quota, now time.Time) state {
 
 // Middleware enforces the quotas for the authenticated caller. It runs
 // after authentication (the claims name the tenant and subject) and before
-// the unit of work, so a refused request costs no transaction. The
-// principal's quota is checked first, so a hot principal's refused requests
+// the unit of work, so a refused request costs no transaction. A principal
+// is its issuer and subject (ADR-0010), so another trusted issuer minting
+// the same subject has its own bucket and cannot spend the real principal's
+// quota. The principal's quota is checked first, so a hot principal's refused requests
 // do not count against its tenant.
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +143,7 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 		}
 		tightest := state{remaining: math.MaxInt}
 		var limit Quota
-		for _, c := range []check{{l.Principal, claims.TenantID.String() + "/" + claims.Subject, "Principal"}, {l.Tenant, claims.TenantID.String(), "Tenant"}} {
+		for _, c := range []check{{l.Principal, principalKey(claims), "Principal"}, {l.Tenant, claims.TenantID.String(), "Tenant"}} {
 			if !c.q.limited() {
 				continue
 			}
@@ -163,6 +165,13 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// principalKey names a principal's bucket. The issuer is quoted so its end
+// is unambiguous: issuer "…/a" with subject "b" and issuer "…" with subject
+// "a/b" are different principals.
+func principalKey(c reqctx.Claims) string {
+	return c.TenantID.String() + " " + strconv.Quote(c.Issuer) + " " + c.Subject
 }
 
 func report(w http.ResponseWriter, q Quota, s state) {

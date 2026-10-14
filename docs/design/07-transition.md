@@ -539,7 +539,9 @@ Decisions taken while building it:
 - **Rate limits are token buckets per replica** (`internal/platform/ratelimit`):
   a bucket per tenant (default 2,000/s, burst 10,000) and per principal
   (default 50/s, burst 100; `ERP_RATE_LIMIT_TENANT`,
-  `ERP_RATE_LIMIT_PRINCIPAL`, `off` to disable). The principal's bucket is
+  `ERP_RATE_LIMIT_PRINCIPAL`, `off` to disable). A principal's bucket is
+  keyed by tenant, issuer and subject (F7), so another trusted issuer
+  minting the same subject cannot spend its quota. The principal's bucket is
   checked first, so a hot principal's refusals do not count against its
   tenant. Every response carries `RateLimit-Limit`, `RateLimit-Remaining`
   and `RateLimit-Reset` for the tighter quota; a refusal is 429

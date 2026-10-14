@@ -119,3 +119,33 @@ func TestQuotasAreEnforcedAndReported(t *testing.T) {
 	expect(t, "principal only, first", serve(l, ten, "x"), 204, nil)
 	expect(t, "principal only, second", serve(l, ten, "x"), 429, nil)
 }
+
+// A principal is its issuer and subject (F7): another trusted issuer that
+// mints tokens with the same subject is a different caller, which the unit
+// of work refuses, and its requests must not spend the real principal's quota.
+func TestPrincipalBucketsAreKeyedByIssuer(t *testing.T) {
+	now := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
+	l := &Limiter{Principal: Quota{Rate: 1, Burst: 1}, Now: func() time.Time { return now }}
+	h := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	ten := uuid.New()
+	send := func(issuer, subject string) int {
+		req := httptest.NewRequest("GET", "/v1/x", nil)
+		req = req.WithContext(reqctx.WithClaims(req.Context(), reqctx.Claims{TenantID: ten, Issuer: issuer, Subject: subject}))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if got := send("https://rogue.example", "alice"); got != 204 {
+		t.Fatalf("rogue issuer's first request: got %d, want 204", got)
+	}
+	if got := send("https://idp.example", "alice"); got != 204 {
+		t.Errorf("real alice after the rogue issuer's request: got %d, want 204 (separate buckets)", got)
+	}
+	// An issuer and subject that concatenate to the same text are still two principals.
+	if got := send("https://idp.example/a", "b"); got != 204 {
+		t.Fatalf("issuer .../a, subject b: got %d, want 204", got)
+	}
+	if got := send("https://idp.example", "a/b"); got != 204 {
+		t.Errorf("issuer ..., subject a/b: got %d, want 204 (separate buckets)", got)
+	}
+}
