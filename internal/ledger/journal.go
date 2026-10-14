@@ -470,6 +470,21 @@ func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (stri
 
 var errTooLarge = problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")
 
+// errTotalTooLarge refuses amounts whose total is out of the range of a
+// posted amount (money.ErrOverflow): checked here, it is a refusal of the
+// request rather than a failure of the balance trigger at commit.
+func errTotalTooLarge(field string) error {
+	return problem.Unprocessable("ledger.amount_too_large", "The amounts add up to more than can be posted.",
+		problem.FieldError{Field: field, Code: "too_large", Message: "amounts whose total is in range"})
+}
+
+// netsToZero reports whether amounts add up to exactly zero; a total out
+// of range does not.
+func netsToZero(amounts ...money.Minor) bool {
+	sum, err := money.Sum(amounts...)
+	return err == nil && sum == 0
+}
+
 // convert translates minor units at the rate, rounding half away from zero.
 func convert(minor money.Minor, r string, fromExp, toExp int) (money.Minor, error) {
 	rat, _ := new(big.Rat).SetString(r) // rates come from numeric columns
@@ -581,7 +596,7 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 // currency with its minor-unit digits, never zero, adding up to zero.
 func entryLines(in NewEntry, expTC int) ([]Line, error) {
 	lines := make([]Line, len(in.Lines))
-	var sum money.Minor
+	amounts := make([]money.Minor, len(in.Lines))
 	for i, l := range in.Lines {
 		field := fmt.Sprintf("lines[%d].amount", i)
 		if l.Currency != in.Currency {
@@ -597,8 +612,12 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 			return nil, problem.Unprocessable("ledger.zero_amount", "Line amounts are never zero.",
 				problem.FieldError{Field: field + ".amount", Code: "zero", Message: "debit positive, credit negative"})
 		}
-		sum += tc
+		amounts[i] = tc
 		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
+	}
+	sum, err := money.Sum(amounts...)
+	if err != nil {
+		return nil, errTotalTooLarge("lines")
 	}
 	if sum != 0 {
 		return nil, problem.Unprocessable("ledger.unbalanced", "Debits and credits differ by "+sum.Plain(expTC)+" "+in.Currency+".",

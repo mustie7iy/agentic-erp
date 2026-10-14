@@ -180,8 +180,8 @@ func requireDistinct(refs []ItemRef) error {
 // in one ledger and transaction currency, and net to zero per partner in
 // every currency.
 func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, error) {
-	type sums struct{ tc, lc, gc money.Minor }
-	perPartner := map[uuid.UUID]*sums{}
+	type amounts struct{ tc, lc, gc []money.Minor }
+	perPartner := map[uuid.UUID]*amounts{}
 	lines := make([]Line, len(items))
 	for i, it := range items {
 		if err := requireClearable(i, it, items[0], legalEntity); err != nil {
@@ -189,15 +189,15 @@ func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, e
 		}
 		s := perPartner[*it.partner]
 		if s == nil {
-			s = &sums{}
+			s = &amounts{}
 			perPartner[*it.partner] = s
 		}
-		s.tc, s.lc, s.gc = s.tc+it.tc, s.lc+it.lc, s.gc+it.gc
+		s.tc, s.lc, s.gc = append(s.tc, it.tc), append(s.lc, it.lc), append(s.gc, it.gc)
 		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text}
 	}
 	// Partners in id order: the refusal names the same partner on every run.
 	for _, partner := range slices.SortedFunc(maps.Keys(perPartner), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }) {
-		if *perPartner[partner] != (sums{}) {
+		if s := perPartner[partner]; !netsToZero(s.tc...) || !netsToZero(s.lc...) || !netsToZero(s.gc...) {
 			return nil, problem.Unprocessable("ledger.clearing_not_balanced",
 				"The items of partner "+partner.String()+" do not net to zero in every currency; settle the difference with a posting first.",
 				problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that net to zero per partner"})

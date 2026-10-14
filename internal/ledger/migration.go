@@ -66,8 +66,8 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	if err != nil {
 		return uuid.Nil, err
 	}
-	type sums struct{ tc, lc money.Minor }
-	perPartner := map[uuid.UUID]*sums{}
+	type amounts struct{ tc, lc []money.Minor }
+	perPartner := map[uuid.UUID]*amounts{}
 	payload := make([]map[string]any, len(loaded))
 	for i, it := range loaded {
 		switch {
@@ -80,15 +80,15 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 		}
 		s := perPartner[*it.partner]
 		if s == nil {
-			s = &sums{}
+			s = &amounts{}
 			perPartner[*it.partner] = s
 		}
-		s.tc, s.lc = s.tc+it.tc, s.lc+it.lc
+		s.tc, s.lc = append(s.tc, it.tc), append(s.lc, it.lc)
 		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
 			"account_id": it.account, "partner_id": it.partner, "amount_tc": money.EventAmount(it.tc, it.currency, exps[it.currency])}
 	}
 	for partner, s := range perPartner {
-		if *s != (sums{}) {
+		if !netsToZero(s.tc...) || !netsToZero(s.lc...) {
 			return uuid.Nil, problem.Unprocessable("ledger.clearing_not_balanced", "The items of partner "+partner.String()+" do not net to zero in transaction and local currency.")
 		}
 	}

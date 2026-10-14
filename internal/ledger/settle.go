@@ -231,6 +231,7 @@ func clearWithEntry(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, le u
 // in one ledger and in the settlement's currency.
 func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines []Line, tc, lc, gc money.Minor, err error) {
 	lines = make([]Line, 0, len(items)+3)
+	tcs, lcs, gcs := make([]money.Minor, len(items)), make([]money.Minor, len(items)), make([]money.Minor, len(items))
 	for i, it := range items {
 		switch {
 		case !it.found || !it.recon || it.legalEntity != legalEntity:
@@ -243,7 +244,16 @@ func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines
 			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
 		}
 		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: in.HeaderText})
-		tc, lc, gc = tc+it.tc, lc+it.lc, gc+it.gc
+		tcs[i], lcs[i], gcs[i] = it.tc, it.lc, it.gc
+	}
+	if tc, err = money.Sum(tcs...); err == nil {
+		lc, err = money.Sum(lcs...)
+	}
+	if err == nil {
+		gc, err = money.Sum(gcs...)
+	}
+	if err != nil {
+		return nil, 0, 0, 0, errTotalTooLarge("items")
 	}
 	return lines, tc, lc, gc, nil
 }
