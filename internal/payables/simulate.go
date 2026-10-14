@@ -59,12 +59,12 @@ type Broken struct {
 // Posting is a posting rule that moves, with the invoices and amount of
 // the window it applies to.
 type Posting struct {
-	Company  string `json:"company"`
-	Key      string `json:"key"`
-	Base     string `json:"base"`
-	Proposed string `json:"proposed"`
-	Invoices int    `json:"invoices"`
-	Amount   int64  `json:"amount"` // minor units of the company's currency
+	Company  string      `json:"company"`
+	Key      string      `json:"key"`
+	Base     string      `json:"base"`
+	Proposed string      `json:"proposed"`
+	Invoices int         `json:"invoices"`
+	Amount   money.Minor `json:"amount"` // minor units of the company's currency
 }
 
 // examples is how many changes and breaks the detail lists.
@@ -164,7 +164,7 @@ func (t *tally) postingMoves(co string, before, after *config.Company, v Invoice
 
 // move counts an invoice and its amount against a posting rule that
 // changes value.
-func (t *tally) move(co, key, from, to string, amount int64) {
+func (t *tally) move(co, key, from, to string, amount money.Minor) {
 	if from == to {
 		return
 	}
@@ -224,7 +224,7 @@ func decide(co *config.Company, v Invoice, order procurement.Order, invoiced map
 		return DecisionException, issues
 	}
 	l, _ := money.ParseDecimal(limit, v.Exponent) // validated with the document; "" is zero
-	if v.Gross > int64(l) {
+	if v.Gross > l {
 		return DecisionReview, nil
 	}
 	return DecisionAutoPost, nil

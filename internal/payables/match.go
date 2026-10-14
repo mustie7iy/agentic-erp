@@ -111,8 +111,8 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 	add := func(code string, item *int32, format string, a ...any) {
 		issues = append(issues, Issue{Code: code, ItemNo: item, Message: fmt.Sprintf(format, a...)})
 	}
-	format := func(m int64) string { return money.Minor(m).Plain(v.Exponent) }
-	var net int64
+	format := func(m money.Minor) string { return m.Plain(v.Exponent) }
+	var net money.Minor
 	for _, it := range v.Items {
 		net += it.Amount
 	}
@@ -123,7 +123,7 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 		add(IssueOrderNotOpen, nil, "purchase order %s is %s", order.DocumentNumber, order.Status)
 	}
 	absolute, _ := money.ParseDecimal(t.PriceAbsolute, v.Exponent) // validated with the document; "" is zero
-	pct, abs := int64(t.PricePercent), int64(absolute)
+	pct, abs := int64(t.PricePercent), absolute
 	items := map[int32]int{}
 	for i, oi := range order.Items {
 		items[oi.ItemNo] = i
@@ -134,8 +134,8 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 		}
 		oi := order.Items[items[*it.POItemNo]]
 		want := expected(it.Quantity, oi.UnitPrice, oi.PriceUnit)
-		allowed := max(abs, int64(money.Percent(money.Minor(want).Abs(), pct)))
-		if diff := it.Amount - want; money.Minor(diff).Abs() > money.Minor(allowed) {
+		allowed := max(abs, money.Percent(want.Abs(), pct))
+		if diff := it.Amount - want; diff.Abs() > allowed {
 			add(IssuePriceVariance, &it.ItemNo, "order item %d: invoiced %s but the order price gives %s (variance %s, tolerance %s)",
 				oi.ItemNo, format(it.Amount), format(want), format(diff), format(allowed))
 		}
@@ -149,7 +149,7 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 }
 
 // expected is quantity × unit price / price unit, rounded half away from zero.
-func expected(quantity string, unitPrice int64, priceUnit int32) int64 {
+func expected(quantity string, unitPrice int64, priceUnit int32) money.Minor {
 	q, _ := new(big.Rat).SetString(quantity) // numeric columns render as decimals
 	v := new(big.Rat).Mul(q, new(big.Rat).SetFrac64(unitPrice, int64(priceUnit)))
 	n, d := v.Num(), v.Denom()
@@ -157,7 +157,7 @@ func expected(quantity string, unitPrice int64, priceUnit int32) int64 {
 	if new(big.Int).Mul(m.Abs(m), big.NewInt(2)).Cmp(d) >= 0 {
 		r.Add(r, big.NewInt(int64(n.Sign())))
 	}
-	return r.Int64()
+	return money.Minor(r.Int64())
 }
 
 func rat(s string) *big.Rat {
@@ -249,8 +249,9 @@ func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 // holdForException opens an invoice_exception approval request and puts
 // the invoice on hold, linked to the request when one is needed.
 func (e *Endpoints) holdForException(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, issueCount int) (Invoice, error) {
+	gross := int64(v.Gross)
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.InvoiceException, ObjectID: v.ID,
-		Title: "Invoice exception " + v.DocumentNumber + " (" + v.SupplierReference + ")", Amount: &v.Gross, Currency: &v.Currency})
+		Title: "Invoice exception " + v.DocumentNumber + " (" + v.SupplierReference + ")", Amount: &gross, Currency: &v.Currency})
 	if err != nil {
 		return Invoice{}, err
 	}

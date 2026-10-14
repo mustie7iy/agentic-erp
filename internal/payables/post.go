@@ -40,7 +40,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireCleanMatch(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
-	var net int64
+	var net money.Minor
 	for _, it := range v.Items {
 		net += it.Amount
 	}
@@ -130,7 +130,7 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 			taxCode = it.TaxCode
 		}
 		if it.Amount != 0 {
-			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: money.Minor(it.Amount), TaxCode: it.TaxCode, Text: it.Description})
+			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: it.Amount, TaxCode: it.TaxCode, Text: it.Description})
 		}
 	}
 	if v.Tax != 0 {
@@ -141,9 +141,9 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 		if !ok {
 			return nil, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
 		}
-		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: money.Minor(v.Tax), TaxCode: taxCode})
+		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: v.Tax, TaxCode: taxCode})
 	}
-	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: money.Minor(-v.Gross), PartnerID: &v.SupplierID})
+	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -v.Gross, PartnerID: &v.SupplierID})
 	return lines, nil
 }
 

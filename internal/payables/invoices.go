@@ -111,8 +111,8 @@ type Change struct {
 	Extensions        map[string]any
 }
 
-func amountInput(minor int64, currency string, exp int) Amount {
-	return Amount{Value: money.Minor(minor).Plain(exp), Currency: currency}
+func amountInput(minor money.Minor, currency string, exp int) Amount {
+	return Amount{Value: minor.Plain(exp), Currency: currency}
 }
 
 // UpdateInvoice changes a parked invoice and validates it again.

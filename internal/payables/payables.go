@@ -157,15 +157,15 @@ type Endpoints struct {
 
 // Item is a live invoice item.
 type Item struct {
-	ItemNo          int32      `json:"item_no"`
-	PurchaseOrderID *uuid.UUID `json:"purchase_order_id"`
-	POItemNo        *int32     `json:"po_item_no"`
-	Description     *string    `json:"description"`
-	Quantity        string     `json:"quantity"`
-	Unit            string     `json:"unit"`
-	Amount          int64      `json:"amount"`
-	TaxCode         *string    `json:"tax_code"`
-	AccountID       *uuid.UUID `json:"account_id"`
+	ItemNo          int32       `json:"item_no"`
+	PurchaseOrderID *uuid.UUID  `json:"purchase_order_id"`
+	POItemNo        *int32      `json:"po_item_no"`
+	Description     *string     `json:"description"`
+	Quantity        string      `json:"quantity"`
+	Unit            string      `json:"unit"`
+	Amount          money.Minor `json:"amount"`
+	TaxCode         *string     `json:"tax_code"`
+	AccountID       *uuid.UUID  `json:"account_id"`
 }
 
 // Invoice is a row of payables.supplier_invoice with its live items.
@@ -180,7 +180,7 @@ type Invoice struct {
 	PostingDate       *time.Time
 	Currency          string
 	Exponent          int
-	Gross, Tax        int64
+	Gross, Tax        money.Minor
 	PurchaseOrderID   *uuid.UUID
 	Status            string
 	HoldReason        *string
@@ -292,7 +292,7 @@ type Input struct {
 // checked is an input that passed validation.
 type checked struct {
 	currency      string
-	gross, tax    int64
+	gross, tax    money.Minor
 	purchaseOrder *uuid.UUID
 	items         []Item
 }
@@ -411,7 +411,7 @@ type invoiceCheck struct {
 
 // parse reads an amount, which must be in the invoice currency with its
 // minor-unit digits.
-func (v *invoiceCheck) parse(a Amount, field string) (int64, error) {
+func (v *invoiceCheck) parse(a Amount, field string) (money.Minor, error) {
 	if a.Currency != v.c.currency {
 		return 0, invalid("payables.currency_mismatch", field+".currency", "Every amount of an invoice is in one currency, "+v.c.currency+".")
 	}
@@ -420,7 +420,7 @@ func (v *invoiceCheck) parse(a Amount, field string) (int64, error) {
 		return 0, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", v.c.currency, v.exp),
 			problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
 	}
-	return int64(n), nil
+	return n, nil
 }
 
 // order reads a purchase order and checks that it is a released order of
@@ -547,7 +547,7 @@ func putItems(ctx context.Context, tx pgx.Tx, tenant, invoice uuid.UUID, items [
 	n := len(items)
 	nos, pos, poItems, accounts := make([]int32, n), make([]*uuid.UUID, n), make([]*int32, n), make([]*uuid.UUID, n)
 	descriptions, quantities, units, taxes := make([]*string, n), make([]string, n), make([]string, n), make([]*string, n)
-	amounts := make([]int64, n)
+	amounts := make([]money.Minor, n)
 	for i, it := range items {
 		nos[i], pos[i], poItems[i], accounts[i] = it.ItemNo, it.PurchaseOrderID, it.POItemNo, it.AccountID
 		descriptions[i], quantities[i], units[i], taxes[i], amounts[i] = it.Description, it.Quantity, it.Unit, it.TaxCode, it.Amount

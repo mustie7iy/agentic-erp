@@ -101,12 +101,12 @@ func outcome(co *config.Company, r replayed) (string, []string) {
 }
 
 // near is within 20% of the auto-post limit, either side.
-func near(gross int64, co *config.Company, exp int) bool {
+func near(gross money.Minor, co *config.Company, exp int) bool {
 	if co == nil {
 		return false
 	}
 	limit, _ := money.ParseDecimal(co.AutoPostLimit, exp) // validated with the document
-	l := int64(limit)
+	l := limit
 	return l > 0 && gross >= l*8/10 && gross <= l*12/10
 }
 
