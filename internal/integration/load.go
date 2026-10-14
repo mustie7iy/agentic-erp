@@ -104,8 +104,8 @@ func (l *loader) addRef(ctx context.Context, entityType string, id uuid.UUID, ob
 	return nil
 }
 
-func (l *loader) plain(minor int64, currency string) string {
-	return money.Minor(minor).Plain(l.t.exponents[currency])
+func (l *loader) plain(minor money.Minor, currency string) string {
+	return minor.Plain(l.t.exponents[currency])
 }
 
 // load brings the extract over: suppliers, purchase orders, goods
@@ -445,7 +445,7 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 		if amt == 0 {
 			continue
 		}
-		pl := ledger.PostingLine{AccountID: l.t.charts[line.RBUKRS][sap.Alpha(line.RACCT)].ID, Amount: money.Minor(amt)}
+		pl := ledger.PostingLine{AccountID: l.t.charts[line.RBUKRS][sap.Alpha(line.RACCT)].ID, Amount: amt}
 		if l.reconciliation(line.RBUKRS, line.RACCT) {
 			partnerID := l.vendors[line.LIFNR]
 			pl.PartnerID = &partnerID
@@ -505,10 +505,10 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 // account order, then the open vendor items. It also returns the latest
 // posting date, the entry's date, and the sum of the cleared vendor items,
 // which must be zero.
-func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, int64) {
-	balances := map[string]int64{}
+func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.Minor) {
+	balances := map[string]money.Minor{}
 	var open []ledger.PostingLine
-	var cleared int64
+	var cleared money.Minor
 	var last string
 	for _, line := range l.ext.ACDOCA {
 		if line.RBUKRS != c.BUKRS {
@@ -525,13 +525,13 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, int64) 
 		case amt != 0:
 			partnerID := l.vendors[line.LIFNR]
 			text := "Open item " + cmp.Or(line.XBLNR, line.BELNR) + " (SAP " + line.BELNR + ")"
-			open = append(open, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: money.Minor(amt), PartnerID: &partnerID, Text: &text})
+			open = append(open, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: amt, PartnerID: &partnerID, Text: &text})
 		}
 	}
 	var lines []ledger.PostingLine
 	for _, account := range sortedKeys(balances) {
 		if balances[account] != 0 {
-			lines = append(lines, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: money.Minor(balances[account])})
+			lines = append(lines, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: balances[account]})
 		}
 	}
 	return append(lines, open...), last, cleared

@@ -27,6 +27,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
@@ -74,7 +75,7 @@ type Orders interface {
 
 // OrderValues reads purchase order totals (procurement).
 type OrderValues interface {
-	Value(ctx context.Context, ids []uuid.UUID) (int, int64, error)
+	Value(ctx context.Context, ids []uuid.UUID) (int, money.Minor, error)
 }
 
 // Invoices enters supplier invoices (payables).
@@ -96,7 +97,7 @@ type Postings interface {
 // Reports reads ledger totals for reconciliation (ledger).
 type Reports interface {
 	Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (ledger.Totals, error)
-	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]int64, error)
+	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 }
 
 // Secrets resolves a connector's secret reference (env:, file: or vault:;

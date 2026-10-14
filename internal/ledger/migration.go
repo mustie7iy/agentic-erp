@@ -115,8 +115,8 @@ type Reports struct{}
 // Totals are a legal entity's journal totals in local currency for a
 // fiscal year: the balance per account number and the sum of debits.
 type Totals struct {
-	ByAccount map[string]int64
-	Debits    int64
+	ByAccount map[string]money.Minor
+	Debits    money.Minor
 }
 
 // Totals sums the legal entity's lines of the fiscal year in the leading
@@ -130,9 +130,9 @@ func (Reports) Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int
 		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 GROUP BY a.number`, legalEntity, fiscalYear)
-	t := Totals{ByAccount: map[string]int64{}}
+	t := Totals{ByAccount: map[string]money.Minor{}}
 	var number string
-	var balance, debits int64
+	var balance, debits money.Minor
 	_, err = pgx.ForEachRow(rows, []any{&number, &balance, &debits}, func() error {
 		t.ByAccount[number] = balance
 		t.Debits += debits
@@ -146,7 +146,7 @@ func (Reports) Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int
 
 // OpenPayables sums the legal entity's open supplier items of the fiscal
 // year in local currency per partner, in the leading ledger.
-func (Reports) OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]int64, error) {
+func (Reports) OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
@@ -158,9 +158,9 @@ func (Reports) OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYe
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
 		GROUP BY l.partner_id`, legalEntity, fiscalYear)
-	out := map[uuid.UUID]int64{}
+	out := map[uuid.UUID]money.Minor{}
 	var partner uuid.UUID
-	var sum int64
+	var sum money.Minor
 	_, err = pgx.ForEachRow(rows, []any{&partner, &sum}, func() error { out[partner] = sum; return nil })
 	if err != nil {
 		return out, fmt.Errorf("ledger: open payables of %s %d: %w", legalEntity, fiscalYear, err)

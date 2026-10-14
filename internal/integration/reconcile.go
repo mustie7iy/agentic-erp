@@ -86,7 +86,7 @@ type companyScope struct {
 	cc     string
 	le     uuid.UUID
 	cur    string
-	format func(int64) string
+	format func(money.Minor) string
 }
 
 func (rc *reconciler) add(cc, name, sapValue, platformValue string, pass bool) {
@@ -96,7 +96,7 @@ func (rc *reconciler) add(cc, name, sapValue, platformValue string, pass bool) {
 // company runs the controls of one company code in report order.
 func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	exp := rc.t.exponents[cur]
-	s := companyScope{cc: cc, le: rc.t.entities[cc].ID, cur: cur, format: func(v int64) string { return money.Minor(v).Plain(exp) + " " + cur }}
+	s := companyScope{cc: cc, le: rc.t.entities[cc].ID, cur: cur, format: func(v money.Minor) string { return v.Plain(exp) + " " + cur }}
 	sapOpen, err := rc.trialBalance(ctx, s)
 	if err != nil {
 		return err
@@ -116,9 +116,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 // trialBalance compares the trial balance per account, and debits when
 // every document came over. It returns SAP's open payables per vendor,
 // which come out of the same pass over the journal.
-func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[string]int64, error) {
-	sapTB, sapOpen := map[string]int64{}, map[string]int64{}
-	var sapDebits int64
+func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[string]money.Minor, error) {
+	sapTB, sapOpen := map[string]money.Minor{}, map[string]money.Minor{}
+	var sapDebits money.Minor
 	documents := map[string]bool{}
 	for _, l := range rc.ext.ACDOCA {
 		if l.RBUKRS != s.cc {
@@ -151,12 +151,12 @@ func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[str
 }
 
 // openPayables compares open payables per vendor.
-func (rc *reconciler) openPayables(ctx context.Context, s companyScope, sapOpen map[string]int64) error {
+func (rc *reconciler) openPayables(ctx context.Context, s companyScope, sapOpen map[string]money.Minor) error {
 	open, err := rc.e.Reports.OpenPayables(ctx, s.le, int16(rc.t.year))
 	if err != nil {
 		return err
 	}
-	platformOpen := map[string]int64{}
+	platformOpen := map[string]money.Minor{}
 	for id, amt := range open {
 		key := "partner " + id.String()
 		if lifnr, ok := rc.vendorOf[id]; ok {
@@ -195,7 +195,7 @@ func (rc *reconciler) vendors(ctx context.Context, s companyScope) error {
 
 // purchaseOrders compares purchase order count and value.
 func (rc *reconciler) purchaseOrders(ctx context.Context, s companyScope) error {
-	sapPOs, sapPOValue := 0, int64(0)
+	sapPOs, sapPOValue := 0, money.Minor(0)
 	var orders []uuid.UUID
 	inCC := map[string]bool{}
 	for _, h := range rc.ext.EKKO {
@@ -247,17 +247,17 @@ func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error 
 
 // extend is an item's net value: quantity times price per price unit,
 // rounded half away from zero (procurement's rule).
-func extend(qty, price, priceUnit string, t target, currency string) int64 {
+func extend(qty, price, priceUnit string, t target, currency string) money.Minor {
 	q, _ := money.ParseQty(qty)
 	p, _ := t.amount(price, currency)
 	unit, err := strconv.ParseInt(priceUnit, 10, 64)
 	if err != nil || unit < 1 {
 		unit = 1
 	}
-	return int64(money.Extend(q, money.Minor(p), unit))
+	return money.Extend(q, p, unit)
 }
 
-func diffs(cc string, sapM, platformM map[string]int64, format func(int64) string) []Diff {
+func diffs(cc string, sapM, platformM map[string]money.Minor, format func(money.Minor) string) []Diff {
 	keys := map[string]bool{}
 	for k := range sapM {
 		keys[k] = true
@@ -274,8 +274,8 @@ func diffs(cc string, sapM, platformM map[string]int64, format func(int64) strin
 	return out
 }
 
-func sum(m map[string]int64) int64 {
-	var t int64
+func sum(m map[string]money.Minor) money.Minor {
+	var t money.Minor
 	for _, v := range m {
 		t += v
 	}

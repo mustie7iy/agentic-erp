@@ -67,7 +67,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 		Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
 		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines))}
 	for i, l := range in.Lines {
-		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: money.Minor(l.Amount).Plain(exps[in.Currency]), Currency: in.Currency,
+		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
 	}
 	return p.endpoints().postJournalEntry(ctx, entry)

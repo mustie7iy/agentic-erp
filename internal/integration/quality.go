@@ -60,13 +60,13 @@ func sapDate(d string) (time.Time, error) {
 
 // amount parses an external-format SAP amount (as OData delivers it) in
 // minor units of the currency.
-func (t target) amount(s, currency string) (int64, error) {
+func (t target) amount(s, currency string) (money.Minor, error) {
 	exp, ok := t.exponents[currency]
 	if !ok {
 		return 0, fmt.Errorf("currency %q is not known", currency)
 	}
 	m, err := money.ParseDecimal(s, exp)
-	return int64(m), err
+	return m, err
 }
 
 func quantity(s string) error {
@@ -251,7 +251,7 @@ func (q *qualityCheck) movements() {
 
 // journalScan accumulates what the Universal Journal lines add up to.
 type journalScan struct {
-	docTotals    map[string]int64
+	docTotals    map[string]money.Minor
 	openByVendor map[string]bool
 	noRange      map[string]bool
 }
@@ -259,7 +259,7 @@ type journalScan struct {
 // journal checks the Universal Journal: every document must balance, hit
 // known accounts and have a number range for its document type.
 func (q *qualityCheck) journal() {
-	s := journalScan{docTotals: map[string]int64{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}}
+	s := journalScan{docTotals: map[string]money.Minor{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}}
 	for _, l := range q.e.ACDOCA {
 		q.journalLine(l, &s)
 	}
@@ -324,12 +324,12 @@ func (q *qualityCheck) supplierInvoices() {
 }
 
 // invoiceItemTotals sums each invoice's items in the invoice currency.
-func (q *qualityCheck) invoiceItemTotals() map[string]int64 {
+func (q *qualityCheck) invoiceItemTotals() map[string]money.Minor {
 	invCurrency := map[string]string{}
 	for _, h := range q.e.RBKP {
 		invCurrency[h.BELNR+"/"+h.GJAHR] = h.WAERS
 	}
-	itemTotals := map[string]int64{}
+	itemTotals := map[string]money.Minor{}
 	for _, it := range q.e.RSEG {
 		amt, err := q.t.amount(it.WRBTR, invCurrency[it.BELNR+"/"+it.GJAHR])
 		if err != nil {
@@ -341,7 +341,7 @@ func (q *qualityCheck) invoiceItemTotals() map[string]int64 {
 	return itemTotals
 }
 
-func (q *qualityCheck) supplierInvoice(h sap.RBKP, itemTotals map[string]int64, dups map[string]string) {
+func (q *qualityCheck) supplierInvoice(h sap.RBKP, itemTotals map[string]money.Minor, dups map[string]string) {
 	key := h.BELNR + "/" + h.GJAHR
 	gross, err1 := q.t.amount(h.RMWWR, h.WAERS)
 	tax, err2 := q.t.amount(h.WMWST1, h.WAERS)

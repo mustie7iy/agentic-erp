@@ -101,13 +101,13 @@ func (e *Endpoints) PostReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 
 // Value is the number of the purchase orders and the total of their live
 // items, in minor units of their currencies.
-func (Orders) Value(ctx context.Context, ids []uuid.UUID) (int, int64, error) {
+func (Orders) Value(ctx context.Context, ids []uuid.UUID) (int, money.Minor, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
 	var n int
-	var value int64
+	var value money.Minor
 	err = tx.QueryRow(ctx, `SELECT count(*), coalesce(sum((SELECT coalesce(sum(round(i.quantity * i.unit_price / i.price_unit)), 0)
 			FROM procurement.purchase_order_item i WHERE i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND NOT i.is_removed)), 0)::bigint
 		FROM procurement.purchase_order o WHERE o.id = ANY($1)`, ids).Scan(&n, &value)
