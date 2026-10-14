@@ -334,6 +334,9 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   token without roles, ADR-0027 amended; principals bound to issuer + subject, with a migration).
   Migrations 000037 (column, backfill to erp-dev) and 000038 (unique index, concurrently); the
   contract step (drop principal_subject, require the issuer) waits for a later release.
+  Independent review: APPROVE. Follow-ups: the principal rate-limit bucket is keyed by issuer too;
+  a provisioner wired with no issuer fails as a wiring error (500), several give 422; contract
+  descriptions name the issuer binding; tests prove the server and router pass ERP_ENV through.
 - [x] R56 Duplication and money residue: money.ParseRat, platform/currency.Exponent (six lookups;
   a currency read failure is no longer a 422), new(v) for ptr/ptrTo, app builds each port once,
   uow.Job; pain.001 control sum checked; Minor.String prints raw minor units; money.Diff.
