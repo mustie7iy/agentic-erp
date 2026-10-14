@@ -1191,6 +1191,9 @@ func TestAFailedWorkflowWorkerStopsTheServer(t *testing.T) {
 	if !strings.Contains(logs.String(), "workflow: worker on queue") {
 		t.Errorf("logs: got %s, want the workflow worker's failure", logs.String())
 	}
+	if s == nil {
+		t.Fatal("got no workers started, want them started before the failure")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for name, running := range s.running {

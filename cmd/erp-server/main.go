@@ -94,7 +94,8 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 	return 0
 }
 
-// run starts the server and serves until ctx ends or a listener fails. The
+// run starts the server and serves until ctx ends, a listener fails or a
+// critical worker fails. The
 // steps run in startup order; what a step opens is closed by run's defers,
 // in the reverse order, once the workers stopped.
 func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(api, admin net.Listener)) error {

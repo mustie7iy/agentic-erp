@@ -194,15 +194,19 @@ deploy the previous release keeps inserting people and services with a
 subject and a NULL issuer, after 000037's backfill has run; the new release
 never finds them (it resolves issuer and subject), so they cannot sign in
 until bound. The contract step, in a later release, once no replica of the
-previous release runs, therefore does three things in order: (1) re-runs the
-backfill for every principal still `external_issuer IS NULL AND
-external_subject IS NOT NULL`, binding it to the issuer of the principal
-that created it (`created_by`, as `CreatePrincipal` does) and, where that
-creator has none, to the cell's single tenant issuer (`erp-dev` in
-development, as 000037 did); (2) adds the check that a principal with a
-subject has an issuer, `NOT VALID` and then `VALIDATE` (06 §6.4), which
-without step 1 would fail on those rows; (3) drops `principal_subject` (the
-subject alone unique per tenant), which the previous release relies on.
+previous release runs, therefore goes in this order (06 §6.4): (1) adds the
+check that a principal with a subject has an issuer, `NOT VALID`, so no new
+row can lack one; (2) re-runs the backfill for every principal still
+`external_issuer IS NULL AND external_subject IS NOT NULL`, binding it to
+the issuer of the principal that created it (`created_by`, as
+`CreatePrincipal` does) and, where that creator has none, to the cell's
+single tenant issuer (`erp-dev` in development, as 000037 did); a cell that
+trusts several issuers cannot tell which, so the backfill leaves those rows
+and lists them for an operator to re-bind rather than guess (as
+provisioning refuses, `provisioning.issuer_ambiguous`); (3) in the next
+migration, once none is left, `VALIDATE`s the check, which would fail on
+any row step 2 did not bind; (4) drops `principal_subject` (the subject
+alone unique per tenant), which the previous release relies on.
 Meanwhile the new release refuses to create a person or service whose
 issuer it cannot tell: `CreatePrincipal` answers 422
 `identity.creator_without_issuer` when the creating actor (an agent, a job
