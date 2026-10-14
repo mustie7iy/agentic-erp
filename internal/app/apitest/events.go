@@ -36,7 +36,7 @@ var (
 func eventContract() (map[string]payloadSchema, error) {
 	contractOnce.Do(func() {
 		_, file, _, _ := runtime.Caller(0)
-		b, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../../api/asyncapi.yaml"))
+		b, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../api/asyncapi.yaml"))
 		if err != nil {
 			contractErr = err
 			return

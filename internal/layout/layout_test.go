@@ -17,18 +17,22 @@ const module = "github.com/mustie7iy/agentic-erp/internal/"
 // shared are packages every context may import: the shared kernel (§6.7).
 var shared = map[string]bool{"money": true}
 
-// platformUsers are the platform packages allowed to import contexts: the
-// composition root that wires every context's handlers into the API, and
+// platformUsers are the platform packages allowed to import contexts: only
 // test support that builds a configured tenant. Every other platform
 // package serves the contexts and imports none of them.
-var platformUsers = map[string]bool{"platform/httpapi": true, "platform/fixture": true}
+var platformUsers = map[string]bool{"platform/fixture": true}
+
+// compositionRoot is the unit that wires every context's
+// handlers into the API and their ports together, and so, like a command,
+// may import any context.
+const compositionRoot = "app"
 
 // testSupport are packages only tests and other test support may import:
 // fixtures, fake servers and harnesses; the same packages scripts/coverage.sh
 // leaves out of the coverage figure, so a new one is added to both. Production code importing one would
 // ship test machinery and, through fixture, half the contexts.
 var testSupport = map[string]bool{
-	"platform/pgtest": true, "platform/fixture": true, "platform/httpapi/apitest": true,
+	"platform/pgtest": true, "platform/fixture": true, "app/apitest": true,
 	"platform/authn/authntest": true, "platform/natsbus/natstest": true,
 	"platform/blobstore/blobstoretest": true, "platform/fieldcrypt/kmstest": true,
 	"platform/secrets/vaulttest": true, "platform/workflow/workflowtest": true,
@@ -55,7 +59,7 @@ var allowed = map[string][]string{
 	"globalplane":             {"directory", "offboarding"},
 	"integration":             {"bankfile", "config", "ledger", "operations", "partner", "payables", "procurement", "sap", "tenancy"},
 	"ledger":                  {"config", "tenancy"},
-	"nfr":                     {"analytics", "ledger"},
+	"nfr":                     {"analytics", "app", "ledger"},
 	"partner":                 {"approvals", "bankfile", "config", "tenancy"},
 	"payables":                {"approvals", "capture", "config", "configuration", "ledger", "operations", "partner", "procurement", "tenancy"},
 	"payments":                {"bankfile", "config", "ledger", "operations", "partner", "tenancy"},
@@ -139,9 +143,9 @@ func walk(root, prefix string, out map[string]map[string]bool) error {
 }
 
 // TestImportRules: production code (internal/ and cmd/) imports no test
-// support, platform
-// packages (other than platformUsers) import no context, and a context
-// imports another only where allowed says so.
+// support, platform packages (other than platformUsers) import no context,
+// the composition root and commands import any, and a context imports
+// another only where allowed says so.
 func TestImportRules(t *testing.T) {
 	used := map[string]bool{}
 	for pkg, deps := range imports(t) {
@@ -154,7 +158,7 @@ func TestImportRules(t *testing.T) {
 			}
 			switch {
 			case from == to, strings.HasPrefix(to, "platform/"), shared[to]:
-			case strings.HasPrefix(from, "cmd/"): // a command wires contexts together
+			case strings.HasPrefix(from, "cmd/"), from == compositionRoot: // a command and the composition root wire contexts together
 			case strings.HasPrefix(from, "platform/"):
 				if !platformUsers[from] {
 					t.Errorf("%s imports %s: a platform package may not depend on a context", pkg, dep)
@@ -183,10 +187,11 @@ func TestImportRules(t *testing.T) {
 // TestUnit pins how packages map to the units the rules are stated in.
 func TestUnit(t *testing.T) {
 	for pkg, want := range map[string]string{
-		"ledger":                   "ledger",
-		"llm/llmtest":              "llm",
-		"platform/httpapi/apitest": "platform/httpapi",
-		"delivery/sapconfig":       "delivery/sapconfig",
+		"ledger":             "ledger",
+		"llm/llmtest":        "llm",
+		"platform/httpapi":   "platform/httpapi",
+		"app/apitest":        "app",
+		"delivery/sapconfig": "delivery/sapconfig",
 	} {
 		t.Run(pkg, func(t *testing.T) {
 			if got := unit(pkg); got != want {

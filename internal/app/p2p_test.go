@@ -1,4 +1,4 @@
-package httpapi_test
+package app_test
 
 import (
 	"fmt"

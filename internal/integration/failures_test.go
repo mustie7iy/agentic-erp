@@ -8,10 +8,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
@@ -19,7 +19,7 @@ import (
 
 func endpoints(dir string) *integration.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return httpapi.Integration(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: dir})
+	return app.Integration(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: dir})
 }
 
 // TestDatabaseFailures calls every handler and context function outside a

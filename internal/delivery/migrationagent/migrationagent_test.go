@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -40,7 +40,7 @@ func TestAssess(t *testing.T) {
 	if err := sap.WriteExtract(filepath.Join(dir, "x.json"), sap.GenerateMock(42, "2026")); err != nil {
 		t.Fatal(err)
 	}
-	f.API = apitest.NewWith(t, func(c *httpapi.Config) { c.ExtractDir = dir })
+	f.API = apitest.NewWith(t, func(c *app.Config) { c.ExtractDir = dir })
 	srv := httptest.NewServer(f.API.Handler)
 	defer srv.Close()
 	conn, _ := f.Must(201, "POST", "/v1/connectors", `{"kind": "sap_file", "name": "SAP", "settings": {"path": "x.json"}}`, "")

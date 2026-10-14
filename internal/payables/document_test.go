@@ -11,11 +11,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -34,7 +34,7 @@ func TestCapturedDocumentsAreKept(t *testing.T) {
 	e.order(t, e.Supplier, "PO-1")
 	root := t.TempDir()
 	store := blobstore.Dir{Root: root}
-	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects = store })
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Objects = store })
 	with := func(x capture.Extractor, objects blobstore.Store) *payables.Endpoints {
 		h := endpoints(x)
 		h.Objects = objects
@@ -119,7 +119,7 @@ func TestCapturedDocumentsAreKept(t *testing.T) {
 	if _, err := capture(with(extractor{e: changed("CAP-B")}, broken), "%PDF broken"); problem.From(err).Status != 503 {
 		t.Fatalf("capture with a broken store: %v", err)
 	}
-	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects = broken })
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Objects = broken })
 	e.Problem(503, "platform.unavailable", "GET", "/v1/supplier-invoices/"+inv["id"].(string)+"/document", "", "")
 	e.API = before
 	// A document stored by a capture that then failed is found there on the next capture.

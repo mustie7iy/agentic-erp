@@ -22,15 +22,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
-	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
-	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
-	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 )
-
-func TestMain(m *testing.M) { pgtest.Main(m) }
 
 func TestAdmin(t *testing.T) {
 	m := telemetry.NewMetrics()
@@ -105,76 +99,43 @@ type failingProvider struct{ noop.MeterProvider }
 func (failingProvider) Meter(string, ...metric.MeterOption) metric.Meter { return failingMeter{} }
 
 func TestNewReportsServerErrors(t *testing.T) {
-	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = New(Config{Verifier: v, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Metrics: telemetry.NewMetrics(),
-		Tracer: tracenoop.NewTracerProvider(), Meter: failingProvider{}, Now: time.Now})
+	_, err := New(gen.UnimplementedHandler{}, Pipeline{Verifier: verifier(t), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: failingProvider{}, Now: time.Now})
 	if err == nil {
 		t.Fatal("server construction failure not reported")
 	}
 }
 
-// TestQuotasAndDeadlines checks the hardening in the request chain: the
-// rate limiter answers before the unit of work, and a request past its
-// deadline is a 503 the client can retry.
-func TestQuotasAndDeadlines(t *testing.T) {
-	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+// TestNewServesRoutesBesideTheContract: a route outside the generated
+// server answers without a bearer token; the contract's operations need one.
+func TestNewServesRoutesBesideTheContract(t *testing.T) {
+	route := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusCreated) })
+	h, err := New(gen.UnimplementedHandler{}, Pipeline{Verifier: verifier(t), Routes: map[string]http.Handler{"PUT /v1/uploads/{id}/content": route},
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(),
+		Meter: noop.NewMeterProvider(), Now: time.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ten := pgtest.NewTenant(t, "platform.operation.read")
-	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	legacy, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
-	keys := &fieldcrypt.Keyring{Legacy: legacy}
-	base := Config{Pool: pgtest.Pool(t), AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: keys, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now}
-	get := func(h http.Handler) *httptest.ResponseRecorder {
-		req := httptest.NewRequest("GET", "/v1/operations", nil)
-		req.Header.Set("Authorization", "Bearer "+is.Token(t, ten.ID, ten.Human.Subject, nil))
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec
+	for _, c := range []struct {
+		method, path string
+		code         int
+	}{{"PUT", "/v1/uploads/x/content", http.StatusCreated}, {"GET", "/v1/operations", http.StatusUnauthorized}} {
+		t.Run(c.method+" "+c.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(c.method, c.path, nil))
+			if rec.Code != c.code {
+				t.Errorf("%s %s: got %d, want %d", c.method, c.path, rec.Code, c.code)
+			}
+		})
 	}
-	limited := base
-	limited.Limits = &ratelimit.Limiter{Principal: ratelimit.Quota{Rate: 0.001, Burst: 1}}
-	h, err := New(limited)
+}
+
+// verifier accepts tokens of a test issuer.
+func verifier(t *testing.T) *authn.Verifier {
+	t.Helper()
+	v, err := authn.New(context.Background(), []authn.Issuer{authntest.New(t).Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := get(h)
-	if rec.Code != 200 {
-		t.Fatalf("first status: got %d, want 200 (%s)", rec.Code, rec.Body)
-	}
-	if got := rec.Header().Get("RateLimit-Remaining"); got != "0" {
-		t.Errorf("first RateLimit-Remaining: got %q, want 0", got)
-	}
-	rec = get(h)
-	if rec.Code != 429 {
-		t.Fatalf("second status: got %d, want 429 (%s)", rec.Code, rec.Body)
-	}
-	if rec.Header().Get("Retry-After") == "" {
-		t.Errorf("second Retry-After: got empty, want set (%v)", rec.Header())
-	}
-	if !strings.Contains(rec.Body.String(), "request.rate_limited") {
-		t.Errorf("second body: got %s, want request.rate_limited", rec.Body)
-	}
-	expiring := base
-	expiring.RequestTimeout = time.Nanosecond
-	if h, err = New(expiring); err != nil {
-		t.Fatal(err)
-	}
-	rec = get(h)
-	if rec.Code != 503 {
-		t.Fatalf("expired status: got %d, want 503 (%s)", rec.Code, rec.Body)
-	}
-	if got := rec.Header().Get("Retry-After"); got != "1" {
-		t.Errorf("expired Retry-After: got %q, want 1", got)
-	}
-	if !strings.Contains(rec.Body.String(), "platform.unavailable") {
-		t.Errorf("expired body: got %s, want platform.unavailable", rec.Body)
-	}
+	return v
 }

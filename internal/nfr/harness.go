@@ -19,11 +19,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -58,7 +58,7 @@ type Options struct {
 type Stack struct {
 	T       testing.TB
 	Env     fixture.Env
-	Config  httpapi.Config
+	Config  app.Config
 	Server  *httptest.Server
 	Pool    *database.Pool
 	Metrics *telemetry.Metrics
@@ -98,7 +98,7 @@ func Start(tb testing.TB, o Options) *Stack {
 	}
 	s := &Stack{T: tb, Metrics: telemetry.NewMetrics()}
 	s.Env = fixture.New(tb, Permissions...)
-	s.Env.API = apitest.NewWith(tb, func(c *httpapi.Config) {
+	s.Env.API = apitest.NewWith(tb, func(c *app.Config) {
 		c.Limits, c.RequestTimeout, c.Metrics = o.Limits, o.Timeout, s.Metrics
 		s.Config = *c
 	})

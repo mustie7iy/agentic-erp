@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
@@ -38,7 +38,7 @@ func setup(t *testing.T) env {
 	f := fixture.New(t, perms...)
 	dir := t.TempDir()
 	write(t, dir, "extract.json", sap.GenerateMock(42, "2026"))
-	f.API = apitest.NewWith(t, func(c *httpapi.Config) { c.ExtractDir = dir })
+	f.API = apitest.NewWith(t, func(c *app.Config) { c.ExtractDir = dir })
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2025-01-01', 0.9, 'ECB', $2)`, f.Tenant.ID, f.Tenant.Human.ID)
 	return env{Env: f, dir: dir}
@@ -470,7 +470,7 @@ func TestConnectorsAndRunRules(t *testing.T) {
 	vault := vaulttest.New(t)
 	vault.Secrets["secret/erp/sap"] = map[string]any{"credentials": "user:secret"}
 	local := secrets.Local{}
-	withVault := apitest.NewWith(t, func(cfg *httpapi.Config) {
+	withVault := apitest.NewWith(t, func(cfg *app.Config) {
 		cfg.Secrets = secrets.Multi{secrets.SchemeEnv: local, secrets.SchemeVault: &secrets.Vault{Address: vault.URL, Token: vaulttest.Token}}
 	})
 	vaulted := apitest.Client{T: t, API: withVault, Tenant: e.Tenant, As: e.Tenant.Human}

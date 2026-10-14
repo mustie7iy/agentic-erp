@@ -15,10 +15,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -282,7 +282,7 @@ func TestResilienceWorkerRestarts(t *testing.T) {
 	if op["status"] != "queued" {
 		t.Fatalf("proposal: %v", op)
 	}
-	worker := &payments.Proposer{Endpoints: httpapi.Payments(s.Config), Pool: s.Pool, AppRole: "erp_app", WorkerRole: "erp_worker", Log: s.Config.Log}
+	worker := &payments.Proposer{Endpoints: app.Payments(s.Config), Pool: s.Pool, AppRole: "erp_app", WorkerRole: "erp_worker", Log: s.Config.Log}
 	var once sync.Once
 	worker.Begin = func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
 		tx, err := s.Pool.Begin(ctx, sc)

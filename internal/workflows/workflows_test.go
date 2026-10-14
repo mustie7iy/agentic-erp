@@ -21,13 +21,13 @@ import (
 	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -102,7 +102,7 @@ func (e env) propose(t *testing.T, runDate string) (op map[string]any, run strin
 func activities(t *testing.T) *workflows.Payments {
 	t.Helper()
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &workflows.Payments{Pool: pgtest.Pool(t), AppRole: "erp_app", Endpoints: httpapi.Payments(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys()})}
+	return &workflows.Payments{Pool: pgtest.Pool(t), AppRole: "erp_app", Endpoints: app.Payments(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys()})}
 }
 
 func input(e env, op map[string]any, run string) workflows.ProposeInput {
@@ -816,7 +816,7 @@ func simulationAsked(t *testing.T) (env, workflows.SimulateInput, string) {
 func simulations(t *testing.T) *workflows.Simulations {
 	t.Helper()
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &workflows.Simulations{Worker: &configuration.SimulationWorker{Dependencies: httpapi.Configuration(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys()}),
+	return &workflows.Simulations{Worker: &configuration.SimulationWorker{Dependencies: app.Configuration(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys()}),
 		Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker"}}
 }
 
@@ -897,7 +897,7 @@ func migrationAsked(t *testing.T, file string) (env, string, workflows.MigrateIn
 	if err := sap.WriteExtract(filepath.Join(dir, "extract.json"), sap.GenerateMock(42, "2026")); err != nil {
 		t.Fatal(err)
 	}
-	f.API = apitest.NewWith(t, func(c *httpapi.Config) { c.ExtractDir = dir; c.Workflows = &fakeEngine{} })
+	f.API = apitest.NewWith(t, func(c *app.Config) { c.ExtractDir = dir; c.Workflows = &fakeEngine{} })
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2025-01-01', 0.9, 'ECB', $2)`, f.Tenant.ID, f.Tenant.Human.ID)
 	e := env{Env: f}
@@ -914,7 +914,7 @@ func migrationAsked(t *testing.T, file string) (env, string, workflows.MigrateIn
 	}
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	m := &workflows.Migrations{Pool: pgtest.Pool(t), AppRole: "erp_app",
-		Endpoints: httpapi.Integration(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: dir, Workflows: &fakeEngine{}})}
+		Endpoints: app.Integration(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: dir, Workflows: &fakeEngine{}})}
 	return e, path, workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(id(r)), OperationID: uuid.MustParse(id(op))}, m
 }
 

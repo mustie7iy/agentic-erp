@@ -23,6 +23,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/mustie7iy/agentic-erp/db"
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
@@ -192,7 +193,7 @@ type server struct {
 	metrics      *telemetry.Metrics
 	engine       *workflow.Temporal
 	engineClient workflow.Client
-	apiCfg       httpapi.Config
+	apiCfg       app.Config
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
 
@@ -290,7 +291,7 @@ func (s *server) controlPlane(ctx context.Context) error {
 		return err
 	}
 	service := &controlplane.Service{Pool: s.pool, AppRole: s.cfg.AppRole, ControlRole: s.cfg.ControlRole, Pages: s.pages,
-		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: s.keys})},
+		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Configuration: app.Configuration(app.Config{FieldKeys: s.keys})},
 		Offboarding: s.offboarder, Directory: s.sync}
 	s.control = controlplane.Handler(service, operators, s.log)
 	s.log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(s.cfg.OperatorIssuers), "dev_issuer", s.cfg.DevIssuer)
@@ -336,14 +337,14 @@ func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
 // newAPI builds the public API's handler.
 func (s *server) newAPI() error {
 	cfg := s.cfg
-	s.apiCfg = httpapi.Config{
+	s.apiCfg = app.Config{
 		Pool: s.pool, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Secrets: cfg.Secrets, Log: s.log,
 		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 	}
 	var err error
-	if s.apiHandler, err = httpapi.New(s.apiCfg); err != nil {
+	if s.apiHandler, err = app.New(s.apiCfg); err != nil {
 		return err
 	}
 	return nil
@@ -368,7 +369,7 @@ func (s *server) startProjections(runCtx context.Context) {
 	projector := &ledger.Projector{Pool: s.pool, Role: s.cfg.ProjectorRole, Log: s.log}
 	s.projectorDone = make(chan struct{})
 	go func() { projector.Run(runCtx); close(s.projectorDone) }()
-	s.simulator = &configuration.SimulationWorker{Dependencies: httpapi.Configuration(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Log: s.log}
+	s.simulator = &configuration.SimulationWorker{Dependencies: app.Configuration(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Log: s.log}
 	s.simulatorDone = make(chan struct{})
 	if s.engine == nil {
 		go func() { s.simulator.Run(runCtx); close(s.simulatorDone) }()
@@ -384,19 +385,19 @@ func (s *server) startOperations(runCtx context.Context) {
 	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
 	s.proposerDone, s.workerDone, s.dispatchDone, s.workerErr = make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	if engine == nil {
-		proposer := &payments.Proposer{Endpoints: httpapi.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
+		proposer := &payments.Proposer{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 		go func() { proposer.Run(runCtx); close(s.proposerDone) }()
-		releaser := &workflows.Releaser{Payments: &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}, Pool: pool, WorkerRole: cfg.WorkerRole, Log: log}
+		releaser := &workflows.Releaser{Payments: &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}, Pool: pool, WorkerRole: cfg.WorkerRole, Log: log}
 		go func() { releaser.Run(runCtx); close(s.workerDone) }()
 		close(s.dispatchDone)
 		s.workerErr <- nil
 		return
 	}
 	close(s.proposerDone)
-	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Payments(apiCfg)}
+	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}
 	go func() {
 		s.workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
-			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: httpapi.Integration(apiCfg)},
+			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg)},
 				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole})
 		})
 		close(s.workerDone)

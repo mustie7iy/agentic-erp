@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 )
 
@@ -76,6 +76,6 @@ func provision(ctx context.Context, cfg platformconfig.Config, req provisioning.
 	}
 	defer pool.Close()
 	keys, _ := keyring(cfg, pool) // the keys were validated with the configuration
-	deps := httpapi.Configuration(httpapi.Config{FieldKeys: keys})
+	deps := app.Configuration(app.Config{FieldKeys: keys})
 	return (&provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Configuration: deps}).Provision(ctx, req)
 }

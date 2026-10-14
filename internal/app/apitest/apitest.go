@@ -21,12 +21,12 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -64,7 +64,7 @@ func New(tb testing.TB) *API {
 
 // NewWith builds the API after configure, when not nil, adjusts its
 // configuration (for example to plug in a bank connector).
-func NewWith(tb testing.TB, configure func(*httpapi.Config)) *API {
+func NewWith(tb testing.TB, configure func(*app.Config)) *API {
 	tb.Helper()
 	pool := pgtest.Pool(tb)
 	is := authntest.New(tb)
@@ -74,7 +74,7 @@ func NewWith(tb testing.TB, configure func(*httpapi.Config)) *API {
 	}
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	a := &API{t: tb, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &syncBuffer{}}
-	cfg := httpapi.Config{
+	cfg := app.Config{
 		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(), UploadKey: []byte(strings.Repeat("u", 32)),
 		Log: telemetry.NewLogger(a.logs, -4), Metrics: a.Metrics,
 		Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now,
@@ -82,7 +82,7 @@ func NewWith(tb testing.TB, configure func(*httpapi.Config)) *API {
 	if configure != nil {
 		configure(&cfg)
 	}
-	h, err := httpapi.New(cfg)
+	h, err := app.New(cfg)
 	if err != nil {
 		tb.Fatal(err)
 	}

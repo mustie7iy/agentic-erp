@@ -13,12 +13,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -71,7 +71,7 @@ func (u *uploadScenario) capture(tb testing.TB, id string) (map[string]any, int)
 func TestDirectUploads(t *testing.T) {
 	u := &uploadScenario{e: setup(t), store: blobstore.Dir{Root: t.TempDir()}, clock: time.Now(), x: extractor{e: extraction()}, pdf: "%PDF-1.7 " + strings.Repeat("x", 100)}
 	u.e.order(t, u.e.Supplier, "PO-1")
-	u.e.API = apitest.NewWith(t, func(cfg *httpapi.Config) {
+	u.e.API = apitest.NewWith(t, func(cfg *app.Config) {
 		cfg.Objects, cfg.Extractor, cfg.Now = u.store, u.x, func() time.Time { return u.clock }
 	})
 	if !t.Run("create", u.create) {
@@ -253,12 +253,12 @@ func (u *uploadScenario) refusals(t *testing.T) {
 // without object storage uploads are not served, nor is a capture from one.
 func (u *uploadScenario) withoutStore(t *testing.T) {
 	e, x, store := u.e.in(t), u.x, u.store
-	public := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects, cfg.PublicURL = store, "https://api.example.com" })
+	public := apitest.NewWith(t, func(cfg *app.Config) { cfg.Objects, cfg.PublicURL = store, "https://api.example.com" })
 	r := public.Do(apitest.Req{Method: "POST", Path: "/v1/uploads", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), Body: `{"purpose":"supplier_invoice","content_type":"application/pdf"}`})
 	if r.Code != 201 || !strings.HasPrefix(apitest.JSON(t, r)["url"].(string), "https://api.example.com/v1/uploads/") {
 		t.Fatalf("public url: %d %s", r.Code, r.Body)
 	}
-	u.plain = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Extractor = x })
+	u.plain = apitest.NewWith(t, func(cfg *app.Config) { cfg.Extractor = x })
 	r = u.plain.Do(apitest.Req{Method: "POST", Path: "/v1/uploads", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), Body: `{"purpose":"supplier_invoice","content_type":"application/pdf"}`})
 	if r.Code != 503 {
 		t.Fatalf("without a store: %d %s", r.Code, r.Body)
@@ -348,7 +348,7 @@ func (u *uploadScenario) consumeFailures(t *testing.T) {
 func (u *uploadScenario) putFailures(t *testing.T) {
 	e, store := u.e.in(t), u.store
 	up4, _ := e.Must(201, "POST", "/v1/uploads", `{"purpose":"supplier_invoice","content_type":"application/pdf"}`, "")
-	broken := apitest.NewWith(t, func(cfg *httpapi.Config) {
+	broken := apitest.NewWith(t, func(cfg *app.Config) {
 		cfg.Objects, cfg.Now = failingStore{err: errors.New("store down")}, func() time.Time { return u.clock }
 	})
 	r := broken.Do(apitest.Req{Method: "PUT", Path: up4["url"].(string), Body: u.pdf, Header: map[string][]string{"Content-Type": {"application/pdf"}}})
@@ -405,7 +405,7 @@ func TestPresignedUploads(t *testing.T) {
 	e.order(t, e.Supplier, "PO-1")
 	s3 := blobstoretest.New(t)
 	x := extractor{e: extraction()}
-	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects, cfg.Extractor = s3.Store(), x })
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Objects, cfg.Extractor = s3.Store(), x })
 	up, _ := e.Must(201, "POST", "/v1/uploads", `{"purpose":"supplier_invoice","content_type":"application/pdf"}`, "")
 	url := up["url"].(string)
 	if !strings.HasPrefix(url, s3.URL+"/"+blobstoretest.Bucket+"/tenants/"+e.Tenant.ID.String()+"/uploads/"+up["id"].(string)+"?X-Amz-Algorithm=") {
@@ -445,7 +445,7 @@ func TestPresignedUploads(t *testing.T) {
 		t.Errorf("consumed upload size: got %v, want %d", size, len(pdf))
 	}
 	// A store that cannot presign fails the create and the read.
-	odd := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects = blobstore.S3{Endpoint: "::", Bucket: "b"} })
+	odd := apitest.NewWith(t, func(cfg *app.Config) { cfg.Objects = blobstore.S3{Endpoint: "::", Bucket: "b"} })
 	r = odd.Do(apitest.Req{Method: "POST", Path: "/v1/uploads", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), Body: `{"purpose":"supplier_invoice","content_type":"application/pdf"}`})
 	if r.Code != 503 {
 		t.Fatalf("presign failure: %d %s", r.Code, r.Body)

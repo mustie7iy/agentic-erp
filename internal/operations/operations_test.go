@@ -13,11 +13,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -209,7 +209,7 @@ func (f *fakeEngine) Cancel(_ context.Context, id string) error {
 func TestCancelOperation(t *testing.T) {
 	engine := &fakeEngine{}
 	var logs bytes.Buffer
-	api := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Workflows = engine; cfg.Log = slog.New(slog.NewTextHandler(&logs, nil)) })
+	api := apitest.NewWith(t, func(cfg *app.Config) { cfg.Workflows = engine; cfg.Log = slog.New(slog.NewTextHandler(&logs, nil)) })
 	ten := pgtest.NewTenant(t, perms...)
 	o := start(t, ten, "payments.propose")
 	path := "/v1/operations/" + o.ID.String() + ":cancel"

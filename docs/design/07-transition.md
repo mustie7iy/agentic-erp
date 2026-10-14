@@ -236,7 +236,7 @@ What T4 built: `internal/approvals` (the workflow context, 5 operations),
 approval requests for partner changes and tier 2 configuration changes;
 tax codes applied from the configuration; ledger posting and reversal for
 other contexts (`ledger.Postings`); migration 000015. The exit criterion is
-`TestProcureToPay` (internal/platform/httpapi): requisition, two-step
+`TestProcureToPay` (internal/app): requisition, two-step
 approval, order, receipt, invoice, clean match and posting, then an
 over-invoiced item held, decided as an exception and posted.
 

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -30,7 +30,7 @@ func TestBankFilesAreKept(t *testing.T) {
 	e := setup(t)
 	root := t.TempDir()
 	store := blobstore.Dir{Root: root}
-	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Connector, cfg.Objects = e.connector, store })
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Connector, cfg.Objects = e.connector, store })
 	e.objects = store
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
@@ -92,7 +92,7 @@ func TestBankFilesAreKept(t *testing.T) {
 	}
 	e.Problem(503, "platform.unavailable", "GET", "/v1/bank-files/"+id(file)+"/content", "", "")
 	// A server without object storage cannot serve a stored file; one whose store fails neither.
-	plain := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Connector = e.connector })
+	plain := apitest.NewWith(t, func(cfg *app.Config) { cfg.Connector = e.connector })
 	if r := plain.Do(apitest.Req{Method: "GET", Path: "/v1/bank-files/" + id(file) + "/content", Tenant: e.Tenant.ID, As: e.Tenant.Human}); r.Code != 503 {
 		t.Fatalf("without a store: %d %s", r.Code, r.Body)
 	}
@@ -106,7 +106,7 @@ func TestBankFilesAreKept(t *testing.T) {
 		t.Fatalf("broken store: %v", err)
 	}
 	// A release whose file the store refuses does not go through.
-	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Connector, cfg.Objects = e.connector, broken })
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Connector, cfg.Objects = e.connector, broken })
 	e.objects = broken
 	e.invoice(t, e.Supplier, "INV-3", "25.00", "2026-03-03")
 	third := e.run(t, "2026-04-17", "2026-04-17")

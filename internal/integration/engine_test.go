@@ -8,12 +8,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -30,7 +30,7 @@ func (engine) Cancel(context.Context, string) error                { return nil 
 
 func withEngine(e env) *integration.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return httpapi.Integration(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: e.dir, Workflows: engine{}})
+	return app.Integration(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: e.dir, Workflows: engine{}})
 }
 
 // TestRunsWithAnEngine: with a workflow engine, :start and :reconcile hand

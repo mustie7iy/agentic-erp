@@ -122,7 +122,8 @@ idempotency, outbox, audit), the SQL against its own schema, and `api.go`, the
 handlers of its part of the generated OpenAPI interface. What other contexts may
 call is the package's exported Go API, usually a small interface the caller declares
 and the context satisfies (for example `payables` declares the `Payments` it
-needs and `payments.Reservations` satisfies it), wired together in one place.
+needs and `payments.Reservations` satisfies it), wired together in one place:
+`internal/app`.
 
 ```
 internal/<context>/      one context: types, use cases, SQL, api.go handlers
@@ -130,18 +131,23 @@ internal/delivery/<agent>/  each delivery agent stands alone
 internal/money/          shared kernel every context may import
 internal/platform/<pkg>/ technical services the contexts use (database, uow,
                          outbox, audit, authn, problem, ...) and test support
-internal/platform/httpapi/  the composition root: builds the API from every
-                         context's handlers and wires their ports together
+internal/platform/httpapi/  the request pipeline around the generated server
+                         (authentication, quotas, unit of work, problems);
+                         names no context
+internal/app/            the composition root: builds the API from every
+                         context's handlers and wires their ports together;
+                         cmd/erp-server's workers use the same wiring
+internal/app/apitest/    test support: the real API on the test database
 ```
 
 Import rules, checked by `internal/layout`'s test, which parses the imports of
 every production file under `internal/` and `cmd/`:
 
-- A platform package imports no context. The two exceptions are named in the
-  test: `platform/httpapi`, the composition root, and `platform/fixture`, test
-  support that builds a configured tenant.
-- Any package may import the platform and the shared kernel (`money`); a
-  command under `cmd/` may import any context, since it wires them together.
+- A platform package imports no context. The one exception is named in the
+  test: `platform/fixture`, test support that builds a configured tenant.
+- Any package may import the platform and the shared kernel (`money`); the
+  composition root `app` and a command under `cmd/` may import any context,
+  since they wire them together.
 - A context imports another context only where the test's allowlist says so.
   The list is exact: a new dependency fails the test until it is added there,
   in the same change as the interface it uses (and an ADR if it reverses a

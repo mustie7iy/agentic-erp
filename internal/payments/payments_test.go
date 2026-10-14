@@ -11,11 +11,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -57,7 +57,7 @@ func setup(t *testing.T) env {
 	t.Helper()
 	f := fixture.New(t, perms...)
 	c := &connector{}
-	f.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Connector = c })
+	f.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Connector = c })
 	e := env{Env: f, expense: f.Account(t, "2000", "520000"), connector: c}
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id FROM payments.house_bank WHERE legal_entity_id = $1`, f.DE).Scan(&e.bank); err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func (e env) in(t *testing.T) env {
 // endpoints is the payments context as the API wires it.
 func endpoints(c payments.Connector) *payments.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return httpapi.Payments(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), Connector: c})
+	return app.Payments(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), Connector: c})
 }
 
 // proposer is the worker on the package database.
