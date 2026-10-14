@@ -343,6 +343,16 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - [x] R57 Error-handling and readability residue: CreateRate refuses a non-decimal rate (was a
   nil dereference); the loader's discards say why; CLAUDE.md accepts pgx's rows, _ := tx.Query;
   erp-server's workers stop on one WaitGroup; TestDispatcher and the key-rotation test in steps.
+- Second re-review after round two: **9.2 / 10** (architecture 9.3, error handling 9.2,
+  concurrency and tenancy 8.9, SQL 9.7, tests 9.4, readability 9.3, duplication 9.0, money 9.1).
+  Round three below.
+- [ ] F8 A posting cannot land in a period being closed
+- [ ] F9 Analytics rounds money with the currency's exponent; no hard-coded exponent tables
+- [ ] F10 Issuer rollout: the contract step re-backfills; CreatePrincipal refuses an actor without
+  an issuer
+- [ ] F11 A failed workflow worker stops the server (or fails readiness) instead of serving without it
+- [ ] R58 Round-three residue: one open-item check, reversal fragment, sorted partners, checked
+  sums, Minor.Decimal, CLI discards, assertions, reverseJournalEntry length
 
 ## Baseline
 
