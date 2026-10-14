@@ -103,7 +103,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 type candidate struct {
 	supplier uuid.UUID
 	items    []Item
-	total    int64 // what is owed: positive when the supplier is to be paid
+	total    money.Minor // what is owed: positive when the supplier is to be paid
 }
 
 // exclusion is why a supplier cannot be paid on the run date, or "".
@@ -159,9 +159,9 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 			out = append(out, candidate{supplier: it.PartnerID})
 		}
 		c := &out[len(out)-1]
-		c.items = append(c.items, Item{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo, Amount: -int64(it.Amount),
+		c.items = append(c.items, Item{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo, Amount: -it.Amount,
 			DueDate: partner.Date{Time: due}, Active: true})
-		c.total -= int64(it.Amount)
+		c.total -= it.Amount
 	}
 	return out, payees, nil
 }
@@ -215,14 +215,14 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 // columns they are inserted from.
 type proposal struct {
 	payIDs, suppliers, banks, exSuppliers []uuid.UUID
-	amounts, exAmounts                    []int64
+	amounts, exAmounts                    []money.Minor
 	e2e, exReasons                        []string
 	itemPays, itemEntries                 []uuid.UUID
 	itemYears                             []int16
 	itemLines                             []int32
-	itemAmounts                           []int64
+	itemAmounts                           []money.Minor
 	itemDue                               []time.Time
-	total                                 int64
+	total                                 money.Minor
 }
 
 // propose pays each candidate supplier its open items in one payment, or

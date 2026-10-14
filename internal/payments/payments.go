@@ -33,6 +33,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -142,7 +143,7 @@ type Run struct {
 	DueBy          time.Time
 	Currency       string
 	Exponent       int
-	Total          int64
+	Total          money.Minor
 	Status         string
 	ProposedBy     uuid.UUID
 	DecidedBy      *uuid.UUID
@@ -211,7 +212,7 @@ type Item struct {
 	FiscalYear int16        `json:"fiscal_year"`
 	EntryID    uuid.UUID    `json:"journal_entry_id"`
 	LineNo     int32        `json:"line_no"`
-	Amount     int64        `json:"amount"` // paid: what the item owes, so a credit memo is negative
+	Amount     money.Minor  `json:"amount"` // paid: what the item owes, so a credit memo is negative
 	DueDate    partner.Date `json:"due_date"`
 	Active     bool         `json:"is_active"`
 }
@@ -222,7 +223,7 @@ type Payment struct {
 	RunID            uuid.UUID
 	SupplierID       uuid.UUID
 	BankAccountID    uuid.UUID
-	Amount           int64
+	Amount           money.Minor
 	EndToEndID       string
 	JournalEntryYear *int16
 	JournalEntryID   *uuid.UUID
@@ -260,7 +261,7 @@ func paymentsOf(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Payment, error
 type Exclusion struct {
 	SupplierID uuid.UUID
 	Reason     string
-	Amount     int64
+	Amount     money.Minor
 }
 
 // houseBank is a row of payments.house_bank.

@@ -441,7 +441,7 @@ func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, hb hous
 		}
 		d := details[pay.BankAccountID]
 		b.Payments = append(b.Payments, bankfile.Payment{EndToEndID: pay.EndToEndID, CreditorName: d.Holder, CreditorAccount: d.Account,
-			Amount: money.Minor(pay.Amount), Remittance: strings.Join(remittance, " ")})
+			Amount: pay.Amount, Remittance: strings.Join(remittance, " ")})
 	}
 	content, err := bankfile.Pain001(b)
 	if err != nil {
