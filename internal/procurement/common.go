@@ -97,26 +97,6 @@ func checkExtensions(ext map[string]any) error {
 	return nil
 }
 
-// mergePatch applies an RFC 7396 merge patch to custom fields.
-func mergePatch(target, patch map[string]any) map[string]any {
-	out := make(map[string]any, len(target))
-	for k, v := range target {
-		out[k] = v
-	}
-	for k, v := range patch {
-		switch pv := v.(type) {
-		case nil:
-			delete(out, k)
-		case map[string]any:
-			tv, _ := out[k].(map[string]any)
-			out[k] = mergePatch(tv, pv)
-		default:
-			out[k] = v
-		}
-	}
-	return out
-}
-
 // today is the database's current date, the date documents without one
 // are numbered by.
 func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {

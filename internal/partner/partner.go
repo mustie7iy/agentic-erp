@@ -365,26 +365,6 @@ func checkExtensions(ext map[string]any) error {
 	return nil
 }
 
-// mergePatch applies an RFC 7396 merge patch to a JSON object.
-func mergePatch(target, patch map[string]any) map[string]any {
-	out := make(map[string]any, len(target))
-	for k, v := range target {
-		out[k] = v
-	}
-	for k, v := range patch {
-		switch pv := v.(type) {
-		case nil:
-			delete(out, k)
-		case map[string]any:
-			tv, _ := out[k].(map[string]any)
-			out[k] = mergePatch(tv, pv)
-		default:
-			out[k] = v
-		}
-	}
-	return out
-}
-
 func event(name string, aggregate uuid.UUID, aggregateType string, payload map[string]any) outbox.Event {
 	return outbox.Event{Context: "partner", Name: name, AggregateType: aggregateType, AggregateID: aggregate, Payload: payload}
 }

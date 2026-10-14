@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -117,27 +118,6 @@ func checkExtensions(ext map[string]any) error {
 		}
 	}
 	return nil
-}
-
-// mergePatch applies an RFC 7396 merge patch to a JSON object: null removes
-// a member, objects merge recursively, anything else replaces.
-func mergePatch(target, patch map[string]any) map[string]any {
-	out := make(map[string]any, len(target))
-	for k, v := range target {
-		out[k] = v
-	}
-	for k, v := range patch {
-		switch pv := v.(type) {
-		case nil:
-			delete(out, k)
-		case map[string]any:
-			tv, _ := out[k].(map[string]any)
-			out[k] = mergePatch(tv, pv)
-		default:
-			out[k] = v
-		}
-	}
-	return out
 }
 
 func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
@@ -241,7 +221,7 @@ func UpdateLegalEntity(ctx context.Context, id uuid.UUID, ifMatch func(int32) er
 		name = *ch.Name
 	}
 	if ch.Extensions != nil {
-		ext = mergePatch(ext, ch.Extensions)
+		ext = mergepatch.Apply(ext, ch.Extensions)
 		if err := checkExtensions(ext); err != nil {
 			return LegalEntity{}, err
 		}

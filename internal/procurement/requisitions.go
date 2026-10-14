@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -374,7 +375,7 @@ func changedRequisitionHeader(r Requisition, ch RequisitionChange) (requisitionH
 		return requisitionHeaderFields{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
 	}
 	if ch.Extensions != nil {
-		f.ext = mergePatch(f.ext, ch.Extensions)
+		f.ext = mergepatch.Apply(f.ext, ch.Extensions)
 		if err := checkExtensions(f.ext); err != nil {
 			return requisitionHeaderFields{}, err
 		}
