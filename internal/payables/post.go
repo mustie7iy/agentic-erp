@@ -40,11 +40,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireCleanMatch(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
-	var net money.Minor
-	for _, it := range v.Items {
-		net += it.Amount
-	}
-	if net+v.Tax != v.Gross {
+	if totalMismatch(v, money.Minor.String) != "" {
 		return Invoice{}, problem.Unprocessable("payables.amounts_mismatch", "The gross amount must equal the items plus tax.")
 	}
 	sup, _, err := e.Suppliers.Supplier(ctx, v.SupplierID, v.LegalEntityID)

@@ -112,18 +112,13 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 		issues = append(issues, Issue{Code: code, ItemNo: item, Message: fmt.Sprintf(format, a...)})
 	}
 	format := func(m money.Minor) string { return m.Plain(v.Exponent) }
-	var net money.Minor
-	for _, it := range v.Items {
-		net += it.Amount
-	}
-	if net+v.Tax != v.Gross {
-		add(IssueTotalMismatch, nil, "gross %s does not equal items %s + tax %s", format(v.Gross), format(net), format(v.Tax))
+	if why := totalMismatch(v, format); why != "" {
+		add(IssueTotalMismatch, nil, "%s", why)
 	}
 	if order.Status != "released" {
 		add(IssueOrderNotOpen, nil, "purchase order %s is %s", order.DocumentNumber, order.Status)
 	}
 	absolute, _ := money.ParseDecimal(t.PriceAbsolute, v.Exponent) // validated with the document; "" is zero
-	pct, abs := int64(t.PricePercent), absolute
 	items := map[int32]int{}
 	for i, oi := range order.Items {
 		items[oi.ItemNo] = i
@@ -133,11 +128,8 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 			continue
 		}
 		oi := order.Items[items[*it.POItemNo]]
-		want := expected(it.Quantity, oi.UnitPrice, oi.PriceUnit)
-		allowed := max(abs, money.Percent(want.Abs(), pct))
-		if diff := it.Amount - want; diff.Abs() > allowed {
-			add(IssuePriceVariance, &it.ItemNo, "order item %d: invoiced %s but the order price gives %s (variance %s, tolerance %s)",
-				oi.ItemNo, format(it.Amount), format(want), format(diff), format(allowed))
+		if why := priceVariance(it, oi, absolute, int64(t.PricePercent), format); why != "" {
+			add(IssuePriceVariance, &it.ItemNo, "order item %d: %s", oi.ItemNo, why)
 		}
 		total := new(big.Rat).Add(rat(it.Quantity), rat(orDefault(invoiced[oi.ItemNo], "0")))
 		if total.Cmp(rat(oi.Received)) > 0 {
@@ -148,16 +140,44 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 	return issues
 }
 
-// expected is quantity × unit price / price unit, rounded half away from zero.
-func expected(quantity string, unitPrice money.Minor, priceUnit int32) money.Minor {
-	q, _ := new(big.Rat).SetString(quantity) // numeric columns render as decimals
-	v := new(big.Rat).Mul(q, new(big.Rat).SetFrac64(int64(unitPrice), int64(priceUnit)))
-	n, d := v.Num(), v.Denom()
-	r, m := new(big.Int).QuoRem(n, d, new(big.Int))
-	if new(big.Int).Mul(m.Abs(m), big.NewInt(2)).Cmp(d) >= 0 {
-		r.Add(r, big.NewInt(int64(n.Sign())))
+// totalMismatch says why the items plus tax do not equal the gross amount,
+// or "" when they do. Sums out of range never equal it.
+func totalMismatch(v Invoice, format func(money.Minor) string) string {
+	amounts := make([]money.Minor, len(v.Items))
+	for i, it := range v.Items {
+		amounts[i] = it.Amount
 	}
-	return money.Minor(r.Int64())
+	net, err := money.Sum(amounts...)
+	if err != nil {
+		return "the items add up to more than an amount holds"
+	}
+	if total, err := money.Sum(net, v.Tax); err != nil || total != v.Gross {
+		return fmt.Sprintf("gross %s does not equal items %s + tax %s", format(v.Gross), format(net), format(v.Tax))
+	}
+	return ""
+}
+
+// priceVariance says why the invoiced amount of an item is outside the
+// tolerance of what the order price gives for its quantity (quantity ×
+// unit price / price unit, rounded half away from zero), or "" when it is
+// within. An expected amount or variance out of range is outside.
+func priceVariance(it Item, oi procurement.OrderItem, absolute money.Minor, pct int64, format func(money.Minor) string) string {
+	want, err := money.Scale(oi.UnitPrice, it.Quantity, int64(oi.PriceUnit))
+	if err != nil {
+		return fmt.Sprintf("invoiced %s but the order price gives an amount out of range", format(it.Amount))
+	}
+	diff, err := money.Diff(it.Amount, want)
+	if err != nil {
+		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance out of range", format(it.Amount), format(want))
+	}
+	// Only a percentage above 100 of an amount near the range fails; the
+	// item is then flagged rather than let through.
+	byPct, err := money.Scale(want.Abs(), fmt.Sprint(pct), 100)
+	allowed := max(absolute, byPct)
+	if err != nil || diff > allowed || diff < -allowed {
+		return fmt.Sprintf("invoiced %s but the order price gives %s (variance %s, tolerance %s)", format(it.Amount), format(want), format(diff), format(allowed))
+	}
+	return ""
 }
 
 func rat(s string) *big.Rat {

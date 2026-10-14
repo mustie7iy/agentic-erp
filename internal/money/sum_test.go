@@ -6,6 +6,36 @@ import (
 	"testing"
 )
 
+func TestDiff(t *testing.T) {
+	const top, bottom = Minor(math.MaxInt64), Minor(math.MinInt64)
+	cases := map[string]struct {
+		a, b, want Minor
+		err        error
+	}{
+		"small":                       {5, 7, -2, nil},
+		"near the largest":            {-1, bottom + 1, top - 1, nil},
+		"to the smallest":             {-1, top, bottom, nil},
+		"over the largest":            {top, -1, 0, ErrOverflow},
+		"under the smallest":          {bottom, 1, 0, ErrOverflow},
+		"largest less the smallest":   {top, bottom, 0, ErrOverflow},
+		"smallest less itself":        {bottom, bottom, 0, nil},
+		"negative less a negative":    {-5, -7, 2, nil},
+		"zero less the smallest":      {0, bottom, 0, ErrOverflow},
+		"minus one less the smallest": {-1, bottom, top, nil},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := Diff(c.a, c.b)
+			if !errors.Is(err, c.err) {
+				t.Fatalf("Diff(%d, %d) error: got %v, want %v", c.a, c.b, err, c.err)
+			}
+			if got != c.want {
+				t.Errorf("Diff(%d, %d): got %d, want %d", c.a, c.b, got, c.want)
+			}
+		})
+	}
+}
+
 func TestSum(t *testing.T) {
 	const top, bottom = Minor(math.MaxInt64), Minor(math.MinInt64)
 	cases := map[string]struct {
