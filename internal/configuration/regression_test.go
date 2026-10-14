@@ -62,7 +62,7 @@ func TestRegressionEvidence(t *testing.T) {
 
 	// Without a suite the regression evidence fails and the request waits.
 	cr, op := s.tier3(t, "9")
-	path, opPath := "/v1/change-requests/"+cr["id"].(string), "/v1/operations/"+op["id"].(string)
+	path, opPath := "/v1/change-requests/"+apitest.String(t, cr, "id"), "/v1/operations/"+apitest.String(t, op, "id")
 	if _, err := w.RunOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -70,21 +70,21 @@ func TestRegressionEvidence(t *testing.T) {
 	if got["status"] != "awaiting_evidence" {
 		t.Errorf("without a suite: got status %v, want awaiting_evidence", got["status"])
 	}
-	if n := len(got["evidence"].([]any)); n != 2 {
+	if n := len(apitest.List(t, got, "evidence")); n != 2 {
 		t.Fatalf("without a suite: got %d pieces of evidence, want 2: %v", n, got)
 	}
-	regression := evidenceOf(got, "regression")
+	regression := evidenceOf(t, got, "regression")
 	if regression["passed"] != false {
 		t.Errorf("regression evidence passed: got %v, want false", regression["passed"])
 	}
-	if summary := regression["summary"].(string); !strings.Contains(summary, "No regression suite captured on version 1") {
+	if summary := apitest.String(t, regression, "summary"); !strings.Contains(summary, "No regression suite captured on version 1") {
 		t.Errorf("regression evidence summary: got %q, want no suite on version 1", summary)
 	}
 	done := status(opPath)
 	if done["status"] != "succeeded" {
 		t.Errorf("operation status: got %v, want succeeded", done["status"])
 	}
-	if passed := done["result"].(map[string]any)["regression_passed"]; passed != false {
+	if passed := apitest.Object(t, done, "result")["regression_passed"]; passed != false {
 		t.Errorf("operation regression_passed: got %v, want false", passed)
 	}
 
@@ -102,7 +102,7 @@ func TestRegressionEvidence(t *testing.T) {
 			t.Errorf("suite %s: got %v, want %v", field, got[field], want)
 		}
 	}
-	if n := len(got["strata"].([]any)); n != 2 {
+	if n := len(apitest.List(t, got, "strata")); n != 2 {
 		t.Errorf("suite strata: got %d, want 2", n)
 	}
 	if page, _ := s.Must(200, "GET", "/v1/regression-suites?config_version=1", "", ""); len(page["items"].([]any)) != 1 {
@@ -141,7 +141,7 @@ func TestRegressionEvidence(t *testing.T) {
 	// Two suites page one at a time.
 	s.suite(t)
 	page, _ := s.Must(200, "GET", "/v1/regression-suites?page_size=1", "", "")
-	if n := len(page["items"].([]any)); n != 1 {
+	if n := len(apitest.List(t, page, "items")); n != 1 {
 		t.Errorf("page 1: got %d items, want 1", n)
 	}
 	if page["next_page_token"] == nil {
@@ -158,11 +158,11 @@ func TestRegressionEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = status(path)
-	last := evidenceOf(got, "regression")
+	last := evidenceOf(t, got, "regression")
 	if got["status"] != "awaiting_evidence" {
 		t.Errorf("stale: got status %v, want awaiting_evidence", got["status"])
 	}
-	if summary := last["summary"].(string); !strings.Contains(summary, "no longer matches version 1") {
+	if summary := apitest.String(t, last, "summary"); !strings.Contains(summary, "no longer matches version 1") {
 		t.Errorf("stale: got summary %q, want the suite no longer matching version 1", summary)
 	}
 	delete(reg.failures, "19")
@@ -175,17 +175,17 @@ func TestRegressionEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = status(path)
-	last = evidenceOf(got, "regression")
+	last = evidenceOf(t, got, "regression")
 	if got["status"] != "awaiting_evidence" {
 		t.Errorf("regression outside: got status %v, want awaiting_evidence", got["status"])
 	}
 	if last["passed"] != false {
 		t.Errorf("regression outside: got passed %v, want false", last["passed"])
 	}
-	if summary := last["summary"].(string); !strings.Contains(summary, "1 of them outside the companies") {
+	if summary := apitest.String(t, last, "summary"); !strings.Contains(summary, "1 of them outside the companies") {
 		t.Errorf("regression outside: got summary %q, want one outside the companies", summary)
 	}
-	if n := len(last["detail"].(map[string]any)["regressions"].([]any)); n != 1 {
+	if n := len(apitest.Object(t, last, "detail")["regressions"].([]any)); n != 1 {
 		t.Errorf("regression outside: got %d regressions, want 1", n)
 	}
 	reg.failures["9"] = []configuration.RegressionFailure{{Case: reg.cases[0], Decision: "review"}}
@@ -195,27 +195,27 @@ func TestRegressionEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = status(path)
-	last = evidenceOf(got, "regression")
-	detail := last["detail"].(map[string]any)
+	last = evidenceOf(t, got, "regression")
+	detail := apitest.Object(t, last, "detail")
 	if got["status"] != "pending_approval" {
 		t.Errorf("changes inside: got status %v, want pending_approval", got["status"])
 	}
 	if last["passed"] != true {
 		t.Errorf("changes inside: got passed %v, want true", last["passed"])
 	}
-	if n := len(detail["changed"].([]any)); n != 1 {
+	if n := len(apitest.List(t, detail, "changed")); n != 1 {
 		t.Errorf("changes inside: got %d changed, want 1", n)
 	}
-	if n := len(detail["regressions"].([]any)); n != 0 {
+	if n := len(apitest.List(t, detail, "regressions")); n != 0 {
 		t.Errorf("changes inside: got %d regressions, want 0", n)
 	}
-	if touched := detail["touched_companies"].([]any)[0]; touched != "2000" {
+	if touched := apitest.List(t, detail, "touched_companies")[0]; touched != "2000" {
 		t.Errorf("changes inside: got touched company %v, want 2000", touched)
 	}
 
 	// Replay errors, on the base or on the proposal: a problem fails the operation, anything else leaves it queued.
 	_, op = s.tier3(t, "8")
-	opPath = "/v1/operations/" + op["id"].(string)
+	opPath = "/v1/operations/" + apitest.String(t, op, "id")
 	reg.errs = map[string]error{"19": errors.New("hiccup")}
 	if _, err := w.RunOnce(ctx); err == nil {
 		t.Error("transient replay error on the base: got no error, want one")

@@ -163,7 +163,11 @@ func TestPostAndReverse(t *testing.T) {
 	if len(tag) < 10 {
 		t.Errorf("entry tag: got %q, want at least 10 characters", tag)
 	}
-	l := je["lines"].([]any)[1].(map[string]any)
+	lines := apitest.List(t, je, "lines")
+	if len(lines) < 2 {
+		t.Fatalf("entry lines: got %d, want at least 2", len(lines))
+	}
+	l, _ := lines[1].(map[string]any) // a nil map fails the amount checks below
 	if got := l["amount"].(map[string]any)["amount"]; got != "-1200.00" {
 		t.Errorf("line amount: got %v, want -1200.00", got)
 	}

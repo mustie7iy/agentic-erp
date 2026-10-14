@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -151,7 +152,7 @@ func TestPostingRefusals(t *testing.T) {
 	if l["line_text"] != "Fees" {
 		t.Errorf("line line_text: got %v, want Fees", l["line_text"])
 	}
-	if got := l["quantity"].(map[string]any)["value"]; got != "12.5" {
+	if got := apitest.Object(t, l, "quantity")["value"]; got != "12.5" {
 		t.Errorf("line quantity: got %v, want 12.5", got)
 	}
 	pgtest.Exec(t, `UPDATE config.number_range SET next_value = last_value + 1, version = version + 1 WHERE legal_entity_id = $1 AND document_type = 'journal_sa'`, e.de)
@@ -183,7 +184,7 @@ func TestReversalRules(t *testing.T) {
 			t.Errorf("reversal %s: got %v, want %v", field, rev[field], want)
 		}
 	}
-	if got := l["quantity"].(map[string]any)["value"]; got != "3" {
+	if got := apitest.Object(t, l, "quantity")["value"]; got != "3" {
 		t.Errorf("reversal quantity: got %v, want 3", got)
 	}
 	if got := amounts(t, rev, "amount"); got != "-5.00,5.00" {

@@ -146,7 +146,11 @@ func TestCreateAndRead(t *testing.T) {
 	if hint := p["extensions"].(map[string]any)["cost_object_hint"]; hint != "MKT" {
 		t.Errorf("partner cost_object_hint: got %v, want MKT", hint)
 	}
-	tax := p["tax_identifiers"].([]any)[0].(map[string]any)
+	taxes := apitest.List(t, p, "tax_identifiers")
+	if len(taxes) == 0 {
+		t.Fatalf("tax identifiers: got none, want one")
+	}
+	tax, _ := taxes[0].(map[string]any) // a nil map fails the scheme check below
 	if tax["scheme"] != "EU_VAT" {
 		t.Errorf("tax identifier scheme: got %v, want EU_VAT", tax["scheme"])
 	}
@@ -234,7 +238,7 @@ func TestCreateAndRead(t *testing.T) {
 		t.Fatalf("warnings: %v", c2["warnings"])
 	}
 
-	list := func(q string) []string {
+	list := func(e env, q string) []string {
 		page, _ := e.Must(200, "GET", "/v1/business-partners"+q, "", "")
 		var out []string
 		for _, it := range page["items"].([]any) {
@@ -262,7 +266,7 @@ func TestCreateAndRead(t *testing.T) {
 		"?number=BP00000001&role=supplier": "BP00000001",
 	} {
 		t.Run("list"+q, func(t *testing.T) {
-			got := list(q)
+			got := list(e.in(t), q)
 			if len(got) > 0 && strings.HasPrefix(got[len(got)-1], "next:") {
 				got = got[:len(got)-1]
 			}
@@ -271,18 +275,18 @@ func TestCreateAndRead(t *testing.T) {
 			}
 		})
 	}
-	first := list("?order_by=name&page_size=1")
+	first := list(e, "?order_by=name&page_size=1")
 	if len(first) != 2 {
 		t.Fatalf("page 1: %v", first)
 	}
-	if rest := list("?order_by=name&page_size=1&page_token=" + strings.TrimPrefix(first[1], "next:")); strings.Join(rest, ",") != "BP00000001" {
+	if rest := list(e, "?order_by=name&page_size=1&page_token="+strings.TrimPrefix(first[1], "next:")); strings.Join(rest, ",") != "BP00000001" {
 		t.Fatalf("page 2: %v", rest)
 	}
-	byNumber := list("?page_size=1")
+	byNumber := list(e, "?page_size=1")
 	if len(byNumber) != 2 {
 		t.Fatalf("by number: got %d %v, want 2", len(byNumber), byNumber)
 	}
-	if rest := list("?page_size=1&page_token=" + strings.TrimPrefix(byNumber[1], "next:")); rest[0] != "BP00000002" {
+	if rest := list(e, "?page_size=1&page_token="+strings.TrimPrefix(byNumber[1], "next:")); rest[0] != "BP00000002" {
 		t.Errorf("by number, page 2: got %v, want BP00000002 first", rest)
 	}
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/business-partners?order_by=status", "", "")

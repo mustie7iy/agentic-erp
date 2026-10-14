@@ -200,7 +200,7 @@ func TestBankChanges(t *testing.T) {
 	if cp["action"] != "add" {
 		t.Errorf("bank change action: got %v, want add", cp["action"])
 	}
-	if last4 := cp["bank_account"].(map[string]any)["account_last4"]; last4 != "5678" {
+	if last4 := apitest.Object(t, cp, "bank_account")["account_last4"]; last4 != "5678" {
 		t.Errorf("bank change account_last4: got %v, want 5678", last4)
 	}
 	e.Problem(409, "partner.change_pending", "POST", path, body("87654321", "domestic", e.date(2)), "")
