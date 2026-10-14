@@ -208,7 +208,7 @@ func priceVariance(it Item, oi procurement.OrderItem, lim limits, conv ledger.Co
 	if err != nil {
 		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance out of range in %s", format(it.Amount), format(want), conv.To)
 	}
-	if new(big.Rat).Abs(inCompany.Major(conv.ToExp)).Cmp(lim.priceAbsolute) <= 0 {
+	if new(big.Rat).Abs(money.Rat(inCompany, conv.ToExp)).Cmp(lim.priceAbsolute) <= 0 {
 		return ""
 	}
 	return fmt.Sprintf("invoiced %s but the order price gives %s (variance %s, tolerance %s or %s %s)",

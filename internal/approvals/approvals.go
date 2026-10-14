@@ -224,7 +224,7 @@ func requisitionSteps(ctx context.Context, rates Rates, doc *config.Config, in N
 	// A threshold is validated with each company currency's digits, which
 	// may be more than this company's, so amount and threshold are compared
 	// exactly rather than read at the company's digits.
-	amount := minor.Major(exp)
+	amount := money.Rat(minor, exp)
 	for _, t := range doc.Purchasing.RequisitionApproval {
 		if t.UpTo != "" { // "" is the last tier
 			limit, err := money.ParseDecimalRat(t.UpTo) // the grammar the document was validated with

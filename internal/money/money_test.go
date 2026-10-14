@@ -82,14 +82,16 @@ func TestExtendAndPercentLarge(t *testing.T) {
 	}
 }
 
-func TestMajor(t *testing.T) {
+// TestRatAtCurrencyDigits: an amount as an exact rational in major units,
+// what a figure read with ParseDecimalRat is compared with.
+func TestRatAtCurrencyDigits(t *testing.T) {
 	for _, c := range []struct {
 		m    Minor
 		exp  int
 		want string
 	}{{123456, 2, "1234.56"}, {-5, 3, "-0.005"}, {7, 0, "7"}, {math.MinInt64, 2, "-92233720368547758.08"}} {
 		t.Run(c.want, func(t *testing.T) {
-			if got := c.m.Major(c.exp).FloatString(c.exp); got != c.want {
+			if got := Rat(c.m, c.exp).FloatString(c.exp); got != c.want {
 				t.Errorf("%d with %d digits: got %s, want %s", c.m, c.exp, got, c.want)
 			}
 		})

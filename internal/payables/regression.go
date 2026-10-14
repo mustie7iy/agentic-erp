@@ -198,7 +198,7 @@ func near(r replayed, lim limits) bool {
 	if lim.autoPost.Sign() <= 0 {
 		return false
 	}
-	gross := r.Gross.Major(r.Conversion.ToExp)
+	gross := money.Rat(r.Gross, r.Conversion.ToExp)
 	return gross.Cmp(new(big.Rat).Mul(lim.autoPost, big.NewRat(8, 10))) >= 0 && gross.Cmp(new(big.Rat).Mul(lim.autoPost, big.NewRat(12, 10))) <= 0
 }
 

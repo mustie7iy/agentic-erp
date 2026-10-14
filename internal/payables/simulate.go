@@ -261,7 +261,7 @@ func decide(lim limits, r replayed) (string, []Issue) {
 	if len(issues) > 0 {
 		return DecisionException, issues
 	}
-	if r.Gross.Major(r.Conversion.ToExp).Cmp(lim.autoPost) > 0 {
+	if money.Rat(r.Gross, r.Conversion.ToExp).Cmp(lim.autoPost) > 0 {
 		return DecisionReview, nil
 	}
 	return DecisionAutoPost, nil
