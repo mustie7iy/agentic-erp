@@ -32,6 +32,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // API is a running public API.
@@ -305,16 +306,8 @@ func Committed(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, fn func(ctx con
 		tb.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if err := database.SetActor(ctx, tx, a.ID); err != nil {
-		tb.Fatal(err)
-	}
 	p := reqctx.Principal{ID: a.ID, Kind: a.Kind, TenantID: ten.ID}
-	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), p)
-	ctx, buf := audit.WithBuffer(ctx)
-	if err := fn(ctx); err != nil {
-		return err
-	}
-	if err := buf.Flush(ctx, tx, p, "", time.Now()); err != nil {
+	if err := uow.Act(ctx, tx, p, nil, fn); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
