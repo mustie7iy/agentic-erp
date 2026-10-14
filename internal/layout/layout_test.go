@@ -66,28 +66,40 @@ var allowed = map[string][]string{
 }
 
 // unit is the context a package under internal/ belongs to: its first path
-// segment, the platform package itself, or a delivery agent (each agent
-// under delivery/ stands alone).
+// segment, the platform package itself, a delivery agent (each agent under
+// delivery/ stands alone) or a command.
 func unit(pkg string) string {
 	parts := strings.Split(pkg, "/")
-	if len(parts) > 1 && (parts[0] == "platform" || parts[0] == "delivery") {
+	if len(parts) > 1 && (parts[0] == "platform" || parts[0] == "delivery" || parts[0] == "cmd") {
 		return parts[0] + "/" + parts[1]
 	}
 	return parts[0]
 }
 
-// imports reads the production imports of every package under internal/,
-// keyed by package path relative to internal/; tests may import freely.
+// imports reads the production imports of every package under internal/
+// (keyed by its path there) and cmd/ (keyed cmd/<name>); tests may import
+// freely.
 func imports(t *testing.T) map[string]map[string]bool {
 	t.Helper()
-	root, err := filepath.Abs("..")
-	if err != nil {
-		t.Fatalf("internal/: %v", err)
-	}
-	fset := token.NewFileSet()
 	out := map[string]map[string]bool{}
-	// Build constraints are not applied: every variant of a file is checked.
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	for dir, prefix := range map[string]string{"..": "", "../../cmd": "cmd/"} {
+		root, err := filepath.Abs(dir)
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		if err := walk(root, prefix, out); err != nil {
+			t.Fatalf("parse %s: %v", root, err)
+		}
+	}
+	return out
+}
+
+// walk adds the imports of the production files below root to out, keying
+// each package by prefix and its path below root. Build constraints are not
+// applied: every variant of a file is checked.
+func walk(root, prefix string, out map[string]map[string]bool) error {
+	fset := token.NewFileSet()
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -109,7 +121,7 @@ func imports(t *testing.T) map[string]map[string]bool {
 		if err != nil {
 			return err
 		}
-		pkg := filepath.ToSlash(rel)
+		pkg := prefix + filepath.ToSlash(rel)
 		for _, spec := range f.Imports {
 			imp, err := strconv.Unquote(spec.Path.Value)
 			if err != nil {
@@ -124,13 +136,10 @@ func imports(t *testing.T) map[string]map[string]bool {
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("parse internal/: %v", err)
-	}
-	return out
 }
 
-// TestImportRules: production code imports no test support, platform
+// TestImportRules: production code (internal/ and cmd/) imports no test
+// support, platform
 // packages (other than platformUsers) import no context, and a context
 // imports another only where allowed says so.
 func TestImportRules(t *testing.T) {
@@ -145,6 +154,7 @@ func TestImportRules(t *testing.T) {
 			}
 			switch {
 			case from == to, strings.HasPrefix(to, "platform/"), shared[to]:
+			case strings.HasPrefix(from, "cmd/"): // a command wires contexts together
 			case strings.HasPrefix(from, "platform/"):
 				if !platformUsers[from] {
 					t.Errorf("%s imports %s: a platform package may not depend on a context", pkg, dep)

@@ -135,12 +135,13 @@ internal/platform/httpapi/  the composition root: builds the API from every
 ```
 
 Import rules, checked by `internal/layout`'s test, which parses the imports of
-every production file under `internal/`:
+every production file under `internal/` and `cmd/`:
 
 - A platform package imports no context. The two exceptions are named in the
   test: `platform/httpapi`, the composition root, and `platform/fixture`, test
   support that builds a configured tenant.
-- Any package may import the platform and the shared kernel (`money`).
+- Any package may import the platform and the shared kernel (`money`); a
+  command under `cmd/` may import any context, since it wires them together.
 - A context imports another context only where the test's allowlist says so.
   The list is exact: a new dependency fails the test until it is added there,
   in the same change as the interface it uses (and an ADR if it reverses a
