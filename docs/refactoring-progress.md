@@ -288,8 +288,21 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   worker loop); the release-worker test counts its own tenant exactly; subtests report to their
   own t. Also: polling waits no longer open a connection per check (pgtest.Scan), which had made
   the coverage gate hit "too many clients". Reviewer: APPROVE.
-- [ ] R53 Architecture housekeeping (gap 8)
-- [ ] R54 Deferred items from earlier phases
+- [x] R53 Architecture housekeeping (gap 8). The composition root moved from platform/httpapi to
+  internal/app (apitest to internal/app/apitest), so no platform package imports a context but
+  test-support fixture; the layout test covers cmd/; every package doc cites an ADR or design
+  section (no ADR covers agents or LLM use: a gap in the ADRs themselves). Cross-schema SQL moved
+  behind the owners' Go APIs (identity.Actors, tenancy's tenant row, owners' queued-work queries
+  for the workflow dispatcher, identity.CreateFirstAdministrator, fieldcrypt and audit reads);
+  the named exceptions that remain are listed in §6.7. Reviewers: APPROVE.
+- [x] R54 Deferred items from earlier phases. blobstore Dir repairs a sidecar a failed Put left
+  out (anchor retention no longer lost); every erp command fails when its output cannot be
+  written; ledger's trial-balance budget scales with ERP_BUDGET_SCALE; .gitignore covers cmd
+  binaries; discarded errors carry reasons. Overflow follow-ups of R51: payment proposal sums,
+  analytics aggregates, payables near(), reconciliation sums (all reachable, Fixes). Open: a
+  blocked supplier whose items overflow fails every proposal of its legal entity (a new
+  exclusion reason needs a migration); a cancelled release's FinishRelease can orphan a bank
+  file in object storage; analytics keeps every term per group in memory.
 - [ ] R55 Re-review until 9.5
 
 ## Baseline
