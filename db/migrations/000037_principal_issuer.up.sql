@@ -21,7 +21,9 @@
 -- before this migration is refused (identity.principal_unknown) until it is
 -- bound to its real issuer: fail closed rather than guess. A fresh install
 -- has no principals to backfill. One statement suffices: there is no
--- production data yet; a large table would be backfilled in batches.
+-- production data yet; a large table would be backfilled in batches. The
+-- backfill writes no audit entries: schema migrations run outside the unit
+-- of work and are recorded by the migration table, not the audit trail.
 ALTER TABLE identity.principal ADD COLUMN external_issuer text;
 COMMENT ON COLUMN identity.principal.external_issuer IS
   'The OIDC issuer (iss) whose tokens authenticate the principal, with external_subject; NULL for agents';

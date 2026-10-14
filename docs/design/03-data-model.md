@@ -190,8 +190,9 @@ provision, `provisioning.issuer_ambiguous`). `principal_issuer_subject`
 issuer `erp-dev`, the single issuer of the only installations that had any
 (no record says which issuer created a principal; elsewhere it matches no
 token, so such a principal is refused until re-bound). The contract step,
-in a later release, requires the issuer of every principal with a subject
-and drops `principal_subject` (the subject alone unique per tenant), which
+in a later release, first backfills (or re-binds) the principals the
+previous release created during the rollout without an issuer, then
+requires the issuer of every principal with a subject and drops `principal_subject` (the subject alone unique per tenant), which
 the previous release still relies on.
 
 Role permissions, role assignments, company access and SoD rules are
