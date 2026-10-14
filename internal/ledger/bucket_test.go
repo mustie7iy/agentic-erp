@@ -2,10 +2,13 @@ package ledger_test
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -25,4 +28,66 @@ func TestEntryLocksNeedATenant(t *testing.T) {
 	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: uuid.New(), Kind: "human"})
 	_, err = ledger.OpenItems{}.Unpayable(ctx, []ledger.ItemRef{{FiscalYear: 2026, EntryID: uuid.Must(uuid.NewV7()), LineNo: 1}})
 	pgtest.WantErr(t, err, "no tenant")
+}
+
+// TestBucketsAreTenantScoped: an entry lock one tenant holds never holds up
+// another tenant whose entry falls in the same bucket number; the same
+// tenant's entry in that bucket waits, which shows the probe would see it.
+func TestBucketsAreTenantScoped(t *testing.T) {
+	e := setup(t)
+	other := pgtest.NewTenant(t, perms...)
+	bank, revenue := e.account(t, "2000", "100000"), e.account(t, "2000", "400000")
+	je, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{revenue, "-5.00", ""}), "")
+	held := uuid.MustParse(je["id"].(string))
+	twin := uuid.Must(uuid.NewV7())
+	twin[14], twin[15] = held[14], held[15]
+	if got, want := ledger.EntryLockBucket(twin), ledger.EntryLockBucket(held); got != want {
+		t.Fatalf("twin bucket: got %d, want %d", got, want)
+	}
+	probe := func(ctx context.Context) error {
+		_, err := ledger.OpenItems{}.Unpayable(ctx, []ledger.ItemRef{{FiscalYear: 2026, EntryID: twin, LineNo: 1}})
+		return err
+	}
+	locked, release := make(chan struct{}), make(chan struct{})
+	letGo := sync.OnceFunc(func() { close(release) })
+	defer letGo()
+	firstDone := make(chan error, 1)
+	go func() {
+		err := errSetup
+		defer func() { firstDone <- err }()
+		err = apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+			if _, err := postings().Reverse(ctx, held, nil, nil); err != nil {
+				return err
+			}
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-firstDone:
+		t.Fatalf("reversal holding the bucket: %v", err)
+	}
+	// Another tenant's entry in the same bucket number goes ahead at once.
+	if err := apitest.InRequest(t, other, other.Human, probe); err != nil {
+		t.Fatalf("another tenant's entry in the same bucket: got %v, want it not to wait", err)
+	}
+	// The same tenant's entry in the bucket waits for the reversal.
+	sameDone := make(chan error, 1)
+	go func() { sameDone <- apitest.InRequest(t, e.ten, e.ten.Human, probe) }()
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var waiting int
+		pgtest.Scan(t, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+			AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('ledger.journal_entry:' || $1::uuid || ':' || $2::int, 0)`,
+			[]any{e.ten.ID, ledger.EntryLockBucket(held)}, &waiting)
+		return waiting > 0
+	}, "the same tenant's entry in the bucket did not wait for the reversal")
+	letGo()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("reversal: %v", err)
+	}
+	if err := <-sameDone; err != nil {
+		t.Fatalf("same tenant's probe after the reversal: %v", err)
+	}
 }
