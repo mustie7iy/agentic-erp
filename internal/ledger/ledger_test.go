@@ -167,11 +167,14 @@ func TestPostAndReverse(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("entry lines: got %d, want at least 2", len(lines))
 	}
-	l, _ := lines[1].(map[string]any) // a nil map fails the amount checks below
-	if got := l["amount"].(map[string]any)["amount"]; got != "-1200.00" {
+	l, ok := lines[1].(map[string]any)
+	if !ok {
+		t.Fatalf("entry line 2: got %v, want an object", lines[1])
+	}
+	if got := apitest.Object(t, l, "amount")["amount"]; got != "-1200.00" {
 		t.Errorf("line amount: got %v, want -1200.00", got)
 	}
-	if got := l["amount_gc"].(map[string]any)["amount"]; got != "-1200.00" {
+	if got := apitest.Object(t, l, "amount_gc")["amount"]; got != "-1200.00" {
 		t.Errorf("line amount_gc: got %v, want -1200.00", got)
 	}
 	rev, _ := e.Must(200, "POST", "/v1/journal-entries/"+je["id"].(string)+":reverse", "", tag)

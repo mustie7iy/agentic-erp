@@ -185,7 +185,7 @@ func TestRegressionEvidence(t *testing.T) {
 	if summary := apitest.String(t, last, "summary"); !strings.Contains(summary, "1 of them outside the companies") {
 		t.Errorf("regression outside: got summary %q, want one outside the companies", summary)
 	}
-	if n := len(apitest.Object(t, last, "detail")["regressions"].([]any)); n != 1 {
+	if n := len(apitest.List(t, apitest.Object(t, last, "detail"), "regressions")); n != 1 {
 		t.Errorf("regression outside: got %d regressions, want 1", n)
 	}
 	reg.failures["9"] = []configuration.RegressionFailure{{Case: reg.cases[0], Decision: "review"}}
