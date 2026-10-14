@@ -371,6 +371,16 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - [x] R58 Round-three residue: one open-item check (checkItem), one reversed-line condition,
   sorted partners, checked sums (ledger totals, payables simulation), Minor.Decimal removed, CLI
   read errors reported, combined assertions split, reverseJournalEntry in named steps.
+- Third re-review after round three: **9.3 / 10** (architecture 9.3, error handling 9.3,
+  concurrency 9.3, SQL 9.7, tests 9.4, readability 9.4, duplication 9.1, money 9.2). Round four
+  below. User decision: configured money amounts (requisition thresholds, invoice tolerances,
+  the auto-post limit) mean the company's currency; a document in another currency is converted
+  at the ledger's rate for its date before comparing, and a missing rate refuses the step.
+- [ ] F12 Configured amounts compared in the company's currency (thresholds, tolerances, auto-post
+  limit, simulation evidence), exactly, with parse errors handled
+- [ ] R59 Round-four residue: createClearing through clearWithEntry, one currency loader, money.Rat,
+  MonthlyBudget as money.Minor, Render validates, period lock after the access check, keyring
+  errors, analytics value comparison
 
 ## Baseline
 
