@@ -38,10 +38,10 @@ type Item struct {
 	Received       string      `json:"received"`
 }
 
-// total is the items' total; checkTotal refused items out of range when
-// they were written.
+// total is the items' total for display. Decisions use documentTotal,
+// which fails closed.
 func total(items []Item) money.Minor {
-	sum, _ := itemsTotal(items) // in range: items are checked on every write (checkTotal)
+	sum, _ := itemsTotal(items) // display only: 0 for items stored out of range before checkTotal; decisions use documentTotal
 	return sum
 }
 
@@ -426,7 +426,10 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	sum := r.Total()
+	sum, err := documentTotal(r.Items)
+	if err != nil {
+		return Requisition{}, err
+	}
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: id,
 		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency})
 	if err != nil {

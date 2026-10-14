@@ -3,6 +3,9 @@ package procurement_test
 import (
 	"fmt"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 const largest = "92233720368547758.07" // 2^63-1 cents
@@ -47,4 +50,33 @@ func TestContractRemainderOutOfRange(t *testing.T) {
 	e.act(t, "/v1/purchase-orders/"+id(small), "release", "")
 	whole := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", `, "contract_item_no": 2`)), contract)
 	e.Problem(409, "procurement.contract_exceeded", "POST", "/v1/purchase-orders/"+id(whole)+":release", "", "*")
+}
+
+// Items stored out of range before totals were checked on write are
+// refused where a decision rests on the total: before, Total returned 0
+// for them, the lowest approval tier and no contract consumption.
+func TestStoredTotalOutOfRange(t *testing.T) {
+	e := setup(t)
+	// As rows written before the check: past the triggers that keep the
+	// items of released orders unchanged, for this transaction only.
+	corrupt := func(table, column string, doc map[string]any) {
+		// DO takes no parameters; a parsed UUID renders only hex and dashes.
+		pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+			UPDATE procurement.%s SET quantity = 2, unit_price = 9223372036854775807 WHERE %s = '%s'; END $$`,
+			table, column, uuid.MustParse(id(doc))))
+	}
+	r := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	corrupt("requisition_item", "requisition_id", r)
+	e.Problem(422, "procurement.amount_too_large", "POST", "/v1/requisitions/"+id(r)+":submit", "", "*")
+
+	o := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	corrupt("purchase_order_item", "purchase_order_id", o)
+	e.Problem(422, "procurement.amount_too_large", "POST", "/v1/purchase-orders/"+id(o)+":release", "", "*")
+
+	c := e.contract(t, e.Supplier.String(), "")
+	e.act(t, "/v1/contracts/"+id(c), "release", "")
+	released := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", `, "contract_item_no": 1`)), fmt.Sprintf(`, "contract_id": %q`, id(c)))
+	e.act(t, "/v1/purchase-orders/"+id(released), "release", "")
+	corrupt("purchase_order_item", "purchase_order_id", released)
+	e.Problem(422, "procurement.amount_too_large", "POST", "/v1/purchase-orders/"+id(released)+":cancel", "", "*")
 }

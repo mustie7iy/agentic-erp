@@ -529,7 +529,10 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	if err := e.supplier(ctx, o.SupplierID, o.LegalEntityID); err != nil {
 		return PurchaseOrder{}, err
 	}
-	value := o.Total()
+	value, err := documentTotal(o.Items)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
 	if o.ContractID != nil {
 		if _, err := tx.Exec(ctx, `SELECT FROM procurement.contract WHERE id = $1 FOR UPDATE`, *o.ContractID); err != nil {
 			return PurchaseOrder{}, fmt.Errorf("procurement: release purchase order %s: lock contract %s: %w", id, *o.ContractID, err)
@@ -621,13 +624,9 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if invoiced {
 		return PurchaseOrder{}, problem.Conflict("procurement.order_invoiced", "Invoices refer to the order; it cannot be cancelled.")
 	}
-	var releasedValue any
-	if o.Status == Released && o.ContractID != nil && o.Total() != 0 {
-		if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract_release (tenant_id, contract_id, purchase_order_id, value, released_at, released_by)
-			VALUES ($1, $2, $3, $4, clock_timestamp(), $5)`, p.TenantID, *o.ContractID, id, -o.Total(), p.ID); err != nil {
-			return PurchaseOrder{}, fmt.Errorf("procurement: cancel purchase order %s: return contract %s consumption: %w", id, *o.ContractID, err)
-		}
-		releasedValue = money.EventAmount(o.Total(), o.Currency, o.Exponent)
+	releasedValue, err := returnConsumption(ctx, tx, p, o)
+	if err != nil {
+		return PurchaseOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'cancelled', version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: cancel purchase order %s: %w", id, err)
@@ -648,4 +647,21 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	return cancelled, audit.Record(ctx, "procurement.purchase_order.cancel", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
 		event("purchase_order_cancelled", "purchase_order", id, orderEvent(o, map[string]any{"requisition_id": o.RequisitionID,
 			"contract_id": o.ContractID, "released_value": releasedValue, "previous_status": o.Status, "status": Cancelled})))
+}
+
+// returnConsumption gives a released contract order's value back to the
+// contract and returns it for the event, or nil when nothing is returned.
+func returnConsumption(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseOrder) (any, error) {
+	if o.Status != Released || o.ContractID == nil {
+		return nil, nil
+	}
+	value, err := documentTotal(o.Items)
+	if err != nil || value == 0 {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract_release (tenant_id, contract_id, purchase_order_id, value, released_at, released_by)
+		VALUES ($1, $2, $3, $4, clock_timestamp(), $5)`, p.TenantID, *o.ContractID, o.ID, -value, p.ID); err != nil {
+		return nil, fmt.Errorf("procurement: cancel purchase order %s: return contract %s consumption: %w", o.ID, *o.ContractID, err)
+	}
+	return money.EventAmount(value, o.Currency, o.Exponent), nil
 }

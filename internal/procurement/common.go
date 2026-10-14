@@ -162,10 +162,19 @@ func itemsTotal(items []Item) (money.Minor, error) {
 // contract's remaining value. The API admits only plain decimal
 // quantities, so what fails is the range.
 func checkTotal(items []Item) error {
-	if _, err := itemsTotal(items); err != nil {
-		return invalid("procurement.amount_too_large", "items", "extended amounts and their total must be in the range of an amount")
+	_, err := documentTotal(items)
+	return err
+}
+
+// documentTotal is the items' total for a decision (approval tier, contract
+// consumption). Unlike Total it fails closed: items stored before
+// checkTotal refused totals out of range are refused here.
+func documentTotal(items []Item) (money.Minor, error) {
+	sum, err := itemsTotal(items)
+	if err != nil {
+		return 0, invalid("procurement.amount_too_large", "items", "extended amounts and their total must be in the range of an amount")
 	}
-	return nil
+	return sum, nil
 }
 
 // legalEntity loads a legal entity the caller may act in that is active.
