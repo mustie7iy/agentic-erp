@@ -11,10 +11,9 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/integration"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // Migration runs (T28, ADR-0012): a run's start (extract, check, load) or
@@ -70,15 +69,11 @@ func (m *Migrations) Execute(ctx context.Context, in MigrateInput) error {
 		WHERE o.id = $1`, in.OperationID).Scan(&by, &kind); err != nil {
 		return fmt.Errorf("workflows: migration run %s: read the requester of operation %s: %w", in.RunID, in.OperationID, err)
 	}
-	if err := database.SetActor(ctx, tx, by); err != nil {
-		return err
-	}
 	actor := reqctx.Principal{ID: by, Kind: kind, TenantID: in.TenantID}
-	rctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor))
-	if _, err := m.Endpoints.Execute(rctx, in.RunID); err != nil {
+	if err := uow.Act(ctx, tx, actor, m.Now, func(ctx context.Context) error {
+		_, err := m.Endpoints.Execute(ctx, in.RunID)
 		return err
-	}
-	if err := buf.Flush(rctx, tx, actor, "", clock.Now(m.Now)); err != nil {
+	}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

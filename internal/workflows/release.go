@@ -12,12 +12,10 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/payments"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
@@ -97,14 +95,7 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 	if r.ReleaseOpID == nil || *r.ReleaseOpID != in.OperationID {
 		return nil
 	}
-	if err := database.SetActor(ctx, tx, actor.ID); err != nil {
-		return err
-	}
-	rctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor))
-	if err := fn(rctx, tx, r); err != nil {
-		return err
-	}
-	if err := buf.Flush(rctx, tx, actor, "", clock.Now(p.Now)); err != nil {
+	if err := uow.Act(ctx, tx, actor, p.Now, func(ctx context.Context) error { return fn(ctx, tx, r) }); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

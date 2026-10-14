@@ -16,10 +16,9 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/payments"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // ProposeInput names the payment run a proposal workflow builds.
@@ -88,15 +87,8 @@ func (p *Payments) Propose(ctx context.Context, in ProposeInput) error {
 	if err != nil || !ok {
 		return err
 	}
-	if err := database.SetActor(ctx, tx, job.ProposedBy); err != nil {
-		return err
-	}
 	actor := reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: in.TenantID}
-	rctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor))
-	if err := p.Endpoints.Process(rctx, job); err != nil {
-		return err
-	}
-	if err := buf.Flush(rctx, tx, actor, "", clock.Now(p.Now)); err != nil {
+	if err := uow.Act(ctx, tx, actor, p.Now, func(ctx context.Context) error { return p.Endpoints.Process(ctx, job) }); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
