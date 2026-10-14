@@ -222,9 +222,11 @@ at most one bank file.
 - Segregation of duties is checked on transitions (for example, the user who
   created a payment run cannot release it).
 - A document's journal entry is reversed through the document, never
-  around it: `journal-entries/{id}:reverse` refuses an entry another context
-  posted (`409 ledger.entry_owned_elsewhere`, naming the owner's endpoint),
-  so `ledger.entry.post` cannot stand in for `payables.invoice.post`.
+  around it: `journal-entries/{id}:reverse` refuses a supplier invoice's
+  entry (`409 ledger.entry_owned_elsewhere`, naming
+  `supplier-invoices/{id}:reverse`), so `ledger.entry.post` cannot stand in
+  for `payables.invoice.post`. Entries of contexts with no reversal path yet
+  (procurement, receivables, assets) are refused the same way, saying so.
 - Approval decisions (`:approve`, `:reject` on approval requests) require a
   human principal; agent tokens are refused with `403 identity.agent_not_allowed`
   and the database enforces the same rule (ADR-0010).

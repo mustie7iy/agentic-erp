@@ -374,8 +374,10 @@ Rules enforced in the database:
   `ledger.entry_owned_elsewhere`, naming `supplier-invoices/{id}:reverse`),
   whose reversal goes through `Postings.Reverse` and also changes the
   invoice and applies its permission and checks. Manual entries, entries a
-  migration run loaded (`integration`) and other contexts' entries without a
-  reversal of their own stay reversible through the ledger.
+  migration run loaded (`integration`) and payment entries stay reversible
+  through the ledger; entries of any other context (procurement,
+  receivables, assets) are refused with the same code until a reversal path
+  is decided for them.
 - An open item another context is about to settle is reserved in
   `item_reservation` (owner context, owner document and its reference;
   migration 000034): at most one active reservation per line (partial unique
