@@ -28,8 +28,13 @@ type FirstAdministrator struct {
 // CreateFirstAdministrator creates the administrator in tx: a human with
 // access to every company, active, who created themselves since nobody
 // comes before them, bound to their issuer and subject. A constraint
-// violation is returned wrapped, for the caller's problem mapping.
+// violation is returned wrapped, for the caller's problem mapping. An empty
+// issuer is the caller's wiring mistake and is refused: the administrator
+// would match no token, and nobody could administer the tenant.
 func CreateFirstAdministrator(ctx context.Context, tx pgx.Tx, a FirstAdministrator) error {
+	if a.Issuer == "" {
+		return fmt.Errorf("identity: create administrator %s: no issuer to bind subject %q to", a.ID, a.Subject)
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, email, all_companies, status, created_by, updated_by)
 		VALUES ($1, $2, 'human', $3, $4, $5, $6, true, 'active', $2, $2)`, a.TenantID, a.ID, a.Issuer, a.Subject, a.DisplayName, a.Email); err != nil {
 		return fmt.Errorf("identity: create administrator %s: %w", a.ID, err)

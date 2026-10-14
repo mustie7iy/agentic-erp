@@ -164,13 +164,21 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 	id := uuid.Must(uuid.NewV7())
 	// A subject is bound to its issuer (ADR-0010): the contract names no
 	// issuer, so the new principal is a subject of the identity provider the
-	// administrator creating it signed in with, the tenant's. The
-	// administrator resolved through that issuer, so it is never NULL here.
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, email, all_companies, status, created_by, updated_by)
-		VALUES ($1, $2, $3, CASE WHEN $4::text IS NOT NULL THEN (SELECT a.external_issuer FROM identity.principal a WHERE a.tenant_id = $1 AND a.id = $8) END,
-			$4, $5, $6, $7, 'active', $8, $8)`,
-		actor.TenantID, id, in.Kind, in.ExternalSubject, in.DisplayName, in.Email, in.AllCompanies, actor.ID); err != nil {
+	// actor creating it is bound to, the tenant's. An actor bound to none (an
+	// agent, a job acting through uow.Act, a principal the previous release
+	// created during the issuer rollout) inserts nothing: the principal would
+	// match no token, so it is refused rather than locked out silently.
+	tag, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, email, all_companies, status, created_by, updated_by)
+		SELECT $1, $2, $3, i.issuer, $4, $5, $6, $7, 'active', $8, $8
+		FROM (SELECT CASE WHEN $4::text IS NOT NULL THEN (SELECT a.external_issuer FROM identity.principal a WHERE a.tenant_id = $1 AND a.id = $8) END AS issuer) i
+		WHERE $4::text IS NULL OR i.issuer IS NOT NULL`,
+		actor.TenantID, id, in.Kind, in.ExternalSubject, in.DisplayName, in.Email, in.AllCompanies, actor.ID)
+	if err != nil {
 		return Principal{}, fmt.Errorf("identity: insert principal %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return Principal{}, problem.Unprocessable("identity.creator_without_issuer",
+			"A person or service is bound to the identity provider of whoever creates it, and you are bound to none; an administrator who signs in through the tenant's identity provider must create it.")
 	}
 	var events []outbox.Event
 	if in.Profile != nil {

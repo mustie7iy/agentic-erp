@@ -333,7 +333,10 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - [x] F7 Security defaults fail closed (user: ERP_ENV required; production refuses an operator
   token without roles, ADR-0027 amended; principals bound to issuer + subject, with a migration).
   Migrations 000037 (column, backfill to erp-dev) and 000038 (unique index, concurrently); the
-  contract step (drop principal_subject, require the issuer) waits for a later release.
+  contract step waits for a later release, once no replica of the previous release runs: it first
+  re-runs the backfill for principals the previous release inserted with a subject and no issuer
+  after 000037 ran (creator's issuer, else the single tenant issuer), then requires the issuer
+  (NOT VALID, VALIDATE) and drops principal_subject (03-data-model, F10).
   Independent review: APPROVE. Follow-ups: the principal rate-limit bucket is keyed by issuer too;
   a provisioner wired with no issuer fails as a wiring error (500), several give 422; contract
   descriptions name the issuer binding; tests prove the server and router pass ERP_ENV through.

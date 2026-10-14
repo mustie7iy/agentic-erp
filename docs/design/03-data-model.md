@@ -189,11 +189,25 @@ provision, `provisioning.issuer_ambiguous`). `principal_issuer_subject`
 (expand step) and bound the principals that existed to the development
 issuer `erp-dev`, the single issuer of the only installations that had any
 (no record says which issuer created a principal; elsewhere it matches no
-token, so such a principal is refused until re-bound). The contract step,
-in a later release, first backfills (or re-binds) the principals the
-previous release created during the rollout without an issuer, then
-requires the issuer of every principal with a subject and drops `principal_subject` (the subject alone unique per tenant), which
-the previous release still relies on.
+token, so such a principal is refused until re-bound). During the rolling
+deploy the previous release keeps inserting people and services with a
+subject and a NULL issuer, after 000037's backfill has run; the new release
+never finds them (it resolves issuer and subject), so they cannot sign in
+until bound. The contract step, in a later release, once no replica of the
+previous release runs, therefore does three things in order: (1) re-runs the
+backfill for every principal still `external_issuer IS NULL AND
+external_subject IS NOT NULL`, binding it to the issuer of the principal
+that created it (`created_by`, as `CreatePrincipal` does) and, where that
+creator has none, to the cell's single tenant issuer (`erp-dev` in
+development, as 000037 did); (2) adds the check that a principal with a
+subject has an issuer, `NOT VALID` and then `VALIDATE` (06 §6.4), which
+without step 1 would fail on those rows; (3) drops `principal_subject` (the
+subject alone unique per tenant), which the previous release relies on.
+Meanwhile the new release refuses to create a person or service whose
+issuer it cannot tell: `CreatePrincipal` answers 422
+`identity.creator_without_issuer` when the creating actor (an agent, a job
+acting through `uow.Act`, a principal created during the rollout) is bound
+to no issuer, and writes nothing; agents, which have no subject, need none.
 
 Role permissions, role assignments, company access and SoD rules are
 **effective-dated assignments**: each has its own id, a validity range that
