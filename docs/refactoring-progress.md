@@ -315,8 +315,12 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   items out, so a stale reservation holds back one item; entry locks are 64 buckets per tenant
   (no tenant holds another's clearings, a transaction stays within max_locks_per_transaction),
   and a reversal takes no second lock. :reverse is an allowlist (ledger, integration, payments).
-  Follow-up, not on this branch: a contract-step migration reconciling reservations with live
-  runs, to ship once 000034 runs everywhere (03-data-model §3.10).
+  Follow-up F5b (tracker, status T): the contract-step migration reconciling reservations with
+  live runs (000040 or later, F7 took 000037-000038 and require_tenant 000039), to ship once
+  000034 runs everywhere (03-data-model §3.10). Second round (f5f6b): entry locks fail without a
+  tenant (platform.require_tenant, migration 000039); a migration load takes every entry bucket
+  before it posts (Postings.LockAllEntries; it deadlocked against a reservation); refusals of
+  contexts without a reversal say so; tests pin tenant-scoped buckets and version 7 entry ids.
 - [~] F6 A releasing run cannot get stuck; a proposal cannot race an invoice reversal. RunOf takes
   the proposals lock; a release drops a payment that can never post (supplier excluded with
   item_reversed or item_not_open, migrations 000035/000036; new additive PaymentExcluded event

@@ -579,7 +579,7 @@ only keeps its item out of proposals (`OpenItems.Payable` leaves reserved
 items out), and refuses its manual clearing and reversal, until a
 reconciliation releases the reservations no live run holds and adds those
 missing. That reconciliation is a contract step (06 §6.4): it is a
-migration of its own, landed once 000034 runs everywhere, not part of the
+migration of its own (000040 or later; tracker F5b), landed once 000034 runs everywhere, not part of the
 change that adds the table.
 
 Entry locks (clearing, reversal, settlement, reservation) are advisory
