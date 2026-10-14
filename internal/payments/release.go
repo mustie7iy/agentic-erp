@@ -133,7 +133,7 @@ func PaymentsToPost(ctx context.Context, tx pgx.Tx, run uuid.UUID) (todo []uuid.
 // already posted is left alone (posted = false), so a retry posts nothing
 // twice. Progress is recorded on the release operation.
 func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (posted bool, err error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -150,7 +150,7 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 		return false, err
 	}
 	if len(unpayable) > 0 {
-		return false, e.dropPayment(ctx, tx, r, p, unpayable)
+		return false, e.dropPayment(ctx, tx, actor, r, p, unpayable)
 	}
 	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
 	if err != nil {
@@ -197,11 +197,7 @@ func itemRefs(p Payment) []ledger.ItemRef {
 // run is never stuck releasing on a payment no retry can post. The run is
 // read FOR UPDATE by the release step, and a dropped payment is skipped by
 // every later step, so it is dropped once.
-func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, r Run, p Payment, unpayable map[ledger.ItemRef]string) error {
-	_, actor, err := reqctx.Request(ctx)
-	if err != nil {
-		return err
-	}
+func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, p Payment, unpayable map[ledger.ItemRef]string) error {
 	reason := ItemNotOpen
 	for _, why := range unpayable {
 		if why == ledger.ItemReversed {

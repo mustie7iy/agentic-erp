@@ -84,6 +84,13 @@ func TestReservations(t *testing.T) {
 	if got := problem.From(in(func(ctx context.Context) error { return postings().Reserve(ctx, run, []ledger.ItemRef{a}) })).Code; got != "ledger.item_already_cleared" {
 		t.Errorf("reserve a cleared item: got %s, want ledger.item_already_cleared", got)
 	}
+	gone := settlePost(t, e, e.de, "2000", "EUR", 700, "INV-G")
+	if err := in(func(ctx context.Context) error { _, err := postings().Reverse(ctx, gone.EntryID, nil, nil); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if got := problem.From(in(func(ctx context.Context) error { return postings().Reserve(ctx, run, []ledger.ItemRef{gone}) })).Code; got != "ledger.entry_reversed" {
+		t.Errorf("reserve a reversed item: got %s, want ledger.entry_reversed", got)
+	}
 	// Releasing everything the owner holds, twice, changes nothing the second time.
 	for i := range 2 {
 		if err := in(func(ctx context.Context) error { return postings().Release(ctx, other.ID, nil) }); err != nil {
