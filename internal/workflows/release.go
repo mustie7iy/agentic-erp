@@ -73,6 +73,15 @@ func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
 
 // inRelease runs fn in one transaction as the run's releaser, with the
 // audit buffer flushed and the transaction committed when fn succeeds.
+//
+// The endpoints act on the run's current release operation, so an activity
+// of a workflow whose operation is no longer the run's (cancelled or failed,
+// then taken over by a later :release) does nothing and succeeds: its
+// operation is over, the newer workflow does the work, and failing instead
+// would only send the stale workflow to FailRelease, which has nothing to
+// record either (ADR-0012: an activity finding its work not its own is a
+// no-op, not a problem). The run is read FOR UPDATE, so the check holds
+// until the transaction ends.
 func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx context.Context, tx pgx.Tx, r payments.Run) error) error {
 	tx, err := p.begin(ctx, database.Scope{Role: p.AppRole, TenantID: in.TenantID})
 	if err != nil {
@@ -82,6 +91,9 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 	actor, r, err := p.Endpoints.Releaser(ctx, tx, in.RunID)
 	if err != nil {
 		return err
+	}
+	if r.ReleaseOpID == nil || *r.ReleaseOpID != in.OperationID {
+		return nil
 	}
 	if err := database.SetActor(ctx, tx, actor.ID); err != nil {
 		return err

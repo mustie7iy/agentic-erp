@@ -274,3 +274,53 @@ func TestCancelledReleaseResumes(t *testing.T) {
 		t.Fatalf("resumed release: got %+v, want released, succeeded, one bank file", got)
 	}
 }
+
+// TestStaleReleaseActivities: the activities of a workflow whose release
+// operation was cancelled and taken over by a resumed :release do nothing
+// and succeed. They neither post, report progress on, nor finish the newer
+// operation, which the resumed workflow then completes on its own.
+func TestStaleReleaseActivities(t *testing.T) {
+	e := setup(t)
+	a := activities(t)
+	ctx := context.Background()
+	e.invoice(t, "INV-1", "100.00")
+	op, run := e.propose(t, "2026-04-15")
+	if err := execute(t, a, input(e, op, run), false); err != nil {
+		t.Fatal(err)
+	}
+	stale := e.releaseAsked(t, run)
+	todo, err := a.PaymentsToPost(ctx, stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Must(200, "POST", "/v1/operations/"+stale.OperationID.String()+":cancel", "", "*")
+	resumed := e.releaseAsked(t, run)
+	before := stateOf(t, resumed)
+	left, err := a.PaymentsToPost(ctx, stale)
+	if err != nil {
+		t.Fatalf("payments to post of a stale release: got %v, want nil", err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("payments to post of a stale release: got %v, want none", left)
+	}
+	for _, pay := range todo {
+		if err := a.PostPayment(ctx, stale, pay); err != nil {
+			t.Fatalf("post a payment of a stale release: got %v, want nil", err)
+		}
+	}
+	if err := a.FinishRelease(ctx, stale); err != nil {
+		t.Fatalf("finish a stale release: got %v, want nil", err)
+	}
+	if err := a.FailRelease(ctx, stale, *problem.Unprocessable("payments.bank_file_invalid", "late")); err != nil {
+		t.Fatalf("fail a stale release: got %v, want nil", err)
+	}
+	if got := stateOf(t, resumed); got != before {
+		t.Fatalf("resumed release after the stale activities: got %+v, want %+v", got, before)
+	}
+	if err := executeRelease(t, a, resumed); err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, resumed); !strings.HasPrefix(got.Run, "released/") || !strings.HasPrefix(got.Operation, "succeeded/") || got.Files != 1 {
+		t.Fatalf("resumed release: got %+v, want released, succeeded, one bank file", got)
+	}
+}
