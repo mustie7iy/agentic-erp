@@ -238,7 +238,9 @@ func TestToday(t *testing.T) {
 		t.Errorf("got %v, %v, want %v", got, err, want)
 	}
 	tx.Rollback(ctx)
-	if got, err := database.Today(ctx, tx); err == nil || !got.IsZero() || !strings.Contains(err.Error(), "database: read current date") {
-		t.Errorf("closed transaction: got %v, %v, want the zero date and the failed read reported", got, err)
+	got, err = database.Today(ctx, tx)
+	pgtest.CheckErr(t, err, "database: read current date") // the closed transaction's read fails
+	if !got.IsZero() {
+		t.Errorf("closed transaction: got %v, want the zero date", got)
 	}
 }
