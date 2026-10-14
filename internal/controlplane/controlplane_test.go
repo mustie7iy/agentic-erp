@@ -864,23 +864,65 @@ func TestProvisioningKeyUniqueness(t *testing.T) {
 // TestKeyRotationThroughTheControlPlane: a provisioned tenant has its own
 // key; rotation gives it a new one and re-seals its house banks.
 func TestKeyRotationThroughTheControlPlane(t *testing.T) {
-	p := newPlane(t)
-	ctx := context.Background()
-	created, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Keyed"), "Idempotency-Key", "key-"+uuid.NewString())
-	id := created["id"].(string)
-	var keys []string
-	rows, _ := pgtest.Admin(t).Query(ctx, `SELECT status FROM tenancy.tenant_key WHERE tenant_id = $1`, uuid.MustParse(id))
-	keys, _ = pgx.CollectRows(rows, pgx.RowTo[string])
+	s := &rotationScenario{p: newPlane(t)}
+	// Each step goes on from the tenant and rotation the ones before it
+	// left, so the first failure stops the rest.
+	if !t.Run("a provisioned tenant has its own key", s.provisionedKey) {
+		t.FailNow()
+	}
+	if !t.Run("rotation gives it a new key", s.rotate) {
+		t.FailNow()
+	}
+	if !t.Run("the tenant shows its key and audit verification", s.shown) {
+		t.FailNow()
+	}
+	if !t.Run("the house banks are re-sealed and still read", s.resealed) {
+		t.FailNow()
+	}
+	if !t.Run("legacy, offboarded and keyless tenants", s.otherTenants) {
+		t.FailNow()
+	}
+	t.Run("database failures are reported", s.databaseFailures)
+}
+
+// rotationScenario is what the steps of TestKeyRotationThroughTheControlPlane
+// share: the plane, the provisioned tenant and its sealed house bank, the
+// rotation's result and the tenant still on the legacy key.
+type rotationScenario struct {
+	p       *plane
+	id      string
+	created map[string]any
+	sealed  []byte
+	rot     map[string]any
+	legacy  pgtest.Tenant
+}
+
+// provisionedKey: a provisioned tenant has one active key, which seals its
+// house banks.
+func (s *rotationScenario) provisionedKey(t *testing.T) {
+	p, ctx := s.p.in(t), context.Background()
+	s.created, _ = p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Keyed"), "Idempotency-Key", "key-"+uuid.NewString())
+	s.id = s.created["id"].(string)
+	rows, _ := pgtest.Admin(t).Query(ctx, `SELECT status FROM tenancy.tenant_key WHERE tenant_id = $1`, uuid.MustParse(s.id))
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("read the tenant keys: %v", err)
+	}
 	if len(keys) != 1 || keys[0] != "active" {
 		t.Fatalf("provisioned tenant keys: %v", keys)
 	}
-	var sealed []byte
-	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&sealed); err != nil {
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(s.id)).Scan(&s.sealed); err != nil {
 		t.Fatalf("read the sealed house bank: %v", err)
 	}
-	if sealed[0] != 2 {
-		t.Fatalf("house bank sealed with format %d", sealed[0])
+	if s.sealed[0] != 2 {
+		t.Fatalf("house bank sealed with format %d", s.sealed[0])
 	}
+}
+
+// rotate: a rotation needs a matching If-Match and a known tenant; it gives
+// the tenant a new key and re-seals its house banks.
+func (s *rotationScenario) rotate(t *testing.T) {
+	p, id := s.p.in(t), s.id
 	p.problem(428, "request.precondition_required", "ops|alice", "POST", tenants+"/"+id+":rotateKey", "")
 	p.problem(412, "request.version_mismatch", "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", `"7"`)
 	p.problem(404, "request.not_found", "ops|alice", "POST", tenants+"/"+uuid.NewString()+":rotateKey", "", "If-Match", "*")
@@ -888,7 +930,8 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	p.s.Now = func() time.Time { return at } // the audit entry carries the service's clock
 	got, h := p.must(200, "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", `"1"`)
 	p.s.Now = nil
-	rot := got["rotation"].(map[string]any)
+	s.rot = got["rotation"].(map[string]any)
+	rot := s.rot
 	if got["version"] != float64(2) {
 		t.Errorf("rotation version: got %v, want 2", got["version"])
 	}
@@ -907,7 +950,13 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if rot["key_id"] == rot["previous_key_id"] {
 		t.Errorf("rotation key: got %v, want a key other than the previous one", rot["key_id"])
 	}
-	// The tenant shows its key and, once a round ran, its latest audit verification.
+}
+
+// shown: the tenant shows its key and, once a round ran, its latest audit
+// verification, in the tenant and in the listing; a later round that found
+// the chain broken is the one shown.
+func (s *rotationScenario) shown(t *testing.T) {
+	p, id, rot, ctx := s.p.in(t), s.id, s.rot, context.Background()
 	shown, _ := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	enc, _ := shown["encryption"].(map[string]any)
 	if enc == nil {
@@ -955,7 +1004,6 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if !found {
 		t.Fatalf("listing lacks the fields: %v", listed)
 	}
-	// A later round that found the chain broken is the one shown.
 	pgtest.Exec(t, `INSERT INTO audit.verification (tenant_id, verified_at, head_seq, checked, anchors_checked, broken_at, ok)
 		VALUES ($1, now() + interval '1 hour', 9, 9, 0, 4, false)`, uuid.MustParse(id))
 	shown, _ = p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
@@ -968,21 +1016,27 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if ver["broken_at"] != float64(4) {
 		t.Errorf("broken verification broken at: got %v, want 4", ver["broken_at"])
 	}
+}
+
+// resealed: the house bank is sealed again with the new key, the tenant's
+// administrator still reads through the API, and the rotation is in the
+// tenant's chain as the operator's.
+func (s *rotationScenario) resealed(t *testing.T) {
+	id, ctx := s.id, context.Background()
 	var resealed []byte
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&resealed); err != nil {
 		t.Fatalf("read the re-sealed house bank: %v", err)
 	}
-	if string(resealed) == string(sealed) {
+	if string(resealed) == string(s.sealed) {
 		t.Errorf("house bank: got the same cipher text, want it re-sealed")
 	}
-	if got, want := string(resealed[1:17]), string(mustBytes(rot["key_id"].(string))); got != want {
+	if got, want := string(resealed[1:17]), string(mustBytes(s.rot["key_id"].(string))); got != want {
 		t.Errorf("house bank key id: got %x, want %x", got, want)
 	}
 	// The tenant's administrator still reads its house banks through the API (opened with the new key).
-	admin := pgtest.Actor{ID: uuid.MustParse(created["provisioned"].(map[string]any)["administrator_id"].(string)), Subject: "idp|ada", Kind: "human"}
+	admin := pgtest.Actor{ID: uuid.MustParse(s.created["provisioned"].(map[string]any)["administrator_id"].(string)), Subject: "idp|ada", Kind: "human"}
 	public := apitest.Client{T: t, API: apitest.New(t), Tenant: pgtest.Tenant{ID: uuid.MustParse(id)}, As: admin}
 	public.Must(200, "GET", "/v1/config-versions?is_active=true", "", "")
-	// Recorded in the tenant's chain as the operator.
 	var action, operator string
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT action, detail->>'operator' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.rotate_key'`, uuid.MustParse(id)).Scan(&action, &operator); err != nil {
 		t.Fatalf("read the rotation audit: %v", err)
@@ -990,17 +1044,29 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if operator != "ops|alice" {
 		t.Fatalf("audit: %s %s", action, operator)
 	}
-	// A tenant on the legacy key gets its first key; an offboarded tenant is left alone; without masters, 503.
-	legacy := pgtest.NewTenant(t)
-	got, _ = p.must(200, "ops|alice", "POST", tenants+"/"+legacy.ID.String()+":rotateKey", "", "If-Match", "*")
+}
+
+// otherTenants: a tenant on the legacy key gets its first key; an
+// offboarded tenant is left alone; without masters, 503.
+func (s *rotationScenario) otherTenants(t *testing.T) {
+	p, id := s.p.in(t), s.id
+	s.legacy = pgtest.NewTenant(t)
+	got, _ := p.must(200, "ops|alice", "POST", tenants+"/"+s.legacy.ID.String()+":rotateKey", "", "If-Match", "*")
 	if got["rotation"].(map[string]any)["previous_key_id"] != uuid.Nil.String() {
 		t.Fatalf("legacy rotation: %v", got)
 	}
 	p.must(200, "ops|alice", "POST", tenants+"/"+id+":offboard", "", "If-Match", "*")
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", "*")
 	p.s.Keys = nil
-	p.problem(503, "platform.unavailable", "ops|alice", "POST", tenants+"/"+legacy.ID.String()+":rotateKey", "", "If-Match", "*")
-	p.s.Keys = apitest.FieldKeys()
+	defer func() { p.s.Keys = apitest.FieldKeys() }()
+	p.problem(503, "platform.unavailable", "ops|alice", "POST", tenants+"/"+s.legacy.ID.String()+":rotateKey", "", "If-Match", "*")
+}
+
+// databaseFailures: every failing statement, a failed begin and a failed
+// commit of a rotation are reported.
+func (s *rotationScenario) databaseFailures(t *testing.T) {
+	p, legacy, ctx := s.p.in(t), s.legacy, context.Background()
+	defer func() { p.s.Begin = nil }()
 	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: p.is.URL, Subject: "ops|alice"})
 	everyFailure(t, p.s, "rotate", func(ctx context.Context) error {
 		_, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*")
@@ -1019,7 +1085,6 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if _, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*"); !errors.Is(err, pgtest.ErrInjected) {
 		t.Fatalf("commit: got %v, want the injected failure", err)
 	}
-	p.s.Begin = nil
 }
 
 func mustBytes(id string) []byte {

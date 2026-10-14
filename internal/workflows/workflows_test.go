@@ -283,13 +283,44 @@ func (f *fakeEngine) Cancel(context.Context, string) error { return nil }
 // business key, once; the id is recorded on the operation; a refusal
 // leaves the operation for the next round and the others go on.
 func TestDispatcher(t *testing.T) {
-	e := setup(t)
-	ctx := context.Background()
-	op1, run1 := e.propose(t, "2026-04-15")
-	op2, _ := e.propose(t, "2026-04-16")
 	engine := &fakeEngine{}
 	logs := &pgtest.SyncBuffer{}
-	d := &workflows.Dispatcher{Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(logs, nil))}
+	s := &dispatchScenario{e: setup(t), engine: engine, logs: logs, pool: pgtest.Pool(t),
+		d: &workflows.Dispatcher{Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(logs, nil))}}
+	// Each step goes on from the operations the ones before it dispatched,
+	// so the first failure stops the rest.
+	if !t.Run("queued proposals start their workflows once", s.proposalsStartOnce) {
+		t.FailNow()
+	}
+	if !t.Run("a cancelled operation is dispatched and a refused start retried", s.cancelledAndRefused) {
+		t.FailNow()
+	}
+	if !t.Run("a release is dispatched by its attempt", s.releaseAttempts) {
+		t.FailNow()
+	}
+	if !t.Run("database failures are reported", s.databaseFailures) {
+		t.FailNow()
+	}
+	t.Run("Run logs its rounds and stops with the context", s.runLoop)
+}
+
+// dispatchScenario is what the steps of TestDispatcher share: the tenant,
+// the dispatcher with its engine and log, and the pool the failure steps
+// wrap.
+type dispatchScenario struct {
+	e      env
+	d      *workflows.Dispatcher
+	engine *fakeEngine
+	logs   *pgtest.SyncBuffer
+	pool   *database.Pool
+}
+
+// proposalsStartOnce: queued proposals start their workflows under the
+// run's business key, recorded on the operation, and nothing twice.
+func (s *dispatchScenario) proposalsStartOnce(t *testing.T) {
+	e, d, ctx := s.e.in(t), s.d, context.Background()
+	op1, run1 := e.propose(t, "2026-04-15")
+	e.propose(t, "2026-04-16")
 	n, err := d.RunOnce(ctx)
 	if err != nil || n < 2 {
 		t.Fatalf("round: %d %v", n, err)
@@ -307,18 +338,22 @@ func TestDispatcher(t *testing.T) {
 		t.Fatalf("workflow id on the operation: %v, want %s", workflowID, want)
 	}
 	found := false
-	for _, s := range engine.started {
-		in := s.Args[0].(workflows.ProposeInput)
-		found = found || s.ID == want && s.Queue == "erp-test" && s.Name == workflows.ProposeWorkflow && in.RunID == uuid.MustParse(run1) && in.OperationID == uuid.MustParse(id(op1)) && in.TenantID == e.Tenant.ID
+	for _, st := range s.engine.started {
+		in := st.Args[0].(workflows.ProposeInput)
+		found = found || st.ID == want && st.Queue == "erp-test" && st.Name == workflows.ProposeWorkflow && in.RunID == uuid.MustParse(run1) && in.OperationID == uuid.MustParse(id(op1)) && in.TenantID == e.Tenant.ID
 	}
 	if !found {
-		t.Fatalf("starts: %+v", engine.started)
+		t.Fatalf("starts: %+v", s.engine.started)
 	}
-	// Nothing is dispatched twice.
 	if n, err := d.RunOnce(ctx); err != nil || n != 0 {
 		t.Fatalf("second round: %d %v", n, err)
 	}
-	// A cancelled operation still gets its workflow (which fails the run); a refused start is retried next round.
+}
+
+// cancelledAndRefused: a cancelled operation still gets its workflow (which
+// fails the run); a refused start is retried next round.
+func (s *dispatchScenario) cancelledAndRefused(t *testing.T) {
+	e, d, ctx := s.e.in(t), s.d, context.Background()
 	op3, run3 := e.propose(t, "2026-04-17")
 	e.Must(200, "POST", "/v1/operations/"+id(op3)+":cancel", "", `"1"`)
 	op4, _ := e.propose(t, "2026-04-18")
@@ -326,8 +361,8 @@ func TestDispatcher(t *testing.T) {
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT document_number FROM payments.payment_run WHERE operation_id = $1`, uuid.MustParse(id(op4))).Scan(&number4); err != nil {
 		t.Fatalf("read run 4 number: %v", err)
 	}
-	engine.fail = number4
-	n, err = d.RunOnce(ctx)
+	s.engine.fail = number4
+	n, err := d.RunOnce(ctx)
 	pgtest.WantErr(t, err, "engine refused")
 	if n != 1 {
 		t.Fatalf("round with a refusal: got %d dispatched, want 1", n)
@@ -339,16 +374,18 @@ func TestDispatcher(t *testing.T) {
 	if id3 == nil || !strings.Contains(*id3, run3[:0]+e.DE.String()) {
 		t.Fatalf("cancelled operation not dispatched: %v", id3)
 	}
-	engine.fail = ""
+	s.engine.fail = ""
 	if n, err := d.RunOnce(ctx); err != nil || n != 1 {
 		t.Fatalf("retry round: %d %v", n, err)
 	}
-	_ = op2
-	// A release operation is dispatched under the run's key and attempt; a
-	// resumed release is the next attempt.
+}
+
+// releaseAttempts: a release operation is dispatched under the run's key
+// and attempt; a resumed release is the next attempt.
+func (s *dispatchScenario) releaseAttempts(t *testing.T) {
+	e, d, ctx := s.e.in(t), s.d, context.Background()
 	e.invoice(t, "INV-D", "3.00")
 	built, builtRun := e.propose(t, "2026-04-21")
-	engine.fail = ""
 	if _, err := d.RunOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +401,7 @@ func TestDispatcher(t *testing.T) {
 		t.Fatalf("read the released run number: %v", err)
 	}
 	wantRel := workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 1)
-	last := engine.started[len(engine.started)-1]
+	last := s.engine.started[len(s.engine.started)-1]
 	if last.ID != wantRel {
 		t.Fatalf("release start id: got %s, want %s", last.ID, wantRel)
 	}
@@ -389,16 +426,21 @@ func TestDispatcher(t *testing.T) {
 	if n, err := d.RunOnce(ctx); err != nil || n != 1 {
 		t.Fatalf("second release dispatch: %d %v", n, err)
 	}
-	if last := engine.started[len(engine.started)-1]; last.ID != workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 2) || last.Args[0].(workflows.ReleaseInput) != rel2 {
+	if last := s.engine.started[len(s.engine.started)-1]; last.ID != workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 2) || last.Args[0].(workflows.ReleaseInput) != rel2 {
 		t.Fatalf("second release start: %+v", last)
 	}
-	// Database failures are reported.
-	pool := pgtest.Pool(t)
+}
+
+// databaseFailures: a failing statement, begin or commit of a round is
+// reported. The dispatcher's Begin is left unset for the next step.
+func (s *dispatchScenario) databaseFailures(t *testing.T) {
+	e, d, pool, ctx := s.e.in(t), s.d, s.pool, context.Background()
+	defer func() { d.Begin = nil }()
 	e.propose(t, "2026-04-19")
 	for n := 1; n < 10; n++ {
 		count := 0
-		d.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pool.Begin(ctx, s)
+		d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, scope)
 			if err != nil {
 				return nil, err
 			}
@@ -416,10 +458,10 @@ func TestDispatcher(t *testing.T) {
 		}
 	}
 	d.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	_, err = d.RunOnce(ctx)
+	_, err := d.RunOnce(ctx)
 	pgtest.WantErr(t, err, "database down")
-	d.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-		tx, err := pool.Begin(ctx, s)
+	d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -428,9 +470,14 @@ func TestDispatcher(t *testing.T) {
 	if _, err := d.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
 		t.Fatalf("commit failing: got %v, want %v", err, pgtest.ErrInjected)
 	}
-	// Run logs a failed round, then a quiet one, and stops with the context.
-	// Each loop is waited for before the dispatcher is changed: a loop still
-	// running would read Begin and Interval while they are written.
+}
+
+// runLoop: Run logs a failed round, then a quiet one, and stops with the
+// context. Each loop is waited for before the dispatcher is changed: a loop
+// still running would read Begin and Interval while they are written.
+func (s *dispatchScenario) runLoop(t *testing.T) {
+	e, d, logs, ctx := s.e.in(t), s.d, s.logs, context.Background()
+	d.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	failCtx, stopFailing := context.WithCancel(ctx)
 	stopped := make(chan struct{})
 	go func() { d.Run(failCtx); close(stopped) }()
