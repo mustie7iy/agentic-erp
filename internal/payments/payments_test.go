@@ -65,6 +65,14 @@ func setup(t *testing.T) env {
 	return e
 }
 
+// in returns e reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (e env) in(t *testing.T) env {
+	t.Helper()
+	e.T = t
+	return e
+}
+
 // endpoints is the payments context as the API wires it.
 func endpoints(c payments.Connector) *payments.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
