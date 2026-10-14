@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -69,6 +70,11 @@ func TestReversalAndClearingSerialize(t *testing.T) {
 	})
 }
 
+// errSetup is what serialize reports for a transaction whose setup failed:
+// apitest.Committed then fails the test and ends its goroutine, which still
+// has to answer, or serialize would wait for it forever.
+var errSetup = errors.New("transaction setup failed")
+
 // serialize runs first in a transaction and holds it open while second
 // runs in another; it lets first commit once second waits for the lock on
 // the entry (or has finished, which it must not), and returns both
@@ -81,7 +87,9 @@ func serialize(t *testing.T, ten pgtest.Tenant, entry uuid.UUID, first, second f
 	letGo := sync.OnceFunc(func() { close(release) })
 	defer letGo()
 	go func() {
-		firstDone <- apitest.Committed(t, ten, ten.Human, func(ctx context.Context) error {
+		err := errSetup
+		defer func() { firstDone <- err }()
+		err = apitest.Committed(t, ten, ten.Human, func(ctx context.Context) error {
 			if err := first(ctx); err != nil {
 				return err
 			}
@@ -95,7 +103,11 @@ func serialize(t *testing.T, ten pgtest.Tenant, entry uuid.UUID, first, second f
 	case err := <-firstDone:
 		return err, nil
 	}
-	go func() { secondDone <- apitest.Committed(t, ten, ten.Human, second) }()
+	go func() {
+		err := errSetup
+		defer func() { secondDone <- err }()
+		err = apitest.Committed(t, ten, ten.Human, second)
+	}()
 	admin := pgtest.Admin(t)
 	finished := false
 	pgtest.Eventually(t, 10*time.Second, func() bool {
