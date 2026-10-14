@@ -55,7 +55,9 @@ hard gate. Follow all of them; the later ones will stop you if you skip the earl
   `problem.*` values; register database constraint → problem mappings as the existing packages do.
 - No `panic` outside `main` and init-time wiring. No silent fallbacks: a missing security
   setting (keys, issuers) fails startup in production rather than logging a warning.
-- Never discard an error without a comment saying why it is safe.
+- Never discard an error without a comment saying why it is safe. The one accepted exception is
+  pgx's `rows, _ := tx.Query(…)`: a failed Query returns rows whose error `pgx.CollectRows`,
+  `pgx.ForEachRow` or `rows.Err()` reports, so the error is handled there.
 
 **Structure**
 - Functions ≤ 60 lines, cognitive complexity ≤ 20. Split long orchestration into named steps.

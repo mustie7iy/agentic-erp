@@ -24,7 +24,6 @@ func ParseDecimal(s string, decimals int) (Minor, error) {
 	return Minor(v), err
 }
 
-// ParseQty parses a decimal quantity string into milli-units.
 // ParseAmount parses an API amount (ADR-0005): a decimal string with
 // exactly the currency's minor-unit digits, "1080.00" for EUR and "100" for
 // JPY. Fewer or more digits are an error, even if they are zeros.
@@ -36,6 +35,7 @@ func ParseAmount(s string, decimals int) (Minor, error) {
 	return ParseDecimal(s, decimals)
 }
 
+// ParseQty parses a decimal quantity string into milli-units.
 func ParseQty(s string) (Qty, error) {
 	v, err := parseScaled(s, 3)
 	return Qty(v), err
