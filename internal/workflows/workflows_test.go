@@ -506,66 +506,76 @@ func (e env) setHolder(t *testing.T, holder string) {
 // workflow; a failure of the machinery is retried and then left for a
 // resumed release; the in-process releaser does the same steps.
 func TestReleaseWorkflow(t *testing.T) {
-	e := setup(t)
 	a := activities(t)
 	logs := &pgtest.SyncBuffer{}
-	w := &workflows.Releaser{Payments: a, Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil))}
-	var run2, run4 string
-	if !t.Run("the release posts and writes the bank file", func(t *testing.T) {
-		releaseAndWriteTheFile(t, e.in(t), a)
-	}) {
+	s := &releaseScenario{e: setup(t), a: a, logs: logs,
+		w: &workflows.Releaser{Payments: a, Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil))}}
+	// Each step goes on from the runs the ones before it left, so the first failure stops the rest.
+	if !t.Run("the release posts and writes the bank file", s.releaseAndWriteTheFile) {
 		t.FailNow()
 	}
-	if !t.Run("a refused bank file fails the operation", func(t *testing.T) {
-		run2 = refuseTheBankFile(t, e.in(t), a)
-	}) {
+	if !t.Run("a refused bank file fails the operation", s.refuseTheBankFile) {
 		t.FailNow()
 	}
-	if !t.Run("the machinery failing leaves the run releasing", func(t *testing.T) {
-		e := e.in(t)
-		e.setHolder(t, "Supplier")
-		in3 := e.releaseAsked(t, run2)
-		a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-		pgtest.WantErr(t, executeRelease(t, a, in3), "database down")
-		a.Begin = nil
-		if still, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", ""); still["status"] != "releasing" {
-			t.Fatalf("after the machinery failed: %v", still)
-		}
-	}) {
+	if !t.Run("the machinery failing leaves the run releasing", s.machineryFails) {
 		t.FailNow()
 	}
-	if !t.Run("the in-process releaser finishes it", func(t *testing.T) {
-		resumeWithTheReleaser(t, e.in(t), w, run2)
-	}) {
+	if !t.Run("the in-process releaser finishes it", s.resumeWithTheReleaser) {
 		t.FailNow()
 	}
-	if !t.Run("a proposed run has no releaser", func(t *testing.T) {
-		e := e.in(t)
-		e.invoice(t, "INV-3", "25.00")
-		var op4 map[string]any
-		op4, run4 = e.propose(t, "2026-04-17")
-		if err := execute(t, a, input(e, op4, run4), false); err != nil {
-			t.Fatal(err)
-		}
-		_, err := a.PaymentsToPost(context.Background(), workflows.ReleaseInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(run4)})
-		pgtest.WantErr(t, err, "not releasing")
-	}) {
+	if !t.Run("a proposed run has no releaser", s.proposedRunHasNoReleaser) {
 		t.FailNow()
 	}
-	if !t.Run("the releaser records a problem and reports failures", func(t *testing.T) {
-		releaserFailures(t, e.in(t), a, w, logs, run4)
-	}) {
+	if !t.Run("the releaser records a problem and reports failures", s.releaserFailures) {
 		t.FailNow()
 	}
-	t.Run("every failing statement of a two-payment release is reported", func(t *testing.T) {
-		twoPaymentFailures(t, e.in(t), a, w)
-	})
+	t.Run("every failing statement of a two-payment release is reported", s.twoPaymentFailures)
 }
 
-// releaseAndWriteTheFile is TestReleaseWorkflow's first step: a release
-// posts its payment and writes the bank file.
-func releaseAndWriteTheFile(t *testing.T, e env, a *workflows.Payments) {
-	t.Helper()
+// releaseScenario is what the steps of TestReleaseWorkflow share: the
+// tenant, the activities and the releaser, and the runs one step leaves
+// for the next.
+type releaseScenario struct {
+	e    env
+	a    *workflows.Payments
+	w    *workflows.Releaser
+	logs *pgtest.SyncBuffer
+	run2 string // left releasing by the refused bank file
+	run4 string // proposed, then released by the releaser
+}
+
+// machineryFails: the activities are retried, then the workflow fails and
+// the run stays releasing for a resumed release.
+func (s *releaseScenario) machineryFails(t *testing.T) {
+	e, a, run2 := s.e.in(t), s.a, s.run2
+	e.setHolder(t, "Supplier")
+	in3 := e.releaseAsked(t, run2)
+	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	pgtest.WantErr(t, executeRelease(t, a, in3), "database down")
+	a.Begin = nil
+	if still, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", ""); still["status"] != "releasing" {
+		t.Fatalf("after the machinery failed: %v", still)
+	}
+}
+
+// proposedRunHasNoReleaser: activities outside a release refuse a run
+// that is only proposed.
+func (s *releaseScenario) proposedRunHasNoReleaser(t *testing.T) {
+	e, a := s.e.in(t), s.a
+	e.invoice(t, "INV-3", "25.00")
+	op4, run4 := e.propose(t, "2026-04-17")
+	if err := execute(t, a, input(e, op4, run4), false); err != nil {
+		t.Fatal(err)
+	}
+	_, err := a.PaymentsToPost(context.Background(), workflows.ReleaseInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(run4)})
+	pgtest.WantErr(t, err, "not releasing")
+	s.run4 = run4
+}
+
+// releaseAndWriteTheFile: a release posts its payment and writes the bank
+// file.
+func (s *releaseScenario) releaseAndWriteTheFile(t *testing.T) {
+	e, a := s.e.in(t), s.a
 	e.invoice(t, "INV-1", "100.00")
 	op, run := e.propose(t, "2026-04-15")
 	if err := execute(t, a, input(e, op, run), false); err != nil {
@@ -592,9 +602,9 @@ func releaseAndWriteTheFile(t *testing.T, e env, a *workflows.Payments) {
 }
 
 // refuseTheBankFile: the vendor's bank account has no holder, so the file
-// is refused after the posting; it returns the run left releasing.
-func refuseTheBankFile(t *testing.T, e env, a *workflows.Payments) string {
-	t.Helper()
+// is refused after the posting, and the run is left releasing.
+func (s *releaseScenario) refuseTheBankFile(t *testing.T) {
+	e, a := s.e.in(t), s.a
 	e.setHolder(t, " ")
 	e.invoice(t, "INV-2", "50.00")
 	op2, run2 := e.propose(t, "2026-04-16")
@@ -616,15 +626,15 @@ func refuseTheBankFile(t *testing.T, e env, a *workflows.Payments) string {
 	if after["status"] != "releasing" {
 		t.Fatalf("refused file run status: got %v, want releasing", after["status"])
 	}
-	return run2
+	s.run2 = run2
 }
 
 // resumeWithTheReleaser: the in-process releaser finishes the run the
 // machinery left releasing; the posted payment is left alone, the file is
 // written. The releaser serves every tenant, so its count includes other
 // tests' runs; this tenant's queue is what is checked exactly.
-func resumeWithTheReleaser(t *testing.T, e env, w *workflows.Releaser, run2 string) {
-	t.Helper()
+func (s *releaseScenario) resumeWithTheReleaser(t *testing.T) {
+	e, w, run2 := s.e.in(t), s.w, s.run2
 	if n := queuedReleases(t, e.Tenant.ID); n != 1 {
 		t.Fatalf("this tenant's queued releases before the round: got %d, want 1", n)
 	}
@@ -642,8 +652,8 @@ func resumeWithTheReleaser(t *testing.T, e env, w *workflows.Releaser, run2 stri
 // releaserFailures: the releaser's problem path and its loop: a refused
 // file is recorded, a dead database is logged, the loop stops with the
 // context; a failing listing and a release whose steps fail are reported.
-func releaserFailures(t *testing.T, e env, a *workflows.Payments, w *workflows.Releaser, logs *pgtest.SyncBuffer, run4 string) {
-	t.Helper()
+func (s *releaseScenario) releaserFailures(t *testing.T) {
+	e, a, w, logs, run4 := s.e.in(t), s.a, s.w, s.logs, s.run4
 	e.setHolder(t, " ")
 	in4 := e.releaseAsked(t, run4)
 	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 {
@@ -687,8 +697,8 @@ func releaserFailures(t *testing.T, e env, a *workflows.Payments, w *workflows.R
 // twoPaymentFailures: every statement of the release activities failing in
 // turn is reported and leaves nothing half done; a run of two payments
 // walks the loop.
-func twoPaymentFailures(t *testing.T, e env, a *workflows.Payments, w *workflows.Releaser) {
-	t.Helper()
+func (s *releaseScenario) twoPaymentFailures(t *testing.T) {
+	e, a, w := s.e.in(t), s.a, s.w
 	e.setHolder(t, "Supplier")
 	e.payableVendor(t)
 	e.invoice(t, "INV-6", "11.00")
