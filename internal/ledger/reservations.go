@@ -119,6 +119,27 @@ func release(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, owner uuid.
 	return nil
 }
 
+// LockAllEntries takes a shared lock on every entry bucket of the tenant
+// until the transaction ends. A transaction that posts and then clears or
+// settles in several steps (a migration load: every journal document, then
+// one clearing per document SAP cleared) would otherwise take entry locks
+// after number-range locks and in several unsorted sets, which deadlocks
+// against a reservation or reversal that takes its buckets first. Taken
+// before anything else, the buckets make every later entry lock of the
+// transaction one it already holds; reservations and reversals of the
+// tenant wait for the load, which is the accepted cost of loading.
+func (Postings) LockAllEntries(ctx context.Context) error {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	all := make([]int32, EntryLockBuckets)
+	for i := range all {
+		all[i] = int32(i)
+	}
+	return lockBuckets(ctx, tx, true, all)
+}
+
 // columns splits item references into the arrays unnest takes.
 func columns(refs []ItemRef) (years []int16, entries []uuid.UUID, nos []int32) {
 	years, entries, nos = make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))

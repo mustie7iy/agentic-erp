@@ -92,6 +92,7 @@ type InvoiceCounts interface {
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
 	Clear(ctx context.Context, legalEntity uuid.UUID, date time.Time, by ledger.ItemRef, items []ledger.ItemRef) (uuid.UUID, error)
+	LockAllEntries(ctx context.Context) error
 }
 
 // Reports reads ledger totals for reconciliation (ledger).

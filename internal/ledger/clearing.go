@@ -319,14 +319,23 @@ func reversedItem(i int) *problem.Problem {
 // where a NULL key would make the strict lock functions take no lock at
 // all. Two entries of one
 // bucket serialize a reversal against a clearing of the other; shared
-// locks never conflict. Each transaction locks its buckets once, in one
-// sorted call, so two transactions never wait for each other in a cycle.
+// locks never conflict. Each transaction takes its buckets once, in one
+// sorted call, before any number range (post takes those), so two
+// transactions never wait for each other in a cycle. A transaction that
+// would lock in several steps, or after posting (a migration load), takes
+// every bucket first (Postings.LockAllEntries), so its later calls only
+// take locks it already holds.
 func lockEntries(ctx context.Context, tx pgx.Tx, shared bool, ids []uuid.UUID) error {
 	buckets := make([]int32, len(ids))
 	for i, id := range ids {
 		buckets[i] = EntryLockBucket(id)
 	}
-	buckets = slices.Compact(slices.Sorted(slices.Values(buckets)))
+	return lockBuckets(ctx, tx, shared, slices.Compact(slices.Sorted(slices.Values(buckets))))
+}
+
+// lockBuckets takes the tenant's entry locks of the buckets, in the order
+// given (ascending, without repeats).
+func lockBuckets(ctx context.Context, tx pgx.Tx, shared bool, buckets []int32) error {
 	lock := "pg_advisory_xact_lock"
 	if shared {
 		lock = "pg_advisory_xact_lock_shared"

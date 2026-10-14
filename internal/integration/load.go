@@ -112,7 +112,16 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 // receipts, parked invoices, then the journal (every document, or one
 // opening entry per company) with the clearings SAP recorded, and last the
 // posting blocks, which would refuse the postings before them.
+//
+// The load is one transaction that posts every document and then clears
+// them one clearing at a time, so it would take the ledger's entry locks
+// after its number-range locks and in several sets; it takes all of the
+// tenant's entry locks first instead (Postings.LockAllEntries), so it never
+// deadlocks with a payment proposal's reservation or a reversal.
 func (l *loader) load(ctx context.Context) error {
+	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
+		return err
+	}
 	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.receipts, l.invoices, l.journal, l.clearings, l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err

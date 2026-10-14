@@ -587,11 +587,27 @@ locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
 || bucket`, the bucket from the entry id's random low bits; the tenant from
 `platform.require_tenant()` (migration 000039), which fails a transaction
 without one where a NULL key would take no lock), each set
-taken once per transaction in bucket order. A proposal or release check
-over 100,000 items holds at most 64 locks, within
+taken once per transaction in bucket order and before any number range
+(posting takes those). A transaction that would otherwise lock in several
+steps or after posting, the migration load (it posts every document, then
+clears one SAP clearing at a time), takes all 64 buckets shared first
+(`Postings.LockAllEntries`), so its later locks are ones it holds and it
+cannot deadlock with a reservation or reversal; those wait for the load. A
+proposal or release check over 100,000 items holds at most 64 locks, within
 `max_locks_per_transaction`'s default, and never holds another tenant's
-entries up; within a tenant, a reversal may wait for a clearing of another
-entry in its bucket.
+entries up.
+
+Within a tenant the buckets are coarse, which is an accepted trade-off: a
+reversal may wait for a clearing of another entry in its bucket, and a large
+proposal holds nearly all of the tenant's buckets exclusively from its
+`Reserve` to its commit. That is the end of the build (the items are
+reserved after they are chosen and inserted, and the run is moved to
+proposed and recorded in the same transaction), so the window is short; but
+a clearing, settlement or reversal of any legal entity of the tenant that
+waits in it longer than `lock_timeout` (5 s) fails with 409
+`request.in_progress` and is retried. A migration load holds the buckets
+shared for its whole transaction, so reservations and reversals of the
+tenant wait for it the same way.
 
 Proposals of a legal entity serialise on the advisory lock
 `payments.propose.<legal entity id>` (`hashtextextended`, transaction
