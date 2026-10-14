@@ -27,7 +27,8 @@ import (
 // date here, then the run moves to releasing and the operation is queued;
 // the release workflow posts each payment with the entry that clears its
 // items, one transaction per payment, and writes the bank file, after which
-// the run is released. A run whose release operation failed (nothing or
+// the run is released. A run whose release operation failed or was
+// cancelled (nothing or
 // some payments posted) is released again by the same call, which resumes
 // the work: payments already posted are skipped.
 func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, comment string) (operations.Operation, error) {
@@ -70,7 +71,8 @@ func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func
 }
 
 // releasable: a proposed run, or a releasing one whose release operation
-// failed (the work resumes); a release under way or done is refused.
+// failed or was cancelled (the work resumes); a release under way or done
+// is refused.
 func releasable(ctx context.Context, tx pgx.Tx, r Run) error {
 	switch {
 	case r.Status == Proposed:
@@ -82,7 +84,7 @@ func releasable(ctx context.Context, tx pgx.Tx, r Run) error {
 	if err := tx.QueryRow(ctx, `SELECT status FROM platform.operation WHERE id = $1`, r.ReleaseOpID).Scan(&status); err != nil {
 		return fmt.Errorf("payments: read release operation %s of run %s: %w", r.ReleaseOpID, r.ID, err)
 	}
-	if status != operations.Failed {
+	if status != operations.Failed && status != operations.Cancelled {
 		return problem.Conflict("payments.release_in_progress", "The run is being released (operation "+r.ReleaseOpID.String()+" is "+status+").")
 	}
 	return nil
@@ -235,8 +237,11 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 // with the problem; a run with nothing posted goes back to proposed for
 // another decision, one with payments posted stays releasing, to be
 // resumed by :release once the cause is fixed (posted payments stand). A
-// release operation already finished (the failure recorded before and its
-// completion lost, or the run released) is left alone.
+// release operation that already succeeded or failed (the failure recorded
+// before and its completion lost, or the run released) is left alone. One
+// cancelled while the release went on keeps its status: a run with nothing
+// posted still goes back to proposed, one with payments posted stays
+// releasing, which :release resumes as it does a failed one.
 func (e *Endpoints) FailRelease(ctx context.Context, r Run, why *problem.Problem) (Run, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -246,15 +251,21 @@ func (e *Endpoints) FailRelease(ctx context.Context, r Run, why *problem.Problem
 	if err != nil {
 		return Run{}, err
 	}
-	if !op.Cancellable() {
+	if op.Status == operations.Succeeded || op.Status == operations.Failed {
 		return r, nil
-	}
-	if _, err := operations.Fail(ctx, *r.ReleaseOpID, why); err != nil {
-		return Run{}, err
 	}
 	var posted int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM payments.payment WHERE payment_run_id = $1 AND journal_entry_id IS NOT NULL`, r.ID).Scan(&posted); err != nil {
 		return Run{}, fmt.Errorf("payments: count the posted payments of run %s: %w", r.ID, err)
+	}
+	cancelled := op.Status == operations.Cancelled
+	if cancelled && posted > 0 {
+		return r, nil
+	}
+	if !cancelled {
+		if _, err := operations.Fail(ctx, *r.ReleaseOpID, why); err != nil {
+			return Run{}, err
+		}
 	}
 	if posted == 0 {
 		if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'proposed', decided_by = NULL, decided_at = NULL, version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
@@ -265,7 +276,8 @@ func (e *Endpoints) FailRelease(ctx context.Context, r Run, why *problem.Problem
 	if err != nil {
 		return Run{}, err
 	}
-	return after, record(ctx, "payments.payment_run.fail", r.ID, map[string]any{"stage": "release", "code": why.Code, "detail": why.Detail, "posted": posted, "status": after.Status})
+	return after, record(ctx, "payments.payment_run.fail", r.ID, map[string]any{"stage": "release", "code": why.Code, "detail": why.Detail, "posted": posted, "status": after.Status,
+		"cancelled": cancelled})
 }
 
 // recheck refuses a release when a supplier can no longer be paid as

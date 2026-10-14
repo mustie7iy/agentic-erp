@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -168,7 +169,7 @@ func TestFailReleaseRunsTwice(t *testing.T) {
 		}
 		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
 	}
-	if err := a.FailRelease(ctx, in, why); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "read release operation") {
+	if err := a.FailRelease(ctx, in, why); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "read the release of run") {
 		t.Fatalf("fail with the read failing: got %v, want the injected failure", err)
 	}
 }
@@ -212,5 +213,64 @@ func TestOverlappingFinishRelease(t *testing.T) {
 	}
 	if n := len(apitest.Published(t, e.Tenant, outbox.Event{Context: "payments", Name: "payment_run_released"})); n != 1 {
 		t.Fatalf("payment_run_released events: got %d, want 1", n)
+	}
+}
+
+// TestCancelledReleaseResumes: a release operation cancelled while the
+// release goes on keeps its status. With nothing posted the run goes back
+// to proposed; with payments posted (after the cancellation too) it stays
+// releasing, and :release resumes it as it does a failed release.
+func TestCancelledReleaseResumes(t *testing.T) {
+	e := setup(t)
+	a := activities(t)
+	ctx := context.Background()
+	why := *problem.Unprocessable("payments.bank_file_invalid", "test")
+	cancel := func(in workflows.ReleaseInput) {
+		e.Must(200, "POST", "/v1/operations/"+in.OperationID.String()+":cancel", "", "*")
+	}
+	operation := func(in workflows.ReleaseInput) string {
+		got, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+		return got["status"].(string)
+	}
+	e.invoice(t, "INV-1", "100.00")
+	op, run := e.propose(t, "2026-04-15")
+	if err := execute(t, a, input(e, op, run), false); err != nil {
+		t.Fatal(err)
+	}
+	in := e.releaseAsked(t, run)
+	cancel(in)
+	if got := twice(t, "fail a cancelled release with nothing posted", in, func() error { return a.FailRelease(ctx, in, why) }); !strings.HasPrefix(got.Run, "proposed/") {
+		t.Fatalf("run after a cancelled release with nothing posted: got %s, want proposed", got.Run)
+	}
+	if got := operation(in); got != "cancelled" {
+		t.Fatalf("operation after the failure: got %s, want cancelled", got)
+	}
+	// Cancelled before its payment posts: the posting stands, the operation stays cancelled, the bank file is refused.
+	in = e.releaseAsked(t, run)
+	todo, err := a.PaymentsToPost(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel(in)
+	if err := a.PostPayment(ctx, in, todo[0]); err != nil {
+		t.Fatal(err)
+	}
+	var app *temporal.ApplicationError
+	if err := a.FinishRelease(ctx, in); !errors.As(err, &app) || app.Type() != workflows.ProblemError {
+		t.Fatalf("finish a cancelled release: got %v, want a problem", err)
+	}
+	got := twice(t, "fail a cancelled release with a payment posted", in, func() error { return a.FailRelease(ctx, in, why) })
+	if !strings.HasPrefix(got.Run, "releasing/") || got.Files != 0 {
+		t.Fatalf("run after a cancelled release with a payment posted: got %+v, want releasing without a bank file", got)
+	}
+	if got := operation(in); got != "cancelled" {
+		t.Fatalf("operation after the posting: got %s, want cancelled", got)
+	}
+	resumed := e.releaseAsked(t, run)
+	if err := executeRelease(t, a, resumed); err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, resumed); !strings.HasPrefix(got.Run, "released/") || !strings.HasPrefix(got.Operation, "succeeded/") || got.Files != 1 {
+		t.Fatalf("resumed release: got %+v, want released, succeeded, one bank file", got)
 	}
 }

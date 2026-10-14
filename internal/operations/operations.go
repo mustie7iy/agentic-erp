@@ -247,14 +247,16 @@ func finished(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Operation, error) {
 	return Operation{}, problem.Conflict("platform.operation_finished", "The operation has already "+o.Status+".")
 }
 
-// Report records the progress of a running operation.
+// Report records the progress of a queued or running operation. One that
+// has finished is left alone: progress reported late, by a worker still
+// busy after a cancellation, never brings it back to running.
 func Report(ctx context.Context, id uuid.UUID, done, total int64) error {
 	tx, p, err := request(ctx)
 	if err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE platform.operation SET status = 'running', progress_done = $2, progress_total = $3, version = version + 1,
-		updated_by = $4 WHERE id = $1`, id, done, total, p.ID); err != nil {
+		updated_by = $4 WHERE id = $1 AND status IN ('queued', 'running')`, id, done, total, p.ID); err != nil {
 		return fmt.Errorf("operations: report progress of operation %s: %w", id, err)
 	}
 	return nil

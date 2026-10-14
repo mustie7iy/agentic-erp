@@ -136,12 +136,13 @@ func (p *Payments) FinishRelease(ctx context.Context, in ReleaseInput) error {
 	}))
 }
 
-// FailRelease records the problem that stopped the release. When the
-// workflow's operation has already finished, the failure was recorded
-// before and its completion lost: there is nothing to do, and a run with
-// nothing posted went back to proposed, so it has no releaser to act as.
+// FailRelease records the problem that stopped the release. A run no
+// longer releasing under the workflow's operation has nothing to record:
+// the failure was recorded before and its completion lost (a run with
+// nothing posted went back to proposed, so it has no releaser to act as),
+// or a later :release took the run over.
 func (p *Payments) FailRelease(ctx context.Context, in ReleaseInput, why problem.Problem) error {
-	if done, err := p.operationFinished(ctx, in); err != nil || done {
+	if live, err := p.releasing(ctx, in); err != nil || !live {
 		return err
 	}
 	return p.inRelease(ctx, in, func(ctx context.Context, _ pgx.Tx, r payments.Run) error {
@@ -150,18 +151,20 @@ func (p *Payments) FailRelease(ctx context.Context, in ReleaseInput, why problem
 	})
 }
 
-// operationFinished reads whether the release operation has finished.
-func (p *Payments) operationFinished(ctx context.Context, in ReleaseInput) (bool, error) {
+// releasing reads whether the run is releasing under the workflow's
+// operation.
+func (p *Payments) releasing(ctx context.Context, in ReleaseInput) (bool, error) {
 	tx, err := p.begin(ctx, database.Scope{Role: p.AppRole, TenantID: in.TenantID, ReadOnly: true})
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	var finished bool
-	if err := tx.QueryRow(ctx, `SELECT status NOT IN ('queued', 'running') FROM platform.operation WHERE id = $1`, in.OperationID).Scan(&finished); err != nil {
-		return false, fmt.Errorf("workflows: read release operation %s of run %s: %w", in.OperationID, in.RunID, err)
+	var live bool
+	if err := tx.QueryRow(ctx, `SELECT status = 'releasing' AND release_operation_id IS NOT DISTINCT FROM $2 FROM payments.payment_run WHERE id = $1`,
+		in.RunID, in.OperationID).Scan(&live); err != nil {
+		return false, fmt.Errorf("workflows: read the release of run %s: %w", in.RunID, err)
 	}
-	return finished, nil
+	return live, nil
 }
 
 // Releaser is the in-process release worker of a cell without a workflow

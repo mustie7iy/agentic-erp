@@ -344,7 +344,7 @@ func (Reservations) RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UU
 		JOIN payments.payment p ON p.tenant_id = i.tenant_id AND p.id = i.payment_id
 		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
 		WHERE i.item_fiscal_year = $1 AND i.item_entry_id = $2 AND i.is_active
-			AND (r.status IN ('proposing', 'proposed') OR r.status = 'releasing' AND p.journal_entry_id IS NULL) LIMIT 1`,
+			AND (r.status IN ('proposing', 'proposed') OR (r.status = 'releasing' AND p.journal_entry_id IS NULL)) LIMIT 1`,
 		fiscalYear, entryID).Scan(&number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
