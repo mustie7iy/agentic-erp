@@ -206,7 +206,39 @@ Each a separate Fix commit with a test that fails before the fix.
     directory (tenancy), workflows (payments, config, integration, identity: finding the work
     it dispatches), provisioning (creates a tenant's first rows in tenancy and identity). nfr is
     test support and exempt. Closing it means reading through the owning context's Go API.
-- [ ] R42 Final verification and scored review
+- [x] R42 Final verification and scored review.
+  - Gates at the end: `make lint-all` 0 issues; `make test` (vet, -race) passes in 65 packages;
+    `make coverage` 16950 of 16950 statements; `make fuzz FUZZTIME=10s` 7 of 7 targets clean;
+    gofmt clean; `go test -race -shuffle=on -count=3 ./...` passes (end of Phase 5).
+  - Lint before → after (whole tree, api/gen excluded): 1238 → 0. wrapcheck 496 → 0,
+    errcheck 491 → 0, thelper 61 → 0, gocognit 50 → 0, forbidigo 46 → 0, noctx 38 → 0,
+    funlen 16 → 0, staticcheck 11 → 0, errorlint 11 → 0, bodyclose 6 → 0, dupl 4 → 0,
+    exhaustive 3 → 0, gocritic 3 → 0, nilerr 2 → 0. Coverage gate: rounded 100.0% (hiding up to
+    12 statements) → exact, 16950 of 16950. time.Sleep in tests 34 → 0.
+  - Fresh whole-codebase review (go-reviewer, static reading): **8.2 / 10**, short of the 9.5
+    target. Architecture 8.5, error handling 8.5, concurrency and tenancy 7.0, SQL safety 9.5,
+    tests 8.5, readability 8.5, duplication 6.5. The gaps are correctness in payment release and
+    the ledger, and duplication, not style. Ranked gaps (not fixed: behaviour changes and a
+    migration need the user's go-ahead under the brief):
+    1. A reversed supplier invoice can be paid: Reservations.RunOf ignores runs in releasing,
+       and the ledger does not refuse to clear lines of a reversed entry.
+    2. Payment-release activities are not safe against overlap or a lost completion: Releaser
+       reads the run without FOR UPDATE, FinishRelease updates without a status guard, bank_file
+       is not unique per run (needs a migration), operations.finish has no status guard; a
+       retried FinishRelease on a released run fails instead of succeeding.
+    3. Duplicated helpers that belong in internal/platform: mergePatch ×4, today ×4, the event
+       amount helper ×3, API adapter helpers (ptr, optUUID, optString, ...), the worker Run loop
+       ×12, the system unit of work ×6.
+    4. Money typing: domain structs use int64 where money.Minor is meant (ADR-0005); conversion
+       rounding lives in the ledger; sums are not overflow-checked.
+    5. Ledger reversal and clearing can race (no lock shared between them).
+    6. Security settings that fail open: a malformed operator roles claim grants every role;
+       production starts without an object store or with audit verification off (warnings only).
+    7. Test structure: scenario tests over 150 lines without t.Run steps; 211
+       `err == nil || !strings.Contains` chains; the release-worker test depends on other tests'
+       runs.
+    8. Architecture housekeeping: the composition root lives in platform/httpapi; 26 package docs
+       cite no ADR; the layout test does not cover cmd/; cross-schema SQL (R41 gap).
 
 ## Baseline
 
