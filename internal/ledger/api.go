@@ -269,7 +269,7 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 // ReverseJournalEntry implements POST /v1/journal-entries/{id}:reverse.
 func (e *Endpoints) ReverseJournalEntry(ctx context.Context, req gen.OptJournalEntryReverse, params gen.ReverseJournalEntryParams) (gen.ReverseJournalEntryRes, error) {
 	check := func(orig Entry) error {
-		if err := etag.Match(params.IfMatch, etag.Of(ptrTo(entryToAPI(orig)))); err != nil {
+		if err := etag.Match(params.IfMatch, etag.Of(new(entryToAPI(orig)))); err != nil {
 			return err
 		}
 		return requireOwnEntry(orig)
@@ -281,8 +281,6 @@ func (e *Endpoints) ReverseJournalEntry(ctx context.Context, req gen.OptJournalE
 	rep := entryToAPI(rev)
 	return &gen.ReverseJournalEntryOKHeaders{ETag: apitypes.ETagOf(rep), Response: rep}, nil
 }
-
-func ptrTo[T any](v T) *T { return &v }
 
 var openItemSort = pagination.Sort{Default: "posting_date", Fields: []pagination.Field{{Name: "posting_date", Column: "posting_date", Type: "date"}}}
 

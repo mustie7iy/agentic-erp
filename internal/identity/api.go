@@ -98,10 +98,8 @@ func sodToAPI(r SodRule) gen.SodRule {
 }
 
 func matchGrant[G, A any](header string, toAPI func(G) A) func(G) error {
-	return func(g G) error { return etag.Match(header, etag.Of(ptr(toAPI(g)))) }
+	return func(g G) error { return etag.Match(header, etag.Of(new(toAPI(g)))) }
 }
-
-func ptr[T any](v T) *T { return &v }
 
 // list runs a keyset-paged query and converts its rows.
 func list[R, A any](ctx context.Context, tx pgx.Tx, ks *pagination.Keyset, query string, args []any, scan func(pgx.Row) (R, error),
