@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
@@ -69,7 +70,7 @@ func TestGenerateFromMockSAP(t *testing.T) {
 			t.Errorf("got notes without %s, want a note about it:\n%s", want, all)
 		}
 	}
-	if fs := config.Validate(c); config.HasErrors(fs) {
+	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
 		t.Fatalf("draft does not validate: %v", fs)
 	}
 }
@@ -162,13 +163,13 @@ func TestUnparseableDaysFailValidation(t *testing.T) {
 			e.T052 = append(e.T052, sap.T052{ZTERM: "NT99", ZTAG1: ztag1, TEXT1: "Odd"})
 			c, _ := Generate(e, DefaultOptions())
 			var found bool
-			for _, f := range config.Validate(c) {
+			for _, f := range config.Validate(c, currency.Seeded()) {
 				if f.Path == "payment_terms[NT99].net_days" && f.Severity == config.SevError {
 					found = true
 				}
 			}
 			if !found {
-				t.Errorf("got no error on payment_terms[NT99].net_days, want one: %v", config.Validate(c))
+				t.Errorf("got no error on payment_terms[NT99].net_days, want one: %v", config.Validate(c, currency.Seeded()))
 			}
 		})
 	}

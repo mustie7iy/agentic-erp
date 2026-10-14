@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 func fixtureYAML(t *testing.T) []byte {
@@ -26,7 +28,7 @@ func fixture(t *testing.T) *Config {
 }
 
 func TestFixtureIsValid(t *testing.T) {
-	if fs := Validate(fixture(t)); HasErrors(fs) {
+	if fs := Validate(fixture(t), currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("fixture invalid: %v", fs)
 	}
 }
@@ -118,7 +120,7 @@ func TestValidationRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := fixture(t)
 			tc.mutate(c)
-			fs := Validate(c)
+			fs := Validate(c, currency.Seeded())
 			if !slices.ContainsFunc(fs, func(f Finding) bool { return f.Severity == SevError && f.Path == tc.path }) {
 				t.Fatalf("no error at %s; got %v", tc.path, fs)
 			}
@@ -129,7 +131,7 @@ func TestValidationRules(t *testing.T) {
 func TestValidationWarnings(t *testing.T) {
 	c := fixture(t)
 	c.Companies[0].TaxCodes = nil
-	fs := Validate(c)
+	fs := Validate(c, currency.Seeded())
 	if HasErrors(fs) {
 		t.Fatalf("warnings only expected: %v", fs)
 	}

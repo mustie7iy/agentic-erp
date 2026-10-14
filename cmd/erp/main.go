@@ -42,6 +42,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/sapconfig"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -402,7 +403,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("config generate: print notes: %w", err)
 	}
-	return printFindings(config.Validate(cfg))
+	return printFindings(config.Validate(cfg, currency.Seeded()))
 }
 
 func configValidate(args []string) error {
@@ -415,7 +416,7 @@ func configValidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	return printFindings(config.Validate(c))
+	return printFindings(config.Validate(c, currency.Seeded())) // offline: the exponents the migrations seed
 }
 
 func printFindings(fs []config.Finding) error {

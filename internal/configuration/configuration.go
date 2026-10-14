@@ -26,6 +26,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -93,9 +94,14 @@ type Actors interface {
 
 // check validates a document for activation on top of base (nil for the
 // first version): the document's own rules, its number ranges and every
-// section, all findings reported together as one 422.
-func (d Dependencies) check(ctx context.Context, base, proposed *config.Config) error {
-	findings := config.Validate(proposed)
+// section, all findings reported together as one 422. Amounts are checked
+// with the exponents of ref.currency (ADR-0005).
+func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *config.Config) error {
+	exponents, err := currency.Load(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("configuration: check: %w", err)
+	}
+	findings := config.Validate(proposed, exponents)
 	if base != nil {
 		findings = append(findings, rangeTransitions(base, proposed)...)
 	}
@@ -414,7 +420,7 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 	if err != nil {
 		return ChangeRequest{}, err
 	}
-	if err := deps.check(ctx, base, proposed); err != nil {
+	if err := deps.check(ctx, tx, base, proposed); err != nil {
 		return ChangeRequest{}, err
 	}
 	changes, _ := config.Diff(base, proposed) // never fails
@@ -572,7 +578,7 @@ func Bootstrap(ctx context.Context, deps Dependencies, doc json.RawMessage) (int
 	if err != nil {
 		return 0, err
 	}
-	if err := deps.check(ctx, nil, c); err != nil {
+	if err := deps.check(ctx, tx, nil, c); err != nil {
 		return 0, err
 	}
 	v, err := activate(ctx, tx, deps, actor, c, nil, "bootstrap", nil)

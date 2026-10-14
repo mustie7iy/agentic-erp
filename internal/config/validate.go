@@ -8,6 +8,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 type Severity string
@@ -39,9 +40,11 @@ var (
 )
 
 // Validate runs every deterministic check. The configuration may only be
-// activated when no finding has error severity.
-func Validate(c *Config) []Finding {
-	v := &validator{}
+// activated when no finding has error severity. exponents are the
+// currencies of ref.currency with their minor-unit digits (ADR-0005):
+// currency.Load in a transaction, currency.Seeded offline.
+func Validate(c *Config, exponents currency.Exponents) []Finding {
+	v := &validator{exponents: exponents}
 	if c.Version != 1 {
 		v.err("version", "unsupported version %d (expected 1)", c.Version)
 	}
@@ -110,7 +113,10 @@ func (v *validator) numberRanges(c *Config) {
 	}
 }
 
-type validator struct{ out []Finding }
+type validator struct {
+	exponents currency.Exponents
+	out       []Finding
+}
 
 func (v *validator) err(path, format string, a ...any) {
 	v.out = append(v.out, Finding{SevError, path, fmt.Sprintf(format, a...)})
@@ -136,8 +142,12 @@ func (v *validator) company(p string, co *Company) {
 	if strings.TrimSpace(co.Name) == "" {
 		v.err(p+".name", "name is required")
 	}
-	if !currencyRe.MatchString(co.Currency) {
+	exp, known := v.exponents[co.Currency]
+	switch {
+	case !currencyRe.MatchString(co.Currency):
 		v.err(p+".currency", "currency %q must be an ISO 4217 code", co.Currency)
+	case !known:
+		v.err(p+".currency", "currency %s is not in the currency reference data", co.Currency)
 	}
 	if !countryRe.MatchString(co.Country) {
 		v.err(p+".country", "country %q must be an ISO 3166 two-letter code", co.Country)
@@ -151,8 +161,13 @@ func (v *validator) company(p string, co *Company) {
 	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
 		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
 	}
-	v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, decimalsFor(co.Currency))
-	v.amount(p+".auto_post_limit", co.AutoPostLimit, decimalsFor(co.Currency))
+	// Amounts are read with the currency's digits from ref.currency; with
+	// no known currency there are none to read them with, and the
+	// currency's finding already blocks activation.
+	if known {
+		v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, exp)
+		v.amount(p+".auto_post_limit", co.AutoPostLimit, exp)
+	}
 	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
 		v.err(p+".gr_over_delivery_percent", "must be 0-100")
 	}
@@ -321,13 +336,3 @@ func (v *validator) payments(c *Config) {
 
 // ValidIBAN checks an IBAN with the ISO 13616 mod-97 algorithm.
 func ValidIBAN(iban string) bool { return bankfile.ValidIBAN(iban) }
-
-func decimalsFor(currency string) int {
-	switch currency {
-	case "JPY", "KRW", "CLP", "ISK", "VND":
-		return 0
-	case "BHD", "KWD", "OMR", "JOD", "TND":
-		return 3
-	}
-	return 2
-}

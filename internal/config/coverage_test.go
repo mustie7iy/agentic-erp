@@ -5,18 +5,11 @@ import (
 	"testing"
 )
 
-func TestTierNamesAndDecimals(t *testing.T) {
+func TestTierNamesAndChanges(t *testing.T) {
 	for tier, want := range map[Tier]string{TierCosmetic: "tier 1 (cosmetic)", TierOperational: "tier 2 (operational)", TierPostingRelated: "tier 3 (posting-relevant)"} {
 		t.Run(want, func(t *testing.T) {
 			if got := tier.String(); got != want {
 				t.Errorf("got %q, want %q", got, want)
-			}
-		})
-	}
-	for currency, want := range map[string]int{"JPY": 0, "KWD": 3, "USD": 2} {
-		t.Run(currency, func(t *testing.T) {
-			if got := decimalsFor(currency); got != want {
-				t.Errorf("decimalsFor(%s): got %d, want %d", currency, got, want)
 			}
 		})
 	}

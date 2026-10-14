@@ -3,13 +3,15 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 func TestNumberRanges(t *testing.T) {
 	c := fixture(t)
 	good := NumberRange{Company: "1000", DocumentType: "supplier_invoice", FiscalYear: 2026, Prefix: "SI-", First: 1, Last: 999999, Gapless: true}
 	c.NumberRanges = []NumberRange{good}
-	if fs := Validate(c); HasErrors(fs) {
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("valid range refused: %v", fs)
 	}
 	bad := []NumberRange{
@@ -18,7 +20,7 @@ func TestNumberRanges(t *testing.T) {
 	}
 	c.NumberRanges = append(c.NumberRanges, bad...)
 	var paths []string
-	for _, f := range Validate(c) {
+	for _, f := range Validate(c, currency.Seeded()) {
 		if strings.HasPrefix(f.Path, "number_ranges") {
 			paths = append(paths, f.Path)
 		}
