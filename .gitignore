@@ -8,6 +8,10 @@ bin/
 /erp-server
 /erp-router
 /erp
+# and the same built inside their own directory (go build in cmd/<name>)
+/cmd/erp/erp
+/cmd/erp-server/erp-server
+/cmd/erp-router/erp-router
 
 # per-user Claude Code state; .claude/settings.json, agents/ and hooks/ are shared
 .claude/settings.local.json
