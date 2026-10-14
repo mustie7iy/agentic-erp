@@ -350,17 +350,16 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 			if n := len(s.workerErr); n != 0 {
 				t.Errorf("got %d unread workflow worker results, want 0", n)
 			}
-			workers := []struct {
-				name string
-				done chan struct{}
-			}{{"relay", s.relayDone}, {"projector", s.projectorDone}, {"proposer", s.proposerDone}, {"dispatcher", s.dispatchDone},
-				{"workflow worker", s.workerDone}, {"simulator", s.simulatorDone}, {"maintenance", s.maintenanceDone}, {"anchorer", s.anchorDone},
-				{"offboarder", s.offboardDone}, {"verifier", s.verifyDone}, {"rotator", s.rotateDone}, {"expirer", s.expireDone}, {"directory sync", s.dirDone}}
-			for _, w := range workers {
-				select {
-				case <-w.done:
-				default:
-					t.Errorf("%s: got still running after run returned, want stopped", w.name)
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			for _, name := range []string{"projector", "simulator", "proposer", "releaser", "maintenance", "expirer"} {
+				if _, ok := s.running[name]; !ok {
+					t.Errorf("%s: got not started, want started before the failure", name)
+				}
+			}
+			for name, running := range s.running {
+				if running {
+					t.Errorf("%s: got still running after run returned, want stopped", name)
 				}
 			}
 		})

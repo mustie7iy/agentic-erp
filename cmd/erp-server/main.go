@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -144,22 +145,15 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	startWorkersHook(s, runCtx)
 	bus, err := s.connectBus()
 	if err != nil {
-		return s.abort(cancel, err)
+		return s.stop(cancel, err)
 	}
 	if bus != nil {
 		defer bus.Close()
 	}
 	if err := s.startRelay(ctx, runCtx, bus); err != nil {
-		return s.abort(cancel, err)
+		return s.stop(cancel, err)
 	}
 	return s.serve(ctx, cancel, started)
-}
-
-// abort ends a startup that failed after the workers started but before
-// the relay did: it marks the relay's end and stops the rest.
-func (s *server) abort(cancel context.CancelFunc, err error) error {
-	close(s.relayDone)
-	return s.stop(cancel, err)
 }
 
 // stop stops the workers and waits for them, so that run's deferred closes
@@ -198,10 +192,11 @@ type server struct {
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
 
-	// Each worker's end: closed when it stopped, or right away when it
-	// does not run in this configuration.
-	dirDone, projectorDone, simulatorDone, proposerDone, workerDone, dispatchDone, maintenanceDone chan struct{}
-	anchorDone, offboardDone, rotateDone, expireDone, verifyDone, relayDone                        chan struct{}
+	// workers counts the background workers spawn started and wait waits
+	// for; running has every one of them by name, true until it stopped.
+	workers sync.WaitGroup
+	mu      sync.Mutex
+	running map[string]bool
 	// workerErr is the workflow worker's end: nil after a requested shutdown,
 	// the failure when it could not start (joined into the server's exit).
 	workerErr chan error
@@ -267,9 +262,7 @@ func (s *server) openObjects() {
 // one: the cell keeps its tenants' entries current, right after a change
 // and in rounds. Without one it returns nil.
 func (s *server) openDirectory(ctx context.Context) (*directory.Postgres, error) {
-	s.dirDone = make(chan struct{})
 	if s.cfg.DirectoryURL == "" {
-		close(s.dirDone)
 		return nil, nil
 	}
 	dir, err := directory.Open(ctx, s.cfg.DirectoryURL)
@@ -368,14 +361,10 @@ func (s *server) startWorkers(runCtx context.Context) {
 // engine, the configuration simulator.
 func (s *server) startProjections(runCtx context.Context) {
 	projector := &ledger.Projector{Pool: s.pool, Role: s.cfg.ProjectorRole, Log: s.log}
-	s.projectorDone = make(chan struct{})
-	go func() { projector.Run(runCtx); close(s.projectorDone) }()
+	s.spawn("projector", func() { projector.Run(runCtx) })
 	s.simulator = &configuration.SimulationWorker{Dependencies: app.Configuration(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Log: s.log}
-	s.simulatorDone = make(chan struct{})
-	if s.engine == nil {
-		go func() { s.simulator.Run(runCtx); close(s.simulatorDone) }()
-	} else {
-		close(s.simulatorDone) // simulations run as workflows
+	if s.engine == nil { // with an engine, simulations run as workflows
+		s.spawn("simulator", func() { s.simulator.Run(runCtx) })
 	}
 }
 
@@ -384,40 +373,35 @@ func (s *server) startProjections(runCtx context.Context) {
 // the queued operations.
 func (s *server) startOperations(runCtx context.Context) {
 	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
-	s.proposerDone, s.workerDone, s.dispatchDone, s.workerErr = make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	s.workerErr = make(chan error, 1)
 	if engine == nil {
 		proposer := &payments.Proposer{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
-		go func() { proposer.Run(runCtx); close(s.proposerDone) }()
+		s.spawn("proposer", func() { proposer.Run(runCtx) })
 		releaser := &workflows.Releaser{Payments: &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}, Pool: pool, WorkerRole: cfg.WorkerRole, Log: log}
-		go func() { releaser.Run(runCtx); close(s.workerDone) }()
-		close(s.dispatchDone)
+		s.spawn("releaser", func() { releaser.Run(runCtx) })
 		s.workerErr <- nil
 		return
 	}
-	close(s.proposerDone)
 	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}
-	go func() {
+	s.spawn("workflow worker", func() {
 		s.workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
 			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
 				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole})
 		})
-		close(s.workerDone)
-	}()
+	})
 	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Log: log}
-	go func() { dispatcher.Run(runCtx); close(s.dispatchDone) }()
+	s.spawn("dispatcher", func() { dispatcher.Run(runCtx) })
 }
 
 // startMaintenance starts the partition maintenance and, with a global
 // directory, the directory sync.
 func (s *server) startMaintenance(runCtx context.Context) {
 	pool, log := s.pool, s.log
-	s.maintenanceDone = make(chan struct{})
-	go func() {
+	s.spawn("maintenance", func() {
 		maintain(runCtx, maintenanceInterval, func(ctx context.Context) error { return partitions(ctx, pool, log) }, log)
-		close(s.maintenanceDone)
-	}()
+	})
 	if s.sync != nil {
-		go func() { s.sync.Run(runCtx); close(s.dirDone) }()
+		s.spawn("directory sync", func() { s.sync.Run(runCtx) })
 	}
 }
 
@@ -426,47 +410,35 @@ func (s *server) startMaintenance(runCtx context.Context) {
 // contract expiry and audit chain verification.
 func (s *server) startAudit(runCtx context.Context) {
 	cfg, pool, log := s.cfg, s.pool, s.log
-	s.anchorDone, s.offboardDone = make(chan struct{}), make(chan struct{})
-	if s.store == nil {
-		close(s.anchorDone)
-		close(s.offboardDone)
-	} else {
+	if s.store != nil {
 		anchorer := &audit.Anchorer{Pool: pool, Store: s.store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: anchorInterval, Retention: cfg.Objects.Retention, Log: log}
-		go func() { anchorer.Run(runCtx); close(s.anchorDone) }()
-		go func() { s.offboarder.Run(runCtx); close(s.offboardDone) }()
+		s.spawn("anchorer", func() { anchorer.Run(runCtx) })
+		s.spawn("offboarder", func() { s.offboarder.Run(runCtx) })
 	}
 	// Keys older than the policy's age are rotated by the server (ADR-0028).
-	s.rotateDone = make(chan struct{})
-	if cfg.KeyRotationAge == 0 {
-		close(s.rotateDone)
-	} else {
+	if cfg.KeyRotationAge != 0 {
 		rotator := &controlplane.KeyRotator{Pool: pool, Keys: s.keys, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Age: cfg.KeyRotationAge, Interval: rotationInterval, Log: log}
-		go func() { rotator.Run(runCtx); close(s.rotateDone) }()
+		s.spawn("rotator", func() { rotator.Run(runCtx) })
 	}
 	// Active contracts past their validity are expired in rounds (the
 	// contract's ContractExpired is the job's).
 	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log}
-	s.expireDone = make(chan struct{})
-	go func() { expirer.Run(runCtx); close(s.expireDone) }()
+	s.spawn("expirer", func() { expirer.Run(runCtx) })
 	// Every tenant's audit chain is verified against its anchors in rounds
 	// (ADR-0011); a chain that stops verifying is an alarm.
-	s.verifyDone = make(chan struct{})
 	if cfg.AuditVerify == 0 {
-		close(s.verifyDone)
 		log.Warn("ERP_AUDIT_VERIFY_INTERVAL is 0: audit chains are verified on request only (ERP_ENV=production refuses this)")
 	} else {
 		verifier := &audit.Verifier{Pool: pool, Store: s.store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: cfg.AuditVerify, Log: log}
-		go func() { verifier.Run(runCtx); close(s.verifyDone) }()
+		s.spawn("verifier", func() { verifier.Run(runCtx) })
 	}
 }
 
 // connectBus connects NATS for the outbox relay, or returns nil when none
 // is configured: events then stay in the outbox.
 func (s *server) connectBus() (*natsbus.Bus, error) {
-	s.relayDone = make(chan struct{})
 	if s.cfg.NATSURL == "" {
 		s.log.Warn("ERP_NATS_URL not set: events stay in the outbox until a relay runs")
-		close(s.relayDone)
 		return nil, nil
 	}
 	return natsbus.Connect(s.cfg.NATSURL)
@@ -482,7 +454,7 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 		return err
 	}
 	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log}
-	go func() { relay.Run(runCtx); close(s.relayDone) }()
+	s.spawn("relay", func() { relay.Run(runCtx) })
 	return nil
 }
 
@@ -492,7 +464,7 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started func(api, admin net.Listener)) error {
 	apiLn, adminLn, err := listen(s.cfg)
 	if err != nil {
-		return s.stop(cancel, err) // the relay is running and marks its own end
+		return s.stop(cancel, err)
 	}
 	servers := []*http.Server{
 		{Handler: s.apiHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
@@ -541,22 +513,25 @@ func listen(cfg config.Config) (apiLn, adminLn net.Listener, err error) {
 	return apiLn, adminLn, nil
 }
 
-// wait blocks until every worker stopped.
-func (s *server) wait() {
-	<-s.relayDone
-	<-s.projectorDone
-	<-s.proposerDone
-	<-s.dispatchDone
-	<-s.workerDone
-	<-s.simulatorDone
-	<-s.maintenanceDone
-	<-s.anchorDone
-	<-s.offboardDone
-	<-s.verifyDone
-	<-s.rotateDone
-	<-s.expireDone
-	<-s.dirDone
+// spawn runs the worker fn in the background, counted for wait: no worker
+// started this way can be left out of a shutdown.
+func (s *server) spawn(name string, fn func()) {
+	s.mu.Lock()
+	if s.running == nil {
+		s.running = map[string]bool{}
+	}
+	s.running[name] = true
+	s.mu.Unlock()
+	s.workers.Go(func() {
+		fn()
+		s.mu.Lock()
+		s.running[name] = false
+		s.mu.Unlock()
+	})
 }
+
+// wait blocks until every worker spawn started stopped.
+func (s *server) wait() { s.workers.Wait() }
 
 // maintenanceInterval is how often a replica checks the partition horizon,
 // anchorInterval how often it anchors moved chain heads, offboardInterval how
