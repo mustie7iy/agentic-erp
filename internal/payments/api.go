@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -19,29 +19,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func ptr[T any](o interface{ Get() (T, bool) }) *T {
-	if v, ok := o.Get(); ok {
-		return &v
-	}
-	return nil
-}
-
-func moneyOf(minor int64, currency string, exp int) gen.Money {
-	return gen.Money{Amount: money.Minor(minor).Plain(exp), Currency: currency}
-}
-
-func optUUID(id *uuid.UUID) gen.OptUUID {
-	if id == nil {
-		return gen.OptUUID{}
-	}
-	return gen.NewOptUUID(*id)
-}
-
 func runToAPI(r Run) gen.PaymentRun {
 	out := gen.PaymentRun{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, HouseBankID: r.HouseBankID,
-		RunDate: r.RunDate, DueBy: r.DueBy, TotalAmount: moneyOf(r.Total, r.Currency, r.Exponent), Status: r.Status, ProposedBy: r.ProposedBy,
-		DecidedBy: optUUID(r.DecidedBy), OperationID: optUUID(r.OperationID), ReleaseOperationID: optUUID(r.ReleaseOpID)}
+		RunDate: r.RunDate, DueBy: r.DueBy, TotalAmount: apitypes.Money(r.Total, r.Currency, r.Exponent), Status: r.Status, ProposedBy: r.ProposedBy,
+		DecidedBy: apitypes.OptUUID(r.DecidedBy), OperationID: apitypes.OptUUID(r.OperationID), ReleaseOperationID: apitypes.OptUUID(r.ReleaseOpID)}
 	if r.DecidedAt != nil {
 		out.DecidedAt.SetTo(*r.DecidedAt)
 	}
@@ -54,11 +36,11 @@ func runOK(r Run) *gen.RejectPaymentRunOKHeaders {
 
 func paymentToAPI(p Payment, currency string, exp int) gen.Payment {
 	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID,
-		BankAccountID: p.BankAccountID, Amount: moneyOf(p.Amount, currency, exp), EndToEndID: p.EndToEndID, JournalEntryID: optUUID(p.JournalEntryID),
+		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID),
 		Items: make([]gen.PaymentItem, len(p.Items))}
 	for i, it := range p.Items {
 		out.Items[i] = gen.PaymentItem{FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
-			Amount: moneyOf(it.Amount, currency, exp), DueDate: it.DueDate.Time, IsActive: it.Active}
+			Amount: apitypes.Money(it.Amount, currency, exp), DueDate: it.DueDate.Time, IsActive: it.Active}
 	}
 	return out
 }
@@ -96,7 +78,7 @@ func (e *Endpoints) ListPaymentRuns(ctx context.Context, params gen.ListPaymentR
 	if err != nil {
 		return nil, err
 	}
-	le, from, to := ptr[uuid.UUID](params.LegalEntityID), ptr[time.Time](params.RunDateFrom), ptr[time.Time](params.RunDateTo)
+	le, from, to := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[time.Time](params.RunDateFrom), apitypes.Ptr[time.Time](params.RunDateTo)
 	scope := fmt.Sprintf("listPaymentRuns|%s|%s|%s|%v|%v", le, params.Status.Value, params.DocumentNumber.Value, from, to)
 	ks, err := e.Pages.Keyset(runSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
 		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
@@ -149,11 +131,6 @@ func (e *Endpoints) RejectPaymentRun(ctx context.Context, req *gen.ReasonInput, 
 	return runOK(r), nil
 }
 
-// pagingRequest is the paging of a list without order_by.
-func pagingRequest(size gen.OptInt32, token gen.OptString) pagination.Request {
-	return pagination.Request{PageSize: size.Value, PageSizeSet: size.Set, PageToken: token.Value, PageTokenSet: token.Set}
-}
-
 var byID = pagination.Sort{Default: "id", Fields: []pagination.Field{{Name: "id", Column: "id", Type: "uuid"}}}
 
 func idKey[T any](id func(T) uuid.UUID) func(T) (string, uuid.UUID) {
@@ -166,8 +143,8 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 	if err != nil {
 		return nil, err
 	}
-	sup := ptr[uuid.UUID](params.SupplierID)
-	ks, err := e.Pages.Keyset(byID, fmt.Sprintf("listPayments|%s|%s", params.ID, sup), pagingRequest(params.PageSize, params.PageToken))
+	sup := apitypes.Ptr[uuid.UUID](params.SupplierID)
+	ks, err := e.Pages.Keyset(byID, fmt.Sprintf("listPayments|%s|%s", params.ID, sup), apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +176,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(byID, "listPaymentExclusions|"+params.ID.String(), pagingRequest(params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(byID, "listPaymentExclusions|"+params.ID.String(), apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +197,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	exs, next := pagination.Page(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.SupplierID }))
 	page := gen.PaymentExclusionPage{Items: make([]gen.PaymentExclusion, len(exs))}
 	for i, x := range exs {
-		page.Items[i] = gen.PaymentExclusion{SupplierID: x.SupplierID, ReasonCode: x.Reason, Amount: moneyOf(x.Amount, r.Currency, r.Exponent)}
+		page.Items[i] = gen.PaymentExclusion{SupplierID: x.SupplierID, ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
 	}
 	if next != "" {
 		page.NextPageToken.SetTo(next)
@@ -245,7 +222,7 @@ func (e *Endpoints) ListBankFiles(ctx context.Context, params gen.ListBankFilesP
 	if err != nil {
 		return nil, err
 	}
-	run := ptr[uuid.UUID](params.PaymentRunID)
+	run := apitypes.Ptr[uuid.UUID](params.PaymentRunID)
 	ks, err := e.Pages.Keyset(fileSort, fmt.Sprintf("listBankFiles|%s|%s", run, params.Status.Value), pagination.Request{OrderBy: params.OrderBy.Value,
 		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
 	if err != nil {

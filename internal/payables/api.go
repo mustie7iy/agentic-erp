@@ -3,18 +3,16 @@ package payables
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
 
-	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -22,48 +20,15 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func ptr[T any](o interface{ Get() (T, bool) }) *T {
-	if v, ok := o.Get(); ok {
-		return &v
-	}
-	return nil
-}
-
-func fromExtensions(x gen.Extensions) map[string]any {
-	if x == nil {
-		return nil
-	}
-	out := make(map[string]any, len(x))
-	for k, raw := range x {
-		var v any
-		_ = json.Unmarshal(raw, &v) // the generated decoder only passes valid JSON
-		out[k] = v
-	}
-	return out
-}
-
-func toExtensions(m map[string]any) gen.Extensions {
-	out := make(gen.Extensions, len(m))
-	for k, v := range m {
-		b, _ := json.Marshal(v) // values decoded from JSON always encode
-		out[k] = jx.Raw(b)
-	}
-	return out
-}
-
-func moneyOf(minor int64, currency string, exp int) gen.Money {
-	return gen.Money{Amount: money.Minor(minor).Plain(exp), Currency: currency}
-}
-
 func fromItems(items []gen.SupplierInvoiceItem) []ItemInput {
 	if items == nil {
 		return nil
 	}
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
-		out[i] = ItemInput{PurchaseOrderID: ptr[uuid.UUID](it.PurchaseOrderID), POItemNo: ptr[int32](it.PoItemNo), Description: ptr[string](it.Description),
+		out[i] = ItemInput{PurchaseOrderID: apitypes.Ptr[uuid.UUID](it.PurchaseOrderID), POItemNo: apitypes.Ptr[int32](it.PoItemNo), Description: apitypes.Ptr[string](it.Description),
 			Quantity: it.Quantity.Value, Unit: it.Quantity.Unit, Amount: Amount{Value: it.Amount.Amount, Currency: it.Amount.Currency},
-			TaxCode: ptr[string](it.TaxCode), AccountID: ptr[uuid.UUID](it.AccountID)}
+			TaxCode: apitypes.Ptr[string](it.TaxCode), AccountID: apitypes.Ptr[uuid.UUID](it.AccountID)}
 	}
 	return out
 }
@@ -71,15 +36,9 @@ func fromItems(items []gen.SupplierInvoiceItem) []ItemInput {
 func toAPI(v Invoice) gen.SupplierInvoice {
 	out := gen.SupplierInvoice{ID: v.ID, Version: v.Version, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, UpdatedAt: v.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(v.UpdatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, SupplierID: v.SupplierID,
-		SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate, GrossAmount: moneyOf(v.Gross, v.Currency, v.Exponent),
-		TaxAmount: moneyOf(v.Tax, v.Currency, v.Exponent), Status: v.Status, Source: v.Source, Extensions: toExtensions(v.Extensions),
+		SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate, GrossAmount: apitypes.Money(v.Gross, v.Currency, v.Exponent),
+		TaxAmount: apitypes.Money(v.Tax, v.Currency, v.Exponent), Status: v.Status, Source: v.Source, Extensions: apitypes.EncodeObject(v.Extensions),
 		Items: make([]gen.SupplierInvoiceItem, len(v.Items))}
-	opt := func(id *uuid.UUID) gen.OptUUID {
-		if id == nil {
-			return gen.OptUUID{}
-		}
-		return gen.NewOptUUID(*id)
-	}
 	if v.PostingDate != nil {
 		out.PostingDate.SetTo(*v.PostingDate)
 	}
@@ -87,10 +46,10 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 		out.HoldReason.SetTo(*v.HoldReason)
 	}
 	out.PurchaseOrderID, out.JournalEntryID, out.ReversalEntryID, out.WorkflowRequestID =
-		opt(v.PurchaseOrderID), opt(v.JournalEntryID), opt(v.ReversalEntryID), opt(v.WorkflowRequestID)
+		apitypes.OptUUID(v.PurchaseOrderID), apitypes.OptUUID(v.JournalEntryID), apitypes.OptUUID(v.ReversalEntryID), apitypes.OptUUID(v.WorkflowRequestID)
 	for i, it := range v.Items {
-		item := gen.SupplierInvoiceItem{ItemNo: gen.NewOptInt32(it.ItemNo), PurchaseOrderID: opt(it.PurchaseOrderID),
-			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, Amount: moneyOf(it.Amount, v.Currency, v.Exponent), AccountID: opt(it.AccountID)}
+		item := gen.SupplierInvoiceItem{ItemNo: gen.NewOptInt32(it.ItemNo), PurchaseOrderID: apitypes.OptUUID(it.PurchaseOrderID),
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent), AccountID: apitypes.OptUUID(it.AccountID)}
 		if it.POItemNo != nil {
 			item.PoItemNo.SetTo(*it.POItemNo)
 		}
@@ -140,9 +99,9 @@ func matchToAPI(m Match) gen.MatchResult {
 // CreateSupplierInvoice implements POST /v1/supplier-invoices.
 func (e *Endpoints) CreateSupplierInvoice(ctx context.Context, req *gen.SupplierInvoiceCreate, _ gen.CreateSupplierInvoiceParams) (gen.CreateSupplierInvoiceRes, error) {
 	v, err := e.CreateInvoice(ctx, Input{LegalEntityID: req.LegalEntityID, SupplierID: req.SupplierID, SupplierReference: req.SupplierReference,
-		InvoiceDate: req.InvoiceDate, PostingDate: ptr[time.Time](req.PostingDate), Gross: Amount{req.GrossAmount.Amount, req.GrossAmount.Currency},
-		Tax: Amount{req.TaxAmount.Amount, req.TaxAmount.Currency}, PurchaseOrderID: ptr[uuid.UUID](req.PurchaseOrderID), Items: fromItems(req.Items),
-		Extensions: fromExtensions(req.Extensions.Value)}, req.Source.Or("manual"))
+		InvoiceDate: req.InvoiceDate, PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Gross: Amount{req.GrossAmount.Amount, req.GrossAmount.Currency},
+		Tax: Amount{req.TaxAmount.Amount, req.TaxAmount.Currency}, PurchaseOrderID: apitypes.Ptr[uuid.UUID](req.PurchaseOrderID), Items: fromItems(req.Items),
+		Extensions: apitypes.DecodeObject(req.Extensions.Value)}, req.Source.Or("manual"))
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +160,8 @@ func (e *Endpoints) ListSupplierInvoices(ctx context.Context, params gen.ListSup
 	if err != nil {
 		return nil, err
 	}
-	le, sup, po := ptr[uuid.UUID](params.LegalEntityID), ptr[uuid.UUID](params.SupplierID), ptr[uuid.UUID](params.PurchaseOrderID)
-	from, to := ptr[time.Time](params.InvoiceDateFrom), ptr[time.Time](params.InvoiceDateTo)
+	le, sup, po := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID), apitypes.Ptr[uuid.UUID](params.PurchaseOrderID)
+	from, to := apitypes.Ptr[time.Time](params.InvoiceDateFrom), apitypes.Ptr[time.Time](params.InvoiceDateTo)
 	scope := fmt.Sprintf("listSupplierInvoices|%s|%s|%s|%s|%s|%v|%v", le, sup, params.Status.Value, params.DocumentNumber.Value, po, from, to)
 	ks, err := e.Pages.Keyset(invoiceSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
 		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
@@ -242,14 +201,14 @@ func (e *Endpoints) ListSupplierInvoices(ctx context.Context, params gen.ListSup
 
 // UpdateSupplierInvoice implements PATCH /v1/supplier-invoices/{id}.
 func (e *Endpoints) UpdateSupplierInvoice(ctx context.Context, req *gen.SupplierInvoiceUpdate, params gen.UpdateSupplierInvoiceParams) (gen.UpdateSupplierInvoiceRes, error) {
-	ch := Change{SupplierReference: ptr[string](req.SupplierReference), InvoiceDate: ptr[time.Time](req.InvoiceDate), Items: fromItems(req.Items),
-		Extensions: fromExtensions(req.Extensions.Value)}
+	ch := Change{SupplierReference: apitypes.Ptr[string](req.SupplierReference), InvoiceDate: apitypes.Ptr[time.Time](req.InvoiceDate), Items: fromItems(req.Items),
+		Extensions: apitypes.DecodeObject(req.Extensions.Value)}
 	if req.PostingDate.Set {
-		d := ptr[time.Time](req.PostingDate)
+		d := apitypes.Ptr[time.Time](req.PostingDate)
 		ch.PostingDate = &d
 	}
 	if req.PurchaseOrderID.Set {
-		po := ptr[uuid.UUID](req.PurchaseOrderID)
+		po := apitypes.Ptr[uuid.UUID](req.PurchaseOrderID)
 		ch.PurchaseOrderID = &po
 	}
 	if g, ok := req.GrossAmount.Get(); ok {
@@ -277,7 +236,7 @@ func (e *Endpoints) MatchSupplierInvoice(ctx context.Context, params gen.MatchSu
 
 // PostSupplierInvoice implements POST /v1/supplier-invoices/{id}:post.
 func (e *Endpoints) PostSupplierInvoice(ctx context.Context, req gen.OptSupplierInvoicePost, params gen.PostSupplierInvoiceParams) (gen.PostSupplierInvoiceRes, error) {
-	v, err := e.PostInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), ptr[time.Time](req.Value.PostingDate))
+	v, err := e.PostInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[time.Time](req.Value.PostingDate))
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +272,7 @@ func (e *Endpoints) CancelSupplierInvoice(ctx context.Context, req *gen.ReasonIn
 
 // ReverseSupplierInvoice implements POST /v1/supplier-invoices/{id}:reverse.
 func (e *Endpoints) ReverseSupplierInvoice(ctx context.Context, req *gen.SupplierInvoiceReverse, params gen.ReverseSupplierInvoiceParams) (gen.ReverseSupplierInvoiceRes, error) {
-	v, err := e.ReverseInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason, ptr[time.Time](req.PostingDate))
+	v, err := e.ReverseInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason, apitypes.Ptr[time.Time](req.PostingDate))
 	if err != nil {
 		return nil, err
 	}

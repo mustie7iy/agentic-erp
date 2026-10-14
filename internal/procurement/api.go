@@ -2,43 +2,20 @@ package procurement
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
 
-	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
-
-func opt[T any](o interface{ Get() (T, bool) }) *T {
-	if v, ok := o.Get(); ok {
-		return &v
-	}
-	return nil
-}
-
-func optUUID(v *uuid.UUID) gen.OptUUID {
-	if v == nil {
-		return gen.OptUUID{}
-	}
-	return gen.NewOptUUID(*v)
-}
-
-func optString(v *string) gen.OptString {
-	if v == nil {
-		return gen.OptString{}
-	}
-	return gen.NewOptString(*v)
-}
 
 func optInt(v *int32) gen.OptInt32 {
 	if v == nil {
@@ -47,40 +24,10 @@ func optInt(v *int32) gen.OptInt32 {
 	return gen.NewOptInt32(*v)
 }
 
-func paging(size gen.OptInt32, token, order gen.OptString) pagination.Request {
-	return pagination.Request{OrderBy: order.Value, PageSize: size.Value, PageSizeSet: size.Set, PageToken: token.Value, PageTokenSet: token.Set}
-}
-
-func fromExtensions(x gen.Extensions) map[string]any {
-	if x == nil {
-		return nil
-	}
-	out := make(map[string]any, len(x))
-	for k, raw := range x {
-		var v any
-		_ = json.Unmarshal(raw, &v) // the generated decoder only passes valid JSON
-		out[k] = v
-	}
-	return out
-}
-
-func toExtensions(m map[string]any) gen.Extensions {
-	out := make(gen.Extensions, len(m))
-	for k, v := range m {
-		b, _ := json.Marshal(v) // values decoded from JSON always encode
-		out[k] = jx.Raw(b)
-	}
-	return out
-}
-
-func price(minor int64, currency string, exp int) gen.Money {
-	return gen.Money{Amount: money.Minor(minor).Plain(exp), Currency: currency}
-}
-
 func requisitionInputs(items []gen.RequisitionItem) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
-		out[i] = ItemInput{No: opt[int32](it.ItemNo), MaterialID: opt[uuid.UUID](it.MaterialID), Description: it.Description, Quantity: it.Quantity.Value,
+		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), Description: it.Description, Quantity: it.Quantity.Value,
 			Unit: it.Quantity.Unit, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID}
 	}
 	return out
@@ -89,9 +36,9 @@ func requisitionInputs(items []gen.RequisitionItem) []ItemInput {
 func orderInputs(items []gen.PurchaseOrderItem) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
-		in := ItemInput{No: opt[int32](it.ItemNo), MaterialID: opt[uuid.UUID](it.MaterialID), Description: it.Description, Quantity: it.Quantity.Value,
+		in := ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), Description: it.Description, Quantity: it.Quantity.Value,
 			Unit: it.Quantity.Unit, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID,
-			TaxCode: opt[string](it.TaxCode), ContractItemNo: opt[int32](it.ContractItemNo)}
+			TaxCode: apitypes.Ptr[string](it.TaxCode), ContractItemNo: apitypes.Ptr[int32](it.ContractItemNo)}
 		if d, ok := it.OverDeliveryPct.Get(); ok {
 			s := string(d)
 			in.OverDelivery = &s
@@ -104,7 +51,7 @@ func orderInputs(items []gen.PurchaseOrderItem) []ItemInput {
 func contractInputs(items []gen.ContractItem) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
-		out[i] = ItemInput{No: opt[int32](it.ItemNo), MaterialID: opt[uuid.UUID](it.MaterialID), MaterialKey: it.MaterialKey, Description: it.Description,
+		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), MaterialKey: it.MaterialKey, Description: it.Description,
 			Unit: it.UomCode, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID}
 	}
 	return out
@@ -126,15 +73,15 @@ func (e *Endpoints) expanded(ctx context.Context, expand []string, supplier *uui
 func requisitionToAPI(r Requisition) gen.Requisition {
 	out := gen.Requisition{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, RequesterID: r.RequesterID,
-		SupplierID: optUUID(r.SupplierID), ContractID: optUUID(r.ContractID), Currency: r.Currency, Status: r.Status,
-		WorkflowRequestID: optUUID(r.WorkflowRequestID), TotalAmount: price(r.Total(), r.Currency, r.Exponent), Extensions: toExtensions(r.Extensions),
+		SupplierID: apitypes.OptUUID(r.SupplierID), ContractID: apitypes.OptUUID(r.ContractID), Currency: r.Currency, Status: r.Status,
+		WorkflowRequestID: apitypes.OptUUID(r.WorkflowRequestID), TotalAmount: apitypes.Money(r.Total(), r.Currency, r.Exponent), Extensions: apitypes.EncodeObject(r.Extensions),
 		Items: make([]gen.RequisitionItem, len(r.Items))}
 	if r.NeededBy != nil {
 		out.NeededBy.SetTo(*r.NeededBy)
 	}
 	for i, it := range r.Items {
-		out.Items[i] = gen.RequisitionItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: optUUID(it.MaterialID), Description: it.Description,
-			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: price(it.UnitPrice, r.Currency, r.Exponent),
+		out.Items[i] = gen.RequisitionItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, r.Currency, r.Exponent),
 			PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID}
 	}
 	return out
@@ -143,14 +90,14 @@ func requisitionToAPI(r Requisition) gen.Requisition {
 func orderToAPI(o PurchaseOrder) gen.PurchaseOrder {
 	out := gen.PurchaseOrder{ID: o.ID, Version: o.Version, CreatedAt: o.CreatedAt, CreatedBy: o.CreatedBy, UpdatedAt: o.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(o.UpdatedBy), DocumentNumber: o.DocumentNumber, LegalEntityID: o.LegalEntityID,
-		PurchasingOrgID: optUUID(o.PurchasingOrgID), SupplierID: o.SupplierID, Currency: o.Currency, OrderDate: o.OrderDate,
-		PaymentTermCode: o.PaymentTermCode, RequisitionID: optUUID(o.RequisitionID), ContractID: optUUID(o.ContractID), Status: o.Status,
-		TotalAmount: price(o.Total(), o.Currency, o.Exponent), Extensions: toExtensions(o.Extensions), Items: make([]gen.PurchaseOrderItem, len(o.Items))}
+		PurchasingOrgID: apitypes.OptUUID(o.PurchasingOrgID), SupplierID: o.SupplierID, Currency: o.Currency, OrderDate: o.OrderDate,
+		PaymentTermCode: o.PaymentTermCode, RequisitionID: apitypes.OptUUID(o.RequisitionID), ContractID: apitypes.OptUUID(o.ContractID), Status: o.Status,
+		TotalAmount: apitypes.Money(o.Total(), o.Currency, o.Exponent), Extensions: apitypes.EncodeObject(o.Extensions), Items: make([]gen.PurchaseOrderItem, len(o.Items))}
 	for i, it := range o.Items {
-		out.Items[i] = gen.PurchaseOrderItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: optUUID(it.MaterialID), Description: it.Description,
-			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: price(it.UnitPrice, o.Currency, o.Exponent),
+		out.Items[i] = gen.PurchaseOrderItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, o.Currency, o.Exponent),
 			PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
-			TaxCode: optString(it.TaxCode), ContractItemNo: optInt(it.ContractItemNo),
+			TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: optInt(it.ContractItemNo),
 			ReceivedQuantity: gen.NewOptQuantity(gen.Quantity{Value: it.Received, Unit: it.Unit})}
 	}
 	return out
@@ -159,11 +106,11 @@ func orderToAPI(o PurchaseOrder) gen.PurchaseOrder {
 func contractToAPI(c Contract) gen.Contract {
 	out := gen.Contract{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), DocumentNumber: c.DocumentNumber, LegalEntityID: c.LegalEntityID, SupplierID: c.SupplierID,
-		Currency: c.Currency, ValidFrom: c.ValidFrom, ValidTo: c.ValidTo, TargetValue: price(c.TargetValue, c.Currency, c.Exponent),
-		ConsumedValue: price(c.ConsumedValue, c.Currency, c.Exponent), Status: c.Status, Items: make([]gen.ContractItem, len(c.Items))}
+		Currency: c.Currency, ValidFrom: c.ValidFrom, ValidTo: c.ValidTo, TargetValue: apitypes.Money(c.TargetValue, c.Currency, c.Exponent),
+		ConsumedValue: apitypes.Money(c.ConsumedValue, c.Currency, c.Exponent), Status: c.Status, Items: make([]gen.ContractItem, len(c.Items))}
 	for i, it := range c.Items {
-		out.Items[i] = gen.ContractItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: optUUID(it.MaterialID), MaterialKey: it.MaterialKey,
-			Description: it.Description, UnitPrice: price(it.UnitPrice, c.Currency, c.Exponent), PriceUnit: gen.NewOptInt32(it.PriceUnit),
+		out.Items[i] = gen.ContractItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), MaterialKey: it.MaterialKey,
+			Description: it.Description, UnitPrice: apitypes.Money(it.UnitPrice, c.Currency, c.Exponent), PriceUnit: gen.NewOptInt32(it.PriceUnit),
 			UomCode: it.Unit, AccountID: it.AccountID}
 	}
 	return out
@@ -171,8 +118,8 @@ func contractToAPI(c Contract) gen.Contract {
 
 func receiptToAPI(g GoodsReceipt) gen.GoodsReceipt {
 	out := gen.GoodsReceipt{ID: g.ID, CreatedAt: g.PostedAt, CreatedBy: g.PostedBy, DocumentNumber: g.DocumentNumber, LegalEntityID: g.LegalEntityID,
-		PlantID: optUUID(g.PlantID), MovementType: g.MovementType, DocumentDate: g.DocumentDate, PostingDate: g.PostingDate,
-		Reference: optString(g.Reference), ReversalOfID: optUUID(g.ReversalOfID), Items: make([]gen.GoodsReceiptItem, len(g.Items))}
+		PlantID: apitypes.OptUUID(g.PlantID), MovementType: g.MovementType, DocumentDate: g.DocumentDate, PostingDate: g.PostingDate,
+		Reference: apitypes.OptString(g.Reference), ReversalOfID: apitypes.OptUUID(g.ReversalOfID), Items: make([]gen.GoodsReceiptItem, len(g.Items))}
 	for i, it := range g.Items {
 		out.Items[i] = gen.GoodsReceiptItem{ItemNo: gen.NewOptInt32(it.No), PurchaseOrderID: it.PurchaseOrderID, PoItemNo: it.POItemNo,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}}
@@ -200,9 +147,9 @@ func requisitionOK(r Requisition) *gen.UpdateRequisitionOKHeaders {
 
 // CreateRequisition implements POST /v1/requisitions.
 func (e *Endpoints) CreateRequisition(ctx context.Context, req *gen.RequisitionCreate, _ gen.CreateRequisitionParams) (gen.CreateRequisitionRes, error) {
-	r, err := e.createRequisition(ctx, NewRequisition{LegalEntityID: req.LegalEntityID, SupplierID: opt[uuid.UUID](req.SupplierID),
-		ContractID: opt[uuid.UUID](req.ContractID), Currency: req.Currency, NeededBy: opt[time.Time](req.NeededBy), Items: requisitionInputs(req.Items),
-		Extensions: fromExtensions(req.Extensions.Value)})
+	r, err := e.createRequisition(ctx, NewRequisition{LegalEntityID: req.LegalEntityID, SupplierID: apitypes.Ptr[uuid.UUID](req.SupplierID),
+		ContractID: apitypes.Ptr[uuid.UUID](req.ContractID), Currency: req.Currency, NeededBy: apitypes.Ptr[time.Time](req.NeededBy), Items: requisitionInputs(req.Items),
+		Extensions: apitypes.DecodeObject(req.Extensions.Value)})
 	if err != nil {
 		return nil, err
 	}
@@ -235,9 +182,9 @@ func (e *Endpoints) ListRequisitions(ctx context.Context, params gen.ListRequisi
 	if err != nil {
 		return nil, err
 	}
-	le, requester := opt[uuid.UUID](params.LegalEntityID), opt[uuid.UUID](params.RequesterID)
+	le, requester := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.RequesterID)
 	scope := fmt.Sprintf("listRequisitions|%s|%s|%s|%s", le, params.Status.Value, requester, params.DocumentNumber.Value)
-	ks, err := e.Pages.Keyset(requisitionSort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	ks, err := e.Pages.Keyset(requisitionSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -273,8 +220,8 @@ func (e *Endpoints) ListRequisitions(ctx context.Context, params gen.ListRequisi
 
 // UpdateRequisition implements PATCH /v1/requisitions/{id}.
 func (e *Endpoints) UpdateRequisition(ctx context.Context, req *gen.RequisitionUpdate, params gen.UpdateRequisitionParams) (gen.UpdateRequisitionRes, error) {
-	ch := RequisitionChange{Supplier: req.SupplierID.Set, Contract: req.ContractID.Set, NeededBy: req.NeededBy.Set, Currency: opt[string](req.Currency),
-		Extensions: fromExtensions(req.Extensions.Value)}
+	ch := RequisitionChange{Supplier: req.SupplierID.Set, Contract: req.ContractID.Set, NeededBy: req.NeededBy.Set, Currency: apitypes.Ptr[string](req.Currency),
+		Extensions: apitypes.DecodeObject(req.Extensions.Value)}
 	if req.SupplierID.Set && !req.SupplierID.Null {
 		ch.SupplierID = &req.SupplierID.Value
 	}
@@ -349,9 +296,9 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 	if err != nil {
 		return nil, err
 	}
-	le, supplier := opt[uuid.UUID](params.LegalEntityID), opt[uuid.UUID](params.SupplierID)
+	le, supplier := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID)
 	ks, err := e.Pages.Keyset(contractSort, fmt.Sprintf("listContracts|%s|%s|%s", le, supplier, params.Status.Value),
-		paging(params.PageSize, params.PageToken, params.OrderBy))
+		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +331,7 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 
 // UpdateContract implements PATCH /v1/contracts/{id}.
 func (e *Endpoints) UpdateContract(ctx context.Context, req *gen.ContractUpdate, params gen.UpdateContractParams) (gen.UpdateContractRes, error) {
-	ch := ContractChange{ValidFrom: opt[time.Time](req.ValidFrom), ValidTo: opt[time.Time](req.ValidTo)}
+	ch := ContractChange{ValidFrom: apitypes.Ptr[time.Time](req.ValidFrom), ValidTo: apitypes.Ptr[time.Time](req.ValidTo)}
 	if t, ok := req.TargetValue.Get(); ok {
 		ch.Target, ch.TargetCurrency = &t.Amount, &t.Currency
 	}
@@ -440,10 +387,10 @@ func (e *Endpoints) orderOut(ctx context.Context, o PurchaseOrder, expand []stri
 
 // CreatePurchaseOrder implements POST /v1/purchase-orders.
 func (e *Endpoints) CreatePurchaseOrder(ctx context.Context, req *gen.PurchaseOrderCreate, _ gen.CreatePurchaseOrderParams) (gen.CreatePurchaseOrderRes, error) {
-	o, err := e.createOrder(ctx, NewOrder{LegalEntityID: req.LegalEntityID, PurchasingOrgID: opt[uuid.UUID](req.PurchasingOrgID),
-		SupplierID: req.SupplierID, Currency: req.Currency, OrderDate: req.OrderDate, PaymentTermCode: opt[string](req.PaymentTermCode),
-		RequisitionID: opt[uuid.UUID](req.RequisitionID), ContractID: opt[uuid.UUID](req.ContractID), Items: orderInputs(req.Items),
-		Extensions: fromExtensions(req.Extensions.Value)})
+	o, err := e.createOrder(ctx, NewOrder{LegalEntityID: req.LegalEntityID, PurchasingOrgID: apitypes.Ptr[uuid.UUID](req.PurchasingOrgID),
+		SupplierID: req.SupplierID, Currency: req.Currency, OrderDate: req.OrderDate, PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode),
+		RequisitionID: apitypes.Ptr[uuid.UUID](req.RequisitionID), ContractID: apitypes.Ptr[uuid.UUID](req.ContractID), Items: orderInputs(req.Items),
+		Extensions: apitypes.DecodeObject(req.Extensions.Value)})
 	if err != nil {
 		return nil, err
 	}
@@ -474,10 +421,10 @@ func (e *Endpoints) ListPurchaseOrders(ctx context.Context, params gen.ListPurch
 	if err != nil {
 		return nil, err
 	}
-	le, supplier := opt[uuid.UUID](params.LegalEntityID), opt[uuid.UUID](params.SupplierID)
-	from, to := opt[time.Time](params.OrderDateFrom), opt[time.Time](params.OrderDateTo)
+	le, supplier := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID)
+	from, to := apitypes.Ptr[time.Time](params.OrderDateFrom), apitypes.Ptr[time.Time](params.OrderDateTo)
 	scope := fmt.Sprintf("listPurchaseOrders|%s|%s|%s|%s|%v|%v", le, supplier, params.Status.Value, params.DocumentNumber.Value, from, to)
-	ks, err := e.Pages.Keyset(orderSort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	ks, err := e.Pages.Keyset(orderSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -514,9 +461,9 @@ func (e *Endpoints) ListPurchaseOrders(ctx context.Context, params gen.ListPurch
 
 // UpdatePurchaseOrder implements PATCH /v1/purchase-orders/{id}.
 func (e *Endpoints) UpdatePurchaseOrder(ctx context.Context, req *gen.PurchaseOrderUpdate, params gen.UpdatePurchaseOrderParams) (gen.UpdatePurchaseOrderRes, error) {
-	ch := OrderChange{PurchasingOrg: req.PurchasingOrgID.Set, Contract: req.ContractID.Set, SupplierID: opt[uuid.UUID](req.SupplierID),
-		Currency: opt[string](req.Currency), OrderDate: opt[time.Time](req.OrderDate), PaymentTermCode: opt[string](req.PaymentTermCode),
-		Extensions: fromExtensions(req.Extensions.Value)}
+	ch := OrderChange{PurchasingOrg: req.PurchasingOrgID.Set, Contract: req.ContractID.Set, SupplierID: apitypes.Ptr[uuid.UUID](req.SupplierID),
+		Currency: apitypes.Ptr[string](req.Currency), OrderDate: apitypes.Ptr[time.Time](req.OrderDate), PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode),
+		Extensions: apitypes.DecodeObject(req.Extensions.Value)}
 	if req.PurchasingOrgID.Set && !req.PurchasingOrgID.Null {
 		ch.PurchasingOrgID = &req.PurchasingOrgID.Value
 	}
@@ -564,8 +511,8 @@ func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPu
 
 // PostGoodsReceipt implements POST /v1/goods-receipts.
 func (e *Endpoints) PostGoodsReceipt(ctx context.Context, req *gen.GoodsReceiptCreate, _ gen.PostGoodsReceiptParams) (gen.PostGoodsReceiptRes, error) {
-	in := ReceiptInput{LegalEntityID: req.LegalEntityID, PlantID: opt[uuid.UUID](req.PlantID), DocumentDate: req.DocumentDate, PostingDate: req.PostingDate,
-		Reference: opt[string](req.Reference), Items: make([]ReceiptItem, len(req.Items))}
+	in := ReceiptInput{LegalEntityID: req.LegalEntityID, PlantID: apitypes.Ptr[uuid.UUID](req.PlantID), DocumentDate: req.DocumentDate, PostingDate: req.PostingDate,
+		Reference: apitypes.Ptr[string](req.Reference), Items: make([]ReceiptItem, len(req.Items))}
 	for i, it := range req.Items {
 		in.Items[i] = ReceiptItem{No: int32(i + 1), PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.PoItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
 	}
@@ -596,10 +543,10 @@ func (e *Endpoints) ListGoodsReceipts(ctx context.Context, params gen.ListGoodsR
 	if err != nil {
 		return nil, err
 	}
-	le, order := opt[uuid.UUID](params.LegalEntityID), opt[uuid.UUID](params.PurchaseOrderID)
-	from, to := opt[time.Time](params.PostingDateFrom), opt[time.Time](params.PostingDateTo)
+	le, order := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.PurchaseOrderID)
+	from, to := apitypes.Ptr[time.Time](params.PostingDateFrom), apitypes.Ptr[time.Time](params.PostingDateTo)
 	scope := fmt.Sprintf("listGoodsReceipts|%s|%s|%v|%v|%s", le, order, from, to, params.DocumentNumber.Value)
-	ks, err := e.Pages.Keyset(receiptSort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	ks, err := e.Pages.Keyset(receiptSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -636,7 +583,7 @@ func (e *Endpoints) ListGoodsReceipts(ctx context.Context, params gen.ListGoodsR
 // ReverseGoodsReceipt implements POST /v1/goods-receipts/{id}:reverse.
 func (e *Endpoints) ReverseGoodsReceipt(ctx context.Context, req gen.OptGoodsReceiptReverse, params gen.ReverseGoodsReceiptParams) (gen.ReverseGoodsReceiptRes, error) {
 	check := func(g GoodsReceipt) error { return etag.Match(params.IfMatch, receiptTag(g)) }
-	g, err := e.reverseReceipt(ctx, params.ID, check, opt[time.Time](req.Value.PostingDate))
+	g, err := e.reverseReceipt(ctx, params.ID, check, apitypes.Ptr[time.Time](req.Value.PostingDate))
 	if err != nil {
 		return nil, err
 	}

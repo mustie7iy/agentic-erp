@@ -21,6 +21,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -340,7 +341,7 @@ func sessionToAPI(s Session) gen.AgentSession {
 		InputTokens: s.InputTokens, OutputTokens: s.OutputTokens, StartedAt: s.StartedAt, UpdatedAt: s.UpdatedAt}
 	if s.EndedAt != nil {
 		out.EndedAt.SetTo(*s.EndedAt)
-		out.Cost.SetTo(gen.Money{Amount: money.Minor(s.Cost).Plain(s.Exponent), Currency: s.Currency})
+		out.Cost.SetTo(apitypes.Money(s.Cost, s.Currency, s.Exponent))
 	}
 	return out
 }
@@ -364,13 +365,6 @@ func recommendationToAPI(r Recommendation) gen.Recommendation {
 		out.DecidedBy.SetTo(*r.DecidedBy)
 	}
 	return out
-}
-
-func optUUID(o gen.OptUUID) *uuid.UUID {
-	if v, ok := o.Get(); ok {
-		return &v
-	}
-	return nil
 }
 
 // StartAgentSession implements POST /v1/agent-sessions.
@@ -406,7 +400,7 @@ func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentS
 	if err != nil {
 		return nil, err
 	}
-	agent := optUUID(params.AgentID)
+	agent := apitypes.Ptr[uuid.UUID](params.AgentID)
 	ks, err := e.Pages.Keyset(sessionSort, fmt.Sprintf("listAgentSessions|%s|%s", agent, params.Status.Value), pagination.Request{OrderBy: params.OrderBy.Value,
 		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
 	if err != nil {
@@ -535,7 +529,7 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 	if err != nil {
 		return nil, err
 	}
-	session, object := optUUID(params.SessionID), optUUID(params.ObjectID)
+	session, object := apitypes.Ptr[uuid.UUID](params.SessionID), apitypes.Ptr[uuid.UUID](params.ObjectID)
 	scope := fmt.Sprintf("listRecommendations|%s|%s|%s|%s", session, params.ObjectType.Value, object, params.Outcome.Value)
 	ks, err := e.Pages.Keyset(recommendationSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
 		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})

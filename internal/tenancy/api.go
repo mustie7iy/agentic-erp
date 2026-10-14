@@ -2,15 +2,14 @@ package tenancy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
-	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -22,33 +21,11 @@ type Endpoints struct {
 	Pages *pagination.Codec
 }
 
-func fromExtensions(x gen.Extensions) map[string]any {
-	if x == nil {
-		return nil
-	}
-	out := make(map[string]any, len(x))
-	for k, raw := range x {
-		var v any
-		_ = json.Unmarshal(raw, &v) // the generated decoder only passes valid JSON
-		out[k] = v
-	}
-	return out
-}
-
-func toExtensions(m map[string]any) gen.Extensions {
-	out := make(gen.Extensions, len(m))
-	for k, v := range m {
-		b, _ := json.Marshal(v) // values decoded from JSON always encode
-		out[k] = jx.Raw(b)
-	}
-	return out
-}
-
 func leToAPI(e LegalEntity) gen.LegalEntity {
 	return gen.LegalEntity{
 		ID: e.ID, Version: e.Version, CreatedAt: e.CreatedAt, CreatedBy: e.CreatedBy, UpdatedAt: e.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(e.UpdatedBy), Code: e.Code, Name: e.Name, CountryCode: e.CountryCode,
-		LocalCurrency: e.LocalCurrency, FiscalCalendarID: e.FiscalCalendarID, Status: e.Status, Extensions: toExtensions(e.Extensions),
+		LocalCurrency: e.LocalCurrency, FiscalCalendarID: e.FiscalCalendarID, Status: e.Status, Extensions: apitypes.EncodeObject(e.Extensions),
 	}
 }
 
@@ -75,7 +52,7 @@ func ouOK(u OrgUnit) *gen.UpdateOrgUnitOKHeaders {
 func (e *Endpoints) CreateLegalEntity(ctx context.Context, req *gen.LegalEntityCreate, _ gen.CreateLegalEntityParams) (gen.CreateLegalEntityRes, error) {
 	le, err := CreateLegalEntity(ctx, NewLegalEntity{
 		Code: req.Code, Name: req.Name, CountryCode: req.CountryCode, LocalCurrency: req.LocalCurrency,
-		FiscalCalendarID: req.FiscalCalendarID, Extensions: fromExtensions(req.Extensions.Value),
+		FiscalCalendarID: req.FiscalCalendarID, Extensions: apitypes.DecodeObject(req.Extensions.Value),
 	})
 	if err != nil {
 		return nil, err
@@ -143,7 +120,7 @@ func (e *Endpoints) ListLegalEntities(ctx context.Context, params gen.ListLegalE
 
 // UpdateLegalEntity implements PATCH /v1/legal-entities/{id}.
 func (e *Endpoints) UpdateLegalEntity(ctx context.Context, req *gen.LegalEntityUpdate, params gen.UpdateLegalEntityParams) (gen.UpdateLegalEntityRes, error) {
-	ch := LegalEntityChange{Extensions: fromExtensions(req.Extensions.Value)}
+	ch := LegalEntityChange{Extensions: apitypes.DecodeObject(req.Extensions.Value)}
 	if req.Name.Set {
 		ch.Name = &req.Name.Value
 	}

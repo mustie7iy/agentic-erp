@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -233,11 +234,7 @@ func fromSettings(raw map[string]jx.Raw) map[string]any {
 
 func connectorToAPI(c Connector) gen.Connector {
 	out := gen.Connector{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
-		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), Kind: c.Kind, Name: c.Name, Settings: gen.ConnectorSettings{}, Status: c.Status}
-	for k, v := range c.Settings {
-		b, _ := json.Marshal(v) // values decoded from JSON always encode
-		out.Settings[k] = jx.Raw(b)
-	}
+		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), Kind: c.Kind, Name: c.Name, Settings: apitypes.EncodeObject(c.Settings), Status: c.Status}
 	if c.SecretRef != nil {
 		out.SecretRef.SetTo(*c.SecretRef)
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -84,10 +85,6 @@ func crOK(c ChangeRequest) *gen.UpdateChangeRequestOKHeaders {
 	return &gen.UpdateChangeRequestOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: crToAPI(c)}
 }
 
-func pageRequest(orderBy gen.OptString, size gen.OptInt32, token gen.OptString) pagination.Request {
-	return pagination.Request{OrderBy: orderBy.Value, PageSize: size.Value, PageSizeSet: size.Set, PageToken: token.Value, PageTokenSet: token.Set}
-}
-
 // CreateChangeRequest implements POST /v1/change-requests.
 func (e *Endpoints) CreateChangeRequest(ctx context.Context, req *gen.ChangeRequestCreate, _ gen.CreateChangeRequestParams) (gen.CreateChangeRequestRes, error) {
 	c, err := CreateChangeRequest(ctx, NewChangeRequest{Title: req.Title, Rationale: req.Rationale.Value, BaseVersion: req.BaseVersion,
@@ -122,7 +119,7 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(crSort, "listChangeRequests|"+params.Status.Value, pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(crSort, "listChangeRequests|"+params.Status.Value, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +269,7 @@ func (e *Endpoints) ListConfigVersions(ctx context.Context, params gen.ListConfi
 	}
 	scope := "listConfigVersions|" + strconv.Itoa(int(params.Number.Value)) + "|" + strconv.FormatBool(params.Number.Set) + "|" +
 		strconv.FormatBool(params.IsActive.Value) + "|" + strconv.FormatBool(params.IsActive.Set)
-	ks, err := e.Pages.Keyset(versionSort, scope, pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(versionSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +361,7 @@ func (e *Endpoints) ListNumberRanges(ctx context.Context, params gen.ListNumberR
 		year = &params.FiscalYear.Value
 	}
 	scope := "listNumberRanges|" + params.LegalEntityID.Value.String() + "|" + params.DocumentType.Value + "|" + strconv.Itoa(int(params.FiscalYear.Value))
-	ks, err := e.Pages.Keyset(rangeSort, scope, pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(rangeSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}

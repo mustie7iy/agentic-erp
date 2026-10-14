@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -514,12 +514,7 @@ func runToAPI(r Run) gen.MigrationRun {
 		ConnectorID: r.ConnectorID, Scope: gen.MigrationScope{LegalEntityIds: r.Scope.LegalEntityIDs, FiscalYear: r.Scope.FiscalYear},
 		Mode: r.Mode, IsRehearsal: r.IsRehearsal, Status: r.Status}
 	if r.Report != nil {
-		rep := gen.MigrationRunReport{}
-		for k, v := range r.Report {
-			b, _ := json.Marshal(v) // values decoded from JSON always encode
-			rep[k] = jx.Raw(b)
-		}
-		out.Report.SetTo(rep)
+		out.Report.SetTo(apitypes.EncodeObject(r.Report))
 	}
 	if r.OperationID != nil {
 		out.OperationID.SetTo(*r.OperationID)

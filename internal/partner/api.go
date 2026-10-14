@@ -2,82 +2,34 @@ package partner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func optString(s gen.OptString) *string {
-	if !s.Set {
-		return nil
-	}
-	return &s.Value
-}
-
-func toOptString(s *string) gen.OptString {
-	if s == nil {
-		return gen.OptString{}
-	}
-	return gen.NewOptString(*s)
-}
-
-func optNilString(s gen.OptNilString) **string {
-	if !s.Set {
-		return nil
-	}
-	var v *string
-	if !s.Null {
-		v = &s.Value
-	}
-	return &v
-}
-
-func toRaw(m map[string]any) map[string]jx.Raw {
-	out := make(map[string]jx.Raw, len(m))
-	for k, v := range m {
-		b, _ := json.Marshal(v) // values decoded from JSON always encode
-		out[k] = jx.Raw(b)
-	}
-	return out
-}
-
-func fromExtensions(x gen.OptExtensions) map[string]any {
-	if !x.Set {
-		return nil
-	}
-	out := make(map[string]any, len(x.Value))
-	for k, raw := range x.Value {
-		var v any
-		_ = json.Unmarshal(raw, &v) // the generated decoder only passes valid JSON
-		out[k] = v
-	}
-	return out
-}
-
 func partnerToAPI(p Partner) gen.BusinessPartner {
 	out := gen.BusinessPartner{
 		ID: p.ID, Version: p.Version, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.UpdatedAt, UpdatedBy: gen.NewOptUUID(p.UpdatedBy),
-		Number: p.Number, Kind: p.Kind, Name: p.Name, LegalName: toOptString(p.LegalName), CountryCode: p.CountryCode,
-		Language: toOptString(p.Language), Status: p.Status, Roles: p.Roles, SupplierCompanies: []gen.SupplierCompany{},
-		Addresses: []gen.Address{}, TaxIdentifiers: []gen.TaxIdentifier{}, Extensions: toRaw(p.Extensions),
+		Number: p.Number, Kind: p.Kind, Name: p.Name, LegalName: apitypes.OptString(p.LegalName), CountryCode: p.CountryCode,
+		Language: apitypes.OptString(p.Language), Status: p.Status, Roles: p.Roles, SupplierCompanies: []gen.SupplierCompany{},
+		Addresses: []gen.Address{}, TaxIdentifiers: []gen.TaxIdentifier{}, Extensions: apitypes.EncodeObject(p.Extensions),
 	}
 	for _, s := range p.SupplierCompanies {
 		out.SupplierCompanies = append(out.SupplierCompanies, gen.SupplierCompany(s))
 	}
 	for _, a := range p.Addresses {
-		ga := gen.Address{ID: gen.NewOptUUID(a.ID), Purpose: a.Purpose, Line1: a.Line1, Line2: toOptString(a.Line2), City: a.City,
-			PostalCode: toOptString(a.PostalCode), Region: toOptString(a.Region), CountryCode: a.CountryCode, ValidFrom: a.ValidFrom.Time}
+		ga := gen.Address{ID: gen.NewOptUUID(a.ID), Purpose: a.Purpose, Line1: a.Line1, Line2: apitypes.OptString(a.Line2), City: a.City,
+			PostalCode: apitypes.OptString(a.PostalCode), Region: apitypes.OptString(a.Region), CountryCode: a.CountryCode, ValidFrom: a.ValidFrom.Time}
 		if a.ValidTo != nil {
 			ga.ValidTo.SetTo(a.ValidTo.Time)
 		}
@@ -92,7 +44,7 @@ func partnerToAPI(p Partner) gen.BusinessPartner {
 func changeToAPI(c Change) gen.PartnerChange {
 	out := gen.PartnerChange{
 		ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, UpdatedBy: gen.NewOptUUID(c.UpdatedBy),
-		Number: c.Number, Kind: c.Kind, PartnerID: c.PartnerID, Payload: toRaw(c.Masked()), Reason: c.Reason,
+		Number: c.Number, Kind: c.Kind, PartnerID: c.PartnerID, Payload: apitypes.EncodeObject(c.Masked()), Reason: c.Reason,
 		Warnings: []gen.PartnerChangeWarning{}, Status: c.Status, RequestedBy: c.RequestedBy,
 	}
 	for _, w := range c.Warnings {
@@ -109,7 +61,7 @@ func changeToAPI(c Change) gen.PartnerChange {
 
 func bankToAPI(b BankAccount) gen.BankAccount {
 	out := gen.BankAccount{ID: b.ID, ValidFrom: b.ValidFrom, CreatedAt: b.CreatedAt, CreatedBy: b.CreatedBy, PartnerID: b.PartnerID,
-		Purpose: b.Purpose, AccountLast4: b.AccountLast4, AccountScheme: b.AccountScheme, Bic: toOptString(b.BIC),
+		Purpose: b.Purpose, AccountLast4: b.AccountLast4, AccountScheme: b.AccountScheme, Bic: apitypes.OptString(b.BIC),
 		BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, PartnerChangeID: b.PartnerChangeID}
 	if b.ValidTo != nil {
 		out.ValidTo.SetTo(*b.ValidTo)
@@ -141,8 +93,8 @@ func companiesIn(in []gen.SupplierCompanyInput) []SupplierCompanyInput {
 func addressesIn(in []gen.Address) []AddressInput {
 	out := []AddressInput{}
 	for _, a := range in {
-		ai := AddressInput{Purpose: a.Purpose, Line1: a.Line1, Line2: optString(a.Line2), City: a.City, PostalCode: optString(a.PostalCode),
-			Region: optString(a.Region), CountryCode: a.CountryCode, ValidFrom: Date{a.ValidFrom}}
+		ai := AddressInput{Purpose: a.Purpose, Line1: a.Line1, Line2: apitypes.Ptr[string](a.Line2), City: a.City, PostalCode: apitypes.Ptr[string](a.PostalCode),
+			Region: apitypes.Ptr[string](a.Region), CountryCode: a.CountryCode, ValidFrom: Date{a.ValidFrom}}
 		if a.ValidTo.Set {
 			ai.ValidTo = &Date{a.ValidTo.Value}
 		}
@@ -165,12 +117,12 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	if err != nil {
 		return nil, err
 	}
-	in := NewPartner{Kind: req.Kind, Name: req.Name, LegalName: optString(req.LegalName), CountryCode: req.CountryCode,
-		Language: optString(req.Language), Roles: req.Roles, SupplierCompanies: companiesIn(req.SupplierCompanies),
-		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: fromExtensions(req.Extensions), Reason: req.Reason}
+	in := NewPartner{Kind: req.Kind, Name: req.Name, LegalName: apitypes.Ptr[string](req.LegalName), CountryCode: req.CountryCode,
+		Language: apitypes.Ptr[string](req.Language), Roles: req.Roles, SupplierCompanies: companiesIn(req.SupplierCompanies),
+		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: apitypes.DecodeObject(req.Extensions.Or(nil)), Reason: req.Reason}
 	for _, b := range req.BankAccounts {
 		in.BankAccounts = append(in.BankAccounts, BankInput{Purpose: b.Purpose.Value, AccountNumber: b.AccountNumber, AccountScheme: b.AccountScheme,
-			BIC: optString(b.Bic), BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, ValidFrom: b.ValidFrom})
+			BIC: apitypes.Ptr[string](b.Bic), BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, ValidFrom: b.ValidFrom})
 	}
 	p, c, err := CreatePartner(ctx, e.ports(), in)
 	if err != nil {
@@ -289,9 +241,9 @@ func (e *Endpoints) CreatePartnerChange(ctx context.Context, req *gen.PartnerCha
 		return nil, invalid("partner.unsupported_kind", "kind", "only update; other kinds have their own operations")
 	}
 	pl := req.Payload
-	ch := Changes{Name: optString(pl.Name), LegalName: optNilString(pl.LegalName), Language: optNilString(pl.Language), Roles: pl.Roles,
+	ch := Changes{Name: apitypes.Ptr[string](pl.Name), LegalName: apitypes.OptNilString(pl.LegalName), Language: apitypes.OptNilString(pl.Language), Roles: pl.Roles,
 		SupplierCompanies: companiesIn(pl.SupplierCompanies), Addresses: addressesIn(pl.Addresses), TaxIdentifiers: taxesIn(pl.TaxIdentifiers),
-		Extensions: fromExtensions(pl.Extensions)}
+		Extensions: apitypes.DecodeObject(pl.Extensions.Or(nil))}
 	c, err := RequestUpdate(ctx, e.ports(), req.PartnerID, ch, req.Reason)
 	if err == nil {
 		c, err = RequestApproval(ctx, e.Approvals, c)
@@ -356,7 +308,7 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 // RequestBankAccountChange implements POST /v1/business-partners/{id}/bank-accounts.
 func (e *Endpoints) RequestBankAccountChange(ctx context.Context, req *gen.BankChangeCreate, params gen.RequestBankAccountChangeParams) (gen.RequestBankAccountChangeRes, error) {
 	c, err := RequestBankAccount(ctx, e.ports(), params.ID, BankInput{Purpose: req.Purpose.Value, AccountNumber: req.AccountNumber,
-		AccountScheme: req.AccountScheme, BIC: optString(req.Bic), BankCountryCode: req.BankCountryCode, HolderName: req.HolderName,
+		AccountScheme: req.AccountScheme, BIC: apitypes.Ptr[string](req.Bic), BankCountryCode: req.BankCountryCode, HolderName: req.HolderName,
 		ValidFrom: req.ValidFrom}, req.Reason)
 	if err == nil {
 		c, err = RequestApproval(ctx, e.Approvals, c)

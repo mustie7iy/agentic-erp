@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -56,7 +57,7 @@ func (e *Endpoints) ListRegressionSuites(ctx context.Context, params gen.ListReg
 		return nil, err
 	}
 	version := params.ConfigVersion.Value
-	ks, err := e.Pages.Keyset(suiteSort, "listRegressionSuites|"+etag.Format(version), pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(suiteSort, "listRegressionSuites|"+etag.Format(version), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}

@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -25,7 +25,7 @@ func toAPI(r Request) gen.ApprovalRequest {
 		ObjectType: r.ObjectType, ObjectID: r.ObjectID, Title: r.Title, RequesterID: r.RequesterID, Status: r.Status,
 		CurrentStep: int32(r.CurrentStep), Steps: make([]gen.ApprovalStep, len(r.Steps)), Decisions: make([]gen.Decision, len(r.Decisions))}
 	if r.Amount != nil {
-		out.Amount.SetTo(gen.Money{Amount: money.Minor(*r.Amount).Plain(r.Exponent), Currency: *r.Currency})
+		out.Amount.SetTo(apitypes.Money(*r.Amount, *r.Currency, r.Exponent))
 	}
 	if r.CompletedAt != nil {
 		out.CompletedAt.SetTo(*r.CompletedAt)
