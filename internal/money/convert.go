@@ -128,8 +128,8 @@ func magnitude(m Minor) uint64 {
 }
 
 // ParseRat reads a decimal a numeric column rendered as text ("12.500"),
-// exactly. Such text always parses; anything else is nil, so it is for
-// database values only, never for input.
+// exactly. A decimal always parses; anything else is nil, so it is for
+// database values and input already checked as a decimal.
 func ParseRat(s string) *big.Rat {
 	r, _ := new(big.Rat).SetString(s) // a nil result is the documented outcome for non-decimal text
 	return r
