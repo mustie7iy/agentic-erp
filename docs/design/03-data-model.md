@@ -614,7 +614,8 @@ Every posting (manual entries, the ports other contexts post through,
 clearings, settlements, reversals and the migration load) reads its
 period's status `FOR SHARE` (`postingPeriod`), in a query of its own since
 the lock cannot take the nullable side of an outer join. A close or reopen
-locks the row `FOR UPDATE` and takes no other lock before it commits, so a
+locks the row `FOR UPDATE` and takes no other lock until the audit chain
+head at its commit (which no transaction holds while it waits), so a
 posting waits for a close under way and then reads the committed status
 (409 `ledger.period_not_open`), and a close waits for the postings under
 way: no entry lands in a period whose close committed first. The order
@@ -622,7 +623,10 @@ stays acyclic: a close waits only for postings, and a posting waits for a
 close that holds nothing else. The migration load holds the share locks of
 every period it posts into until it commits, so a close of one of them
 waits for the load (and fails after `lock_timeout` with 409
-`request.in_progress`); the load holds no lock a close would take. The
+`request.in_progress`); the load holds no lock a close would take. A new
+`FOR SHARE` does not queue behind a waiting `FOR UPDATE`, so under steady
+overlapping postings in one period a close may keep failing with 409 and
+be retried; closes come after posting stops, so this is accepted. The
 trigger `ledger.check_entry_period` still reads the status without a lock:
 it runs after `postingPeriod` took the share lock in the same transaction,
 so no close can commit in between, and the only insert into
