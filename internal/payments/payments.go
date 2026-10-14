@@ -331,9 +331,10 @@ type Reservations struct{}
 
 // RunOf returns the document number of the live run that holds an open
 // item of the entry: a proposing or proposed run, or a releasing one whose
-// payment of the item is not posted yet. A releasing run is one whose
-// release failed with some payments posted, to be resumed; the resumed
-// release posts the rest, so their items are as reserved as in a proposal.
+// payment of the item is not posted yet. A releasing run is under way, or
+// stopped (failed or cancelled) with some payments posted, to be resumed;
+// the release posts the rest, so their items are as reserved as in a
+// proposal.
 func (Reservations) RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (string, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

@@ -184,7 +184,8 @@ where the operation supports it; completion is also published as an event.
 
 A succeeded, failed or cancelled operation is final. Cancelling one is
 `409 platform.operation_not_cancellable`; a worker that tries to finish it
-again gets `409 platform.operation_finished` and changes nothing, so the
+again gets the internal conflict `platform.operation_finished` (never
+returned to a client) and changes nothing, so the
 outcome is never overwritten and completion is published once; progress
 reported late is ignored and never brings it back to `running`.
 

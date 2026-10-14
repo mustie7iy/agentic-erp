@@ -321,7 +321,7 @@ func TestRejectFreesItems(t *testing.T) {
 	}
 	e.decide(t, 409, second, "release", "")
 	refused := e.Problem(409, "payables.invoice_in_payment_run", "POST", "/v1/supplier-invoices/"+id(inv)+":reverse", `{"reason": "r"}`, `"2"`)
-	if detail, _ := refused["detail"].(string); !strings.Contains(detail, "reject the run while it is proposed") {
+	if detail, _ := refused["detail"].(string); !strings.Contains(detail, "Reject the run once it is proposed") {
 		t.Errorf("detail for a proposed run: got %q, want it to say to reject the run", refused["detail"])
 	}
 

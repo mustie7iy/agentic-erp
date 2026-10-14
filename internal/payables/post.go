@@ -186,7 +186,7 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 		return Invoice{}, err
 	}
 	if inRun {
-		return Invoice{}, problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+", which will pay it; reject the run while it is proposed, or, once its release has begun, let the release pay the invoice and reverse the payment first.")
+		return Invoice{}, problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+". Reject the run once it is proposed; a releasing run pays the invoice (resume a stopped release with :release), then reverse the payment first.")
 	}
 	if postingDate == nil {
 		d, err := today(ctx, tx)

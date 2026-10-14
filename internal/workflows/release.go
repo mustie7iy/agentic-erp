@@ -77,11 +77,12 @@ func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
 // The endpoints act on the run's current release operation, so an activity
 // of a workflow whose operation is no longer the run's (cancelled or failed,
 // then taken over by a later :release) does nothing and succeeds: its
-// operation is over, the newer workflow does the work, and failing instead
-// would only send the stale workflow to FailRelease, which has nothing to
-// record either (ADR-0012: an activity finding its work not its own is a
-// no-op, not a problem). The run is read FOR UPDATE, so the check holds
-// until the transaction ends.
+// operation is over and the newer workflow does the work. This follows
+// ADR-0012's rule that an activity checks whether its effect is already
+// there before acting: here the effect belongs to another operation. A
+// problem instead would only send the stale workflow to FailRelease, which
+// has nothing to record either, and fail a workflow nobody has to resolve.
+// The run is read FOR UPDATE, so the check holds until the transaction ends.
 func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx context.Context, tx pgx.Tx, r payments.Run) error) error {
 	tx, err := p.begin(ctx, database.Scope{Role: p.AppRole, TenantID: in.TenantID})
 	if err != nil {

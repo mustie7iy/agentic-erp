@@ -320,7 +320,14 @@ func TestStaleReleaseActivities(t *testing.T) {
 	if err := executeRelease(t, a, resumed); err != nil {
 		t.Fatal(err)
 	}
-	if got := stateOf(t, resumed); !strings.HasPrefix(got.Run, "released/") || !strings.HasPrefix(got.Operation, "succeeded/") || got.Files != 1 {
-		t.Fatalf("resumed release: got %+v, want released, succeeded, one bank file", got)
+	got := stateOf(t, resumed)
+	if !strings.HasPrefix(got.Run, "released/") {
+		t.Errorf("resumed run: got %s, want released", got.Run)
+	}
+	if !strings.HasPrefix(got.Operation, "succeeded/") {
+		t.Errorf("resumed operation: got %s, want succeeded", got.Operation)
+	}
+	if got.Files != 1 {
+		t.Errorf("bank files of the resumed run: got %d, want 1", got.Files)
 	}
 }
