@@ -134,17 +134,9 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	if err != nil {
 		return false, err
 	}
-	var p Payment
-	for _, candidate := range mustPayments(ctx, tx, r.ID, &err) {
-		if candidate.ID == pay {
-			p = candidate
-		}
-	}
+	p, err := paymentOf(ctx, tx, r.ID, pay)
 	if err != nil {
 		return false, err
-	}
-	if p.ID == uuid.Nil {
-		return false, fmt.Errorf("payments: run %s has no payment %s", r.ID, pay)
 	}
 	if p.JournalEntryID != nil {
 		return false, nil
@@ -174,12 +166,18 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	return true, operations.Report(ctx, *r.ReleaseOpID, done, total)
 }
 
-func mustPayments(ctx context.Context, tx pgx.Tx, run uuid.UUID, err *error) []Payment {
-	pays, e := paymentsOf(ctx, tx, run)
-	if e != nil {
-		*err = e
+// paymentOf reads one payment of the run.
+func paymentOf(ctx context.Context, tx pgx.Tx, run, pay uuid.UUID) (Payment, error) {
+	pays, err := paymentsOf(ctx, tx, run)
+	if err != nil {
+		return Payment{}, err
 	}
-	return pays
+	for _, p := range pays {
+		if p.ID == pay {
+			return p, nil
+		}
+	}
+	return Payment{}, fmt.Errorf("payments: run %s has no payment %s", run, pay)
 }
 
 // FinishRelease ends a release whose payments are all posted: the bank file
