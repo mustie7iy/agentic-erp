@@ -329,9 +329,12 @@ func markCleared(ctx context.Context, tx pgx.Tx, tenant, clearing uuid.UUID, ref
 // open item, and nothing clears its lines again (a line is cleared once,
 // and other clearings of a reversed entry's lines are refused). It runs in
 // the reversal's transaction, which holds the exclusive lock on the
-// original; it locks the reversal the same way. The reversal's lines are
-// the original's negated, in the same order, so each pair nets to zero in
-// every currency. An entry without open items needs no clearing.
+// original. It locks the reversal too, defensively: no other transaction
+// can see the reversal before this one commits. The reversal's lines are
+// the original's negated, in the same order (reversalLines, and post
+// numbers lines by position), so rev.Lines[i] offsets orig.Lines[i] and
+// each pair nets to zero in every currency. An entry without open items
+// needs no clearing.
 func clearReversal(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, orig, rev Entry) error {
 	if err := lockEntries(ctx, tx, false, []uuid.UUID{rev.ID}); err != nil {
 		return err

@@ -79,7 +79,8 @@ func (p Postings) Reverse(ctx context.Context, entryID uuid.UUID, postingDate *t
 	return p.endpoints().reverseJournalEntry(ctx, entryID, func(Entry) error { return nil }, postingDate, headerText)
 }
 
-// IsCleared reports whether any line of the entry is cleared.
+// IsCleared reports whether any line of the entry is cleared. Cleared is
+// not paid: a reversal clears the reversed entry's open items too.
 func (Postings) IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

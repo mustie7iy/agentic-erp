@@ -300,6 +300,23 @@ func TestReversalClearsThePair(t *testing.T) {
 	if cleared[0]["clearing_id"] != c["id"] {
 		t.Errorf("items_cleared clearing_id: got %v, want %v", cleared[0]["clearing_id"], c["id"])
 	}
+	// The reversal comes before what it caused.
+	var order []string
+	rows, err := pgtest.Admin(t).Query(context.Background(), `SELECT event_type FROM ledger.outbox WHERE tenant_id = $1
+		AND (event_type LIKE '%.journal_entry_reversed.%' OR event_type LIKE '%.items_cleared.%') ORDER BY id`, e.ten.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var typ string
+		if err := rows.Scan(&typ); err != nil {
+			t.Fatal(err)
+		}
+		order = append(order, typ)
+	}
+	if want := []string{"com.example.erp.ledger.journal_entry_reversed.v1", "com.example.erp.ledger.items_cleared.v1"}; strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Errorf("event order: got %v, want %v", order, want)
+	}
 	var audited int
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event
 		WHERE tenant_id = $1 AND action = 'ledger.clearing.create' AND object_id = $2`, e.ten.ID, uuid.MustParse(c["id"].(string))).Scan(&audited); err != nil {
