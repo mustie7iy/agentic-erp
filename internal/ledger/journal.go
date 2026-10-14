@@ -642,8 +642,26 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if err != nil {
 		return Entry{}, err
 	}
-	// Locked before reading, so requireReversible sees any clearing of the
-	// entry that committed while this waited.
+	orig, err := reversibleEntry(ctx, tx, id, ifMatch)
+	if err != nil {
+		return Entry{}, err
+	}
+	rev, err := e.postReversal(ctx, tx, p, orig, postingDate, headerText)
+	if err != nil {
+		return Entry{}, err
+	}
+	if err := recordReversal(ctx, tx, p, orig, rev); err != nil {
+		return Entry{}, err
+	}
+	return rev, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,
+		Outcome: "succeeded", Detail: map[string]any{"reversal_entry_id": rev.ID, "reversal_document_number": rev.DocumentNumber}})
+}
+
+// reversibleEntry locks the entry's bucket and reads the entry, refusing
+// it when ifMatch does, when it cannot be reversed, or when a run holds
+// one of its items. Locked before reading, so requireReversible sees any
+// clearing of the entry that committed while this waited.
+func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(Entry) error) (Entry, error) {
 	if err := lockEntries(ctx, tx, false, []uuid.UUID{id}); err != nil {
 		return Entry{}, err
 	}
@@ -660,6 +678,13 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if err := requireUnreserved(ctx, tx, orig); err != nil {
 		return Entry{}, err
 	}
+	return orig, nil
+}
+
+// postReversal posts the reversing entry of orig, on postingDate or the
+// original posting date, with headerText or "Reversal of" the original's
+// number.
+func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Entry, postingDate *time.Time, headerText *string) (Entry, error) {
 	le, err := e.legalEntity(ctx, orig.LegalEntityID, "legal_entity_id")
 	if err != nil {
 		return Entry{}, err
@@ -676,29 +701,28 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 		text := "Reversal of " + orig.DocumentNumber
 		headerText = &text
 	}
-	rev, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
+	return e.post(ctx, tx, p, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
 		postingDate: date, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
 		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, lines: lines})
-	if err != nil {
-		return Entry{}, err
-	}
+}
+
+// recordReversal links the reversal to its original, publishes
+// JournalEntryReversed and clears the original's open items against the
+// reversal's.
+func recordReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig, rev Entry) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.reversal (tenant_id, original_year, original_entry_id, reversal_year, reversal_entry_id)
 		VALUES ($1, $2, $3, $4, $5)`, p.TenantID, orig.FiscalYear, orig.ID, rev.FiscalYear, rev.ID); err != nil {
-		return Entry{}, fmt.Errorf("ledger: reverse entry %s: record reversal %s: %w", orig.ID, rev.ID, err)
+		return fmt.Errorf("ledger: reverse entry %s: record reversal %s: %w", orig.ID, rev.ID, err)
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "journal_entry_reversed", AggregateType: "ledger.journal_entry", AggregateID: orig.ID,
 		Payload: map[string]any{"journal_entry_id": orig.ID, "fiscal_year": orig.FiscalYear, "legal_entity_id": orig.LegalEntityID,
 			"document_number": orig.DocumentNumber, "reversal_entry_id": rev.ID, "reversal_fiscal_year": rev.FiscalYear,
 			"reversal_document_number": rev.DocumentNumber, "reversal_posting_date": rev.PostingDate.Format(time.DateOnly)}}); err != nil {
-		return Entry{}, err
+		return err
 	}
 	// After the reversal's event, so consumers learn of the cause first.
-	if err := clearReversal(ctx, tx, p, orig, rev); err != nil {
-		return Entry{}, err
-	}
-	return rev, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,
-		Outcome: "succeeded", Detail: map[string]any{"reversal_entry_id": rev.ID, "reversal_document_number": rev.DocumentNumber}})
+	return clearReversal(ctx, tx, p, orig, rev)
 }
 
 // requireReversible refuses to reverse a reversed entry, a reversal, or an

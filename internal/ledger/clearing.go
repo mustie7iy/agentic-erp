@@ -196,8 +196,7 @@ func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, e
 		s.tc, s.lc, s.gc = append(s.tc, it.tc), append(s.lc, it.lc), append(s.gc, it.gc)
 		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text}
 	}
-	// Partners in id order: the refusal names the same partner on every run.
-	for _, partner := range slices.SortedFunc(maps.Keys(perPartner), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }) {
+	for _, partner := range partnersInOrder(perPartner) {
 		if s := perPartner[partner]; !netsToZero(s.tc...) || !netsToZero(s.lc...) || !netsToZero(s.gc...) {
 			return nil, problem.Unprocessable("ledger.clearing_not_balanced",
 				"The items of partner "+partner.String()+" do not net to zero in every currency; settle the difference with a posting first.",
@@ -207,23 +206,49 @@ func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, e
 	return lines, nil
 }
 
+// partnersInOrder are the partners of a per-partner map in id order, so
+// that a refusal naming one names the same partner on every run (map
+// iteration order varies).
+func partnersInOrder[T any](perPartner map[uuid.UUID]T) []uuid.UUID {
+	return slices.SortedFunc(maps.Keys(perPartner), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+}
+
 // requireClearable checks item i: an open line on a reconciliation account
 // of the legal entity, in the ledger and currency of the first item.
 func requireClearable(i int, it, first item, legalEntity uuid.UUID) error {
 	field := fmt.Sprintf("items[%d]", i)
+	if err := checkItem(i, it, &legalEntity, uuid.Nil,
+		problem.FieldError{Field: field, Code: "not_an_open_item", Message: "a line on a supplier or customer reconciliation account"}); err != nil {
+		return err
+	}
+	if it.currency != first.currency || it.ledger != first.ledger {
+		return problem.Unprocessable("ledger.mixed_items", "The items of one clearing share their ledger and transaction currency.",
+			problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + first.currency + " of the same ledger"})
+	}
+	return nil
+}
+
+// checkItem checks item i, the check every use of open items shares
+// (clearing, settlement, migrated clearing, reservation): a line on a
+// reconciliation account of the legal entity (nil: of any), then not
+// reversed, then not cleared, then not reserved by an owner other than
+// heldBy (uuid.Nil: by none). The order names the first reason a caller can
+// act on: a reversed item is cleared too (clearReversal), and the refusal
+// says why. fields go with the not-an-open-item refusal.
+func checkItem(i int, it item, legalEntity *uuid.UUID, heldBy uuid.UUID, fields ...problem.FieldError) error {
 	switch {
-	case !it.found || !it.recon || it.legalEntity != legalEntity:
-		return problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.",
-			problem.FieldError{Field: field, Code: "not_an_open_item", Message: "a line on a supplier or customer reconciliation account"})
+	case !it.found || !it.recon || (legalEntity != nil && it.legalEntity != *legalEntity):
+		of := "."
+		if legalEntity != nil {
+			of = " of this legal entity."
+		}
+		return problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account"+of, fields...)
 	case it.reversed:
 		return reversedItem(i)
 	case !it.open:
 		return problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
-	case it.reservedBy != nil:
+	case it.reservedBy != nil && it.reservedBy.ID != heldBy:
 		return reservedItem(i, *it.reservedBy)
-	case it.currency != first.currency || it.ledger != first.ledger:
-		return problem.Unprocessable("ledger.mixed_items", "The items of one clearing share their ledger and transaction currency.",
-			problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + first.currency + " of the same ledger"})
 	}
 	return nil
 }
@@ -239,6 +264,13 @@ func clearedItemsPayload(items []item, entry Entry) []map[string]any {
 	return payload
 }
 
+// reversedLine is the SQL condition that the journal line l is a line of a
+// reversed entry or of a reversal: the reversal cancelled it, so it is no
+// open item (loadItems, OpenItems.Payable).
+const reversedLine = `EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = l.tenant_id
+				AND ((r.original_year = l.fiscal_year AND r.original_entry_id = l.journal_entry_id)
+					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))`
+
 // loadItems reads the journal lines to clear, in the order of refs; lines
 // that do not exist come back with found false, and lines of a reversed
 // entry or of a reversal with reversed true.
@@ -253,9 +285,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 			coalesce(l.legal_entity_id, $4), coalesce(l.ledger_id, $4), coalesce(l.account_id, $4), l.partner_id,
 			coalesce(l.amount_tc, 0), coalesce(l.amount_lc, 0), coalesce(l.amount_gc, 0), coalesce(e.currency_tc, ''),
 			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, ''),
-			EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = l.tenant_id
-				AND ((r.original_year = l.fiscal_year AND r.original_entry_id = l.journal_entry_id)
-					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id))),
+			`+reversedLine+`,
 			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, '')
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n

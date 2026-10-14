@@ -95,15 +95,8 @@ func migratedItems(loaded []item, legalEntity uuid.UUID, exps map[string]int) ([
 	perPartner := map[uuid.UUID]*amounts{}
 	payload := make([]map[string]any, len(loaded))
 	for i, it := range loaded {
-		switch {
-		case !it.found || !it.recon || it.legalEntity != legalEntity:
-			return nil, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
-		case it.reversed:
-			return nil, reversedItem(i)
-		case !it.open:
-			return nil, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
-		case it.reservedBy != nil:
-			return nil, reservedItem(i, *it.reservedBy)
+		if err := checkItem(i, it, &legalEntity, uuid.Nil); err != nil {
+			return nil, err
 		}
 		s := perPartner[*it.partner]
 		if s == nil {
@@ -114,8 +107,8 @@ func migratedItems(loaded []item, legalEntity uuid.UUID, exps map[string]int) ([
 		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
 			"account_id": it.account, "partner_id": it.partner, "amount_tc": money.EventAmount(it.tc, it.currency, exps[it.currency])}
 	}
-	for partner, s := range perPartner {
-		if !netsToZero(s.tc...) || !netsToZero(s.lc...) {
+	for _, partner := range partnersInOrder(perPartner) {
+		if s := perPartner[partner]; !netsToZero(s.tc...) || !netsToZero(s.lc...) {
 			return nil, problem.Unprocessable("ledger.clearing_not_balanced", "The items of partner "+partner.String()+" do not net to zero in transaction and local currency.")
 		}
 	}
@@ -148,8 +141,10 @@ func (Reports) Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int
 	var balance, debits money.Minor
 	_, err = pgx.ForEachRow(rows, []any{&number, &balance, &debits}, func() error {
 		t.ByAccount[number] = balance
-		t.Debits += debits
-		return nil
+		// Summed exactly: debits out of range fail the totals rather than wrap.
+		total, err := money.Sum(t.Debits, debits)
+		t.Debits = total
+		return err
 	})
 	if err != nil {
 		return t, fmt.Errorf("ledger: totals of %s %d: %w", legalEntity, fiscalYear, err)

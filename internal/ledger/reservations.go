@@ -65,7 +65,7 @@ func (Postings) Reserve(ctx context.Context, owner Owner, refs []ItemRef) error 
 		return err
 	}
 	for i, it := range items {
-		if err := requireReservable(i, it); err != nil {
+		if err := checkItem(i, it, nil, uuid.Nil); err != nil {
 			return err
 		}
 	}
@@ -75,21 +75,6 @@ func (Postings) Reserve(ctx context.Context, owner Owner, refs []ItemRef) error 
 		SELECT $1, $2, y, je, n, $3, $4, $5 FROM unnest($6::smallint[], $7::uuid[], $8::int[]) AS x(y, je, n)`,
 		actor.TenantID, owner.ID, owner.Context, owner.Reference, actor.ID, years, ids, nos); err != nil {
 		return fmt.Errorf("ledger: reserve %d items for %s %s: %w", len(refs), owner.Context, owner.ID, err)
-	}
-	return nil
-}
-
-// requireReservable checks item i: an open item, not reversed, not held.
-func requireReservable(i int, it item) error {
-	switch {
-	case !it.found || !it.recon:
-		return problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account.")
-	case it.reversed:
-		return reversedItem(i)
-	case !it.open:
-		return problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
-	case it.reservedBy != nil:
-		return reservedItem(i, *it.reservedBy)
 	}
 	return nil
 }

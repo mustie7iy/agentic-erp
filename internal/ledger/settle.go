@@ -55,9 +55,7 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 		WHERE l.legal_entity_id = $1 AND e.currency_tc = $2 AND e.document_date <= $3
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
-			AND NOT EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = l.tenant_id
-				AND ((r.original_year = l.fiscal_year AND r.original_entry_id = l.journal_entry_id)
-					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))
+			AND NOT `+reversedLine+`
 			AND NOT EXISTS (SELECT FROM ledger.item_reservation ir WHERE ir.tenant_id = l.tenant_id AND ir.fiscal_year = l.fiscal_year
 				AND ir.journal_entry_id = l.journal_entry_id AND ir.line_no = l.line_no AND ir.released_at IS NULL)
 		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, currency, documentDateTo)
@@ -280,16 +278,10 @@ func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines
 	lines = make([]Line, 0, len(items)+3)
 	tcs, lcs, gcs := make([]money.Minor, len(items)), make([]money.Minor, len(items)), make([]money.Minor, len(items))
 	for i, it := range items {
-		switch {
-		case !it.found || !it.recon || it.legalEntity != legalEntity:
-			return nil, 0, 0, 0, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
-		case it.reversed:
-			return nil, 0, 0, 0, reversedItem(i)
-		case !it.open:
-			return nil, 0, 0, 0, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
-		case it.reservedBy != nil && it.reservedBy.ID != in.ReservedFor:
-			return nil, 0, 0, 0, reservedItem(i, *it.reservedBy)
-		case it.currency != in.Currency || it.ledger != items[0].ledger:
+		if err := checkItem(i, it, &legalEntity, in.ReservedFor); err != nil {
+			return nil, 0, 0, 0, err
+		}
+		if it.currency != in.Currency || it.ledger != items[0].ledger {
 			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
 		}
 		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: in.HeaderText})
