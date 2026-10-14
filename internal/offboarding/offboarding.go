@@ -30,6 +30,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Actor is the worker's id in audit trails: a system actor, never a token
@@ -121,22 +122,13 @@ func (w *Worker) RunOnce(ctx context.Context) (exported, erased int, err error) 
 
 // Run rounds until ctx ends, logging failures.
 func (w *Worker) Run(ctx context.Context) {
-	interval := w.Interval
-	if interval <= 0 {
-		interval = time.Minute
-	}
-	for {
-		if exported, erased, err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			w.Log.ErrorContext(ctx, "offboarding round failed", "error", err)
-		} else if exported+erased > 0 {
+	worker.Loop(ctx, w.Interval, time.Minute, func(ctx context.Context) (bool, error) {
+		exported, erased, err := w.RunOnce(ctx)
+		if exported+erased > 0 && !worker.Failed(ctx, err) {
 			w.Log.InfoContext(ctx, "offboarding round", "exported", exported, "erased", erased)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return false, err
+	}, w.Log, "offboarding round failed")
 }
 
 // pending finds the tenants to export and to erase, as the worker role.

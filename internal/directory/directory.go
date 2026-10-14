@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Statuses of a directory entry. The cell's statuses pass through; ReadOnly
@@ -508,18 +509,8 @@ func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 
 // Run rounds until ctx ends, logging failures.
 func (s *Sync) Run(ctx context.Context) {
-	interval := s.Interval
-	if interval <= 0 {
-		interval = time.Minute
-	}
-	for {
-		if _, err := s.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			s.Log.ErrorContext(ctx, "directory sync failed", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+	worker.Loop(ctx, s.Interval, time.Minute, func(ctx context.Context) (bool, error) {
+		_, err := s.RunOnce(ctx)
+		return false, err
+	}, s.Log, "directory sync failed")
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Contract expiry: an active contract whose valid_to has passed moves to
@@ -117,20 +118,11 @@ func (x *ContractExpirer) RunOnce(ctx context.Context) (int, error) {
 
 // Run rounds until ctx ends, logging failures and work done.
 func (x *ContractExpirer) Run(ctx context.Context) {
-	interval := x.Interval
-	if interval <= 0 {
-		interval = time.Hour
-	}
-	for {
-		if n, err := x.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			x.Log.ErrorContext(ctx, "contract expiry round failed", "error", err)
-		} else if n > 0 {
+	worker.Loop(ctx, x.Interval, time.Hour, func(ctx context.Context) (bool, error) {
+		n, err := x.RunOnce(ctx)
+		if n > 0 && !worker.Failed(ctx, err) {
 			x.Log.InfoContext(ctx, "contract expiry round", "expired", n)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return false, err
+	}, x.Log, "contract expiry round failed")
 }

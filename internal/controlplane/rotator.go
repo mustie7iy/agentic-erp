@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Key rotation policy (T23, ADR-0028): a worker rotates the field
@@ -116,20 +117,11 @@ func (k *KeyRotator) RunOnce(ctx context.Context) (int, error) {
 
 // Run rounds until ctx ends, logging failures and work done.
 func (k *KeyRotator) Run(ctx context.Context) {
-	interval := k.Interval
-	if interval <= 0 {
-		interval = time.Hour
-	}
-	for {
-		if n, err := k.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			k.Log.ErrorContext(ctx, "key rotation round failed", "error", err)
-		} else if n > 0 {
+	worker.Loop(ctx, k.Interval, time.Hour, func(ctx context.Context) (bool, error) {
+		n, err := k.RunOnce(ctx)
+		if n > 0 && !worker.Failed(ctx, err) {
 			k.Log.InfoContext(ctx, "key rotation round", "rotated", n, "older_than", k.Age.String())
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return false, err
+	}, k.Log, "key rotation round failed")
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Anchor is a chain head written to write-once storage (ADR-0011): the
@@ -149,20 +150,10 @@ func (a *Anchorer) RunOnce(ctx context.Context) (int, error) {
 
 // Run anchors until ctx ends; errors are logged and retried next round.
 func (a *Anchorer) Run(ctx context.Context) {
-	interval := a.Interval
-	if interval <= 0 {
-		interval = time.Minute
-	}
-	for {
-		if _, err := a.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			a.Log.ErrorContext(ctx, "audit anchoring failed", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+	worker.Loop(ctx, a.Interval, time.Minute, func(ctx context.Context) (bool, error) {
+		_, err := a.RunOnce(ctx)
+		return false, err
+	}, a.Log, "audit anchoring failed")
 }
 
 // anchorsIn lists a tenant's anchors with seq in [from, to] (to 0: the head).

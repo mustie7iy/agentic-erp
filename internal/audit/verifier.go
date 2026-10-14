@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Scheduled verification (T21, ADR-0011): a worker recomputes every tenant's
@@ -147,20 +148,11 @@ func (v *Verifier) RunOnce(ctx context.Context) (ok, broken int, err error) {
 
 // Run rounds until ctx ends, logging failures.
 func (v *Verifier) Run(ctx context.Context) {
-	interval := v.Interval
-	if interval <= 0 {
-		interval = time.Hour
-	}
-	for {
-		if ok, broken, err := v.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			v.Log.ErrorContext(ctx, "audit verification round failed", "error", err)
-		} else if err == nil {
+	worker.Loop(ctx, v.Interval, time.Hour, func(ctx context.Context) (bool, error) {
+		ok, broken, err := v.RunOnce(ctx)
+		if err == nil {
 			v.Log.InfoContext(ctx, "audit verification round", "verified", ok, "broken", broken)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return false, err
+	}, v.Log, "audit verification round failed")
 }
