@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 func TestKMSMaster(t *testing.T) {
@@ -66,48 +67,39 @@ func TestKMSMaster(t *testing.T) {
 	other := m
 	other.KeyID = "alias/nope"
 	_, err = other.Wrap(tenant, key)
-	if err == nil || !strings.Contains(err.Error(), "NotFoundException") {
-		t.Errorf("unknown key: got %v, want NotFoundException", err)
-	}
+	pgtest.CheckErr(t, err, "NotFoundException")
 	if errors.Is(err, fieldcrypt.ErrCorrupt) {
 		t.Errorf("unknown key: got %v, want an error that is not ErrCorrupt", err)
 	}
 	other.KeyID, other.SecretKey = kmstest.KeyID, "wrong"
-	if _, err := other.Unwrap(tenant, wrapped); err == nil || !strings.Contains(err.Error(), "403 IncompleteSignatureException") {
-		t.Fatalf("bad credentials: %v", err)
-	}
+	_, err = other.Unwrap(tenant, wrapped)
+	pgtest.WantErr(t, err, "403 IncompleteSignatureException")
 	srv.Fail = http.StatusInternalServerError
-	if _, err := m.Wrap(tenant, key); err == nil || !strings.Contains(err.Error(), "kms Encrypt: 500 KMSInternalException") {
-		t.Fatalf("service down: %v", err)
-	}
+	_, err = m.Wrap(tenant, key)
+	pgtest.WantErr(t, err, "kms Encrypt: 500 KMSInternalException")
 	srv.FailType = "AccessDeniedException"
-	if _, err := m.Unwrap(tenant, wrapped); err == nil || !strings.Contains(err.Error(), "kms Decrypt: 500 AccessDeniedException") {
-		t.Fatalf("access denied: %v", err)
-	}
+	_, err = m.Unwrap(tenant, wrapped)
+	pgtest.WantErr(t, err, "kms Decrypt: 500 AccessDeniedException")
 	srv.FailPlain = true
-	if _, err := m.Wrap(tenant, key); err == nil || !strings.Contains(err.Error(), "unexpected answer: gateway says no") {
-		t.Fatalf("plain failure: %v", err)
-	}
+	_, err = m.Wrap(tenant, key)
+	pgtest.WantErr(t, err, "unexpected answer: gateway says no")
 	srv.Fail, srv.FailPlain = 0, false
 	// Transport failures and an endpoint that is not a URL.
 	down := m
 	down.Endpoint = "http://127.0.0.1:1"
-	if _, err := down.Wrap(tenant, key); err == nil || !strings.Contains(err.Error(), "kms Encrypt:") {
-		t.Fatalf("unreachable: %v", err)
-	}
+	_, err = down.Wrap(tenant, key)
+	pgtest.WantErr(t, err, "kms Encrypt:")
 	down.Endpoint = "::"
-	if _, err := down.Wrap(tenant, key); err == nil || !strings.Contains(err.Error(), "fieldcrypt: kms:") {
-		t.Fatalf("bad endpoint: %v", err)
-	}
+	_, err = down.Wrap(tenant, key)
+	pgtest.WantErr(t, err, "fieldcrypt: kms:")
 	// An answer that is not JSON, with the injected clock and client.
 	garbage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("<html>")) }))
 	defer garbage.Close()
 	var ticks int
 	odd := fieldcrypt.KMS{KeyID: kmstest.KeyID, Endpoint: garbage.URL, Region: kmstest.Region, AccessKey: kmstest.AccessKey, SecretKey: kmstest.SecretKey,
 		Client: garbage.Client(), Now: func() time.Time { ticks++; return time.Now() }}
-	if _, err := odd.Wrap(tenant, key); err == nil || !strings.Contains(err.Error(), "answer is not JSON") {
-		t.Errorf("garbage: got %v, want answer is not JSON", err)
-	}
+	_, err = odd.Wrap(tenant, key)
+	pgtest.CheckErr(t, err, "answer is not JSON")
 	if ticks != 1 {
 		t.Errorf("injected clock reads: got %d, want 1", ticks)
 	}
@@ -143,7 +135,6 @@ func TestKMSAmbientCredentials(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 	m.Credentials = provider{err: awscreds.ErrNone}
-	if _, err := m.Wrap(tenant, []byte("k")); err == nil || !strings.Contains(err.Error(), "credentials") {
-		t.Fatalf("without credentials: %v", err)
-	}
+	_, err = m.Wrap(tenant, []byte("k"))
+	pgtest.WantErr(t, err, "credentials")
 }

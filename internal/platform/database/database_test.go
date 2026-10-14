@@ -3,7 +3,6 @@ package database_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -219,9 +218,7 @@ func TestPingClosedPool(t *testing.T) {
 		t.Fatal(err)
 	}
 	pool.Close()
-	if err := pool.Ping(ctx); err == nil || !strings.Contains(err.Error(), "database: ping") {
-		t.Errorf("got %v, want the failed ping reported", err)
-	}
+	pgtest.CheckErr(t, pool.Ping(ctx), "database: ping")
 }
 
 // TestToday: the transaction's current_date, and a failed read reported.

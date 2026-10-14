@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 )
@@ -144,9 +145,8 @@ func TestOverrides(t *testing.T) {
 		t.Run("field keys "+bad, func(t *testing.T) {
 			mm := copyOf(m)
 			mm["ERP_FIELD_KEYS"] = bad
-			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KEYS") {
-				t.Errorf("got %v, want an error naming ERP_FIELD_KEYS", err)
-			}
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_FIELD_KEYS")
 		})
 	}
 	// Operator issuers are optional and validated when given.
@@ -161,9 +161,8 @@ func TestOverrides(t *testing.T) {
 		t.Run("operator issuers "+bad, func(t *testing.T) {
 			mm := copyOf(m)
 			mm["ERP_OPERATOR_ISSUERS"] = bad
-			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_OPERATOR_ISSUERS") {
-				t.Errorf("got %v, want an error naming ERP_OPERATOR_ISSUERS", err)
-			}
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_OPERATOR_ISSUERS")
 		})
 	}
 	// Object storage: a directory or an S3 service, complete, never both.
@@ -197,9 +196,8 @@ func TestOverrides(t *testing.T) {
 			saved := copyOf(m)
 			defer func() { m = saved }()
 			change()
-			if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OBJECT") {
-				t.Errorf("got %v, want an error naming ERP_OBJECT", err)
-			}
+			_, err := Load(env(m))
+			pgtest.CheckErr(t, err, "ERP_OBJECT")
 		})
 	}
 }
@@ -212,9 +210,7 @@ func TestEveryProblemIsReported(t *testing.T) {
 	}))
 	for _, want := range []string{"DATABASE_URL", "ERP_CELL", "ERP_OIDC_ISSUERS", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_BANK_OUTBOX_DIR", "ERP_EXTRACT_DIR", "ERP_MIGRATE_ON_START", "ERP_LOG_LEVEL", "ERP_SHUTDOWN_TIMEOUT",
 		"ERP_REQUEST_TIMEOUT", "ERP_DB_MAX_CONNS", "ERP_RATE_LIMIT_TENANT", "ERP_RATE_LIMIT_PRINCIPAL", "ERP_DEV_ISSUER"} {
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: got %v, want it reported", want, err)
-		}
+		pgtest.CheckErr(t, err, want)
 	}
 }
 
@@ -297,9 +293,8 @@ func TestSecretReferences(t *testing.T) {
 	}
 	m = valid()
 	m["ERP_VAULT_ADDR"], m["ERP_VAULT_K8S_ROLE"] = vault.URL, vaulttest.K8sRole
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_VAULT_K8S_JWT_FILE") {
-		t.Fatalf("default jwt path on this machine: %v", err)
-	}
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "ERP_VAULT_K8S_JWT_FILE")
 }
 
 func TestKMSSettings(t *testing.T) {
@@ -333,9 +328,8 @@ func TestKMSSettings(t *testing.T) {
 			for k, v := range bad {
 				mm[k] = v
 			}
-			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KMS_") {
-				t.Errorf("got %v, want an error naming ERP_FIELD_KMS_", err)
-			}
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_FIELD_KMS_")
 		})
 	}
 }
@@ -353,9 +347,8 @@ func TestOffboardGrace(t *testing.T) {
 		t.Run(bad, func(t *testing.T) {
 			mm := copyOf(m)
 			mm["ERP_OFFBOARD_GRACE"] = bad
-			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_OFFBOARD_GRACE") {
-				t.Errorf("got %v, want an error naming ERP_OFFBOARD_GRACE", err)
-			}
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_OFFBOARD_GRACE")
 		})
 	}
 }
@@ -366,15 +359,13 @@ func TestDirectorySettings(t *testing.T) {
 		t.Fatal(c.DirectoryURL, err)
 	}
 	m["ERP_DIRECTORY_URL"] = "postgres://dir@db/directory"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_API_URL") {
-		t.Fatalf("directory without the cell's URL: %v", err)
-	}
-	m["ERP_CELL_API_URL"] = "eu-1.api.example.com"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_API_URL") {
-		t.Fatalf("cell URL without a scheme: %v", err)
-	}
-	m["ERP_CELL_API_URL"] = "https://eu-1.api.example.com"
 	_, err := Load(env(m))
+	pgtest.WantErr(t, err, "ERP_CELL_API_URL")
+	m["ERP_CELL_API_URL"] = "eu-1.api.example.com"
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "ERP_CELL_API_URL")
+	m["ERP_CELL_API_URL"] = "https://eu-1.api.example.com"
+	_, err = Load(env(m))
 	if err == nil {
 		t.Fatal("directory without the cell's control URL and region: got no error, want one")
 	}
@@ -394,9 +385,8 @@ func TestDirectorySettings(t *testing.T) {
 		{"CellAccepting", c.CellAccepting, true},
 	})
 	m["ERP_CELL_ACCEPTING"], m["ERP_CELL_REGION"] = "false", "EU"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_REGION") {
-		t.Fatalf("bad region: %v", err)
-	}
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "ERP_CELL_REGION")
 	m["ERP_CELL_REGION"] = "eu-west"
 	if c, err := Load(env(m)); err != nil || c.CellAccepting {
 		t.Fatalf("not accepting: %+v %v", c, err)
@@ -417,14 +407,12 @@ func TestAmbientAWSCredentials(t *testing.T) {
 		t.Error("AWS Getenv: got nil, want the environment")
 	}
 	m["ERP_OBJECT_S3_ACCESS_KEY"] = "AK"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "go together") {
-		t.Fatalf("half the S3 keys: %v", err)
-	}
+	_, err := Load(env(m))
+	pgtest.WantErr(t, err, "go together")
 	delete(m, "ERP_OBJECT_S3_ACCESS_KEY")
 	m["ERP_FIELD_KMS_KEY"], m["ERP_FIELD_KMS_SECRET_KEY"] = "alias/erp", "SK"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "go together") {
-		t.Fatalf("half the KMS keys: %v", err)
-	}
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "go together")
 	delete(m, "ERP_FIELD_KMS_SECRET_KEY")
 	m["ERP_AWS_STS_ENDPOINT"], m["ERP_AWS_IMDS_ENDPOINT"], m["AWS_ROLE_ARN"] = "http://localhost:4566", "http://localhost:1338", "arn:aws:iam::1:role/erp"
 	c = mustLoad(t, m)
@@ -452,9 +440,8 @@ func TestAuditVerifyInterval(t *testing.T) {
 		t.Run(bad, func(t *testing.T) {
 			mm := copyOf(m)
 			mm["ERP_AUDIT_VERIFY_INTERVAL"] = bad
-			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_AUDIT_VERIFY_INTERVAL") {
-				t.Errorf("got %v, want an error naming ERP_AUDIT_VERIFY_INTERVAL", err)
-			}
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_AUDIT_VERIFY_INTERVAL")
 		})
 	}
 }
@@ -470,9 +457,8 @@ func TestRotationPolicyAndPublicURL(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mm := copyOf(m)
 			mm[bad[0]] = bad[1]
-			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
-				t.Errorf("got %v, want an error naming %s", err, bad[0])
-			}
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, bad[0])
 		})
 	}
 }
@@ -501,9 +487,8 @@ func TestWorkflowEngineSettings(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mm := copyOf(m)
 			mm[bad[0]] = bad[1]
-			if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
-				t.Errorf("got %v, want an error naming %s", err, bad[0])
-			}
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, bad[0])
 		})
 	}
 }
@@ -540,9 +525,8 @@ func TestEscalationsFitTheCount(t *testing.T) {
 		t.Errorf("32767: got %d escalations, want 32767", c.Temporal.Escalations)
 	}
 	m["ERP_APPROVAL_ESCALATIONS"] = "32768"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_APPROVAL_ESCALATIONS") {
-		t.Errorf("32768: got %v, want an error naming ERP_APPROVAL_ESCALATIONS", err)
-	}
+	_, err = Load(env(m))
+	pgtest.CheckErr(t, err, "ERP_APPROVAL_ESCALATIONS")
 }
 
 // TestProductionFailsClosed: in production (ERP_ENV) the server refuses to

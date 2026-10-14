@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // must fails the test when filesystem setup it relies on did not happen.
@@ -147,23 +148,17 @@ func TestS3(t *testing.T) {
 	}
 	// Service failures are reported with the service's code, or its status.
 	srv.Fail = http.StatusInternalServerError
-	if err := s.Put(ctx, "tenants/t/x", nil, blobstore.PutOptions{}); err == nil || !strings.Contains(err.Error(), "InternalError") {
-		t.Errorf("put failure: %v", err)
-	}
-	if _, _, err := s.Get(ctx, "tenants/t/x"); err == nil || !strings.Contains(err.Error(), "InternalError") {
-		t.Errorf("get failure: %v", err)
-	}
+	pgtest.CheckErr(t, s.Put(ctx, "tenants/t/x", nil, blobstore.PutOptions{}), "InternalError")
+	_, _, err := s.Get(ctx, "tenants/t/x")
+	pgtest.CheckErr(t, err, "InternalError")
 	srv.FailPlain = true
-	if _, _, err := s.Get(ctx, "tenants/t/x"); err == nil || !strings.Contains(err.Error(), "500 Internal Server Error") {
-		t.Errorf("plain failure: %v", err)
-	}
+	_, _, err = s.Get(ctx, "tenants/t/x")
+	pgtest.CheckErr(t, err, "500 Internal Server Error")
 	srv.Fail, srv.FailPlain = 0, false
 	// Wrong credentials are refused by the service.
 	wrong := s
 	wrong.SecretKey = "nope"
-	if err := wrong.Put(ctx, "tenants/t/y", nil, blobstore.PutOptions{}); err == nil || !strings.Contains(err.Error(), "SignatureDoesNotMatch") {
-		t.Errorf("wrong secret: %v", err)
-	}
+	pgtest.CheckErr(t, wrong.Put(ctx, "tenants/t/y", nil, blobstore.PutOptions{}), "SignatureDoesNotMatch")
 	// An unreachable service and a bad endpoint are errors too.
 	down := s
 	down.Endpoint = "http://127.0.0.1:1"
@@ -279,9 +274,8 @@ func TestStatAndPresignedUploads(t *testing.T) {
 	}
 	// Failures of the service and of the transport are reported by Stat.
 	srv.Fail = http.StatusInternalServerError
-	if _, _, err := s3.Stat(ctx, key); err == nil || !strings.Contains(err.Error(), "HEAD") {
-		t.Fatalf("service failure: %v", err)
-	}
+	_, _, err = s3.Stat(ctx, key)
+	pgtest.WantErr(t, err, "HEAD")
 	srv.Fail = 0
 	down := s3
 	down.Endpoint = "http://127.0.0.1:1"
@@ -382,9 +376,8 @@ func TestListAndDelete(t *testing.T) {
 	}
 	// Failures: the service refuses, the transport fails, a listing that is not XML.
 	srv.Fail = http.StatusInternalServerError
-	if _, err := s3.List(ctx, "tenants/"); err == nil || !strings.Contains(err.Error(), "LIST") {
-		t.Fatalf("list failure: %v", err)
-	}
+	_, err := s3.List(ctx, "tenants/")
+	pgtest.WantErr(t, err, "LIST")
 	if err := s3.Delete(ctx, "tenants/x/documents/a"); err == nil || errors.Is(err, blobstore.ErrLocked) {
 		t.Fatalf("delete failure: %v", err)
 	}
@@ -402,9 +395,8 @@ func TestListAndDelete(t *testing.T) {
 	defer garbage.Close()
 	odd := s3
 	odd.Endpoint = garbage.URL
-	if _, err := odd.List(ctx, "tenants/"); err == nil || !strings.Contains(err.Error(), "LIST") {
-		t.Fatalf("garbage listing: %v", err)
-	}
+	_, err = odd.List(ctx, "tenants/")
+	pgtest.WantErr(t, err, "LIST")
 	if err := down.Delete(ctx, "tenants/x/documents/a"); err == nil {
 		t.Fatal("delete over a dead transport")
 	}
@@ -471,9 +463,7 @@ func TestAmbientCredentials(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := call(); err == nil || !strings.Contains(err.Error(), "credentials") {
-				t.Errorf("without credentials: got %v, want an error naming the credentials", err)
-			}
+			pgtest.CheckErr(t, call(), "credentials")
 		})
 	}
 }

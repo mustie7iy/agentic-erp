@@ -7,12 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -99,25 +99,21 @@ func TestWebIdentity(t *testing.T) {
 		t.Errorf("expiry year: got %d, want 2030", c.Expires.Year())
 	}
 	mode.Store("denied")
-	if _, err := w.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "403 AccessDenied Not authorized") {
-		t.Fatalf("denied: %v", err)
-	}
+	_, err = w.Credentials(ctx)
+	pgtest.WantErr(t, err, "403 AccessDenied Not authorized")
 	mode.Store("garbage")
-	if _, err := w.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "not an AssumeRoleWithWebIdentity response") {
-		t.Fatalf("garbage: %v", err)
-	}
+	_, err = w.Credentials(ctx)
+	pgtest.WantErr(t, err, "not an AssumeRoleWithWebIdentity response")
 	mode.Store("ok")
 	if _, err := (awscreds.WebIdentity{}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("unset: %v", err)
 	}
-	if _, err := (awscreds.WebIdentity{TokenFile: filepath.Join(t.TempDir(), "none"), RoleARN: "arn", Endpoint: sts.URL}).Credentials(ctx); err == nil || !strings.Contains(err.Error(), "token") {
-		t.Fatalf("missing token file: %v", err)
-	}
+	_, err = (awscreds.WebIdentity{TokenFile: filepath.Join(t.TempDir(), "none"), RoleARN: "arn", Endpoint: sts.URL}).Credentials(ctx)
+	pgtest.WantErr(t, err, "token")
 	other := w
 	other.RoleARN = "arn:aws:iam::1:role/other" // the fake refuses
-	if _, err := other.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "InvalidParameter") {
-		t.Fatalf("refused: %v", err)
-	}
+	_, err = other.Credentials(ctx)
+	pgtest.WantErr(t, err, "InvalidParameter")
 	other = w
 	other.Endpoint = "http://127.0.0.1:1"
 	if _, err := other.Credentials(ctx); err == nil {
@@ -195,17 +191,14 @@ func TestIMDS(t *testing.T) {
 		t.Fatalf("no v2 token: %v", err)
 	}
 	mode.Store("norole")
-	if _, err := m.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "404") {
-		t.Fatalf("no role: %v", err)
-	}
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, "404")
 	mode.Store("garbage")
-	if _, err := m.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "not a credentials document") {
-		t.Fatalf("garbage: %v", err)
-	}
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, "not a credentials document")
 	mode.Store("rolefail")
-	if _, err := m.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "erp-role: 500") {
-		t.Fatalf("role document failing: %v", err)
-	}
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, "erp-role: 500")
 	if _, err := (awscreds.IMDS{Endpoint: "http://127.0.0.1:1"}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("no service: %v", err)
 	}

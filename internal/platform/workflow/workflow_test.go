@@ -56,9 +56,8 @@ func (a *acts) unblock() { a.once.Do(func() { close(a.release) }) }
 func TestTemporal(t *testing.T) {
 	ctx := context.Background()
 	addr := workflowtest.Server(t)
-	if _, err := workflow.Dial(ctx, workflow.Config{Address: "127.0.0.1:1", Namespace: "default"}); err == nil || !strings.Contains(err.Error(), "connecting to") {
-		t.Fatalf("dial nothing: %v", err)
-	}
+	_, err := workflow.Dial(ctx, workflow.Config{Address: "127.0.0.1:1", Namespace: "default"})
+	pgtest.WantErr(t, err, "connecting to")
 	codec, _ := workflow.NewCodec([]byte(strings.Repeat("k", 32))) // payloads sealed on their way to the engine and back
 	engine, err := workflow.Dial(ctx, workflow.Config{Address: addr, Namespace: "default", Codec: codec})
 	if err != nil {
@@ -127,17 +126,13 @@ func TestTemporal(t *testing.T) {
 		t.Fatalf("cancel unknown: %v", err)
 	}
 	// Refused starts and cancels are reported.
-	if _, err := engine.Start(ctx, workflow.Start{ID: id + "-bad", Queue: "", Name: "Echo"}); err == nil || !strings.Contains(err.Error(), "starting") {
-		t.Fatalf("start without a queue: %v", err)
-	}
+	_, err = engine.Start(ctx, workflow.Start{ID: id + "-bad", Queue: "", Name: "Echo"})
+	pgtest.WantErr(t, err, "starting")
 	gone, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, err := engine.Start(gone, workflow.Start{ID: id + "-gone", Queue: queue, Name: "Echo"}); err == nil || !strings.Contains(err.Error(), "looking up") {
-		t.Fatalf("start with a dead context: %v", err)
-	}
-	if err := engine.Cancel(gone, id+"-wait"); err == nil || !strings.Contains(err.Error(), "cancelling") {
-		t.Fatalf("cancel with a dead context: %v", err)
-	}
+	_, err = engine.Start(gone, workflow.Start{ID: id + "-gone", Queue: queue, Name: "Echo"})
+	pgtest.WantErr(t, err, "looking up")
+	pgtest.WantErr(t, engine.Cancel(gone, id+"-wait"), "cancelling")
 	if err := engine.Cancel(gone, id+"-wait"); !errors.Is(err, context.Canceled) && err == nil {
 		t.Fatal("expected an error")
 	}
@@ -170,7 +165,5 @@ func TestWorkerOnAClosedClient(t *testing.T) {
 	err = engine.Worker(ctx, "closed", func(r workflow.Registry) {
 		r.RegisterWorkflowWithOptions(echo, sdkworkflow.RegisterOptions{Name: "Echo"})
 	})
-	if err == nil || !strings.Contains(err.Error(), "workflow: worker on queue closed") {
-		t.Errorf("got %v, want the refused worker reported with its queue", err)
-	}
+	pgtest.CheckErr(t, err, "workflow: worker on queue closed")
 }

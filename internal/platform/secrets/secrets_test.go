@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 )
@@ -74,9 +75,8 @@ func TestLocal(t *testing.T) {
 	if got, err := m.Resolve(ctx, "env:X"); err != nil || got != "from-env" {
 		t.Fatalf("%q %v", got, err)
 	}
-	if _, err := m.Resolve(ctx, "vault:a/b#c"); err == nil || !strings.Contains(err.Error(), "no resolver") {
-		t.Fatalf("%v", err)
-	}
+	_, err := m.Resolve(ctx, "vault:a/b#c")
+	pgtest.WantErr(t, err, "no resolver")
 }
 
 func TestVault(t *testing.T) {
@@ -98,19 +98,16 @@ func TestVault(t *testing.T) {
 		"env:X":                             "vault:<mount>/<path>#<field>",
 	} {
 		t.Run(ref, func(t *testing.T) {
-			if _, err := v.Resolve(ctx, ref); err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("got %v, want an error containing %q", err, want)
-			}
+			_, err := v.Resolve(ctx, ref)
+			pgtest.CheckErr(t, err, want)
 		})
 	}
-	if _, err := (&secrets.Vault{Address: srv.URL, Token: "wrong"}).Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("wrong token: %v", err)
-	}
+	_, err := (&secrets.Vault{Address: srv.URL, Token: "wrong"}).Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "permission denied")
 	// A namespace is sent when configured.
 	srv.Namespace = "finance"
-	if _, err := v.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "no namespace") {
-		t.Fatalf("without namespace: %v", err)
-	}
+	_, err = v.Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "no namespace")
 	v.Namespace = "finance"
 	if got, err := v.Resolve(ctx, "vault:secret/erp/field-key#value"); err != nil || got != "the-key" {
 		t.Fatalf("with namespace: %q %v", got, err)
@@ -136,23 +133,18 @@ func TestVault(t *testing.T) {
 	}
 	srv.Revoke("hvs.login-xx")
 	srv.Revoke("hvs.login-xxx")
-	if _, err := k.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("renewed token refused too: %v", err)
-	}
-	if _, err := (&secrets.Vault{Address: srv.URL, K8sRole: "other", K8sJWT: vaulttest.K8sJWT}).Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "login") {
-		t.Fatalf("wrong role: %v", err)
-	}
-	if _, err := (&secrets.Vault{Address: srv.URL}).Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "no token") {
-		t.Fatalf("nothing to authenticate with: %v", err)
-	}
+	_, err = k.Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "permission denied")
+	_, err = (&secrets.Vault{Address: srv.URL, K8sRole: "other", K8sJWT: vaulttest.K8sJWT}).Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "login")
+	_, err = (&secrets.Vault{Address: srv.URL}).Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "no token")
 	// The server failing, unreachable, or answering nonsense.
 	srv.Fail = http.StatusServiceUnavailable
-	if _, err := v.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "sealed") {
-		t.Fatalf("sealed: %v", err)
-	}
-	if _, err := k.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "sealed") {
-		t.Fatalf("sealed login: %v", err)
-	}
+	_, err = v.Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "sealed")
+	_, err = k.Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "sealed")
 	srv.Fail = 0
 	for name, bad := range map[string]*secrets.Vault{
 		"unreachable":       {Address: "http://127.0.0.1:1", Token: "t"},
@@ -166,17 +158,14 @@ func TestVault(t *testing.T) {
 		})
 	}
 	nonsense := &secrets.Vault{Address: srv.URL, Token: vaulttest.Token, Client: &http.Client{Transport: fixed{body: "not json"}}}
-	if _, err := nonsense.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "not a KV v2 secret") {
-		t.Fatalf("nonsense: %v", err)
-	}
+	_, err = nonsense.Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "not a KV v2 secret")
 	noToken := &secrets.Vault{Address: srv.URL, K8sRole: vaulttest.K8sRole, K8sJWT: vaulttest.K8sJWT, Client: &http.Client{Transport: fixed{body: `{"auth": {}}`}}}
-	if _, err := noToken.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "no client token") {
-		t.Fatalf("login without token: %v", err)
-	}
+	_, err = noToken.Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "no client token")
 	plain := &secrets.Vault{Address: srv.URL, Token: vaulttest.Token, Client: &http.Client{Transport: fixed{status: 500, body: "boom"}}}
-	if _, err := plain.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil || !strings.Contains(err.Error(), "500: Internal Server Error") {
-		t.Fatalf("plain failure: %v", err)
-	}
+	_, err = plain.Resolve(ctx, "vault:secret/erp/field-key#value")
+	pgtest.WantErr(t, err, "500: Internal Server Error")
 	broken := &secrets.Vault{Address: srv.URL, Token: vaulttest.Token, Client: &http.Client{Transport: fixed{broken: true}}}
 	if _, err := broken.Resolve(ctx, "vault:secret/erp/field-key#value"); err == nil {
 		t.Fatal("broken body resolved")

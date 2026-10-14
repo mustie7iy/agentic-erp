@@ -177,9 +177,7 @@ func TestKeyringSealsWithTenantKeys(t *testing.T) {
 		t.Run(fmt.Sprintf("wrap %d fails", fail), func(t *testing.T) {
 			inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
 				bad := &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{&failingMaster{failAt: fail}}}
-				if err := bad.Provision(ctx, tx, uuid.New()); err == nil || !strings.Contains(err.Error(), "hsm down") {
-					t.Errorf("Provision: got %v, want the master's hsm down", err)
-				}
+				pgtest.CheckErr(t, bad.Provision(ctx, tx, uuid.New()), "hsm down")
 				return nil
 			})
 		})
@@ -380,9 +378,8 @@ func TestKMSMasterWrapsTenantKeys(t *testing.T) {
 	}
 	// A ring whose KMS refuses cannot load the tenant's keys.
 	kms.Fail = 503
-	if _, err := ring(t, kms.Master("")).Open(ctx, ten.ID, sealed); err == nil || !strings.Contains(err.Error(), "503 KMSInternalException") {
-		t.Fatalf("kms down: %v", err)
-	}
+	_, err = ring(t, kms.Master("")).Open(ctx, ten.ID, sealed)
+	pgtest.WantErr(t, err, "503 KMSInternalException")
 	kms.Fail = 0
 }
 
@@ -445,9 +442,8 @@ func TestRewrap(t *testing.T) {
 		for fail := 1; fail <= 2; fail++ {
 			t.Run(fmt.Sprintf("wrap %d fails", fail), func(t *testing.T) {
 				bad := &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{&failingMaster{failAt: fail}, kms.Master("")}}
-				if _, err := bad.Rewrap(ctx, tx, ten.ID); err == nil || !strings.Contains(err.Error(), "hsm down") {
-					t.Errorf("Rewrap: got %v, want the master's hsm down", err)
-				}
+				_, err := bad.Rewrap(ctx, tx, ten.ID)
+				pgtest.CheckErr(t, err, "hsm down")
 			})
 		}
 		return nil
@@ -477,7 +473,5 @@ func TestRewrap(t *testing.T) {
 		_, err := stuck.Rewrap(ctx, tx, ten.ID)
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "hsm down") {
-		t.Fatalf("unwrap: %v", err)
-	}
+	pgtest.WantErr(t, err, "hsm down")
 }

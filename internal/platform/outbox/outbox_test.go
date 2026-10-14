@@ -154,9 +154,8 @@ func TestRelayRetriesAfterPublishFailure(t *testing.T) {
 	})
 	rec := &recorder{fail: errors.New("bus down")}
 	relay := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}
-	if _, err := relay.RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "bus down") {
-		t.Fatal(err)
-	}
+	_, err := relay.RunOnce(context.Background())
+	pgtest.WantErr(t, err, "bus down")
 	rec.fail = nil
 	for i := 0; i < 3 && len(rec.forTenant(ten.ID)) == 0; i++ {
 		if _, err := relay.RunOnce(context.Background()); err != nil {

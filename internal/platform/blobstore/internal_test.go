@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // TestDirWriteFailures fails the writes a Put makes after the temporary file
@@ -30,18 +32,14 @@ func TestDirWriteFailures(t *testing.T) {
 	}
 	createTemp = os.CreateTemp
 	link = func(string, string) error { return errors.New("no links here") }
-	if err := d.Put(context.Background(), "tenants/x/c", []byte("1"), PutOptions{}); err == nil || !strings.Contains(err.Error(), "no links here") {
-		t.Fatalf("got link error %v, want the link's", err)
-	}
+	pgtest.WantErr(t, d.Put(context.Background(), "tenants/x/c", []byte("1"), PutOptions{}), "no links here")
 	if left := temporaries(t, filepath.Join(root, "tenants", "x")); len(left) != 0 {
 		t.Errorf("got %v left after a failed link, want nothing", left)
 	}
 	link = os.Link
 	rename = func(string, string) error { return errors.New("disk full") }
 	defer func() { rename = os.Rename }()
-	if err := d.Put(context.Background(), "tenants/x/b", []byte("1"), PutOptions{}); err == nil || !strings.Contains(err.Error(), "disk full") {
-		t.Fatalf("sidecar: %v", err)
-	}
+	pgtest.WantErr(t, d.Put(context.Background(), "tenants/x/b", []byte("1"), PutOptions{}), "disk full")
 	rename = os.Rename
 	if left := temporaries(t, filepath.Join(root, "tenants", "x")); len(left) != 0 {
 		t.Errorf("got %v left after a failed sidecar, want nothing", left)
@@ -63,9 +61,7 @@ func TestDirSidecarWriteFailures(t *testing.T) {
 		return os.CreateTemp(dir, pattern)
 	}
 	t.Cleanup(func() { createTemp = os.CreateTemp })
-	if err := d.Put(ctx, key, []byte("1"), PutOptions{}); err == nil || !strings.Contains(err.Error(), "no temporary sidecar") {
-		t.Fatalf("got %v from a Put whose sidecar could not be created, want its error", err)
-	}
+	pgtest.WantErr(t, d.Put(ctx, key, []byte("1"), PutOptions{}), "no temporary sidecar")
 	calls = 0
 	if err := d.Put(ctx, key, []byte("1"), PutOptions{}); err == nil || errors.Is(err, ErrExists) {
 		t.Fatalf("got %v from a retry that could not repair the sidecar, want its error", err)
@@ -141,9 +137,7 @@ func TestDirPutIsWholeOrNothing(t *testing.T) {
 		return n, errors.New("crash")
 	}
 	t.Cleanup(func() { writeContent = (*os.File).Write })
-	if err := d.Put(ctx, key, []byte("%PDF-1.7 whole"), PutOptions{}); err == nil || !strings.Contains(err.Error(), "crash") {
-		t.Fatalf("got Put error %v, want the write's", err)
-	}
+	pgtest.WantErr(t, d.Put(ctx, key, []byte("%PDF-1.7 whole"), PutOptions{}), "crash")
 	if left := temporaries(t, filepath.Join(d.Root, "tenants", "x", "documents")); len(left) != 0 {
 		t.Errorf("got %v left after a failed write, want nothing", left)
 	}

@@ -3,7 +3,6 @@ package audit_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -236,11 +235,9 @@ func TestErrors(t *testing.T) {
 			if field, found := audit.Personal(detail); !found || field == "" {
 				t.Errorf("Personal(%v) = %q, %v; want a field, true", detail, field, found)
 			}
-			if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+			pgtest.CheckErr(t, asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
 				return audit.Write(ctx, tx, actor(ten), "", time.Now(), audit.Entry{Action: "x.y", ObjectType: "x", Outcome: "ok", Detail: detail})
-			}); err == nil || !strings.Contains(err.Error(), "personal data") {
-				t.Errorf("Write: got %v, want a personal data error", err)
-			}
+			}), "personal data")
 		})
 	}
 	if field, found := audit.Personal(map[string]any{"supplier_id": "0192a000-0000-7000-8000-000000000301", "amount": "12.00", "status": "parked", "number": "BP90000003", "note": "paid @ once"}); found {
