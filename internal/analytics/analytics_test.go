@@ -97,7 +97,8 @@ func twoYears(t *testing.T) *Facts {
 				qty, _ := money.ParseQty(it.MENGE)
 				price, _ := money.ParseDecimal(it.NETPR, 2)
 				unit, _ := strconv.ParseInt(it.PEINH, 10, 64)
-				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, money.Extend(qty, price, max(unit, 1)), map[string]string{
+				amount, _ := money.Extend(qty, price, max(unit, 1)) // mock amounts are far from the range
+				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, amount, map[string]string{
 					"vendor": sap.Alpha(h.LIFNR), "vendor_name": names[sap.Alpha(h.LIFNR)], "account": sap.Alpha(it.SAKTO), "account_name": accounts[sap.Alpha(it.SAKTO)]})
 			}
 			for _, h := range e.RBKP {

@@ -16,23 +16,20 @@ func TestMoneyEdges(t *testing.T) {
 		t.Errorf("Qty(3000).String() = %q, want %q", got, "3")
 	}
 	// The price unit defaults to 1 when it is not positive.
-	if got := Extend(2_000, 150, 0); got != 300 {
-		t.Errorf("Extend with price unit 0 = %d, want 300", got)
+	if got, err := Extend(2_000, 150, 0); err != nil || got != 300 {
+		t.Errorf("Extend with price unit 0 = %d, %v, want 300", got, err)
 	}
-	if got := Extend(2_000, 150, -5); got != 300 {
-		t.Errorf("Extend with price unit -5 = %d, want 300", got)
+	if got, err := Extend(2_000, 150, -5); err != nil || got != 300 {
+		t.Errorf("Extend with price unit -5 = %d, %v, want 300", got, err)
 	}
-	if got := Percent(1_000, 8); got != 80 {
-		t.Errorf("Percent(1000, 8) = %d, want 80", got)
+	if got, err := Percent(1_000, 8); err != nil || got != 80 {
+		t.Errorf("Percent(1000, 8) = %d, %v, want 80", got, err)
 	}
-	if got := Percent(-125, 10); got != -13 {
-		t.Errorf("Percent(-125, 10) = %d, want -13", got)
+	if got, err := Percent(-125, 10); err != nil || got != -13 {
+		t.Errorf("Percent(-125, 10) = %d, %v, want -13", got, err)
 	}
-	if got := divRound(7, -2); got != -4 {
-		t.Errorf("divRound(7, -2) = %d, want -4", got)
-	}
-	if got := divRound(-7, -2); got != 4 {
-		t.Errorf("divRound(-7, -2) = %d, want 4", got)
+	if got, err := Percent(125, -10); err != nil || got != -13 {
+		t.Errorf("Percent(125, -10) = %d, %v, want -13", got, err)
 	}
 	if got := Minor(-5).Abs(); got != 5 {
 		t.Errorf("Minor(-5).Abs() = %d, want 5", got)

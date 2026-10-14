@@ -265,7 +265,7 @@ func (g *mockGen) poLine(ebeln string, i, j int, scenarios bool) mockPOLine {
 		l.price = g.money(2000000, 3000000) // pushes the invoice over the auto-post limit
 		l.qty += 10 * money.QtyScale
 	}
-	l.amount = money.Extend(l.qty, l.price, l.peinh)
+	l.amount, _ = money.Extend(l.qty, l.price, l.peinh) // mock quantities and prices are far from the range
 	g.e.EKPO = append(g.e.EKPO, EKPO{
 		EBELN: ebeln, EBELP: l.item, MATNR: fmt.Sprintf("MAT-%04d", g.r.IntN(9000)+1000),
 		TXZ01: fmt.Sprintf("Item %d for %s", j+1, ebeln), MENGE: l.qty.String(),
@@ -320,7 +320,7 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 	for k, l := range lines {
 		amt := l.amount
 		if scenarios && i == 14 && k == 0 {
-			amt = money.Percent(amt, 110) // 10% over PO price
+			amt, _ = money.Percent(amt, 110) // 10% over PO price; mock amounts are far from the range
 		}
 		net += amt
 		g.e.RSEG = append(g.e.RSEG, RSEG{
@@ -328,7 +328,7 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 			MENGE: l.qty.String(), WRBTR: amt.Decimal(),
 		})
 	}
-	tax := money.Percent(net, taxPct)
+	tax, _ := money.Percent(net, taxPct) // mock amounts are far from the range
 	gross := net + tax
 	if scenarios && i == 18 {
 		gross += 100 // vendor added tax incorrectly

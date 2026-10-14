@@ -253,14 +253,17 @@ func (b *factBuilder) addOrder(le legalEntity, o order, chart map[string]account
 		if err == nil {
 			err = perr
 		}
+		var amount money.Minor
+		if err == nil {
+			amount, err = money.Extend(qty, price, max(it.PriceUnit, 1))
+		}
 		if err == nil {
 			err = b.calendar(dims, o.OrderDate)
 		}
 		if err != nil {
 			return fmt.Errorf("purchase order %s: %w", o.ID, err)
 		}
-		b.f.Tables["po_lines"] = append(b.f.Tables["po_lines"], Fact{ID: o.ID, Dims: dims,
-			Amount: money.Extend(qty, price, max(it.PriceUnit, 1)), Currency: it.UnitPrice.Currency})
+		b.f.Tables["po_lines"] = append(b.f.Tables["po_lines"], Fact{ID: o.ID, Dims: dims, Amount: amount, Currency: it.UnitPrice.Currency})
 	}
 	return nil
 }

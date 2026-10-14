@@ -209,7 +209,8 @@ func (rc *reconciler) purchaseOrders(ctx context.Context, s companyScope) error 
 	}
 	for _, i := range rc.ext.EKPO {
 		if inCC[i.EBELN] {
-			sapPOValue += extend(i.MENGE, i.NETPR, i.PEINH, rc.t, s.cur)
+			v, _ := extend(i.MENGE, i.NETPR, i.PEINH, rc.t, s.cur) // in range: the quality gate refuses lines that are not (purchaseOrderItem)
+			sapPOValue += v
 		}
 	}
 	n, value, err := rc.e.OrderValues.Value(ctx, orders)
@@ -247,7 +248,7 @@ func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error 
 
 // extend is an item's net value: quantity times price per price unit,
 // rounded half away from zero (procurement's rule).
-func extend(qty, price, priceUnit string, t target, currency string) money.Minor {
+func extend(qty, price, priceUnit string, t target, currency string) (money.Minor, error) {
 	q, _ := money.ParseQty(qty)
 	p, _ := t.amount(price, currency)
 	unit, err := strconv.ParseInt(priceUnit, 10, 64)

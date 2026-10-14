@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"cmp"
 	"fmt"
 	"math/big"
 	"slices"
@@ -237,6 +238,9 @@ func (q *qualityCheck) purchaseOrderItem(i sap.EKPO, h sap.EKKO) {
 	}
 	if n, err := strconv.Atoi(i.PEINH); i.PEINH != "" && (err != nil || n < 1) {
 		q.add(SevError, "EKPO", key, "price unit %q is not a positive whole number", i.PEINH)
+	}
+	if _, err := extend(i.MENGE, i.NETPR, i.PEINH, q.t, h.WAERS); err != nil {
+		q.add(SevError, "EKPO", key, "net value of %s at %s per %s is out of range", i.MENGE, i.NETPR, cmp.Or(i.PEINH, "1"))
 	}
 }
 

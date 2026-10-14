@@ -1,7 +1,9 @@
 package money
 
 import (
+	"errors"
 	"maps"
+	"math"
 	"testing"
 )
 
@@ -50,15 +52,33 @@ func TestParseQty(t *testing.T) {
 
 func TestExtendRoundsHalfAwayFromZero(t *testing.T) {
 	// 1.5 units at 0.01 = 0.015 -> 0.02
-	if got := Extend(1500, 1, 1); got != 2 {
+	if got, _ := Extend(1500, 1, 1); got != 2 {
 		t.Errorf("got %d", got)
 	}
-	if got := Extend(-1500, 1, 1); got != -2 {
+	if got, _ := Extend(-1500, 1, 1); got != -2 {
 		t.Errorf("got %d", got)
 	}
 	// 2400 units at 12.34 per 100 units = 296.16
-	if got := Extend(2400*QtyScale, 1234, 100); got != 29616 {
+	if got, _ := Extend(2400*QtyScale, 1234, 100); got != 29616 {
 		t.Errorf("price unit: got %d", got)
+	}
+}
+
+// Products are exact: quantity × price and amount × percentage were formed
+// in int64 and wrapped while the result was well in range.
+func TestExtendAndPercentLarge(t *testing.T) {
+	// 10,000,000 units at 10,000,000.00 is 100,000,000,000,000.00.
+	if got, err := Extend(10_000_000*QtyScale, 1_000_000_000, 1); err != nil || got != 10_000_000_000_000_000 {
+		t.Errorf("Extend: got %d, %v, want 10000000000000000", got, err)
+	}
+	if got, err := Percent(1_000_000_000_000_000_000, 50); err != nil || got != 500_000_000_000_000_000 {
+		t.Errorf("Percent: got %d, %v, want 500000000000000000", got, err)
+	}
+	if _, err := Extend(2*QtyScale, math.MaxInt64, 1); !errors.Is(err, ErrOverflow) {
+		t.Errorf("Extend out of range: got %v, want ErrOverflow", err)
+	}
+	if _, err := Percent(math.MaxInt64, 101); !errors.Is(err, ErrOverflow) {
+		t.Errorf("Percent out of range: got %v, want ErrOverflow", err)
 	}
 }
 

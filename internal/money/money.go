@@ -153,30 +153,22 @@ func (q Qty) String() string {
 	return strings.TrimRight(fmt.Sprintf("%s%d.%03d", sign, v/QtyScale, v%QtyScale), "0")
 }
 
-// Extend computes qty * price / priceUnit, rounded half away from zero.
-// priceUnit is SAP's PEINH (price per N units); 0 is treated as 1.
-func Extend(qty Qty, price Minor, priceUnit int64) Minor {
+// Extend computes qty * price / priceUnit, rounded half away from zero,
+// exactly (Scale): the product of quantity and price is no longer formed in
+// int64, where it wrapped long before the result left the range.
+// priceUnit is SAP's PEINH (price per N units); 0 is treated as 1. A
+// result out of range is ErrOverflow.
+func Extend(qty Qty, price Minor, priceUnit int64) (Minor, error) {
 	if priceUnit <= 0 {
 		priceUnit = 1
 	}
-	num := int64(qty) * int64(price)
-	den := int64(QtyScale) * priceUnit
-	return Minor(divRound(num, den))
+	return Scale(price, qty.String(), priceUnit)
 }
 
-// Percent returns amount * pct / 100 rounded half away from zero (pct 8 = 8%).
-func Percent(amount Minor, pct int64) Minor {
-	return Minor(divRound(int64(amount)*pct, 100))
-}
-
-func divRound(num, den int64) int64 {
-	if den < 0 {
-		num, den = -num, -den
-	}
-	if num >= 0 {
-		return (num + den/2) / den
-	}
-	return -((-num + den/2) / den)
+// Percent returns amount * pct / 100 rounded half away from zero (pct 8 =
+// 8%), exactly; a result out of range is ErrOverflow.
+func Percent(amount Minor, pct int64) (Minor, error) {
+	return Scale(amount, strconv.FormatInt(pct, 10), 100)
 }
 
 // Abs returns the absolute value.
