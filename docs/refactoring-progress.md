@@ -349,7 +349,11 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - Second re-review after round two: **9.2 / 10** (architecture 9.3, error handling 9.2,
   concurrency and tenancy 8.9, SQL 9.7, tests 9.4, readability 9.3, duplication 9.0, money 9.1).
   Round three below.
-- [ ] F8 A posting cannot land in a period being closed
+- [x] F8 A posting cannot land in a period being closed: postingPeriod reads the period status
+  FOR SHARE, so a posting waits for a close and is then refused (409 ledger.period_not_open);
+  lock order buckets → period → number range. A close can be starved by steady postings in its
+  period (accepted, documented: closes come after posting stops). Follow-up F8b: the trigger's
+  own read FOR SHARE, after 000040 (F5b). Reviewer: APPROVE.
 - [ ] F9 Analytics rounds money with the currency's exponent; no hard-coded exponent tables
 - [x] F10 Issuer rollout: the contract step re-backfills; CreatePrincipal refuses an actor without
   an issuer (422 identity.creator_without_issuer, named in the contract's description).
