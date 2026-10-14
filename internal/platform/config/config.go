@@ -55,9 +55,9 @@ type Config struct {
 	TenantQuota     ratelimit.Quota // ERP_RATE_LIMIT_TENANT, requests per second[/burst] per tenant, or off (default 2000/10000, 04 §4.11)
 	PrincipalQuota  ratelimit.Quota // ERP_RATE_LIMIT_PRINCIPAL, the same per principal (default 50/100)
 	DevIssuer       bool            // ERP_DEV_ISSUER: mint tokens on the admin listener for local development; makes ERP_OIDC_ISSUERS optional
-	Objects         Objects         // ERP_OBJECT_DIR or ERP_OBJECT_S3_*: object storage for documents, bank files and audit anchors; neither leaves it off
+	Objects         Objects         // ERP_OBJECT_DIR or ERP_OBJECT_S3_*: object storage for documents, bank files and audit anchors; neither leaves it off (refused in production)
 	OffboardGrace   time.Duration   // ERP_OFFBOARD_GRACE: how long an offboarded tenant's data stays in the cell after its export before it is erased (default 720h; ADR-0021)
-	AuditVerify     time.Duration   // ERP_AUDIT_VERIFY_INTERVAL: how often every tenant's audit chain is verified against its anchors (default 1h; 0 disables the worker)
+	AuditVerify     time.Duration   // ERP_AUDIT_VERIFY_INTERVAL: how often every tenant's audit chain is verified against its anchors (default 1h; 0 disables the worker, refused in production)
 	KeyRotationAge  time.Duration   // ERP_KEY_ROTATION_AGE: tenant keys older than this are rotated by the server (default 0: on request only; ADR-0028)
 	Temporal        Temporal        // ERP_TEMPORAL_ADDRESS, _NAMESPACE, _TASK_QUEUE: the workflow engine (ADR-0012); empty address: in-process workers
 	PublicURL       string          // ERP_PUBLIC_URL: the public base URL of this API, for absolute upload URLs (default: paths)
@@ -467,6 +467,12 @@ func checkEnvironment(c Config) []error {
 	}
 	if c.Temporal.Address != "" && c.Temporal.CodecKey == nil {
 		errs = append(errs, errors.New("ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production and a workflow engine: without it payloads reach the engine unsealed"))
+	}
+	if !c.Objects.Enabled() {
+		errs = append(errs, errors.New("object storage (ERP_OBJECT_DIR or ERP_OBJECT_S3_*) is required with ERP_ENV=production: without it the audit chain is not anchored (ADR-0011) and offboarded tenants are not exported (ADR-0021)"))
+	}
+	if c.AuditVerify == 0 {
+		errs = append(errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production: audit chains would go unverified against their anchors"))
 	}
 	return errs
 }

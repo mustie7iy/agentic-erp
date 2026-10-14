@@ -41,3 +41,10 @@ an hour, affordable at Phase 1 volumes.
   chain outgrows an hourly read.
 - The alarm is a log line, an event and a gauge; routing it to a pager is
   the deployment's.
+
+## Amendment (2026-10-14)
+
+`ERP_AUDIT_VERIFY_INTERVAL=0` is refused with `ERP_ENV=production`: leaving
+verification to requests means a broken or tampered chain can go unnoticed
+until someone asks, and a production cell must notice it on its own. In
+development `0` still leaves verification to requests.

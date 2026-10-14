@@ -640,7 +640,8 @@ Decisions taken while building it:
   and serves `POST /dev/token` on the admin listener only. With
   `ERP_DEV_ISSUER=true`, `ERP_OIDC_ISSUERS` becomes optional; the server
   logs a warning at start, and refuses to start with `ERP_ENV=production`
-  (as it does with a workflow engine but no `ERP_TEMPORAL_CODEC_KEY`).
+  (as it does with a workflow engine but no `ERP_TEMPORAL_CODEC_KEY`,
+  without object storage, or with `ERP_AUDIT_VERIFY_INTERVAL=0`).
   Tokens live an hour.
 
 Open points for the contract and design review:

@@ -546,25 +546,42 @@ func TestEscalationsFitTheCount(t *testing.T) {
 }
 
 // TestProductionFailsClosed: in production (ERP_ENV) the server refuses to
-// start with the development token issuer, or with a workflow engine but no
-// codec key; development allows both, as before. An unknown environment is
+// start with the development token issuer, with a workflow engine but no
+// codec key, without object storage (no audit anchors, ADR-0011, and no
+// offboarding exports, ADR-0021), or with audit verification switched off;
+// development allows all of them, as before. An unknown environment is
 // refused.
 func TestProductionFailsClosed(t *testing.T) {
 	codec := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
 	const devRefused, codecRefused = "ERP_DEV_ISSUER must not be set with ERP_ENV=production", "ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production"
+	const storeRefused, verifyRefused = "object storage (ERP_OBJECT_DIR or ERP_OBJECT_S3_*) is required with ERP_ENV=production", "ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production"
+	// prod is a production configuration that starts: object storage and
+	// the default audit verification interval.
+	prod := func(set map[string]string) map[string]string {
+		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp"}
+		for k, v := range set {
+			m[k] = v
+		}
+		return m
+	}
 	cases := []struct {
 		name    string
 		set     map[string]string
 		wantErr []string // the errors reported; none means the configuration loads
 	}{
-		{"development by default", map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
+		{"development by default", map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
 		{"development dev issuer", map[string]string{"ERP_ENV": "development", "ERP_DEV_ISSUER": "true"}, nil},
 		{"development engine without codec", map[string]string{"ERP_ENV": "development", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
-		{"production", map[string]string{"ERP_ENV": "production", "ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_TEMPORAL_CODEC_KEY": codec}, nil},
-		{"production without an engine", map[string]string{"ERP_ENV": "production"}, nil},
-		{"production dev issuer", map[string]string{"ERP_ENV": "production", "ERP_DEV_ISSUER": "true"}, []string{devRefused}},
-		{"production engine without codec", map[string]string{"ERP_ENV": "production", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, []string{codecRefused}},
-		{"production both", map[string]string{"ERP_ENV": "production", "ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, []string{devRefused, codecRefused}},
+		{"development without verification", map[string]string{"ERP_ENV": "development", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
+		{"production", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_TEMPORAL_CODEC_KEY": codec}), nil},
+		{"production without an engine", prod(nil), nil},
+		{"production with an object directory", map[string]string{"ERP_ENV": "production", "ERP_OBJECT_DIR": t.TempDir()}, nil},
+		{"production dev issuer", prod(map[string]string{"ERP_DEV_ISSUER": "true"}), []string{devRefused}},
+		{"production engine without codec", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{codecRefused}},
+		{"production both", prod(map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{devRefused, codecRefused}},
+		{"production without object storage", map[string]string{"ERP_ENV": "production"}, []string{storeRefused}},
+		{"production without verification", prod(map[string]string{"ERP_AUDIT_VERIFY_INTERVAL": "0"}), []string{verifyRefused}},
+		{"production without either", map[string]string{"ERP_ENV": "production", "ERP_AUDIT_VERIFY_INTERVAL": "0s"}, []string{storeRefused, verifyRefused}},
 		{"unknown environment", map[string]string{"ERP_ENV": "staging"}, []string{"must be development or production"}},
 	}
 	for _, c := range cases {

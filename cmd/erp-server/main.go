@@ -249,7 +249,7 @@ func (s *server) authenticate(ctx context.Context) error {
 func (s *server) openObjects() {
 	s.store = objects(s.cfg.Objects, s.cfg.AWS)
 	if s.store == nil {
-		s.log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported")
+		s.log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported (ERP_ENV=production refuses this)")
 	}
 	// The control plane trusts the operator issuers, and the development
 	// issuer's operator tokens; without either it is not served.
@@ -451,7 +451,7 @@ func (s *server) startAudit(runCtx context.Context) {
 	s.verifyDone = make(chan struct{})
 	if cfg.AuditVerify == 0 {
 		close(s.verifyDone)
-		log.Warn("ERP_AUDIT_VERIFY_INTERVAL is 0: audit chains are verified on request only")
+		log.Warn("ERP_AUDIT_VERIFY_INTERVAL is 0: audit chains are verified on request only (ERP_ENV=production refuses this)")
 	} else {
 		verifier := &audit.Verifier{Pool: pool, Store: s.store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: cfg.AuditVerify, Log: log}
 		go func() { verifier.Run(runCtx); close(s.verifyDone) }()
