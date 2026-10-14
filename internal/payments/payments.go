@@ -329,8 +329,11 @@ func amount(minor int64, currency string, exp int) map[string]string {
 // run, for contexts that would otherwise change what the run pays.
 type Reservations struct{}
 
-// RunOf returns the document number of the proposing or proposed run that
-// holds an open item of the entry.
+// RunOf returns the document number of the live run that holds an open
+// item of the entry: a proposing or proposed run, or a releasing one whose
+// payment of the item is not posted yet. A releasing run is one whose
+// release failed with some payments posted, to be resumed; the resumed
+// release posts the rest, so their items are as reserved as in a proposal.
 func (Reservations) RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (string, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -340,7 +343,8 @@ func (Reservations) RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UU
 	err = tx.QueryRow(ctx, `SELECT r.document_number FROM payments.payment_item i
 		JOIN payments.payment p ON p.tenant_id = i.tenant_id AND p.id = i.payment_id
 		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
-		WHERE i.item_fiscal_year = $1 AND i.item_entry_id = $2 AND i.is_active AND r.status IN ('proposing', 'proposed') LIMIT 1`,
+		WHERE i.item_fiscal_year = $1 AND i.item_entry_id = $2 AND i.is_active
+			AND (r.status IN ('proposing', 'proposed') OR r.status = 'releasing' AND p.journal_entry_id IS NULL) LIMIT 1`,
 		fiscalYear, entryID).Scan(&number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil

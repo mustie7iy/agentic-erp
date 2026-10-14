@@ -1,11 +1,17 @@
 package payments_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // TestProposeReleaseTransmit is T5's exit criterion: the proposal runs as
@@ -356,5 +362,52 @@ func TestProposalOutdated(t *testing.T) {
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_payment_blocked = true, version = version + 1 WHERE partner_id = $1`, e.Supplier)
 	if got := e.decide(t, 409, run, "release", ""); !strings.Contains(got["detail"].(string), "payment_blocked") {
 		t.Fatalf("payment blocked: %v", got)
+	}
+}
+
+// TestReverseDuringResumedRelease: a run whose release failed after one
+// payment posted stays releasing, to be resumed; the invoice another of its
+// payments still has to pay cannot be reversed meanwhile, or the resumed
+// release would pay a reversed invoice.
+func TestReverseDuringResumedRelease(t *testing.T) {
+	e := setup(t)
+	h := endpoints(e.connector)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	e.bankAccount(t, e.Vendor, "DE02120300000000202051", "Vendor", "2026-01-01", "", "create")
+	e.invoice(t, e.Supplier, "INV-A", "100.00", "2026-03-01")
+	x := e.invoice(t, e.Vendor, "INV-X", "40.00", "2026-03-01")
+	run := e.run(t, "2026-04-15", "2026-04-15")
+	var payA uuid.UUID
+	for _, pay := range e.payments(t, run) {
+		if m := pay.(map[string]any); m["supplier_id"] == e.Supplier.String() {
+			payA = uuidOf(id(m))
+		}
+	}
+	if payA == uuid.Nil {
+		t.Fatalf("payments: got none for supplier %s, want one", e.Supplier)
+	}
+	e.decide(t, 202, run, "release", "")
+	// Payment A posts; the payment of invoice X fails, which fails the release with A posted.
+	if err := apitest.Committed(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		r, err := payments.GetRun(ctx, uuidOf(id(run)))
+		if err != nil {
+			return err
+		}
+		if _, err := h.PostPayment(ctx, r, payA); err != nil {
+			return err
+		}
+		_, err = h.FailRelease(ctx, r, problem.Unprocessable("ledger.posting_refused", "test"))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", ""); got["status"] != "releasing" {
+		t.Fatalf("run after the failed release: got %v, want releasing", got["status"])
+	}
+	e.Problem(409, "payables.invoice_in_payment_run", "POST", "/v1/supplier-invoices/"+id(x)+":reverse", `{"reason": "r"}`, `"2"`)
+	// The resumed release pays invoice X, which still stands.
+	e.release(t, run, "")
+	if got, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(x), "", ""); got["status"] != "posted" {
+		t.Fatalf("invoice X after the release: got %v, want posted", got["status"])
 	}
 }
