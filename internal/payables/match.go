@@ -149,9 +149,9 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 }
 
 // expected is quantity × unit price / price unit, rounded half away from zero.
-func expected(quantity string, unitPrice int64, priceUnit int32) money.Minor {
+func expected(quantity string, unitPrice money.Minor, priceUnit int32) money.Minor {
 	q, _ := new(big.Rat).SetString(quantity) // numeric columns render as decimals
-	v := new(big.Rat).Mul(q, new(big.Rat).SetFrac64(unitPrice, int64(priceUnit)))
+	v := new(big.Rat).Mul(q, new(big.Rat).SetFrac64(int64(unitPrice), int64(priceUnit)))
 	n, d := v.Num(), v.Denom()
 	r, m := new(big.Int).QuoRem(n, d, new(big.Int))
 	if new(big.Int).Mul(m.Abs(m), big.NewInt(2)).Cmp(d) >= 0 {

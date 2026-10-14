@@ -23,23 +23,23 @@ import (
 // Quantities are decimal strings; prices are minor units of the document
 // currency per PriceUnit.
 type Item struct {
-	No             int32      `json:"item_no"`
-	MaterialID     *uuid.UUID `json:"material_id"`
-	MaterialKey    string     `json:"material_key"`
-	Description    string     `json:"description"`
-	Quantity       string     `json:"quantity"`
-	Unit           string     `json:"unit"`
-	UnitPrice      int64      `json:"unit_price"`
-	PriceUnit      int32      `json:"price_unit"`
-	AccountID      uuid.UUID  `json:"account_id"`
-	OverDelivery   string     `json:"over_delivery_pct"`
-	TaxCode        *string    `json:"tax_code"`
-	ContractItemNo *int32     `json:"contract_item_no"`
-	Received       string     `json:"received"`
+	No             int32       `json:"item_no"`
+	MaterialID     *uuid.UUID  `json:"material_id"`
+	MaterialKey    string      `json:"material_key"`
+	Description    string      `json:"description"`
+	Quantity       string      `json:"quantity"`
+	Unit           string      `json:"unit"`
+	UnitPrice      money.Minor `json:"unit_price"`
+	PriceUnit      int32       `json:"price_unit"`
+	AccountID      uuid.UUID   `json:"account_id"`
+	OverDelivery   string      `json:"over_delivery_pct"`
+	TaxCode        *string     `json:"tax_code"`
+	ContractItemNo *int32      `json:"contract_item_no"`
+	Received       string      `json:"received"`
 }
 
-func total(items []Item) int64 {
-	var sum int64
+func total(items []Item) money.Minor {
+	var sum money.Minor
 	for _, it := range items {
 		sum += extend(it.Quantity, it.UnitPrice, it.PriceUnit)
 	}
@@ -85,7 +85,7 @@ type Requisition struct {
 }
 
 // Total is the estimated value of the live items.
-func (r Requisition) Total() int64 { return total(r.Items) }
+func (r Requisition) Total() money.Minor { return total(r.Items) }
 
 const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.requester_id, r.supplier_id, r.contract_id, r.currency, c.exponent,
 		r.needed_by, r.status, r.workflow_request_id, r.extensions, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by,
@@ -162,7 +162,7 @@ func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency
 func writeRequisitionItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item) error {
 	n := len(items)
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
-	prices, priceUnits, accounts := make([]int64, n), make([]int32, n), make([]uuid.UUID, n)
+	prices, priceUnits, accounts := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n)
 	for i, it := range items {
 		nos[i], materials[i], descriptions[i], quantities[i], units[i] = it.No, it.MaterialID, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], accounts[i] = it.UnitPrice, it.PriceUnit, it.AccountID
@@ -427,7 +427,7 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	sum := money.Minor(r.Total())
+	sum := r.Total()
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: id,
 		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency})
 	if err != nil {

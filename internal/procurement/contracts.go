@@ -27,8 +27,8 @@ type Contract struct {
 	Exponent       int
 	ValidFrom      time.Time
 	ValidTo        time.Time
-	TargetValue    int64
-	ConsumedValue  int64
+	TargetValue    money.Minor
+	ConsumedValue  money.Minor
 	Status         string
 	Items          []Item
 	Version        int32
@@ -114,7 +114,7 @@ func (e *Endpoints) contractItems(ctx context.Context, le uuid.UUID, currency st
 func writeContractItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item) error {
 	n := len(items)
 	nos, materials, keys, descriptions, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
-	prices, priceUnits, accounts := make([]int64, n), make([]int32, n), make([]uuid.UUID, n)
+	prices, priceUnits, accounts := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n)
 	for i, it := range items {
 		nos[i], materials[i], keys[i], descriptions[i], units[i] = it.No, it.MaterialID, it.MaterialKey, it.Description, it.Unit
 		prices[i], priceUnits[i], accounts[i] = it.UnitPrice, it.PriceUnit, it.AccountID

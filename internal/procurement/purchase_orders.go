@@ -45,7 +45,7 @@ type PurchaseOrder struct {
 }
 
 // Total is the value of the live items.
-func (o PurchaseOrder) Total() int64 { return total(o.Items) }
+func (o PurchaseOrder) Total() money.Minor { return total(o.Items) }
 
 const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purchasing_org_id, o.supplier_id, o.currency, c.exponent, o.order_date,
 		o.payment_term_code, o.requisition_id, o.contract_id, o.status, o.extensions, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by,
@@ -206,7 +206,7 @@ func applyContractPrice(item *Item, contract *Contract, it ItemInput, field stri
 func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item) error {
 	n := len(items)
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
-	prices, priceUnits, accounts, tolerances := make([]int64, n), make([]int32, n), make([]uuid.UUID, n), make([]string, n)
+	prices, priceUnits, accounts, tolerances := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n), make([]string, n)
 	taxes, contractItems := make([]*string, n), make([]*int32, n)
 	for i, it := range items {
 		nos[i], materials[i], descriptions[i], quantities[i], units[i] = it.No, it.MaterialID, it.Description, it.Quantity, it.Unit
@@ -540,7 +540,7 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		}
 		if c.ConsumedValue+value > c.TargetValue {
 			return PurchaseOrder{}, problem.Conflict("procurement.contract_exceeded", fmt.Sprintf("The order (%s) exceeds what remains of contract %s (%s).",
-				money.Minor(value).Plain(o.Exponent), c.DocumentNumber, money.Minor(c.TargetValue-c.ConsumedValue).Plain(c.Exponent)))
+				value.Plain(o.Exponent), c.DocumentNumber, (c.TargetValue-c.ConsumedValue).Plain(c.Exponent)))
 		}
 		if value != 0 {
 			if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract_release (tenant_id, contract_id, purchase_order_id, value, released_at, released_by)

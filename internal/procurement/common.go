@@ -113,7 +113,7 @@ func exponent(ctx context.Context, tx pgx.Tx, currency, field string) (int, erro
 }
 
 // amount parses a money value in the document currency.
-func amount(value, currency, docCurrency string, exp int, field string, positive bool) (int64, error) {
+func amount(value, currency, docCurrency string, exp int, field string, positive bool) (money.Minor, error) {
 	if currency != docCurrency {
 		return 0, invalid("procurement.currency_mismatch", field+".currency", "amounts are in the document currency "+docCurrency)
 	}
@@ -125,7 +125,7 @@ func amount(value, currency, docCurrency string, exp int, field string, positive
 	if m < 0 || (positive && m == 0) {
 		return 0, invalid("procurement.invalid_amount", field+".amount", "the amount must be positive")
 	}
-	return int64(m), nil
+	return m, nil
 }
 
 // quantity parses a positive decimal quantity.
@@ -145,14 +145,14 @@ func rat(s string) *big.Rat {
 
 // extend is quantity × price / price unit in minor units, rounded half up
 // (quantities and prices are never negative).
-func extend(qty string, price int64, priceUnit int32) int64 {
-	v := new(big.Rat).Mul(rat(qty), new(big.Rat).SetInt64(price))
+func extend(qty string, price money.Minor, priceUnit int32) money.Minor {
+	v := new(big.Rat).Mul(rat(qty), new(big.Rat).SetInt64(int64(price)))
 	v.Quo(v, new(big.Rat).SetInt64(int64(priceUnit)))
 	q, m := new(big.Int).QuoRem(v.Num(), v.Denom(), new(big.Int))
 	if m.Mul(m, big.NewInt(2)).Cmp(v.Denom()) >= 0 {
 		q.Add(q, big.NewInt(1))
 	}
-	return q.Int64()
+	return money.Minor(q.Int64())
 }
 
 // legalEntity loads a legal entity the caller may act in that is active.

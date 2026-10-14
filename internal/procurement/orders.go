@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -18,14 +19,14 @@ type Orders struct{}
 // OrderItem is a live item of a purchase order with its received quantity.
 // Quantities are decimal strings with up to six decimals.
 type OrderItem struct {
-	ItemNo    int32     `json:"item_no"`
-	Quantity  string    `json:"quantity"`
-	Unit      string    `json:"unit"`
-	UnitPrice int64     `json:"unit_price"` // minor units of the order currency per PriceUnit
-	PriceUnit int32     `json:"price_unit"`
-	AccountID uuid.UUID `json:"account_id"`
-	TaxCode   *string   `json:"tax_code"`
-	Received  string    `json:"received"` // 101 receipts minus 102 reversals
+	ItemNo    int32       `json:"item_no"`
+	Quantity  string      `json:"quantity"`
+	Unit      string      `json:"unit"`
+	UnitPrice money.Minor `json:"unit_price"` // minor units of the order currency per PriceUnit
+	PriceUnit int32       `json:"price_unit"`
+	AccountID uuid.UUID   `json:"account_id"`
+	TaxCode   *string     `json:"tax_code"`
+	Received  string      `json:"received"` // 101 receipts minus 102 reversals
 }
 
 // Order is a purchase order as payables sees it.
