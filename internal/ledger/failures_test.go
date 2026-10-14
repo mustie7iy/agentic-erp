@@ -26,26 +26,121 @@ func date(s string) time.Time {
 func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	h := endpoints()
-	bank, revenue, ap := e.account(t, "2000", "100000"), e.account(t, "2000", "400000"), e.account(t, "2000", "211000")
+	d := &ledgerDocs{e: e}
+	if !t.Run("documents to call on", d.post) {
+		t.FailNow()
+	}
+	t.Run("outside a unit of work and failing statements", func(t *testing.T) {
+		for name, call := range ledgerCalls(t, e, h, *d) {
+			t.Run(name, func(t *testing.T) {
+				if err := call(context.Background()); err == nil {
+					t.Error("outside a unit of work: got no error, want one")
+				}
+				apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+			})
+		}
+	})
+	t.Run("opening a period", func(t *testing.T) {
+		// The opening transition fails like closing; it needs a closed period.
+		apitest.EveryFailure(t, e.ten, e.ten.Human, "open period", func(ctx context.Context) error {
+			if _, err := h.CloseFiscalPeriod(ctx, gen.CloseFiscalPeriodParams{ID: d.period, IfMatch: "*"}); err != nil {
+				return err
+			}
+			_, err := h.OpenFiscalPeriod(ctx, gen.OpenFiscalPeriodParams{ID: d.period, IfMatch: "*"})
+			return err
+		})
+		if _, err := h.OpenFiscalPeriod(context.Background(), gen.OpenFiscalPeriodParams{ID: d.period, IfMatch: "*"}); err == nil {
+			t.Error("open period outside a unit of work")
+		}
+	})
+	t.Run("page sizes and list rules", func(t *testing.T) {
+		// Handlers check page sizes and list rules for callers other than the generated router.
+		zero := gen.NewOptInt32(0)
+		for name, call := range map[string]func(ctx context.Context) error{
+			"entries": func(ctx context.Context) error {
+				_, err := h.ListJournalEntries(ctx, gen.ListJournalEntriesParams{PageSize: zero})
+				return err
+			},
+			"open items": func(ctx context.Context) error {
+				_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{PageSize: zero})
+				return err
+			},
+			"balances": func(ctx context.Context) error {
+				_, err := h.ListBalances(ctx, gen.ListBalancesParams{LegalEntityID: e.de, FiscalYear: 2026, PageSize: zero})
+				return err
+			},
+			"clearings": func(ctx context.Context) error {
+				_, err := h.ListClearings(ctx, gen.ListClearingsParams{PageSize: zero})
+				return err
+			},
+			"rates": func(ctx context.Context) error {
+				_, err := h.ListExchangeRates(ctx, gen.ListExchangeRatesParams{PageSize: zero})
+				return err
+			},
+			"periods": func(ctx context.Context) error {
+				_, err := h.ListFiscalPeriods(ctx, gen.ListFiscalPeriodsParams{PageSize: zero})
+				return err
+			},
+			"accounts": func(ctx context.Context) error {
+				_, err := h.ListAccounts(ctx, gen.ListAccountsParams{PageSize: zero})
+				return err
+			},
+			"duplicate clearing item": func(ctx context.Context) error {
+				ref := gen.ClearingItemRef{FiscalYear: 2026, JournalEntryID: d.id(d.inv2), LineNo: 2}
+				_, err := h.CreateClearing(ctx, &gen.ClearingCreate{LegalEntityID: e.de, ClearingDate: date("2026-03-31"), Items: []gen.ClearingItemRef{ref, ref}},
+					gen.CreateClearingParams{})
+				return err
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
+					t.Error("got no error, want the call refused")
+				}
+			})
+		}
+	})
+}
+
+// ledgerDocs are the documents TestDatabaseFailures calls the handlers on.
+type ledgerDocs struct {
+	e                              env
+	bank, ap                       string
+	je, inv2, pay2, inv3, cl, rate map[string]any
+	period                         uuid.UUID
+}
+
+func (ledgerDocs) id(m map[string]any) uuid.UUID { return uuid.MustParse(m["id"].(string)) }
+
+// post posts entries, a clearing and a rate, and finds a period.
+func (d *ledgerDocs) post(t *testing.T) {
+	e := d.e.in(t)
+	var revenue string
+	d.bank, revenue, d.ap = e.account(t, "2000", "100000"), e.account(t, "2000", "400000"), e.account(t, "2000", "211000")
 	e.rate(t, "USD", "EUR", "2026-01-01", "0.9")
 	pgtest.Exec(t, `INSERT INTO ledger.tax_code (tenant_id, legal_entity_id, code, description, direction, rate_pct, account_id, valid_from, created_by)
 		VALUES ($1, $2, 'V9', 'Input', 'input', 19, $3, '2026-01-01', $4)`, e.ten.ID, e.de, e.account(t, "2000", "140000"), e.ten.Human.ID)
-	je, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
+	bank, ap := d.bank, d.ap
+	d.je, _ = e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	inv, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
 	pay, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-16", "EUR", line{ap, "5.00", e.supplier.String()}, line{bank, "-5.00", ""}), "")
-	cl, _ := e.Must(201, "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{inv, 2}, ref{pay, 1}), "")
-	inv2, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
-	pay2, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-16", "EUR", line{ap, "5.00", e.supplier.String()}, line{bank, "-5.00", ""}), "")
-	inv3, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
-	rate, _ := e.Must(201, "POST", "/v1/exchange-rates", `{"rate_type": "average", "from_currency": "GBP", "to_currency": "EUR", "valid_from": "2026-01-01", "rate": "1.1", "source": "x"}`, "")
+	d.cl, _ = e.Must(201, "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{inv, 2}, ref{pay, 1}), "")
+	d.inv2, _ = e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
+	d.pay2, _ = e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-16", "EUR", line{ap, "5.00", e.supplier.String()}, line{bank, "-5.00", ""}), "")
+	d.inv3, _ = e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
+	d.rate, _ = e.Must(201, "POST", "/v1/exchange-rates", `{"rate_type": "average", "from_currency": "GBP", "to_currency": "EUR", "valid_from": "2026-01-01", "rate": "1.1", "source": "x"}`, "")
 	periods, _ := e.Must(200, "GET", "/v1/fiscal-periods?legal_entity_id="+e.de.String()+"&order_by=period&page_size=1", "", "")
-	period := uuid.MustParse(periods["items"].([]any)[0].(map[string]any)["id"].(string))
-	id := func(m map[string]any) uuid.UUID { return uuid.MustParse(m["id"].(string)) }
-	u := uuid.MustParse
+	d.period = uuid.MustParse(periods["items"].([]any)[0].(map[string]any)["id"].(string))
+}
+
+// ledgerCalls are the handlers and context functions TestDatabaseFailures
+// calls outside a unit of work and with each statement failing.
+func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[string]func(ctx context.Context) error {
+	t.Helper()
+	id, u := d.id, uuid.MustParse
+	bank, ap, period := d.bank, d.ap, d.period
 	qty := gen.NewOptQuantity(gen.Quantity{Value: "1", Unit: "EA"})
 	setup := ledger.Setup{LegalEntities: tenancy.Directory{}}
-
-	calls := map[string]func(ctx context.Context) error{
+	return map[string]func(ctx context.Context) error{
 		"post": func(ctx context.Context) error {
 			_, err := h.PostJournalEntry(ctx, &gen.JournalEntryCreate{LegalEntityID: e.de, DocumentDate: date("2026-03-15"), PostingDate: date("2026-03-15"),
 				Currency: "USD", Lines: []gen.JournalLineInput{
@@ -54,7 +149,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"get entry": func(ctx context.Context) error {
-			_, err := h.GetJournalEntry(ctx, gen.GetJournalEntryParams{ID: id(je)})
+			_, err := h.GetJournalEntry(ctx, gen.GetJournalEntryParams{ID: id(d.je)})
 			return err
 		},
 		"list entries": func(ctx context.Context) error {
@@ -62,12 +157,12 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"reverse": func(ctx context.Context) error {
-			_, err := h.ReverseJournalEntry(ctx, gen.OptJournalEntryReverse{}, gen.ReverseJournalEntryParams{ID: id(je), IfMatch: "*"})
+			_, err := h.ReverseJournalEntry(ctx, gen.OptJournalEntryReverse{}, gen.ReverseJournalEntryParams{ID: id(d.je), IfMatch: "*"})
 			return err
 		},
 		// The reversal of an entry with open items also clears the pair.
 		"reverse an invoice": func(ctx context.Context) error {
-			_, err := h.ReverseJournalEntry(ctx, gen.OptJournalEntryReverse{}, gen.ReverseJournalEntryParams{ID: id(inv3), IfMatch: "*"})
+			_, err := h.ReverseJournalEntry(ctx, gen.OptJournalEntryReverse{}, gen.ReverseJournalEntryParams{ID: id(d.inv3), IfMatch: "*"})
 			return err
 		},
 		"open items": func(ctx context.Context) error {
@@ -80,11 +175,11 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"create clearing": func(ctx context.Context) error {
 			_, err := h.CreateClearing(ctx, &gen.ClearingCreate{LegalEntityID: e.de, ClearingDate: date("2026-03-31"), Items: []gen.ClearingItemRef{
-				{FiscalYear: 2026, JournalEntryID: id(inv2), LineNo: 2}, {FiscalYear: 2026, JournalEntryID: id(pay2), LineNo: 1}}}, gen.CreateClearingParams{})
+				{FiscalYear: 2026, JournalEntryID: id(d.inv2), LineNo: 2}, {FiscalYear: 2026, JournalEntryID: id(d.pay2), LineNo: 1}}}, gen.CreateClearingParams{})
 			return err
 		},
 		"get clearing": func(ctx context.Context) error {
-			_, err := h.GetClearing(ctx, gen.GetClearingParams{ID: id(cl)})
+			_, err := h.GetClearing(ctx, gen.GetClearingParams{ID: id(d.cl)})
 			return err
 		},
 		"list clearings": func(ctx context.Context) error {
@@ -97,7 +192,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"get rate": func(ctx context.Context) error {
-			_, err := h.GetExchangeRate(ctx, gen.GetExchangeRateParams{ID: id(rate)})
+			_, err := h.GetExchangeRate(ctx, gen.GetExchangeRateParams{ID: id(d.rate)})
 			return err
 		},
 		"list rates": func(ctx context.Context) error {
@@ -133,70 +228,6 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := ledger.Accounts{}.IsReconciliationAccount(ctx, e.de, u(ap), "supplier")
 			return err
 		},
-	}
-	for name, call := range calls {
-		t.Run(name, func(t *testing.T) {
-			if err := call(context.Background()); err == nil {
-				t.Error("outside a unit of work: got no error, want one")
-			}
-			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
-		})
-	}
-	// The opening transition fails like closing; it needs a closed period.
-	apitest.EveryFailure(t, e.ten, e.ten.Human, "open period", func(ctx context.Context) error {
-		if _, err := h.CloseFiscalPeriod(ctx, gen.CloseFiscalPeriodParams{ID: period, IfMatch: "*"}); err != nil {
-			return err
-		}
-		_, err := h.OpenFiscalPeriod(ctx, gen.OpenFiscalPeriodParams{ID: period, IfMatch: "*"})
-		return err
-	})
-	if _, err := h.OpenFiscalPeriod(context.Background(), gen.OpenFiscalPeriodParams{ID: period, IfMatch: "*"}); err == nil {
-		t.Error("open period outside a unit of work")
-	}
-
-	// Handlers check page sizes and list rules for callers other than the generated router.
-	zero := gen.NewOptInt32(0)
-	for name, call := range map[string]func(ctx context.Context) error{
-		"entries": func(ctx context.Context) error {
-			_, err := h.ListJournalEntries(ctx, gen.ListJournalEntriesParams{PageSize: zero})
-			return err
-		},
-		"open items": func(ctx context.Context) error {
-			_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{PageSize: zero})
-			return err
-		},
-		"balances": func(ctx context.Context) error {
-			_, err := h.ListBalances(ctx, gen.ListBalancesParams{LegalEntityID: e.de, FiscalYear: 2026, PageSize: zero})
-			return err
-		},
-		"clearings": func(ctx context.Context) error {
-			_, err := h.ListClearings(ctx, gen.ListClearingsParams{PageSize: zero})
-			return err
-		},
-		"rates": func(ctx context.Context) error {
-			_, err := h.ListExchangeRates(ctx, gen.ListExchangeRatesParams{PageSize: zero})
-			return err
-		},
-		"periods": func(ctx context.Context) error {
-			_, err := h.ListFiscalPeriods(ctx, gen.ListFiscalPeriodsParams{PageSize: zero})
-			return err
-		},
-		"accounts": func(ctx context.Context) error {
-			_, err := h.ListAccounts(ctx, gen.ListAccountsParams{PageSize: zero})
-			return err
-		},
-		"duplicate clearing item": func(ctx context.Context) error {
-			ref := gen.ClearingItemRef{FiscalYear: 2026, JournalEntryID: id(inv2), LineNo: 2}
-			_, err := h.CreateClearing(ctx, &gen.ClearingCreate{LegalEntityID: e.de, ClearingDate: date("2026-03-31"), Items: []gen.ClearingItemRef{ref, ref}},
-				gen.CreateClearingParams{})
-			return err
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
-				t.Error("got no error, want the call refused")
-			}
-		})
 	}
 }
 
