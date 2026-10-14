@@ -184,8 +184,11 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 
 // repairSidecar answers a Put whose key is taken: ErrExists once the
 // object's sidecar is there, writing it from opts when an earlier Put failed
-// before writing it. A link never replaces a sidecar that exists, so the
-// options of the Put that stored the object win over a later one's.
+// before writing it. A link never replaces a sidecar that exists: the first
+// Put to place one wins (the one that stored the object renames its own over
+// a repairer's), and a later Put's options never change it. A repair records
+// the retrying Put's options even when its content differs from the stored
+// one; that Put is still told ErrExists.
 func repairSidecar(p string, opts PutOptions) error {
 	if err := writeSidecar(p, opts, link); err != nil && !errors.Is(err, os.ErrExist) {
 		return fmt.Errorf("blobstore: %w", err)
@@ -211,8 +214,10 @@ func writeSidecar(p string, opts PutOptions, place func(string, string) error) e
 }
 
 // writeTemp writes content to a new temporary file next to p, synced so the
-// object a link publishes survives a crash whole, and returns its name ("" when
-// none was created).
+// file a link or rename publishes is never partial after a crash, and returns
+// its name ("" when none was created). The directory is not synced, so a
+// crash just after a Put may still lose the new name (Dir is a development
+// store; S3 makes its writes durable).
 func writeTemp(p string, content []byte) (string, error) {
 	f, err := createTemp(filepath.Dir(p), filepath.Base(p)+tempMark+"*")
 	if err != nil {
@@ -324,7 +329,9 @@ func (d Dir) Delete(_ context.Context, key string) error {
 	}
 	// The content is gone, which is what Delete promises. A sidecar left
 	// behind holds no content, is skipped by List and is rewritten by the
-	// next Put of the key.
+	// next Put of the key. A Put of the key racing this Delete may lose its
+	// new sidecar here; Dir does not serialize an erasure against writes to
+	// the keys it erases.
 	_ = os.Remove(d.path(key) + ".meta")
 	return nil
 }
