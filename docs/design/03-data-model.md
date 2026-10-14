@@ -605,8 +605,32 @@ locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
 || bucket`, the bucket from the entry id's random low bits; the tenant from
 `platform.require_tenant()` (migration 000039), which fails a transaction
 without one where a NULL key would take no lock), each set
-taken once per transaction in bucket order and before any number range
-(posting takes those). A transaction that would otherwise lock in several
+taken once per transaction in bucket order and before any posting period or
+number range (posting takes those). The lock order is entry buckets, then
+the `period_status` row of each period posted into (`FOR SHARE`), then the
+number range.
+
+Every posting (manual entries, the ports other contexts post through,
+clearings, settlements, reversals and the migration load) reads its
+period's status `FOR SHARE` (`postingPeriod`), in a query of its own since
+the lock cannot take the nullable side of an outer join. A close or reopen
+locks the row `FOR UPDATE` and takes no other lock before it commits, so a
+posting waits for a close under way and then reads the committed status
+(409 `ledger.period_not_open`), and a close waits for the postings under
+way: no entry lands in a period whose close committed first. The order
+stays acyclic: a close waits only for postings, and a posting waits for a
+close that holds nothing else. The migration load holds the share locks of
+every period it posts into until it commits, so a close of one of them
+waits for the load (and fails after `lock_timeout` with 409
+`request.in_progress`); the load holds no lock a close would take. The
+trigger `ledger.check_entry_period` still reads the status without a lock:
+it runs after `postingPeriod` took the share lock in the same transaction,
+so no close can commit in between, and the only insert into
+`journal_entry` is the one after `postingPeriod`. Hardening the trigger with
+`FOR SHARE` is left for a migration of its own if another insert path
+appears.
+
+A transaction that would otherwise lock in several
 steps or after posting, the migration load (it posts every document, then
 clears one SAP clearing at a time), takes all 64 buckets shared first
 (`Postings.LockAllEntries`), so its later locks are ones it holds and it

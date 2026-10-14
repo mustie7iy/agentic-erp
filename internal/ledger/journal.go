@@ -145,25 +145,35 @@ type draft struct {
 	lines            []Line
 }
 
-// postingPeriod finds the open posting period of the posting date.
+// postingPeriod finds the open posting period of the posting date and
+// holds its status row FOR SHARE until the transaction ends. A close locks
+// the row FOR UPDATE (changePeriod), so a posting waits for a close under
+// way and then reads the committed status, and a close waits for the
+// postings under way: no entry lands in a period whose close committed
+// first. The lock comes after the entry buckets and before the number range
+// (03-data-model, entry locks); a close takes nothing else, so no cycle.
 func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgerID uuid.UUID, date time.Time) (int16, int16, error) {
 	var year, number int16
-	var status *string
-	err := tx.QueryRow(ctx, `SELECT f.fiscal_year, f.period, s.status FROM ledger.fiscal_period f
-		LEFT JOIN ledger.period_status s ON s.tenant_id = f.tenant_id AND s.legal_entity_id = $2 AND s.ledger_id = $3
-			AND s.fiscal_year = f.fiscal_year AND s.period = f.period
-		WHERE f.calendar_id = $1 AND NOT f.is_special AND $4 BETWEEN f.start_date AND f.end_date`,
-		e.FiscalCalendarID, e.ID, ledgerID, date).Scan(&year, &number, &status)
+	var status string
 	day := date.Format(time.DateOnly)
+	err := tx.QueryRow(ctx, `SELECT fiscal_year, period FROM ledger.fiscal_period
+		WHERE calendar_id = $1 AND NOT is_special AND $2 BETWEEN start_date AND end_date`,
+		e.FiscalCalendarID, date).Scan(&year, &number)
+	if err == nil {
+		// A query of its own: FOR SHARE cannot lock the nullable side of an outer join.
+		err = tx.QueryRow(ctx, `SELECT status FROM ledger.period_status
+			WHERE legal_entity_id = $1 AND ledger_id = $2 AND fiscal_year = $3 AND period = $4 FOR SHARE`,
+			e.ID, ledgerID, year, number).Scan(&status)
+	}
 	switch {
-	case errors.Is(err, pgx.ErrNoRows) || (err == nil && status == nil):
+	case errors.Is(err, pgx.ErrNoRows):
 		return 0, 0, problem.Unprocessable("ledger.no_fiscal_period", "No fiscal period of the legal entity covers "+day+
 			"; a fiscal year is set up by a number range for it in the configuration.",
 			problem.FieldError{Field: "posting_date", Code: "no_fiscal_period", Message: "a date in a fiscal year that is set up"})
 	case err != nil:
 		return 0, 0, fmt.Errorf("ledger: posting period of %s on %s: %w", e.ID, day, err)
-	case *status != Open:
-		return 0, 0, problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; postings dated %s need it open.", year, number, *status, day))
+	case status != Open:
+		return 0, 0, problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; postings dated %s need it open.", year, number, status, day))
 	}
 	return year, number, nil
 }

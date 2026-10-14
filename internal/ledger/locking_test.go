@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // TestReversalAndClearingSerialize runs a reversal and a clearing of the
@@ -82,6 +83,24 @@ var errSetup = errors.New("transaction setup failed")
 // results.
 func serialize(t *testing.T, ten pgtest.Tenant, entry uuid.UUID, first, second func(ctx context.Context) error) (firstErr, secondErr error) {
 	t.Helper()
+	admin := pgtest.Admin(t)
+	waiting := func() bool {
+		var n int
+		if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+			AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('ledger.journal_entry:' || $2::uuid || ':' || $1::int, 0)`, ledger.EntryLockBucket(entry), ten.ID).Scan(&n); err != nil {
+			t.Fatalf("read the lock waits: %v", err)
+		}
+		return n > 0
+	}
+	return serializeOn(t, ten, "the entry", waiting, first, second)
+}
+
+// serializeOn runs first in a transaction and holds it open while second
+// runs in another; it lets first commit once waiting reports that second
+// waits for first's lock on what (or second has finished, which it must
+// not), and returns both results.
+func serializeOn(t *testing.T, ten pgtest.Tenant, what string, waiting func() bool, first, second func(ctx context.Context) error) (firstErr, secondErr error) {
+	t.Helper()
 	held, release := make(chan struct{}), make(chan struct{})
 	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
 	// Deferred too, so that a failed wait does not leave first holding its transaction.
@@ -109,7 +128,6 @@ func serialize(t *testing.T, ten pgtest.Tenant, entry uuid.UUID, first, second f
 		defer func() { secondDone <- err }()
 		err = apitest.Committed(t, ten, ten.Human, second)
 	}()
-	admin := pgtest.Admin(t)
 	finished := false
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		select {
@@ -118,15 +136,10 @@ func serialize(t *testing.T, ten pgtest.Tenant, entry uuid.UUID, first, second f
 			return true
 		default:
 		}
-		var waiting int
-		if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
-			AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('ledger.journal_entry:' || $2::uuid || ':' || $1::int, 0)`, ledger.EntryLockBucket(entry), ten.ID).Scan(&waiting); err != nil {
-			t.Fatalf("read the lock waits: %v", err)
-		}
-		return waiting > 0
-	}, "the second transaction neither waited for the entry nor finished")
+		return waiting()
+	}, "the second transaction neither waited for %s nor finished", what)
 	if finished {
-		t.Errorf("second transaction: finished with %v while the first was still open, want it to wait for the entry", secondErr)
+		t.Errorf("second transaction: finished with %v while the first was still open, want it to wait for %s", secondErr, what)
 	}
 	letGo()
 	firstErr = <-firstDone
@@ -134,4 +147,70 @@ func serialize(t *testing.T, ten pgtest.Tenant, entry uuid.UUID, first, second f
 		secondErr = <-secondDone
 	}
 	return firstErr, secondErr
+}
+
+// TestPostingAndPeriodCloseSerialize runs a posting and the close of its
+// period in two transactions: a posting waits for a close under way and is
+// then refused, and a close waits for a posting under way, so no entry
+// lands in a period after its close committed.
+func TestPostingAndPeriodCloseSerialize(t *testing.T) {
+	e := setup(t)
+	expense, ap := uuid.MustParse(e.account(t, "2000", "520000")), uuid.MustParse(e.account(t, "2000", "211000"))
+	var period uuid.UUID
+	pgtest.Scan(t, `SELECT s.id FROM ledger.period_status s JOIN ledger.ledger l ON l.tenant_id = s.tenant_id AND l.id = s.ledger_id AND l.is_leading
+		WHERE s.tenant_id = $1 AND s.legal_entity_id = $2 AND s.fiscal_year = 2026 AND s.period = 5`, []any{e.ten.ID, e.de}, &period)
+	// pid is the backend of the transaction serializeOn holds open, set
+	// before that transaction signals that it holds its locks.
+	var pid int32
+	holding := func(work func(ctx context.Context) error) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			tx, _, err := reqctx.Request(ctx)
+			if err != nil {
+				return err
+			}
+			if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+				return err
+			}
+			return work(ctx)
+		}
+	}
+	blocked := func() bool {
+		var n int
+		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))`, []any{pid}, &n)
+		return n > 0
+	}
+	post := func(ctx context.Context) error {
+		_, err := postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-05-04"),
+			PostingDate: date("2026-05-04"), Currency: "EUR", SourceContext: "payables", SourceDocumentID: uuid.New(),
+			Lines: []ledger.PostingLine{{AccountID: expense, Amount: 500}, {AccountID: ap, Amount: -500, PartnerID: &e.supplier}}})
+		return err
+	}
+	setStatus := func(change func(context.Context, uuid.UUID, func(int32) error) (ledger.Period, error)) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			_, err := change(ctx, period, func(int32) error { return nil })
+			return err
+		}
+	}
+
+	t.Run("close first", func(t *testing.T) {
+		first, second := serializeOn(t, e.ten, "the period", blocked, holding(setStatus(ledger.ClosePeriod)), post)
+		if first != nil {
+			t.Fatalf("close: got %v, want it committed", first)
+		}
+		if got := problem.From(second).Code; got != "ledger.period_not_open" {
+			t.Errorf("posting after the close: got %v, want ledger.period_not_open", second)
+		}
+	})
+	if err := apitest.Committed(t, e.ten, e.ten.Human, setStatus(ledger.OpenPeriod)); err != nil {
+		t.Fatalf("reopen the period: %v", err)
+	}
+	t.Run("posting first", func(t *testing.T) {
+		first, second := serializeOn(t, e.ten, "the period", blocked, holding(post), setStatus(ledger.ClosePeriod))
+		if first != nil {
+			t.Fatalf("posting: got %v, want it committed", first)
+		}
+		if second != nil {
+			t.Errorf("close after the posting: got %v, want it committed", second)
+		}
+	})
 }
