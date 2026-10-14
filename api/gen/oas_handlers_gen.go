@@ -5705,7 +5705,10 @@ func (s *Server) handleCreatePartnerChangeRequest(args [0]string, argsEscaped bo
 
 // handleCreatePrincipalRequest handles createPrincipal operation.
 //
-// Creates a person, agent or service principal. Identity administration is human-only.
+// Creates a person, agent or service principal. Identity administration is human-only. The request can
+// name a subject but no issuer: a principal created with a subject is bound to the creating
+// administrator's identity provider (the issuer the administrator's own principal is bound to) with
+// that subject, and only that provider's tokens act as it.
 //
 // POST /v1/principals
 func (s *Server) handleCreatePrincipalRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -199,7 +199,10 @@ type Handler interface {
 	CreatePartnerChange(ctx context.Context, req *PartnerChangeCreate, params CreatePartnerChangeParams) (CreatePartnerChangeRes, error)
 	// CreatePrincipal implements createPrincipal operation.
 	//
-	// Creates a person, agent or service principal. Identity administration is human-only.
+	// Creates a person, agent or service principal. Identity administration is human-only. The request can
+	// name a subject but no issuer: a principal created with a subject is bound to the creating
+	// administrator's identity provider (the issuer the administrator's own principal is bound to) with
+	// that subject, and only that provider's tokens act as it.
 	//
 	// POST /v1/principals
 	CreatePrincipal(ctx context.Context, req *PrincipalCreate, params CreatePrincipalParams) (CreatePrincipalRes, error)
