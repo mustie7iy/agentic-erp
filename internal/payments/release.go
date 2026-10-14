@@ -88,13 +88,18 @@ func releasable(ctx context.Context, tx pgx.Tx, r Run) error {
 	return nil
 }
 
-// Releaser is who posts a run's payments: the person who released it.
+// Releaser is who posts a run's payments: the person who released it. The
+// run is read FOR UPDATE, so the release activities of a run, even those of
+// two overlapping workflows, run one at a time and each sees what the one
+// before it committed. A released run is returned too: an activity run
+// again after its completion was lost finds its work done and does nothing
+// (ADR-0012).
 func (e *Endpoints) Releaser(ctx context.Context, tx pgx.Tx, run uuid.UUID) (reqctx.Principal, Run, error) {
-	r, err := load(ctx, tx, run, false)
+	r, err := load(ctx, tx, run, true)
 	if err != nil {
 		return reqctx.Principal{}, Run{}, err
 	}
-	if r.Status != Releasing || r.DecidedBy == nil {
+	if r.Status != Releasing && r.Status != Released || r.DecidedBy == nil {
 		return reqctx.Principal{}, Run{}, fmt.Errorf("payments: run %s is %s, not releasing", run, r.Status)
 	}
 	var kind string
@@ -179,11 +184,15 @@ func mustPayments(ctx context.Context, tx pgx.Tx, run uuid.UUID, err *error) []P
 
 // FinishRelease ends a release whose payments are all posted: the bank file
 // is produced, the run is released, the operation succeeds and the events
-// go out, in the request's transaction.
+// go out, in the request's transaction. A run already released is left
+// alone: the release was finished before, and its completion lost.
 func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Run{}, err
+	}
+	if r.Status == Released {
+		return r, nil
 	}
 	pays, err := paymentsOf(ctx, tx, r.ID)
 	if err != nil {
@@ -194,6 +203,13 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 			return Run{}, fmt.Errorf("payments: run %s: payment %s is not posted yet", r.ID, pay.ID)
 		}
 	}
+	tag, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'released', version = version + 1, updated_by = $2 WHERE id = $1 AND status = 'releasing'`, r.ID, p.ID)
+	if err != nil {
+		return Run{}, fmt.Errorf("payments: complete the release of run %s: %w", r.ID, err)
+	}
+	if tag.RowsAffected() != 1 {
+		return Run{}, fmt.Errorf("payments: complete the release of run %s: the run is no longer releasing", r.ID)
+	}
 	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
 	if err != nil {
 		return Run{}, err
@@ -201,9 +217,6 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	file, err := e.createFile(ctx, tx, p, r, hb, pays)
 	if err != nil {
 		return Run{}, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'released', version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
-		return Run{}, fmt.Errorf("payments: complete the release of run %s: %w", r.ID, err)
 	}
 	released, err := load(ctx, tx, r.ID, false)
 	if err != nil {
@@ -223,11 +236,20 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 // FailRelease records a release that could not be done: the operation fails
 // with the problem; a run with nothing posted goes back to proposed for
 // another decision, one with payments posted stays releasing, to be
-// resumed by :release once the cause is fixed (posted payments stand).
+// resumed by :release once the cause is fixed (posted payments stand). A
+// release operation already finished (the failure recorded before and its
+// completion lost, or the run released) is left alone.
 func (e *Endpoints) FailRelease(ctx context.Context, r Run, why *problem.Problem) (Run, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Run{}, err
+	}
+	op, err := operations.Get(ctx, *r.ReleaseOpID)
+	if err != nil {
+		return Run{}, err
+	}
+	if !op.Cancellable() {
+		return r, nil
 	}
 	if _, err := operations.Fail(ctx, *r.ReleaseOpID, why); err != nil {
 		return Run{}, err

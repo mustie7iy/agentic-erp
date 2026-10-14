@@ -213,14 +213,21 @@ func Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) (Operation, err
 }
 
 // finish sets a final status and publishes OperationCompleted; args follow
-// the operation id from $2.
+// the operation id from $2. Only a queued or running operation finishes: one
+// already succeeded, failed or cancelled is a conflict (409
+// platform.operation_finished) that changes nothing, so a worker finishing
+// twice never overwrites the outcome or publishes a second completion.
 func finish(ctx context.Context, set string, id uuid.UUID, args ...any) (Operation, error) {
 	tx, p, err := request(ctx)
 	if err != nil {
 		return Operation{}, err
 	}
-	o, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET `+set+fmt.Sprintf(`, version = version + 1, updated_by = $%d WHERE id = $1 RETURNING `, len(args)+2)+columns,
+	o, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET `+set+fmt.Sprintf(`, version = version + 1, updated_by = $%d
+		WHERE id = $1 AND status IN ('queued', 'running') RETURNING `, len(args)+2)+columns,
 		append(append([]any{id}, args...), p.ID)...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finished(ctx, tx, id)
+	}
 	if err != nil {
 		return Operation{}, fmt.Errorf("operations: finish operation %s: %w", id, err)
 	}
@@ -228,6 +235,16 @@ func finish(ctx context.Context, set string, id uuid.UUID, args ...any) (Operati
 		return Operation{}, err
 	}
 	return o, nil
+}
+
+// finished answers a finish that matched no queued or running operation:
+// the operation does not exist, or it has already finished.
+func finished(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Operation, error) {
+	o, err := get(ctx, tx, id, false)
+	if err != nil {
+		return Operation{}, err
+	}
+	return Operation{}, problem.Conflict("platform.operation_finished", "The operation has already "+o.Status+".")
 }
 
 // Report records the progress of a running operation.

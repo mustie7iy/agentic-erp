@@ -590,6 +590,36 @@ func TestPaymentItemsAreReservedOnce(t *testing.T) {
 	}), "permission denied")
 }
 
+// TestBankFileOncePerRun: a run's release writes one bank file; a second
+// file for the run, from a release finished twice, is refused.
+func TestBankFileOncePerRun(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb, run, other := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		for i, r := range []uuid.UUID{run, other} {
+			if err := exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+				VALUES ($1,$2,$3,$4,$5,'2026-07-31','2026-07-31','USD',300,'releasing',$6,$6,$6)`, f.tenant, r, fmt.Sprintf("PR%d", i), f.entity, hb, f.actor); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	file := func(r uuid.UUID) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_by)
+				VALUES ($1,$2,$3,'pain.001.001.03','sha256:x',decode(repeat('ab', 32), 'hex'),'created',$4)`, f.tenant, id(), r, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, file(run))
+	failsWith(t, asApp(t, f.tenant, file(run)), "bank_file_once_per_run")
+	mustApp(t, f.tenant, file(other))
+}
+
 func TestBankAccountValidityCannotOverlap(t *testing.T) {
 	need(t)
 	f := newFixture(t)

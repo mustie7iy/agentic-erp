@@ -1,0 +1,216 @@
+package workflows_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/workflows"
+)
+
+// releaseState is what a release activity changes: the run and the
+// operation (status and version), the run's bank files, and the tenant's
+// journal entries, events and audit records.
+type releaseState struct {
+	Run, Operation                  string
+	Files, Entries, Events, Audited int
+}
+
+func stateOf(t *testing.T, in workflows.ReleaseInput) releaseState {
+	t.Helper()
+	var s releaseState
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT r.status || '/' || r.version, o.status || '/' || o.version,
+			(SELECT count(*) FROM payments.bank_file f WHERE f.tenant_id = r.tenant_id AND f.payment_run_id = r.id),
+			(SELECT count(*) FROM ledger.journal_entry j WHERE j.tenant_id = r.tenant_id),
+			(SELECT count(*) FROM payments.outbox x WHERE x.tenant_id = r.tenant_id) + (SELECT count(*) FROM platform.outbox x WHERE x.tenant_id = r.tenant_id)
+				+ (SELECT count(*) FROM ledger.outbox x WHERE x.tenant_id = r.tenant_id),
+			(SELECT count(*) FROM audit.audit_event a WHERE a.tenant_id = r.tenant_id)
+		FROM payments.payment_run r JOIN platform.operation o ON o.tenant_id = r.tenant_id AND o.id = $2 WHERE r.id = $1`, in.RunID, in.OperationID).
+		Scan(&s.Run, &s.Operation, &s.Files, &s.Entries, &s.Events, &s.Audited); err != nil {
+		t.Fatalf("read the release state: %v", err)
+	}
+	return s
+}
+
+// twice runs an activity whose first run committed and whose completion was
+// lost, so it runs again: both runs succeed and the second changes nothing.
+func twice(t *testing.T, name string, in workflows.ReleaseInput, activity func() error) releaseState {
+	t.Helper()
+	if err := activity(); err != nil {
+		t.Fatalf("%s, first run: got %v, want nil", name, err)
+	}
+	first := stateOf(t, in)
+	if err := activity(); err != nil {
+		t.Fatalf("%s, run again: got %v, want nil", name, err)
+	}
+	if again := stateOf(t, in); again != first {
+		t.Fatalf("%s, run again: got %+v, want %+v as after the first run", name, again, first)
+	}
+	return first
+}
+
+// TestReleaseActivitiesRunTwice: each release activity whose transaction
+// committed but whose completion was lost runs again as a no-op success (ADR-0012):
+// the same run, operation, bank file, postings, events and audit records.
+func TestReleaseActivitiesRunTwice(t *testing.T) {
+	e := setup(t)
+	a := activities(t)
+	ctx := context.Background()
+	e.invoice(t, "INV-1", "100.00")
+	op, run := e.propose(t, "2026-04-15")
+	if err := execute(t, a, input(e, op, run), false); err != nil {
+		t.Fatal(err)
+	}
+	in := e.releaseAsked(t, run)
+	todo, err := a.PaymentsToPost(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pay := range todo {
+		twice(t, "post payment", in, func() error { return a.PostPayment(ctx, in, pay) })
+	}
+	var stale payments.Run // the run as it was before its release finished
+	if err := apitest.InRequest(t, e.Tenant, e.Approver, func(ctx context.Context) (err error) {
+		stale, err = payments.GetRun(ctx, in.RunID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	done := twice(t, "finish release", in, func() error { return a.FinishRelease(ctx, in) })
+	if !strings.HasPrefix(done.Run, "released/") {
+		t.Fatalf("run after the release: got %s, want released", done.Run)
+	}
+	if done.Files != 1 {
+		t.Fatalf("bank files of the run: got %d, want 1", done.Files)
+	}
+	// The released run: every activity of a late or overlapping workflow is a no-op.
+	left, err := a.PaymentsToPost(ctx, in)
+	if err != nil {
+		t.Fatalf("payments to post of a released run: got %v, want nil", err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("payments to post of a released run: got %v, want none", left)
+	}
+	for _, pay := range todo {
+		twice(t, "post payment of a released run", in, func() error { return a.PostPayment(ctx, in, pay) })
+	}
+	if got := twice(t, "fail a released run", in, func() error {
+		return a.FailRelease(ctx, in, *problem.Unprocessable("payments.bank_file_invalid", "late"))
+	}); got != done {
+		t.Fatalf("after a late failure: got %+v, want %+v", got, done)
+	}
+	// Called with the run as it was, the release is refused by its status guard, and a late failure finds the operation finished.
+	if err := apitest.InRequest(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		_, err := a.Endpoints.FinishRelease(ctx, stale)
+		return err
+	}); err == nil || !strings.Contains(err.Error(), "no longer releasing") {
+		t.Fatalf("finish a stale run: got %v, want it refused as no longer releasing", err)
+	}
+	if err := apitest.InRequest(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		_, err := a.Endpoints.FailRelease(ctx, stale, problem.Unprocessable("payments.bank_file_invalid", "late"))
+		return err
+	}); err != nil {
+		t.Fatalf("fail a finished release: got %v, want nil", err)
+	}
+	if got := stateOf(t, in); got != done {
+		t.Fatalf("after the stale calls: got %+v, want %+v", got, done)
+	}
+}
+
+// TestFailReleaseRunsTwice: a failure recorded once is not recorded again,
+// whether the run kept its posted payments (releasing) or went back to
+// proposed with nothing posted.
+func TestFailReleaseRunsTwice(t *testing.T) {
+	e := setup(t)
+	a := activities(t)
+	ctx := context.Background()
+	why := *problem.Unprocessable("payments.bank_file_invalid", "test")
+	e.invoice(t, "INV-1", "100.00")
+	op, run := e.propose(t, "2026-04-15")
+	if err := execute(t, a, input(e, op, run), false); err != nil {
+		t.Fatal(err)
+	}
+	in := e.releaseAsked(t, run)
+	if got := twice(t, "fail with nothing posted", in, func() error { return a.FailRelease(ctx, in, why) }); !strings.HasPrefix(got.Run, "proposed/") {
+		t.Fatalf("run after a failure with nothing posted: got %s, want proposed", got.Run)
+	}
+	in = e.releaseAsked(t, run)
+	todo, err := a.PaymentsToPost(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PostPayment(ctx, in, todo[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got := twice(t, "fail with a payment posted", in, func() error { return a.FailRelease(ctx, in, why) }); !strings.HasPrefix(got.Run, "releasing/") {
+		t.Fatalf("run after a failure with a payment posted: got %s, want releasing", got.Run)
+	}
+	// The read of the operation failing is reported, for the retry policy.
+	pool := pgtest.Pool(t)
+	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	if err := a.FailRelease(ctx, in, why); err == nil || !strings.Contains(err.Error(), "database down") {
+		t.Fatalf("fail with the database down: got %v, want database down", err)
+	}
+	a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
+	}
+	if err := a.FailRelease(ctx, in, why); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "read release operation") {
+		t.Fatalf("fail with the read failing: got %v, want the injected failure", err)
+	}
+}
+
+// TestOverlappingFinishRelease: two workflows finishing the same release at
+// once serialise on the run: one writes the bank file and releases the run,
+// the other finds it released and does nothing.
+func TestOverlappingFinishRelease(t *testing.T) {
+	e := setup(t)
+	a := activities(t)
+	ctx := context.Background()
+	e.invoice(t, "INV-1", "100.00")
+	op, run := e.propose(t, "2026-04-15")
+	if err := execute(t, a, input(e, op, run), false); err != nil {
+		t.Fatal(err)
+	}
+	in := e.releaseAsked(t, run)
+	todo, err := a.PaymentsToPost(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pay := range todo {
+		if err := a.PostPayment(ctx, in, pay); err != nil {
+			t.Fatal(err)
+		}
+	}
+	errs := make([]error, 4)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Add(1)
+		go func() { defer wg.Done(); errs[i] = a.FinishRelease(ctx, in) }()
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("finish release %d: got %v, want nil", i, err)
+		}
+	}
+	if got := stateOf(t, in); got.Files != 1 {
+		t.Fatalf("bank files of the run: got %d, want 1", got.Files)
+	}
+	if n := len(apitest.Published(t, e.Tenant, outbox.Event{Context: "payments", Name: "payment_run_released"})); n != 1 {
+		t.Fatalf("payment_run_released events: got %d, want 1", n)
+	}
+}

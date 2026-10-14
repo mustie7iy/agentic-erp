@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 )
@@ -438,4 +439,68 @@ func TestSucceed(t *testing.T) {
 		_, err = operations.Succeed(ctx, o.ID, "/v1/x", nil)
 		return err
 	})
+}
+
+// TestFinishOnce: an operation finishes once. Succeeding or failing one that
+// has already succeeded, failed or been cancelled is a conflict that changes
+// nothing and publishes no second completion.
+func TestFinishOnce(t *testing.T) {
+	ten := pgtest.NewTenant(t, perms...)
+	why := problem.Unprocessable("payments.bank_file_invalid", "test")
+	finishers := map[string]func(ctx context.Context, id uuid.UUID) (operations.Operation, error){
+		"succeed": func(ctx context.Context, id uuid.UUID) (operations.Operation, error) {
+			return operations.Succeed(ctx, id, "/v1/x", nil)
+		},
+		"fail": func(ctx context.Context, id uuid.UUID) (operations.Operation, error) {
+			return operations.Fail(ctx, id, why)
+		},
+	}
+	for first, finish := range finishers {
+		for again, finishAgain := range finishers {
+			t.Run(first+" then "+again, func(t *testing.T) {
+				o := start(t, ten, "payables.capture")
+				var done operations.Operation
+				if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) (err error) {
+					done, err = finish(ctx, o.ID)
+					return err
+				}); err != nil {
+					t.Fatal(err)
+				}
+				err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error {
+					_, err := finishAgain(ctx, o.ID)
+					return err
+				})
+				var p *problem.Problem
+				if !errors.As(err, &p) || p.Code != "platform.operation_finished" {
+					t.Fatalf("finish again: got %v, want platform.operation_finished", err)
+				}
+				var version int32
+				var events int
+				if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT version, (SELECT count(*) FROM platform.outbox x WHERE x.tenant_id = o.tenant_id
+					AND x.aggregate_id = o.id) FROM platform.operation o WHERE id = $1`, o.ID).Scan(&version, &events); err != nil {
+					t.Fatalf("read the operation: %v", err)
+				}
+				if version != done.Version {
+					t.Errorf("version after finishing again: got %d, want %d", version, done.Version)
+				}
+				if events != 1 {
+					t.Errorf("completion events: got %d, want 1", events)
+				}
+			})
+		}
+	}
+	cancelled := start(t, ten, "payables.capture")
+	pgtest.Exec(t, `UPDATE platform.operation SET status = 'cancelled', version = version + 1 WHERE id = $1`, cancelled.ID)
+	if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error {
+		_, err := operations.Succeed(ctx, cancelled.ID, "/v1/x", nil)
+		return err
+	}); err == nil || !strings.Contains(err.Error(), "already cancelled") {
+		t.Fatalf("succeed a cancelled operation: got %v, want it refused as cancelled", err)
+	}
+	if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error {
+		_, err := operations.Succeed(ctx, uuid.New(), "/v1/x", nil)
+		return err
+	}); err == nil || !strings.Contains(err.Error(), "No operation") {
+		t.Fatalf("succeed a missing operation: got %v, want not found", err)
+	}
 }

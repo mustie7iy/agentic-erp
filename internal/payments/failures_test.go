@@ -81,6 +81,23 @@ func TestDatabaseFailures(t *testing.T) {
 	e.decide(t, 202, relC, "release", "")
 	payC := uuidOf(id(e.payments(t, relC)[0].(map[string]any)))
 	relCID := uuidOf(id(relC))
+	// D is releasing with its payment posted, its operation still running: only the bank file is left.
+	sD := e.NewSupplier(t, "BP90000008")
+	e.bankAccount(t, sD, "DE89370400440532013000", "D", "2026-01-01", "", "create")
+	e.invoice(t, sD, "INV-RD", "8.00", "2026-03-01")
+	relD := e.run(t, "2026-04-24", "2026-04-24")
+	e.decide(t, 202, relD, "release", "")
+	relDID, payD := uuidOf(id(relD)), uuidOf(id(e.payments(t, relD)[0].(map[string]any)))
+	if err := apitest.Committed(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		r, err := payments.GetRun(ctx, relDID)
+		if err != nil {
+			return err
+		}
+		_, err = h.PostPayment(ctx, r, payD)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for name, err := range map[string]error{
 		"post payment":   func() error { _, err := h.PostPayment(context.Background(), payments.Run{}, payC); return err }(),
 		"finish release": func() error { _, err := h.FinishRelease(context.Background(), payments.Run{}); return err }(),
@@ -205,7 +222,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"finish release": func(ctx context.Context) error {
-			r, err := payments.GetRun(ctx, relAID)
+			r, err := payments.GetRun(ctx, relDID)
 			if err != nil {
 				return err
 			}
