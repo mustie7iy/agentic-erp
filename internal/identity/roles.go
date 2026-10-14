@@ -109,7 +109,7 @@ func UpdateRole(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, na
 		return Role{}, err
 	}
 	return updated, audit.Record(ctx, "identity.role.update", "identity.role", id,
-		map[string]any{"changed_fields": changedFields(r.Name != newName, "name", !sameString(r.Description, newDesc), "description")})
+		map[string]any{"changed_fields": changedFields(r.Name != newName, "name", !same(r.Description, newDesc), "description")})
 }
 
 // RolePermission is a row of identity.role_permission.

@@ -34,7 +34,7 @@ type AgentProfile struct {
 	AutonomyLevel  int16
 	Model          string
 	Description    string
-	MonthlyBudget  *int64 // minor units of BudgetCurrency; nil: unlimited
+	MonthlyBudget  *money.Minor // in BudgetCurrency; nil: unlimited
 	BudgetCurrency *string
 }
 
@@ -78,7 +78,7 @@ func scanPrincipal(row pgx.Row) (Principal, error) {
 	if hasProfile {
 		p.Profile = &ap
 		if ap.MonthlyBudget != nil {
-			p.BudgetDecimal = &Budget{Amount: money.Minor(*ap.MonthlyBudget).Plain(int(exponent)), Currency: *ap.BudgetCurrency}
+			p.BudgetDecimal = &Budget{Amount: ap.MonthlyBudget.Plain(int(exponent)), Currency: *ap.BudgetCurrency}
 		}
 	}
 	return p, errs.Wrapf(err, "scan principal")
@@ -125,8 +125,7 @@ func profile(ctx context.Context, tx pgx.Tx, in ProfileInput) (AgentProfile, err
 		return ap, problem.Unprocessable("request.invalid_amount", "The budget amount is not a valid non-negative amount in this currency.",
 			problem.FieldError{Field: "agent_profile.monthly_budget.amount", Code: "invalid", Message: "decimal string with the currency's minor-unit digits"})
 	}
-	v := int64(amount)
-	ap.MonthlyBudget, ap.BudgetCurrency = &v, &in.Budget.Currency
+	ap.MonthlyBudget, ap.BudgetCurrency = &amount, &in.Budget.Currency
 	return ap, nil
 }
 
@@ -252,7 +251,7 @@ func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 		WHERE id = $1`, id, name, email, all, actor.ID); err != nil {
 		return Principal{}, fmt.Errorf("identity: update principal %s: %w", id, err)
 	}
-	fields := changedFields(p.DisplayName != name, "display_name", !sameString(p.Email, email), "email", p.AllCompanies != all, "all_companies")
+	fields := changedFields(p.DisplayName != name, "display_name", !same(p.Email, email), "email", p.AllCompanies != all, "all_companies")
 	var events []outbox.Event
 	if ch.Profile != nil {
 		ap, err := profile(ctx, tx, *ch.Profile)
@@ -262,7 +261,7 @@ func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 		old := *p.Profile
 		profileFields := changedFields(old.AutonomyLevel != ap.AutonomyLevel, "autonomy_level", old.Model != ap.Model, "model",
 			old.Description != ap.Description, "description",
-			!sameInt(old.MonthlyBudget, ap.MonthlyBudget) || !sameString(old.BudgetCurrency, ap.BudgetCurrency), "monthly_budget")
+			!same(old.MonthlyBudget, ap.MonthlyBudget) || !same(old.BudgetCurrency, ap.BudgetCurrency), "monthly_budget")
 		if len(profileFields) > 0 {
 			if _, err := tx.Exec(ctx, `UPDATE identity.agent_profile SET autonomy_level = $2, model = $3, description = $4, monthly_budget = $5,
 				budget_currency = $6, version = version + 1, updated_by = $7 WHERE principal_id = $1`,
@@ -323,5 +322,5 @@ func changedFields(pairs ...any) []string {
 	return fields
 }
 
-func sameString(a, b *string) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
-func sameInt(a, b *int64) bool     { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+// same reports whether two optional values are both absent or equal.
+func same[T comparable](a, b *T) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
