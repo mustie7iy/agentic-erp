@@ -740,3 +740,35 @@ func TestChartGaps(t *testing.T) {
 		t.Fatalf("three bars expected, got %d", n)
 	}
 }
+
+// Render validates the spec itself: a caller that skipped Validate gets
+// the problems as an error, never an index out of range.
+func TestRenderRefusesAnInvalidSpec(t *testing.T) {
+	results := map[string]*Result{"q1": fixtureResult()}
+	for name, spec := range map[string]Spec{
+		"tile measure not in the query":  {Title: "t", Tiles: []Tile{{Label: "gone", QueryID: "q1", Measure: "gone"}}},
+		"chart measure not in the query": {Title: "t", Charts: []Chart{{Title: "c", QueryID: "q1", Type: "bar", X: "fiscal_month", Measure: "gone"}}},
+		"unknown query":                  {Title: "t", Tables: []Table{{Title: "x", QueryID: "q9"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var b strings.Builder
+			pgtest.WantErr(t, Render(&b, &spec, results, Principal{ID: "u"}), "analytics: render: invalid spec")
+			if b.Len() != 0 {
+				t.Errorf("got %d bytes written, want none", b.Len())
+			}
+		})
+	}
+	t.Run("a saved report", func(t *testing.T) {
+		dir := t.TempDir()
+		rep := &Report{ID: "rpt_bad", Spec: Spec{Title: "t", Tiles: []Tile{{Label: "gone", QueryID: "q1", Measure: "gone"}}}}
+		_, err := rep.Save(dir, results)
+		pgtest.WantErr(t, err, "analytics: save report rpt_bad")
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("read the report directory: %v", err)
+		}
+		if len(entries) != 0 {
+			t.Errorf("got %d files written, want none", len(entries))
+		}
+	})
+}

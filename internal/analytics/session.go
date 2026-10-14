@@ -180,18 +180,21 @@ func (s *Session) Rerun(rep *Report) (*Report, map[string]*Result, error) {
 
 // Save writes the report definition (JSON) and its rendered page (HTML).
 func (rep *Report) Save(dir string, results map[string]*Result) (htmlPath string, err error) {
+	// Rendered first, so a spec that does not validate against the results
+	// leaves nothing behind.
+	var page bytes.Buffer
+	if err := Render(&page, &rep.Spec, results, rep.Principal); err != nil {
+		return "", fmt.Errorf("analytics: save report %s: %w", rep.ID, err)
+	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("analytics: save report %s: %w", rep.ID, err)
 	}
 	// A Report holds only strings, numbers and nested structs, so marshaling
-	// cannot fail; rendering into memory with the fixed page template cannot
-	// fail either (Render only reports errors from its writer).
+	// cannot fail.
 	b, _ := json.MarshalIndent(rep, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, rep.ID+".json"), b, 0o600); err != nil {
 		return "", fmt.Errorf("analytics: save report %s definition: %w", rep.ID, err)
 	}
-	var page bytes.Buffer
-	_ = Render(&page, &rep.Spec, results, rep.Principal) // into memory: cannot fail, see above
 	htmlPath = filepath.Join(dir, rep.ID+".html")
 	if err := os.WriteFile(htmlPath, page.Bytes(), 0o600); err != nil {
 		return htmlPath, fmt.Errorf("analytics: save report %s page: %w", rep.ID, err)

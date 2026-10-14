@@ -14,8 +14,14 @@ import (
 )
 
 // Render writes the dashboard as a self-contained HTML page (inline CSS and
-// SVG, no scripts) that can be opened, emailed or archived as-is.
+// SVG, no scripts) that can be opened, emailed or archived as-is. It
+// validates the spec against the results first and writes nothing for an
+// invalid one, so the drawing below can rely on every query, column and
+// sum the spec names.
 func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal) error {
+	if problems := s.Validate(results); len(problems) > 0 {
+		return fmt.Errorf("analytics: render: invalid spec: %s", strings.Join(problems, "; "))
+	}
 	v := view{Spec: s, Principal: p.ID, Generated: time.Now().UTC().Format("2006-01-02 15:04 UTC")}
 	v.Tiles = tileViews(s, results)
 	for _, c := range s.Charts {
@@ -37,7 +43,8 @@ func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal) error
 }
 
 // tileViews computes each tile's value and, with a baseline, its change.
-// The spec has been validated, so the sums' errors were reported there.
+// Render has validated the spec, so every measure is a column of its
+// query and the sums' errors were reported there.
 func tileViews(s *Spec, results map[string]*Result) []tileView {
 	var tiles []tileView
 	for _, t := range s.Tiles {
@@ -351,7 +358,7 @@ const (
 // chartSVG draws a grouped bar or multi-line chart on one linear scale.
 func chartSVG(c Chart, r *Result) string {
 	col := r.Columns[r.col(c.Measure)]
-	xs, ss, vals, _ := chartData(c, r) // validated: every point adds up
+	xs, ss, vals, _ := chartData(c, r) // Render validated the chart: every point adds up
 	if len(xs) == 0 {
 		return `<p class="muted">No data for this chart.</p>`
 	}
