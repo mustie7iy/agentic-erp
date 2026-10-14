@@ -60,7 +60,10 @@ func getPeriod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Period,
 		return Period{}, err
 	}
 	if lock {
-		if _, err := tx.Exec(ctx, `SELECT FROM ledger.period_status WHERE id = $1 FOR UPDATE`, id); err != nil {
+		// Only a period of a company the caller may see: one it may not is
+		// refused below as not found and must not stay locked until rollback.
+		if _, err := tx.Exec(ctx, `SELECT FROM ledger.period_status WHERE id = $1 AND ($2 OR legal_entity_id = ANY($3)) FOR UPDATE`,
+			id, access.All, access.IDs); err != nil {
 			return Period{}, fmt.Errorf("ledger: lock fiscal period %s: %w", id, err)
 		}
 	}

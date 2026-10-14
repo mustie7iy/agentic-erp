@@ -214,3 +214,28 @@ func TestPostingAndPeriodCloseSerialize(t *testing.T) {
 		}
 	})
 }
+
+// TestPeriodOfAnotherCompanyIsNotLocked closes a period as a caller with no
+// access to its company: the close is refused as not found, and the caller's
+// transaction, still open, holds no lock on the period's row that would make
+// a close by someone who may see it wait.
+func TestPeriodOfAnotherCompanyIsNotLocked(t *testing.T) {
+	e := setup(t)
+	var period uuid.UUID
+	pgtest.Scan(t, `SELECT s.id FROM ledger.period_status s JOIN ledger.ledger l ON l.tenant_id = s.tenant_id AND l.id = s.ledger_id AND l.is_leading
+		WHERE s.tenant_id = $1 AND s.legal_entity_id = $2 AND s.fiscal_year = 2026 AND s.period = 5`, []any{e.ten.ID, e.de}, &period)
+	err := apitest.Committed(t, e.ten, e.ten.Agent, func(ctx context.Context) error {
+		_, err := ledger.ClosePeriod(ctx, period, func(int32) error { return nil })
+		if got := problem.From(err).Status; got != 404 {
+			t.Errorf("close without access: got %v, want not found", err)
+		}
+		// SKIP LOCKED passes over a row another transaction has locked.
+		var free int
+		pgtest.Scan(t, `SELECT count(*) FROM (SELECT FROM ledger.period_status WHERE id = $1 FOR UPDATE SKIP LOCKED) x`, []any{period}, &free)
+		if free != 1 {
+			t.Errorf("period row after a refused close: got it locked, want it free")
+		}
+		return errors.New("roll back")
+	})
+	pgtest.WantErr(t, err, "roll back")
+}
