@@ -75,7 +75,10 @@ func provision(ctx context.Context, cfg platformconfig.Config, req provisioning.
 		return provisioning.Result{}, err
 	}
 	defer pool.Close()
-	keys, _ := keyring(cfg, pool) // the keys were validated with the configuration
+	keys, err := keyring(cfg, pool)
+	if err != nil {
+		return provisioning.Result{}, fmt.Errorf("provision: field keys: %w", err)
+	}
 	deps := app.Configuration(app.Config{FieldKeys: keys})
 	return (&provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Issuers: cfg.TenantIssuers(), Configuration: deps}).Provision(ctx, req)
 }

@@ -42,6 +42,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
+	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -1254,4 +1255,23 @@ func configFile(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return file
+}
+
+// TestKeyringFailures: provision and rewrap report master keys that do not
+// make a keyring instead of going on without one.
+func TestKeyringFailures(t *testing.T) {
+	cfg := config.Config{DatabaseURL: pgtest.URL(t), FieldKeys: []config.MasterKey{{ID: "k", Secret: []byte("short")}}}
+	const want = "a master key needs an id and a secret"
+	t.Run("provision", func(t *testing.T) {
+		_, err := provision(context.Background(), cfg, provisioning.Request{}, configFile(t))
+		pgtest.WantErr(t, err, want)
+	})
+	t.Run("rewrap", func(t *testing.T) {
+		_, err := rewrap(context.Background(), cfg)
+		pgtest.WantErr(t, err, want)
+	})
+	t.Run("rewrap without a master", func(t *testing.T) {
+		_, err := rewrap(context.Background(), config.Config{DatabaseURL: pgtest.URL(t)})
+		pgtest.WantErr(t, err, "no master key is configured")
+	})
 }

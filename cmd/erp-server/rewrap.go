@@ -62,7 +62,13 @@ func rewrap(ctx context.Context, cfg platformconfig.Config) (rewrapResult, error
 		return rewrapResult{}, err
 	}
 	defer pool.Close()
-	keys, _ := keyring(cfg, pool) // the keys were validated with the configuration, which requires a master
+	keys, err := keyring(cfg, pool)
+	if err != nil {
+		return rewrapResult{}, fmt.Errorf("rewrap: field keys: %w", err)
+	}
+	if len(keys.Masters) == 0 {
+		return rewrapResult{}, errors.New("rewrap: no master key is configured to move the tenant keys onto")
+	}
 	res := rewrapResult{Master: keys.Masters[0].ID()}
 	var tenants []uuid.UUID
 	err = pool.InTx(ctx, database.Scope{Role: cfg.ControlRole, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
