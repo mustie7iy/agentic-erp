@@ -286,6 +286,16 @@ func TestAggregateOutOfRange(t *testing.T) {
 			t.Errorf("got %v, want invoice_value in total out of range", err)
 		}
 	})
+	t.Run("out of range for a blank value", func(t *testing.T) {
+		f := facts(big, big)
+		for i := range f.Tables["ap_invoices"] {
+			delete(f.Tables["ap_invoices"][i].Dims, "fiscal_year")
+		}
+		_, err := Execute(m, f, Principal{ID: "user:cfo"}, Query{Measures: []string{"invoice_value"}, By: []string{"fiscal_year"}})
+		if err == nil || !strings.Contains(err.Error(), "invoice_value for (blank) adds up") {
+			t.Errorf("got %v, want the blank group named, not the total", err)
+		}
+	})
 	t.Run("nets into range", func(t *testing.T) {
 		res, err := Execute(m, facts(big, big, -big), Principal{ID: "user:cfo"}, q)
 		if err != nil {

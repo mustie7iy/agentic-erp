@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -205,9 +206,13 @@ func (agg *aggregation) sum(b string) error {
 		c := agg.base[b][key]
 		total, err := money.Sum(c.terms...)
 		if err != nil {
-			group := "in total"
-			if key != "" {
-				group = "for " + strings.Join(agg.groups[key], ", ")
+			group := "in total" // a query without a breakdown has one group, of no values
+			if vals := agg.groups[key]; len(vals) > 0 {
+				named := make([]string, len(vals))
+				for i, v := range vals {
+					named[i] = cmp.Or(v, "(blank)") // a fact without the dimension
+				}
+				group = "for " + strings.Join(named, ", ")
 			}
 			return fmt.Errorf("%s %s adds up to more than an amount can hold; filter or break it down further: %w", b, group, err)
 		}
