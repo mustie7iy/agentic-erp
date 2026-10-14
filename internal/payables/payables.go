@@ -131,9 +131,10 @@ type Opener interface {
 }
 
 // Payments says whether an entry's open item is in a live payment run
-// (payments context).
+// (payments context); asking holds off the legal entity's proposals until
+// the transaction ends.
 type Payments interface {
-	RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (string, bool, error)
+	RunOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, entryID uuid.UUID) (string, bool, error)
 }
 
 // Endpoints implements the payables part of the generated API.

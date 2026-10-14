@@ -339,14 +339,20 @@ func fileEvent(f BankFile, name string, payload map[string]any) outbox.Event {
 type Reservations struct{}
 
 // RunOf returns the document number of the live run that holds an open
-// item of the entry: a proposing or proposed run, or a releasing one whose
-// payment of the item is not posted yet. A releasing run is under way, or
-// stopped (failed or cancelled) with some payments posted, to be resumed;
-// the release posts the rest, so their items are as reserved as in a
-// proposal.
-func (Reservations) RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (string, bool, error) {
+// item of the entry of the legal entity: a proposing or proposed run, or a
+// releasing one whose payment of the item is not posted yet. A releasing
+// run is under way, or stopped (failed or cancelled) with some payments
+// posted, to be resumed; the release posts the rest, so their items are as
+// reserved as in a proposal. It takes the legal entity's proposals lock
+// first (lockProposals), held until the caller's transaction ends: a
+// proposal under way is waited for, and none can choose the entry's items
+// until the caller (reversing the entry) commits.
+func (Reservations) RunOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, entryID uuid.UUID) (string, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
+		return "", false, err
+	}
+	if err := lockProposals(ctx, tx, legalEntity); err != nil {
 		return "", false, err
 	}
 	var number string

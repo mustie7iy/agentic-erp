@@ -548,7 +548,15 @@ deactivates its items. The run also reserves its items in the ledger
 transaction, and frees them there when it is rejected; posting a payment
 ends the reservation of the items it settles. So the ledger reservations
 are exactly the items of live runs not paid yet, and a manual clearing or
-reversal of one is refused while the run holds it. Bank files are stored in object storage, referenced by
+reversal of one is refused while the run holds it.
+
+Proposals of a legal entity serialise on the advisory lock
+`payments.propose.<legal entity id>` (`hashtextextended`, transaction
+scoped). An invoice reversal takes the same lock before it asks whether the
+invoice is in a live run (`Reservations.RunOf`): a reversal waits for a
+proposal under way and then finds the invoice in it (409
+`payables.invoice_in_payment_run`), and a proposal that starts while a
+reversal is under way waits for it and no longer finds the item open. Bank files are stored in object storage, referenced by
 key and content hash.
 
 The release (ADR-0012) moves the run to `releasing` under a release

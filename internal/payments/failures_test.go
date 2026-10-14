@@ -372,7 +372,7 @@ func fileAndPortCalls(t *testing.T, e env, h *payments.Endpoints, s *failureRuns
 			return err
 		},
 		"in run": func(ctx context.Context) error {
-			_, _, err := payments.Reservations{}.RunOf(ctx, 2026, s.vendorEntry)
+			_, _, err := payments.Reservations{}.RunOf(ctx, e.DE, 2026, s.vendorEntry)
 			return err
 		},
 		"check house banks": func(ctx context.Context) error {

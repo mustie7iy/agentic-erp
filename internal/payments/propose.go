@@ -186,8 +186,8 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 // paid items and moves the run to proposed. Proposals of one legal entity
 // are serialized, so two runs never reserve the same item.
 func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) (Run, error) {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "payments.propose."+r.LegalEntityID.String()); err != nil {
-		return Run{}, fmt.Errorf("payments: lock the proposals of legal entity %s: %w", r.LegalEntityID, err)
+	if err := lockProposals(ctx, tx, r.LegalEntityID); err != nil {
+		return Run{}, err
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
 	if err != nil {
@@ -231,6 +231,19 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 		runEvent(proposed, "payment_run_proposed", map[string]any{"house_bank_id": proposed.HouseBankID, "run_date": proposed.RunDate.Format(time.DateOnly),
 			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": money.EventAmount(pr.total, proposed.Currency, proposed.Exponent),
 			"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
+}
+
+// lockProposals takes the legal entity's proposals lock until the
+// transaction ends. Proposals take it so two runs never reserve the same
+// item; whoever would change what a proposal pays (an invoice reversal,
+// through RunOf) takes it too, so it waits for a proposal under way and then
+// sees the items it reserved, and a proposal that starts later waits for it
+// and then no longer finds the item open.
+func lockProposals(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "payments.propose."+legalEntity.String()); err != nil {
+		return fmt.Errorf("payments: lock the proposals of legal entity %s: %w", legalEntity, err)
+	}
+	return nil
 }
 
 // proposal is a run's payments, their items and its exclusions, as the
