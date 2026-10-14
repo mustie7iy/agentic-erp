@@ -266,7 +266,16 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   OptString, OptNilString, Decode/EncodeObject, Money, Page, ETagOf) replace the copies in the
   contexts. Kept apart on purpose: integration fromSettings (nil vs empty map reaches storage),
   erp-server maintain() (waits before its first round). Reviewers: APPROVE.
-- [ ] R51 Money typed as money.Minor; conversion and checked sums in money (gap 4)
+- [x] R51 Money typed as money.Minor; conversion and checked sums in money (gap 4). Amounts in
+  ledger, payments, payables, approvals, procurement, analytics, integration and agents are
+  money.Minor (counts, number ranges, percentages and string quantities stay as they are).
+  money gained ErrOverflow, Convert/ConvertAll (exact, half away from zero; the ledger's
+  rounding-difference balancing), Scale, Sum (exact 128-bit), Diff, checked Extend/Percent, and
+  FuzzConvert in make fuzz. Overflow was reachable from the API (18-digit amounts), so 11 of 21
+  commits are Fixes with failing-first tests; the security-relevant one: two items at the maximum
+  price summed negative and chose the lowest procurement approval tier, and consumed + order
+  wrapped past a contract's limit. Reviewer: changes asked (4), APPROVE after fixes. Follow-up
+  in progress: payments proposal sums, analytics aggregation, payables near(), reconciliation.
 - [x] R52 Test structure (gap 7). pgtest.WantErr/CheckErr replace 187 hand-written
   `err == nil || !strings.Contains` checks (same substring, Fatal stays Fatal); 22 of 23 test
   functions over 150 lines split into ordered t.Run steps (TestDispatcher left: it drives the
