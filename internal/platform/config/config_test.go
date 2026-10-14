@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -598,23 +599,24 @@ func TestProductionFailsClosed(t *testing.T) {
 	}
 }
 
-// TestTenantIssuer: the issuer new administrators are bound to is the one
-// tenant issuer the cell trusts, and none when it trusts several.
-func TestTenantIssuer(t *testing.T) {
+// TestTenantIssuers: the tenant issuers the cell trusts are the development
+// issuer and the configured ones.
+func TestTenantIssuers(t *testing.T) {
 	const one, two = `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`,
 		`[{"issuer":"https://a.example.com","audience":"erp-api"},{"issuer":"https://b.example.com","audience":"erp-api"}]`
 	for _, c := range []struct {
-		name, issuers, dev, want string
+		name, issuers, dev string
+		want               []string
 	}{
-		{"one issuer", one, "", "https://idp.example.com"},
-		{"development issuer", "", "true", "erp-dev"},
-		{"development and one more", one, "true", ""},
-		{"two issuers", two, "", ""},
+		{"one issuer", one, "", []string{"https://idp.example.com"}},
+		{"development issuer", "", "true", []string{"erp-dev"}},
+		{"development and one more", one, "true", []string{"erp-dev", "https://idp.example.com"}},
+		{"two issuers", two, "", []string{"https://a.example.com", "https://b.example.com"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			m := valid()
 			m["ERP_OIDC_ISSUERS"], m["ERP_DEV_ISSUER"] = c.issuers, c.dev
-			if got := mustLoad(t, m).TenantIssuer(); got != c.want {
+			if got := mustLoad(t, m).TenantIssuers(); !slices.Equal(got, c.want) {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})

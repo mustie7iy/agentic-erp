@@ -46,7 +46,7 @@ func service(t *testing.T) *controlplane.Service {
 	}
 	keys := apitest.FieldKeys()
 	return &controlplane.Service{Pool: pool, AppRole: "erp_app", ControlRole: "erp_control", Pages: pages, Keys: keys,
-		Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: "erp_app", Keys: keys, Issuer: authntest.URL(t), Configuration: app.Configuration(app.Config{FieldKeys: keys})}}
+		Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: "erp_app", Keys: keys, Issuers: []string{authntest.URL(t)}, Configuration: app.Configuration(app.Config{FieldKeys: keys})}}
 }
 
 // plane is the control plane on a listener with an operator identity provider.

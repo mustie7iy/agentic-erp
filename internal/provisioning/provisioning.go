@@ -8,6 +8,7 @@ package provisioning
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -91,15 +92,30 @@ type Provisioner struct {
 	AppRole       string              // erp_app: the role the tenant's own rows are written as
 	Keys          *fieldcrypt.Keyring // gives the tenant its own data key; nil leaves it on the legacy key
 	Configuration configuration.Dependencies
-	// Issuer is the identity provider (OIDC iss) new administrators are
-	// bound to with their subject (ADR-0010): the one tenant issuer the cell
-	// trusts. Empty when it trusts several, and then provisioning is refused,
+	// Issuers are the identity providers (OIDC iss) of tenants' tokens the
+	// cell trusts. A new administrator is bound to the only one with their
+	// subject (ADR-0010); when there are several provisioning is refused,
 	// since the contract cannot name the administrator's issuer yet.
-	Issuer string
-	Now    func() time.Time
+	Issuers []string
+	Now     func() time.Time
 	// Begin starts the transaction; nil means Pool.Begin. Tests replace it
 	// to inject database failures.
 	Begin database.BeginFunc
+}
+
+// issuer is the one tenant issuer the first administrator is bound to. No
+// issuer at all is a wiring mistake (a cell always trusts at least one), so
+// it fails closed as a server error rather than blaming the cell's
+// configuration; several is the documented 422.
+func (p *Provisioner) issuer() (string, error) {
+	switch {
+	case len(p.Issuers) == 0:
+		return "", errors.New("provisioning: no tenant issuer was wired into the provisioner; refusing to create an administrator bound to no identity provider")
+	case len(p.Issuers) > 1:
+		return "", problem.Unprocessable("provisioning.issuer_ambiguous",
+			"This cell trusts several identity providers, and a provisioning request cannot name the administrator's yet; provision in a cell that trusts one.")
+	}
+	return p.Issuers[0], nil
 }
 
 func (p *Provisioner) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -142,9 +158,9 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	if err := req.check(); err != nil {
 		return Result{}, err
 	}
-	if p.Issuer == "" {
-		return Result{}, problem.Unprocessable("provisioning.issuer_ambiguous",
-			"This cell trusts several identity providers, and a provisioning request cannot name the administrator's yet; provision in a cell that trusts one.")
+	issuer, err := p.issuer()
+	if err != nil {
+		return Result{}, err
 	}
 	res := Result{TenantID: uuid.Must(uuid.NewV7()), AdministratorID: uuid.Must(uuid.NewV7())}
 	tx, err := p.begin(ctx, database.Scope{TenantID: res.TenantID})
@@ -157,7 +173,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	}
 	principal := reqctx.Principal{ID: res.AdministratorID, Kind: identity.Human, TenantID: res.TenantID}
 	if err := uow.Act(ctx, tx, principal, p.Now, func(ctx context.Context) error {
-		return p.populate(ctx, tx, req, &res)
+		return p.populate(ctx, tx, issuer, req, &res)
 	}); err != nil {
 		return Result{}, err
 	}
@@ -173,13 +189,13 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 // populate creates, as the administrator, the tenant's keys, administrator,
 // roles, legal entities and first configuration, with the events and the
 // audit entry of the provisioning.
-func (p *Provisioner) populate(ctx context.Context, tx pgx.Tx, req Request, res *Result) error {
+func (p *Provisioner) populate(ctx context.Context, tx pgx.Tx, issuer string, req Request, res *Result) error {
 	if p.Keys != nil {
 		if err := p.Keys.Provision(ctx, tx, res.TenantID); err != nil {
 			return err
 		}
 	}
-	if err := createAdministrator(ctx, tx, p.Issuer, req, res); err != nil {
+	if err := createAdministrator(ctx, tx, issuer, req, res); err != nil {
 		return err
 	}
 	if err := createRolesAndEntities(ctx, req, res); err != nil {

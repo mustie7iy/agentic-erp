@@ -27,7 +27,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 func provisioner(t *testing.T) *provisioning.Provisioner {
 	t.Helper()
 	keys := apitest.FieldKeys()
-	return &provisioning.Provisioner{Pool: pgtest.Pool(t), AppRole: "erp_app", Keys: keys, Issuer: authntest.URL(t), Configuration: app.Configuration(app.Config{FieldKeys: keys})}
+	return &provisioning.Provisioner{Pool: pgtest.Pool(t), AppRole: "erp_app", Keys: keys, Issuers: []string{authntest.URL(t)}, Configuration: app.Configuration(app.Config{FieldKeys: keys})}
 }
 
 func request(t *testing.T) provisioning.Request {
@@ -165,10 +165,21 @@ func TestProvisioningRefusals(t *testing.T) {
 	// A cell that trusts several tenant issuers cannot tell which one the
 	// administrator's subject belongs to (ADR-0010), so it refuses.
 	several := provisioner(t)
-	several.Issuer = ""
+	several.Issuers = append(several.Issuers, "https://other.example")
 	_, err := several.Provision(ctx, request(t))
 	if pr := problem.From(err); pr.Code != "provisioning.issuer_ambiguous" {
 		t.Errorf("several issuers: got %v, want provisioning.issuer_ambiguous", err)
+	}
+	// A provisioner given no issuer is a wiring mistake, not an ambiguous
+	// cell: it fails closed with a server error that says so.
+	unwired := provisioner(t)
+	unwired.Issuers = nil
+	_, err = unwired.Provision(ctx, request(t))
+	if pr := problem.From(err); pr.Status != 500 {
+		t.Errorf("no issuer: got status %d (%v), want 500", pr.Status, err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "no tenant issuer") {
+		t.Errorf("no issuer: got %v, want an error naming the missing tenant issuer", err)
 	}
 }
 
