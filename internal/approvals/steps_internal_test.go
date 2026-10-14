@@ -2,6 +2,7 @@ package approvals
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -31,7 +32,6 @@ func TestRequisitionTierAtTheThresholdsDigits(t *testing.T) {
 		"under the threshold": {100012, "USD", "team_lead"},  // 1000.12 USD
 		"over the threshold":  {100013, "USD", "cfo"},        // 1000.13 USD
 		"at the threshold":    {1000125, "BHD", "team_lead"}, // 1000.125 BHD: up to is inclusive
-		"more digits than it": {1000126, "BHD", "cfo"},       // 1000.126 BHD
 	} {
 		t.Run(name, func(t *testing.T) {
 			var got []policyStep
@@ -47,6 +47,36 @@ func TestRequisitionTierAtTheThresholdsDigits(t *testing.T) {
 			}
 			if got[0].role != c.want {
 				t.Errorf("steps for %d minor %s: got %s, want %s", c.amount, c.currency, got[0].role, c.want)
+			}
+		})
+	}
+}
+
+// TestRequisitionCurrencyWithMoreDigits: a threshold with fewer decimals
+// than the requisition's currency (1000.12, a BHD requisition) is compared
+// at the requisition's digits: 1000.120 is within it, 1000.121 is not.
+func TestRequisitionCurrencyWithMoreDigits(t *testing.T) {
+	doc := &config.Config{}
+	doc.Purchasing.RequisitionApproval = []config.ApprovalTier{
+		{UpTo: "1000.12", Steps: []config.ApprovalStep{{Role: "team_lead", Approvals: 1}}},
+		{Steps: []config.ApprovalStep{{Role: "cfo", Approvals: 1}}},
+	}
+	bhd := "BHD"
+	for amount, want := range map[money.Minor]string{1000120: "team_lead", 1000121: "cfo"} {
+		t.Run(fmt.Sprint(amount), func(t *testing.T) {
+			var got []policyStep
+			if err := pgx.BeginFunc(context.Background(), pgtest.Admin(t), func(tx pgx.Tx) error {
+				var err error
+				got, err = steps(context.Background(), tx, doc, NewRequest{ObjectType: Requisition, Amount: &amount, Currency: &bhd})
+				return err
+			}); err != nil {
+				t.Fatalf("steps: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("steps for %d minor BHD: got %v, want one step", amount, got)
+			}
+			if got[0].role != want {
+				t.Errorf("steps for %d minor BHD: got %s, want %s", amount, got[0].role, want)
 			}
 		})
 	}
