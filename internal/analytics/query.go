@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
@@ -197,13 +198,18 @@ func aggregateMetrics(m *Model, f *Facts, p Principal, q Query) (*aggregation, e
 	return agg, nil
 }
 
-// sum totals each group's terms of base metric b.
+// sum totals each group's terms of base metric b, in key order so the
+// group named when several are out of range does not vary.
 func (agg *aggregation) sum(b string) error {
-	for key, c := range agg.base[b] {
+	for _, key := range slices.Sorted(maps.Keys(agg.base[b])) {
+		c := agg.base[b][key]
 		total, err := money.Sum(c.terms...)
 		if err != nil {
-			return fmt.Errorf("%s for %s adds up to more than an amount can hold; filter or break it down further: %w",
-				b, strings.Join(agg.groups[key], ", "), err)
+			group := "in total"
+			if key != "" {
+				group = "for " + strings.Join(agg.groups[key], ", ")
+			}
+			return fmt.Errorf("%s %s adds up to more than an amount can hold; filter or break it down further: %w", b, group, err)
 		}
 		c.sum, c.terms = total, nil
 	}

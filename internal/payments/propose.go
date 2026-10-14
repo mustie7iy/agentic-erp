@@ -108,7 +108,8 @@ type candidate struct {
 // errTooLarge fails a proposal whose amounts add up to more than an
 // amount holds (money.ErrOverflow): a wrapped total would pay the wrong
 // amount, and the exclusion reasons are a closed set in the database, so
-// the run fails rather than leaving the supplier out.
+// the run fails rather than leaving the supplier out. The problem replaces
+// money.ErrOverflow by design: it is what the operation records.
 func errTooLarge(what string) error {
 	return problem.Unprocessable("payments.amount_too_large", "The open items of "+what+" add up to more than an amount can hold.")
 }

@@ -276,6 +276,15 @@ func TestAggregateOutOfRange(t *testing.T) {
 		if !errors.Is(err, money.ErrOverflow) {
 			t.Fatalf("got %v (rows %v), want money.ErrOverflow", err, res)
 		}
+		if !strings.Contains(err.Error(), "invoice_value for 1000 adds up") {
+			t.Errorf("got %v, want the group named", err)
+		}
+	})
+	t.Run("out of range in total", func(t *testing.T) {
+		_, err := Execute(m, facts(big, big), Principal{ID: "user:cfo"}, Query{Measures: []string{"invoice_value"}})
+		if err == nil || !strings.Contains(err.Error(), "invoice_value in total adds up") {
+			t.Errorf("got %v, want invoice_value in total out of range", err)
+		}
 	})
 	t.Run("nets into range", func(t *testing.T) {
 		res, err := Execute(m, facts(big, big, -big), Principal{ID: "user:cfo"}, q)
