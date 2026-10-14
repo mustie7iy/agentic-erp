@@ -243,10 +243,23 @@ Each a separate Fix commit with a test that fails before the fix.
 ### Phase 7 — To 9.5 (user: "fix until 9.5 is achieved", after R42 scored 8.2)
 Fixes are Fix commits with a failing-first test; a new migration is allowed, existing ones are not
 edited. Re-review after each group until the whole-codebase score reaches 9.5.
-- [ ] F1 A reversed supplier invoice cannot be paid (review gap 1)
-- [ ] F2 Payment release safe against overlap and a lost completion; bank file unique per run (gap 2)
-- [ ] F3 Ledger refuses to clear a reversed entry; reversal and clearing serialise (gaps 1, 5)
-- [ ] F4 Security settings fail closed (gap 6)
+- [x] F1 A reversed supplier invoice cannot be paid (review gap 1). RunOf counts a releasing run's
+  unposted payments; failing-first flow test TestReverseDuringResumedRelease.
+- [x] F2 Payment release safe against overlap and a lost completion; bank file unique per run (gap 2).
+  Release activities serialise on the run (FOR UPDATE), finished steps are no-op successes, a
+  superseded operation's steps do nothing, operations.finish and Report are guarded, a cancelled
+  release stays cancelled and is resumed with :release (posted payments stand). New migration
+  000033: one bank file per run, built concurrently; the migration runner polls for its lock so a
+  concurrent index build cannot deadlock. Design docs 03/04/07 updated. Open: a cancelled
+  release's FinishRelease can leave an orphaned bank file in object storage.
+- [x] F3 Ledger refuses to clear a reversed entry; reversal and clearing serialise (gaps 1, 5).
+  Advisory locks per entry (journal_entry is insert-only, so no row lock without a migration);
+  409 ledger.entry_reversed. A reversal now clears the reversed pair (the reversal entry is the
+  clearing document), so the pair leaves open items. The contract's descriptions say so (user
+  approved; description-only). No backfill of pairs reversed before (user: no real data yet).
+- [x] F4 Security settings fail closed (gap 6). A malformed operator roles claim holds no role;
+  production refuses to start without an object store or with ERP_AUDIT_VERIFY_INTERVAL=0.
+  ADR-0016, ADR-0025 and ADR-0027 amended (user approved).
 - [ ] R50 Duplicated helpers moved to internal/platform (gap 3)
 - [ ] R51 Money typed as money.Minor; conversion and checked sums in money (gap 4)
 - [ ] R52 Test structure (gap 7)
