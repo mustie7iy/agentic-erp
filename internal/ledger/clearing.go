@@ -166,7 +166,8 @@ func requireDistinct(refs []ItemRef) error {
 // clearingLines are the lines that offset each item on its account. The
 // items must be open items on reconciliation accounts of the legal entity,
 // in one ledger and transaction currency, and net to zero per partner in
-// every currency.
+// every currency. Line i offsets items[i] and there is no other line:
+// createClearing clears item i with the entry's line i+1 (leadingLines).
 func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, error) {
 	type amounts struct{ tc, lc, gc []money.Minor }
 	perPartner := map[uuid.UUID]*amounts{}

@@ -66,6 +66,8 @@ func rewrap(ctx context.Context, cfg platformconfig.Config) (rewrapResult, error
 	if err != nil {
 		return rewrapResult{}, fmt.Errorf("rewrap: field keys: %w", err)
 	}
+	// The configuration requires a master; checked here too, because this
+	// function is also called with configurations that skipped validation.
 	if len(keys.Masters) == 0 {
 		return rewrapResult{}, errors.New("rewrap: no master key is configured to move the tenant keys onto")
 	}

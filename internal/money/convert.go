@@ -59,7 +59,7 @@ func Round(major *big.Rat, exp int) (Minor, error) {
 
 // Rat is an amount of exp minor-unit digits as an exact rational in major
 // units: 123456 at exponent 3 is 123456/1000. A negative exponent scales
-// up, so Rat(5, -2) is 500.
+// up, so Rat(5, -2) is 500; a currency exponent is never negative.
 func Rat(m Minor, exp int) *big.Rat {
 	if exp < 0 {
 		return new(big.Rat).SetInt(new(big.Int).Mul(big.NewInt(int64(m)), pow10(-exp)))
