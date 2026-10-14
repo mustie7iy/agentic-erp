@@ -143,16 +143,29 @@ func rat(s string) *big.Rat {
 	return r
 }
 
-// extend is quantity × price / price unit in minor units, rounded half up
-// (quantities and prices are never negative).
-func extend(qty string, price money.Minor, priceUnit int32) money.Minor {
-	v := new(big.Rat).Mul(rat(qty), new(big.Rat).SetInt64(int64(price)))
-	v.Quo(v, new(big.Rat).SetInt64(int64(priceUnit)))
-	q, m := new(big.Int).QuoRem(v.Num(), v.Denom(), new(big.Int))
-	if m.Mul(m, big.NewInt(2)).Cmp(v.Denom()) >= 0 {
-		q.Add(q, big.NewInt(1))
+// itemsTotal is the sum of the items' extended amounts, quantity × price /
+// price unit rounded half away from zero, checked for range.
+func itemsTotal(items []Item) (money.Minor, error) {
+	amounts := make([]money.Minor, len(items))
+	for i, it := range items {
+		a, err := money.Scale(it.UnitPrice, it.Quantity, int64(it.PriceUnit))
+		if err != nil {
+			return 0, err
+		}
+		amounts[i] = a
 	}
-	return money.Minor(q.Int64())
+	return money.Sum(amounts...)
+}
+
+// checkTotal refuses items whose extended amounts or total are out of
+// range: a wrapped total would select the wrong approval tier and pass a
+// contract's remaining value. The API admits only plain decimal
+// quantities, so what fails is the range.
+func checkTotal(items []Item) error {
+	if _, err := itemsTotal(items); err != nil {
+		return invalid("procurement.amount_too_large", "items", "extended amounts and their total must be in the range of an amount")
+	}
+	return nil
 }
 
 // legalEntity loads a legal entity the caller may act in that is active.

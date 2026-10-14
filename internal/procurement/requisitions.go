@@ -38,11 +38,10 @@ type Item struct {
 	Received       string      `json:"received"`
 }
 
+// total is the items' total; checkTotal refused items out of range when
+// they were written.
 func total(items []Item) money.Minor {
-	var sum money.Minor
-	for _, it := range items {
-		sum += extend(it.Quantity, it.UnitPrice, it.PriceUnit)
-	}
+	sum, _ := itemsTotal(items) // in range: items are checked on every write (checkTotal)
 	return sum
 }
 
@@ -155,7 +154,7 @@ func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency
 		items[i] = Item{No: int32(i + 1), MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 			UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID}
 	}
-	return items, nil
+	return items, checkTotal(items)
 }
 
 // writeRequisitionItems stores the items as items 1..n and marks the rest removed.

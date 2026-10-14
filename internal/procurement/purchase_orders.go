@@ -136,7 +136,7 @@ func (e *Endpoints) orderItems(ctx context.Context, h orderHeader, in []ItemInpu
 		}
 		items[i] = item
 	}
-	return items, nil
+	return items, checkTotal(items)
 }
 
 // orderItem validates item i of an order: number, quantity, price in the
@@ -538,7 +538,8 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		if err != nil {
 			return PurchaseOrder{}, err
 		}
-		if c.ConsumedValue+value > c.TargetValue {
+		// Against the remainder: consumed plus the order can be out of range.
+		if value > c.TargetValue-c.ConsumedValue {
 			return PurchaseOrder{}, problem.Conflict("procurement.contract_exceeded", fmt.Sprintf("The order (%s) exceeds what remains of contract %s (%s).",
 				value.Plain(o.Exponent), c.DocumentNumber, (c.TargetValue-c.ConsumedValue).Plain(c.Exponent)))
 		}

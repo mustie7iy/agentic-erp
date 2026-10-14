@@ -94,3 +94,42 @@ func TestConvertAll(t *testing.T) {
 		t.Errorf("invalid rate: got %v, want an error other than overflow", err)
 	}
 }
+
+func TestScale(t *testing.T) {
+	cases := map[string]struct {
+		amount           Minor
+		factor           string
+		divisor          int64
+		want             Minor
+		overflow, failed bool
+	}{
+		"quantity times price":             {1234, "2400", 100, 29616, false, false},
+		"fractional quantity":              {400, "2.5", 2, 500, false, false},
+		"half rounds away from zero":       {1, "1.5", 1, 2, false, false},
+		"negative half rounds away":        {-1, "1.5", 1, -2, false, false},
+		"negative factor":                  {1, "-1.5", 1, -2, false, false},
+		"below half":                       {1, "0.001", 3, 0, false, false},
+		"largest":                          {math.MaxInt64, "1", 1, math.MaxInt64, false, false},
+		"over the largest":                 {math.MaxInt64, "2", 1, 0, true, false},
+		"under the smallest":               {math.MinInt64, "1.000001", 1, 0, true, false},
+		"exponent":                         {1, "1e3", 1, 0, false, true},
+		"two signs":                        {1, "--1", 1, 0, false, true},
+		"zero divisor":                     {1, "1", 0, 0, false, true},
+		"negative divisor":                 {1, "1", -2, 0, false, true},
+		"large quantity, in range divided": {math.MaxInt64, "1000", 1000, math.MaxInt64, false, false},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := Scale(c.amount, c.factor, c.divisor)
+			if errors.Is(err, ErrOverflow) != c.overflow {
+				t.Errorf("Scale(%d, %q, %d) overflow: got %v, want %v", c.amount, c.factor, c.divisor, err, c.overflow)
+			}
+			if failed := err != nil && !errors.Is(err, ErrOverflow); failed != c.failed {
+				t.Errorf("Scale(%d, %q, %d) invalid input: got %v, want an error %v", c.amount, c.factor, c.divisor, err, c.failed)
+			}
+			if got != c.want {
+				t.Errorf("Scale(%d, %q, %d): got %d, want %d", c.amount, c.factor, c.divisor, got, c.want)
+			}
+		})
+	}
+}

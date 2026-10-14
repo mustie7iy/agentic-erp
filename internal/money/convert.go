@@ -16,7 +16,7 @@ const maxExp = 18
 // half away from zero: 0.5 becomes 1 and -0.5 becomes -1. Conversions are
 // exact rational arithmetic; floats are never involved (ADR-0005).
 func Convert(amount Minor, rate string, fromExp, toExp int) (Minor, error) {
-	r, err := parseRate(rate)
+	r, err := parsePlain(rate)
 	if err != nil {
 		return 0, err
 	}
@@ -38,12 +38,35 @@ func Convert(amount Minor, rate string, fromExp, toExp int) (Minor, error) {
 	return Minor(q.Int64()), nil
 }
 
-// parseRate accepts only plain decimals: big.Rat would also take
+// Scale returns amount × factor / divisor rounded half away from zero, in
+// exact rational arithmetic: an extended price, quantity × unit price per
+// price unit. The factor is a plain decimal such as "2.5" or "-1"; the
+// divisor is positive. A result out of range is ErrOverflow, never wrapped.
+func Scale(amount Minor, factor string, divisor int64) (Minor, error) {
+	f, err := parsePlain(strings.TrimPrefix(factor, "-"))
+	if err != nil {
+		return 0, err
+	}
+	if divisor <= 0 {
+		return 0, fmt.Errorf("money: scale by %s/%d: the divisor must be positive", factor, divisor)
+	}
+	if strings.HasPrefix(factor, "-") {
+		f.Neg(f)
+	}
+	v := new(big.Rat).Mul(new(big.Rat).SetInt64(int64(amount)), f)
+	q := roundHalfAway(v.Quo(v, new(big.Rat).SetInt64(divisor)))
+	if !q.IsInt64() {
+		return 0, ErrOverflow
+	}
+	return Minor(q.Int64()), nil
+}
+
+// parsePlain accepts only plain non-negative decimals: big.Rat would also take
 // fractions and exponents ("1e1000000"), whose expansion is unbounded.
-func parseRate(s string) (*big.Rat, error) {
+func parsePlain(s string) (*big.Rat, error) {
 	intPart, frac, hasFrac := strings.Cut(s, ".")
 	if intPart == "" || !digits(intPart) || !digits(frac) || (hasFrac && frac == "") {
-		return nil, fmt.Errorf("money: invalid rate %q: want a plain non-negative decimal", s)
+		return nil, fmt.Errorf("money: invalid rate or factor %q: want a plain decimal", s)
 	}
 	r, _ := new(big.Rat).SetString(s) // digits with at most one dot always parse
 	return r, nil
