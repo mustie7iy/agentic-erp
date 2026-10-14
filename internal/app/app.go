@@ -110,15 +110,14 @@ type Config struct {
 
 // New builds the public API handler.
 func New(cfg Config) (http.Handler, error) {
-	opener := approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
-	uploads := &payables.Uploads{Objects: cfg.Objects, Secret: cfg.UploadKey, PublicURL: cfg.PublicURL, Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
+	upload := uploads(cfg)
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}},
 		configAPI:     &configuration.Endpoints{Pages: cfg.Pages, Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys,
-			Approvals: opener},
+			Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 			Numbers: configuration.Numbers{}},
 		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, Handlers: map[string]approvals.Handler{
@@ -127,14 +126,8 @@ func New(cfg Config) (http.Handler, error) {
 			approvals.ConfigChange:     configuration.Approvals{},
 			approvals.InvoiceException: payables.Approvals{},
 		}}},
-		procurementAPI: &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
-			Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
-			Settings: configuration.Settings{}, Approvals: opener, Invoices: payables.Invoices{}},
-		payablesAPI: &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
-			Orders: procurement.Orders{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
-				Numbers: configuration.Numbers{}}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
-			Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Approvals: opener,
-			Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads},
+		procurementAPI: procurementEndpoints(cfg),
+		payablesAPI:    payablesEndpoints(cfg, upload),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -146,7 +139,7 @@ func New(cfg Config) (http.Handler, error) {
 		// server: a signed URL instead of a bearer token, a body above the
 		// request limit, and no unit of work (the upload itself is not
 		// idempotent work; the capture that consumes it is).
-		Routes: map[string]http.Handler{"PUT /v1/uploads/{id}/content": uploads},
+		Routes: map[string]http.Handler{"PUT /v1/uploads/{id}/content": upload},
 		Log:    cfg.Log, Metrics: cfg.Metrics, Tracer: cfg.Tracer, Meter: cfg.Meter, Now: cfg.Now,
 	})
 }
@@ -158,7 +151,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 		LegalEntities: tenancy.Directory{},
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
-		Approvals: approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}},
+		Approvals: opener(),
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
 		Actors:    identity.Actors{},
@@ -169,27 +162,54 @@ func Configuration(cfg Config) configuration.Dependencies {
 // worker to build runs with the same ports.
 func Payments(cfg Config) *payments.Endpoints {
 	return &payments.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{},
-		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
-		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
+		Postings: postings(),
+		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects}
 }
 
 // Integration is the integration context as the API wires it: migration
-// runs load through the same application services as the API.
+// runs load through the same endpoints the API serves, built the same way.
 func Integration(cfg Config) *integration.Endpoints {
-	postings := ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}
 	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}
-	orders := &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
-		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
-		Settings: configuration.Settings{}, Invoices: payables.Invoices{}}
-	invoices := &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
-		Orders: procurement.Orders{}, Postings: postings, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
-		Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Payments: payments.Reservations{}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
-		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: orders, OrderValues: procurement.Orders{},
-		Invoices: invoices, InvoiceCounts: payables.Invoices{}, Postings: postings, Reports: ledger.Reports{}, Secrets: resolver(cfg.Secrets),
-		ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil}
+		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderValues: procurement.Orders{},
+		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
+		Secrets: resolver(cfg.Secrets), ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil}
 }
+
+// procurementEndpoints is the procurement context as the API wires it.
+func procurementEndpoints(cfg Config) *procurement.Endpoints {
+	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
+		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
+		Settings: configuration.Settings{}, Approvals: opener(), Invoices: payables.Invoices{}}
+}
+
+// payablesEndpoints is the payables context as the API wires it, capturing
+// invoices through uploads.
+func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoints {
+	return &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
+		Orders: procurement.Orders{}, Postings: postings(), Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
+		Calendar: calendar(), Settings: configuration.Settings{}, Approvals: opener(),
+		Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads}
+}
+
+// uploads is the API's direct-upload service (ADR-0020).
+func uploads(cfg Config) *payables.Uploads {
+	return &payables.Uploads{Objects: cfg.Objects, Secret: cfg.UploadKey, PublicURL: cfg.PublicURL, Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
+}
+
+// opener opens approval requests with the tenant's policies and roles.
+func opener() approvals.Approvals {
+	return approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
+}
+
+// postings posts journal entries for the contexts that post.
+func postings() ledger.Postings {
+	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}
+}
+
+// calendar resolves fiscal periods.
+func calendar() ledger.Calendar { return ledger.Calendar{LegalEntities: tenancy.Directory{}} }
 
 // resolver is the configured secret resolver, or the replica's own
 // environment and files.
