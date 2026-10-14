@@ -486,9 +486,10 @@ erDiagram
     uuid legal_entity_id
     uuid house_bank_id
     date run_date
-    text status "proposing | proposed | released | rejected | failed"
+    text status "proposing | proposed | releasing | released | rejected | failed"
     uuid proposed_by
     uuid decided_by "released/rejected by; never proposed_by"
+    uuid release_operation_id "the latest release operation"
     int version }
   payment { uuid id PK
     uuid payment_run_id
@@ -512,7 +513,7 @@ erDiagram
     text bic
     uuid gl_account_id }
   bank_file { uuid id PK
-    uuid payment_run_id
+    uuid payment_run_id "unique per run"
     text format "pain.001.001.03"
     text object_ref
     bytea sha256 }
@@ -522,6 +523,32 @@ A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run
 deactivates its items. Bank files are stored in object storage, referenced by
 key and content hash.
+
+The release (ADR-0012) moves the run to `releasing` under a release
+operation, `release_operation_id`, and posts one payment per transaction;
+the run is `released` when its bank file is written. Its rules, each held by
+the database or by a row lock:
+
+- **One bank file per run.** A unique index on `bank_file (tenant_id,
+  payment_run_id)` (migration 000033, built concurrently) refuses a second
+  file, so a release step run again or two overlapping releases cannot pay
+  the suppliers twice. The release steps of a run also serialise on it:
+  each reads the run `FOR UPDATE`.
+- **The current operation only.** A release step acts only when the run's
+  `release_operation_id` is the operation it was started for; a step of a
+  cancelled or failed release that a later `:release` took over does
+  nothing.
+- **A cancelled release stays cancelled.** Cancelling the operation does not
+  undo or stop postings already made: posted payments stand, the operation
+  stays `cancelled` (it is never finished or reported on again), no bank
+  file is written, and the run stays `releasing` until `:release` resumes it
+  under a new operation. A run whose release fails with nothing posted goes
+  back to `proposed`.
+- **Items stay reserved while releasing.** An item of a `releasing` run whose
+  payment is not posted yet counts as in a live run, as in a proposal, so
+  its invoice cannot be reversed (409 `payables.invoice_in_payment_run`)
+  and a resumed release never pays a reversed invoice. Once the payment is
+  posted the item is cleared, and the payment is reversed first.
 
 ## 3.11 Workflow (`workflow`)
 
@@ -602,7 +629,7 @@ the decision trigger); decisions are insert-only.
 | Table | Purpose |
 |---|---|
 | `platform.idempotency_key` | Key, request hash, stored response; kept 7 days (ADR-0008), expired by a batched cleanup job on `expires_at` (partition by day if delete volume ever hurts; the key does not change) |
-| `platform.operation` | Long-running operations (ADR-0012): kind, status, `progress_done` / `progress_total` (null while unknown), `resource` path, result or error |
+| `platform.operation` | Long-running operations (ADR-0012): kind, status, `progress_done` / `progress_total` (null while unknown), `resource` path, result or error. Only a `queued` or `running` operation finishes or takes progress; a succeeded, failed or cancelled one is final |
 | `<context>.outbox` | Domain events awaiting publication, one table per context schema |
 | `<context>.inbox` | Event ids already processed by that context's consumers |
 

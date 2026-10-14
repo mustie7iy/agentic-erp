@@ -182,6 +182,25 @@ example a payment run in `proposing`).
 `GET /v1/operations/{id}` polls; `POST /v1/operations/{id}:cancel` cancels
 where the operation supports it; completion is also published as an event.
 
+A succeeded, failed or cancelled operation is final. Cancelling one is
+`409 platform.operation_not_cancellable`; a worker that tries to finish it
+again gets `409 platform.operation_finished` and changes nothing, so the
+outcome is never overwritten and completion is published once; progress
+reported late is ignored and never brings it back to `running`.
+
+Cancellation stops the work where the operation can stop, not what is
+already done. A payment-run release (`:release`, 202) posts one payment per
+step: cancelling its operation keeps the payments already posted, writes no
+bank file, and leaves the operation `cancelled` and the run `releasing`
+(with nothing posted, a refused release returns the run to `proposed`). The
+in-process releaser of a cell without a workflow engine keeps posting the
+release it is on. The run is resumed with `:release` again, which starts a
+new operation and posts only what is left; steps of the cancelled
+operation still running then do nothing. While the run is releasing, an
+invoice whose payment is not posted yet cannot be reversed
+(`409 payables.invoice_in_payment_run`), so the resumed release never pays a
+reversed invoice. A run has at most one bank file.
+
 ## 4.9 Security
 
 - OAuth 2.0 bearer tokens (OIDC) from the tenant's identity provider; the

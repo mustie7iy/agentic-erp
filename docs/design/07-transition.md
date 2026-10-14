@@ -1486,7 +1486,22 @@ Decisions taken while building it:
   distinction is the problem's status: below 500 the business refused,
   otherwise the machinery did.
 - **Resume by the same call.** No separate `:resume`: a release of a
-  `releasing` run whose operation failed is the resume.
+  `releasing` run whose operation failed or was cancelled is the resume.
+- **Cancelling keeps what was paid.** A cancelled release operation stays
+  `cancelled`: postings already made stand, no bank file is written, the
+  run stays `releasing` for `:release` to resume (the in-process releaser
+  keeps posting the release it is on). A finished operation is never
+  finished again (409 `platform.operation_finished`) nor put back to
+  `running` by late progress.
+- **Steps of a superseded release do nothing.** Every release step reads
+  the run `FOR UPDATE`, so the steps of one run, even of overlapping
+  workflows, run one at a time; a step whose operation is no longer the
+  run's `release_operation_id` succeeds without acting. A unique index on
+  `bank_file (tenant_id, payment_run_id)` (migration 000033) backs the
+  single bank file.
+- **A reversed invoice is never paid by a resume.** The items of a
+  releasing run's unposted payments stay reserved (`RunOf`), so their
+  invoices cannot be reversed while the run waits to be resumed.
 
 Open points for the contract and design review:
 
