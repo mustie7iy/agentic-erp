@@ -31,11 +31,7 @@ func Convert(amount Minor, rate string, fromExp, toExp int) (Minor, error) {
 	} else {
 		v.Quo(v, scale)
 	}
-	q := roundHalfAway(v)
-	if !q.IsInt64() {
-		return 0, ErrOverflow
-	}
-	return Minor(q.Int64()), nil
+	return fromBig(roundHalfAway(v))
 }
 
 // Scale returns amount × factor / divisor rounded half away from zero, in
@@ -54,11 +50,7 @@ func Scale(amount Minor, factor string, divisor int64) (Minor, error) {
 		f.Neg(f)
 	}
 	v := new(big.Rat).Mul(new(big.Rat).SetInt64(int64(amount)), f)
-	q := roundHalfAway(v.Quo(v, new(big.Rat).SetInt64(divisor)))
-	if !q.IsInt64() {
-		return 0, ErrOverflow
-	}
-	return Minor(q.Int64()), nil
+	return fromBig(roundHalfAway(v.Quo(v, new(big.Rat).SetInt64(divisor))))
 }
 
 // parsePlain accepts only plain non-negative decimals: big.Rat would also take
@@ -121,10 +113,9 @@ func ConvertAll(amounts []Minor, rate string, fromExp, toExp int) ([]Minor, erro
 			adjusted.Sub(adjusted, big.NewInt(int64(o)))
 		}
 	}
-	if !adjusted.IsInt64() {
-		return nil, ErrOverflow
+	if out[largest], err = fromBig(adjusted); err != nil {
+		return nil, err
 	}
-	out[largest] = Minor(adjusted.Int64())
 	return out, nil
 }
 

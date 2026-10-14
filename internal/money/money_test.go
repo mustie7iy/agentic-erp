@@ -52,15 +52,15 @@ func TestParseQty(t *testing.T) {
 
 func TestExtendRoundsHalfAwayFromZero(t *testing.T) {
 	// 1.5 units at 0.01 = 0.015 -> 0.02
-	if got, _ := Extend(1500, 1, 1); got != 2 {
-		t.Errorf("got %d", got)
+	if got, err := Extend(1500, 1, 1); err != nil || got != 2 {
+		t.Errorf("got %d, %v, want 2", got, err)
 	}
-	if got, _ := Extend(-1500, 1, 1); got != -2 {
-		t.Errorf("got %d", got)
+	if got, err := Extend(-1500, 1, 1); err != nil || got != -2 {
+		t.Errorf("got %d, %v, want -2", got, err)
 	}
 	// 2400 units at 12.34 per 100 units = 296.16
-	if got, _ := Extend(2400*QtyScale, 1234, 100); got != 29616 {
-		t.Errorf("price unit: got %d", got)
+	if got, err := Extend(2400*QtyScale, 1234, 100); err != nil || got != 29616 {
+		t.Errorf("price unit: got %d, %v, want 29616", got, err)
 	}
 }
 

@@ -33,6 +33,15 @@ func TestItemTotalsOutOfRange(t *testing.T) {
 	}
 }
 
+// A conversion to int64's most negative value is too large to post: it has
+// no positive counterpart, so its reversal or clearing offset would keep
+// the sign, and it rendered as "--92233720368547758.-8".
+func TestConvertToMostNegative(t *testing.T) {
+	if got, err := convert(-1<<62, "2", 2, 2); problemCode(err) != "ledger.amount_too_large" {
+		t.Errorf("got %d, %v, want ledger.amount_too_large", got, err)
+	}
+}
+
 // A rate the database never renders is an internal error, not the
 // caller's amount.
 func TestConvertInvalidRate(t *testing.T) {
