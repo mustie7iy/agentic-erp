@@ -693,7 +693,7 @@ components:
       name: JournalEntryReversed
       title: Journal entry reversed
       summary: A posted journal entry was reversed by a new reversal entry.
-      description: Emitted by `journal-entries/{id}:reverse` (and by reversals posted for other contexts, e.g. a reversed supplier invoice) once the reversal entry is posted and recorded in `ledger.reversal`. The reversal entry also publishes its own `JournalEntryPosted`. Subject is the id of the original (reversed) entry.
+      description: Emitted by `journal-entries/{id}:reverse` (and by reversals posted for other contexts, e.g. a reversed supplier invoice) once the reversal entry is posted and recorded in `ledger.reversal`. The reversal entry also publishes its own `JournalEntryPosted`; when the original has open-item lines, the reversal clears them against its own and an `ItemsCleared` follows, whose `clearing_entry_id` is the reversal entry. Subject is the id of the original (reversed) entry.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -709,7 +709,7 @@ components:
       name: ItemsCleared
       title: Open items cleared
       summary: Open items on a reconciliation account were settled by a clearing.
-      description: Emitted when a `ledger.clearing` with its clearing items is inserted (payment posting, manual clearing). The cleared lines stop being open items. Subject is the clearing id.
+      description: Emitted when a `ledger.clearing` with its clearing items is inserted (payment posting, manual clearing, or a reversal clearing the reversed pair). The cleared lines stop being open items; cleared is not paid. A reversal's clearing follows its `JournalEntryReversed` and has the reversal entry as `clearing_entry_id`. Subject is the clearing id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:

@@ -3838,7 +3838,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: Posts a reversal entry with every amount negated and links both entries. An entry can be reversed at most once (409). Returns the new reversal entry.
+      description: Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Returns the new reversal entry.
       x-permission: ledger.entry.post
       parameters:
         - $ref: "#/components/parameters/Id"

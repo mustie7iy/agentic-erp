@@ -945,8 +945,10 @@ type Handler interface {
 	ReverseGoodsReceipt(ctx context.Context, req OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)
 	// ReverseJournalEntry implements reverseJournalEntry operation.
 	//
-	// Posts a reversal entry with every amount negated and links both entries. An entry can be reversed at
-	// most once (409). Returns the new reversal entry.
+	// Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
+	// original are cleared against the reversal's lines in the same transaction (the reversal entry is the
+	// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
+	// Returns the new reversal entry.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)

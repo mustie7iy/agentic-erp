@@ -28866,8 +28866,10 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 
 // handleReverseJournalEntryRequest handles reverseJournalEntry operation.
 //
-// Posts a reversal entry with every amount negated and links both entries. An entry can be reversed at
-// most once (409). Returns the new reversal entry.
+// Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
+// original are cleared against the reversal's lines in the same transaction (the reversal entry is the
+// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
+// Returns the new reversal entry.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
