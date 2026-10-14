@@ -531,6 +531,7 @@ func TestQueryReportsLostOutput(t *testing.T) {
 	t.Run("write and close", func(t *testing.T) {
 		out = io.Discard
 		createFile = func(string) (io.WriteCloser, error) { return failing{}, nil }
+		// The write failure is the one reported, not the close that follows it.
 		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}), "device full")
 	})
 }

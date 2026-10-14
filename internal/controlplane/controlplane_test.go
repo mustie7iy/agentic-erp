@@ -630,7 +630,7 @@ func TestOperatorRoles(t *testing.T) {
 		{"reader rotates", []any{"erp:read"}, "POST", tenants + "/" + id + ":rotateKey", 403},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			status, m, _ := p.do(c.method, c.path, "", map[string]string{"Authorization": with(c.roles), "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()})
+			status, m, _ := p.in(t).do(c.method, c.path, "", map[string]string{"Authorization": with(c.roles), "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()})
 			if status != c.code {
 				t.Errorf("status: got %d, want %d: %v", status, c.code, m)
 			}
@@ -652,7 +652,7 @@ func TestContractIsServed(t *testing.T) {
 	for id, op := range ops {
 		t.Run(id, func(t *testing.T) {
 			path := strings.ReplaceAll(op.Path, "{id}", uuid.NewString())
-			code, m, _ := p.as("ops|alice", op.Method, path, "")
+			code, m, _ := p.in(t).as("ops|alice", op.Method, path, "")
 			if code == 405 {
 				t.Errorf("%s %s: got 405, want the operation routed: %v", op.Method, path, m)
 			}

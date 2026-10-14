@@ -120,6 +120,7 @@ func TestConsistentChecksALostAnswerByItsKey(t *testing.T) {
 	s.record(Posted{Key: uuid.NewString(), Status: http.StatusCreated})
 	pgtest.CheckErr(t, s.Consistent(ctx), "an entry answered 201 without a readable id")
 	s.posted = s.posted[:1]
+	// A complete answer that is not JSON is reported, not looked up by its key.
 	s.record(Posted{Key: key, Status: http.StatusCreated, Err: fmt.Errorf("POST: 201 with a %w", errNotJSON)})
 	pgtest.CheckErr(t, s.Consistent(ctx), "an entry answered 201 without a readable id")
 }

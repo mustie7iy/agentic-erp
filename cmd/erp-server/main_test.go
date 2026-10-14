@@ -445,6 +445,13 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if !t.Run("provision refusals", s.provisionRefusals) {
 		t.FailNow()
 	}
+	// Should a step after serve fail, shutdown does not run: stop the server
+	// when the test ends. Cancelling twice is harmless.
+	t.Cleanup(func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
+	})
 	if !t.Run("serve", s.serve) {
 		t.FailNow()
 	}
