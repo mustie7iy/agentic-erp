@@ -954,6 +954,11 @@ func TestItemReservationsHoldOnce(t *testing.T) {
 	mustApp(t, f.tenant, release(run1))
 	failsWith(t, asApp(t, f.tenant, release(run1)), "already released")
 	mustApp(t, f.tenant, reserve(run2, inv))
+	// Only the payments context owns reservations so far.
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO ledger.item_reservation (tenant_id, owner_id, fiscal_year, journal_entry_id, line_no, owner_context, owner_reference, created_by)
+			VALUES ($1, $2, 2026, $3, 2, 'payables', 'X', $4)`, f.tenant, id(), inv, f.actor)
+	}), "item_reservation_owner_context_check")
 }
 
 // TestExclusionReasons: a run excludes a supplier for one of the known

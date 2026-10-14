@@ -3,6 +3,7 @@ package payments_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,6 +87,9 @@ func TestRetriedFinishKeepsOneFile(t *testing.T) {
 		t.Fatalf("first attempt: %v", err)
 	}
 	apitest.EveryFailure(t, e.Tenant, e.Approver, "finish with the file stored", finish)
+	// A name corrected in between does not refuse the retry: the stored file pays the same.
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+		UPDATE partner.bank_account SET holder_name = 'Supplier GmbH' WHERE partner_id = '%s'; END $$`, e.Supplier))
 	if err := apitest.Committed(t, e.Tenant, e.Approver, finish); err != nil {
 		t.Fatalf("retry: %v", err)
 	}

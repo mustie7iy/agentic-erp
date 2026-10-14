@@ -22841,7 +22841,9 @@ func (s *Server) handleListPaymentRunsRequest(args [0]string, argsEscaped bool, 
 
 // handleListPaymentsRequest handles listPayments operation.
 //
-// Payments in the run.
+// Payments in the run. A payment the release dropped (its item reversed or no longer open since the
+// proposal) is not listed: its supplier is in the run's exclusions, with reason `item_reversed` or
+// `item_not_open`.
 //
 // GET /v1/payment-runs/{id}/payments
 func (s *Server) handleListPaymentsRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

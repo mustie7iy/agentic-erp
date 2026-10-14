@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -370,6 +371,9 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 	return e.recheckItems(ctx, r, pays)
 }
 
+// unpayableText says why an item can no longer be paid (OpenItems.Unpayable).
+var unpayableText = map[string]string{ledger.ItemReversed: "reversed", ledger.ItemNotOpen: "no longer open"}
+
 // recheckItems refuses the release of a proposed run with an item that
 // can no longer be paid: reversed, or no longer open, since the proposal.
 // Nothing is posted yet, so the run is rejected and proposed again. A
@@ -392,7 +396,7 @@ func (e *Endpoints) recheckItems(ctx context.Context, r Run, pays []Payment) err
 		for _, it := range itemRefs(pay) {
 			if why, ok := unpayable[it]; ok {
 				return problem.Conflict("payments.proposal_outdated", fmt.Sprintf("An item the payment to supplier %s settles (%d/%s line %d) is %s since the proposal; reject the run and propose again.",
-					pay.SupplierID, it.FiscalYear, it.EntryID, it.LineNo, map[string]string{ledger.ItemReversed: "reversed", ledger.ItemNotOpen: "no longer open"}[why]))
+					pay.SupplierID, it.FiscalYear, it.EntryID, it.LineNo, unpayableText[why]))
 			}
 		}
 	}
@@ -504,11 +508,14 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 // keep stores the run's bank file under its key and returns the file
 // recorded with its creation time. A release step run again after the
 // store took the file and the step's transaction was lost (ADR-0012) finds
-// the key taken: it records the stored file, once it is the run's file as
-// rendered at the creation time it carries, so a retry neither writes a
-// second object nor records another file than the one kept. Anything else
-// under the key is refused (409 payments.bank_file_changed). The store not
-// answering is the machinery's failure (503), which the release retries.
+// the key taken: it records the stored file, once it is this run's file,
+// so a retry neither writes a second object nor records another file than
+// the one kept. The stored file is the run's when it pays what the run
+// pays now (sameTransfer): names and remittance texts may have been
+// corrected since, which must not refuse a resumed release for good,
+// while a file that pays other amounts or accounts is refused (409
+// payments.bank_file_changed). The store not answering is the machinery's
+// failure (503), which the release retries.
 func (e *Endpoints) keep(ctx context.Context, tenant uuid.UUID, r Run, hb houseBank, pays []Payment, key string, content []byte,
 	created time.Time) ([]byte, time.Time, error) {
 	err := e.Objects.Put(ctx, key, content, blobstore.PutOptions{ContentType: "application/xml"})
@@ -522,14 +529,12 @@ func (e *Endpoints) keep(ctx context.Context, tenant uuid.UUID, r Run, hb houseB
 	if err != nil {
 		return nil, time.Time{}, problem.Unavailable("The file store did not return the bank file it holds; the release tries again.", 30).WithCause(err)
 	}
-	var doc struct {
-		Created string `xml:"CstmrCdtTrfInitn>GrpHdr>CreDtTm"`
-	}
 	changed := problem.Conflict("payments.bank_file_changed", "The file store holds another bank file under run "+r.DocumentNumber+"'s key; it is not recorded.")
-	if xml.Unmarshal(stored, &doc) != nil {
+	held, err := transferOf(stored)
+	if err != nil {
 		return nil, time.Time{}, changed
 	}
-	at, err := time.ParseInLocation("2006-01-02T15:04:05", doc.Created, time.UTC)
+	at, err := time.ParseInLocation("2006-01-02T15:04:05", held.Created, time.UTC)
 	if err != nil {
 		return nil, time.Time{}, changed
 	}
@@ -537,10 +542,43 @@ func (e *Endpoints) keep(ctx context.Context, tenant uuid.UUID, r Run, hb houseB
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	if !bytes.Equal(again, stored) {
+	// render's output is bankfile.Pain001's, which always reads back: the
+	// error can only come from stored content, checked above.
+	want, _ := transferOf(again)
+	if !sameTransfer(held, want) {
 		return nil, time.Time{}, changed
 	}
 	return stored, at, nil
+}
+
+// transfer is what a pain.001 file pays: its message, creation time, the
+// debtor account, and each payment's end-to-end id, amount and creditor
+// account.
+type transfer struct {
+	MessageID string `xml:"CstmrCdtTrfInitn>GrpHdr>MsgId"`
+	Created   string `xml:"CstmrCdtTrfInitn>GrpHdr>CreDtTm"`
+	Debtor    string `xml:"CstmrCdtTrfInitn>PmtInf>DbtrAcct>Id>IBAN"`
+	Payments  []struct {
+		EndToEndID string `xml:"PmtId>EndToEndId"`
+		Amount     struct {
+			Value    string `xml:",chardata"`
+			Currency string `xml:"Ccy,attr"`
+		} `xml:"Amt>InstdAmt"`
+		IBAN  string `xml:"CdtrAcct>Id>IBAN"`
+		Other string `xml:"CdtrAcct>Id>Othr>Id"`
+	} `xml:"CstmrCdtTrfInitn>PmtInf>CdtTrfTxInf"`
+}
+
+func transferOf(content []byte) (transfer, error) {
+	var t transfer
+	err := xml.Unmarshal(content, &t)
+	return t, errs.Wrapf(err, "read the bank file")
+}
+
+// sameTransfer reports whether two files pay the same: same message, the
+// same debtor account, and the same payments to the same accounts.
+func sameTransfer(a, b transfer) bool {
+	return a.MessageID == b.MessageID && a.Debtor == b.Debtor && slices.Equal(a.Payments, b.Payments)
 }
 
 // render writes the run's payments as a pain.001.001.03 credit transfer

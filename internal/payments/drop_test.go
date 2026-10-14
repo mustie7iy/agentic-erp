@@ -93,12 +93,14 @@ func TestUnpayablePaymentIsDropped(t *testing.T) {
 	if exs := e.exclusions(t, run); exs[e.Vendor.String()] != "item_reversed 40.00" {
 		t.Errorf("exclusions: got %v, want vendor item_reversed 40.00", exs)
 	}
-	for _, pay := range e.payments(t, run) {
-		m := pay.(map[string]any)
-		item := m["items"].([]any)[0].(map[string]any)
-		if want := id(m) != payX.String(); item["is_active"] != want {
-			t.Errorf("payment %s item active: got %v, want %v", id(m), item["is_active"], want)
-		}
+	// The dropped payment is not listed; its items are freed.
+	if pays := e.payments(t, run); len(pays) != 1 || id(pays[0].(map[string]any)) != payA.String() {
+		t.Errorf("payments listed: got %v, want payment A alone", pays)
+	}
+	var active bool
+	pgtest.Scan(t, `SELECT bool_or(is_active) FROM payments.payment_item WHERE payment_id = $1`, []any{payX}, &active)
+	if active {
+		t.Errorf("dropped payment's items active: got %v, want false", active)
 	}
 	dropped := events(t, e.Tenant, "payment_excluded")
 	if len(dropped) != 1 {

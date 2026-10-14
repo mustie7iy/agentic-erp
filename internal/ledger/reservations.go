@@ -19,6 +19,10 @@ import (
 // ledger, never the other way round. The owner reserves and frees its items
 // through Postings in the transaction that changes its document; its
 // settlement (Settlement.ReservedFor) pays them and ends the reservation.
+// Reserve and Release write no audit record of their own: they change
+// nothing but the owner's document does, and the owner's audit record of
+// that change (a run proposed, rejected, or a payment dropped or posted)
+// covers them (ADR-0011).
 
 func init() {
 	problem.RegisterConstraint("item_reserved_once", func() *problem.Problem {

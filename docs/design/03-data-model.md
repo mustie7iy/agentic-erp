@@ -347,12 +347,14 @@ Rules enforced in the database:
   the reversal, in the same transaction, with the reversal as the clearing
   entry (as SAP does); no other clearing or settlement takes a line of a
   reversed entry or of a reversal.
-- An entry belongs to the context that posted it (`source_context`). The
-  ledger's `:reverse` reverses only its own (`ledger`) entries; another
-  context's entry is 409 `ledger.entry_owned_elsewhere` there and is
-  reversed by its owner through `Postings.Reverse` (a supplier invoice's by
-  `supplier-invoices/{id}:reverse`), which also changes the owner's document
-  and applies its permission and checks.
+- An entry posted for a document with a reversal of its own belongs to
+  that document's context: today a supplier invoice's (`source_context`
+  `payables`). The ledger's `:reverse` refuses it (409
+  `ledger.entry_owned_elsewhere`, naming `supplier-invoices/{id}:reverse`),
+  whose reversal goes through `Postings.Reverse` and also changes the
+  invoice and applies its permission and checks. Manual entries, entries a
+  migration run loaded (`integration`) and other contexts' entries without a
+  reversal of their own stay reversible through the ledger.
 - An open item another context is about to settle is reserved in
   `item_reservation` (owner context, owner document and its reference;
   migration 000034): at most one active reservation per line (partial unique
@@ -547,8 +549,15 @@ deactivates its items. The run also reserves its items in the ledger
 (`ledger.item_reservation`, owner the run, §3.7) in the proposal's
 transaction, and frees them there when it is rejected; posting a payment
 ends the reservation of the items it settles. So the ledger reservations
-are exactly the items of live runs not paid yet, and a manual clearing or
-reversal of one is refused while the run holds it.
+are the items of live runs not paid yet, and a manual clearing or reversal
+of one is refused while the run holds it. A reservation left behind (an
+application version from before 000034 rejecting a run during the rollout)
+only keeps its item out of proposals (`OpenItems.Payable` leaves reserved
+items out) until migration 000037 reconciles the reservations with the
+runs; it ships in the release after 000034, once no older version runs.
+Entry locks are taken per bucket (1,024 per tenant-independent key space),
+so a proposal or release check over 100,000 items holds a bounded number of
+advisory locks.
 
 Proposals of a legal entity serialise on the advisory lock
 `payments.propose.<legal entity id>` (`hashtextextended`, transaction

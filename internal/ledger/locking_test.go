@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -119,7 +120,7 @@ func serialize(t *testing.T, ten pgtest.Tenant, entry uuid.UUID, first, second f
 		}
 		var waiting int
 		if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
-			AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('ledger.journal_entry:' || $1::text, 0)`, entry).Scan(&waiting); err != nil {
+			AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('ledger.journal_entry:' || $1::int, 0)`, ledger.EntryLockBucket(entry)).Scan(&waiting); err != nil {
 			t.Fatalf("read the lock waits: %v", err)
 		}
 		return waiting > 0

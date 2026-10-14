@@ -237,7 +237,6 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 	}
 	for _, c := range []struct{ source, endpoint string }{
 		{"payables", "/v1/supplier-invoices/"},
-		{"integration", "integration"},
 	} {
 		t.Run(c.source, func(t *testing.T) {
 			entry := post(c.source)
@@ -253,5 +252,11 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 				t.Errorf("reversal through the owner's port: got %v, want nil", err)
 			}
 		})
+	}
+	// Entries of contexts without a reversal of their own (a migration run's load) stay the ledger's to reverse.
+	for _, source := range []string{"integration", "payments"} {
+		entry := post(source)
+		_, tag := e.Must(200, "GET", "/v1/journal-entries/"+entry.ID.String(), "", "")
+		e.Must(200, "POST", "/v1/journal-entries/"+entry.ID.String()+":reverse", "", tag)
 	}
 }

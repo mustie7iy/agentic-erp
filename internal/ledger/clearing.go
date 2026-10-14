@@ -306,19 +306,41 @@ func reversedItem(i int) *problem.Problem {
 // different tables, so no constraint would stop an entry from being both
 // reversed and cleared. The lock is advisory because journal entries are
 // insert-only: the application role has no UPDATE privilege on them, which
-// SELECT ... FOR SHARE requires. Entries are locked in id order, so two
-// transactions never wait for each other in a cycle.
+// SELECT ... FOR SHARE requires.
+//
+// The lock is taken on the entry's bucket (EntryLockBuckets of them), not
+// on the entry: a transaction holds at most that many locks however many
+// entries it touches, where a proposal or a release check over 100,000
+// items would otherwise exhaust the server's shared lock table and fail
+// other tenants' transactions with it. Two entries of one bucket serialize
+// a reversal against a clearing of the other; shared locks never conflict.
+// Buckets are locked in order, so two transactions never wait for each
+// other in a cycle.
 func lockEntries(ctx context.Context, tx pgx.Tx, shared bool, ids []uuid.UUID) error {
-	distinct := slices.Compact(slices.SortedFunc(slices.Values(ids), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }))
+	buckets := make([]int32, len(ids))
+	for i, id := range ids {
+		buckets[i] = EntryLockBucket(id)
+	}
+	buckets = slices.Compact(slices.Sorted(slices.Values(buckets)))
 	lock := "pg_advisory_xact_lock"
 	if shared {
 		lock = "pg_advisory_xact_lock_shared"
 	}
-	if _, err := tx.Exec(ctx, `SELECT `+lock+`(hashtextextended('ledger.journal_entry:' || id::text, 0)) FROM unnest($1::uuid[]) AS x(id)`,
-		distinct); err != nil {
-		return fmt.Errorf("ledger: lock %d journal entries: %w", len(distinct), err)
+	if _, err := tx.Exec(ctx, `SELECT `+lock+`(hashtextextended('ledger.journal_entry:' || b, 0)) FROM unnest($1::int[]) AS x(b)`,
+		buckets); err != nil {
+		return fmt.Errorf("ledger: lock the entries of %d buckets: %w", len(buckets), err)
 	}
 	return nil
+}
+
+// EntryLockBuckets is how many locks journal entries share (lockEntries).
+const EntryLockBuckets = 1024
+
+// EntryLockBucket is the lock bucket of a journal entry: the low bits of
+// its id, which are random in version 4 and 7 ids. Its advisory lock key is
+// hashtextextended('ledger.journal_entry:' || bucket, 0).
+func EntryLockBucket(id uuid.UUID) int32 {
+	return (int32(id[14])<<8 | int32(id[15])) % EntryLockBuckets
 }
 
 // markCleared records the lines as cleared by the clearing.

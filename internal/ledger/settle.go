@@ -38,6 +38,10 @@ type PayableItem struct {
 // Lines of a reversed entry or of a reversal are left out: the reversal
 // cancelled them, and Settle refuses them. A reversal clears them, so this
 // matters only for entries reversed before reversals cleared the pair.
+// Items an owner holds (item_reservation) are left out too: they are
+// another run's to pay, and Reserve would refuse them, so a reservation
+// that outlived its run (released by a version that did not know of it)
+// keeps one item out of later runs instead of failing every proposal.
 func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency string, documentDateTo time.Time) ([]PayableItem, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -54,6 +58,8 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 			AND NOT EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = l.tenant_id
 				AND ((r.original_year = l.fiscal_year AND r.original_entry_id = l.journal_entry_id)
 					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))
+			AND NOT EXISTS (SELECT FROM ledger.item_reservation ir WHERE ir.tenant_id = l.tenant_id AND ir.fiscal_year = l.fiscal_year
+				AND ir.journal_entry_id = l.journal_entry_id AND ir.line_no = l.line_no AND ir.released_at IS NULL)
 		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, currency, documentDateTo)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem

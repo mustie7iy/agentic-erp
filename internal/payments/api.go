@@ -151,7 +151,7 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(`SELECT * FROM (`+paymentSelect+` WHERE p.payment_run_id = $1 AND ($2::uuid IS NULL OR p.supplier_id = $2)) p WHERE true`,
+	q, args := ks.SQL(`SELECT * FROM (`+paymentSelect+` WHERE p.payment_run_id = $1 AND NOT `+dropped+` AND ($2::uuid IS NULL OR p.supplier_id = $2)) p WHERE true`,
 		[]any{r.ID, sup})
 	rows, _ := tx.Query(ctx, q, args...)
 	pays, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Payment, error) { return scanPayment(row) })

@@ -740,7 +740,9 @@ type Handler interface {
 	ListPaymentRuns(ctx context.Context, params ListPaymentRunsParams) (ListPaymentRunsRes, error)
 	// ListPayments implements listPayments operation.
 	//
-	// Payments in the run.
+	// Payments in the run. A payment the release dropped (its item reversed or no longer open since the
+	// proposal) is not listed: its supplier is in the run's exclusions, with reason `item_reversed` or
+	// `item_not_open`.
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)

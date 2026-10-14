@@ -249,7 +249,9 @@ type Payment struct {
 
 // dropped says whether payment p was dropped by its run's release: its
 // supplier has an exclusion, which a payment of the run otherwise never
-// has (a proposal pays or excludes each supplier).
+// has (a proposal pays or excludes each supplier). It relies on one payment
+// per supplier and run, which UNIQUE (tenant_id, payment_run_id,
+// supplier_id) on payments.payment holds (000008).
 const dropped = `EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id AND x.payment_run_id = p.payment_run_id
 		AND x.supplier_id = p.supplier_id)`
 

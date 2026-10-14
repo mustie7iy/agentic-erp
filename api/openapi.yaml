@@ -6753,7 +6753,7 @@ paths:
       tags:
         - payments
       summary: List payments of a run
-      description: Payments in the run.
+      description: "Payments in the run. A payment the release dropped (its item reversed or no longer open since the proposal) is not listed: its supplier is in the run's exclusions, with reason `item_reversed` or `item_not_open`."
       x-permission: payments.run.read
       parameters:
         - $ref: "#/components/parameters/Id"

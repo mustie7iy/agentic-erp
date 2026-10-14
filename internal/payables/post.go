@@ -179,6 +179,9 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if cleared {
 		return Invoice{}, problem.Conflict("payables.invoice_cleared", "The invoice's open item is cleared; reverse the payment first.")
 	}
+	// RunOf takes the proposals lock after this read; the read is only for
+	// the clearer refusal: the ledger's reversal checks clearing again under
+	// its exclusive lock on the entry.
 	run, inRun, err := e.Payments.RunOf(ctx, v.LegalEntityID, *v.JournalEntryYear, *v.JournalEntryID)
 	if err != nil {
 		return Invoice{}, err
