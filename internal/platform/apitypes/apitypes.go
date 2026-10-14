@@ -84,8 +84,8 @@ func EncodeObject(m map[string]any) map[string]jx.Raw {
 }
 
 // Money is an amount in the API's representation (ADR-0005).
-func Money[M ~int64](minor M, currency string, exp int) gen.Money {
-	return gen.Money{Amount: money.Minor(minor).Plain(exp), Currency: currency}
+func Money(amount money.Minor, currency string, exp int) gen.Money {
+	return gen.Money{Amount: amount.Plain(exp), Currency: currency}
 }
 
 // Page is a list request's paging parameters (04-api-design §4.5).

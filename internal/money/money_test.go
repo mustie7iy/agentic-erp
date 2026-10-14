@@ -76,7 +76,7 @@ func TestFormat(t *testing.T) {
 
 func TestEventAmount(t *testing.T) {
 	cases := map[string]struct {
-		minor    int64
+		minor    Minor
 		currency string
 		decimals int
 		want     map[string]string
