@@ -27,6 +27,14 @@ func setup(t *testing.T) env {
 	return env{Env: f, expense: f.Account(t, "2000", "510000").String(), office: f.Account(t, "2000", "520000").String()}
 }
 
+// in returns e reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (e env) in(t *testing.T) env {
+	t.Helper()
+	e.T = t
+	return e
+}
+
 func id(m map[string]any) string { return m["id"].(string) }
 
 func events(t *testing.T, e env, name string) []map[string]any {

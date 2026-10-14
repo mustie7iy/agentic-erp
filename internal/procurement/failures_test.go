@@ -99,46 +99,64 @@ func TestLists(t *testing.T) {
 	}
 }
 
-// TestDatabaseFailures calls every handler and context function outside a
-// unit of work and with each of its database statements failing in turn.
-func TestDatabaseFailures(t *testing.T) {
-	e := setup(t)
-	h := endpoints()
-	ok := []gen.RequisitionItem{{Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"},
+// failureFixture is the documents TestDatabaseFailures calls the handlers
+// on: one in each status a handler acts on.
+type failureFixture struct {
+	ok                                            []gen.RequisitionItem
+	poItems                                       []gen.PurchaseOrderItem
+	cItems                                        []gen.ContractItem
+	plant, org                                    string
+	draftReq, pendingReq, approvedReq             map[string]any
+	contract, active, draftPO, released, closable map[string]any
+	gr                                            map[string]any
+	sup                                           gen.OptUUID
+}
+
+func newFailureFixture(t *testing.T, e env) failureFixture {
+	t.Helper()
+	f := failureFixture{sup: gen.NewOptUUID(e.Supplier)}
+	f.ok = []gen.RequisitionItem{{Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"},
 		AccountID: uuid.MustParse(e.office)}}
-	poItems := []gen.PurchaseOrderItem{{Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"},
+	f.poItems = []gen.PurchaseOrderItem{{Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"},
 		AccountID: uuid.MustParse(e.office), TaxCode: gen.NewOptString("V1"), ContractItemNo: gen.NewOptInt32(1),
 		OverDeliveryPct: gen.NewOptDecimal("5")}}
-	cItems := []gen.ContractItem{{MaterialKey: "A", Description: "P", UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"}, UomCode: "EA",
+	f.cItems = []gen.ContractItem{{MaterialKey: "A", Description: "P", UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"}, UomCode: "EA",
 		AccountID: uuid.MustParse(e.office)}}
-	plant, org := e.orgUnit(t, "plant", "PL1"), e.orgUnit(t, "purchasing_org", "P1")
-	draftReq := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
-	pendingReq := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), fmt.Sprintf(`, "supplier_id": %q`, e.Supplier))
-	e.act(t, "/v1/requisitions/"+id(pendingReq), "submit", "")
-	approvedReq := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
-	e.act(t, "/v1/requisitions/"+id(approvedReq), "submit", "")
-	e.Approve(t, id(approvedReq))
-	contract := e.contract(t, e.Supplier.String(), "")
-	active := e.contract(t, e.Supplier.String(), "")
-	e.act(t, "/v1/contracts/"+id(active), "release", "")
-	draftPO := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", `, "contract_item_no": 1`)), fmt.Sprintf(`, "contract_id": %q`, id(active)))
-	released := e.order(t, items(item(e.office, "10", "EA", "1.00", "EUR", `, "contract_item_no": 1`)), fmt.Sprintf(`, "contract_id": %q, "requisition_id": %q`, id(active), id(approvedReq)))
-	e.act(t, "/v1/purchase-orders/"+id(released), "release", "")
-	_, gr := e.receipt(t, id(released), "1:2:EA")
-	closable := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
-	e.act(t, "/v1/purchase-orders/"+id(closable), "release", "")
-	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
-	d := func(s string) time.Time { v, _ := time.Parse(time.DateOnly, s); return v }
-	sup := gen.NewOptUUID(e.Supplier)
+	f.plant, f.org = e.orgUnit(t, "plant", "PL1"), e.orgUnit(t, "purchasing_org", "P1")
+	f.draftReq = e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	f.pendingReq = e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), fmt.Sprintf(`, "supplier_id": %q`, e.Supplier))
+	e.act(t, "/v1/requisitions/"+id(f.pendingReq), "submit", "")
+	f.approvedReq = e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	e.act(t, "/v1/requisitions/"+id(f.approvedReq), "submit", "")
+	e.Approve(t, id(f.approvedReq))
+	f.contract = e.contract(t, e.Supplier.String(), "")
+	f.active = e.contract(t, e.Supplier.String(), "")
+	e.act(t, "/v1/contracts/"+id(f.active), "release", "")
+	f.draftPO = e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", `, "contract_item_no": 1`)), fmt.Sprintf(`, "contract_id": %q`, id(f.active)))
+	f.released = e.order(t, items(item(e.office, "10", "EA", "1.00", "EUR", `, "contract_item_no": 1`)), fmt.Sprintf(`, "contract_id": %q, "requisition_id": %q`, id(f.active), id(f.approvedReq)))
+	e.act(t, "/v1/purchase-orders/"+id(f.released), "release", "")
+	_, f.gr = e.receipt(t, id(f.released), "1:2:EA")
+	f.closable = e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	e.act(t, "/v1/purchase-orders/"+id(f.closable), "release", "")
+	return f
+}
 
-	calls := map[string]func(ctx context.Context) error{
+// uuidOf is a document's id; dateOf a date.
+func uuidOf(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
+
+func dateOf(s string) time.Time { v, _ := time.Parse(time.DateOnly, s); return v }
+
+// failureCalls are the handler and context function calls on the fixture.
+func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]func(ctx context.Context) error {
+	u, d := uuidOf, dateOf
+	return map[string]func(ctx context.Context) error{
 		"create requisition": func(ctx context.Context) error {
-			_, err := h.CreateRequisition(ctx, &gen.RequisitionCreate{LegalEntityID: e.DE, Currency: "EUR", Items: ok, SupplierID: sup,
-				ContractID: gen.NewOptUUID(u(active))}, gen.CreateRequisitionParams{})
+			_, err := h.CreateRequisition(ctx, &gen.RequisitionCreate{LegalEntityID: e.DE, Currency: "EUR", Items: f.ok, SupplierID: f.sup,
+				ContractID: gen.NewOptUUID(u(f.active))}, gen.CreateRequisitionParams{})
 			return err
 		},
 		"get requisition": func(ctx context.Context) error {
-			_, err := h.GetRequisition(ctx, gen.GetRequisitionParams{ID: u(pendingReq), Expand: []string{"supplier"}})
+			_, err := h.GetRequisition(ctx, gen.GetRequisitionParams{ID: u(f.pendingReq), Expand: []string{"supplier"}})
 			return err
 		},
 		"list requisitions": func(ctx context.Context) error {
@@ -146,34 +164,34 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"update requisition": func(ctx context.Context) error {
-			_, err := h.UpdateRequisition(ctx, &gen.RequisitionUpdate{Items: ok, SupplierID: gen.NewOptNilUUID(e.Supplier), ContractID: gen.NewOptNilUUID(u(active))},
-				gen.UpdateRequisitionParams{ID: u(draftReq), IfMatch: "*"})
+			_, err := h.UpdateRequisition(ctx, &gen.RequisitionUpdate{Items: f.ok, SupplierID: gen.NewOptNilUUID(e.Supplier), ContractID: gen.NewOptNilUUID(u(f.active))},
+				gen.UpdateRequisitionParams{ID: u(f.draftReq), IfMatch: "*"})
 			return err
 		},
 		"submit requisition": func(ctx context.Context) error {
-			_, err := h.SubmitRequisition(ctx, gen.SubmitRequisitionParams{ID: u(draftReq), IfMatch: "*"})
+			_, err := h.SubmitRequisition(ctx, gen.SubmitRequisitionParams{ID: u(f.draftReq), IfMatch: "*"})
 			return err
 		},
 		"cancel requisition": func(ctx context.Context) error {
-			_, err := h.CancelRequisition(ctx, gen.CancelRequisitionParams{ID: u(pendingReq), IfMatch: "*"})
+			_, err := h.CancelRequisition(ctx, gen.CancelRequisitionParams{ID: u(f.pendingReq), IfMatch: "*"})
 			return err
 		},
 		"approved": func(ctx context.Context) error {
-			return procurement.Approvals{}.Approved(ctx, u(pendingReq), uuid.New())
+			return procurement.Approvals{}.Approved(ctx, u(f.pendingReq), uuid.New())
 		},
 		"rejected": func(ctx context.Context) error {
-			return procurement.Approvals{}.Rejected(ctx, u(pendingReq), uuid.New(), "c")
+			return procurement.Approvals{}.Rejected(ctx, u(f.pendingReq), uuid.New(), "c")
 		},
 		"cancelled": func(ctx context.Context) error {
-			return procurement.Approvals{}.Cancelled(ctx, u(pendingReq), uuid.New(), "c")
+			return procurement.Approvals{}.Cancelled(ctx, u(f.pendingReq), uuid.New(), "c")
 		},
 		"create contract": func(ctx context.Context) error {
 			_, err := h.CreateContract(ctx, &gen.ContractCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, Currency: "EUR", ValidFrom: d("2026-01-01"),
-				ValidTo: d("2026-12-31"), TargetValue: gen.Money{Amount: "1.00", Currency: "EUR"}, Items: cItems}, gen.CreateContractParams{})
+				ValidTo: d("2026-12-31"), TargetValue: gen.Money{Amount: "1.00", Currency: "EUR"}, Items: f.cItems}, gen.CreateContractParams{})
 			return err
 		},
 		"get contract": func(ctx context.Context) error {
-			_, err := h.GetContract(ctx, gen.GetContractParams{ID: u(contract)})
+			_, err := h.GetContract(ctx, gen.GetContractParams{ID: u(f.contract)})
 			return err
 		},
 		"list contracts": func(ctx context.Context) error {
@@ -181,30 +199,30 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"update contract": func(ctx context.Context) error {
-			_, err := h.UpdateContract(ctx, &gen.ContractUpdate{Items: cItems, TargetValue: gen.NewOptMoney(gen.Money{Amount: "2.00", Currency: "EUR"})},
-				gen.UpdateContractParams{ID: u(contract), IfMatch: "*"})
+			_, err := h.UpdateContract(ctx, &gen.ContractUpdate{Items: f.cItems, TargetValue: gen.NewOptMoney(gen.Money{Amount: "2.00", Currency: "EUR"})},
+				gen.UpdateContractParams{ID: u(f.contract), IfMatch: "*"})
 			return err
 		},
 		"release contract": func(ctx context.Context) error {
-			_, err := h.ReleaseContract(ctx, gen.ReleaseContractParams{ID: u(contract), IfMatch: "*"})
+			_, err := h.ReleaseContract(ctx, gen.ReleaseContractParams{ID: u(f.contract), IfMatch: "*"})
 			return err
 		},
 		"cancel contract": func(ctx context.Context) error {
-			_, err := h.CancelContract(ctx, gen.CancelContractParams{ID: u(contract), IfMatch: "*"})
+			_, err := h.CancelContract(ctx, gen.CancelContractParams{ID: u(f.contract), IfMatch: "*"})
 			return err
 		},
 		"terminate contract": func(ctx context.Context) error {
-			_, err := h.TerminateContract(ctx, &gen.ReasonInput{Reason: "r"}, gen.TerminateContractParams{ID: u(active), IfMatch: "*"})
+			_, err := h.TerminateContract(ctx, &gen.ReasonInput{Reason: "r"}, gen.TerminateContractParams{ID: u(f.active), IfMatch: "*"})
 			return err
 		},
 		"create order": func(ctx context.Context) error {
 			_, err := h.CreatePurchaseOrder(ctx, &gen.PurchaseOrderCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, Currency: "EUR", OrderDate: d("2026-03-10"),
-				Items: poItems, ContractID: gen.NewOptUUID(u(active)), PurchasingOrgID: gen.NewOptUUID(uuid.MustParse(org)),
+				Items: f.poItems, ContractID: gen.NewOptUUID(u(f.active)), PurchasingOrgID: gen.NewOptUUID(uuid.MustParse(f.org)),
 				PaymentTermCode: gen.NewOptString("NT60")}, gen.CreatePurchaseOrderParams{})
 			return err
 		},
 		"get order": func(ctx context.Context) error {
-			_, err := h.GetPurchaseOrder(ctx, gen.GetPurchaseOrderParams{ID: u(draftPO), Expand: []string{"supplier"}})
+			_, err := h.GetPurchaseOrder(ctx, gen.GetPurchaseOrderParams{ID: u(f.draftPO), Expand: []string{"supplier"}})
 			return err
 		},
 		"list orders": func(ctx context.Context) error {
@@ -213,27 +231,27 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"update order": func(ctx context.Context) error {
 			_, err := h.UpdatePurchaseOrder(ctx, &gen.PurchaseOrderUpdate{PaymentTermCode: gen.NewOptString("NT60"), SupplierID: gen.NewOptUUID(e.Vendor),
-				ContractID: gen.OptNilUUID{Set: true, Null: true}, PurchasingOrgID: gen.NewOptNilUUID(uuid.MustParse(org)),
+				ContractID: gen.OptNilUUID{Set: true, Null: true}, PurchasingOrgID: gen.NewOptNilUUID(uuid.MustParse(f.org)),
 				Items: []gen.PurchaseOrderItem{{Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"},
-					AccountID: uuid.MustParse(e.office)}}}, gen.UpdatePurchaseOrderParams{ID: u(draftPO), IfMatch: "*"})
+					AccountID: uuid.MustParse(e.office)}}}, gen.UpdatePurchaseOrderParams{ID: u(f.draftPO), IfMatch: "*"})
 			return err
 		},
 		"release order": func(ctx context.Context) error {
-			_, err := h.ReleasePurchaseOrder(ctx, gen.ReleasePurchaseOrderParams{ID: u(draftPO), IfMatch: "*"})
+			_, err := h.ReleasePurchaseOrder(ctx, gen.ReleasePurchaseOrderParams{ID: u(f.draftPO), IfMatch: "*"})
 			return err
 		},
 		"close order": func(ctx context.Context) error {
-			_, err := h.ClosePurchaseOrder(ctx, gen.ClosePurchaseOrderParams{ID: u(closable), IfMatch: "*"})
+			_, err := h.ClosePurchaseOrder(ctx, gen.ClosePurchaseOrderParams{ID: u(f.closable), IfMatch: "*"})
 			return err
 		},
 		"post receipt": func(ctx context.Context) error {
-			_, err := h.PostGoodsReceipt(ctx, &gen.GoodsReceiptCreate{LegalEntityID: e.DE, PlantID: gen.NewOptUUID(uuid.MustParse(plant)), DocumentDate: d("2026-03-15"),
-				PostingDate: d("2026-03-15"), Items: []gen.GoodsReceiptItemInput{{PurchaseOrderID: u(released), PoItemNo: 1,
+			_, err := h.PostGoodsReceipt(ctx, &gen.GoodsReceiptCreate{LegalEntityID: e.DE, PlantID: gen.NewOptUUID(uuid.MustParse(f.plant)), DocumentDate: d("2026-03-15"),
+				PostingDate: d("2026-03-15"), Items: []gen.GoodsReceiptItemInput{{PurchaseOrderID: u(f.released), PoItemNo: 1,
 					Quantity: gen.Quantity{Value: "1", Unit: "EA"}}}}, gen.PostGoodsReceiptParams{})
 			return err
 		},
 		"get receipt": func(ctx context.Context) error {
-			_, err := h.GetGoodsReceipt(ctx, gen.GetGoodsReceiptParams{ID: u(gr)})
+			_, err := h.GetGoodsReceipt(ctx, gen.GetGoodsReceiptParams{ID: u(f.gr)})
 			return err
 		},
 		"list receipts": func(ctx context.Context) error {
@@ -241,109 +259,129 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"reverse receipt": func(ctx context.Context) error {
-			_, err := h.ReverseGoodsReceipt(ctx, gen.OptGoodsReceiptReverse{}, gen.ReverseGoodsReceiptParams{ID: u(gr), IfMatch: "*"})
+			_, err := h.ReverseGoodsReceipt(ctx, gen.OptGoodsReceiptReverse{}, gen.ReverseGoodsReceiptParams{ID: u(f.gr), IfMatch: "*"})
 			return err
 		},
 	}
-	for name, call := range calls {
-		t.Run(name, func(t *testing.T) {
-			if err := call(context.Background()); err == nil {
-				t.Error("outside a unit of work: got nil error, want an error")
-			}
-			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
-		})
-	}
-	// An order from a requisition, cancelled: the requisition becomes approved again.
-	fromReq := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
-	e.act(t, "/v1/requisitions/"+id(fromReq), "submit", "")
-	e.Approve(t, id(fromReq))
-	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "order from requisition", func(ctx context.Context) error {
-		o, err := h.CreatePurchaseOrder(ctx, &gen.PurchaseOrderCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, Currency: "EUR", OrderDate: d("2026-03-10"),
-			Items: poItems[:1:1], RequisitionID: gen.NewOptUUID(u(fromReq)), ContractID: gen.NewOptUUID(u(active))}, gen.CreatePurchaseOrderParams{})
-		if err != nil {
-			return err
-		}
-		po := o.(*gen.PurchaseOrderHeaders).Response
-		if _, err := h.ReleasePurchaseOrder(ctx, gen.ReleasePurchaseOrderParams{ID: po.ID, IfMatch: "*"}); err != nil {
-			return err
-		}
-		_, err = h.CancelPurchaseOrder(ctx, gen.CancelPurchaseOrderParams{ID: po.ID, IfMatch: "*"})
-		return err
-	})
-	if _, err := h.CancelPurchaseOrder(context.Background(), genCancel(id(draftPO))); err == nil {
-		t.Error("cancel order outside a unit of work")
-	}
-	if _, _, err := (procurement.Orders{}).Order(context.Background(), uuid.New()); err == nil {
-		t.Error("orders port outside a unit of work")
-	}
-	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "orders port", func(ctx context.Context) error {
-		_, _, err := procurement.Orders{}.Order(ctx, u(released))
-		return err
-	})
+}
 
-	// Handlers check page sizes for callers other than the generated router.
-	zero := gen.NewOptInt32(0)
-	for name, call := range map[string]func(ctx context.Context) error{
-		"requisitions": func(ctx context.Context) error {
-			_, err := h.ListRequisitions(ctx, gen.ListRequisitionsParams{PageSize: zero})
-			return err
-		},
-		"orders": func(ctx context.Context) error {
-			_, err := h.ListPurchaseOrders(ctx, gen.ListPurchaseOrdersParams{PageSize: zero})
-			return err
-		},
-		"contracts": func(ctx context.Context) error {
-			_, err := h.ListContracts(ctx, gen.ListContractsParams{PageSize: zero})
-			return err
-		},
-		"receipts": func(ctx context.Context) error {
-			_, err := h.ListGoodsReceipts(ctx, gen.ListGoodsReceiptsParams{PageSize: zero})
-			return err
-		},
-	} {
-		t.Run("page size 0 "+name, func(t *testing.T) {
-			if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
-				t.Error("got nil error, want page_size 0 refused")
+// TestDatabaseFailures calls every handler and context function outside a
+// unit of work and with each of its database statements failing in turn.
+func TestDatabaseFailures(t *testing.T) {
+	e := setup(t)
+	h := endpoints()
+	f := newFailureFixture(t, e)
+	u, d := uuidOf, dateOf
+	t.Run("every call", func(t *testing.T) {
+		e := e.in(t)
+		for name, call := range failureCalls(e, h, f) {
+			t.Run(name, func(t *testing.T) {
+				if err := call(context.Background()); err == nil {
+					t.Error("outside a unit of work: got nil error, want an error")
+				}
+				apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+			})
+		}
+	})
+	t.Run("order from a requisition", func(t *testing.T) {
+		e := e.in(t)
+		// An order from a requisition, cancelled: the requisition becomes approved again.
+		fromReq := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+		e.act(t, "/v1/requisitions/"+id(fromReq), "submit", "")
+		e.Approve(t, id(fromReq))
+		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "order from requisition", func(ctx context.Context) error {
+			o, err := h.CreatePurchaseOrder(ctx, &gen.PurchaseOrderCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, Currency: "EUR", OrderDate: d("2026-03-10"),
+				Items: f.poItems[:1:1], RequisitionID: gen.NewOptUUID(u(fromReq)), ContractID: gen.NewOptUUID(u(f.active))}, gen.CreatePurchaseOrderParams{})
+			if err != nil {
+				return err
 			}
+			po := o.(*gen.PurchaseOrderHeaders).Response
+			if _, err := h.ReleasePurchaseOrder(ctx, gen.ReleasePurchaseOrderParams{ID: po.ID, IfMatch: "*"}); err != nil {
+				return err
+			}
+			_, err = h.CancelPurchaseOrder(ctx, gen.CancelPurchaseOrderParams{ID: po.ID, IfMatch: "*"})
+			return err
 		})
-	}
-	// A decision for a requisition that is not pending is refused.
-	pgtest.CheckErr(t, apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		return procurement.Approvals{}.Approved(ctx, u(draftReq), uuid.New())
-	}), "procurement.invalid_status")
-	// Orders port.
-	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		o, ok, err := procurement.Orders{}.Order(ctx, u(released))
-		if err != nil {
-			t.Errorf("order: %v", err)
+		if _, err := h.CancelPurchaseOrder(context.Background(), genCancel(id(f.draftPO))); err == nil {
+			t.Error("cancel order outside a unit of work")
 		}
-		if !ok {
-			t.Errorf("order: got not found, want the order")
+		if _, _, err := (procurement.Orders{}).Order(context.Background(), uuid.New()); err == nil {
+			t.Error("orders port outside a unit of work")
 		}
-		if o.Status != "released" {
-			t.Errorf("order status: got %s, want released", o.Status)
+		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "orders port", func(ctx context.Context) error {
+			_, _, err := procurement.Orders{}.Order(ctx, u(f.released))
+			return err
+		})
+	})
+	t.Run("page sizes", func(t *testing.T) {
+		e := e.in(t)
+		// Handlers check page sizes for callers other than the generated router.
+		zero := gen.NewOptInt32(0)
+		for name, call := range map[string]func(ctx context.Context) error{
+			"requisitions": func(ctx context.Context) error {
+				_, err := h.ListRequisitions(ctx, gen.ListRequisitionsParams{PageSize: zero})
+				return err
+			},
+			"orders": func(ctx context.Context) error {
+				_, err := h.ListPurchaseOrders(ctx, gen.ListPurchaseOrdersParams{PageSize: zero})
+				return err
+			},
+			"contracts": func(ctx context.Context) error {
+				_, err := h.ListContracts(ctx, gen.ListContractsParams{PageSize: zero})
+				return err
+			},
+			"receipts": func(ctx context.Context) error {
+				_, err := h.ListGoodsReceipts(ctx, gen.ListGoodsReceiptsParams{PageSize: zero})
+				return err
+			},
+		} {
+			t.Run("page size 0 "+name, func(t *testing.T) {
+				if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
+					t.Error("got nil error, want page_size 0 refused")
+				}
+			})
 		}
-		if len(o.Items) != 1 {
-			t.Errorf("order items: got %d, want 1", len(o.Items))
-		} else {
-			if o.Items[0].Received != "2" {
-				t.Errorf("order item received: got %s, want 2", o.Items[0].Received)
+	})
+	t.Run("decision and orders port", func(t *testing.T) {
+		e := e.in(t)
+		// A decision for a requisition that is not pending is refused.
+		pgtest.CheckErr(t, apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			return procurement.Approvals{}.Approved(ctx, u(f.draftReq), uuid.New())
+		}), "procurement.invalid_status")
+		// Orders port.
+		if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			o, ok, err := procurement.Orders{}.Order(ctx, u(f.released))
+			if err != nil {
+				t.Errorf("order: %v", err)
 			}
-			if o.Items[0].Quantity != "10" {
-				t.Errorf("order item quantity: got %s, want 10", o.Items[0].Quantity)
+			if !ok {
+				t.Errorf("order: got not found, want the order")
 			}
+			if o.Status != "released" {
+				t.Errorf("order status: got %s, want released", o.Status)
+			}
+			if len(o.Items) != 1 {
+				t.Errorf("order items: got %d, want 1", len(o.Items))
+			} else {
+				if o.Items[0].Received != "2" {
+					t.Errorf("order item received: got %s, want 2", o.Items[0].Received)
+				}
+				if o.Items[0].Quantity != "10" {
+					t.Errorf("order item quantity: got %s, want 10", o.Items[0].Quantity)
+				}
+			}
+			_, ok, err = (procurement.Orders{}).Order(ctx, uuid.New())
+			if err != nil {
+				t.Errorf("unknown order: %v", err)
+			}
+			if ok {
+				t.Errorf("unknown order: got found, want not found")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
 		}
-		_, ok, err = (procurement.Orders{}).Order(ctx, uuid.New())
-		if err != nil {
-			t.Errorf("unknown order: %v", err)
-		}
-		if ok {
-			t.Errorf("unknown order: got found, want not found")
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 }
 
 // noApproval is a workflow that requires no approval.
