@@ -260,9 +260,19 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - [x] F4 Security settings fail closed (gap 6). A malformed operator roles claim holds no role;
   production refuses to start without an object store or with ERP_AUDIT_VERIFY_INTERVAL=0.
   ADR-0016, ADR-0025 and ADR-0027 amended (user approved).
-- [ ] R50 Duplicated helpers moved to internal/platform (gap 3)
+- [x] R50 Duplicated helpers moved to internal/platform (gap 3). platform/worker.Loop replaces 12
+  worker Run loops; uow.Act the system unit of work (6 copies and apitest.Committed);
+  platform/mergepatch, database.Today, money.EventAmount and platform/apitypes (Ptr, OptUUID,
+  OptString, OptNilString, Decode/EncodeObject, Money, Page, ETagOf) replace the copies in the
+  contexts. Kept apart on purpose: integration fromSettings (nil vs empty map reaches storage),
+  erp-server maintain() (waits before its first round). Reviewers: APPROVE.
 - [ ] R51 Money typed as money.Minor; conversion and checked sums in money (gap 4)
-- [ ] R52 Test structure (gap 7)
+- [x] R52 Test structure (gap 7). pgtest.WantErr/CheckErr replace 187 hand-written
+  `err == nil || !strings.Contains` checks (same substring, Fatal stays Fatal); 22 of 23 test
+  functions over 150 lines split into ordered t.Run steps (TestDispatcher left: it drives the
+  worker loop); the release-worker test counts its own tenant exactly; subtests report to their
+  own t. Also: polling waits no longer open a connection per check (pgtest.Scan), which had made
+  the coverage gate hit "too many clients". Reviewer: APPROVE.
 - [ ] R53 Architecture housekeeping (gap 8)
 - [ ] R54 Deferred items from earlier phases
 - [ ] R55 Re-review until 9.5
