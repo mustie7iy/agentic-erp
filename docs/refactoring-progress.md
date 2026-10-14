@@ -306,22 +306,24 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - [ ] R55 Re-review until 9.5. First re-review after Phase 7: **9.0 / 10** (architecture 9.2,
   error handling 9.1, concurrency and tenancy 8.4, SQL 9.7, tests 9.3, readability 9.2,
   duplication 8.8, money 9.3). Round two below.
-- [x] F5 The ledger API cannot reverse or clear another context's document or a reserved item.
+- [~] F5 The ledger API cannot reverse or clear another context's document or a reserved item.
   :reverse refuses payables entries (409 ledger.entry_owned_elsewhere, naming
   /v1/supplier-invoices/{id}:reverse); integration entries stay reversible. Items a payment run
   holds are reserved in ledger-owned state (migration 000034, ledger.item_reservation), set by
   payments through the Postings port it already used (no new dependency, no ADR); manual and
   other clearings refuse a reserved item (409 ledger.item_reserved); Payable leaves reserved
-  items out, so a stale reservation holds back one item; entry locks share 1,024 buckets so a
-  100,000-item run cannot exhaust the lock table. Release note: 000037 (reconciles reservations
-  with the live runs, idempotent) must ship in a later release than 000034, once no instance
-  from before 000034 is serving.
-- [x] F6 A releasing run cannot get stuck; a proposal cannot race an invoice reversal. RunOf takes
+  items out, so a stale reservation holds back one item; entry locks are 64 buckets per tenant
+  (no tenant holds another's clearings, a transaction stays within max_locks_per_transaction),
+  and a reversal takes no second lock. :reverse is an allowlist (ledger, integration, payments).
+  Follow-up, not on this branch: a contract-step migration reconciling reservations with live
+  runs, to ship once 000034 runs everywhere (03-data-model §3.10).
+- [~] F6 A releasing run cannot get stuck; a proposal cannot race an invoice reversal. RunOf takes
   the proposals lock; a release drops a payment that can never post (supplier excluded with
   item_reversed or item_not_open, migrations 000035/000036; new additive PaymentExcluded event
   and the two codes in reason_code's enum, user approved); a retried release keeps one bank file
   under the run's key and accepts it when it pays the same, so a data correction cannot strand
-  the run. Reviews: three rounds of blocking findings fixed; re-review nothing blocking.
+  the run. Reviews: four rounds of blocking findings fixed (deadlock risk, cross-tenant lock key, lock
+  table, contract migration on the same branch); final re-review of a6897c6 pending.
 - [ ] F7 Security defaults fail closed (user: ERP_ENV required; production refuses an operator
   token without roles, ADR-0027 amended; principals bound to issuer + subject, with a migration)
 - [x] R56 Duplication and money residue: money.ParseRat, platform/currency.Exponent (six lookups;
