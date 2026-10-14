@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -249,6 +250,42 @@ func TestRowLevelSecurity(t *testing.T) {
 	if QueryID(r.Query, de.Principal) == QueryID(r.Query, us) {
 		t.Fatal("query ids must differ by access scope")
 	}
+}
+
+// TestAggregateOutOfRange: invoices the API accepts (5·10^18 minor units
+// each) can add up to more than an amount holds. The query is refused with
+// money.ErrOverflow rather than reporting a wrapped, negative total; terms
+// that net back into range still sum exactly, whatever their order.
+func TestAggregateOutOfRange(t *testing.T) {
+	m, err := DefaultModel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const big = money.Minor(5_000_000_000_000_000_000)
+	facts := func(amounts ...money.Minor) *Facts {
+		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{"1000": "EUR"}}
+		for i, a := range amounts {
+			f.Tables["ap_invoices"] = append(f.Tables["ap_invoices"], Fact{ID: strconv.Itoa(i), Amount: a, Currency: "EUR",
+				Dims: map[string]string{"company": "1000", "fiscal_year": "2026"}})
+		}
+		return f
+	}
+	q := Query{Measures: []string{"invoice_value"}, By: []string{"company"}}
+	t.Run("out of range", func(t *testing.T) {
+		res, err := Execute(m, facts(big, big), Principal{ID: "user:cfo"}, q)
+		if !errors.Is(err, money.ErrOverflow) {
+			t.Fatalf("got %v (rows %v), want money.ErrOverflow", err, res)
+		}
+	})
+	t.Run("nets into range", func(t *testing.T) {
+		res, err := Execute(m, facts(big, big, -big), Principal{ID: "user:cfo"}, q)
+		if err != nil {
+			t.Fatalf("got %v, want the total", err)
+		}
+		if got, want := res.Rows[0][1], float64(big)/100; got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
 }
 
 func TestDerivedMetrics(t *testing.T) {

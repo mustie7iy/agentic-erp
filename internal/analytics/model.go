@@ -143,13 +143,18 @@ func (m *Model) checkMetric(met *Metric, dims map[string]bool) error {
 }
 
 // checkSourceMetric validates a metric read from a fact table and
-// defaults its sign to +1.
+// defaults its sign to +1. A sign is +1 or -1: any other factor could
+// scale an amount out of range.
 func checkSourceMetric(met *Metric, dims map[string]bool) error {
 	if met.Aggregate != "sum" && met.Aggregate != "count_distinct" {
 		return fmt.Errorf("semantic model: %s has unknown aggregate %q", met.Name, met.Aggregate)
 	}
-	if met.Sign == 0 {
+	switch met.Sign {
+	case 0:
 		met.Sign = 1
+	case 1, -1:
+	default:
+		return fmt.Errorf("semantic model: %s has sign %d, want 1 or -1", met.Name, met.Sign)
 	}
 	for _, d := range met.Dimensions {
 		if !dims[d] {

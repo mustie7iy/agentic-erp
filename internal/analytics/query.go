@@ -92,7 +92,10 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 	if err := validateQuery(m, q); err != nil {
 		return nil, err
 	}
-	agg := aggregateMetrics(m, f, p, q)
+	agg, err := aggregateMetrics(m, f, p, q)
+	if err != nil {
+		return nil, err
+	}
 	res := &Result{ID: QueryID(q, p), Query: q, AsOf: f.AsOf, DataThrough: f.DataThrough}
 	measureCol := describeColumns(m, q, res)
 	if err := fillRows(m, q, agg, res, measureCol); err != nil {
@@ -159,8 +162,10 @@ func sharedDimensions(m *Model, measures []string) (map[string]bool, error) {
 
 // aggCell accumulates one base metric for one group. Currencies are
 // tracked so money from companies with different currencies is never
-// added together.
+// added together. A sum keeps its terms until every fact is read, so it
+// is exact whatever their order (money.Sum).
 type aggCell struct {
+	terms      []money.Minor
 	sum        money.Minor
 	ids        map[string]bool
 	currencies map[string]bool
@@ -173,8 +178,9 @@ type aggregation struct {
 }
 
 // aggregateMetrics computes every base metric the measures need, once each, per
-// group of the query's dimensions.
-func aggregateMetrics(m *Model, f *Facts, p Principal, q Query) *aggregation {
+// group of the query's dimensions. A sum out of the range of an amount
+// refuses the query (money.ErrOverflow) rather than reporting it wrapped.
+func aggregateMetrics(m *Model, f *Facts, p Principal, q Query) (*aggregation, error) {
 	agg := &aggregation{groups: map[string][]string{}, base: map[string]map[string]*aggCell{}}
 	for _, name := range q.Measures {
 		for _, b := range m.baseMetrics(name) {
@@ -183,9 +189,25 @@ func aggregateMetrics(m *Model, f *Facts, p Principal, q Query) *aggregation {
 			}
 			agg.base[b] = map[string]*aggCell{}
 			agg.addMetric(b, m.Metric(b), f, p, q)
+			if err := agg.sum(b); err != nil {
+				return nil, err
+			}
 		}
 	}
-	return agg
+	return agg, nil
+}
+
+// sum totals each group's terms of base metric b.
+func (agg *aggregation) sum(b string) error {
+	for key, c := range agg.base[b] {
+		total, err := money.Sum(c.terms...)
+		if err != nil {
+			return fmt.Errorf("%s for %s adds up to more than an amount can hold; filter or break it down further: %w",
+				b, strings.Join(agg.groups[key], ", "), err)
+		}
+		c.sum, c.terms = total, nil
+	}
+	return nil
 }
 
 // addMetric folds the facts the principal may see and the filters select
@@ -205,7 +227,9 @@ func (agg *aggregation) addMetric(b string, met *Metric, f *Facts, p Principal, 
 		if met.Aggregate == "count_distinct" {
 			c.ids[fact.ID] = true
 		} else {
-			c.sum += fact.Amount * money.Minor(met.Sign)
+			// The sign is ±1 (checkSourceMetric) and the range symmetric,
+			// so the product is an amount.
+			c.terms = append(c.terms, fact.Amount*money.Minor(met.Sign))
 		}
 	}
 }
