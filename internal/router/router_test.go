@@ -50,7 +50,7 @@ func (l lookup) Upsert(_ context.Context, e directory.Entry) error {
 }
 
 func TestLoadConfig(t *testing.T) {
-	valid := map[string]string{"ERP_DIRECTORY_URL": "postgres://x", "ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}
+	valid := map[string]string{"ERP_DIRECTORY_URL": "postgres://x", "ERP_ENV": "development", "ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	check := func(what string, got, want any) {
 		t.Helper()
@@ -67,13 +67,16 @@ func TestLoadConfig(t *testing.T) {
 	check("ShutdownTimeout", c.ShutdownTimeout, 20*time.Second)
 	check("len(Issuers)", len(c.Issuers), 1)
 	check("LogLevel", c.LogLevel, slog.LevelInfo)
+	check("Environment", c.Environment, "development")
 	for name, bad := range map[string]map[string]string{
-		"no directory": {"ERP_DIRECTORY_URL": ""},
-		"no issuers":   {"ERP_OIDC_ISSUERS": ""},
-		"bad issuers":  {"ERP_OIDC_ISSUERS": "[]"},
-		"bad cache":    {"ERP_DIRECTORY_CACHE": "0"},
-		"bad shutdown": {"ERP_SHUTDOWN_TIMEOUT": "soon"},
-		"bad level":    {"ERP_LOG_LEVEL": "loud"},
+		"no environment":      {"ERP_ENV": ""},
+		"unknown environment": {"ERP_ENV": "staging"},
+		"no directory":        {"ERP_DIRECTORY_URL": ""},
+		"no issuers":          {"ERP_OIDC_ISSUERS": ""},
+		"bad issuers":         {"ERP_OIDC_ISSUERS": "[]"},
+		"bad cache":           {"ERP_DIRECTORY_CACHE": "0"},
+		"bad shutdown":        {"ERP_SHUTDOWN_TIMEOUT": "soon"},
+		"bad level":           {"ERP_LOG_LEVEL": "loud"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := map[string]string{}

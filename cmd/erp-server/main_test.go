@@ -54,6 +54,7 @@ func environment(t *testing.T, is *authntest.Issuer, natsURL string) map[string]
 	issuers, _ := json.Marshal([]any{is.Config()})
 	return map[string]string{
 		"DATABASE_URL":         pgtest.URL(t),
+		"ERP_ENV":              "development",
 		"ERP_HTTP_ADDR":        "127.0.0.1:0",
 		"ERP_ADMIN_ADDR":       "127.0.0.1:0",
 		"ERP_CELL":             "test",
@@ -385,6 +386,14 @@ func TestExitCodes(t *testing.T) {
 	}
 	is := authntest.New(t)
 	env := environment(t, is, "")
+	// ERP_ENV has no default: without it the server does not start, and
+	// says what to set.
+	delete(env, "ERP_ENV")
+	stderr.Reset()
+	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 2 || !strings.Contains(stderr.String(), "ERP_ENV is required: set ERP_ENV=development") {
+		t.Fatalf("no ERP_ENV: got exit %d and %q, want exit 2 naming ERP_ENV", code, stderr.String())
+	}
+	env = environment(t, is, "")
 	env["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = "not a url"
 	stderr.Reset()
 	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 1 {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -27,6 +28,7 @@ type Config struct {
 	Addr            string            // ERP_ROUTER_ADDR (default :8081)
 	AdminAddr       string            // ERP_ROUTER_ADMIN_ADDR (default :9091): liveness, metrics, and the global control plane with operator issuers
 	DirectoryURL    string            // ERP_DIRECTORY_URL (required)
+	Environment     string            // ERP_ENV (required, no default): development or production, as for the cells (internal/platform/config)
 	Issuers         []authn.Issuer    // ERP_OIDC_ISSUERS, the same list the cells trust (required)
 	OperatorIssuers []authn.Issuer    // ERP_OPERATOR_ISSUERS, for the global control plane on the admin listener; empty leaves it off
 	PageTokenKey    []byte            // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required with ERP_OPERATOR_ISSUERS)
@@ -46,7 +48,10 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		}
 		return def
 	}
-	c := Config{Addr: get("ERP_ROUTER_ADDR", ":8081"), AdminAddr: get("ERP_ROUTER_ADMIN_ADDR", ":9091"), DirectoryURL: getenv("ERP_DIRECTORY_URL")}
+	c := Config{Addr: get("ERP_ROUTER_ADDR", ":8081"), AdminAddr: get("ERP_ROUTER_ADMIN_ADDR", ":9091"), DirectoryURL: getenv("ERP_DIRECTORY_URL"), Environment: getenv("ERP_ENV")}
+	if err := config.CheckEnvironment(c.Environment); err != nil {
+		errs = append(errs, err)
+	}
 	if c.DirectoryURL == "" {
 		errs = append(errs, errors.New("ERP_DIRECTORY_URL is required: the directory database"))
 	}

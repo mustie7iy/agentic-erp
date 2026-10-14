@@ -642,7 +642,10 @@ Decisions taken while building it:
   logs a warning at start, and refuses to start with `ERP_ENV=production`
   (as it does with a workflow engine but no `ERP_TEMPORAL_CODEC_KEY`,
   without object storage, or with `ERP_AUDIT_VERIFY_INTERVAL=0`).
-  Tokens live an hour.
+  Tokens live an hour. `ERP_ENV` has no default (F7): the server and the
+  router refuse to start without `development` or `production`, so a
+  production replica whose setting went missing never runs with
+  development's allowances; local runs and tests set `development`.
 
 Open points for the contract and design review:
 

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"cmp"
 	"context"
 	"encoding/base64"
 	"log/slog"
@@ -59,6 +58,7 @@ func copyOf(m map[string]string) map[string]string {
 func valid() map[string]string {
 	return map[string]string{
 		"DATABASE_URL":       "postgres://x",
+		"ERP_ENV":            Development,
 		"ERP_OIDC_ISSUERS":   `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`,
 		"ERP_PAGE_TOKEN_KEY": key,
 		"ERP_FIELD_KEY":      key,
@@ -534,10 +534,12 @@ func TestEscalationsFitTheCount(t *testing.T) {
 // codec key, without object storage (no audit anchors, ADR-0011, and no
 // offboarding exports, ADR-0021), or with audit verification switched off;
 // development allows all of them, as before. An unknown environment is
-// refused.
+// refused, and so is none: there is no default, so a production replica
+// whose ERP_ENV went missing does not start with development's allowances.
 func TestProductionFailsClosed(t *testing.T) {
 	codec := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
 	const devRefused, codecRefused = "ERP_DEV_ISSUER must not be set with ERP_ENV=production", "ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production"
+	const envRequired = "ERP_ENV is required: set ERP_ENV=development on a developer's machine or in tests, ERP_ENV=production everywhere else"
 	const storeRefused, verifyRefused = "object storage (ERP_OBJECT_DIR or ERP_OBJECT_S3_*) is required with ERP_ENV=production", "ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production"
 	// prod is a production configuration that starts: object storage and
 	// the default audit verification interval.
@@ -553,7 +555,7 @@ func TestProductionFailsClosed(t *testing.T) {
 		set     map[string]string
 		wantErr []string // the errors reported; none means the configuration loads
 	}{
-		{"development by default", map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
+		{"no environment", map[string]string{"ERP_ENV": "", "ERP_DEV_ISSUER": "true"}, []string{envRequired}},
 		{"development dev issuer", map[string]string{"ERP_ENV": "development", "ERP_DEV_ISSUER": "true"}, nil},
 		{"development engine without codec", map[string]string{"ERP_ENV": "development", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
 		{"development without verification", map[string]string{"ERP_ENV": "development", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
@@ -579,7 +581,7 @@ func TestProductionFailsClosed(t *testing.T) {
 				if err != nil {
 					t.Fatalf("got %v, want the configuration to load", err)
 				}
-				if want := cmp.Or(c.set["ERP_ENV"], Development); cfg.Environment != want {
+				if want := c.set["ERP_ENV"]; cfg.Environment != want {
 					t.Errorf("environment: got %q, want %q", cfg.Environment, want)
 				}
 				return

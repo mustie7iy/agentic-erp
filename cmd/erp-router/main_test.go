@@ -25,7 +25,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 func environment(t *testing.T, is *authntest.Issuer) map[string]string {
 	t.Helper()
 	issuers, _ := json.Marshal([]any{is.Config()})
-	return map[string]string{"ERP_DIRECTORY_URL": pgtest.URL(t), "ERP_OIDC_ISSUERS": string(issuers), "ERP_OPERATOR_ISSUERS": string(issuers),
+	return map[string]string{"ERP_DIRECTORY_URL": pgtest.URL(t), "ERP_ENV": "development", "ERP_OIDC_ISSUERS": string(issuers), "ERP_OPERATOR_ISSUERS": string(issuers),
 		"ERP_PAGE_TOKEN_KEY": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32))),
 		"ERP_ROUTER_ADDR":    "127.0.0.1:0", "ERP_ROUTER_ADMIN_ADDR": "127.0.0.1:0", "ERP_SHUTDOWN_TIMEOUT": "5s"}
 }

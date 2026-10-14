@@ -29,7 +29,7 @@ type Config struct {
 	HTTPAddr        string          // ERP_HTTP_ADDR, public API (default :8080)
 	AdminAddr       string          // ERP_ADMIN_ADDR, liveness, readiness, metrics (default :9090)
 	DatabaseURL     string          // DATABASE_URL (required)
-	Environment     string          // ERP_ENV: development (default) or production, where insecure settings refuse to start
+	Environment     string          // ERP_ENV (required, no default): development, or production, where insecure settings refuse to start
 	AppRole         string          // ERP_DB_APP_ROLE (default erp_app)
 	RelayRole       string          // ERP_DB_RELAY_ROLE (default erp_relay)
 	ProjectorRole   string          // ERP_DB_PROJECTOR_ROLE (default erp_projector)
@@ -168,7 +168,7 @@ func Load(getenv func(string) string) (Config, error) {
 	l.temporal(&c)
 	l.directory(&c)
 	l.server(&c)
-	c.Environment = l.get("ERP_ENV", Development)
+	c.Environment = l.getenv("ERP_ENV")
 	l.errs = append(l.errs, checkEnvironment(c)...)
 	return c, errors.Join(l.errs...)
 }
@@ -450,16 +450,35 @@ const (
 	Production  = "production"
 )
 
-// checkEnvironment refuses, in production, the settings that are only safe
-// on a developer's machine: a missing security setting fails startup rather
-// than logging a warning (CLAUDE.md).
-func checkEnvironment(c Config) []error {
-	switch c.Environment {
-	case Development:
+// environmentHint tells the operator what to set when ERP_ENV is missing or
+// unknown.
+const environmentHint = "set ERP_ENV=development on a developer's machine or in tests, ERP_ENV=production everywhere else"
+
+// CheckEnvironment checks ERP_ENV as read: development or production, and
+// nothing else, not even empty. Every process that reads the environment
+// (the server, the router) checks it here, so they agree on the names.
+func CheckEnvironment(env string) error {
+	switch env {
+	case Development, Production:
 		return nil
-	case Production:
-	default:
-		return []error{fmt.Errorf("ERP_ENV %q must be development or production", c.Environment)}
+	case "":
+		return errors.New("ERP_ENV is required: " + environmentHint)
+	}
+	return fmt.Errorf("ERP_ENV %q must be development or production: %s", env, environmentHint)
+}
+
+// checkEnvironment requires ERP_ENV and refuses, in production, the
+// settings that are only safe on a developer's machine: a missing security
+// setting fails startup rather than logging a warning (CLAUDE.md). There is
+// no default environment: a production replica whose ERP_ENV went missing
+// must not start with development's allowances (the development issuer,
+// unsealed workflow payloads, operator tokens holding every role).
+func checkEnvironment(c Config) []error {
+	if err := CheckEnvironment(c.Environment); err != nil {
+		return []error{err}
+	}
+	if c.Environment == Development {
+		return nil
 	}
 	var errs []error
 	if c.DevIssuer {

@@ -44,8 +44,10 @@ generate:
 	cd api && go generate ./...
 
 # Run the API server against the local database (see internal/platform/config).
+# ERP_ENV has no default; a local run is development unless the caller says otherwise.
+ERP_ENV ?= development
 run-server:
-	DATABASE_URL="$(DATABASE_URL)" ERP_MIGRATE_ON_START=true go run ./cmd/erp-server
+	DATABASE_URL="$(DATABASE_URL)" ERP_ENV="$(ERP_ENV)" ERP_MIGRATE_ON_START=true go run ./cmd/erp-server
 
 coverage:
 	DATABASE_URL="$(DATABASE_URL)" ./scripts/coverage.sh
