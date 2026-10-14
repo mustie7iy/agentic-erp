@@ -85,7 +85,8 @@ hard gate. Follow all of them; the later ones will stop you if you skip the earl
 
 - `.golangci.yml` enforces function length, complexity, duplication, error wrapping, banned calls
   (`time.Sleep` in tests, `panic`, floats for money) and test-helper hygiene. `make lint` checks
-  code changed since `main`; CI runs it on every push and pull request.
+  code changed since `main` (the fast loop); `make lint-all` checks the whole tree except api/gen,
+  which is at zero issues, and CI runs it on every push and pull request.
 - Claude Code hooks (`.claude/settings.json`) run after every Go edit (`gofmt` and lint of the
   edited package) and before you finish (build, lint, short tests of changed packages). If a hook
   reports a problem, fix the cause; do not suppress it.
