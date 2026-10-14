@@ -190,8 +190,22 @@ Each a separate Fix commit with a test that fails before the fix.
   clean; go test -race -shuffle=on -count=3 ./... passes in all 64 packages.
 
 ### Phase 6 — Make it permanent
-- [ ] R40 CI lints the whole tree
-- [ ] R41 Import-rule test; §6.7 describes the real layout
+- [x] R40 CI lints the whole tree: the ci.yml lint step runs `make lint-all` (api/gen left out
+  as the Makefile does) instead of `make lint` over the pushed range; CLAUDE.md and the Makefile
+  comment say lint is the fast local loop and lint-all what CI holds the tree to.
+- [x] R41 Import-rule test; §6.7 describes the real layout. internal/layout's test parses every
+  production file under internal/ (skipping testdata, vendor, _ and . directories, as go does)
+  and fails when production code imports test support, a platform package imports a context
+  (except the composition root platform/httpapi and the test support platform/fixture), or a
+  context imports another outside an exact allowlist of today's 71 dependencies (the R41 commit
+  message says 74; 71 is right). money is the shared kernel; an unused allowlist entry fails too.
+  Checked by mutation. §6.7 rewritten for the flat layout. Reviewer: changes asked (an incomplete
+  cross-schema list, a stale Makefile comment), fixed.
+  - Gap, not covered by the test: SQL that reads or writes another context's schema. Today:
+    offboarding and controlplane (tenancy, audit), payments and configuration (identity),
+    directory (tenancy), workflows (payments, config, integration, identity: finding the work
+    it dispatches), provisioning (creates a tenant's first rows in tenancy and identity). nfr is
+    test support and exempt. Closing it means reading through the owning context's Go API.
 - [ ] R42 Final verification and scored review
 
 ## Baseline

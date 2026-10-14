@@ -23,6 +23,17 @@ var shared = map[string]bool{"money": true}
 // package serves the contexts and imports none of them.
 var platformUsers = map[string]bool{"platform/httpapi": true, "platform/fixture": true}
 
+// testSupport are packages only tests and other test support may import:
+// fixtures, fake servers and harnesses. Production code importing one would
+// ship test machinery and, through fixture, half the contexts.
+var testSupport = map[string]bool{
+	"platform/pgtest": true, "platform/fixture": true, "platform/httpapi/apitest": true,
+	"platform/authn/authntest": true, "platform/natsbus/natstest": true,
+	"platform/blobstore/blobstoretest": true, "platform/fieldcrypt/kmstest": true,
+	"platform/secrets/vaulttest": true, "platform/workflow/workflowtest": true,
+	"llm/llmtest": true, "nfr": true,
+}
+
 // allowed is every import from one context to another that production code
 // makes today, by importing unit. A new one fails TestImportRules; one that
 // is no longer made fails it too, so the list stays exact.
@@ -74,9 +85,20 @@ func imports(t *testing.T) map[string]map[string]bool {
 	}
 	fset := token.NewFileSet()
 	out := map[string]map[string]bool{}
+	// Build constraints are not applied: every variant of a file is checked.
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			// What the go tool ignores is not a package: testdata, vendor, _ and . directories.
+			if name := d.Name(); path != root && (name == "testdata" || name == "vendor" || strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
 		}
 		f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
 		if err != nil {
@@ -107,14 +129,19 @@ func imports(t *testing.T) map[string]map[string]bool {
 	return out
 }
 
-// TestImportRules: platform packages (other than platformUsers) import no
-// context, and a context imports another only where allowed says so.
+// TestImportRules: production code imports no test support, platform
+// packages (other than platformUsers) import no context, and a context
+// imports another only where allowed says so.
 func TestImportRules(t *testing.T) {
 	used := map[string]bool{}
 	for pkg, deps := range imports(t) {
 		from := unit(pkg)
 		for dep := range deps {
 			to := unit(dep)
+			if testSupport[dep] && !testSupport[pkg] {
+				t.Errorf("%s imports %s: production code may not import test support", pkg, dep)
+				continue
+			}
 			switch {
 			case from == to, strings.HasPrefix(to, "platform/"), shared[to]:
 			case strings.HasPrefix(from, "platform/"):

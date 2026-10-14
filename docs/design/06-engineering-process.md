@@ -147,11 +147,17 @@ every production file under `internal/`:
   dependency direction), and an entry no longer used fails it too.
 - Tests are not checked: a test may import whatever it needs.
 
-The test checks Go imports only. SQL can still read another context's schema;
-where it does today (offboarding and the control plane over tenancy and audit,
-payments and configuration reading identity, the directory over tenancy) it is
-listed in docs/refactoring-progress.md as a gap to close through the owning
-context's Go API.
+The test also refuses a production import of test support (`pgtest`,
+`fixture`, `apitest`, the fake servers, `nfr`).
+
+The test checks Go imports only. SQL can still read or write another
+context's schema, and today it does in: offboarding and the control plane
+(tenancy, audit), payments and configuration (identity), the directory
+(tenancy), workflows (payments, config, integration and identity, to find the
+work it dispatches), and provisioning, which creates a tenant's first rows in
+tenancy and identity. docs/refactoring-progress.md lists them as a gap to
+close through the owning context's Go API; nfr, test support, reads several
+schemas to check its load runs and is exempt.
 
 ## 6.8 Definition of done
 

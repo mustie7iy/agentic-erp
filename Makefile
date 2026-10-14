@@ -5,8 +5,9 @@ build:
 	go build -o bin/erp-server ./cmd/erp-server
 	go build -o bin/erp-router ./cmd/erp-router
 
-# Structural lint (.golangci.yml) of code changed since LINT_BASE: the merge
-# base with main locally, the pushed range in CI. lint-all shows the whole tree.
+# Structural lint (.golangci.yml). lint checks code changed since LINT_BASE,
+# the merge base with main: the fast local loop. lint-all checks the whole
+# tree, which is at zero issues; CI runs it.
 # api/gen is left out of the package list: its findings are excluded anyway,
 # and analysing its 650,000 generated lines takes over half an hour.
 GOLANGCI = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
