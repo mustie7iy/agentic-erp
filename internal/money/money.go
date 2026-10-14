@@ -1,5 +1,6 @@
 // Package money handles amounts as integer minor units and quantities as
-// integer milli-units. Floats are never used for financial values.
+// integer milli-units (ADR-0005). Floats are never used for financial
+// values.
 package money
 
 import (

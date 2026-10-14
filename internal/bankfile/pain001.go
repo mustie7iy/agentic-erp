@@ -1,5 +1,6 @@
 // Package bankfile writes payment instructions for banks: ISO 20022
-// pain.001.001.03 customer credit transfers.
+// pain.001.001.03 customer credit transfers, the bank file format of the
+// payments context (03-data-model §3.10).
 package bankfile
 
 import (

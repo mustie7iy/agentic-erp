@@ -1,10 +1,11 @@
-// Package nfr holds the in-memory performance budgets: the semantic query
-// engine and configuration validation. Database-backed budgets live with
-// their contexts (ledger trial balance, payment proposal), and concurrency,
-// security and reliability are tested on the foundation by each context
-// (SoD and agent rules in authz and approvals, idempotency and audit in the
-// unit of work). It contains only test helpers; the tests themselves live
-// in the _test files.
+// Package nfr holds the in-memory performance budgets of 01-requirements
+// §1.3, tested as 06-engineering-process §6.6 and 05-scalability §5.8
+// describe: the semantic query engine and configuration validation.
+// Database-backed budgets live with their contexts (ledger trial balance,
+// payment proposal), and concurrency, security and reliability are tested on
+// the foundation by each context (SoD and agent rules in authz and
+// approvals, idempotency and audit in the unit of work). It contains only
+// test helpers; the tests themselves live in the _test files.
 package nfr
 
 import (

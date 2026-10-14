@@ -1,8 +1,9 @@
 // Package config is configuration as code: the settings SAP keeps in
 // customizing (SPRO) live here as one typed YAML document, validated and
-// diffed by tier. The configuration context keeps its versions and change
-// requests; who may do what belongs to the identity context, so the
-// document names roles (in approval steps) but does not define them.
+// diffed by tier. The configuration context (03-data-model §3.5) keeps its
+// versions and change requests; who may do what belongs to the identity
+// context, so the document names roles (in approval steps) but does not
+// define them.
 package config
 
 import (
