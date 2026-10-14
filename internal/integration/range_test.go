@@ -49,3 +49,38 @@ func TestQualityGateRefusesJournalOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+// A reconciliation run extracts again without the quality gate, so its
+// sums are bounded only if the extract is unchanged since the load. Here
+// it changed: a document of 92233720368547758.07 twice and 0.02 on the
+// bank account wrapped to zero in the trial balance and the debits, and
+// the reconciliation passed. It now fails, reporting the sums out of
+// range the way the quality gate does.
+func TestReconciliationRefusesSumsOutOfRange(t *testing.T) {
+	e := setup(t)
+	write(t, e.dir, "changing.json", tiny())
+	run := e.run(t, e.connector(t, "changing.json"), "documents", false, e.DE.String())
+	if _, got := e.act(t, run, "start"); got["status"] != "loaded" {
+		t.Fatalf("start status: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	x := tiny()
+	line := func(no, amount string) sap.ACDOCA {
+		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000009", DOCLN: no, RACCT: "0000100000", HSL: amount, BUDAT: "20260301", BLART: "SA"}
+	}
+	x.ACDOCA = append(x.ACDOCA, line("000001", "92233720368547758.07"), line("000002", "92233720368547758.07"), line("000003", "0.02"),
+		line("000004", "92233720368547758.08"))
+	x.EKPO = append(x.EKPO, sap.EKPO{EBELN: "4500000001", EBELP: "00020", MATNR: "MAT-2", MENGE: "2", NETPR: "92233720368547758.07", PEINH: "1",
+		SAKTO: "0000520000"})
+	write(t, e.dir, "changing.json", x)
+	_, got := e.act(t, run, "reconcile")
+	if got["status"] != "failed" {
+		t.Errorf("reconcile status: got %v, want failed", got["status"])
+	}
+	issues := fmt.Sprint(got["report"].(map[string]any)["issues"])
+	for _, want := range []string{"the lines of account 100000 add up to more than an amount holds", "the debits of company 2000 add up to more than an amount holds",
+		"2000/2026/0100000009/000004", "net value of 2 at 92233720368547758.07 per 1 is out of range"} {
+		if !strings.Contains(issues, want) {
+			t.Errorf("reconciliation issues: got %s, want %q", issues, want)
+		}
+	}
+}

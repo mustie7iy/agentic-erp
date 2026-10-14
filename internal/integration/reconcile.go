@@ -1,7 +1,10 @@
 package integration
 
 import (
+	"cmp"
 	"context"
+	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,11 +33,15 @@ type Diff struct {
 	Platform    string `json:"platform"`
 }
 
-// Reconciliation is the reconciliation part of a run's report.
+// Reconciliation is the reconciliation part of a run's report. Issues are
+// SAP values it could not use: amounts that do not parse, or sums out of
+// the range of an amount. A reconciliation run extracts again without the
+// quality gate, so it reports them as the gate does, and fails.
 type Reconciliation struct {
 	Checks  []Check  `json:"checks"`
 	Diffs   []Diff   `json:"diffs"`
 	Missing []string `json:"missing_documents,omitempty"` // SAP documents of the scope not on the platform
+	Issues  []Issue  `json:"issues,omitempty"`
 	Passed  bool     `json:"passed"`
 }
 
@@ -64,7 +71,7 @@ func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r
 			return rc.rec, err
 		}
 	}
-	rc.rec.Passed = !slices.ContainsFunc(rc.rec.Checks, func(c Check) bool { return !c.Pass })
+	rc.rec.Passed = !slices.ContainsFunc(rc.rec.Checks, func(c Check) bool { return !c.Pass }) && !hasErrors(rc.rec.Issues)
 	return rc.rec, nil
 }
 
@@ -93,6 +100,32 @@ func (rc *reconciler) add(cc, name, sapValue, platformValue string, pass bool) {
 	rc.rec.Checks = append(rc.rec.Checks, Check{CompanyCode: cc, Name: name, SAP: sapValue, Platform: platformValue, Pass: pass})
 }
 
+// refuse records a value the reconciliation cannot use, as the quality
+// gate records an error.
+func (rc *reconciler) refuse(table, key, format string, args ...any) {
+	rc.rec.Issues = append(rc.rec.Issues, Issue{Severity: SevError, Table: table, Key: key, Message: fmt.Sprintf(format, args...)})
+}
+
+// total adds terms exactly (money.Sum). A total out of range is refused
+// and counts as zero: the reconciliation fails on the issue, never on a
+// wrapped figure that might agree.
+func (rc *reconciler) total(table, key, what string, terms []money.Minor) money.Minor {
+	t, err := money.Sum(terms...)
+	if err != nil {
+		rc.refuse(table, key, "%s add up to more than an amount holds", what)
+	}
+	return t
+}
+
+// totals is total for each key's terms, described by what.
+func (rc *reconciler) totals(table, cc string, terms map[string][]money.Minor, what func(string) string) map[string]money.Minor {
+	out := make(map[string]money.Minor, len(terms))
+	for _, k := range sortedKeys(terms) {
+		out[k] = rc.total(table, cc+"/"+k, what(k), terms[k])
+	}
+	return out
+}
+
 // company runs the controls of one company code in report order.
 func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	exp := rc.t.exponents[cur]
@@ -113,28 +146,53 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	return rc.parkedInvoices(ctx, s)
 }
 
-// trialBalance compares the trial balance per account, and debits when
-// every document came over. It returns SAP's open payables per vendor,
-// which come out of the same pass over the journal.
-func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[string]money.Minor, error) {
-	sapTB, sapOpen := map[string]money.Minor{}, map[string]money.Minor{}
-	var sapDebits money.Minor
+// sapJournal is the SAP side of the journal controls of a company code.
+type sapJournal struct {
+	tb, open  map[string]money.Minor // per account; per "vendor <LIFNR>"
+	debits    money.Minor
+	documents map[string]bool
+}
+
+// journal adds up the company's journal lines from the extract: per
+// account, debits, and open items per vendor. The load's quality gate
+// refused amounts and sums out of range, but a reconciliation run extracts
+// again without it, so they are checked here too.
+func (rc *reconciler) journal(s companyScope) sapJournal {
+	tb, open := map[string][]money.Minor{}, map[string][]money.Minor{}
+	var debits []money.Minor
 	documents := map[string]bool{}
 	for _, l := range rc.ext.ACDOCA {
 		if l.RBUKRS != s.cc {
 			continue
 		}
 		documents[documentKey(l)] = true
-		// Parsed and summed in range when the load's quality gate passed on
-		// this extract (journal); a reconciliation run reads it again
-		// without the gate, so that rests on the extract being unchanged.
-		amt, _ := rc.t.amount(l.HSL, s.cur)
-		sapTB[sap.Alpha(l.RACCT)] += amt
-		sapDebits += max(amt, 0)
+		amt, err := rc.t.amount(l.HSL, s.cur)
+		if err != nil {
+			rc.refuse("ACDOCA", documentKey(l)+"/"+l.DOCLN, "%v", err)
+			continue
+		}
+		account := sap.Alpha(l.RACCT)
+		tb[account] = append(tb[account], amt)
+		debits = append(debits, max(amt, 0))
 		if l.LIFNR != "" && l.AUGBL == "" && rc.recon[s.cc+"/"+l.RACCT] {
-			sapOpen["vendor "+sap.Alpha(l.LIFNR)] += amt
+			vendor := "vendor " + sap.Alpha(l.LIFNR)
+			open[vendor] = append(open[vendor], amt)
 		}
 	}
+	return sapJournal{
+		tb:        rc.totals("ACDOCA", s.cc, tb, func(a string) string { return "the lines of account " + a }),
+		open:      rc.totals("ACDOCA", s.cc, open, func(v string) string { return "the open items of " + v }),
+		debits:    rc.total("ACDOCA", s.cc, "the debits of company "+s.cc, debits),
+		documents: documents,
+	}
+}
+
+// trialBalance compares the trial balance per account, and debits when
+// every document came over. It returns SAP's open payables per vendor,
+// which come out of the same pass over the journal.
+func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[string]money.Minor, error) {
+	j := rc.journal(s)
+	sapTB, sapOpen, sapDebits, documents := j.tb, j.open, j.debits, j.documents
 	totals, err := rc.e.Reports.Totals(ctx, s.le, int16(rc.t.year))
 	if err != nil {
 		return nil, err
@@ -159,17 +217,20 @@ func (rc *reconciler) openPayables(ctx context.Context, s companyScope, sapOpen 
 	if err != nil {
 		return err
 	}
-	platformOpen := map[string]money.Minor{}
+	byVendor := map[string][]money.Minor{}
 	for id, amt := range open {
 		key := "partner " + id.String()
 		if lifnr, ok := rc.vendorOf[id]; ok {
 			key = "vendor " + lifnr
 		}
-		platformOpen[key] += amt
+		byVendor[key] = append(byVendor[key], amt)
 	}
+	platformOpen := rc.totals("platform", s.cc, byVendor, func(v string) string { return "the platform's open items of " + v })
 	ap := diffs(s.cc, sapOpen, platformOpen, s.format)
 	rc.rec.Diffs = append(rc.rec.Diffs, ap...)
-	rc.add(s.cc, "Open payables total", s.format(sum(sapOpen)), s.format(sum(platformOpen)), sum(sapOpen) == sum(platformOpen))
+	sapTotal := rc.total("ACDOCA", s.cc, "the open payables of company "+s.cc, slices.Collect(maps.Values(sapOpen)))
+	platformTotal := rc.total("platform", s.cc, "the platform's open payables of company "+s.cc, slices.Collect(maps.Values(platformOpen)))
+	rc.add(s.cc, "Open payables total", s.format(sapTotal), s.format(platformTotal), sapTotal == platformTotal)
 	rc.add(s.cc, "Open payables: vendors with differences", "0", strconv.Itoa(len(ap)), len(ap) == 0)
 	return nil
 }
@@ -198,8 +259,9 @@ func (rc *reconciler) vendors(ctx context.Context, s companyScope) error {
 
 // purchaseOrders compares purchase order count and value.
 func (rc *reconciler) purchaseOrders(ctx context.Context, s companyScope) error {
-	sapPOs, sapPOValue := 0, money.Minor(0)
+	sapPOs := 0
 	var orders []uuid.UUID
+	var values []money.Minor
 	inCC := map[string]bool{}
 	for _, h := range rc.ext.EKKO {
 		if h.BUKRS == s.cc {
@@ -211,11 +273,19 @@ func (rc *reconciler) purchaseOrders(ctx context.Context, s companyScope) error 
 		}
 	}
 	for _, i := range rc.ext.EKPO {
-		if inCC[i.EBELN] {
-			v, _ := extend(i.MENGE, i.NETPR, i.PEINH, rc.t, s.cur) // in range: the quality gate refuses lines that are not (purchaseOrderItem)
-			sapPOValue += v
+		if !inCC[i.EBELN] {
+			continue
 		}
+		// The load's quality gate refused lines out of range
+		// (purchaseOrderItem); a reconciliation run extracts again without it.
+		v, err := extend(i.MENGE, i.NETPR, i.PEINH, rc.t, s.cur)
+		if err != nil {
+			rc.refuse("EKPO", i.EBELN+"/"+i.EBELP, "net value of %s at %s per %s is out of range", i.MENGE, i.NETPR, cmp.Or(i.PEINH, "1"))
+			continue
+		}
+		values = append(values, v)
 	}
+	sapPOValue := rc.total("EKPO", s.cc, "the purchase order lines of company "+s.cc, values)
 	n, value, err := rc.e.OrderValues.Value(ctx, orders)
 	if err != nil {
 		return err
@@ -276,12 +346,4 @@ func diffs(cc string, sapM, platformM map[string]money.Minor, format func(money.
 		}
 	}
 	return out
-}
-
-func sum(m map[string]money.Minor) money.Minor {
-	var t money.Minor
-	for _, v := range m {
-		t += v
-	}
-	return t
 }
