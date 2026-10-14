@@ -57,3 +57,45 @@ func TestMatchOutOfRange(t *testing.T) {
 		t.Errorf("exact total: got %q, want a match", why)
 	}
 }
+
+// near compares within 20% of the auto-post limit without wrapping. Before,
+// a limit of 10,000,000,000,000,000.00 (accepted by the configuration's
+// amount check) wrapped limit×12 negative, so an invoice at exactly the
+// limit was not near it.
+func TestNearTheAutoPostLimit(t *testing.T) {
+	top := money.Minor(math.MaxInt64)
+	cases := []struct {
+		name  string
+		limit string
+		gross money.Minor
+		want  bool
+	}{
+		{"at a large limit", "10000000000000000.00", 1_000_000_000_000_000_000, true},
+		{"at the largest limit", "92233720368547758.07", top, true},
+		{"below a large limit", "92233720368547758.07", top / 2, false},
+		{"lower bound", "1000.00", 80000, true},
+		{"below the lower bound", "1000.00", 79999, false},
+		{"upper bound", "1000.00", 120000, true},
+		{"above the upper bound", "1000.00", 120001, false},
+		{"no limit", "0.00", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := near(tc.gross, &config.Company{AutoPostLimit: tc.limit}, 2); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+	if near(1, nil, 2) {
+		t.Error("without a company: got near, want not")
+	}
+	// Where the products do not wrap, near is exactly l×8/10 ≤ gross ≤ l×12/10.
+	for l := money.Minor(1); l <= 300; l++ {
+		co := &config.Company{AutoPostLimit: l.Plain(2)}
+		for gross := money.Minor(0); gross <= 400; gross++ {
+			if got, want := near(gross, co, 2), gross >= l*8/10 && gross <= l*12/10; got != want {
+				t.Fatalf("limit %d, gross %d: got %v, want %v", l, gross, got, want)
+			}
+		}
+	}
+}

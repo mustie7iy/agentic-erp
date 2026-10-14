@@ -100,14 +100,16 @@ func outcome(co *config.Company, r replayed) (string, []string) {
 	return decision, codes
 }
 
-// near is within 20% of the auto-post limit, either side.
+// near is within 20% of the auto-post limit, either side: from l×8/10 to
+// l×12/10, truncated. Neither product is formed, since a limit near the
+// range would wrap: l×8/10 is (l/10)×8 + (l%10)×8/10, and gross ≤ l×12/10
+// is gross-l ≤ l/5, which cannot wrap once gross is above the lower bound.
 func near(gross money.Minor, co *config.Company, exp int) bool {
 	if co == nil {
 		return false
 	}
-	limit, _ := money.ParseDecimal(co.AutoPostLimit, exp) // validated with the document
-	l := limit
-	return l > 0 && gross >= l*8/10 && gross <= l*12/10
+	l, _ := money.ParseDecimal(co.AutoPostLimit, exp) // validated with the document
+	return l > 0 && gross >= l/10*8+l%10*8/10 && gross-l <= l/5
 }
 
 // Capture implements configuration.Regressor: the window's invoices decided
