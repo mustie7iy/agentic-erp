@@ -20,28 +20,33 @@ import (
 func TestRequisitionTierAtTheThresholdsDigits(t *testing.T) {
 	doc := &config.Config{}
 	doc.Purchasing.RequisitionApproval = []config.ApprovalTier{
-		{UpTo: "1000.125", Steps: []config.ApprovalStep{{Role: "team_lead", Approvals: 1}}},
+		{UpTo: " 1000.125 ", Steps: []config.ApprovalStep{{Role: "team_lead", Approvals: 1}}}, // as validation accepts it
 		{Steps: []config.ApprovalStep{{Role: "cfo", Approvals: 1}}},
 	}
-	usd := "USD"
 	for name, c := range map[string]struct {
-		amount money.Minor
-		want   string
+		amount   money.Minor
+		currency string
+		want     string
 	}{
-		"under the threshold": {100012, "team_lead"}, // 1000.12 USD
-		"over the threshold":  {100013, "cfo"},       // 1000.13 USD
+		"under the threshold": {100012, "USD", "team_lead"},  // 1000.12 USD
+		"over the threshold":  {100013, "USD", "cfo"},        // 1000.13 USD
+		"at the threshold":    {1000125, "BHD", "team_lead"}, // 1000.125 BHD: up to is inclusive
+		"more digits than it": {1000126, "BHD", "cfo"},       // 1000.126 BHD
 	} {
 		t.Run(name, func(t *testing.T) {
 			var got []policyStep
 			if err := pgx.BeginFunc(context.Background(), pgtest.Admin(t), func(tx pgx.Tx) error {
 				var err error
-				got, err = steps(context.Background(), tx, doc, NewRequest{ObjectType: Requisition, Amount: &c.amount, Currency: &usd})
+				got, err = steps(context.Background(), tx, doc, NewRequest{ObjectType: Requisition, Amount: &c.amount, Currency: &c.currency})
 				return err
 			}); err != nil {
 				t.Fatalf("steps: %v", err)
 			}
-			if len(got) != 1 || got[0].role != c.want {
-				t.Errorf("steps for %d minor USD: got %v, want one step of %s", c.amount, got, c.want)
+			if len(got) != 1 {
+				t.Fatalf("steps for %d minor %s: got %v, want one step", c.amount, c.currency, got)
+			}
+			if got[0].role != c.want {
+				t.Errorf("steps for %d minor %s: got %s, want %s", c.amount, c.currency, got[0].role, c.want)
 			}
 		})
 	}
@@ -57,5 +62,5 @@ func TestRequisitionThresholdNotADecimal(t *testing.T) {
 		_, err := steps(context.Background(), tx, doc, NewRequest{ObjectType: Requisition, Amount: &amount, Currency: &usd})
 		return err
 	})
-	pgtest.WantErr(t, err, `threshold "x" is not a decimal`)
+	pgtest.WantErr(t, err, `invalid decimal "x"`)
 }

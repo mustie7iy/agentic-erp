@@ -116,3 +116,36 @@ func TestEventAmount(t *testing.T) {
 		})
 	}
 }
+
+// TestParseDecimalRat: the grammar of ParseDecimal, read exactly at any
+// number of decimals; what big.Rat would also accept (exponents,
+// fractions, hex, underscores) is refused like ParseDecimal refuses it.
+func TestParseDecimalRat(t *testing.T) {
+	for in, want := range map[string]string{
+		"1000.125":  "8001/8",
+		" 1000.00 ": "1000",
+		"1000.00-":  "-1000",
+		"-0.5":      "-1/2",
+		"+.25":      "1/4",
+		"7":         "7",
+		"7.":        "7",
+		"0.0000001": "1/10000000",
+	} {
+		t.Run(in, func(t *testing.T) {
+			got, err := ParseDecimalRat(in)
+			if err != nil {
+				t.Fatalf("got %v, want %s", err, want)
+			}
+			if got.RatString() != want {
+				t.Errorf("got %s, want %s", got.RatString(), want)
+			}
+		})
+	}
+	for _, in := range []string{"1e3", "1/3", "0x10", "1_000", "", "-", ".", "--1", "-1-", "1.2.3", "abc"} {
+		t.Run("refused "+in, func(t *testing.T) {
+			if got, err := ParseDecimalRat(in); err == nil {
+				t.Errorf("got %v, want an error", got)
+			}
+		})
+	}
+}

@@ -4,7 +4,9 @@
 package money
 
 import (
+	"cmp"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -41,27 +43,53 @@ func ParseQty(s string) (Qty, error) {
 	return Qty(v), err
 }
 
-func parseScaled(raw string, decimals int) (int64, error) {
+// decimalParts splits a decimal in the grammar every amount is read with:
+// optional surrounding space, one sign (a leading "-" or "+", or the
+// trailing "-" of SAP table extracts), digits, and an optional "." with
+// digits. It refuses anything else.
+func decimalParts(raw string) (neg bool, intPart, frac string, err error) {
 	s := strings.TrimSpace(raw)
-	neg := false
 	// SAP table extracts sometimes carry a trailing minus ("123.45-").
 	if strings.HasSuffix(s, "-") {
 		neg, s = true, strings.TrimSuffix(s, "-")
 	}
 	if strings.HasPrefix(s, "-") {
 		if neg {
-			return 0, fmt.Errorf("invalid decimal %q", raw)
+			return false, "", "", fmt.Errorf("invalid decimal %q", raw)
 		}
 		neg, s = true, s[1:]
 	} else if strings.HasPrefix(s, "+") {
 		s = s[1:]
 	}
-	intPart, frac, _ := strings.Cut(s, ".")
+	intPart, frac, _ = strings.Cut(s, ".")
 	if intPart == "" && frac == "" {
-		return 0, fmt.Errorf("invalid decimal %q", raw)
+		return false, "", "", fmt.Errorf("invalid decimal %q", raw)
 	}
 	if !digits(intPart) || !digits(frac) {
-		return 0, fmt.Errorf("invalid decimal %q", raw)
+		return false, "", "", fmt.Errorf("invalid decimal %q", raw)
+	}
+	return neg, intPart, frac, nil
+}
+
+// ParseDecimalRat reads a decimal in the grammar of ParseDecimal exactly,
+// with any number of decimals: for a figure validated with ParseDecimal at
+// one currency's digits and compared with an amount in another.
+func ParseDecimalRat(raw string) (*big.Rat, error) {
+	neg, intPart, frac, err := decimalParts(raw)
+	if err != nil {
+		return nil, err
+	}
+	r, _ := new(big.Rat).SetString(cmp.Or(intPart, "0") + "." + frac + "0") // digits only: always a decimal
+	if neg {
+		r.Neg(r)
+	}
+	return r, nil
+}
+
+func parseScaled(raw string, decimals int) (int64, error) {
+	neg, intPart, frac, err := decimalParts(raw)
+	if err != nil {
+		return 0, err
 	}
 	if len(frac) > decimals {
 		if strings.Trim(frac[decimals:], "0") != "" {

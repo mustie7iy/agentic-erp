@@ -215,9 +215,9 @@ func requisitionSteps(ctx context.Context, tx pgx.Tx, doc *config.Config, in New
 	amount := new(big.Rat).SetFrac(big.NewInt(int64(*in.Amount)), new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil))
 	for _, t := range doc.Purchasing.RequisitionApproval {
 		if t.UpTo != "" { // "" is the last tier
-			limit := money.ParseRat(t.UpTo) // a decimal, validated with the document
-			if limit == nil {
-				return nil, fmt.Errorf("approvals: policy steps: threshold %q is not a decimal", t.UpTo)
+			limit, err := money.ParseDecimalRat(t.UpTo) // the grammar the document was validated with
+			if err != nil {
+				return nil, fmt.Errorf("approvals: policy steps: threshold: %w", err)
 			}
 			if amount.Cmp(limit) > 0 {
 				continue
