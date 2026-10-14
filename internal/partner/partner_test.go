@@ -438,18 +438,14 @@ func TestApplyRejectCancel(t *testing.T) {
 				_, err := fn(ctx, uuid.MustParse(id(c)))
 				return err
 			})
-			if err == nil || !strings.Contains(err.Error(), "partner.invalid_status") {
-				t.Errorf("%s an applied change: got %v, want partner.invalid_status", name, err)
-			}
+			pgtest.CheckErr(t, err, "partner.invalid_status")
 		})
 	}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		_, err := partner.ApplyChange(ctx, uuid.New())
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "request.not_found") {
-		t.Fatalf("unknown change: %v", err)
-	}
+	pgtest.WantErr(t, err, "request.not_found")
 
 	// A customer without bank accounts, rejected; another cancelled.
 	customer := `{"kind": "person", "name": "C", "country_code": "DE", "roles": ["customer"], "reason": "r"}`
@@ -571,7 +567,5 @@ func TestBlockAndUnblock(t *testing.T) {
 	e.Must(200, "POST", "/v1/business-partners/"+id(p)+":block", `{"reason": "r"}`, `"4"`)
 	again, _ := e.Must(200, "POST", "/v1/business-partners/"+id(p)+":unblock", `{"reason": "r"}`, `"5"`)
 	pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'active', version = version + 1 WHERE id = $1`, uuid.MustParse(id(p)))
-	if err := e.apply(t, id(again)); err == nil || !strings.Contains(err.Error(), "partner.invalid_status") {
-		t.Fatalf("unblock of an active partner: %v", err)
-	}
+	pgtest.WantErr(t, e.apply(t, id(again)), "partner.invalid_status")
 }

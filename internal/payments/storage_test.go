@@ -112,9 +112,8 @@ func TestBankFilesAreKept(t *testing.T) {
 	third := e.run(t, "2026-04-17", "2026-04-17")
 	// The store's failure is the machinery's, not a business problem: the worker reports it and the run stays releasing, its payment posted, for the next attempt.
 	op := e.decide(t, 202, third, "release", "")
-	if _, err := e.releaser(t).RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "store") {
-		t.Fatalf("release with a broken store: %v", err)
-	}
+	_, err = e.releaser(t).RunOnce(context.Background())
+	pgtest.WantErr(t, err, "store")
 	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(third), "", ""); got["status"] != "releasing" {
 		t.Fatalf("run with a broken store: %v", got)
 	}

@@ -296,9 +296,7 @@ func TestExceptionRejectedWithdrawnReleased(t *testing.T) {
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		return payables.Approvals{}.Approved(ctx, uuid.MustParse(id(held)), uuid.New())
 	})
-	if err == nil || !strings.Contains(err.Error(), "payables.invalid_status") {
-		t.Fatalf("decision on a cancelled invoice: %v", err)
-	}
+	pgtest.WantErr(t, err, "payables.invalid_status")
 
 	// Purchase orders with live invoices.
 	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {

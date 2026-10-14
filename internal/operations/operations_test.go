@@ -498,8 +498,5 @@ func TestFinishOnce(t *testing.T) {
 			})
 		}
 	}
-	if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error { return succeed(ctx, uuid.New()) }); err == nil ||
-		!strings.Contains(err.Error(), "No operation") {
-		t.Fatalf("succeed a missing operation: got %v, want not found", err)
-	}
+	pgtest.WantErr(t, inRequest(t, ten, ten.Human, false, func(ctx context.Context) error { return succeed(ctx, uuid.New()) }), "No operation")
 }

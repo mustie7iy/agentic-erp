@@ -111,12 +111,10 @@ func TestReleaseActivitiesRunTwice(t *testing.T) {
 		t.Fatalf("after a late failure: got %+v, want %+v", got, done)
 	}
 	// Called with the run as it was, the release is refused by its status guard, and a late failure finds the operation finished.
-	if err := apitest.InRequest(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+	pgtest.WantErr(t, apitest.InRequest(t, e.Tenant, e.Approver, func(ctx context.Context) error {
 		_, err := a.Endpoints.FinishRelease(ctx, stale)
 		return err
-	}); err == nil || !strings.Contains(err.Error(), "no longer releasing") {
-		t.Fatalf("finish a stale run: got %v, want it refused as no longer releasing", err)
-	}
+	}), "no longer releasing")
 	if err := apitest.InRequest(t, e.Tenant, e.Approver, func(ctx context.Context) error {
 		_, err := a.Endpoints.FailRelease(ctx, stale, problem.Unprocessable("payments.bank_file_invalid", "late"))
 		return err
@@ -159,9 +157,7 @@ func TestFailReleaseRunsTwice(t *testing.T) {
 	// The read of the operation failing is reported, for the retry policy.
 	pool := pgtest.Pool(t)
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if err := a.FailRelease(ctx, in, why); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("fail with the database down: got %v, want database down", err)
-	}
+	pgtest.WantErr(t, a.FailRelease(ctx, in, why), "database down")
 	a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, s)
 		if err != nil {

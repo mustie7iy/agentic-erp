@@ -19,6 +19,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -109,9 +110,8 @@ func TestCapture(t *testing.T) {
 	if got := len(ev[0]["capture_sha256"].(string)); got != 64 {
 		t.Errorf("capture hash length: got %d, want 64", got)
 	}
-	if _, err := run(extractor{e: extraction()}, "%PDF-1 invoice one"); err == nil || !strings.Contains(err.Error(), "payables.already_captured") {
-		t.Fatalf("captured twice: %v", err)
-	}
+	_, err = run(extractor{e: extraction()}, "%PDF-1 invoice one")
+	pgtest.WantErr(t, err, "payables.already_captured")
 	// Low confidence: on hold, with lines numbered by the order.
 	low := extraction()
 	low.InvoiceNumber, low.Confidence = "CAP-2", "low"
@@ -156,9 +156,8 @@ func TestCapture(t *testing.T) {
 			}
 		})
 	}
-	if _, err := run(nil, "%PDF"); err == nil || !strings.Contains(err.Error(), "not configured") {
-		t.Errorf("no extractor: %v", err)
-	}
+	_, err = run(nil, "%PDF")
+	pgtest.CheckErr(t, err, "not configured")
 	if _, err := run(extractor{e: extraction()}, strings.Repeat("x", payables.MaxDocument+1)); err == nil {
 		t.Error("oversized document captured")
 	}

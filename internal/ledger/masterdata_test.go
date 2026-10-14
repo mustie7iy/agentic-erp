@@ -356,10 +356,7 @@ func TestSetup(t *testing.T) {
 	apply(noRanges) // no fiscal year to set up
 	orphan := document(t)
 	orphan.Companies[0].Code = "4000"
-	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error { return s.Apply(ctx, orphan) }); err == nil ||
-		!strings.Contains(err.Error(), "no legal entity 4000") {
-		t.Errorf("apply without a legal entity: %v", err)
-	}
+	pgtest.CheckErr(t, apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error { return s.Apply(ctx, orphan) }), "no legal entity 4000")
 	if st, _ := status("2000", removed); st != "active" {
 		t.Errorf("re-added account: %s", st)
 	}

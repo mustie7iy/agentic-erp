@@ -268,18 +268,14 @@ func TestOrderRefusals(t *testing.T) {
 		_, err := h.CancelPurchaseOrder(ctx, genCancel(id(free)))
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "procurement.order_invoiced") {
-		t.Fatalf("invoiced: %v", err)
-	}
+	pgtest.WantErr(t, err, "procurement.order_invoiced")
 	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		h := endpoints()
 		h.Invoices = invoiced{err: fmt.Errorf("payables down")}
 		_, err := h.CancelPurchaseOrder(ctx, genCancel(id(free)))
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "payables down") {
-		t.Fatalf("invoices failure: %v", err)
-	}
+	pgtest.WantErr(t, err, "payables down")
 }
 
 type invoiced struct {

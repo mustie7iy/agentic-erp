@@ -308,11 +308,9 @@ func TestDatabaseFailures(t *testing.T) {
 		})
 	}
 	// A decision for a requisition that is not pending is refused.
-	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+	pgtest.CheckErr(t, apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		return procurement.Approvals{}.Approved(ctx, u(draftReq), uuid.New())
-	}); err == nil || !strings.Contains(err.Error(), "procurement.invalid_status") {
-		t.Errorf("decision on a draft: %v", err)
-	}
+	}), "procurement.invalid_status")
 	// Orders port.
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		o, ok, err := procurement.Orders{}.Order(ctx, u(released))

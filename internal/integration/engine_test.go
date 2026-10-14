@@ -120,10 +120,7 @@ func TestRunsWithAnEngine(t *testing.T) {
 	disabled := newRun(disabledConn)
 	_, tag := e.Must(200, "GET", "/v1/connectors/"+disabledConn, "", "")
 	e.Must(200, "POST", "/v1/connectors/"+disabledConn+":disable", `{"reason": "test"}`, tag)
-	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { _, err := h.StartRun(ctx, disabled, yes); return err }); err == nil ||
-		!strings.Contains(err.Error(), "connector_disabled") {
-		t.Fatalf("disabled connector: %v", err)
-	}
+	pgtest.WantErr(t, apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { _, err := h.StartRun(ctx, disabled, yes); return err }), "connector_disabled")
 	// Every database statement failing in turn.
 	for name, call := range map[string]func(ctx context.Context) error{
 		"start":              func(ctx context.Context) error { _, err := h.StartRun(ctx, queued, yes); return err },

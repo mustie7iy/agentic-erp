@@ -230,9 +230,7 @@ func TestProposalWorkflow(t *testing.T) {
 		}
 	}
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if err := a.Propose(context.Background(), input(e, op4, run4)); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("database down: %v", err)
-	}
+	pgtest.WantErr(t, a.Propose(context.Background(), input(e, op4, run4)), "database down")
 	a.Begin = nil
 	a.Timeout = time.Minute
 	a.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) } // later than any request's own entry
@@ -329,9 +327,7 @@ func TestDispatcher(t *testing.T) {
 	}
 	engine.fail = number4
 	n, err = d.RunOnce(ctx)
-	if err == nil || !strings.Contains(err.Error(), "engine refused") {
-		t.Fatalf("round with a refusal: got %v, want the engine's refusal", err)
-	}
+	pgtest.WantErr(t, err, "engine refused")
 	if n != 1 {
 		t.Fatalf("round with a refusal: got %d dispatched, want 1", n)
 	}
@@ -419,9 +415,8 @@ func TestDispatcher(t *testing.T) {
 		}
 	}
 	d.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, err := d.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("database down: %v", err)
-	}
+	_, err = d.RunOnce(ctx)
+	pgtest.WantErr(t, err, "database down")
 	d.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, s)
 		if err != nil {
@@ -534,9 +529,7 @@ func TestReleaseWorkflow(t *testing.T) {
 	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = 'Supplier' WHERE partner_id = '%s'; END $$`, e.Supplier))
 	in3 := e.releaseAsked(t, run2)
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if err := executeRelease(t, a, in3); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("with the database down: %v", err)
-	}
+	pgtest.WantErr(t, executeRelease(t, a, in3), "database down")
 	a.Begin = nil
 	if still, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", ""); still["status"] != "releasing" {
 		t.Fatalf("after the machinery failed: %v", still)
@@ -556,9 +549,8 @@ func TestReleaseWorkflow(t *testing.T) {
 	if err := execute(t, a, input(e, op4, run4), false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.PaymentsToPost(context.Background(), workflows.ReleaseInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(run4)}); err == nil || !strings.Contains(err.Error(), "not releasing") {
-		t.Fatalf("payments to post of a proposed run: %v", err)
-	}
+	_, err := a.PaymentsToPost(context.Background(), workflows.ReleaseInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(run4)})
+	pgtest.WantErr(t, err, "not releasing")
 	// The releaser's problem path and its loop: a refused file is recorded, a dead database is logged, the loop stops with the context.
 	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = ' ' WHERE partner_id = '%s'; END $$`, e.Supplier))
 	in4 := e.releaseAsked(t, run4)
@@ -592,9 +584,8 @@ func TestReleaseWorkflow(t *testing.T) {
 	// A pending release whose steps fail is reported and left for the next round.
 	e.releaseAsked(t, run4)
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, err := w.RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("releaser with the database down: %v", err)
-	}
+	_, err = w.RunOnce(context.Background())
+	pgtest.WantErr(t, err, "database down")
 	a.Begin = nil
 	// Every statement of the release activities failing in turn is reported and leaves nothing half done; a run of two payments walks the loop.
 	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = 'Supplier' WHERE partner_id = '%s'; END $$`, e.Supplier))
@@ -621,13 +612,9 @@ func TestReleaseWorkflow(t *testing.T) {
 		}
 	}
 	a.Begin = secondCall(false)
-	if err := w.Release(context.Background(), in5); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("releaser with the first posting failing: %v", err)
-	}
+	pgtest.WantErr(t, w.Release(context.Background(), in5), "database down")
 	a.Begin = secondCall(true)
-	if err := executeRelease(t, a, in5); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("workflow with the first posting failing: %v", err)
-	}
+	pgtest.WantErr(t, executeRelease(t, a, in5), "database down")
 	a.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) } // the activities' clock, on the audit entries
 	a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, s)
@@ -751,9 +738,7 @@ func TestSimulationWorkflow(t *testing.T) {
 		t.Fatalf("simulated twice: %v", again)
 	}
 	s.Worker.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if err := s.Simulate(context.Background(), in); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("database down: %v", err)
-	}
+	pgtest.WantErr(t, s.Simulate(context.Background(), in), "database down")
 	// Dispatched under the request's number and attempt; a cancelled attempt is followed by the next.
 	e2, in2, path2 := simulationAsked(t)
 	engine := &fakeEngine{}
@@ -898,9 +883,7 @@ func TestMigrationWorkflow(t *testing.T) {
 	}
 	// Failures of the machinery are reported, and a run that is not running is refused.
 	m3.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if err := m3.Execute(context.Background(), in3); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("database down: %v", err)
-	}
+	pgtest.WantErr(t, m3.Execute(context.Background(), in3), "database down")
 	m3.Begin = nil
 	if err := m.Execute(context.Background(), workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: in.RunID, OperationID: in2.OperationID}); err != nil {
 		t.Fatalf("executing a finished run does nothing: %v", err)
@@ -1016,9 +999,8 @@ func TestApprovalDeadline(t *testing.T) {
 	e2, pending2, _ := approvalPending(t)
 	engine := &fakeEngine{fail: id(pending2)}
 	d := &workflows.Dispatcher{Deadline: time.Hour, Escalations: 3, Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}
-	if _, err := d.RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "engine refused") {
-		t.Fatalf("refused deadline: %v", err)
-	}
+	_, err := d.RunOnce(context.Background())
+	pgtest.WantErr(t, err, "engine refused")
 	engine.fail = ""
 	if _, err := d.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -1045,9 +1027,8 @@ func TestApprovalDeadline(t *testing.T) {
 	}
 	// Failures: the database refusing statements, in the activity and the dispatcher.
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in}); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("database down: %v", err)
-	}
+	_, err = a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in})
+	pgtest.WantErr(t, err, "database down")
 	pool := pgtest.Pool(t)
 	in2 := workflows.DeadlineInput{TenantID: e2.Tenant.ID, RequestID: uuid.MustParse(id(pending2)), After: time.Hour, Max: 1}
 	a.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) }

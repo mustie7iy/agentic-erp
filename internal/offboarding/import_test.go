@@ -129,13 +129,11 @@ func TestReonboarding(t *testing.T) {
 		t.Fatal("chain head differs after the import")
 	}
 	// A live tenant is refused; so is one whose rows are present.
-	if _, err := im.Import(ctx, ref); err == nil || !strings.Contains(err.Error(), "not erased") {
-		t.Fatalf("import over a live tenant: %v", err)
-	}
+	_, err = im.Import(ctx, ref)
+	pgtest.WantErr(t, err, "not erased")
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET exported_at = now(), export_ref = 'x', erase_after = now(), erased_at = now(), version = version + 1 WHERE id = $1`, tenant)
-	if _, err := im.Import(ctx, ref); err == nil || !strings.Contains(err.Error(), "already holds") {
-		t.Fatalf("import over present rows: %v", err)
-	}
+	_, err = im.Import(ctx, ref)
+	pgtest.WantErr(t, err, "already holds")
 	// Into a cell that never had the tenant: the tenant row is created.
 	pgtest.Exec(t, `SELECT platform.erase_tenant('`+tenant.String()+`')`)
 	wipeTrail(t, tenant)
@@ -152,18 +150,15 @@ func TestImportRefusals(t *testing.T) {
 	pool := pgtest.Pool(t)
 	store := blobstore.Dir{Root: t.TempDir()}
 	im := &offboarding.Importer{Pool: pool, Store: store, AppRole: "erp_app"}
-	if _, err := (&offboarding.Importer{Pool: pool, AppRole: "erp_app"}).Import(ctx, "x"); err == nil || !strings.Contains(err.Error(), "no object store") {
-		t.Fatalf("without a store: %v", err)
-	}
-	if _, err := im.Import(ctx, "tenants/none/exports/1/manifest.json"); err == nil || !strings.Contains(err.Error(), "reading the manifest") {
-		t.Fatalf("missing manifest: %v", err)
-	}
+	_, err := (&offboarding.Importer{Pool: pool, AppRole: "erp_app"}).Import(ctx, "x")
+	pgtest.WantErr(t, err, "no object store")
+	_, err = im.Import(ctx, "tenants/none/exports/1/manifest.json")
+	pgtest.WantErr(t, err, "reading the manifest")
 	if err := store.Put(ctx, "tenants/x/exports/1/manifest.json", []byte(`{"not":"a manifest"}`), blobstore.PutOptions{}); err != nil {
 		t.Fatalf("store a garbage manifest: %v", err)
 	}
-	if _, err := im.Import(ctx, "tenants/x/exports/1/manifest.json"); err == nil || !strings.Contains(err.Error(), "not an export manifest") {
-		t.Fatalf("garbage manifest: %v", err)
-	}
+	_, err = im.Import(ctx, "tenants/x/exports/1/manifest.json")
+	pgtest.WantErr(t, err, "not an export manifest")
 	// Hand-made exports of a tenant that does not exist here.
 	tenant := uuid.Must(uuid.NewV7())
 	put := func(key string, content string) string {
@@ -183,27 +178,23 @@ func TestImportRefusals(t *testing.T) {
 	// A part whose hash does not match.
 	d := "tenants/" + tenant.String() + "/exports/hash"
 	put(d+"/identity.role.00001.jsonl", roleLine)
-	if _, err := im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"00"}`)); err == nil || !strings.Contains(err.Error(), "hash") {
-		t.Fatalf("hash mismatch: %v", err)
-	}
+	_, err = im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"00"}`))
+	pgtest.WantErr(t, err, "hash")
 	// A part with more rows than the manifest says, and a part that is missing.
 	d = "tenants/" + tenant.String() + "/exports/rows"
 	sum := put(d+"/identity.role.00001.jsonl", roleLine)
-	if _, err := im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":2,"bytes":1,"sha256":"`+sum+`"}`)); err == nil || !strings.Contains(err.Error(), "manifest says 2") {
-		t.Fatalf("row count: %v", err)
-	}
+	_, err = im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":2,"bytes":1,"sha256":"`+sum+`"}`))
+	pgtest.WantErr(t, err, "manifest says 2")
 	d = "tenants/" + tenant.String() + "/exports/missing"
-	if _, err := im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sum+`"}`)); err == nil || !strings.Contains(err.Error(), "reading") {
-		t.Fatalf("missing part: %v", err)
-	}
+	_, err = im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sum+`"}`))
+	pgtest.WantErr(t, err, "reading")
 	// Rows that reference rows the export does not hold stay referenced; an outbox is skipped; a chain head the manifest
 	// promises but the parts do not deliver is refused.
 	d = "tenants/" + tenant.String() + "/exports/fk"
 	assignment := `{"tenant_id":"` + tenant.String() + `","id":"` + uuid.NewString() + `","principal_id":"` + uuid.NewString() + `","role_id":"` + uuid.NewString() + `","valid_from":"2026-01-01","valid_to":null,"created_by":"` + uuid.NewString() + `","created_at":"2026-10-12T00:00:00Z","ended_by":null,"ended_at":null}` + "\n"
 	sumA := put(d+"/identity.principal_role.00001.jsonl", assignment)
-	if _, err := im.Import(ctx, manifest(d, `{"name":"identity.principal_role","part":1,"key":"`+d+`/identity.principal_role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumA+`"}`)); err == nil || !strings.Contains(err.Error(), "stay referenced") {
-		t.Fatalf("foreign keys: %v", err)
-	}
+	_, err = im.Import(ctx, manifest(d, `{"name":"identity.principal_role","part":1,"key":"`+d+`/identity.principal_role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumA+`"}`))
+	pgtest.WantErr(t, err, "stay referenced")
 	d = "tenants/" + tenant.String() + "/exports/outbox"
 	sumR := put(d+"/identity.role.00001.jsonl", roleLine)
 	put(d+"/tenancy.outbox.00001.jsonl", `{"anything":true}`+"\n")
@@ -230,30 +221,26 @@ func TestImportRefusals(t *testing.T) {
 	sumH := put(d+"/identity.role.00001.jsonl", roleLine)
 	key := d + "/manifest.json"
 	put(key, `{"tenant_id":"`+tenant.String()+`","tenant":`+tenantRow+`,"exported_at":"2026-10-12T00:00:00Z","audit_chain_head":{"seq":3,"hash":"ab"},"tables":[{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumH+`"}]}`)
-	if _, err := im.Import(ctx, key); err == nil || !strings.Contains(err.Error(), "chain head was not imported") {
-		t.Fatalf("missing chain head: %v", err)
-	}
+	_, err = im.Import(ctx, key)
+	pgtest.WantErr(t, err, "chain head was not imported")
 	// A delivered chain head that differs from the manifest's.
 	d = "tenants/" + tenant.String() + "/exports/head2"
 	head := `{"tenant_id":"` + tenant.String() + `","seq":1,"hash":"\\x` + strings.Repeat("00", 32) + `","updated_at":"2026-10-12T00:00:00Z"}` + "\n"
 	sumHead := put(d+"/audit.chain_head.00001.jsonl", head)
 	key = d + "/manifest.json"
 	put(key, `{"tenant_id":"`+tenant.String()+`","tenant":`+tenantRow+`,"exported_at":"2026-10-12T00:00:00Z","audit_chain_head":{"seq":1,"hash":"ab"},"tables":[{"name":"audit.chain_head","part":1,"key":"`+d+`/audit.chain_head.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumHead+`"}]}`)
-	if _, err := im.Import(ctx, key); err == nil || !strings.Contains(err.Error(), "differs from the export") {
-		t.Fatalf("chain head mismatch: %v", err)
-	}
+	_, err = im.Import(ctx, key)
+	pgtest.WantErr(t, err, "differs from the export")
 	// A row the table refuses for another reason than a foreign key is reported as such.
 	d = "tenants/" + tenant.String() + "/exports/bad"
 	sumB := put(d+"/identity.role.00001.jsonl", `{"tenant_id":"`+tenant.String()+`","id":"`+uuid.NewString()+`","name":"No code"}`+"\n")
-	if _, err := im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumB+`"}`)); err == nil || !strings.Contains(err.Error(), "inserting into identity.role") {
-		t.Fatalf("bad row: %v", err)
-	}
+	_, err = im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumB+`"}`))
+	pgtest.WantErr(t, err, "inserting into identity.role")
 	// A table the cell does not have.
 	d = "tenants/" + tenant.String() + "/exports/table"
 	sumT := put(d+"/nowhere.thing.00001.jsonl", `{"tenant_id":"`+tenant.String()+`"}`+"\n")
-	if _, err := im.Import(ctx, manifest(d, `{"name":"nowhere.thing","part":1,"key":"`+d+`/nowhere.thing.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumT+`"}`)); err == nil || !strings.Contains(err.Error(), "nowhere.thing") {
-		t.Fatalf("unknown table: %v", err)
-	}
+	_, err = im.Import(ctx, manifest(d, `{"name":"nowhere.thing","part":1,"key":"`+d+`/nowhere.thing.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumT+`"}`))
+	pgtest.WantErr(t, err, "nowhere.thing")
 	// Savepoints that cannot start, commit or roll back.
 	dOK := "tenants/" + tenant.String() + "/exports/sp"
 	sumS := put(dOK+"/identity.role.00001.jsonl", roleLine)
@@ -266,9 +253,8 @@ func TestImportRefusals(t *testing.T) {
 			im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
 				return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, savepointFails{Tx: tx, mode: mode}) })
 			}
-			if _, err := im.Import(ctx, key); err == nil || !strings.Contains(err.Error(), "savepoint "+mode) {
-				t.Errorf("got %v, want an error naming savepoint %s", err, mode)
-			}
+			_, err := im.Import(ctx, key)
+			pgtest.CheckErr(t, err, "savepoint "+mode)
 		})
 	}
 	im.InTx = nil
@@ -276,9 +262,8 @@ func TestImportRefusals(t *testing.T) {
 	d = "tenants/" + tenant.String() + "/exports/row"
 	key = d + "/manifest.json"
 	put(key, `{"tenant_id":"`+tenant.String()+`","tenant":{"name":""},"exported_at":"2026-10-12T00:00:00Z","tables":[]}`)
-	if _, err := im.Import(ctx, key); err == nil || !strings.Contains(err.Error(), "tenant row is not readable") {
-		t.Fatalf("tenant row: %v", err)
-	}
+	_, err = im.Import(ctx, key)
+	pgtest.WantErr(t, err, "tenant row is not readable")
 	// Database statements failing in turn, on a valid import into the erased tenant.
 	d = "tenants/" + tenant.String() + "/exports/db"
 	sumD := put(d+"/identity.role.00001.jsonl", roleLine)
@@ -397,9 +382,7 @@ func TestImportRefusesUnexportedTables(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = im.Import(ctx, key)
-			if err == nil || !strings.Contains(err.Error(), "not a table this cell exports") {
-				t.Errorf("got %v, want a refusal of the table name", err)
-			}
+			pgtest.CheckErr(t, err, "not a table this cell exports")
 			if called := count(t, `SELECT count(*) FROM `+sentinel+` WHERE is_called`); called != 0 {
 				t.Error("got the sentinel sequence advanced, want the payload never run")
 			}

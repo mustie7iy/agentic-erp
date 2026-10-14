@@ -302,9 +302,8 @@ func TestOffboardingFailures(t *testing.T) {
 	stopped, cancelNow := context.WithCancel(ctx)
 	cancelNow()
 	bare.Run(stopped) // the default interval, one round, then the stop
-	if _, _, err := worker(t, pool, failingStore{err: errors.New("store down")}, &clock).RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "store down") {
-		t.Fatalf("failing store: %v", err)
-	}
+	_, _, err := worker(t, pool, failingStore{err: errors.New("store down")}, &clock).RunOnce(ctx)
+	pgtest.WantErr(t, err, "store down")
 	if n := count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1 AND exported_at IS NULL`, tenant); n != 1 {
 		t.Fatal("exported despite the failure")
 	}
@@ -328,9 +327,8 @@ func TestOffboardingFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A store whose objects exist but cannot be read back fails the export.
-	if _, err := worker(t, pool, existsUnreadable{}, &clock).Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "reading the stored") {
-		t.Fatalf("unreadable existing object: %v", err)
-	}
+	_, err = worker(t, pool, existsUnreadable{}, &clock).Export(ctx, tenant)
+	pgtest.WantErr(t, err, "reading the stored")
 	// A store that takes the first part of a table but not the second.
 	partial := worker(t, pool, secondPartFails{store}, &clock)
 	partial.ChunkRows = 1
@@ -364,9 +362,8 @@ func TestOffboardingFailures(t *testing.T) {
 	for k := 1; k <= 2; k++ {
 		if !t.Run(fmt.Sprintf("export begin %d failing", k), func(t *testing.T) {
 			w.Begin = beginFailing(pool, k)
-			if _, err := w.Export(ctx, tenant); err == nil || !strings.Contains(err.Error(), "pool down") {
-				t.Fatalf("got %v, want pool down", err)
-			}
+			_, err := w.Export(ctx, tenant)
+			pgtest.WantErr(t, err, "pool down")
 		}) {
 			t.FailNow()
 		}
@@ -424,13 +421,11 @@ func TestOffboardingFailures(t *testing.T) {
 	// Erasure: before the grace period on request works; the store's listing and deletion failing stop it before the row is marked.
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET erase_after = now() - interval '1 hour', version = version + 1 WHERE id = $1`, tenant)
 	broken := worker(t, pool, brokenEraser{Store: store, list: errors.New("list down")}, &clock)
-	if _, err := broken.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "list down") {
-		t.Fatalf("listing failure: %v", err)
-	}
+	_, err = broken.Erase(ctx, tenant, offboarding.Actor, nil)
+	pgtest.WantErr(t, err, "list down")
 	broken = worker(t, pool, brokenEraser{Store: store, del: errors.New("delete down")}, &clock)
-	if _, err := broken.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "delete down") {
-		t.Fatalf("deletion failure: %v", err)
-	}
+	_, err = broken.Erase(ctx, tenant, offboarding.Actor, nil)
+	pgtest.WantErr(t, err, "delete down")
 	if n := count(t, `SELECT count(*) FROM tenancy.tenant WHERE id = $1 AND erased_at IS NULL`, tenant); n != 1 {
 		t.Fatal("marked erased despite the failure")
 	}
@@ -439,17 +434,15 @@ func TestOffboardingFailures(t *testing.T) {
 	for k := 1; k <= 2; k++ {
 		if !t.Run(fmt.Sprintf("erase begin %d failing", k), func(t *testing.T) {
 			plain.Begin = beginFailing(pool, k)
-			if _, err := plain.Erase(ctx, tenant, offboarding.Actor, nil); err == nil || !strings.Contains(err.Error(), "pool down") {
-				t.Fatalf("got %v, want pool down", err)
-			}
+			_, err := plain.Erase(ctx, tenant, offboarding.Actor, nil)
+			pgtest.WantErr(t, err, "pool down")
 		}) {
 			t.FailNow()
 		}
 	}
 	// A round whose erasure fails reports it.
-	if _, _, err := broken.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "erasing tenant") {
-		t.Fatalf("round with a failing erasure: %v", err)
-	}
+	_, _, err = broken.RunOnce(ctx)
+	pgtest.WantErr(t, err, "erasing tenant")
 	// Commits that fail, and a tenant erased by another round between the transactions.
 	for k := 1; k <= 2; k++ {
 		if !t.Run(fmt.Sprintf("erase commit %d failing", k), func(t *testing.T) {
@@ -512,9 +505,8 @@ func TestOffboardingFailures(t *testing.T) {
 		}
 	}
 	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
-	if _, _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "pool down") {
-		t.Fatalf("pending: %v", err)
-	}
+	_, _, err = w.RunOnce(ctx)
+	pgtest.WantErr(t, err, "pool down")
 	w.Begin = nil
 	w.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	w.Interval = time.Millisecond

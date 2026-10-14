@@ -138,9 +138,7 @@ func TestUpdateChange(t *testing.T) {
 	// An address that already starts after the new one cannot be replaced.
 	c4, _ := e.Must(201, "POST", "/v1/partner-changes", e.update(pid, fmt.Sprintf(`{"addresses": [{"purpose": "legal", "line1": "Vierte 4",
 		"city": "Bonn", "country_code": "DE", "valid_from": %q}]}`, e.date(0))), "")
-	if err := e.apply(t, id(c4)); err == nil || !strings.Contains(err.Error(), "partner.address_overlap") {
-		t.Fatalf("overlapping address: %v", err)
-	}
+	pgtest.WantErr(t, e.apply(t, id(c4)), "partner.address_overlap")
 }
 
 func TestUpdateRefusals(t *testing.T) {
@@ -278,16 +276,12 @@ func TestBankChanges(t *testing.T) {
 	_, tag = e.Must(200, "GET", path+"/"+id(second), "", "")
 	late, _ := e.Must(200, "POST", end, endBody(e.date(8)), tag)
 	pgtest.Exec(t, `UPDATE partner.bank_account SET valid_to = current_date + 5, ended_by = created_by WHERE id = $1`, uuid.MustParse(id(second)))
-	if err := e.apply(t, id(late)); err == nil || !strings.Contains(err.Error(), "partner.invalid_end") {
-		t.Fatalf("late end: %v", err)
-	}
+	pgtest.WantErr(t, e.apply(t, id(late)), "partner.invalid_end")
 
 	// A future account is not ended by an earlier one: they would overlap.
 	q := e.active(t, "Future", 20)
 	fc, _ := e.Must(201, "POST", "/v1/business-partners/"+id(q)+"/bank-accounts", body(iban, "iban", e.date(0)), "")
-	if err := e.apply(t, id(fc)); err == nil || !strings.Contains(err.Error(), "partner.bank_account_overlap") {
-		t.Fatalf("overlapping account: %v", err)
-	}
+	pgtest.WantErr(t, e.apply(t, id(fc)), "partner.bank_account_overlap")
 }
 
 func TestPorts(t *testing.T) {

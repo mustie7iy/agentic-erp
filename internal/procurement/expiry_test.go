@@ -129,9 +129,8 @@ func TestContractExpiry(t *testing.T) {
 		t.Fatalf("commit failing: got %v, want the injected failure", err)
 	}
 	x.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, err := x.Expire(ctx, e.Tenant.ID); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("expire with the database down: %v", err)
-	}
+	_, err = x.Expire(ctx, e.Tenant.ID)
+	pgtest.WantErr(t, err, "database down")
 	// Run logs a failed round and a quiet one, and stops with the context.
 	failCtx, stopFailing := context.WithCancel(ctx)
 	failed := make(chan struct{})
