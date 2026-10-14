@@ -13,7 +13,9 @@
 // have a bank change pending or changed bank details within the
 // configuration's hold days, or whose items net to a debit, are excluded
 // with the reason. The partial unique index on active payment items
-// reserves the paid items.
+// reserves the paid items, and the run reserves them in the ledger too
+// (ledger.item_reservation), which refuses to clear or reverse them by hand
+// until the run pays or frees them.
 //
 // :release posts one entry per payment (document type ZP, on the run date)
 // that offsets the supplier's items, credits the house bank's account and
@@ -91,9 +93,13 @@ type OpenItems interface {
 	References(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
-// Postings posts payments (ledger context).
+// Postings posts payments and reserves the open items a live run holds
+// (ledger context): the reservation makes the ledger refuse to clear or
+// reverse them by hand while the run is about to pay them.
 type Postings interface {
 	Settle(ctx context.Context, in ledger.Settlement) (ledger.Entry, error)
+	Reserve(ctx context.Context, owner ledger.Owner, items []ledger.ItemRef) error
+	Release(ctx context.Context, owner uuid.UUID, items []ledger.ItemRef) error
 }
 
 // Payees is what payments reads about the suppliers it pays (partner context).

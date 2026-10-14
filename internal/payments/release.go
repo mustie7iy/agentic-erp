@@ -153,7 +153,7 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	text := "Payment run " + r.DocumentNumber
 	entry, err := e.Postings.Settle(ctx, ledger.Settlement{LegalEntityID: r.LegalEntityID, DocumentType: DocumentType, PostingDate: r.RunDate,
 		Currency: r.Currency, BankAccountID: hb.GLAccountID, Reference: &p.EndToEndID, HeaderText: &text, SourceContext: "payments",
-		SourceDocumentID: p.ID, Items: items})
+		SourceDocumentID: p.ID, Items: items, ReservedFor: r.ID})
 	if err != nil {
 		return false, err
 	}
@@ -309,8 +309,8 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 }
 
 // RejectRun rejects a proposed run, by a person other than the proposer,
-// and frees its items for later runs.
-func RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Run, error) {
+// and frees its items for later runs, here and in the ledger.
+func (e *Endpoints) RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Run, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Run{}, err
@@ -332,6 +332,9 @@ func RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, rea
 		WHERE p.tenant_id = i.tenant_id AND p.id = i.payment_id AND p.payment_run_id = $1 AND i.is_active`, r.ID)
 	if err != nil {
 		return Run{}, fmt.Errorf("payments: free the items of run %s: %w", r.ID, err)
+	}
+	if err := e.Postings.Release(ctx, r.ID, nil); err != nil {
+		return Run{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'rejected', decided_by = $2, decided_at = now(), version = version + 1,
 		updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {

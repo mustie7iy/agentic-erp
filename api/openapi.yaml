@@ -4259,7 +4259,7 @@ paths:
       tags:
         - ledger
       summary: Clear open items
-      description: Clears open items against each other and posts the clearing entry. A line already cleared is 409.
+      description: "Clears open items against each other and posts the clearing entry. A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run settles or frees it."
       x-permission: ledger.clearing.post
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"

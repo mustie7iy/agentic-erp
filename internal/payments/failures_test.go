@@ -432,7 +432,7 @@ func refusalCalls(e env, h *payments.Endpoints, run uuid.UUID) map[string]func(c
 			return err
 		},
 		"reject mismatch": func(ctx context.Context) error {
-			_, err := payments.RejectRun(ctx, run, func(int32) error { return errMismatch }, "r")
+			_, err := h.RejectRun(ctx, run, func(int32) error { return errMismatch }, "r")
 			return err
 		},
 		"release unknown": func(ctx context.Context) error {
@@ -440,7 +440,7 @@ func refusalCalls(e env, h *payments.Endpoints, run uuid.UUID) map[string]func(c
 			return err
 		},
 		"reject unknown": func(ctx context.Context) error {
-			_, err := payments.RejectRun(ctx, uuid.New(), yes, "r")
+			_, err := h.RejectRun(ctx, uuid.New(), yes, "r")
 			return err
 		},
 	}

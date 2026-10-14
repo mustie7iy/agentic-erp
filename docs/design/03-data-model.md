@@ -353,6 +353,18 @@ Rules enforced in the database:
   reversed by its owner through `Postings.Reverse` (a supplier invoice's by
   `supplier-invoices/{id}:reverse`), which also changes the owner's document
   and applies its permission and checks.
+- An open item another context is about to settle is reserved in
+  `item_reservation` (owner context, owner document and its reference;
+  migration 000034): at most one active reservation per line (partial unique
+  index `item_reserved_once`), and a reservation is only ever released, once
+  (trigger, `UPDATE` granted on `released_at`/`released_by` only). The ledger's
+  manual clearing, migrated clearing and reversal refuse a reserved item
+  (409 `ledger.item_reserved`); a settlement passes its owner
+  (`Settlement.ReservedFor`), is refused items another owner holds, and ends
+  the owner's reservation of what it clears. The owner reserves through
+  `Postings.Reserve`, which locks the entries exclusively and refuses items
+  that are not open, reversed or held, and frees through `Postings.Release`;
+  the ledger never reads the owner's tables.
 - `period_balance` is maintained by an idempotent projector (ADR-0006).
 - `journal_line` is partitioned by `fiscal_year`.
 - `period_status` (one row per legal entity, ledger, year and period) has a
@@ -531,7 +543,12 @@ erDiagram
 
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run
-deactivates its items. Bank files are stored in object storage, referenced by
+deactivates its items. The run also reserves its items in the ledger
+(`ledger.item_reservation`, owner the run, §3.7) in the proposal's
+transaction, and frees them there when it is rejected; posting a payment
+ends the reservation of the items it settles. So the ledger reservations
+are exactly the items of live runs not paid yet, and a manual clearing or
+reversal of one is refused while the run holds it. Bank files are stored in object storage, referenced by
 key and content hash.
 
 The release (ADR-0012) moves the run to `releasing` under a release

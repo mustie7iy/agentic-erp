@@ -123,7 +123,7 @@ func (e *Endpoints) ReleasePaymentRun(ctx context.Context, req gen.OptDecisionIn
 
 // RejectPaymentRun implements POST /v1/payment-runs/{id}:reject.
 func (e *Endpoints) RejectPaymentRun(ctx context.Context, req *gen.ReasonInput, params gen.RejectPaymentRunParams) (gen.RejectPaymentRunRes, error) {
-	r, err := RejectRun(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	r, err := e.RejectRun(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}

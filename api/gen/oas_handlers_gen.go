@@ -3883,7 +3883,9 @@ func (s *Server) handleCreateChangeRequestRequest(args [0]string, argsEscaped bo
 
 // handleCreateClearingRequest handles createClearing operation.
 //
-// Clears open items against each other and posts the clearing entry. A line already cleared is 409.
+// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
+// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
+// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
 //
 // POST /v1/clearings
 func (s *Server) handleCreateClearingRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -208,6 +208,9 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 	if err := pr.insert(ctx, tx, p, r); err != nil {
 		return Run{}, err
 	}
+	if err := e.Postings.Reserve(ctx, owner(r), pr.items()); err != nil {
+		return Run{}, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'proposed', total_amount = $2, version = version + 1, updated_by = $3 WHERE id = $1`,
 		r.ID, pr.total, p.ID); err != nil {
 		return Run{}, fmt.Errorf("payments: propose run %s: %w", r.ID, err)
@@ -275,6 +278,21 @@ func propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entit
 		}
 	}
 	return pr, nil
+}
+
+// items are the open items the proposal pays.
+func (pr *proposal) items() []ledger.ItemRef {
+	refs := make([]ledger.ItemRef, len(pr.itemEntries))
+	for i := range refs {
+		refs[i] = ledger.ItemRef{FiscalYear: pr.itemYears[i], EntryID: pr.itemEntries[i], LineNo: pr.itemLines[i]}
+	}
+	return refs
+}
+
+// owner is the run as the holder of the open items it reserves in the
+// ledger.
+func owner(r Run) ledger.Owner {
+	return ledger.Owner{Context: "payments", ID: r.ID, Reference: r.DocumentNumber}
 }
 
 // insert stores the proposal's payments, items and exclusions.

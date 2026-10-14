@@ -77,6 +77,8 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 			return uuid.Nil, reversedItem(i)
 		case !it.open:
 			return uuid.Nil, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+		case it.reservedBy != nil:
+			return uuid.Nil, reservedItem(i, *it.reservedBy)
 		}
 		s := perPartner[*it.partner]
 		if s == nil {

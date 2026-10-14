@@ -25,7 +25,7 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"payments.run.read", "payments.run.propose", "payments.run.release", "payments.file.transmit",
-	"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "ledger.entry.read", "ledger.entry.post",
+	"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "ledger.entry.read", "ledger.entry.post", "ledger.clearing.post",
 	"platform.operation.read", "platform.operation.cancel"}
 
 // connector records the files it transmits, or fails with err.

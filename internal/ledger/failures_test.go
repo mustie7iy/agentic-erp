@@ -232,7 +232,8 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 }
 
 func TestConstraintProblems(t *testing.T) {
-	for name, code := range map[string]string{"reversal_pkey": "ledger.already_reversed", "clearing_item_pkey": "ledger.item_already_cleared"} {
+	for name, code := range map[string]string{"reversal_pkey": "ledger.already_reversed", "clearing_item_pkey": "ledger.item_already_cleared",
+		"item_reserved_once": "ledger.item_reserved"} {
 		t.Run(name, func(t *testing.T) {
 			p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name})
 			if p.Code != code {

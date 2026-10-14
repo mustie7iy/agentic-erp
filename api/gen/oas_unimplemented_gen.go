@@ -203,7 +203,9 @@ func (UnimplementedHandler) CreateChangeRequest(ctx context.Context, req *Change
 
 // CreateClearing implements createClearing operation.
 //
-// Clears open items against each other and posts the clearing entry. A line already cleared is 409.
+// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
+// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
+// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
 //
 // POST /v1/clearings
 func (UnimplementedHandler) CreateClearing(ctx context.Context, req *ClearingCreate, params CreateClearingParams) (r CreateClearingRes, _ error) {

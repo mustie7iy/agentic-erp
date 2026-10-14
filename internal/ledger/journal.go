@@ -647,6 +647,9 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if err := requireReversible(ctx, tx, orig); err != nil {
 		return Entry{}, err
 	}
+	if err := requireUnreserved(ctx, tx, orig); err != nil {
+		return Entry{}, err
+	}
 	le, err := e.legalEntity(ctx, orig.LegalEntityID, "legal_entity_id")
 	if err != nil {
 		return Entry{}, err

@@ -468,3 +468,26 @@ func TestReverseDuringResumedRelease(t *testing.T) {
 		t.Fatalf("invoice X after the release: got %v, want posted", got["status"])
 	}
 }
+
+// TestReservedItemsAreNotClearedByHand: an open item a live payment run
+// pays is reserved in the ledger, so a manual clearing of it is refused
+// (409 ledger.item_reserved) and the release does not later fail on an
+// item cleared behind the run's back; once the run is rejected the item is
+// free again.
+func TestReservedItemsAreNotClearedByHand(t *testing.T) {
+	e := setup(t)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
+	memo := e.credit(t, e.Supplier, "100.00", "2026-05-01") // after the due date: not in the run
+	run := e.run(t, "2026-04-15", "2026-04-15")
+	item := e.payments(t, run)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	body := fmt.Sprintf(`{"legal_entity_id": %q, "clearing_date": "2026-05-02", "items": [
+		{"fiscal_year": %v, "journal_entry_id": %q, "line_no": %v}, {"fiscal_year": %v, "journal_entry_id": %q, "line_no": 1}]}`,
+		e.DE, item["fiscal_year"], item["journal_entry_id"], item["line_no"], memo["fiscal_year"], id(memo))
+	refused := e.Problem(409, "ledger.item_reserved", "POST", "/v1/clearings", body, "")
+	if detail, _ := refused["detail"].(string); !strings.Contains(detail, run["document_number"].(string)) {
+		t.Errorf("detail: got %q, want it to name run %s", refused["detail"], run["document_number"])
+	}
+	e.decide(t, 200, run, "reject", `{"reason": "Clear by hand"}`)
+	e.Must(201, "POST", "/v1/clearings", body, "")
+}

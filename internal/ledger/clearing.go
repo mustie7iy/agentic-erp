@@ -98,6 +98,7 @@ type item struct {
 	tc, lc, gc                       money.Minor
 	currency, currencyLC, currencyGC string
 	rateTCLC, rateLCGC               string
+	reservedBy                       *Owner // the owner holding the item (item_reservation), or nil
 }
 
 // createClearing clears open items against each other. The items must be
@@ -218,6 +219,8 @@ func requireClearable(i int, it, first item, legalEntity uuid.UUID) error {
 		return reversedItem(i)
 	case !it.open:
 		return problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+	case it.reservedBy != nil:
+		return reservedItem(i, *it.reservedBy)
 	case it.currency != first.currency || it.ledger != first.ledger:
 		return problem.Unprocessable("ledger.mixed_items", "The items of one clearing share their ledger and transaction currency.",
 			problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + first.currency + " of the same ledger"})
@@ -240,10 +243,7 @@ func clearedItemsPayload(items []item, entry Entry) []map[string]any {
 // that do not exist come back with found false, and lines of a reversed
 // entry or of a reversal with reversed true.
 func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
-	years, entries, nos := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
-	for i, r := range refs {
-		years[i], entries[i], nos[i] = r.FiscalYear, r.EntryID, r.LineNo
-	}
+	years, entries, nos := columns(refs)
 	// Locked before reading, so the reversal check below sees any reversal
 	// that committed while this waited (the transaction is read committed).
 	if err := lockEntries(ctx, tx, true, entries); err != nil {
@@ -255,20 +255,31 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, ''),
 			EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = l.tenant_id
 				AND ((r.original_year = l.fiscal_year AND r.original_entry_id = l.journal_entry_id)
-					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))
+					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id))),
+			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, '')
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
 		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 		LEFT JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		LEFT JOIN ledger.clearing_item ci ON ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year
 			AND ci.journal_entry_id = l.journal_entry_id AND ci.line_no = l.line_no
+		LEFT JOIN ledger.item_reservation ir ON ir.tenant_id = l.tenant_id AND ir.fiscal_year = l.fiscal_year
+			AND ir.journal_entry_id = l.journal_entry_id AND ir.line_no = l.line_no AND ir.released_at IS NULL
 		ORDER BY x.ord`, years, entries, nos, uuid.Nil)
 	items := make([]item, 0, len(refs))
 	var it item
 	var ord int64
+	var owner Owner
+	var ownerID *uuid.UUID
 	if _, err := pgx.ForEachRow(rows, []any{&ord, &it.found, &it.open, &it.recon, &it.legalEntity, &it.ledger, &it.account, &it.partner,
-		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC, &it.reversed}, func() error {
-		it.ref = refs[ord-1]
+		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC, &it.reversed,
+		&ownerID, &owner.Context, &owner.Reference}, func() error {
+		it.ref, it.reservedBy = refs[ord-1], nil
+		if ownerID != nil {
+			holder := owner
+			holder.ID = *ownerID
+			it.reservedBy = &holder
+		}
 		items = append(items, it)
 		return nil
 	}); err != nil {
@@ -312,10 +323,7 @@ func lockEntries(ctx context.Context, tx pgx.Tx, shared bool, ids []uuid.UUID) e
 
 // markCleared records the lines as cleared by the clearing.
 func markCleared(ctx context.Context, tx pgx.Tx, tenant, clearing uuid.UUID, refs []ItemRef) error {
-	years, entries, nos := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
-	for i, r := range refs {
-		years[i], entries[i], nos[i] = r.FiscalYear, r.EntryID, r.LineNo
-	}
+	years, entries, nos := columns(refs)
 	_, err := tx.Exec(ctx, `INSERT INTO ledger.clearing_item (tenant_id, fiscal_year, journal_entry_id, line_no, clearing_id)
 		SELECT $1, y, je, n, $2 FROM unnest($3::smallint[], $4::uuid[], $5::int[]) AS x(y, je, n)`, tenant, clearing, years, entries, nos)
 	if err != nil {

@@ -96,6 +96,11 @@ type Settlement struct {
 	SourceContext    string
 	SourceDocumentID uuid.UUID
 	Items            []ItemRef
+	// ReservedFor is the owner whose reservation of the items this
+	// settlement pays (a payment run), or uuid.Nil: items another owner
+	// holds are refused, and the owner's reservations of the settled items
+	// end with the settlement.
+	ReservedFor uuid.UUID
 }
 
 // Settle posts one entry that settles open items of one legal entity and
@@ -153,6 +158,11 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	id, err := clearWithEntry(ctx, tx, actor, le.ID, in.PostingDate, entry, items, offsets)
 	if err != nil {
 		return Entry{}, err
+	}
+	if in.ReservedFor != uuid.Nil {
+		if err := release(ctx, tx, actor, in.ReservedFor, in.Items); err != nil {
+			return Entry{}, err
+		}
 	}
 	return entry, errors.Join(
 		audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: entry.ID, Outcome: "succeeded",
@@ -240,6 +250,8 @@ func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines
 			return nil, 0, 0, 0, reversedItem(i)
 		case !it.open:
 			return nil, 0, 0, 0, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+		case it.reservedBy != nil && it.reservedBy.ID != in.ReservedFor:
+			return nil, 0, 0, 0, reservedItem(i, *it.reservedBy)
 		case it.currency != in.Currency || it.ledger != items[0].ledger:
 			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
 		}

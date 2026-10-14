@@ -162,7 +162,9 @@ type Invoker interface {
 	CreateChangeRequest(ctx context.Context, request *ChangeRequestCreate, params CreateChangeRequestParams) (CreateChangeRequestRes, error)
 	// CreateClearing invokes createClearing operation.
 	//
-	// Clears open items against each other and posts the clearing entry. A line already cleared is 409.
+	// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
+	// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
+	// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
 	//
 	// POST /v1/clearings
 	CreateClearing(ctx context.Context, request *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error)
@@ -4123,7 +4125,9 @@ func (c *Client) sendCreateChangeRequest(ctx context.Context, request *ChangeReq
 
 // CreateClearing invokes createClearing operation.
 //
-// Clears open items against each other and posts the clearing entry. A line already cleared is 409.
+// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
+// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
+// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
 //
 // POST /v1/clearings
 func (c *Client) CreateClearing(ctx context.Context, request *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error) {

@@ -917,3 +917,41 @@ func TestInvoiceLifecycleConsistency(t *testing.T) {
 	mustApp(t, f.tenant, invoice("posted", true, false))
 	failsWith(t, asApp(t, f.tenant, invoice("parked", false, false)), "supplier_invoice_no_duplicates")
 }
+
+// TestItemReservationsHoldOnce: an open item is held by one owner at a time
+// (item_reserved_once); a reservation is released once and otherwise never
+// changes; it names a journal line that exists.
+func TestItemReservationsHoldOnce(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var inv uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		inv, err = f.entry(tx, 7, "2026-07-02", line{account: f.expense, amount: 400}, line{account: f.ap, amount: -400, partner: &f.supplier})
+		return err
+	})
+	run1, run2 := id(), id()
+	reserve := func(owner, entry uuid.UUID) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.item_reservation (tenant_id, owner_id, fiscal_year, journal_entry_id, line_no, owner_context, owner_reference, created_by)
+				VALUES ($1, $2, 2026, $3, 2, 'payments', 'PR1', $4)`, f.tenant, owner, entry, f.actor)
+		}
+	}
+	release := func(owner uuid.UUID) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.item_reservation SET released_at = now(), released_by = $3 WHERE tenant_id = $1 AND owner_id = $2`, f.tenant, owner, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, reserve(run1, inv))
+	failsWith(t, asApp(t, f.tenant, reserve(run2, inv)), "item_reserved_once")
+	failsWith(t, asApp(t, f.tenant, reserve(run2, id())), "violates foreign key constraint")
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE ledger.item_reservation SET released_at = now() WHERE tenant_id = $1`, f.tenant)
+	}), "item_reservation_check")
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE ledger.item_reservation SET owner_id = $2 WHERE tenant_id = $1`, f.tenant, run2)
+	}), "permission denied")
+	mustApp(t, f.tenant, release(run1))
+	failsWith(t, asApp(t, f.tenant, release(run1)), "already released")
+	mustApp(t, f.tenant, reserve(run2, inv))
+}
