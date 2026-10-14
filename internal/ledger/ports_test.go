@@ -213,3 +213,45 @@ func TestTaxCodes(t *testing.T) {
 		t.Fatalf("re-added: %s", got)
 	}
 }
+
+// TestReversalBelongsToTheOwner: an entry another context posted for one of
+// its documents is reversed by that context, never through the ledger's
+// :reverse, which would leave the document standing over a reversed entry
+// and bypass the owner's permission and checks. The owner's port still
+// reverses it.
+func TestReversalBelongsToTheOwner(t *testing.T) {
+	e := setup(t)
+	expense, ap := uuid.MustParse(e.account(t, "2000", "520000")), uuid.MustParse(e.account(t, "2000", "211000"))
+	post := func(source string) ledger.Entry {
+		t.Helper()
+		var entry ledger.Entry
+		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-01"),
+				PostingDate: date("2026-03-02"), Currency: "EUR", SourceContext: source, SourceDocumentID: uuid.New(),
+				Lines: []ledger.PostingLine{{AccountID: expense, Amount: 100}, {AccountID: ap, Amount: -100, PartnerID: &e.supplier}}})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return entry
+	}
+	for _, c := range []struct{ source, endpoint string }{
+		{"payables", "/v1/supplier-invoices/"},
+		{"integration", "integration"},
+	} {
+		t.Run(c.source, func(t *testing.T) {
+			entry := post(c.source)
+			_, tag := e.Must(200, "GET", "/v1/journal-entries/"+entry.ID.String(), "", "")
+			refused := e.Problem(409, "ledger.entry_owned_elsewhere", "POST", "/v1/journal-entries/"+entry.ID.String()+":reverse", "", tag)
+			if detail, _ := refused["detail"].(string); !strings.Contains(detail, c.endpoint) {
+				t.Errorf("detail: got %q, want it to name %s", detail, c.endpoint)
+			}
+			if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+				_, err := postings().Reverse(ctx, entry.ID, nil, nil)
+				return err
+			}); err != nil {
+				t.Errorf("reversal through the owner's port: got %v, want nil", err)
+			}
+		})
+	}
+}

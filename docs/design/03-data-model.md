@@ -347,6 +347,12 @@ Rules enforced in the database:
   the reversal, in the same transaction, with the reversal as the clearing
   entry (as SAP does); no other clearing or settlement takes a line of a
   reversed entry or of a reversal.
+- An entry belongs to the context that posted it (`source_context`). The
+  ledger's `:reverse` reverses only its own (`ledger`) entries; another
+  context's entry is 409 `ledger.entry_owned_elsewhere` there and is
+  reversed by its owner through `Postings.Reverse` (a supplier invoice's by
+  `supplier-invoices/{id}:reverse`), which also changes the owner's document
+  and applies its permission and checks.
 - `period_balance` is maintained by an idempotent projector (ADR-0006).
 - `journal_line` is partitioned by `fiscal_year`.
 - `period_status` (one row per legal entity, ledger, year and period) has a

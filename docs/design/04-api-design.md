@@ -215,6 +215,10 @@ reversed invoice. A run has at most one bank file.
   caller's companies are 404, not 403, so ids cannot be probed.
 - Segregation of duties is checked on transitions (for example, the user who
   created a payment run cannot release it).
+- A document's journal entry is reversed through the document, never
+  around it: `journal-entries/{id}:reverse` refuses an entry another context
+  posted (`409 ledger.entry_owned_elsewhere`, naming the owner's endpoint),
+  so `ledger.entry.post` cannot stand in for `payables.invoice.post`.
 - Approval decisions (`:approve`, `:reject` on approval requests) require a
   human principal; agent tokens are refused with `403 identity.agent_not_allowed`
   and the database enforces the same rule (ADR-0010).

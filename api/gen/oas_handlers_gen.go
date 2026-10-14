@@ -28869,7 +28869,10 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 // Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
 // original are cleared against the reversal's lines in the same transaction (the reversal entry is the
 // clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
-// Returns the new reversal entry.
+// Only the ledger's own entries (`source_context` `ledger`) are reversed here: an entry another
+// context posted for one of its documents is 409 `ledger.entry_owned_elsewhere`, and is reversed
+// through its owner (a supplier invoice's with `POST /v1/supplier-invoices/{id}:reverse`). Returns the
+// new reversal entry.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

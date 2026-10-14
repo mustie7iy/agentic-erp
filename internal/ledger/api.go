@@ -268,7 +268,12 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 
 // ReverseJournalEntry implements POST /v1/journal-entries/{id}:reverse.
 func (e *Endpoints) ReverseJournalEntry(ctx context.Context, req gen.OptJournalEntryReverse, params gen.ReverseJournalEntryParams) (gen.ReverseJournalEntryRes, error) {
-	check := func(orig Entry) error { return etag.Match(params.IfMatch, etag.Of(ptrTo(entryToAPI(orig)))) }
+	check := func(orig Entry) error {
+		if err := etag.Match(params.IfMatch, etag.Of(ptrTo(entryToAPI(orig)))); err != nil {
+			return err
+		}
+		return requireOwnEntry(orig)
+	}
 	rev, err := e.reverseJournalEntry(ctx, params.ID, check, apitypes.Ptr[time.Time](req.Value.PostingDate), apitypes.Ptr[string](req.Value.HeaderText))
 	if err != nil {
 		return nil, err

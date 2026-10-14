@@ -708,6 +708,24 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
 	return nil
 }
 
+// requireOwnEntry refuses to reverse, through the ledger's :reverse, an
+// entry another context posted for one of its documents: only the owner
+// knows what else the reversal must change (a supplier invoice's status,
+// its permission, the payment runs holding its item), so it reverses the
+// entry through Postings.Reverse. The ledger's own entries are the manual
+// ones (source "ledger").
+func requireOwnEntry(orig Entry) error {
+	if orig.SourceContext == "ledger" {
+		return nil
+	}
+	where := "through the " + orig.SourceContext + " context"
+	if orig.SourceContext == "payables" && orig.SourceDocumentID != nil {
+		where = "with POST /v1/supplier-invoices/" + orig.SourceDocumentID.String() + ":reverse"
+	}
+	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
+		" context for one of its documents; reverse it "+where+".")
+}
+
 // reversalLines are the entry's lines with every amount and quantity
 // negated.
 func reversalLines(orig Entry) []Line {
