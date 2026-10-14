@@ -306,7 +306,7 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - [ ] R55 Re-review until 9.5. First re-review after Phase 7: **9.0 / 10** (architecture 9.2,
   error handling 9.1, concurrency and tenancy 8.4, SQL 9.7, tests 9.3, readability 9.2,
   duplication 8.8, money 9.3). Round two below.
-- [~] F5 The ledger API cannot reverse or clear another context's document or a reserved item.
+- [x] F5 The ledger API cannot reverse or clear another context's document or a reserved item.
   :reverse refuses payables entries (409 ledger.entry_owned_elsewhere, naming
   /v1/supplier-invoices/{id}:reverse); integration entries stay reversible. Items a payment run
   holds are reserved in ledger-owned state (migration 000034, ledger.item_reservation), set by
@@ -321,13 +321,15 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   tenant (platform.require_tenant, migration 000039); a migration load takes every entry bucket
   before it posts (Postings.LockAllEntries; it deadlocked against a reservation); refusals of
   contexts without a reversal say so; tests pin tenant-scoped buckets and version 7 entry ids.
-- [~] F6 A releasing run cannot get stuck; a proposal cannot race an invoice reversal. RunOf takes
+- [x] F6 A releasing run cannot get stuck; a proposal cannot race an invoice reversal. RunOf takes
   the proposals lock; a release drops a payment that can never post (supplier excluded with
   item_reversed or item_not_open, migrations 000035/000036; new additive PaymentExcluded event
   and the two codes in reason_code's enum, user approved); a retried release keeps one bank file
   under the run's key and accepts it when it pays the same, so a data correction cannot strand
   the run. Reviews: four rounds of blocking findings fixed (deadlock risk, cross-tenant lock key, lock
-  table, contract migration on the same branch); final re-review of a6897c6 pending.
+  table, contract migration on the same branch); an independent review then found a lock-order cycle with
+  the migration load (fixed: the load takes every bucket up front, before any number range);
+  entry locks fail without a tenant (migration 000039); final review: APPROVE.
 - [x] F7 Security defaults fail closed (user: ERP_ENV required; production refuses an operator
   token without roles, ADR-0027 amended; principals bound to issuer + subject, with a migration).
   Migrations 000037 (column, backfill to erp-dev) and 000038 (unique index, concurrently); the
