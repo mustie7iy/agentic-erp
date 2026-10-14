@@ -219,7 +219,7 @@ func requisitionSteps(ctx context.Context, rates Rates, doc *config.Config, in N
 	var out []policyStep
 	minor, exp, err := rates.ToCompany(ctx, in.LegalEntityID, *in.Currency, in.Date, *in.Amount)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("approvals: policy steps: %w", err)
 	}
 	// A threshold is validated with each company currency's digits, which
 	// may be more than this company's, so amount and threshold are compared

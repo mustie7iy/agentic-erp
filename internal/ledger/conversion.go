@@ -88,7 +88,7 @@ func (Rates) Conversion(ctx context.Context, from, to string, date time.Time) (C
 func (r Rates) ToCompany(ctx context.Context, legalEntity uuid.UUID, currency string, date time.Time, amount money.Minor) (money.Minor, int, error) {
 	le, ok, err := r.LegalEntities.Entity(ctx, legalEntity)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("ledger: convert into the currency of legal entity %s: %w", legalEntity, err)
 	}
 	if !ok {
 		return 0, 0, fmt.Errorf("ledger: convert into the currency of legal entity %s: no such legal entity", legalEntity)
