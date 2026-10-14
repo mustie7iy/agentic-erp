@@ -153,7 +153,11 @@ func shown(r tenancy.Tenant) Tenant {
 
 // views shows the tenants with their active keys and latest verifications,
 // two reads in tx however many tenants there are. The key's and the
-// verification's times are shown in UTC.
+// verification's times are shown in UTC. The reads are separate statements
+// under READ COMMITTED, so a key rotated between them can show next to the
+// version before it; accepted for an operator's read, since the ETag guards
+// any change made from it (a stale If-Match is refused, and reading again
+// shows both).
 func views(ctx context.Context, tx pgx.Tx, rows []tenancy.Tenant) ([]Tenant, error) {
 	ids := make([]uuid.UUID, len(rows))
 	for i, r := range rows {

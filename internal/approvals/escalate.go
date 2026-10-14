@@ -93,15 +93,15 @@ func escalatedBefore(ctx context.Context, tx pgx.Tx, id uuid.UUID, prior *int16)
 	return false, fmt.Errorf("escalate request %s with %d escalations: %w", id, count, ErrEscalationCount)
 }
 
-// Ref names a request across tenants.
-type Ref struct{ TenantID, ID uuid.UUID }
+// RequestRef names a request across tenants.
+type RequestRef struct{ TenantID, ID uuid.UUID }
 
 // Unwatched lists, across tenants, the pending requests without a deadline
 // workflow, oldest first: what the workflows dispatcher asks approvals, as
 // the worker role, so that it reads none of its tables.
-func Unwatched(ctx context.Context, tx pgx.Tx) ([]Ref, error) {
+func Unwatched(ctx context.Context, tx pgx.Tx) ([]RequestRef, error) {
 	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM workflow.approval_request WHERE status = 'pending' AND workflow_id IS NULL ORDER BY id`)
-	pending, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Ref])
+	pending, err := pgx.CollectRows(rows, pgx.RowToStructByPos[RequestRef])
 	if err != nil {
 		return nil, fmt.Errorf("approvals: list the pending requests without a deadline workflow: %w", err)
 	}
