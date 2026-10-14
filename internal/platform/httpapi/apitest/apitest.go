@@ -260,6 +260,14 @@ type Client struct {
 	As     pgtest.Actor
 }
 
+// In returns c reporting to tb, so a subtest's failed call stops that
+// subtest rather than its parent.
+func (c Client) In(tb testing.TB) Client {
+	tb.Helper()
+	c.T = tb
+	return c
+}
+
 // Do performs a call and returns the status, the decoded body and the ETag.
 func (c Client) Do(method, path, body, ifMatch string) (int, map[string]any, string) {
 	c.T.Helper()

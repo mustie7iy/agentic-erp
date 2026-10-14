@@ -246,9 +246,11 @@ func TestSteps(t *testing.T) {
 		}
 		return id
 	}
-	as := func(a pgtest.Actor, fn func(ctx context.Context) (approvals.Request, error)) (approvals.Request, error) {
+	// as reports to the tb it is given: the subtest's, inside a subtest.
+	as := func(tb testing.TB, a pgtest.Actor, fn func(ctx context.Context) (approvals.Request, error)) (approvals.Request, error) {
+		tb.Helper()
 		var r approvals.Request
-		err := apitest.Committed(t, f.Tenant, a, func(ctx context.Context) (err error) {
+		err := apitest.Committed(tb, f.Tenant, a, func(ctx context.Context) (err error) {
 			r, err = fn(ctx)
 			return err
 		})
@@ -256,7 +258,7 @@ func TestSteps(t *testing.T) {
 	}
 	any := func(int32) error { return nil }
 	small := open(500000) // 5,000.00 EUR: one step
-	r, err := as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return approvals.GetRequest(ctx, small) })
+	r, err := as(t, f.Approver, func(ctx context.Context) (approvals.Request, error) { return approvals.GetRequest(ctx, small) })
 	if err != nil {
 		t.Fatalf("small: %v", err)
 	}
@@ -268,7 +270,7 @@ func TestSteps(t *testing.T) {
 	}
 	large := open(5000000) // 50,000.00 EUR: two steps
 	pgtest.Exec(t, `UPDATE workflow.approval_step SET required = 2 WHERE request_id = $1 AND step_no = 1`, large)
-	if r, err = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); err != nil {
+	if r, err = as(t, f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); err != nil {
 		t.Fatalf("first approval: %v", err)
 	}
 	if r.CurrentStep != 1 {
@@ -277,22 +279,22 @@ func TestSteps(t *testing.T) {
 	if len(r.Steps) == 0 || r.Steps[0].Approvals != 1 {
 		t.Errorf("first approval step 1: got %+v, want 1 approval", r.Steps)
 	}
-	if _, err = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); problem.From(err).Code != "workflow.already_approved" {
+	if _, err = as(t, f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); problem.From(err).Code != "workflow.already_approved" {
 		t.Fatalf("second approval by the same person: %v", err)
 	}
-	if r, err = as(f.Approver2, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); err != nil || r.CurrentStep != 2 {
+	if r, err = as(t, f.Approver2, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); err != nil || r.CurrentStep != 2 {
 		t.Fatalf("step 1 complete: %+v %v", r, err)
 	}
 	third := person(t, f, "third", "all", "process_owner")
-	if r, err = as(third, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "fine") }); err != nil || r.Status != approvals.Approved {
+	if r, err = as(t, third, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "fine") }); err != nil || r.Status != approvals.Approved {
 		t.Fatalf("step 2 complete: %+v %v", r, err)
 	}
 	// Rejection and cancellation reach the owning context with their comments.
-	if _, err = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Reject(ctx, small, any, "too much") }); err != nil {
+	if _, err = as(t, f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Reject(ctx, small, any, "too much") }); err != nil {
 		t.Fatal(err)
 	}
 	withdrawn := open(100)
-	if _, err = as(f.Tenant.Human, func(ctx context.Context) (approvals.Request, error) {
+	if _, err = as(t, f.Tenant.Human, func(ctx context.Context) (approvals.Request, error) {
 		return d.Cancel(ctx, withdrawn, any, "not needed")
 	}); err != nil {
 		t.Fatal(err)
@@ -302,7 +304,7 @@ func TestSteps(t *testing.T) {
 	}
 	// An agent never decides, and an object type nobody owns cannot complete.
 	agentReq := open(100)
-	if _, err = as(f.Tenant.Agent, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, agentReq, any, "") }); problem.From(err).Code != "identity.agent_not_allowed" {
+	if _, err = as(t, f.Tenant.Agent, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, agentReq, any, "") }); problem.From(err).Code != "identity.agent_not_allowed" {
 		t.Fatalf("agent: %v", err)
 	}
 	orphan := approvals.Decider{Roles: identity.Directory{}, Handlers: map[string]approvals.Handler{}}
@@ -311,12 +313,11 @@ func TestSteps(t *testing.T) {
 		"reject":  func(ctx context.Context) (approvals.Request, error) { return orphan.Reject(ctx, agentReq, any, "r") },
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := as(f.Approver, fn); err == nil || !strings.Contains(err.Error(), "no handler") {
-				t.Errorf("%s without a handler: got %v, want a no handler error", name, err)
-			}
+			_, err := as(t, f.Approver, fn)
+			pgtest.CheckErr(t, err, "no handler")
 		})
 	}
-	if _, err = as(f.Tenant.Human, func(ctx context.Context) (approvals.Request, error) { return orphan.Cancel(ctx, agentReq, any, "c") }); err == nil {
+	if _, err = as(t, f.Tenant.Human, func(ctx context.Context) (approvals.Request, error) { return orphan.Cancel(ctx, agentReq, any, "c") }); err == nil {
 		t.Error("cancel without a handler")
 	}
 	// Withdrawing completes without calling the owner; with nothing pending it does nothing.
@@ -332,7 +333,7 @@ func TestSteps(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ = as(f.Approver, func(ctx context.Context) (approvals.Request, error) { return approvals.GetRequest(ctx, agentReq) }); r.Status != approvals.Cancelled {
+	if r, _ = as(t, f.Approver, func(ctx context.Context) (approvals.Request, error) { return approvals.GetRequest(ctx, agentReq) }); r.Status != approvals.Cancelled {
 		t.Errorf("withdrawn status: got %v, want %v", r.Status, approvals.Cancelled)
 	}
 	if len(calls) != 3 {

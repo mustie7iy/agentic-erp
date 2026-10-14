@@ -405,7 +405,7 @@ func TestConnectorsAndRunRules(t *testing.T) {
 		"lower-case system":   `{"kind": "sap_file", "name": "x", "settings": {"path": "a.json", "system": "sap"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got, _, _ := e.Do("POST", "/v1/connectors", body, ""); got != 422 {
+			if got, _, _ := e.Client.In(t).Do("POST", "/v1/connectors", body, ""); got != 422 {
 				t.Errorf("%s: got %d, want 422", body, got)
 			}
 		})
@@ -498,9 +498,7 @@ func TestConnectorsAndRunRules(t *testing.T) {
 		{"inactive legal entity", c["id"].(string), "documents", scope(inactive), "integration.legal_entity_not_active"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			client := e.Client
-			client.T = t
-			client.Problem(422, c.code, "POST", "/v1/migration-runs", fmt.Sprintf(`{"connector_id": %q, "scope": %s, "mode": %q, "is_rehearsal": false}`,
+			e.Client.In(t).Problem(422, c.code, "POST", "/v1/migration-runs", fmt.Sprintf(`{"connector_id": %q, "scope": %s, "mode": %q, "is_rehearsal": false}`,
 				c.connector, c.scope, c.mode), "")
 		})
 	}

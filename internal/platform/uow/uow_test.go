@@ -151,6 +151,18 @@ func (a *app) check(err error) {
 	}
 }
 
+// in makes the app report to the subtest t until t ends, so a failure in a
+// handler or a request fails that subtest rather than its parent. The
+// handlers hold a, not a copy, so the app is switched in place; subtests
+// using it run one at a time.
+func (a *app) in(t *testing.T) *app {
+	t.Helper()
+	parent := a.t
+	a.t = t
+	t.Cleanup(func() { a.t = parent })
+	return a
+}
+
 func (a *app) do(c call) *httptest.ResponseRecorder {
 	a.t.Helper()
 	r := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
@@ -419,7 +431,7 @@ func TestFailuresAtTheEnd(t *testing.T) {
 		"/deferred":  409, // the commit itself fails
 	} {
 		t.Run(path, func(t *testing.T) {
-			if r := a.do(call{method: "POST", path: path, key: "key-" + path[1:] + "-1", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != want {
+			if r := a.in(t).do(call{method: "POST", path: path, key: "key-" + path[1:] + "-1", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != want {
 				t.Errorf("got %d, want %d (%s)", r.Code, want, r.Body)
 			}
 		})
@@ -498,6 +510,7 @@ func TestInjectedDatabaseFailures(t *testing.T) {
 		n++
 		key := "key-fault-" + string(rune('a'+n)) + "-xx"
 		t.Run(prefix, func(t *testing.T) {
+			a := a.in(t)
 			a.mw.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 				tx, err := pool.Begin(ctx, s)
 				return faultTx{Tx: tx, prefix: prefix}, err

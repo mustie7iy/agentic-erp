@@ -35,6 +35,14 @@ func newClient(t *testing.T, ten pgtest.Tenant, as pgtest.Actor) client {
 	return client{apitest.Client{T: t, API: apitest.New(t), Tenant: ten, As: as}}
 }
 
+// in returns c reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (c client) in(t *testing.T) client {
+	t.Helper()
+	c.T = t
+	return c
+}
+
 func (c client) legalEntity(code string) map[string]any {
 	c.T.Helper()
 	m, _ := c.Must(201, "POST", "/v1/legal-entities", fmt.Sprintf(`{"code": %q, "name": "Entity %s", "country_code": "DE",
@@ -178,7 +186,7 @@ func TestLegalEntityValidation(t *testing.T) {
 		"bad code":         {body("de01", "DE", "EUR", "{}"), 400, "request.invalid_body"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			code, m, _ := c.Do("POST", "/v1/legal-entities", tc.body, "")
+			code, m, _ := c.in(t).Do("POST", "/v1/legal-entities", tc.body, "")
 			if code != tc.code || m["code"] != tc.pc {
 				t.Errorf("got %d %v, want %d %s", code, m["code"], tc.code, tc.pc)
 			}
@@ -217,7 +225,7 @@ func TestCompanyAccess(t *testing.T) {
 	}
 	for name, path := range map[string]string{"legal entity": "/v1/legal-entities/" + fr["id"].(string), "org unit": "/v1/org-units/" + unit["id"].(string)} {
 		t.Run(name+" outside access", func(t *testing.T) {
-			if code, m, _ := agent.Do("GET", path, "", ""); code != 404 || m["code"] != "request.not_found" {
+			if code, m, _ := agent.in(t).Do("GET", path, "", ""); code != 404 || m["code"] != "request.not_found" {
 				t.Errorf("GET %s: got %d %v, want 404 request.not_found", path, code, m["code"])
 			}
 		})
@@ -276,7 +284,7 @@ func TestListLegalEntities(t *testing.T) {
 		"?status=active&page_token=" + first["next_page_token"].(string): "request.invalid_page_token",
 	} {
 		t.Run(query, func(t *testing.T) {
-			if code, m, _ := c.Do("GET", "/v1/legal-entities"+query, "", ""); code != 400 || m["code"] != pc {
+			if code, m, _ := c.in(t).Do("GET", "/v1/legal-entities"+query, "", ""); code != 400 || m["code"] != pc {
 				t.Errorf("got %d %v, want 400 %s", code, m["code"], pc)
 			}
 		})
@@ -287,7 +295,7 @@ func TestOrgUnits(t *testing.T) {
 	ten := org(t)
 	c := newClient(t, ten, ten.Human)
 	de, fr := c.legalEntity("DE01"), c.legalEntity("FR01")
-	unit := func(le map[string]any, kind, code, parent string) (int, map[string]any) {
+	unit := func(c client, le map[string]any, kind, code, parent string) (int, map[string]any) {
 		body := fmt.Sprintf(`{"legal_entity_id": %q, "kind": %q, "code": %q, "name": "Unit %s"`, le["id"], kind, code, code)
 		if parent != "" {
 			body += fmt.Sprintf(`, "parent_id": %q`, parent)
@@ -295,7 +303,7 @@ func TestOrgUnits(t *testing.T) {
 		code2, m, _ := c.Do("POST", "/v1/org-units", body+"}", "")
 		return code2, m
 	}
-	code, plant := unit(de, "plant", "P100", "")
+	code, plant := unit(c, de, "plant", "P100", "")
 	if code != 201 {
 		t.Fatalf("plant: got status %d, want 201: %v", code, plant)
 	}
@@ -305,7 +313,7 @@ func TestOrgUnits(t *testing.T) {
 	if plant["parent_id"] != nil {
 		t.Errorf("plant parent_id: got %v, want nil", plant["parent_id"])
 	}
-	code, store := unit(de, "storage_location", "S1", plant["id"].(string))
+	code, store := unit(c, de, "storage_location", "S1", plant["id"].(string))
 	if code != 201 || store["parent_id"] != plant["id"] {
 		t.Fatalf("storage location: %d %v", code, store)
 	}
@@ -322,7 +330,7 @@ func TestOrgUnits(t *testing.T) {
 		"unknown company": {map[string]any{"id": uuid.NewString()}, "plant", "P4", "", 422, "request.reference_not_found"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if code, m := unit(tc.le, tc.kind, tc.code, tc.parent); code != tc.status || m["code"] != tc.pc {
+			if code, m := unit(c.in(t), tc.le, tc.kind, tc.code, tc.parent); code != tc.status || m["code"] != tc.pc {
 				t.Errorf("got %d %v, want %d %s", code, m["code"], tc.status, tc.pc)
 			}
 		})
@@ -399,7 +407,7 @@ func TestOrgUnits(t *testing.T) {
 		}
 		return out
 	}
-	unit(fr, "sales_org", "SO1", "")
+	unit(c, fr, "sales_org", "SO1", "")
 	if got := list("?legal_entity_id=" + de["id"].(string)); strings.Join(got, ",") != "P100,S1" {
 		t.Fatalf("by legal entity: %v", got)
 	}
