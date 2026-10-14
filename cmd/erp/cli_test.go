@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // reply is a canned API answer; status 0 aborts the connection instead.
@@ -258,17 +259,13 @@ func TestMigrateErrors(t *testing.T) {
 	out = failing{}
 	err := migrate(context.Background(), []string{"-connector", "c", "-legal-entities", "le"})
 	out = os.Stdout
-	if err == nil || !strings.Contains(err.Error(), "device full") {
-		t.Errorf("unprintable report: got %v, want the print failure", err)
-	}
+	pgtest.CheckErr(t, err, "device full")
 	// So does one without checks: every line of the report counts, not only the table.
 	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), ok(`{"id": "r1", "status": "reconciled"}`)}}))
 	out = failing{}
 	err = migrate(context.Background(), []string{"-connector", "c", "-legal-entities", "le"})
 	out = os.Stdout
-	if err == nil || !strings.Contains(err.Error(), "device full") {
-		t.Errorf("unprintable report without checks: got %v, want the print failure", err)
-	}
+	pgtest.CheckErr(t, err, "device full")
 	fails(t, "flag provided", "migrate", "-x")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN", "migrate")
@@ -520,29 +517,21 @@ func TestQueryReportsLostOutput(t *testing.T) {
 	})
 	t.Run("print", func(t *testing.T) {
 		out = failing{}
-		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count"}); err == nil || !strings.Contains(err.Error(), "device full") {
-			t.Errorf("got %v, want the print failure", err)
-		}
+		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count"}), "device full")
 	})
 	t.Run("summary", func(t *testing.T) {
 		out = summaryFails{}
-		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count"}); err == nil || !strings.Contains(err.Error(), "device full") {
-			t.Errorf("got %v, want the summary's print failure", err)
-		}
+		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count"}), "device full")
 	})
 	t.Run("close", func(t *testing.T) {
 		out = io.Discard
 		createFile = func(string) (io.WriteCloser, error) { return &closeFails{}, nil }
-		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}); err == nil || !strings.Contains(err.Error(), "close failed") {
-			t.Errorf("got %v, want the close failure", err)
-		}
+		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}), "close failed")
 	})
 	t.Run("write and close", func(t *testing.T) {
 		out = io.Discard
 		createFile = func(string) (io.WriteCloser, error) { return failing{}, nil }
-		if err := queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}); err == nil || !strings.Contains(err.Error(), "device full") {
-			t.Errorf("got %v, want the write failure, reported first", err)
-		}
+		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}), "device full")
 	})
 }
 

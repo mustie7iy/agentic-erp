@@ -85,9 +85,8 @@ func TestToolsFromTheContract(t *testing.T) {
 	if got := body["examples"]; got != nil {
 		t.Errorf("createConnector body examples: got %v, want none", got)
 	}
-	if _, err := apitools.Tools(nil, nil, "approveApprovalRequest"); err == nil || !strings.Contains(err.Error(), "x-agent") {
-		t.Fatalf("approval decisions are tools: %v", err)
-	}
+	_, err = apitools.Tools(nil, nil, "approveApprovalRequest")
+	pgtest.WantErr(t, err, "x-agent")
 	if _, err := apitools.Tools(nil, nil, "noSuchOperation"); err == nil {
 		t.Fatal("unknown operation accepted")
 	}

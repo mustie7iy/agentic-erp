@@ -184,9 +184,7 @@ func TestActivationWithoutLegalEntity(t *testing.T) {
 		_, err := endpoints().ActivateChangeRequest(ctx, gen.ActivateChangeRequestParams{ID: uuid.MustParse(cr["id"].(string)), IfMatch: "*"})
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "no legal entity 1000") {
-		t.Fatalf("activation: %v", err)
-	}
+	pgtest.WantErr(t, err, "no legal entity 1000")
 }
 
 // TestStateFromLaterSteps shows fields that later steps fill (workflow

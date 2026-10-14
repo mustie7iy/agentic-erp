@@ -210,9 +210,8 @@ func TestAnchoring(t *testing.T) {
 	if err := store.Put(ctx, blobstore.Key(third.Tenant.ID, blobstore.KindAnchors, audit.ObjectName(head.Seq)), wrong, blobstore.PutOptions{}); err != nil {
 		t.Fatalf("store a disagreeing anchor: %v", err)
 	}
-	if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "tampered") {
-		t.Fatalf("disagreeing object: %v", err)
-	}
+	_, err = w.RunOnce(ctx)
+	pgtest.WantErr(t, err, "tampered")
 	if got := anchors(t, third.Tenant.ID); len(got) != 0 {
 		t.Fatalf("anchored anyway: %v", got)
 	}
@@ -248,16 +247,14 @@ func TestAnchoringFailures(t *testing.T) {
 		t.Fatalf("anchored with a failing store: %v", got)
 	}
 	// An object that exists but cannot be read back is reported.
-	if _, err := anchorer(t, existsThenFails{}).RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "store down") {
-		t.Fatalf("exists then fails: %v", err)
-	}
+	_, err := anchorer(t, existsThenFails{}).RunOnce(ctx)
+	pgtest.WantErr(t, err, "store down")
 	// Database failures: the transaction failing to start, and each statement in turn.
 	store := blobstore.Dir{Root: t.TempDir()}
 	w = anchorer(t, store)
 	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("begin: %v", err)
-	}
+	_, err = w.RunOnce(ctx)
+	pgtest.WantErr(t, err, "database down")
 	pool := pgtest.Pool(t)
 	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		if s.TenantID != uuid.Nil {
@@ -265,9 +262,8 @@ func TestAnchoringFailures(t *testing.T) {
 		}
 		return pool.Begin(ctx, s)
 	}
-	if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "tenant database down") {
-		t.Fatalf("tenant begin: %v", err)
-	}
+	_, err = w.RunOnce(ctx)
+	pgtest.WantErr(t, err, "tenant database down")
 	// The listing of the tenants to anchor failing.
 	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, s)

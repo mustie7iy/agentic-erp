@@ -594,9 +594,7 @@ func TestControlRoleIsReadOnly(t *testing.T) {
 		"insert idempotency key": `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, expires_at) VALUES (gen_random_uuid(), 'control|x', gen_random_uuid(), '', 'completed', now())`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := as(sql); err == nil || !strings.Contains(err.Error(), "permission denied") {
-				t.Errorf("%s: got %v, want permission denied", sql, err)
-			}
+			pgtest.CheckErr(t, as(sql), "permission denied")
 		})
 	}
 }
@@ -717,9 +715,7 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		"erase":  func() error { _, _, err := s.Erase(ctx, op, gone.ID, "*"); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := call(); err == nil || !strings.Contains(err.Error(), "database down") {
-				t.Errorf("got %v, want database down", err)
-			}
+			pgtest.CheckErr(t, call(), "database down")
 		})
 	}
 	s.Begin = nil
@@ -909,9 +905,8 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 		return err
 	})
 	p.s.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*"); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("begin: %v", err)
-	}
+	_, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*")
+	pgtest.WantErr(t, err, "database down")
 	p.s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 		tx, err := p.s.Pool.Begin(ctx, scope)
 		if err != nil {
@@ -1060,9 +1055,8 @@ func TestTenantFingerprint(t *testing.T) {
 		})
 	}
 	p.s.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Errorf("database down: %v", err)
-	}
+	_, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id))
+	pgtest.CheckErr(t, err, "database down")
 	p.s.Begin = nil
 	// A tenant without an audit trail has no chain head.
 	bare := pgtest.NewTenant(t)

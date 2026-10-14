@@ -205,9 +205,7 @@ func TestReadiness(t *testing.T) {
 			t.Fatalf("old schema setup: %v", err)
 		}
 	}
-	if err := ready(empty)(ctx); err == nil || !strings.Contains(err.Error(), "schema version 1") {
-		t.Fatalf("old schema: %v", err)
-	}
+	pgtest.WantErr(t, ready(empty)(ctx), "schema version 1")
 	// A partition horizon that got too short is not ready either; maintenance restores it.
 	shortURL := pgtest.EmptyDatabase(t)
 	short, err := database.Open(ctx, shortURL, database.DefaultSettings)
@@ -228,9 +226,7 @@ func TestReadiness(t *testing.T) {
 		LOOP EXECUTE format('DROP TABLE audit.%I', r.relname); END LOOP; END $$`); err != nil {
 		t.Fatal(err)
 	}
-	if err := ready(short)(ctx); err == nil || !strings.Contains(err.Error(), "partition horizon") {
-		t.Fatalf("short horizon: %v", err)
-	}
+	pgtest.WantErr(t, ready(short)(ctx), "partition horizon")
 	if err := partitions(ctx, short, quiet()); err != nil {
 		t.Fatal(err)
 	}
@@ -345,9 +341,7 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 			defer func() { startWorkersHook = (*server).startWorkers }()
 			cfg := load(t, environment(t, is, c.nats()))
 			c.mutate(&cfg)
-			if err := run(context.Background(), cfg, quiet(), nil); err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Fatalf("got %v, want the startup failure %q", err, c.want)
-			}
+			pgtest.WantErr(t, run(context.Background(), cfg, quiet(), nil), c.want)
 			if s == nil {
 				t.Fatal("got no workers started, want them started before the failure")
 			}
@@ -1036,9 +1030,7 @@ func TestWorkflowEngine(t *testing.T) {
 	// An engine that cannot be reached stops the start (here without a codec key, which is warned about).
 	env["ERP_TEMPORAL_ADDRESS"] = "127.0.0.1:1"
 	delete(env, "ERP_TEMPORAL_CODEC_KEY")
-	if err := run(context.Background(), load(t, env), quiet(), nil); err == nil || !strings.Contains(err.Error(), "connecting to") {
-		t.Fatalf("started without its engine: %v", err)
-	}
+	pgtest.WantErr(t, run(context.Background(), load(t, env), quiet(), nil), "connecting to")
 }
 
 // status sends the request and returns the response's status, its body closed.

@@ -216,9 +216,8 @@ func TestProvisioningIsAllOrNothing(t *testing.T) {
 		tx, err := pool.Begin(ctx, s)
 		return uncommittable{tx}, err
 	}
-	if _, err := p.Provision(ctx, request(t)); err == nil || !strings.Contains(err.Error(), "commit") {
-		t.Fatalf("failed commit: %v", err)
-	}
+	_, err := p.Provision(ctx, request(t))
+	pgtest.WantErr(t, err, "commit")
 	if count(t, `SELECT count(*) FROM tenancy.tenant`) != before+1 {
 		t.Fatal("a failed commit left a tenant behind")
 	}

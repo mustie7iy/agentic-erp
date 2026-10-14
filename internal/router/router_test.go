@@ -18,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/router"
 )
 
@@ -104,9 +105,8 @@ func TestLoadConfig(t *testing.T) {
 	}
 	// The global control plane needs operator issuers and a page-token key.
 	m["ERP_OPERATOR_ISSUERS"], m["ERP_ROUTER_ADMIN_ADDR"] = `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "127.0.0.1:0"
-	if _, err := router.LoadConfig(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_PAGE_TOKEN_KEY") {
-		t.Fatalf("operators without a page key: %v", err)
-	}
+	_, err = router.LoadConfig(env(m))
+	pgtest.WantErr(t, err, "ERP_PAGE_TOKEN_KEY")
 	m["ERP_PAGE_TOKEN_KEY"] = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
 	if c, err = router.LoadConfig(env(m)); err != nil {
 		t.Fatalf("operators: %v", err)
@@ -115,9 +115,8 @@ func TestLoadConfig(t *testing.T) {
 	check("len(PageTokenKey)", len(c.PageTokenKey), 32)
 	check("operator AdminAddr", c.AdminAddr, "127.0.0.1:0")
 	m["ERP_OPERATOR_ISSUERS"] = "[]"
-	if _, err := router.LoadConfig(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OPERATOR_ISSUERS") {
-		t.Fatalf("empty operators: %v", err)
-	}
+	_, err = router.LoadConfig(env(m))
+	pgtest.WantErr(t, err, "ERP_OPERATOR_ISSUERS")
 }
 
 func TestRouting(t *testing.T) {

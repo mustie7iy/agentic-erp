@@ -104,26 +104,18 @@ func events(t *testing.T, ten pgtest.Tenant, name string) []map[string]any {
 
 func TestBootstrap(t *testing.T) {
 	e := setup(t, true)
-	if err := e.bootstrap(t, `{"version": 1}`); err == nil || !strings.Contains(err.Error(), "config.validation_failed") {
-		t.Fatalf("invalid document: %v", err)
-	}
-	if err := e.bootstrap(t, `{"nonsense": true}`); err == nil || !strings.Contains(err.Error(), "cannot be read") {
-		t.Fatalf("unreadable document: %v", err)
-	}
+	pgtest.WantErr(t, e.bootstrap(t, `{"version": 1}`), "config.validation_failed")
+	pgtest.WantErr(t, e.bootstrap(t, `{"nonsense": true}`), "cannot be read")
 	foreign := document(t)
 	foreign.NumberRanges[0].Company = "9999"
-	if err := e.bootstrap(t, jsonOf(t, foreign)); err == nil || !strings.Contains(err.Error(), "config.validation_failed") {
-		t.Fatalf("unknown company: %v", err)
-	}
+	pgtest.WantErr(t, e.bootstrap(t, jsonOf(t, foreign)), "config.validation_failed")
 	// Change requests need a configuration to change.
 	e.Problem(409, "config.not_bootstrapped", "POST", "/v1/change-requests", `{"title": "T", "base_version": 1, "proposed": {}}`, "")
 
 	if err := e.bootstrap(t, jsonOf(t, document(t))); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.bootstrap(t, jsonOf(t, document(t))); err == nil || !strings.Contains(err.Error(), "config.already_bootstrapped") {
-		t.Fatalf("second bootstrap: %v", err)
-	}
+	pgtest.WantErr(t, e.bootstrap(t, jsonOf(t, document(t))), "config.already_bootstrapped")
 	list, _ := e.Must(200, "GET", "/v1/config-versions", "", "")
 	items := list["items"].([]any)
 	if len(items) != 1 {

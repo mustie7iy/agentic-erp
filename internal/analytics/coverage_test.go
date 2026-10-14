@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // --- model -------------------------------------------------------------------
@@ -137,9 +138,8 @@ func TestAskPaths(t *testing.T) {
 	}
 	// The model declines.
 	refuse := llmtest.New(t, llmtest.Step{StopReason: "refusal"})
-	if _, err := llmAgent(refuse).Ask(context.Background(), session(t, us), "q"); err == nil || !strings.Contains(err.Error(), "declined") {
-		t.Fatalf("refusal: %v", err)
-	}
+	_, err := llmAgent(refuse).Ask(context.Background(), session(t, us), "q")
+	pgtest.WantErr(t, err, "declined")
 	// The model answers without building a dashboard; a failing query and a
 	// bad filter go back to the model as tool errors.
 	none := llmtest.New(t,
@@ -147,9 +147,8 @@ func TestAskPaths(t *testing.T) {
 		llmtest.Step{Tool: "run_query", Input: func(string) any { return map[string]any{"measures": []string{"nope"}} }, Expect: "defaults"},
 		llmtest.Step{Text: "I could not answer.", Expect: "error: unknown metric"},
 	)
-	if _, err := llmAgent(none).Ask(context.Background(), session(t, us), "q"); err == nil || !strings.Contains(err.Error(), "did not produce") {
-		t.Fatalf("no dashboard: %v", err)
-	}
+	_, err = llmAgent(none).Ask(context.Background(), session(t, us), "q")
+	pgtest.WantErr(t, err, "did not produce")
 	// A spec without a question takes the user's question; a filtered query is accepted.
 	s := session(t, us)
 	ok := llmtest.New(t,
@@ -582,9 +581,7 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 	for _, name := range []string{"units_share", "units_gap", "units_rate"} {
 		t.Run(name+" over currencies is refused", func(t *testing.T) {
 			_, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{name}})
-			if want := name + " would add amounts in JPY and USD together"; err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("got %v, want %q", err, want)
-			}
+			pgtest.CheckErr(t, err, name+" would add amounts in JPY and USD together")
 		})
 	}
 	// The column's currency is that of the amounts it adds, not of the
@@ -783,19 +780,15 @@ func TestSessionErrorPaths(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(jsonDir, rep.ID+".json"), 0o755); err != nil {
 		t.Fatalf("block the report file: %v", err)
 	}
-	if _, err := rep.Save(jsonDir, ok.Results); err == nil || !strings.Contains(err.Error(), "analytics: save report "+rep.ID+" definition") {
-		t.Fatalf("unwritable report file: got %v", err)
-	}
+	_, err := rep.Save(jsonDir, ok.Results)
+	pgtest.WantErr(t, err, "analytics: save report "+rep.ID+" definition")
 	htmlDir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(htmlDir, rep.ID+".html"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rep.Save(htmlDir, ok.Results); err == nil || !strings.Contains(err.Error(), "analytics: save report "+rep.ID+" page") {
-		t.Fatalf("unwritable report page: got %v", err)
-	}
-	if err := Render(failWriter{}, &rep.Spec, ok.Results, rep.Principal); err == nil || !strings.Contains(err.Error(), "analytics: render page") {
-		t.Fatalf("render to a failing writer: got %v", err)
-	}
+	_, err = rep.Save(htmlDir, ok.Results)
+	pgtest.WantErr(t, err, "analytics: save report "+rep.ID+" page")
+	pgtest.WantErr(t, Render(failWriter{}, &rep.Spec, ok.Results, rep.Principal), "analytics: render page")
 
 	// Rerun: a query that no longer runs, and a spec that no longer validates.
 	broken := &Report{Spec: salesSpec("monthly"), Queries: map[string]Query{"monthly": {Measures: []string{"gone"}}}}
@@ -803,9 +796,8 @@ func TestSessionErrorPaths(t *testing.T) {
 		t.Fatal("rerun with a failing query")
 	}
 	stale := &Report{Spec: salesSpec("other"), Queries: map[string]Query{"monthly": salesQuery()}}
-	if _, _, err := ok.Rerun(stale); err == nil || !strings.Contains(err.Error(), "no longer valid") {
-		t.Fatalf("rerun with an unknown query id: %v", err)
-	}
+	_, _, err = ok.Rerun(stale)
+	pgtest.WantErr(t, err, "no longer valid")
 }
 
 // A series without a value for some x leaves a gap in both chart types.

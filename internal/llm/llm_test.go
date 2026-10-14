@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 func TestNewUsesEnvironmentModel(t *testing.T) {
@@ -59,9 +60,8 @@ func TestRunToolsTextAndRefusal(t *testing.T) {
 	}
 	refuse := llmtest.New(t, llmtest.Step{StopReason: "refusal"})
 	r2 := refuse.Runner()
-	if _, err := r2.RunTools(context.Background(), nil, r2.Params("s", anthropic.NewBetaTextBlock("x")), 2); err == nil || !strings.Contains(err.Error(), "declined in test") {
-		t.Fatalf("refusal: %v", err)
-	}
+	_, err = r2.RunTools(context.Background(), nil, r2.Params("s", anthropic.NewBetaTextBlock("x")), 2)
+	pgtest.WantErr(t, err, "declined in test")
 	down := llmtest.New(t)
 	r3 := down.Runner()
 	if _, err := r3.RunTools(context.Background(), nil, r3.Params("s", anthropic.NewBetaTextBlock("x")), 2); err == nil {

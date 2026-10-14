@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // fakeAPI answers list operations from canned pages: path -> pages, the
@@ -109,9 +110,8 @@ func TestSourceErrors(t *testing.T) {
 		t.Run("without "+path, func(t *testing.T) {
 			pages := validPages()
 			delete(pages, path)
-			if _, err := (Source{API: fakeAPI(t, pages)}).Facts(context.Background(), m, time.Now()); err == nil || !strings.Contains(err.Error(), path) {
-				t.Errorf("got %v, want an error naming %s", err, path)
-			}
+			_, err := (Source{API: fakeAPI(t, pages)}).Facts(context.Background(), m, time.Now())
+			pgtest.CheckErr(t, err, path)
 		})
 	}
 	for name, fix := range map[string]func(p map[string][]string){

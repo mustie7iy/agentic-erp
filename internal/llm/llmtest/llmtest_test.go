@@ -2,10 +2,10 @@ package llmtest
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 func TestScriptControls(t *testing.T) {
@@ -15,15 +15,13 @@ func TestScriptControls(t *testing.T) {
 	}
 	r := srv.Runner()
 	params := r.Params("s", anthropic.NewBetaTextBlock("haystack"))
-	if _, err := r.Client.Beta.Messages.New(context.Background(), params); err == nil || !strings.Contains(err.Error(), "expected") {
-		t.Fatalf("expectation mismatch must fail: %v", err)
-	}
+	_, err := r.Client.Beta.Messages.New(context.Background(), params)
+	pgtest.WantErr(t, err, "expected")
 	if msg, err := r.Client.Beta.Messages.New(context.Background(), params); err != nil || msg.Content[0].Text != "second" {
 		t.Fatalf("next step: %v", err)
 	}
-	if _, err := r.Client.Beta.Messages.New(context.Background(), params); err == nil || !strings.Contains(err.Error(), "exhausted") {
-		t.Fatalf("exhausted script must fail: %v", err)
-	}
+	_, err = r.Client.Beta.Messages.New(context.Background(), params)
+	pgtest.WantErr(t, err, "exhausted")
 	if srv.Calls() != 3 {
 		t.Fatalf("calls %d", srv.Calls())
 	}

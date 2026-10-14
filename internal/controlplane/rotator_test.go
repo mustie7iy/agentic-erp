@@ -82,9 +82,8 @@ func TestKeyRotationPolicy(t *testing.T) {
 	if got := keys(); got != 2 {
 		t.Fatalf("suspended: got %d keys, want 2", got)
 	}
-	if _, err := k.Rotate(ctx, id); err == nil || !strings.Contains(err.Error(), "suspended") {
-		t.Fatalf("rotate a suspended tenant: %v", err)
-	}
+	_, err = k.Rotate(ctx, id)
+	pgtest.WantErr(t, err, "suspended")
 	if _, err := k.Rotate(ctx, uuid.New()); err == nil {
 		t.Fatal("rotate nobody")
 	}
@@ -122,9 +121,8 @@ func TestKeyRotationPolicy(t *testing.T) {
 		t.Fatalf("commit: got %v, want the injected failure", err)
 	}
 	k.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
-	if _, err := k.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "pool down") {
-		t.Fatalf("due: %v", err)
-	}
+	_, err = k.RunOnce(ctx)
+	pgtest.WantErr(t, err, "pool down")
 	k.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, s)
 		if err != nil {
@@ -144,9 +142,8 @@ func TestKeyRotationPolicy(t *testing.T) {
 		return pool.Begin(ctx, s)
 	}
 	age()
-	if _, err := k.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "rotating the key") {
-		t.Fatalf("rotate begin: %v", err)
-	}
+	_, err = k.RunOnce(ctx)
+	pgtest.WantErr(t, err, "rotating the key")
 	k.Begin = nil
 	// Run rounds until stopped: work done is logged, a failing round too, and the default interval.
 	age()

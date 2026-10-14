@@ -14,6 +14,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // abortingTB is a test whose Fatal ends the goroutine, as testing's does,
@@ -114,17 +115,11 @@ func TestConsistentChecksALostAnswerByItsKey(t *testing.T) {
 		t.Fatalf("got %v, want the entry found by its key", err)
 	}
 	s.record(Posted{Key: uuid.NewString(), Status: http.StatusCreated, Err: lost})
-	if err := s.Consistent(ctx); err == nil || !strings.Contains(err.Error(), "1 entries answered 201 are not in the journal") {
-		t.Errorf("got %v, want the missing entry reported", err)
-	}
+	pgtest.CheckErr(t, s.Consistent(ctx), "1 entries answered 201 are not in the journal")
 	s.posted = s.posted[:1]
 	s.record(Posted{Key: uuid.NewString(), Status: http.StatusCreated})
-	if err := s.Consistent(ctx); err == nil || !strings.Contains(err.Error(), "an entry answered 201 without a readable id") {
-		t.Errorf("got %v, want the complete answer without an id reported", err)
-	}
+	pgtest.CheckErr(t, s.Consistent(ctx), "an entry answered 201 without a readable id")
 	s.posted = s.posted[:1]
 	s.record(Posted{Key: key, Status: http.StatusCreated, Err: fmt.Errorf("POST: 201 with a %w", errNotJSON)})
-	if err := s.Consistent(ctx); err == nil || !strings.Contains(err.Error(), "an entry answered 201 without a readable id") {
-		t.Errorf("got %v, want a complete answer that is not JSON reported, not looked up by its key", err)
-	}
+	pgtest.CheckErr(t, s.Consistent(ctx), "an entry answered 201 without a readable id")
 }

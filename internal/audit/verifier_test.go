@@ -67,9 +67,8 @@ func TestScheduledVerification(t *testing.T) {
 	}
 	// While the chain is intact, a store that cannot be read fails the anchor check; without a store the anchors are compared to the events only.
 	v.Store = failingStore{err: errors.New("store down")}
-	if _, err := v.Verify(ctx, e.Tenant.ID); err == nil || !strings.Contains(err.Error(), "store down") {
-		t.Fatalf("anchors on a failing store: %v", err)
-	}
+	_, err = v.Verify(ctx, e.Tenant.ID)
+	pgtest.WantErr(t, err, "store down")
 	v.Store = nil
 	clock = clock.Add(time.Minute)
 	if ver, err := v.Verify(ctx, e.Tenant.ID); err != nil {
@@ -156,9 +155,8 @@ func TestScheduledVerification(t *testing.T) {
 		t.Fatalf("commit: got %v, want %v", err, pgtest.ErrInjected)
 	}
 	v.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
-	if _, _, err := v.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "pool down") {
-		t.Fatalf("tenants: %v", err)
-	}
+	_, _, err = v.RunOnce(ctx)
+	pgtest.WantErr(t, err, "pool down")
 	v.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, s)
 		if err != nil {
@@ -177,9 +175,8 @@ func TestScheduledVerification(t *testing.T) {
 		}
 		return pool.Begin(ctx, s)
 	}
-	if _, _, err := v.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "verifying tenant") {
-		t.Fatalf("verify begin: %v", err)
-	}
+	_, _, err = v.RunOnce(ctx)
+	pgtest.WantErr(t, err, "verifying tenant")
 	v.Begin = nil
 	// Run rounds until stopped: a round that works is logged, the default interval, and a failing round.
 	v.Interval = time.Millisecond

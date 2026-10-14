@@ -271,9 +271,8 @@ func TestPostgresDirectory(t *testing.T) {
 	pgtest.Exec(t, `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dir_limited') THEN CREATE ROLE dir_limited LOGIN PASSWORD 'x'; END IF; END $$`)
 	limited, _ := url.Parse(pgtest.URL(t))
 	limited.User = url.UserPassword("dir_limited", "x")
-	if _, err := directory.Open(ctx, limited.String()); err == nil || !strings.Contains(err.Error(), "schema") {
-		t.Fatalf("limited user: %v", err)
-	}
+	_, err = directory.Open(ctx, limited.String())
+	pgtest.WantErr(t, err, "schema")
 	// Lookups failing are reported.
 	closed, _ := directory.Open(ctx, dirURL)
 	closed.Close()
