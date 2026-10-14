@@ -320,7 +320,10 @@ func TestRejectFreesItems(t *testing.T) {
 		t.Errorf("second run exclusions: got %v, want none for reserved items", exs)
 	}
 	e.decide(t, 409, second, "release", "")
-	e.Problem(409, "payables.invoice_in_payment_run", "POST", "/v1/supplier-invoices/"+id(inv)+":reverse", `{"reason": "r"}`, `"2"`)
+	refused := e.Problem(409, "payables.invoice_in_payment_run", "POST", "/v1/supplier-invoices/"+id(inv)+":reverse", `{"reason": "r"}`, `"2"`)
+	if detail, _ := refused["detail"].(string); !strings.Contains(detail, "reject the run while it is proposed") {
+		t.Errorf("detail for a proposed run: got %q, want it to say to reject the run", refused["detail"])
+	}
 
 	e.decide(t, 400, first, "reject", `{}`)
 	rejected := e.decide(t, 200, first, "reject", `{"reason": "Wrong due date"}`)
@@ -404,7 +407,10 @@ func TestReverseDuringResumedRelease(t *testing.T) {
 	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", ""); got["status"] != "releasing" {
 		t.Fatalf("run after the failed release: got %v, want releasing", got["status"])
 	}
-	e.Problem(409, "payables.invoice_in_payment_run", "POST", "/v1/supplier-invoices/"+id(x)+":reverse", `{"reason": "r"}`, `"2"`)
+	refused := e.Problem(409, "payables.invoice_in_payment_run", "POST", "/v1/supplier-invoices/"+id(x)+":reverse", `{"reason": "r"}`, `"2"`)
+	if detail, _ := refused["detail"].(string); !strings.Contains(detail, "reverse the payment first") {
+		t.Errorf("detail for a releasing run: got %q, want it to say to reverse the payment", refused["detail"])
+	}
 	// The resumed release pays invoice X, which still stands.
 	e.release(t, run, "")
 	if got, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(x), "", ""); got["status"] != "posted" {
