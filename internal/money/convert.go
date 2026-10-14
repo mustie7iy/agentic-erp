@@ -23,15 +23,8 @@ func Convert(amount Minor, rate string, fromExp, toExp int) (Minor, error) {
 	if fromExp < 0 || fromExp > maxExp || toExp < 0 || toExp > maxExp {
 		return 0, fmt.Errorf("money: convert from exponent %d to %d: exponents are 0 to %d", fromExp, toExp, maxExp)
 	}
-	v := new(big.Rat).Mul(new(big.Rat).SetInt64(int64(amount)), r)
-	d := toExp - fromExp
-	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(max(d, -d))), nil))
-	if d > 0 {
-		v.Mul(v, scale)
-	} else {
-		v.Quo(v, scale)
-	}
-	return fromBig(roundHalfAway(v))
+	v := new(big.Rat).Mul(Rat(amount, fromExp), r)
+	return fromBig(roundHalfAway(v.Mul(v, new(big.Rat).SetInt(pow10(toExp)))))
 }
 
 // Scale returns amount × factor / divisor rounded half away from zero, in
@@ -61,9 +54,21 @@ func Round(major *big.Rat, exp int) (Minor, error) {
 	if exp < 0 || exp > maxExp {
 		return 0, fmt.Errorf("money: round to exponent %d: exponents are 0 to %d", exp, maxExp)
 	}
-	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil))
-	return fromBig(roundHalfAway(new(big.Rat).Mul(major, scale)))
+	return fromBig(roundHalfAway(new(big.Rat).Mul(major, new(big.Rat).SetInt(pow10(exp)))))
 }
+
+// Rat is an amount of exp minor-unit digits as an exact rational in major
+// units: 123456 at exponent 3 is 123456/1000. A negative exponent scales
+// up, so Rat(5, -2) is 500.
+func Rat(m Minor, exp int) *big.Rat {
+	if exp < 0 {
+		return new(big.Rat).SetInt(new(big.Int).Mul(big.NewInt(int64(m)), pow10(-exp)))
+	}
+	return new(big.Rat).SetFrac(big.NewInt(int64(m)), pow10(exp))
+}
+
+// pow10 is 10^n for n >= 0.
+func pow10(n int) *big.Int { return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil) }
 
 // parsePlain accepts only plain non-negative decimals: big.Rat would also take
 // fractions and exponents ("1e1000000"), whose expansion is unbounded.

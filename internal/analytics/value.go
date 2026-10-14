@@ -32,7 +32,7 @@ func (v Value) MarshalJSON() ([]byte, error) { return []byte(v.String()), nil }
 
 // rat is the value as an exact rational in major units.
 func (v Value) rat() *big.Rat {
-	return new(big.Rat).SetFrac(big.NewInt(int64(v.Units)), new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(v.Scale)), nil))
+	return money.Rat(v.Units, v.Scale)
 }
 
 // abs is the value without its sign; an amount always has a positive

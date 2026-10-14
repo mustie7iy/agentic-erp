@@ -63,5 +63,3 @@ func FuzzConvert(f *testing.F) {
 		}
 	})
 }
-
-func pow10(n int) *big.Int { return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil) }

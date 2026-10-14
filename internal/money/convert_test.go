@@ -176,3 +176,26 @@ func TestParseRat(t *testing.T) {
 		t.Errorf("ParseRat(x): got %v, want nil", got)
 	}
 }
+
+func TestRat(t *testing.T) {
+	cases := map[string]struct {
+		m    Minor
+		exp  int
+		want string
+	}{
+		"BHD, three digits":         {123456, 3, "15432/125"},
+		"EUR, two digits":           {-1050, 2, "-21/2"},
+		"JPY, none":                 {5000, 0, "5000/1"},
+		"zero":                      {0, 4, "0/1"},
+		"the largest amount":        {math.MaxInt64, 18, "9223372036854775807/1000000000000000000"},
+		"a negative exponent":       {5, -2, "500/1"},
+		"beyond any float's digits": {math.MaxInt64 - 1, 0, "9223372036854775806/1"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := Rat(c.m, c.exp).String(); got != c.want {
+				t.Errorf("Rat(%d, %d): got %s, want %s", c.m, c.exp, got, c.want)
+			}
+		})
+	}
+}
