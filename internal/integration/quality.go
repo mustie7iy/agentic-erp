@@ -2,6 +2,7 @@ package integration
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -230,18 +231,37 @@ func (q *qualityCheck) purchaseOrderItem(i sap.EKPO, h sap.EKKO) {
 	if _, ok := q.t.charts[h.BUKRS][sap.Alpha(i.SAKTO)]; !ok {
 		q.add(SevError, "EKPO", key, "G/L account %s is not in the chart of company %s", sap.Alpha(i.SAKTO), h.BUKRS)
 	}
-	if err := quantity(i.MENGE); err != nil {
-		q.add(SevError, "EKPO", key, "%v", err)
+	_, why := lineValue(i, q.t, h.WAERS)
+	for _, w := range why {
+		q.add(SevError, "EKPO", key, "%s", w)
 	}
-	if _, err := q.t.amount(i.NETPR, h.WAERS); err != nil {
-		q.add(SevError, "EKPO", key, "%v", err)
+}
+
+// lineValue is a purchase order line's net value, or why it has none: the
+// quantity, price or price unit does not parse, or the value is out of
+// range. The quality gate and the reconciliation both refuse such lines.
+func lineValue(i sap.EKPO, t target, currency string) (money.Minor, []string) {
+	var why []string
+	if err := quantity(i.MENGE); err != nil {
+		why = append(why, err.Error())
+	}
+	if _, err := t.amount(i.NETPR, currency); err != nil {
+		why = append(why, err.Error())
 	}
 	if n, err := strconv.Atoi(i.PEINH); i.PEINH != "" && (err != nil || n < 1) {
-		q.add(SevError, "EKPO", key, "price unit %q is not a positive whole number", i.PEINH)
+		why = append(why, fmt.Sprintf("price unit %q is not a positive whole number", i.PEINH))
 	}
-	if _, err := extend(i.MENGE, i.NETPR, i.PEINH, q.t, h.WAERS); err != nil {
-		q.add(SevError, "EKPO", key, "net value of %s at %s per %s is out of range", i.MENGE, i.NETPR, cmp.Or(i.PEINH, "1"))
+	if why != nil {
+		return 0, why
 	}
+	v, err := extend(i.MENGE, i.NETPR, i.PEINH, t, currency)
+	switch {
+	case errors.Is(err, money.ErrOverflow):
+		return 0, []string{fmt.Sprintf("net value of %s at %s per %s is out of range", i.MENGE, i.NETPR, cmp.Or(i.PEINH, "1"))}
+	case err != nil:
+		return 0, []string{err.Error()}
+	}
+	return v, nil
 }
 
 // movements warns about goods movements other than receipts.

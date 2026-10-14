@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -276,12 +275,11 @@ func (rc *reconciler) purchaseOrders(ctx context.Context, s companyScope) error 
 		if !inCC[i.EBELN] {
 			continue
 		}
-		// The load's quality gate refused lines out of range
+		// The load's quality gate refused lines without a value
 		// (purchaseOrderItem); a reconciliation run extracts again without it.
-		v, err := extend(i.MENGE, i.NETPR, i.PEINH, rc.t, s.cur)
-		if err != nil {
-			rc.refuse("EKPO", i.EBELN+"/"+i.EBELP, "net value of %s at %s per %s is out of range", i.MENGE, i.NETPR, cmp.Or(i.PEINH, "1"))
-			continue
+		v, why := lineValue(i, rc.t, s.cur)
+		for _, w := range why {
+			rc.refuse("EKPO", i.EBELN+"/"+i.EBELP, "%s", w)
 		}
 		values = append(values, v)
 	}
@@ -320,10 +318,16 @@ func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error 
 }
 
 // extend is an item's net value: quantity times price per price unit,
-// rounded half away from zero (procurement's rule).
+// rounded half away from zero (procurement's rule). Only lineValue calls
+// it, having refused prices that do not parse and price units other than
+// empty (1) or a positive number; a quantity can still be positive yet
+// finer than a Qty holds.
 func extend(qty, price, priceUnit string, t target, currency string) (money.Minor, error) {
-	q, _ := money.ParseQty(qty)
-	p, _ := t.amount(price, currency)
+	q, err := money.ParseQty(qty)
+	if err != nil {
+		return 0, fmt.Errorf("quantity %q: %w", qty, err)
+	}
+	p, _ := t.amount(price, currency) // checked by lineValue
 	unit, err := strconv.ParseInt(priceUnit, 10, 64)
 	if err != nil || unit < 1 {
 		unit = 1
