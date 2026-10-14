@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -263,5 +264,14 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 		entry := post(source)
 		_, tag := e.Must(200, "GET", "/v1/journal-entries/"+entry.ID.String(), "", "")
 		e.Must(200, "POST", "/v1/journal-entries/"+entry.ID.String()+":reverse", "", tag)
+	}
+	// A payables entry without its invoice has no endpoint to name: it is refused without one.
+	orphan := post("payables")
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+		UPDATE ledger.journal_entry SET source_document_id = NULL WHERE id = '%s'; END $$`, orphan.ID))
+	_, tag := e.Must(200, "GET", "/v1/journal-entries/"+orphan.ID.String(), "", "")
+	refused := e.Problem(409, "ledger.entry_owned_elsewhere", "POST", "/v1/journal-entries/"+orphan.ID.String()+":reverse", "", tag)
+	if detail, _ := refused["detail"].(string); strings.Contains(detail, "/v1/") || !strings.Contains(detail, "no reversal path") {
+		t.Errorf("detail for a payables entry without its invoice: got %q, want no endpoint and no reversal path", detail)
 	}
 }
