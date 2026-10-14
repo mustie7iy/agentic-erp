@@ -164,7 +164,9 @@ func (p *Payments) FailRelease(ctx context.Context, in ReleaseInput, why problem
 }
 
 // releasing reads whether the run is releasing under the workflow's
-// operation.
+// operation. IS NOT DISTINCT FROM rather than =: release_operation_id is
+// nullable (runs released before migration 000029 have none), and = would
+// make the result NULL, which does not scan into a bool.
 func (p *Payments) releasing(ctx context.Context, in ReleaseInput) (bool, error) {
 	tx, err := p.begin(ctx, database.Scope{Role: p.AppRole, TenantID: in.TenantID, ReadOnly: true})
 	if err != nil {
@@ -182,6 +184,13 @@ func (p *Payments) releasing(ctx context.Context, in ReleaseInput) (bool, error)
 // Releaser is the in-process release worker of a cell without a workflow
 // engine: it runs the release steps the workflow would, one transaction
 // each, for every queued release operation, until the engine takes over.
+//
+// Cancelling the release operation does not stop paying. A release under
+// way keeps posting its payments (each posting stands), the operation stays
+// cancelled, the bank file is not written and the run stays releasing; the
+// run is resumed with :release, which starts a new operation. The releaser
+// picks up queued and running operations only, so a cancelled one is not
+// taken up again, and any step it still runs after the resume does nothing.
 type Releaser struct {
 	Payments   *Payments
 	Pool       *database.Pool
