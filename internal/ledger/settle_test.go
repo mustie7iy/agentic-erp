@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -166,7 +167,7 @@ func settleRate(t *testing.T, e env, from, validFrom, rate string) {
 }
 
 // settlePost posts a supplier invoice and returns its open item.
-func settlePost(t *testing.T, e env, le uuid.UUID, company, currency string, amount int64, ref string) ledger.ItemRef {
+func settlePost(t *testing.T, e env, le uuid.UUID, company, currency string, amount money.Minor, ref string) ledger.ItemRef {
 	t.Helper()
 	var entry ledger.Entry
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
@@ -278,7 +279,7 @@ func (s *settleScenario) openItems(t *testing.T) {
 func TestMigrationPorts(t *testing.T) {
 	e := setup(t)
 	account := func(number string) uuid.UUID { return uuid.MustParse(e.account(t, "2000", number)) }
-	post := func(amount int64, partner *uuid.UUID) ledger.Entry {
+	post := func(amount money.Minor, partner *uuid.UUID) ledger.Entry {
 		t.Helper()
 		var entry ledger.Entry
 		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {

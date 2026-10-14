@@ -84,7 +84,7 @@ func EncodeObject(m map[string]any) map[string]jx.Raw {
 }
 
 // Money is an amount in the API's representation (ADR-0005).
-func Money(minor int64, currency string, exp int) gen.Money {
+func Money[M ~int64](minor M, currency string, exp int) gen.Money {
 	return gen.Money{Amount: money.Minor(minor).Plain(exp), Currency: currency}
 }
 

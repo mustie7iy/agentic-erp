@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -29,7 +30,7 @@ type PayableItem struct {
 	AccountID    uuid.UUID
 	PartnerID    uuid.UUID
 	DocumentDate time.Time
-	Amount       int64
+	Amount       money.Minor
 }
 
 // Payable returns the legal entity's open supplier items in the currency
@@ -166,12 +167,12 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 type settlementBank struct {
 	group          string
 	rateLC, rateGC string
-	lc, gc         int64
+	lc, gc         money.Minor
 }
 
 // bankAmounts converts the settled transaction amount to local currency,
 // and that to group currency, at the average rates of the posting date.
-func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, tc int64) (settlementBank, error) {
+func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, tc money.Minor) (settlementBank, error) {
 	var b settlementBank
 	var err error
 	if b.group, err = e.LegalEntities.GroupCurrency(ctx); err != nil {
@@ -228,7 +229,7 @@ func clearWithEntry(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, le u
 // amounts and returns the lines with the items' totals per currency. The
 // items must be open items on reconciliation accounts of the legal entity,
 // in one ledger and in the settlement's currency.
-func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines []Line, tc, lc, gc int64, err error) {
+func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines []Line, tc, lc, gc money.Minor, err error) {
 	lines = make([]Line, 0, len(items)+3)
 	for i, it := range items {
 		switch {
@@ -250,7 +251,7 @@ func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines
 // exchangeDifferenceLines books what the bank line leaves in local and in
 // group currency on the fx_gain or fx_loss account of the account
 // determination: one line per currency with a difference.
-func exchangeDifferenceLines(ctx context.Context, legalEntity uuid.UUID, diffLC, diffGC int64, text *string) ([]Line, error) {
+func exchangeDifferenceLines(ctx context.Context, legalEntity uuid.UUID, diffLC, diffGC money.Minor, text *string) ([]Line, error) {
 	var lines []Line
 	for _, d := range []Line{{LC: diffLC}, {GC: diffGC}} {
 		if d.LC == 0 && d.GC == 0 {

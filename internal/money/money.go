@@ -126,7 +126,7 @@ func (m Minor) Plain(decimals int) string { return strings.ReplaceAll(m.Format(d
 // EventAmount is an amount as event payloads carry it, the same shape as in
 // the API: {"amount": "1234.56", "currency": "EUR"} with the currency's
 // minor-unit digits (ADR-0005, ADR-0007).
-func EventAmount(minor int64, currency string, decimals int) map[string]string {
+func EventAmount[M ~int64](minor M, currency string, decimals int) map[string]string {
 	return map[string]string{"amount": Minor(minor).Plain(decimals), "currency": currency}
 }
 

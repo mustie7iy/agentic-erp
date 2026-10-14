@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -73,7 +74,7 @@ func TestObjects(t *testing.T) {
 }
 
 func TestMoney(t *testing.T) {
-	if got := apitypes.Money(-123456, "EUR", 2); got != (gen.Money{Amount: "-1234.56", Currency: "EUR"}) {
+	if got := apitypes.Money(money.Minor(-123456), "EUR", 2); got != (gen.Money{Amount: "-1234.56", Currency: "EUR"}) {
 		t.Errorf("got %v, want -1234.56 EUR", got)
 	}
 }

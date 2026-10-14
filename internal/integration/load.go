@@ -445,7 +445,7 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 		if amt == 0 {
 			continue
 		}
-		pl := ledger.PostingLine{AccountID: l.t.charts[line.RBUKRS][sap.Alpha(line.RACCT)].ID, Amount: amt}
+		pl := ledger.PostingLine{AccountID: l.t.charts[line.RBUKRS][sap.Alpha(line.RACCT)].ID, Amount: money.Minor(amt)}
 		if l.reconciliation(line.RBUKRS, line.RACCT) {
 			partnerID := l.vendors[line.LIFNR]
 			pl.PartnerID = &partnerID
@@ -525,13 +525,13 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, int64) 
 		case amt != 0:
 			partnerID := l.vendors[line.LIFNR]
 			text := "Open item " + cmp.Or(line.XBLNR, line.BELNR) + " (SAP " + line.BELNR + ")"
-			open = append(open, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: amt, PartnerID: &partnerID, Text: &text})
+			open = append(open, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: money.Minor(amt), PartnerID: &partnerID, Text: &text})
 		}
 	}
 	var lines []ledger.PostingLine
 	for _, account := range sortedKeys(balances) {
 		if balances[account] != 0 {
-			lines = append(lines, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: balances[account]})
+			lines = append(lines, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: money.Minor(balances[account])})
 		}
 	}
 	return append(lines, open...), last, cleared

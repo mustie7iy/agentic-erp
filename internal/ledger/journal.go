@@ -66,16 +66,16 @@ type Entry struct {
 
 // Line is one journal line.
 type Line struct {
-	LineNo    int32      `json:"line_no"`
-	AccountID uuid.UUID  `json:"account_id"`
-	TC        int64      `json:"tc"`
-	LC        int64      `json:"lc"`
-	GC        int64      `json:"gc"`
-	PartnerID *uuid.UUID `json:"partner_id"`
-	TaxCode   *string    `json:"tax_code"`
-	Quantity  *string    `json:"quantity"`
-	Unit      *string    `json:"unit"`
-	Text      *string    `json:"text"`
+	LineNo    int32       `json:"line_no"`
+	AccountID uuid.UUID   `json:"account_id"`
+	TC        money.Minor `json:"tc"`
+	LC        money.Minor `json:"lc"`
+	GC        money.Minor `json:"gc"`
+	PartnerID *uuid.UUID  `json:"partner_id"`
+	TaxCode   *string     `json:"tax_code"`
+	Quantity  *string     `json:"quantity"`
+	Unit      *string     `json:"unit"`
+	Text      *string     `json:"text"`
 }
 
 const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
@@ -197,7 +197,7 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 	}
 	n := len(d.lines)
 	nos, accounts, partners := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n)
-	tcs, lcs, gcs := make([]int64, n), make([]int64, n), make([]int64, n)
+	tcs, lcs, gcs := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
 	for i, l := range d.lines {
 		nos[i], accounts[i], partners[i] = int32(i+1), l.AccountID, l.PartnerID
@@ -471,9 +471,9 @@ func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (stri
 var errTooLarge = problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")
 
 // convert translates minor units at the rate, rounding half away from zero.
-func convert(minor int64, r string, fromExp, toExp int) (int64, error) {
+func convert(minor money.Minor, r string, fromExp, toExp int) (money.Minor, error) {
 	rat, _ := new(big.Rat).SetString(r) // rates come from numeric columns
-	v := new(big.Rat).Mul(new(big.Rat).SetInt64(minor), rat)
+	v := new(big.Rat).Mul(new(big.Rat).SetInt64(int64(minor)), rat)
 	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(abs(toExp-fromExp))), nil))
 	if toExp > fromExp {
 		v.Mul(v, scale)
@@ -491,7 +491,7 @@ func convert(minor int64, r string, fromExp, toExp int) (int64, error) {
 	if !q.IsInt64() {
 		return 0, errTooLarge
 	}
-	return q.Int64(), nil
+	return money.Minor(q.Int64()), nil
 }
 
 func abs(n int) int {
@@ -503,23 +503,16 @@ func abs(n int) int {
 
 // balance puts the rounding difference of converted amounts on the line
 // with the largest amount, so the entry balances in that currency too.
-func balance(amounts []int64) {
-	var sum int64
+func balance(amounts []money.Minor) {
+	var sum money.Minor
 	largest := 0
 	for i, a := range amounts {
 		sum += a
-		if abs64(a) > abs64(amounts[largest]) {
+		if a.Abs() > amounts[largest].Abs() {
 			largest = i
 		}
 	}
 	amounts[largest] -= sum
-}
-
-func abs64(n int64) int64 {
-	if n < 0 {
-		return -n
-	}
-	return n
 }
 
 // postJournalEntry validates and posts a manual journal entry. Local and
@@ -588,7 +581,7 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 // currency with its minor-unit digits, never zero, adding up to zero.
 func entryLines(in NewEntry, expTC int) ([]Line, error) {
 	lines := make([]Line, len(in.Lines))
-	var sum int64
+	var sum money.Minor
 	for i, l := range in.Lines {
 		field := fmt.Sprintf("lines[%d].amount", i)
 		if l.Currency != in.Currency {
@@ -604,11 +597,11 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 			return nil, problem.Unprocessable("ledger.zero_amount", "Line amounts are never zero.",
 				problem.FieldError{Field: field + ".amount", Code: "zero", Message: "debit positive, credit negative"})
 		}
-		sum += int64(tc)
-		lines[i] = Line{AccountID: l.AccountID, TC: int64(tc), PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
+		sum += tc
+		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
 	}
 	if sum != 0 {
-		return nil, problem.Unprocessable("ledger.unbalanced", "Debits and credits differ by "+money.Minor(sum).Plain(expTC)+" "+in.Currency+".",
+		return nil, problem.Unprocessable("ledger.unbalanced", "Debits and credits differ by "+sum.Plain(expTC)+" "+in.Currency+".",
 			problem.FieldError{Field: "lines", Code: "unbalanced", Message: "the line amounts must add up to zero"})
 	}
 	return lines, nil
@@ -619,7 +612,7 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 // currency's rounding difference goes to its largest line.
 func convertLines(lines []Line, rateLC, rateGC string, expTC, expLC, expGC int) error {
 	var err error
-	lcs, gcs := make([]int64, len(lines)), make([]int64, len(lines))
+	lcs, gcs := make([]money.Minor, len(lines)), make([]money.Minor, len(lines))
 	for i, l := range lines {
 		if lcs[i], err = convert(l.TC, rateLC, expTC, expLC); err != nil {
 			return err

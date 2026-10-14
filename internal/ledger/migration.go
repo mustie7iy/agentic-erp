@@ -66,7 +66,7 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	if err != nil {
 		return uuid.Nil, err
 	}
-	type sums struct{ tc, lc int64 }
+	type sums struct{ tc, lc money.Minor }
 	perPartner := map[uuid.UUID]*sums{}
 	payload := make([]map[string]any, len(loaded))
 	for i, it := range loaded {

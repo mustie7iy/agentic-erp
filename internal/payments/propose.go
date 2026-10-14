@@ -159,9 +159,9 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 			out = append(out, candidate{supplier: it.PartnerID})
 		}
 		c := &out[len(out)-1]
-		c.items = append(c.items, Item{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo, Amount: -it.Amount,
+		c.items = append(c.items, Item{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo, Amount: -int64(it.Amount),
 			DueDate: partner.Date{Time: due}, Active: true})
-		c.total -= it.Amount
+		c.total -= int64(it.Amount)
 	}
 	return out, payees, nil
 }

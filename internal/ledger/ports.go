@@ -32,7 +32,7 @@ func (p Postings) endpoints() *Endpoints {
 // debit positive.
 type PostingLine struct {
 	AccountID      uuid.UUID
-	Amount         int64
+	Amount         money.Minor
 	PartnerID      *uuid.UUID
 	TaxCode        *string
 	Quantity, Unit *string

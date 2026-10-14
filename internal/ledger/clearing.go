@@ -95,7 +95,7 @@ type item struct {
 	legalEntity, ledger              uuid.UUID
 	account                          uuid.UUID
 	partner                          *uuid.UUID
-	tc, lc, gc                       int64
+	tc, lc, gc                       money.Minor
 	currency, currencyLC, currencyGC string
 	rateTCLC, rateLCGC               string
 }
@@ -180,7 +180,7 @@ func requireDistinct(refs []ItemRef) error {
 // in one ledger and transaction currency, and net to zero per partner in
 // every currency.
 func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, error) {
-	type sums struct{ tc, lc, gc int64 }
+	type sums struct{ tc, lc, gc money.Minor }
 	perPartner := map[uuid.UUID]*sums{}
 	lines := make([]Line, len(items))
 	for i, it := range items {

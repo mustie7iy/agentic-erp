@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -85,7 +86,7 @@ type OpenItem struct {
 	AccountID      uuid.UUID
 	PartnerID      *uuid.UUID
 	PostingDate    time.Time
-	TC, LC         int64
+	TC, LC         money.Minor
 	CurrencyTC     string
 	CurrencyLC     string
 	ExpTC, ExpLC   int
@@ -119,9 +120,9 @@ type Balance struct {
 	FiscalPeriod      int16
 	CurrencyTC        string
 	ExpTC             int
-	DebitTC, CreditTC int64
-	DebitLC, CreditLC int64
-	DebitGC, CreditGC int64
+	DebitTC, CreditTC money.Minor
+	DebitLC, CreditLC money.Minor
+	DebitGC, CreditGC money.Minor
 	UpdatedAt         time.Time
 }
 
