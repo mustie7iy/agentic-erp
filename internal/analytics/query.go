@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -428,11 +427,10 @@ func orderRows(q Query, res *Result) {
 	}
 	idx := slices.IndexFunc(res.Columns, func(c Column) bool { return c.Name == q.OrderBy })
 	sort.SliceStable(res.Rows, func(a, b int) bool {
-		less := compareCells(res.Rows[a][idx], res.Rows[b][idx]) < 0
 		if q.Desc {
 			return compareCells(res.Rows[b][idx], res.Rows[a][idx]) < 0
 		}
-		return less
+		return compareCells(res.Rows[a][idx], res.Rows[b][idx]) < 0
 	})
 }
 
@@ -511,21 +509,38 @@ func matchQuery(dims map[string]string, where []Filter) bool {
 	return true
 }
 
-// compareValues compares numerically when both sides are numbers (months,
-// years), otherwise as strings (dates, codes).
+// compareValues compares numerically when both sides are plain decimals
+// (months, years, numeric codes), otherwise as strings (dates, codes). The
+// numbers compare exactly: through a float, two codes of more than 15
+// digits that differ in the last one would compare equal.
 func compareValues(a, b string) int {
-	fa, errA := strconv.ParseFloat(a, 64)
-	fb, errB := strconv.ParseFloat(b, 64)
-	if errA == nil && errB == nil {
-		switch {
-		case fa < fb:
-			return -1
-		case fa > fb:
-			return 1
-		}
-		return 0
+	ra, okA := plainDecimal(a)
+	rb, okB := plainDecimal(b)
+	if okA && okB {
+		return ra.Cmp(rb)
 	}
 	return strings.Compare(a, b)
+}
+
+// plainDecimal reads an optional sign, digits and an optional "." with
+// digits, exactly; anything else ("1e3", "0x10", "Inf", a date) is not a
+// number here.
+func plainDecimal(s string) (*big.Rat, bool) {
+	body := s
+	if body != "" && (body[0] == '-' || body[0] == '+') {
+		body = body[1:]
+	}
+	intPart, frac, hasFrac := strings.Cut(body, ".")
+	if !isDigits(intPart) || (hasFrac && !isDigits(frac)) {
+		return nil, false
+	}
+	r, _ := new(big.Rat).SetString(s) // a sign, digits and at most one dot always parse
+	return r, true
+}
+
+// isDigits reports whether s is one or more ASCII digits.
+func isDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
 }
 
 // compareCells orders cells: measure values by size, before the cells
