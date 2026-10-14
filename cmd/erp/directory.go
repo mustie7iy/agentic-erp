@@ -72,8 +72,7 @@ func directoryCells(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(cells)
-	return nil
+	return printJSON(cells)
 }
 
 func directoryTenants(ctx context.Context, args []string) error {
@@ -104,8 +103,7 @@ func directoryTenants(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(page)
-	return nil
+	return printJSON(page)
 }
 
 func directoryLocate(ctx context.Context, args []string) error {
@@ -122,8 +120,7 @@ func directoryLocate(ctx context.Context, args []string) error {
 		return err
 	}
 	e["etag"] = h.Get("ETag")
-	printJSON(e)
-	return nil
+	return printJSON(e)
 }
 
 func directoryCreate(ctx context.Context, args []string) error {
@@ -166,8 +163,7 @@ func directoryCreate(ctx context.Context, args []string) error {
 	if h.Get("Idempotent-Replayed") == "true" {
 		fmt.Fprintln(errOut, "replayed: this Idempotency-Key already provisioned the tenant")
 	}
-	printJSON(created)
-	return nil
+	return printJSON(created)
 }
 
 func directoryTransition(ctx context.Context, verb string, args []string) error {
@@ -191,8 +187,7 @@ func directoryTransition(ctx context.Context, verb string, args []string) error 
 	if err != nil {
 		return err
 	}
-	printJSON(e)
-	return nil
+	return printJSON(e)
 }
 
 // directoryVerify compares the tenant's data in its cell and in another
@@ -213,7 +208,9 @@ func directoryVerify(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(v)
+	if err := printJSON(v); err != nil {
+		return err
+	}
 	if v["equal"] != true {
 		return errors.New("the cells differ")
 	}
@@ -243,6 +240,5 @@ func directoryMove(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(e)
-	return nil
+	return printJSON(e)
 }

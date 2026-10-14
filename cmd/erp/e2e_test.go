@@ -149,10 +149,14 @@ func TestEndToEnd(t *testing.T) {
 	if got := must(t, "agent", "migration", "-connector", id, "-legal-entities", e.US.String()); !strings.Contains(got, "ready") {
 		t.Fatalf("agent migration: %s", got)
 	}
+	model(t, llmtest.Final("Company 1000 is ready."))
+	printFails(t, "agent", "migration", "-connector", id, "-legal-entities", e.US.String())
 	model(t, llmtest.Final("Nothing to change."))
 	if got := must(t, "agent", "config", "-draft", "draft.yaml", "raise", "the", "tolerance"); !strings.Contains(got, "Nothing to change.") {
 		t.Fatalf("agent config: %s", got)
 	}
+	model(t, llmtest.Final("Nothing to change."))
+	printFails(t, "agent", "config", "-draft", "draft.yaml", "raise", "the", "tolerance")
 	doc := fixture.Document(t)
 	doc.Companies[1].InvoiceTolerance.PricePercent = 3
 	b, _ := json.Marshal(map[string]any{"title": "Tolerance", "rationale": "r", "base_version": 1, "proposed": doc})
@@ -164,6 +168,8 @@ func TestEndToEnd(t *testing.T) {
 	}
 	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
 	must(t, "agent", "test", "-change-request", cr["id"].(string))
+	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
+	printFails(t, "agent", "test", "-change-request", cr["id"].(string))
 	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
 	fails(t, "agent test: write scripts", "agent", "test", "-change-request", cr["id"].(string), "-out", filepath.Join(t.TempDir(), "missing", "uat.md"))
 

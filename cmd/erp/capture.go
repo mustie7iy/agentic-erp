@@ -71,8 +71,7 @@ func captureCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(op)
-	return nil
+	return printJSON(op)
 }
 
 // contentTypeOf is the content type a document's extension implies.

@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 type parkedInvoice struct {
@@ -132,7 +133,9 @@ func invoices(ctx context.Context, args []string) error {
 			posted = append(posted, inv.DocumentNumber)
 		}
 	}
-	fmt.Fprintf(out, "Posted %d: %s\nHeld %d: %s\n", len(posted), strings.Join(posted, ", "), len(held), strings.Join(held, ", "))
+	if err := printf("invoices", "Posted %d: %s\nHeld %d: %s\n", len(posted), strings.Join(posted, ", "), len(held), strings.Join(held, ", ")); err != nil {
+		return err
+	}
 	if *withAgent {
 		return agentInvoices(ctx)
 	}
@@ -185,11 +188,12 @@ func agentInvoices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Agent reviewed %d held invoices and made %d recommendations.\n", len(res.Reviewed), res.Recommendations)
+	w := printer()
+	fmt.Fprintf(w, "Agent reviewed %d held invoices and made %d recommendations.\n", len(res.Reviewed), res.Recommendations)
 	for _, e := range res.Errors {
-		fmt.Fprintln(out, "  "+e)
+		fmt.Fprintln(w, "  "+e)
 	}
-	return nil
+	return errs.Wrapf(w.Flush(), "agent invoices: print")
 }
 
 // agentCmd runs a delivery agent with the agents' token.
@@ -235,8 +239,7 @@ func agentConfig(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "%s\n\nChange requests: %s\n", res.Reply, strings.Join(res.ChangeRequests, ", "))
-	return nil
+	return printf("agent config", "%s\n\nChange requests: %s\n", res.Reply, strings.Join(res.ChangeRequests, ", "))
 }
 
 func agentMigration(ctx context.Context, args []string) error {
@@ -256,8 +259,7 @@ func agentMigration(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out, text)
-	return nil
+	return printf("agent migration", "%s\n", text)
 }
 
 func agentTest(ctx context.Context, args []string) error {
@@ -275,7 +277,9 @@ func agentTest(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Recommendation recorded: %t\n\n%s\n", rev.Recommended, rev.Scripts)
+	if err := printf("agent test", "Recommendation recorded: %t\n\n%s\n", rev.Recommended, rev.Scripts); err != nil {
+		return err
+	}
 	if *outFile != "" {
 		if err := os.WriteFile(*outFile, []byte(rev.Scripts), 0o600); err != nil {
 			return fmt.Errorf("agent test: write scripts: %w", err)

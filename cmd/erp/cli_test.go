@@ -90,6 +90,20 @@ func decodeRequest(t *testing.T, w http.ResponseWriter, r *http.Request, v any) 
 	return true
 }
 
+// printFails runs a command that succeeds when its output can be written,
+// with output that cannot: the lost output must fail it, exiting non-zero
+// with the write's error.
+func printFails(t *testing.T, args ...string) {
+	t.Helper()
+	var errBuf bytes.Buffer
+	out, errOut = failing{}, &errBuf
+	t.Cleanup(func() { out, errOut = os.Stdout, os.Stderr })
+	if code := run(context.Background(), args); code == 0 || !strings.Contains(errBuf.String(), "device full") {
+		t.Errorf("erp %s with lost output: exit %d, want failure with \"device full\":\n%s", strings.Join(args, " "), code, errBuf.String())
+	}
+	out, errOut = os.Stdout, os.Stderr
+}
+
 // fails runs a command that must fail with output containing want.
 func fails(t *testing.T, want string, args ...string) {
 	t.Helper()
@@ -139,6 +153,8 @@ func TestCallErrors(t *testing.T) {
 	// JSON: the command fails rather than print status 0 and null.
 	fakeAPI(t, routes{"GET /v1/migration-runs": {ok(`{"items": ["` + strings.Repeat("x", 50000) + `"]}`)}})
 	fails(t, "cannot be read", "call", "listMigrationRuns")
+	fakeAPI(t, routes{"GET /v1/migration-runs": {ok(`{"items": []}`)}})
+	printFails(t, "call", "listMigrationRuns")
 }
 
 func TestLocalPreparationErrors(t *testing.T) {
@@ -147,6 +163,8 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "flag provided", "gen-mock-sap", "-x")
 	fails(t, "not a directory", "gen-mock-sap", "-out", "file/extract.json")
 	must(t, "gen-mock-sap", "-out", "extract.json", "-seed", "7")
+	printFails(t, "gen-mock-sap", "-out", "extract.json", "-seed", "7")
+	printFails(t, "config", "generate", "-source", "file:extract.json", "-out", "draft.yaml")
 
 	fails(t, "config generate | validate", "config")
 	fails(t, "unknown config command", "config", "bogus")
@@ -158,12 +176,19 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "missing.yaml", "config", "validate", "-file", "missing.yaml")
 
 	doc := fixture.Document(t)
-	doc.Companies[0].TaxCodes = nil
 	b, _ := doc.Marshal()
+	writeFile(t, "clean.yaml", b)
+	if got := must(t, "config", "validate", "-file", "clean.yaml"); !strings.Contains(got, "no findings") {
+		t.Fatalf("clean: got %s, want no findings", got)
+	}
+	printFails(t, "config", "validate", "-file", "clean.yaml")
+	doc.Companies[0].TaxCodes = nil
+	b, _ = doc.Marshal()
 	writeFile(t, "warn.yaml", b)
 	if got := must(t, "config", "validate", "-file", "warn.yaml"); !strings.Contains(got, "[warning]") {
 		t.Fatalf("warnings: %s", got)
 	}
+	printFails(t, "config", "validate", "-file", "warn.yaml")
 	doc.Companies[0].InvoiceTolerance.PricePercent = 200
 	b, _ = doc.Marshal()
 	writeFile(t, "bad.yaml", b)
@@ -302,6 +327,8 @@ func TestInvoicesErrors(t *testing.T) {
 			t.Fatalf("agent errors: got %s, want it to contain %q", got, want)
 		}
 	}
+	printFails(t, "invoices")
+	printFails(t, "agent", "invoices")
 	fails(t, "flag provided", "invoices", "-x")
 	fakeAPI(t, parked(nil), "ERP_AGENT_TOKEN", "")
 	fails(t, "ERP_AGENT_TOKEN is not set", "invoices", "-agent")
@@ -381,6 +408,13 @@ func TestAnalyticsErrors(t *testing.T) {
 		}),
 		llmtest.Final("Done."))
 	fails(t, "not a directory", "ask", "-out", "file/reports", "how", "many")
+	ask = llmtest.New(t,
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}),
+		llmtest.ToolFn("build_dashboard", func(b string) any {
+			return map[string]any{"spec": analytics.Spec{Title: "Invoices", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
+		}),
+		llmtest.Final("Done."))
+	printFails(t, "ask", "-out", "reports", "how", "many")
 
 	fails(t, "flag provided", "report", "-x")
 	fails(t, "-id or -file is required", "report")
@@ -392,6 +426,7 @@ func TestAnalyticsErrors(t *testing.T) {
 	}
 	fails(t, "query q", "report", "-file", rep("bad.json", "nope"))
 	fails(t, "not a directory", "report", "-file", rep("good.json", "invoice_count"), "-out", "file/reports")
+	printFails(t, "report", "-file", "good.json", "-out", "reports")
 
 	fakeAPI(t, routes{})
 	fails(t, "/v1/legal-entities", "query", "-measures", "revenue")
@@ -430,6 +465,8 @@ func TestTokenCommand(t *testing.T) {
 	if got := must(t, "token", "-subject", "ops"); !strings.Contains(got, "t-ops") {
 		t.Fatalf("operator token: %s", got)
 	}
+	// A script capturing the token must not get nothing and see success.
+	printFails(t, "token", "-subject", "ops")
 	fails(t, "ERP_DEV_ISSUER", "token", "-tenant", "x", "-subject", "nobody")
 	env["ERP_ADMIN_URL"] = "http://127.0.0.1:1"
 	fails(t, "connection refused", "token", "-tenant", "x", "-subject", "ada")
@@ -601,6 +638,15 @@ func TestTenantsCommand(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("fingerprint: got %s, want it to contain %s", got, want)
 		}
+	}
+	for name, args := range map[string][]string{
+		"list":        {"list"},
+		"get":         {"get", "-id", "t1"},
+		"fingerprint": {"fingerprint", "-id", "t1"},
+		"create":      {"create", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada", "-config", file},
+		"suspend":     {"suspend", "-id", "t1"},
+	} {
+		t.Run(name+" with lost output", func(t *testing.T) { printFails(t, append([]string{"tenants"}, args...)...) })
 	}
 	fails(t, "request.not_found", "tenants", "get", "-id", "nope")
 	fails(t, "request.not_found", "tenants", "fingerprint", "-id", "nope")

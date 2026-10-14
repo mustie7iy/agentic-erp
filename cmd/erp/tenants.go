@@ -64,8 +64,7 @@ func tenantsFingerprint(ctx context.Context, args []string) error {
 		return err
 	}
 	t["etag"] = h.Get("ETag")
-	printJSON(t)
-	return nil
+	return printJSON(t)
 }
 
 // control performs one call of the control plane and returns the body and
@@ -110,9 +109,10 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	return m, resp.Header, nil
 }
 
-func printJSON(v any) {
+// printJSON prints an answer as indented JSON; the error is a failed write.
+func printJSON(v any) error {
 	b, _ := json.MarshalIndent(v, "", "  ") // decoded JSON always encodes
-	fmt.Fprintln(out, string(b))
+	return printf("answer", "%s\n", b)
 }
 
 func tenantsList(ctx context.Context, args []string) error {
@@ -141,8 +141,7 @@ func tenantsList(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(page)
-	return nil
+	return printJSON(page)
 }
 
 func tenantsGet(ctx context.Context, args []string) error {
@@ -159,8 +158,7 @@ func tenantsGet(ctx context.Context, args []string) error {
 		return err
 	}
 	t["etag"] = h.Get("ETag")
-	printJSON(t)
-	return nil
+	return printJSON(t)
 }
 
 func tenantsCreate(ctx context.Context, args []string) error {
@@ -198,8 +196,7 @@ func tenantsCreate(ctx context.Context, args []string) error {
 	if h.Get("Idempotent-Replayed") == "true" {
 		fmt.Fprintln(errOut, "replayed: this Idempotency-Key already provisioned the tenant")
 	}
-	printJSON(created)
-	return nil
+	return printJSON(created)
 }
 
 func tenantsTransition(ctx context.Context, verb string, args []string) error {
@@ -227,6 +224,5 @@ func tenantsTransition(ctx context.Context, verb string, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(t)
-	return nil
+	return printJSON(t)
 }

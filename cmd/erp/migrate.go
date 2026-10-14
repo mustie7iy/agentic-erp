@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -154,9 +153,7 @@ func readRun(ctx context.Context, c *apitools.Client, path string) (migrationRun
 // printRun prints the run's report. Its error is any part of the report that
 // could not be written, so the operator never decides on a partial report.
 func printRun(run migrationRun) error {
-	// A bufio.Writer keeps the first failed write and refuses the rest, so the
-	// whole report is checked once, at the flush.
-	w := bufio.NewWriter(out)
+	w := printer() // the whole report is checked once, at the flush
 	r := run.Report
 	loaded, _ := json.Marshal(r.Loaded)
 	fmt.Fprintf(w, "Migration run %s: %s\nLoaded: %s\n", run.ID, run.Status, loaded)

@@ -125,6 +125,17 @@ func TestDirectoryCommand(t *testing.T) {
 	if got := must(t, "directory", "verify", "-id", "t1", "-cell", "eu-2"); !strings.Contains(got, `"equal": true`) {
 		t.Fatalf("verify: %s", got)
 	}
+	for name, args := range map[string][]string{
+		"cells":   {"cells"},
+		"tenants": {"tenants"},
+		"locate":  {"locate", "-id", "t1"},
+		"create":  {"create", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "s", "-admin-name", "Ada", "-config", file},
+		"freeze":  {"freeze", "-id", "t1"},
+		"move":    {"move", "-id", "t1", "-cell", "eu-4"},
+		"verify":  {"verify", "-id", "t1", "-cell", "eu-2"},
+	} {
+		t.Run(name+" with lost output", func(t *testing.T) { printFails(t, append([]string{"directory"}, args...)...) })
+	}
 	fails(t, "the cells differ", "directory", "verify", "-id", "t1", "-cell", "eu-3")
 	fails(t, "404 request.not_found", "directory", "verify", "-id", "t9", "-cell", "eu-2")
 	fails(t, "-id and -cell are required", "directory", "verify", "-id", "t1")

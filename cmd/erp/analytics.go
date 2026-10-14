@@ -166,9 +166,7 @@ func askCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out, ans.Summary)
-	fmt.Fprintf(out, "\nDashboard: %s\nRerun later with: erp report -id %s\n", path, ans.Report.ID)
-	return nil
+	return printf("ask", "%s\n\nDashboard: %s\nRerun later with: erp report -id %s\n", ans.Summary, path, ans.Report.ID)
 }
 
 // reportCmd reruns a saved report (or a hand-written report file) on current data.
@@ -204,8 +202,7 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.Facts.DataThrough, html)
-	return nil
+	return printf("report", "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.Facts.DataThrough, html)
 }
 
 func splitList(s string) []string {

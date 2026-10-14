@@ -111,6 +111,7 @@ func TestCaptureCommand(t *testing.T) {
 	if got != strings.Join(want, "\n") {
 		t.Fatalf("requests:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
+	printFails(t, "capture", "-legal-entity", le, "-file", small)
 	// Failures: the PUT refused, no object storage, the capture refused, an answer that is not JSON, and usage.
 	fails(t, "uploading the document: 403", "capture", "-legal-entity", le, "-file", small, "-upload")
 	fails(t, "503 platform.unavailable", "capture", "-legal-entity", le, "-file", small, "-upload")

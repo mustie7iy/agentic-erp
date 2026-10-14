@@ -22,6 +22,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -52,6 +53,20 @@ var (
 	out    io.Writer = os.Stdout
 	errOut io.Writer = os.Stderr
 )
+
+// printf writes a command's output and returns a failed write, so a full
+// disk or a closed pipe fails the command rather than losing the output (a
+// token a script captures) behind exit 0. Output of several writes goes
+// through printer instead.
+func printf(what, format string, args ...any) error {
+	_, err := fmt.Fprintf(out, format, args...)
+	return errs.Wrapf(err, "%s: print", what)
+}
+
+// printer buffers a command's output of several writes: a bufio.Writer
+// keeps the first failed write and refuses the rest, so the error of its
+// one Flush, which the command returns, reports any of them.
+func printer() *bufio.Writer { return bufio.NewWriter(out) }
 
 // exit ends the process, getenv reads the environment and newRunner makes
 // the agents' model client; tests replace them.
@@ -245,7 +260,9 @@ func call(ctx context.Context, args []string) error {
 		return fmt.Errorf("call %s: the answer cannot be read (it may be over the size limit; ask for a smaller page): %w", args[0], err)
 	}
 	pretty, _ := json.MarshalIndent(r.Body, "", "  ")
-	fmt.Fprintf(out, "%d %s\n%s\n", r.Status, r.ETag, pretty)
+	if err := printf("call", "%d %s\n%s\n", r.Status, r.ETag, pretty); err != nil {
+		return err
+	}
 	if r.Status >= 400 {
 		return fmt.Errorf("the API answered %d", r.Status)
 	}
@@ -288,8 +305,7 @@ func token(ctx context.Context, args []string) error {
 	if resp.StatusCode != http.StatusOK || answer.Token == "" {
 		return fmt.Errorf("the admin listener answered %d: is the server running with ERP_DEV_ISSUER=true?", resp.StatusCode)
 	}
-	fmt.Fprintln(out, answer.Token)
-	return nil
+	return printf("token", "%s\n", answer.Token)
 }
 
 func genMock(_ context.Context, args []string) error {
@@ -314,18 +330,20 @@ func genMock(_ context.Context, args []string) error {
 	if err := sap.WriteExtract(*outFile, e); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "wrote %s\n", *outFile)
+	w := printer()
+	fmt.Fprintf(w, "wrote %s\n", *outFile)
 	counts := e.Counts()
 	tables := make([]string, 0, len(counts))
 	for t := range counts {
 		tables = append(tables, t)
 	}
 	sort.Strings(tables)
-	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', 0)
+	tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 	for _, t := range tables {
 		fmt.Fprintf(tw, "  %s\t%d\n", t, counts[t])
 	}
-	return errs.Wrapf(tw.Flush(), "gen-mock-sap: print counts")
+	_ = tw.Flush() // its only error is a failed write, which w keeps
+	return errs.Wrapf(w.Flush(), "gen-mock-sap: print counts")
 }
 
 func configCmd(ctx context.Context, args []string) error {
@@ -376,9 +394,13 @@ func configGenerate(ctx context.Context, args []string) error {
 	if err := os.WriteFile(*outPath, doc, 0o600); err != nil {
 		return fmt.Errorf("config generate: write draft %s: %w", *outPath, err)
 	}
-	fmt.Fprintf(out, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)
+	w := printer()
+	fmt.Fprintf(w, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)
 	for _, n := range notes {
-		fmt.Fprintln(out, "  "+n.String())
+		fmt.Fprintln(w, "  "+n.String())
+	}
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("config generate: print notes: %w", err)
 	}
 	return printFindings(config.Validate(cfg))
 }
@@ -398,12 +420,15 @@ func configValidate(args []string) error {
 
 func printFindings(fs []config.Finding) error {
 	if len(fs) == 0 {
-		fmt.Fprintln(out, "\nValidation: no findings")
-		return nil
+		return printf("config", "\nValidation: no findings\n")
 	}
-	fmt.Fprintln(out, "\nValidation:")
+	w := printer()
+	fmt.Fprintln(w, "\nValidation:")
 	for _, f := range fs {
-		fmt.Fprintln(out, "  "+f.String())
+		fmt.Fprintln(w, "  "+f.String())
+	}
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("config: print findings: %w", err)
 	}
 	if config.HasErrors(fs) {
 		return errors.New("the configuration has validation errors")
