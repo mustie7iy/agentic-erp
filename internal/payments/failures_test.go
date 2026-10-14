@@ -202,7 +202,7 @@ func (s *failureRuns) proposed(t *testing.T, e env, h *payments.Endpoints) {
 	e.Must(200, "POST", "/v1/operations/"+id(cancelled)+":cancel", "", `"1"`)
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		tx, _ := reqctx.TxFrom(ctx)
-		j, _, err := payments.Next(ctx, tx)
+		j, _, err := h.NextJob(ctx, tx)
 		s.queued = j
 		return err
 	}); err != nil {

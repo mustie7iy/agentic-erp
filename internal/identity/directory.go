@@ -48,3 +48,18 @@ func (Directory) HoldsRole(ctx context.Context, principal, role uuid.UUID) (bool
 	}
 	return ok, nil
 }
+
+// Actors answers who deferred work acts as: the principal that queued it,
+// read in the worker's own transaction before the unit of work starts (a
+// port of the contexts whose workers act as the requester: payments,
+// configuration and workflows).
+type Actors struct{}
+
+// Actor returns the principal with the id as the unit of work acts as it.
+func (Actors) Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error) {
+	p := reqctx.Principal{ID: id}
+	if err := tx.QueryRow(ctx, `SELECT tenant_id, kind FROM identity.principal WHERE id = $1`, id).Scan(&p.TenantID, &p.Kind); err != nil {
+		return reqctx.Principal{}, fmt.Errorf("identity: read principal %s: %w", id, err)
+	}
+	return p, nil
+}

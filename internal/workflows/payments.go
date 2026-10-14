@@ -83,7 +83,7 @@ func (p *Payments) Propose(ctx context.Context, in ProposeInput) error {
 	if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
 		return fmt.Errorf("workflows: propose payment run %s: set the statement timeout: %w", in.RunID, err)
 	}
-	job, ok, err := payments.JobFor(ctx, tx, in.RunID)
+	job, ok, err := p.Endpoints.JobFor(ctx, tx, in.RunID)
 	if err != nil || !ok {
 		return err
 	}

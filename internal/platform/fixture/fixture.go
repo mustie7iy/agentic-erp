@@ -84,7 +84,7 @@ func Deps() configuration.Dependencies {
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys()}},
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
-		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}}}
+		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}}, Actors: identity.Actors{}}
 }
 
 // Env is a configured tenant.

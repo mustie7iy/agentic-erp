@@ -84,7 +84,6 @@ type job struct {
 	OperationID   uuid.UUID
 	ChangeRequest string
 	By            uuid.UUID
-	ByKind        string
 }
 
 // one runs the tenant's oldest queued simulation and reports whether there
@@ -117,16 +116,18 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 		return false, fmt.Errorf("configuration: set the simulation timeout: %w", err)
 	}
 	var j job
-	err = tx.QueryRow(ctx, `SELECT o.id, coalesce(o.request->>'change_request_id', ''), o.created_by, p.kind FROM platform.operation o
-		JOIN identity.principal p ON p.tenant_id = o.tenant_id AND p.id = o.created_by
-		WHERE `+where+` FOR UPDATE OF o SKIP LOCKED`, args...).Scan(&j.OperationID, &j.ChangeRequest, &j.By, &j.ByKind)
+	err = tx.QueryRow(ctx, `SELECT o.id, coalesce(o.request->>'change_request_id', ''), o.created_by FROM platform.operation o
+		WHERE `+where+` FOR UPDATE OF o SKIP LOCKED`, args...).Scan(&j.OperationID, &j.ChangeRequest, &j.By)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("configuration: claim a queued simulation: %w", err)
 	}
-	p := reqctx.Principal{ID: j.By, Kind: j.ByKind, TenantID: tenant}
+	p, err := w.Dependencies.Actors.Actor(ctx, tx, j.By)
+	if err != nil {
+		return false, fmt.Errorf("configuration: read the requester of simulation %s: %w", j.OperationID, err)
+	}
 	if err := uow.Act(ctx, tx, p, w.Now, func(ctx context.Context) error {
 		return w.process(ctx, tx, p, j)
 	}); err != nil {

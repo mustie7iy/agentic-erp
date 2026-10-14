@@ -82,6 +82,13 @@ type Dependencies struct {
 	Approvals     Opener
 	Simulator     Simulator // replays transactions for simulation evidence (the worker)
 	Regressor     Regressor // captures and replays regression suites
+	Actors        Actors    // who a queued simulation acts as (the worker)
+}
+
+// Actors reads who deferred work acts as: the person who queued it
+// (identity context).
+type Actors interface {
+	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
 }
 
 // check validates a document for activation on top of base (nil for the

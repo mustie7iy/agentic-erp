@@ -161,6 +161,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Approvals: approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}},
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}},
+		Actors:    identity.Actors{},
 	}
 }
 
@@ -170,7 +171,7 @@ func Payments(cfg Config) *payments.Endpoints {
 	return &payments.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{},
 		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
-		Settings: configuration.Settings{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects}
+		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects}
 }
 
 // Integration is the integration context as the API wires it: migration

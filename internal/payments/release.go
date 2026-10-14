@@ -104,12 +104,11 @@ func (e *Endpoints) Releaser(ctx context.Context, tx pgx.Tx, run uuid.UUID) (req
 	if r.Status != Releasing && r.Status != Released || r.DecidedBy == nil {
 		return reqctx.Principal{}, Run{}, fmt.Errorf("payments: run %s is %s, not releasing", run, r.Status)
 	}
-	var kind string
-	var tenant uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT tenant_id, kind FROM identity.principal WHERE id = $1`, *r.DecidedBy).Scan(&tenant, &kind); err != nil {
+	p, err := e.Actors.Actor(ctx, tx, *r.DecidedBy)
+	if err != nil {
 		return reqctx.Principal{}, Run{}, fmt.Errorf("payments: read releaser %s of run %s: %w", *r.DecidedBy, run, err)
 	}
-	return reqctx.Principal{ID: *r.DecidedBy, Kind: kind, TenantID: tenant}, r, nil
+	return p, r, nil
 }
 
 // PaymentsToPost lists the run's payments without a posting yet, in

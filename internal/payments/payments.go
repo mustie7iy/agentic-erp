@@ -117,6 +117,12 @@ type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
 
+// Actors reads who a run's deferred work acts as: its proposer or
+// releaser (identity context).
+type Actors interface {
+	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
+}
+
 // Endpoints implements the payments part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -127,6 +133,7 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Actors        Actors
 	Keys          *fieldcrypt.Keyring // opens house bank IBANs
 	Connector     Connector           // transmits bank files; nil: transmission answers 503
 	Objects       blobstore.Store     // keeps bank files as written at release; nil: files are rendered again when needed

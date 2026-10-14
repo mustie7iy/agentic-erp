@@ -39,12 +39,19 @@ func MigrateRun(ctx workflow.Context, in MigrateInput) error {
 	return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), a.Execute, in).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 }
 
+// Actors reads who deferred work acts as: the person who queued it
+// (identity context).
+type Actors interface {
+	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
+}
+
 // Migrations holds the migration activity: the integration endpoints the
 // API uses, and the pool and role they run under.
 type Migrations struct {
 	Pool      *database.Pool
 	AppRole   string
 	Endpoints *integration.Endpoints
+	Actors    Actors // who the run's operation acts as: its requester
 	Now       func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
@@ -64,12 +71,13 @@ func (m *Migrations) Execute(ctx context.Context, in MigrateInput) error {
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	var by uuid.UUID
-	var kind string
-	if err := tx.QueryRow(ctx, `SELECT o.created_by, p.kind FROM platform.operation o JOIN identity.principal p ON p.tenant_id = o.tenant_id AND p.id = o.created_by
-		WHERE o.id = $1`, in.OperationID).Scan(&by, &kind); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT created_by FROM platform.operation WHERE id = $1`, in.OperationID).Scan(&by); err != nil {
 		return fmt.Errorf("workflows: migration run %s: read the requester of operation %s: %w", in.RunID, in.OperationID, err)
 	}
-	actor := reqctx.Principal{ID: by, Kind: kind, TenantID: in.TenantID}
+	actor, err := m.Actors.Actor(ctx, tx, by)
+	if err != nil {
+		return fmt.Errorf("workflows: migration run %s: %w", in.RunID, err)
+	}
 	if err := uow.Act(ctx, tx, actor, m.Now, func(ctx context.Context) error {
 		_, err := m.Endpoints.Execute(ctx, in.RunID)
 		return err

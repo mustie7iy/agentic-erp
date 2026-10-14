@@ -330,43 +330,51 @@ type Job struct {
 	ProposerKind string
 }
 
-// Next finds and locks the tenant's oldest job, skipping jobs another
+// NextJob finds and locks the tenant's oldest job, skipping jobs another
 // worker holds.
-func Next(ctx context.Context, tx pgx.Tx) (Job, bool, error) {
+func (e *Endpoints) NextJob(ctx context.Context, tx pgx.Tx) (Job, bool, error) {
 	var j Job
 	var status string
-	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by, pr.kind FROM platform.operation o
+	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by FROM platform.operation o
 		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
-		JOIN identity.principal pr ON pr.tenant_id = r.tenant_id AND pr.id = r.proposed_by
 		WHERE o.kind = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled')
-		ORDER BY o.id LIMIT 1 FOR UPDATE OF o, r SKIP LOCKED`, ProposeKind).Scan(&j.RunID, &status, &j.ProposedBy, &j.ProposerKind)
+		ORDER BY o.id LIMIT 1 FOR UPDATE OF o, r SKIP LOCKED`, ProposeKind).Scan(&j.RunID, &status, &j.ProposedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, false, nil
 	}
-	j.Cancelled = status == operations.Cancelled
 	if err != nil {
-		return j, false, fmt.Errorf("payments: find the next proposal job: %w", err)
+		return Job{}, false, fmt.Errorf("payments: find the next proposal job: %w", err)
 	}
-	return j, true, nil
+	return e.proposer(ctx, tx, j, status)
 }
 
 // JobFor finds and locks one run's job: the run still proposing with its
 // operation queued or cancelled. ok is false when there is nothing left to
 // do for the run, so a retried worker does nothing twice.
-func JobFor(ctx context.Context, tx pgx.Tx, run uuid.UUID) (Job, bool, error) {
+func (e *Endpoints) JobFor(ctx context.Context, tx pgx.Tx, run uuid.UUID) (Job, bool, error) {
 	var j Job
 	var status string
-	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by, pr.kind FROM payments.payment_run r
+	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by FROM payments.payment_run r
 		JOIN platform.operation o ON o.tenant_id = r.tenant_id AND o.id = r.operation_id
-		JOIN identity.principal pr ON pr.tenant_id = r.tenant_id AND pr.id = r.proposed_by
-		WHERE r.id = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled') FOR UPDATE OF o, r`, run).Scan(&j.RunID, &status, &j.ProposedBy, &j.ProposerKind)
+		WHERE r.id = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled') FOR UPDATE OF o, r`, run).Scan(&j.RunID, &status, &j.ProposedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, false, nil
 	}
-	j.Cancelled = status == operations.Cancelled
 	if err != nil {
-		return j, false, fmt.Errorf("payments: find the proposal job of run %s: %w", run, err)
+		return Job{}, false, fmt.Errorf("payments: find the proposal job of run %s: %w", run, err)
 	}
+	return e.proposer(ctx, tx, j, status)
+}
+
+// proposer completes a locked job with whether its operation was
+// cancelled and the kind of principal its proposer is.
+func (e *Endpoints) proposer(ctx context.Context, tx pgx.Tx, j Job, status string) (Job, bool, error) {
+	j.Cancelled = status == operations.Cancelled
+	p, err := e.Actors.Actor(ctx, tx, j.ProposedBy)
+	if err != nil {
+		return Job{}, false, fmt.Errorf("payments: read the proposer of run %s: %w", j.RunID, err)
+	}
+	j.ProposerKind = p.Kind
 	return j, true, nil
 }
 

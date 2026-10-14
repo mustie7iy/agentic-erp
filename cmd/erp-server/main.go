@@ -29,6 +29,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
@@ -397,7 +398,7 @@ func (s *server) startOperations(runCtx context.Context) {
 	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}
 	go func() {
 		s.workerErr <- engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
-			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg)},
+			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
 				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole})
 		})
 		close(s.workerDone)

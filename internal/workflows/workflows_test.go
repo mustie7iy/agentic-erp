@@ -25,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -913,7 +914,7 @@ func migrationAsked(t *testing.T, file string) (env, string, workflows.MigrateIn
 		t.Fatalf("run handed to the engine: %v", running)
 	}
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	m := &workflows.Migrations{Pool: pgtest.Pool(t), AppRole: "erp_app",
+	m := &workflows.Migrations{Pool: pgtest.Pool(t), AppRole: "erp_app", Actors: identity.Actors{},
 		Endpoints: app.Integration(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: dir, Workflows: &fakeEngine{}})}
 	return e, path, workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(id(r)), OperationID: uuid.MustParse(id(op))}, m
 }

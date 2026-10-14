@@ -71,7 +71,7 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
 		return false, fmt.Errorf("payments: set the proposal statement timeout: %w", err)
 	}
-	job, ok, err := Next(ctx, tx)
+	job, ok, err := w.Endpoints.NextJob(ctx, tx)
 	if err != nil || !ok {
 		return false, err
 	}
