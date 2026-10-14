@@ -149,10 +149,45 @@ Each a separate Fix commit with a test that fails before the fix.
 - [x] B13 sapconfig: all-zero account conversion consistent with integration. 02e80e4, a25ace9 (one sap.Alpha).
 
 ### Phase 5 — Test quality
-- [ ] R30 Polling helper; no time.Sleep in tests
-- [ ] R31 t.Run subtests and one assertion per check
-- [ ] R32 thelper and noctx to zero
-- [ ] R33 Nightly shuffled test run
+- [x] R30 Polling helper; no time.Sleep in tests. pgtest.Eventually (and pgtest.SyncBuffer for
+  logs a worker writes while the test reads); three worktree agents and a review follow-up, every
+  part reviewed. time.Sleep in tests 34 → 0 (forbidigo 34 → 0); each touched package run with
+  -race -count=5.
+  - Load-sensitive tests: TestMigrationWorkflow gets a minute instead of Temporal's 3 s test
+    timeout; TestLoadShedsAHotPrincipal freezes the limiter clock and checks the exact split;
+    TestResilienceWorkerRestarts and both TestKeyRotationPolicy fixed by the fixes below;
+    globalplane TestVerifyTenant compares the token it sent, not one minted a second later.
+  - Fix (failing-first): the key rotator stopped at the first tenant whose rotation failed, so
+    no tenant after it in id order (every new one) was ever rotated. It now skips and reports it.
+  - Fix (failing-first, test harness): nfr Consistent finds a 201 whose body was cut off at
+    shutdown by its idempotency key instead of reporting it as lost.
+  - Workers are stopped by t.Cleanup when a wait fails; a uow test can no longer hang.
+- [x] R31 t.Run subtests and one assertion per check. Four worktree agents by package group
+  (about 90 commits, test files only); every part reviewed, three reviews asked for changes and
+  approved the fixes.
+  - Case tables run as subtests with got/want messages; || chains of 3+ conditions split; RUN
+    counts rose everywhere (e.g. procurement 12 → 95, ledger 22 → 110, identity 10 → 87).
+  - The five private brokenCommit helpers replaced by pgtest.FailingTx{FailCommit: true}, with
+    exact errors.Is(err, pgtest.ErrInjected) assertions (offboarding's per-transaction variant
+    is built on it).
+  - Review findings fixed: comma-ok assertions that let a missing field pass, and Errorf ahead of
+    an index or assertion that would panic. New apitest.Object/List/String read a JSON field and
+    fail the test when it is missing; approvals' always-true Contains(x, "") now checks
+    newest-first order.
+  - Deferred: a few closures in subtests still hold the parent t (approvals as, uow a.do,
+    tenancy and integration clients); some dependent steps continue after an Errorf (ratelimit,
+    router); subtest names containing "/".
+- [x] R32 thelper and noctx to zero (thelper 62 → 0, noctx 36 → 0). testing.TB parameters named
+  tb, t.Helper first; requests, listeners and commands bound to the test's or caller's context;
+  production: erp-router listens with the run context, PresignPut builds its request with ctx.
+  Reviewer: APPROVE.
+- [x] R33 Nightly shuffled run: a shuffle job in .github/workflows/nightly.yml runs
+  go test -race -shuffle=on -count=3 -timeout 45m ./... with CI's database and Temporal setup.
+  A shuffled rerun found five tests that relied on a fresh database or another test's leftovers
+  (erp-server import, db revert, two controlplane tests, directory); fixed with
+  pgtest.EmptyDatabase and per-run scoping. Reviewer: APPROVE.
+  Phase 5 gates: make lint-all 0 issues; coverage 16950 of 16950 statements; gofmt and vet
+  clean; go test -race -shuffle=on -count=3 ./... passes in all 64 packages.
 
 ### Phase 6 — Make it permanent
 - [ ] R40 CI lints the whole tree
