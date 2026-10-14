@@ -13,7 +13,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
@@ -159,19 +158,16 @@ func (p *Payments) FailRelease(ctx context.Context, in ReleaseInput, why problem
 }
 
 // releasing reads whether the run is releasing under the workflow's
-// operation. IS NOT DISTINCT FROM rather than =: release_operation_id is
-// nullable (runs released before migration 000029 have none), and = would
-// make the result NULL, which does not scan into a bool.
+// operation.
 func (p *Payments) releasing(ctx context.Context, in ReleaseInput) (bool, error) {
 	tx, err := p.begin(ctx, database.Scope{Role: p.AppRole, TenantID: in.TenantID, ReadOnly: true})
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	var live bool
-	if err := tx.QueryRow(ctx, `SELECT status = 'releasing' AND release_operation_id IS NOT DISTINCT FROM $2 FROM payments.payment_run WHERE id = $1`,
-		in.RunID, in.OperationID).Scan(&live); err != nil {
-		return false, fmt.Errorf("workflows: read the release of run %s: %w", in.RunID, err)
+	live, err := payments.ReleasingUnder(ctx, tx, in.RunID, in.OperationID)
+	if err != nil {
+		return false, fmt.Errorf("workflows: %w", err)
 	}
 	return live, nil
 }
@@ -209,16 +205,13 @@ func (w *Releaser) pending(ctx context.Context) ([]ReleaseInput, error) {
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT o.tenant_id, r.id, o.id FROM platform.operation o
-		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.release_operation_id = o.id
-		WHERE o.kind = $1 AND o.status IN ('queued', 'running') AND r.status = 'releasing' ORDER BY o.id`, payments.ReleaseKind)
-	jobs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ReleaseInput, error) {
-		var in ReleaseInput
-		err := row.Scan(&in.TenantID, &in.RunID, &in.OperationID)
-		return in, errs.Wrapf(err, "scan release operation")
-	})
+	releases, err := payments.Releases(ctx, tx)
 	if err != nil {
-		return jobs, fmt.Errorf("read queued release operations: %w", err)
+		return nil, fmt.Errorf("read queued release operations: %w", err)
+	}
+	jobs := make([]ReleaseInput, len(releases))
+	for i, r := range releases {
+		jobs[i] = ReleaseInput{TenantID: r.TenantID, RunID: r.Resource, OperationID: r.ID}
 	}
 	return jobs, nil
 }

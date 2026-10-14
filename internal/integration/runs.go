@@ -305,6 +305,25 @@ func (e *Endpoints) StartRun(ctx context.Context, id uuid.UUID, ifMatch func(int
 		kind: "integration.migrate", action: "integration.migration_run.start", work: e.load})
 }
 
+// QueuedRuns lists, across tenants and in the order they were queued, the
+// migrations and reconciliations of running runs waiting for a workflow
+// (ADR-0012), each numbered among the run's operations of its kind: what
+// the workflows dispatcher asks integration, so that it reads none of its
+// tables.
+func QueuedRuns(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
+	rows, _ := tx.Query(ctx, `SELECT o.kind, o.tenant_id, o.id, r.id, '00000000-0000-0000-0000-000000000000'::uuid, '',
+			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.resource = o.resource AND x.id <= o.id)
+			FROM platform.operation o
+			JOIN integration.migration_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
+			WHERE o.kind IN ('integration.migrate', 'integration.reconcile') AND o.status = 'queued' AND r.status = 'running' AND o.workflow_id IS NULL
+		ORDER BY o.id`)
+	waiting, err := pgx.CollectRows(rows, operations.ScanWaiting)
+	if err != nil {
+		return nil, fmt.Errorf("integration: list the migration runs waiting for a workflow: %w", err)
+	}
+	return waiting, nil
+}
+
 // step is one move of a migration run: the status it starts from, the
 // refusal when the run is elsewhere (runStep appends "; this one is
 // <status>."), the operation kind and audit action, and the work done

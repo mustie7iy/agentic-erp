@@ -66,7 +66,7 @@ var allowed = map[string][]string{
 	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"router":                  {"directory"},
-	"workflows":               {"approvals", "configuration", "integration", "payments"},
+	"workflows":               {"approvals", "configuration", "integration", "operations", "payments"},
 }
 
 // unit is the context a package under internal/ belongs to: its first path

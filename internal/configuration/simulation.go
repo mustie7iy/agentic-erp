@@ -79,6 +79,26 @@ func (w *SimulationWorker) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	return tenants, nil
 }
 
+// QueuedSimulations lists, across tenants and in the order they were
+// queued, the simulations waiting for a workflow (ADR-0012), each numbered
+// among its change request's simulations, since a request may be simulated
+// again after a failed or cancelled attempt: what the workflows dispatcher
+// asks configuration, so that it reads none of its tables. The resource
+// is the operation itself.
+func QueuedSimulations(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
+	rows, _ := tx.Query(ctx, `SELECT o.kind, o.tenant_id, o.id, o.id, '00000000-0000-0000-0000-000000000000'::uuid, cr.number,
+			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.request->>'change_request_id' = o.request->>'change_request_id' AND x.id <= o.id)
+			FROM platform.operation o
+			JOIN config.change_request cr ON cr.tenant_id = o.tenant_id AND cr.id = (o.request->>'change_request_id')::uuid
+			WHERE o.kind = $1 AND o.status = 'queued' AND o.workflow_id IS NULL
+		ORDER BY o.id`, SimulateKind)
+	waiting, err := pgx.CollectRows(rows, operations.ScanWaiting)
+	if err != nil {
+		return nil, fmt.Errorf("configuration: list the simulations waiting for a workflow: %w", err)
+	}
+	return waiting, nil
+}
+
 // job is a queued simulation: the operation and the change request it names.
 type job struct {
 	OperationID   uuid.UUID
