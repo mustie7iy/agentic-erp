@@ -147,31 +147,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 		return Result{}, err
 	}
 	principal := reqctx.Principal{ID: res.AdministratorID, Kind: identity.Human, TenantID: res.TenantID}
-	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal)
-	ctx, buf := audit.WithBuffer(ctx)
-	if p.Keys != nil {
-		if err := p.Keys.Provision(ctx, tx, res.TenantID); err != nil {
-			return Result{}, err
-		}
-	}
-	if err := createAdministrator(ctx, tx, req, &res); err != nil {
-		return Result{}, err
-	}
-	if err := createRolesAndEntities(ctx, req, &res); err != nil {
-		return Result{}, err
-	}
-	doc, _ := json.Marshal(req.Document) // Config holds only JSON-safe types
-	if res.ConfigurationVersion, err = configuration.Bootstrap(ctx, p.Configuration, doc); err != nil {
-		return Result{}, err
-	}
-	if _, err := outbox.Add(ctx, outbox.Event{Context: "tenancy", Name: "tenant_status_changed", AggregateType: "tenancy.tenant", AggregateID: res.TenantID,
-		Payload: map[string]any{"tenant_id": res.TenantID, "previous_status": "provisioning", "status": "active"}}); err != nil {
-		return Result{}, err
-	}
-	_ = audit.Add(ctx, audit.Entry{Action: "tenancy.tenant.provision", ObjectType: "tenancy.tenant", ObjectID: res.TenantID, Outcome: "succeeded",
-		Detail: map[string]any{"name": req.Name, "region": req.Region, "group_currency": req.GroupCurrency, "administrator_id": res.AdministratorID,
-			"operator": req.Operator}})
-	if err := buf.Flush(ctx, tx, principal, reqctx.TraceID(ctx), p.now()); err != nil {
+	if err := uow.Act(ctx, tx, principal, p.Now, func(ctx context.Context) error { return p.populate(ctx, tx, req, &res) }); err != nil {
 		return Result{}, err
 	}
 	if err := p.recordIdempotency(ctx, tx, req.Idempotency, res); err != nil {
@@ -183,8 +159,40 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	return res, nil
 }
 
+// populate creates, as the administrator, the tenant's keys, administrator,
+// roles, legal entities and first configuration, with the events and the
+// audit entry of the provisioning.
+func (p *Provisioner) populate(ctx context.Context, tx pgx.Tx, req Request, res *Result) error {
+	if p.Keys != nil {
+		if err := p.Keys.Provision(ctx, tx, res.TenantID); err != nil {
+			return err
+		}
+	}
+	if err := createAdministrator(ctx, tx, req, res); err != nil {
+		return err
+	}
+	if err := createRolesAndEntities(ctx, req, res); err != nil {
+		return err
+	}
+	doc, _ := json.Marshal(req.Document) // Config holds only JSON-safe types
+	version, err := configuration.Bootstrap(ctx, p.Configuration, doc)
+	if err != nil {
+		return err
+	}
+	res.ConfigurationVersion = version
+	if _, err := outbox.Add(ctx, outbox.Event{Context: "tenancy", Name: "tenant_status_changed", AggregateType: "tenancy.tenant", AggregateID: res.TenantID,
+		Payload: map[string]any{"tenant_id": res.TenantID, "previous_status": "provisioning", "status": "active"}}); err != nil {
+		return err
+	}
+	// Add fails only without an audit buffer, and uow.Act gave ctx one.
+	_ = audit.Add(ctx, audit.Entry{Action: "tenancy.tenant.provision", ObjectType: "tenancy.tenant", ObjectID: res.TenantID, Outcome: "succeeded",
+		Detail: map[string]any{"name": req.Name, "region": req.Region, "group_currency": req.GroupCurrency, "administrator_id": res.AdministratorID,
+			"operator": req.Operator}})
+	return nil
+}
+
 // createTenant writes the tenant row as the connection's own role, then
-// becomes AppRole acting as the administrator for the rest.
+// becomes AppRole for the rest (uow.Act makes it act as the administrator).
 func (p *Provisioner) createTenant(ctx context.Context, tx pgx.Tx, req Request, res Result) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, $2, $3, $4, 'active')`,
 		res.TenantID, strings.TrimSpace(req.Name), req.Region, strings.ToUpper(req.GroupCurrency)); err != nil {
@@ -192,9 +200,6 @@ func (p *Provisioner) createTenant(ctx context.Context, tx pgx.Tx, req Request, 
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{p.AppRole}.Sanitize()); err != nil {
 		return fmt.Errorf("provisioning: tenant %s: set role %s: %w", res.TenantID, p.AppRole, err)
-	}
-	if err := database.SetActor(ctx, tx, res.AdministratorID); err != nil {
-		return err
 	}
 	return nil
 }

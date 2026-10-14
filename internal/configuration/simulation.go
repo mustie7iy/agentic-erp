@@ -14,12 +14,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
@@ -127,15 +126,8 @@ func (w *SimulationWorker) simulate(ctx context.Context, tenant uuid.UUID, where
 	if err != nil {
 		return false, fmt.Errorf("configuration: claim a queued simulation: %w", err)
 	}
-	if err := database.SetActor(ctx, tx, j.By); err != nil {
-		return false, err
-	}
 	p := reqctx.Principal{ID: j.By, Kind: j.ByKind, TenantID: tenant}
-	ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), p))
-	if err := w.process(ctx, tx, p, j); err != nil {
-		return false, err
-	}
-	if err := buf.Flush(ctx, tx, p, "", clock.Now(w.Now)); err != nil {
+	if err := uow.Act(ctx, tx, p, w.Now, func(ctx context.Context) error { return w.process(ctx, tx, p, j) }); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -10,10 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
@@ -76,15 +75,8 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 	if err != nil || !ok {
 		return false, err
 	}
-	if err := database.SetActor(ctx, tx, job.ProposedBy); err != nil {
-		return false, err
-	}
 	p := reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: tenant}
-	ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), p))
-	if err := w.Endpoints.Process(ctx, job); err != nil {
-		return false, err
-	}
-	if err := buf.Flush(ctx, tx, p, "", clock.Now(w.Now)); err != nil {
+	if err := uow.Act(ctx, tx, p, w.Now, func(ctx context.Context) error { return w.Endpoints.Process(ctx, job) }); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
