@@ -23,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -152,22 +153,22 @@ func EndSession(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, u 
 		return Session{}, problem.Unprocessable("agents.invalid_status", "A session ends completed, failed or refused.",
 			problem.FieldError{Field: "status", Code: "invalid", Message: "completed, failed or refused"})
 	}
-	cost, currency := money.Minor(0), s.Currency
+	cost, costCurrency := money.Minor(0), s.Currency
 	if u.Currency != "" {
-		var exp int
-		if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, u.Currency).Scan(&exp); err != nil {
-			return Session{}, problem.Unprocessable("agents.unknown_currency", "The cost's currency is not known.",
-				problem.FieldError{Field: "cost.currency", Code: "unknown", Message: "an ISO 4217 currency"}).WithCause(err)
+		exp, err := currency.Exponent(ctx, tx, u.Currency, problem.Unprocessable("agents.unknown_currency", "The cost's currency is not known.",
+			problem.FieldError{Field: "cost.currency", Code: "unknown", Message: "an ISO 4217 currency"}))
+		if err != nil {
+			return Session{}, fmt.Errorf("agents: session cost: %w", err)
 		}
 		m, err := money.ParseAmount(u.Cost, exp)
 		if err != nil || m < 0 {
 			return Session{}, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Costs in %s are positive with exactly %d decimals.", u.Currency, exp),
 				problem.FieldError{Field: "cost.amount", Code: "invalid", Message: "a positive amount"})
 		}
-		cost, currency = m, u.Currency
+		cost, costCurrency = m, u.Currency
 	}
 	if _, err := tx.Exec(ctx, `UPDATE agents.session SET status = $2, input_tokens = $3, output_tokens = $4, cost = $5, cost_currency = $6,
-		ended_at = now(), version = version + 1 WHERE id = $1`, id, u.Status, u.InputTokens, u.OutputTokens, cost, currency); err != nil {
+		ended_at = now(), version = version + 1 WHERE id = $1`, id, u.Status, u.InputTokens, u.OutputTokens, cost, costCurrency); err != nil {
 		return Session{}, fmt.Errorf("agents: end session %s: %w", id, err)
 	}
 	ended, err := getSession(ctx, tx, id, false)

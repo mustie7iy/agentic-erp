@@ -3,11 +3,13 @@ package agents_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
@@ -15,6 +17,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -280,5 +284,39 @@ func TestDatabaseFailures(t *testing.T) {
 				t.Error("got no error, want one")
 			}
 		})
+	}
+}
+
+// failCurrency fails only the currency exponent read, so the test reaches it
+// whatever number of statements precede it.
+type failCurrency struct{ pgx.Tx }
+
+func (f failCurrency) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "FROM ref.currency WHERE") {
+		return (&pgtest.FailingTx{Tx: f.Tx, FailAt: 1}).QueryRow(ctx, sql, args...)
+	}
+	return f.Tx.QueryRow(ctx, sql, args...)
+}
+
+// A failed read of the cost's currency is a server error, not a 422 that
+// blames the client's currency.
+func TestEndSessionCurrencyReadFailure(t *testing.T) {
+	person, agent := setup(t)
+	s, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
+	session := uuid.MustParse(s["id"].(string))
+	err := apitest.InRequest(t, person.Tenant, agent.As, func(ctx context.Context) error {
+		tx, _, err := reqctx.Request(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = agents.EndSession(reqctx.WithTx(ctx, failCurrency{tx}), session, func(int32) error { return nil },
+			agents.Usage{Status: agents.Completed, Cost: "1.00", Currency: "EUR"})
+		return err
+	})
+	if !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("got %v, want the injected failure", err)
+	}
+	if got := problem.From(err).Status; got != 500 {
+		t.Errorf("status: got %d, want 500", got)
 	}
 }
