@@ -42,7 +42,7 @@ type app struct {
 func newApp(t *testing.T, pool *database.Pool) *app {
 	t.Helper()
 	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}

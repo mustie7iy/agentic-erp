@@ -133,7 +133,7 @@ func TestNewServesRoutesBesideTheContract(t *testing.T) {
 // verifier accepts tokens of a test issuer.
 func verifier(t *testing.T) *authn.Verifier {
 	t.Helper()
-	v, err := authn.New(context.Background(), []authn.Issuer{authntest.New(t).Config()})
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{authntest.New(t).Config()})
 	if err != nil {
 		t.Fatal(err)
 	}

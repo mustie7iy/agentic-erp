@@ -25,7 +25,7 @@ func verifier(t *testing.T, issuers ...*authntest.Issuer) *authn.Verifier {
 	for _, is := range issuers {
 		cfg = append(cfg, is.Config())
 	}
-	v, err := authn.New(context.Background(), cfg)
+	v, err := authn.New(context.Background(), authn.Development, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,17 +80,17 @@ func TestVerifyRejectsBadTokens(t *testing.T) {
 
 func TestNewValidatesConfiguration(t *testing.T) {
 	ctx := context.Background()
-	if _, err := authn.New(ctx, nil); err == nil {
+	if _, err := authn.New(ctx, authn.Development, nil); err == nil {
 		t.Fatal("no issuers accepted")
 	}
 	is := authntest.New(t)
-	if _, err := authn.New(ctx, []authn.Issuer{{URL: is.URL}}); err == nil {
+	if _, err := authn.New(ctx, authn.Development, []authn.Issuer{{URL: is.URL}}); err == nil {
 		t.Fatal("missing audience accepted")
 	}
-	if _, err := authn.New(ctx, []authn.Issuer{{URL: "http://127.0.0.1:1", Audience: "a"}}); err == nil {
+	if _, err := authn.New(ctx, authn.Development, []authn.Issuer{{URL: "http://127.0.0.1:1", Audience: "a"}}); err == nil {
 		t.Fatal("unreachable issuer accepted")
 	}
-	custom, err := authn.New(ctx, []authn.Issuer{{URL: is.URL, Audience: authntest.Audience, TenantClaim: "https://erp/tenant"}})
+	custom, err := authn.New(ctx, authn.Development, []authn.Issuer{{URL: is.URL, Audience: authntest.Audience, TenantClaim: "https://erp/tenant"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,10 +198,11 @@ func TestMiddleware(t *testing.T) {
 }
 
 // TestOperatorRoles: the roles claim as an array or a space-separated
-// string, absent roles meaning every role, and the admin role implying all.
+// string, absent roles meaning every role in development, and the admin
+// role implying all.
 func TestOperatorRoles(t *testing.T) {
 	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,8 +268,42 @@ func TestOperatorRoles(t *testing.T) {
 	// A custom roles claim name per issuer.
 	custom := is.Config()
 	custom.RolesClaim = "groups"
-	v2, _ := authn.New(ctx, []authn.Issuer{custom})
+	v2, _ := authn.New(ctx, authn.Development, []authn.Issuer{custom})
 	if claims, err := v2.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil, "groups": []any{"erp:admin"}})); err != nil || len(claims.Roles) != 1 {
 		t.Fatalf("custom claim: %v %v", claims.Roles, err)
+	}
+}
+
+// TestOperatorWithoutRolesClaim: an operator token without a roles claim
+// holds every role only in development; in production, and in an
+// environment the verifier does not know, it holds none, so every
+// control-plane operation is refused (ADR-0027, amended for F7).
+func TestOperatorWithoutRolesClaim(t *testing.T) {
+	is := authntest.New(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		env     authn.Environment
+		allowed bool
+	}{
+		{authn.Development, true},
+		{authn.Production, false},
+		{"", false},
+		{"staging", false},
+	} {
+		t.Run(string(c.env), func(t *testing.T) {
+			v, err := authn.New(ctx, c.env, []authn.Issuer{is.Config()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			claims, err := v.VerifyOperator(ctx, is.Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil}))
+			if err != nil {
+				t.Fatalf("verify: %v", err)
+			}
+			for _, role := range []string{authn.RoleRead, authn.RoleProvision, authn.RoleOperate, authn.RoleAdmin} {
+				if got := authn.OperatorAllowed(claims, role); got != c.allowed {
+					t.Errorf("%s: got allowed %v, want %v", role, got, c.allowed)
+				}
+			}
+		})
 	}
 }

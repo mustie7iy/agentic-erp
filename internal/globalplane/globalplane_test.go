@@ -47,7 +47,7 @@ func newPlane(t *testing.T) *plane {
 	}
 	t.Cleanup(dir.Close)
 	is := authntest.New(t)
-	v, err := authn.New(ctx, []authn.Issuer{is.Config()})
+	v, err := authn.New(ctx, authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}

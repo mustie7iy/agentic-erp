@@ -1331,7 +1331,8 @@ and a clean `gosec` run.
 Decisions taken while building it:
 
 - **No claim, every role.** Existing issuers keep working; a deployment
-  opts into roles by emitting the claim.
+  opts into roles by emitting the claim. (Development only since F7: with
+  `ERP_ENV=production` an absent claim holds no role, ADR-0027 amendment.)
 - **The rotation policy reuses the keyring.** The worker does what
   `:rotateKey` does, with a system actor and the policy in the audit detail.
 - **Exclusions over annotations where a rule is noise by design.** Four

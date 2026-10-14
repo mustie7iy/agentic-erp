@@ -59,8 +59,14 @@ type plane struct {
 
 func newPlane(t *testing.T) *plane {
 	t.Helper()
+	return newPlaneIn(t, authn.Development)
+}
+
+// newPlaneIn is the control plane of a deployment in env.
+func newPlaneIn(t *testing.T, env authn.Environment) *plane {
+	t.Helper()
 	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	v, err := authn.New(context.Background(), env, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,6 +642,29 @@ func TestOperatorRoles(t *testing.T) {
 			}
 			if status == 403 && m["code"] != "authz.operator_role" {
 				t.Errorf("problem code: got %v, want authz.operator_role", m["code"])
+			}
+		})
+	}
+}
+
+// TestProductionRequiresRoles: in production an operator token without a
+// roles claim holds no role, so every operation of api/control.yaml is
+// refused with authz.operator_role (ADR-0027, amended for F7).
+func TestProductionRequiresRoles(t *testing.T) {
+	p := newPlaneIn(t, authn.Production)
+	ops, err := api.ControlOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, op := range ops {
+		t.Run(id, func(t *testing.T) {
+			path := strings.ReplaceAll(op.Path, "{id}", uuid.NewString())
+			code, m, _ := p.in(t).as("ops|alice", op.Method, path, "{}", "If-Match", "*", "Idempotency-Key", "key-"+uuid.NewString())
+			if code != 403 {
+				t.Errorf("%s %s: got %d, want 403: %v", op.Method, path, code, m)
+			}
+			if m["code"] != "authz.operator_role" {
+				t.Errorf("%s %s: got problem %v, want authz.operator_role", op.Method, path, m["code"])
 			}
 		})
 	}

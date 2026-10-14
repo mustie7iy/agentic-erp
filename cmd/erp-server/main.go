@@ -229,7 +229,7 @@ func (s *server) authenticate(ctx context.Context) error {
 		s.log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant, and operator tokens (POST /dev/token); never in production, where ERP_ENV=production refuses it")
 	}
 	var err error
-	if s.verifier, err = authn.New(ctx, s.cfg.Issuers, s.static...); err != nil {
+	if s.verifier, err = authn.New(ctx, authn.Environment(s.cfg.Environment), s.cfg.Issuers, s.static...); err != nil {
 		return err
 	}
 	if s.pages, err = pagination.NewCodec(s.cfg.PageTokenKey); err != nil {
@@ -280,7 +280,7 @@ func (s *server) controlPlane(ctx context.Context) error {
 	if len(s.cfg.OperatorIssuers)+len(s.static) == 0 {
 		return nil
 	}
-	operators, err := authn.New(ctx, s.cfg.OperatorIssuers, s.static...)
+	operators, err := authn.New(ctx, authn.Environment(s.cfg.Environment), s.cfg.OperatorIssuers, s.static...)
 	if err != nil {
 		return err
 	}

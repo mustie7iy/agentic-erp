@@ -28,7 +28,8 @@ const DefaultTenantClaim = "tenant_id"
 const DefaultRolesClaim = "roles"
 
 // Operator roles (ADR-0027). A token without a roles claim holds every
-// role; one with the claim holds what it lists (nothing when the claim is
+// role in development and none in production (or any other environment);
+// one with the claim holds what it lists (nothing when the claim is
 // malformed), and RoleAdmin implies all.
 const (
 	RoleRead      = "erp:read"      // list and read tenants, cells, entries
@@ -38,8 +39,9 @@ const (
 )
 
 // OperatorAllowed reports whether the operator's roles permit an operation
-// that requires role. Nil roles mean the token had no roles claim; the
-// verifier never returns nil for a claim that is present.
+// that requires role. Nil roles mean the token had no roles claim and the
+// verifier runs in development; the verifier never returns nil for a claim
+// that is present, nor for an absent one outside development.
 func OperatorAllowed(c reqctx.Claims, role string) bool {
 	if c.Roles == nil {
 		return true
@@ -66,9 +68,21 @@ type issuer struct {
 	rolesClaim  string
 }
 
+// Environment is the deployment's environment as ERP_ENV names it
+// (internal/platform/config). It decides what an operator token without a
+// roles claim holds (ADR-0027).
+type Environment string
+
+// The environments.
+const (
+	Development Environment = "development"
+	Production  Environment = "production"
+)
+
 // Verifier checks bearer tokens from the trusted issuers.
 type Verifier struct {
 	issuers map[string]issuer
+	env     Environment
 }
 
 // Static is an issuer trusted with known keys instead of discovery (the
@@ -79,12 +93,12 @@ type Static struct {
 }
 
 // New discovers each issuer's configuration and keys endpoint, and trusts
-// the static issuers as given.
-func New(ctx context.Context, issuers []Issuer, static ...Static) (*Verifier, error) {
+// the static issuers as given, for a deployment in env.
+func New(ctx context.Context, env Environment, issuers []Issuer, static ...Static) (*Verifier, error) {
 	if len(issuers)+len(static) == 0 {
 		return nil, errors.New("authn: at least one trusted issuer is required")
 	}
-	v := &Verifier{issuers: map[string]issuer{}}
+	v := &Verifier{issuers: map[string]issuer{}, env: env}
 	for _, s := range static {
 		v.issuers[s.Issuer.URL] = issuer{verifier: oidc.NewVerifier(s.Issuer.URL, s.Keys, &oidc.Config{ClientID: s.Issuer.Audience}), tenantClaim: DefaultTenantClaim, rolesClaim: DefaultRolesClaim}
 	}
@@ -163,6 +177,11 @@ func (v *Verifier) verify(ctx context.Context, raw string) (reqctx.Claims, strin
 	var rs []string
 	if raw, present := claims[is.rolesClaim]; present {
 		rs = roles(raw)
+	} else if v.env != Development {
+		// Outside development an absent claim holds no role (ADR-0027,
+		// amended): a production issuer that stops emitting roles must not
+		// widen access. Nil, every role, is development's alone.
+		rs = []string{}
 	}
 	return reqctx.Claims{Issuer: iss, Subject: tok.Subject, Roles: rs}, s, nil
 }

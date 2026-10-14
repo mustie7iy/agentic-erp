@@ -16,7 +16,7 @@ import (
 
 func TestDevelopmentIssuer(t *testing.T) {
 	dev := authn.NewDevIssuer()
-	v, err := authn.New(context.Background(), nil, dev.Static())
+	v, err := authn.New(context.Background(), authn.Development, nil, dev.Static())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -68,7 +68,7 @@ func NewWith(tb testing.TB, configure func(*app.Config)) *API {
 	tb.Helper()
 	pool := pgtest.Pool(tb)
 	is := authntest.New(tb)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		tb.Fatal(err)
 	}

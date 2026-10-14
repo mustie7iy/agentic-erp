@@ -51,7 +51,7 @@ func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, star
 }
 
 func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(api, admin net.Listener)) error {
-	verifier, err := authn.New(ctx, cfg.Issuers, cfg.Static...)
+	verifier, err := authn.New(ctx, authn.Environment(cfg.Environment), cfg.Issuers, cfg.Static...)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func adminMux(ctx context.Context, cfg router.Config, dir *directory.Postgres, m
 	})
 	admin.Handle("GET /metrics", metrics.Handler())
 	if len(cfg.OperatorIssuers) > 0 {
-		operators, err := authn.New(ctx, cfg.OperatorIssuers, cfg.Static...)
+		operators, err := authn.New(ctx, authn.Environment(cfg.Environment), cfg.OperatorIssuers, cfg.Static...)
 		if err != nil {
 			return nil, err
 		}

@@ -444,10 +444,10 @@ func (l *loader) server(c *Config) {
 	}
 }
 
-// The environments ERP_ENV names.
+// The environments ERP_ENV names, as the verifier knows them.
 const (
-	Development = "development"
-	Production  = "production"
+	Development = string(authn.Development)
+	Production  = string(authn.Production)
 )
 
 // environmentHint tells the operator what to set when ERP_ENV is missing or

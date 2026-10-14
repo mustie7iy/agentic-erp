@@ -31,7 +31,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 // unit of work (the database answering the deadline).
 func TestQuotasAndDeadlines(t *testing.T) {
 	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -124,7 +124,7 @@ func TestLoadConfig(t *testing.T) {
 
 func TestRouting(t *testing.T) {
 	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
