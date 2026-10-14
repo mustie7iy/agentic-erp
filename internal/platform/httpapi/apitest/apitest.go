@@ -1,6 +1,7 @@
-// Package apitest builds the real public API on the test database with a
-// test identity provider, for end-to-end tests of contexts. It is test
-// support and is excluded from the coverage figure.
+// Package apitest builds the real public API (ADR-0014) on the test database
+// with a test identity provider, for end-to-end tests of contexts
+// (06-engineering-process §6.6). It is test support and is excluded from the
+// coverage figure.
 package apitest
 
 import (

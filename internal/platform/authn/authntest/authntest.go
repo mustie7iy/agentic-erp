@@ -1,5 +1,6 @@
 // Package authntest runs a minimal OIDC issuer for tests: discovery, signing
-// keys and token minting. It is test support and is excluded from the
+// keys and token minting, for the OIDC authentication of ADR-0010
+// (06-engineering-process §6.6). It is test support and is excluded from the
 // coverage figure.
 package authntest
 

@@ -1,7 +1,8 @@
 // Package kmstest is a test double of AWS KMS: one symmetric key behind the
 // Encrypt and Decrypt actions of the JSON protocol, checking Signature
 // Version 4 and binding every ciphertext to its encryption context, so the
-// KMS master can be tested without the service.
+// KMS master of ADR-0019 can be tested without the service
+// (06-engineering-process §6.6).
 package kmstest
 
 import (

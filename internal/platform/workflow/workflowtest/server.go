@@ -1,4 +1,5 @@
-// Package workflowtest starts a Temporal development server for tests.
+// Package workflowtest starts a Temporal development server for tests of the
+// workflows of ADR-0012 (06-engineering-process §6.6).
 package workflowtest
 
 import (

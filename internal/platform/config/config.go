@@ -1,6 +1,7 @@
 // Package config reads the server's configuration from the environment
 // (twelve-factor). Every setting is validated at start, so a misconfigured
-// replica fails fast instead of serving errors.
+// replica fails fast instead of serving errors. Secrets are named by
+// reference and resolved here (ADR-0017).
 package config
 
 import (

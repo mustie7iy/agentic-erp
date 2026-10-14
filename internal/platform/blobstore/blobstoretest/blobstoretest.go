@@ -1,7 +1,7 @@
 // Package blobstoretest is a test double of an S3-compatible service: an
 // in-memory bucket over HTTP that checks Signature Version 4, honours
-// If-None-Match: * and records object-lock headers, so S3 can be tested
-// without a service.
+// If-None-Match: * and records object-lock headers, so the write-once store
+// of ADR-0016 can be tested without a service (06-engineering-process §6.6).
 package blobstoretest
 
 import (

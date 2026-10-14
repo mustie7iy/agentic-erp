@@ -1,5 +1,7 @@
 // Package errs adds context to errors as they leave a package (CLAUDE.md:
 // errors that cross a package boundary carry their operation and key).
+// Wrapped errors stay inside the service: a client only ever sees a problem
+// of 04-api-design §4.6.
 package errs
 
 import "fmt"

@@ -1,6 +1,7 @@
 // Package vaulttest is a test double of HashiCorp Vault: a KV version 2
 // engine over HTTP with token authentication and the Kubernetes login
-// method, so the vault resolver can be tested without a server.
+// method, so the vault resolver of ADR-0017 can be tested without a server
+// (06-engineering-process §6.6).
 package vaulttest
 
 import (

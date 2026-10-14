@@ -1,7 +1,8 @@
 // Package fixture builds a configured tenant for tests of the business
 // contexts: two legal entities, a bootstrapped configuration with number
-// ranges for every document type, open 2026 periods, approvers holding
-// every role the configuration names, and two active suppliers. It is test
+// ranges for every document type, open 2026 periods, approvers holding every
+// role the configuration names, and two active suppliers, so application
+// tests run on real PostgreSQL (06-engineering-process §6.6). It is test
 // support and is excluded from the coverage figure.
 package fixture
 

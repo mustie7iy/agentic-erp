@@ -1,8 +1,9 @@
 // Package sigv4 signs HTTP requests with AWS Signature Version 4, for the
-// S3-compatible object store (blobstore) and the KMS master key (fieldcrypt).
-// Written here rather than taken from the AWS SDK: two calls, a signer and
-// a presigner are all the platform needs, and the signer is checked against
-// the AWS test vectors.
+// S3-compatible object store (blobstore, ADR-0016) and the KMS master key
+// (fieldcrypt, ADR-0019), with role session tokens (ADR-0024). Written here
+// rather than taken from the AWS SDK: two calls, a signer and a presigner
+// are all the platform needs, and the signer is checked against the AWS test
+// vectors.
 package sigv4
 
 import (

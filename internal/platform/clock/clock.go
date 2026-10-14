@@ -1,6 +1,7 @@
 // Package clock reads the time through an injectable clock: workers and
-// services hold a Now field, nil in production, that tests set to a fixed
-// or advancing time instead of sleeping (CLAUDE.md, tests). It replaces the
+// services hold a Now field, nil in production, that tests set to a fixed or
+// advancing time instead of sleeping (the fake clock of
+// 06-engineering-process §6.6; CLAUDE.md, tests). It replaces the
 // `if x.Now != nil` fallback each of them used to repeat.
 package clock
 

@@ -1,5 +1,6 @@
-// Package natstest runs an embedded NATS JetStream server for tests. It is
-// test support and is excluded from the coverage figure.
+// Package natstest runs an embedded NATS JetStream server for tests of the
+// outbox relay and its consumers (ADR-0007, 06-engineering-process §6.6). It
+// is test support and is excluded from the coverage figure.
 package natstest
 
 import (
