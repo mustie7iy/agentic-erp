@@ -153,9 +153,12 @@ func scan(row pgx.Row) (Tenant, error) {
 	if exportedAt != nil {
 		t.Offboarding = &Offboarding{ExportedAt: *exportedAt, ExportRef: *ref, EraseAfter: *eraseAfter, ErasedAt: erasedAt}
 	}
+	// key and verified are row_to_json of typed columns (see columns), so
+	// they always decode into these structs; ignoring the decode error is
+	// safe, and a scan failure is still reported below.
 	if key != nil {
 		t.Encryption = &Encryption{}
-		_ = json.Unmarshal(key, t.Encryption) // the database's JSON of its own columns
+		_ = json.Unmarshal(key, t.Encryption)
 	}
 	if verified != nil {
 		t.Verification = &Verified{}

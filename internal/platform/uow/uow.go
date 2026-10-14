@@ -251,7 +251,9 @@ func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	}
 	w.Header().Set("Idempotent-Replayed", "true")
 	w.WriteHeader(code)
-	w.Write(body)
+	// A failed write means the client has gone: the replay changes nothing
+	// and the status is already sent, so there is no one left to tell.
+	_, _ = w.Write(body)
 	return true, nil
 }
 
@@ -304,5 +306,8 @@ func (r *recorder) send(w http.ResponseWriter) {
 		w.Header()[k] = vs
 	}
 	w.WriteHeader(r.status)
-	w.Write(r.body.Bytes())
+	// A failed write means the client has gone after the commit; with an
+	// Idempotency-Key it replays the stored outcome, so there is nothing to
+	// undo and no one left to tell.
+	_, _ = w.Write(r.body.Bytes())
 }

@@ -261,16 +261,15 @@ func (u *Uploads) store(ctx context.Context, up Upload, body []byte) error {
 }
 
 // take reads the document of an upload for the operation consuming it, in
-// the request's transaction, locking the upload; mark then closes it.
-func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID, purpose string) ([]byte, Upload, error) {
+// the request's transaction, locking the upload; mark then closes it. Only
+// supplier_invoice uploads exist (UploadPurposes), so an upload always suits
+// the one operation that consumes them; a second purpose adds a purpose
+// parameter and its check here.
+func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([]byte, Upload, error) {
 	up, err := readUpload(ctx, tx, id, true)
 	if err != nil {
 		return nil, Upload{}, err
 	}
-	// Only supplier_invoice uploads exist, so an upload always matches the
-	// purpose of the one operation that consumes them; a second purpose
-	// adds the check here.
-	_ = purpose
 	switch {
 	case up.Status == "used":
 		return nil, Upload{}, problem.Unprocessable("payables.upload_used", "This upload has already been captured.")

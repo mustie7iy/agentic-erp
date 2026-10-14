@@ -55,7 +55,7 @@ func (e *Endpoints) CaptureUpload(ctx context.Context, legalEntity, upload uuid.
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	document, up, err := e.Uploads.take(ctx, tx, upload, "supplier_invoice")
+	document, up, err := e.Uploads.take(ctx, tx, upload)
 	if err != nil {
 		return operations.Operation{}, err
 	}
