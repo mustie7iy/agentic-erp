@@ -209,9 +209,9 @@ func (p *Provisioner) createTenant(ctx context.Context, tx pgx.Tx, req Request, 
 // createAdministrator creates the administrator and AdministratorRole with
 // every permission, and assigns the role to the administrator.
 func createAdministrator(ctx context.Context, tx pgx.Tx, req Request, res *Result) error {
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, email, all_companies, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, $4, $5, true, 'active', $2, $2)`,
-		res.TenantID, res.AdministratorID, req.Administrator.Subject, strings.TrimSpace(req.Administrator.DisplayName), req.Administrator.Email); err != nil {
+	admin := identity.FirstAdministrator{TenantID: res.TenantID, ID: res.AdministratorID, Subject: req.Administrator.Subject,
+		DisplayName: strings.TrimSpace(req.Administrator.DisplayName), Email: req.Administrator.Email}
+	if err := identity.CreateFirstAdministrator(ctx, tx, admin); err != nil {
 		return fmt.Errorf("provisioning: administrator: %w", problem.From(err))
 	}
 	description := "The tenant's administrators: every permission, granted at provisioning."
@@ -220,17 +220,9 @@ func createAdministrator(ctx context.Context, tx pgx.Tx, req Request, res *Resul
 		return err
 	}
 	res.AdministratorRoleID = role.ID
-	// Every permission in one grant: the role is the tenant's root, and the
-	// audit entry below records it (no per-permission events, unlike grants
-	// made through the API later).
-	tag, err := tx.Exec(ctx, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
-		SELECT $1, gen_random_uuid(), $2, code, current_date, $3 FROM ref.permission`, res.TenantID, role.ID, res.AdministratorID)
-	if err != nil {
-		return fmt.Errorf("provisioning: tenant %s: grant every permission to role %s: %w", res.TenantID, role.ID, err)
+	if err := identity.GrantEveryPermission(ctx, tx, admin, role.ID); err != nil {
+		return fmt.Errorf("provisioning: %w", err)
 	}
-	// The audit buffer is in ctx, so Add cannot fail.
-	_ = audit.Add(ctx, audit.Entry{Action: "identity.role_permission.grant", ObjectType: "identity.role", ObjectID: role.ID, Outcome: "succeeded",
-		Detail: map[string]any{"role_id": role.ID, "permissions": "all", "count": tag.RowsAffected()}})
 	if _, err := identity.AssignRole(ctx, res.AdministratorID, role.ID, nil, nil); err != nil {
 		return err
 	}
