@@ -338,3 +338,38 @@ func TestListsAndAccess(t *testing.T) {
 	other.Problem(422, "request.reference_not_found", "POST", "/v1/payment-runs:propose",
 		fmt.Sprintf(`{"legal_entity_id": %q, "house_bank_id": %q, "run_date": "2026-04-15", "due_by": "2026-04-15"}`, e.DE, e.bank), "")
 }
+
+// TestProposalTotalsOutOfRange: invoices the API accepts can add up to more
+// than an amount holds, for one supplier or for the run; the proposal then
+// fails with a problem rather than paying a wrapped total.
+func TestProposalTotalsOutOfRange(t *testing.T) {
+	const half = "50000000000000000.00" // 5·10^18 minor units: in range alone, not twice
+	for _, tc := range []struct {
+		name   string
+		second func(t *testing.T, e env) uuid.UUID
+	}{
+		{"one supplier", func(_ *testing.T, e env) uuid.UUID { return e.Supplier }},
+		{"the run", func(t *testing.T, e env) uuid.UUID {
+			t.Helper()
+			e.bankAccount(t, e.Vendor, "DE02120300000000202051", "Vendor AG", "2026-01-01", "", "create")
+			return e.Vendor
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := setup(t)
+			e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier GmbH", "2026-01-01", "", "create")
+			e.invoice(t, e.Supplier, "INV-1", half, "2026-03-01")
+			e.invoice(t, tc.second(t, e), "INV-2", half, "2026-03-01")
+			op := e.propose(t, "2026-04-15", "2026-04-15")
+			work(t)
+			run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
+			done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
+			if run["status"] != "failed" {
+				t.Fatalf("run status: got %v, want failed: total %v", run["status"], run["total_amount"])
+			}
+			if got := done["error"].(map[string]any)["code"]; got != "payments.amount_too_large" {
+				t.Errorf("operation error: got %v, want payments.amount_too_large", got)
+			}
+		})
+	}
+}

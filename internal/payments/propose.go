@@ -103,7 +103,23 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 type candidate struct {
 	supplier uuid.UUID
 	items    []Item
-	total    money.Minor // what is owed: positive when the supplier is to be paid
+}
+
+// errTooLarge fails a proposal whose amounts add up to more than an
+// amount holds (money.ErrOverflow): a wrapped total would pay the wrong
+// amount, and the exclusion reasons are a closed set in the database, so
+// the run fails rather than leaving the supplier out.
+func errTooLarge(what string) error {
+	return problem.Unprocessable("payments.amount_too_large", "The open items of "+what+" add up to more than an amount can hold.")
+}
+
+// total is what is owed the supplier: positive when it is to be paid.
+func (c candidate) total() (money.Minor, error) {
+	amounts := make([]money.Minor, len(c.items))
+	for i, it := range c.items {
+		amounts[i] = it.Amount
+	}
+	return money.Sum(amounts...)
 }
 
 // exclusion is why a supplier cannot be paid on the run date, or "".
@@ -161,7 +177,6 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 		c := &out[len(out)-1]
 		c.items = append(c.items, Item{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo, Amount: -it.Amount,
 			DueDate: partner.Date{Time: due}, Active: true})
-		c.total -= it.Amount
 	}
 	return out, payees, nil
 }
@@ -185,7 +200,10 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 	if err != nil {
 		return Run{}, err
 	}
-	pr := propose(cands, payees, r, le.Code, doc.Payments.BankChangeHoldDays)
+	pr, err := propose(cands, payees, r, le.Code, doc.Payments.BankChangeHoldDays)
+	if err != nil {
+		return Run{}, err
+	}
 	if err := pr.insert(ctx, tx, p, r); err != nil {
 		return Run{}, err
 	}
@@ -226,29 +244,36 @@ type proposal struct {
 }
 
 // propose pays each candidate supplier its open items in one payment, or
-// excludes it with the reason.
-func propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) proposal {
+// excludes it with the reason. Totals out of range fail the proposal
+// (errTooLarge).
+func propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) (proposal, error) {
 	var pr proposal
 	for _, c := range cands {
+		total, err := c.total()
+		if err != nil {
+			return proposal{}, errTooLarge("supplier " + c.supplier.String())
+		}
 		payee, found := payees[c.supplier]
 		reason := exclusion(payee, found, r.RunDate, holdDays)
-		if reason == "" && c.total <= 0 {
+		if reason == "" && total <= 0 {
 			reason = DebitBalance
 		}
 		if reason != "" {
-			pr.exSuppliers, pr.exReasons, pr.exAmounts = append(pr.exSuppliers, c.supplier), append(pr.exReasons, reason), append(pr.exAmounts, c.total)
+			pr.exSuppliers, pr.exReasons, pr.exAmounts = append(pr.exSuppliers, c.supplier), append(pr.exReasons, reason), append(pr.exAmounts, total)
 			continue
 		}
+		if pr.total, err = money.Sum(pr.total, total); err != nil {
+			return proposal{}, errTooLarge("the run")
+		}
 		id := uuid.Must(uuid.NewV7())
-		pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, c.supplier), append(pr.banks, *payee.BankAccountID), append(pr.amounts, c.total)
+		pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, c.supplier), append(pr.banks, *payee.BankAccountID), append(pr.amounts, total)
 		pr.e2e = append(pr.e2e, fmt.Sprintf("%s-%s-%06d", entityCode, r.DocumentNumber, len(pr.payIDs)))
-		pr.total += c.total
 		for _, it := range c.items {
 			pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines = append(pr.itemPays, id), append(pr.itemYears, it.FiscalYear), append(pr.itemEntries, it.EntryID), append(pr.itemLines, it.LineNo)
 			pr.itemAmounts, pr.itemDue = append(pr.itemAmounts, it.Amount), append(pr.itemDue, it.DueDate.Time)
 		}
 	}
-	return pr
+	return pr, nil
 }
 
 // insert stores the proposal's payments, items and exclusions.
