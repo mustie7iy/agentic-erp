@@ -22,9 +22,12 @@ import (
 // posts one payment per activity (one ACID transaction, the posting's
 // integrity rule), reports progress on the operation, and writes the bank
 // file at the end. A business problem (the ledger refusing a posting, the
-// bank file invalid, the store unavailable) fails the operation through
-// FailRelease; a failure of the machinery is retried by the policy and,
-// past it, leaves the run releasing for :release to resume.
+// bank file invalid) fails the operation through FailRelease; a failure of
+// the machinery, the file store not answering (503) among them, is retried
+// by the policy and, past it, leaves the run releasing for :release to
+// resume. The bank file is kept under the run's key, so a FinishRelease
+// retried after the store took the file finds it there and writes no
+// second object.
 
 // ReleaseInput names the run a release workflow completes.
 type ReleaseInput struct {
@@ -105,8 +108,9 @@ func (p *Payments) inRelease(ctx context.Context, in ReleaseInput, fn func(ctx c
 	return nil
 }
 
-// asProblem turns a business problem into the non-retryable error the
-// workflow records; other errors are returned for the retry policy.
+// asProblem turns a business problem (below 500) into the non-retryable
+// error the workflow records; other errors, unavailability (503) included,
+// are returned for the retry policy.
 func asProblem(err error) error {
 	var why *problem.Problem
 	if errors.As(err, &why) && why.Status < 500 {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"strings"
@@ -468,10 +469,10 @@ func scanFile(row pgx.Row) (BankFile, error) {
 }
 
 // createFile renders the run's pain.001 file and records it with its hash.
-// The file is stamped with the transaction's time, which becomes the
-// record's creation time, so it can be rendered again byte for byte. With
-// object storage the file is kept under the bank file's id, and the record
-// refers to it; without, the reference is the hash alone.
+// The file is stamped with its creation time, which becomes the record's
+// creation time, so it can be rendered again byte for byte. With object
+// storage the file is kept under the run's key (one file per run), and the
+// record refers to it; without, the reference is the hash alone.
 func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, hb houseBank, pays []Payment) (BankFile, error) {
 	var created time.Time
 	if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&created); err != nil {
@@ -481,15 +482,18 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if err != nil {
 		return BankFile{}, err
 	}
-	sum := sha256.Sum256(content)
-	id := uuid.Must(uuid.NewV7())
-	ref := "sha256:" + hex.EncodeToString(sum[:])
+	var ref string
 	if e.Objects != nil {
-		ref = blobstore.Key(p.TenantID, blobstore.KindBankFiles, id.String()+".xml")
-		if err := e.Objects.Put(ctx, ref, content, blobstore.PutOptions{ContentType: "application/xml"}); err != nil {
-			return BankFile{}, problem.Unavailable("The file store did not take the bank file; release the run again.", 30).WithCause(err)
+		ref = blobstore.Key(p.TenantID, blobstore.KindBankFiles, r.ID.String()+".xml")
+		if content, created, err = e.keep(ctx, p.TenantID, r, hb, pays, ref, content, created); err != nil {
+			return BankFile{}, err
 		}
 	}
+	sum := sha256.Sum256(content)
+	if ref == "" {
+		ref = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	id := uuid.Must(uuid.NewV7())
 	f, err := scanFile(tx.QueryRow(ctx, `WITH f AS (
 			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by)
 			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8) RETURNING *
@@ -499,6 +503,48 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 		return BankFile{}, fmt.Errorf("payments: record the bank file of run %s: %w", r.ID, err)
 	}
 	return f, nil
+}
+
+// keep stores the run's bank file under its key and returns the file
+// recorded with its creation time. A release step run again after the
+// store took the file and the step's transaction was lost (ADR-0012) finds
+// the key taken: it records the stored file, once it is the run's file as
+// rendered at the creation time it carries, so a retry neither writes a
+// second object nor records another file than the one kept. Anything else
+// under the key is refused (409 payments.bank_file_changed). The store not
+// answering is the machinery's failure (503), which the release retries.
+func (e *Endpoints) keep(ctx context.Context, tenant uuid.UUID, r Run, hb houseBank, pays []Payment, key string, content []byte,
+	created time.Time) ([]byte, time.Time, error) {
+	err := e.Objects.Put(ctx, key, content, blobstore.PutOptions{ContentType: "application/xml"})
+	if err == nil {
+		return content, created, nil
+	}
+	if !errors.Is(err, blobstore.ErrExists) {
+		return nil, time.Time{}, problem.Unavailable("The file store did not take the bank file; the release tries again.", 30).WithCause(err)
+	}
+	stored, _, err := e.Objects.Get(ctx, key)
+	if err != nil {
+		return nil, time.Time{}, problem.Unavailable("The file store did not return the bank file it holds; the release tries again.", 30).WithCause(err)
+	}
+	var doc struct {
+		Created string `xml:"CstmrCdtTrfInitn>GrpHdr>CreDtTm"`
+	}
+	changed := problem.Conflict("payments.bank_file_changed", "The file store holds another bank file under run "+r.DocumentNumber+"'s key; it is not recorded.")
+	if xml.Unmarshal(stored, &doc) != nil {
+		return nil, time.Time{}, changed
+	}
+	at, err := time.ParseInLocation("2006-01-02T15:04:05", doc.Created, time.UTC)
+	if err != nil {
+		return nil, time.Time{}, changed
+	}
+	again, err := e.render(ctx, tenant, r, hb, pays, at)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	if !bytes.Equal(again, stored) {
+		return nil, time.Time{}, changed
+	}
+	return stored, at, nil
 }
 
 // render writes the run's payments as a pain.001.001.03 credit transfer

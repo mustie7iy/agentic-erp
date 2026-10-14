@@ -567,7 +567,14 @@ the database or by a row lock:
 - **One bank file per run.** A unique index on `bank_file (tenant_id,
   payment_run_id)` (migration 000033, built concurrently) refuses a second
   file, so a release step run again or two overlapping releases cannot pay
-  the suppliers twice. The release steps of a run also serialise on it:
+  the suppliers twice. In object storage the file is kept under the run's
+  key (`tenants/<tenant>/bank-files/<run id>.xml`, write-once), so a
+  FinishRelease retried after the store took the file but its transaction
+  was lost writes no second object: it finds the key taken, checks that the
+  stored file is the run's file as rendered at the creation time it carries,
+  and records that file and time (anything else under the key is 409
+  `payments.bank_file_changed`). The store not answering is the machinery's
+  failure (503), retried by the release. The release steps of a run also serialise on it:
   each reads the run `FOR UPDATE`.
 - **The current operation only.** A release step acts only when the run's
   `release_operation_id` is the operation it was started for; a step of a

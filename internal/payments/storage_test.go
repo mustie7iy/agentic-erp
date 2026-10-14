@@ -23,9 +23,111 @@ func (f failingStore) Put(context.Context, string, []byte, blobstore.PutOptions)
 func (f failingStore) Get(context.Context, string) ([]byte, string, error)             { return nil, "", f.err }
 func (f failingStore) Stat(context.Context, string) (int64, string, error)             { return 0, "", f.err }
 
+// heldStore is a store whose key is taken (Put answers ErrExists) and
+// which holds content under it, or fails to return it.
+type heldStore struct {
+	content []byte
+	err     error
+}
+
+func (s heldStore) Put(context.Context, string, []byte, blobstore.PutOptions) error {
+	return blobstore.ErrExists
+}
+func (s heldStore) Get(context.Context, string) ([]byte, string, error) {
+	return s.content, "application/xml", s.err
+}
+func (s heldStore) Stat(context.Context, string) (int64, string, error) { return 0, "", s.err }
+
+// postedRun proposes a run paying one invoice, releases it and posts its
+// payment, and returns the run with the step that finishes its release
+// through h.
+func (e env) postedRun(t *testing.T, h *payments.Endpoints, ref, day string) (run map[string]any, finish func(ctx context.Context) error) {
+	t.Helper()
+	e.invoice(t, e.Supplier, ref, "100.00", "2026-03-01")
+	run = e.run(t, day, day)
+	pay := e.paymentOf(t, run, e.Supplier)
+	e.decide(t, 202, run, "release", "")
+	finish = func(ctx context.Context) error {
+		r, err := payments.GetRun(ctx, uuidOf(id(run)))
+		if err != nil {
+			return err
+		}
+		_, err = h.FinishRelease(ctx, r)
+		return err
+	}
+	if err := apitest.Committed(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		r, err := payments.GetRun(ctx, uuidOf(id(run)))
+		if err != nil {
+			return err
+		}
+		_, err = h.PostPayment(ctx, r, pay)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return run, finish
+}
+
+// TestRetriedFinishKeepsOneFile: a FinishRelease whose transaction is lost
+// after the store took the bank file (the activity is retried, ADR-0012)
+// does not leave a second object behind when it runs again: the file is
+// kept under the run's key, and the retry finds it there and records it.
+// What else the key may hold is refused, and a store that does not return
+// it is unavailable, for the release to try again.
+func TestRetriedFinishKeepsOneFile(t *testing.T) {
+	e := setup(t)
+	store := blobstore.Dir{Root: t.TempDir()}
+	h := endpoints(e.connector)
+	h.Objects = store
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	run, finish := e.postedRun(t, h, "INV-1", "2026-04-15")
+	// The first attempt stores the file and loses its transaction; the retry commits.
+	if err := apitest.InRequest(t, e.Tenant, e.Approver, finish); err != nil {
+		t.Fatalf("first attempt: %v", err)
+	}
+	apitest.EveryFailure(t, e.Tenant, e.Approver, "finish with the file stored", finish)
+	if err := apitest.Committed(t, e.Tenant, e.Approver, finish); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	keys, err := store.List(context.Background(), blobstore.Key(e.Tenant.ID, blobstore.KindBankFiles, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("bank file objects: got %d %v, want 1", len(keys), keys)
+	}
+	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
+	file := files["items"].([]any)[0].(map[string]any)
+	// The file recorded is the one stored, so it is handed out.
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Connector, cfg.Objects = e.connector, store })
+	r := e.API.Do(apitest.Req{Method: "GET", Path: "/v1/bank-files/" + id(file) + "/content", Tenant: e.Tenant.ID, As: e.Tenant.Human})
+	if r.Code != 200 {
+		t.Fatalf("content status: got %d, want 200: %s", r.Code, r.Body)
+	}
+
+	_, finish = e.postedRun(t, h, "INV-2", "2026-04-16")
+	for name, c := range map[string]struct {
+		held heldStore
+		code string
+	}{
+		"not a file":       {heldStore{content: []byte("not xml")}, "payments.bank_file_changed"},
+		"no creation time": {heldStore{content: []byte("<Document>tampered</Document>")}, "payments.bank_file_changed"},
+		"another file": {heldStore{content: []byte("<Document><CstmrCdtTrfInitn><GrpHdr><CreDtTm>2026-04-16T09:30:00</CreDtTm></GrpHdr>" +
+			"</CstmrCdtTrfInitn></Document>")}, "payments.bank_file_changed"},
+		"store not answering": {heldStore{err: errors.New("store down")}, "platform.unavailable"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h.Objects = c.held
+			if got := problem.From(apitest.InRequest(t, e.Tenant, e.Approver, finish)).Code; got != c.code {
+				t.Errorf("code: got %s, want %s", got, c.code)
+			}
+		})
+	}
+}
+
 // TestBankFilesAreKept: with object storage the file written at release is
-// kept and handed out or transmitted from there, always checked against the
-// recorded hash.
+// kept under its run's key and handed out or transmitted from there, always
+// checked against the recorded hash.
 func TestBankFilesAreKept(t *testing.T) {
 	e := setup(t)
 	root := t.TempDir()
@@ -39,7 +141,7 @@ func TestBankFilesAreKept(t *testing.T) {
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := files["items"].([]any)[0].(map[string]any)
 	first := uuidOf(id(file))
-	key := blobstore.Key(e.Tenant.ID, blobstore.KindBankFiles, id(file)+".xml")
+	key := blobstore.Key(e.Tenant.ID, blobstore.KindBankFiles, id(run)+".xml")
 	stored, ct, err := store.Get(context.Background(), key)
 	if err != nil {
 		t.Fatalf("read the stored file: %v", err)
@@ -81,7 +183,7 @@ func TestBankFilesAreKept(t *testing.T) {
 	e.release(t, second, "")
 	files, _ = e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(second), "", "")
 	file = files["items"].([]any)[0].(map[string]any)
-	path := filepath.Join(root, filepath.FromSlash(blobstore.Key(e.Tenant.ID, blobstore.KindBankFiles, id(file)+".xml")))
+	path := filepath.Join(root, filepath.FromSlash(blobstore.Key(e.Tenant.ID, blobstore.KindBankFiles, id(second)+".xml")))
 	if err := os.WriteFile(path, []byte("<Document>tampered</Document>"), 0o600); err != nil {
 		t.Fatalf("tamper with the bank file: %v", err)
 	}
