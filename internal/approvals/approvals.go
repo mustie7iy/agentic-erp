@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -200,25 +201,42 @@ type policyStep struct {
 	required int
 }
 
+// requisitionSteps are the steps of the first tier whose threshold the
+// requisition's amount does not exceed.
+func requisitionSteps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([]policyStep, error) {
+	var out []policyStep
+	exp, err := currency.Exponent(ctx, tx, *in.Currency, nil) // the requisition's currency is in the reference data
+	if err != nil {
+		return nil, fmt.Errorf("approvals: policy steps: %w", err)
+	}
+	// A threshold is validated with each company currency's digits, which
+	// may be more than the requisition's, so amount and threshold are
+	// compared exactly rather than read at the requisition's digits.
+	amount := new(big.Rat).SetFrac(big.NewInt(int64(*in.Amount)), new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil))
+	for _, t := range doc.Purchasing.RequisitionApproval {
+		if t.UpTo != "" { // "" is the last tier
+			limit := money.ParseRat(t.UpTo) // a decimal, validated with the document
+			if limit == nil {
+				return nil, fmt.Errorf("approvals: policy steps: threshold %q is not a decimal", t.UpTo)
+			}
+			if amount.Cmp(limit) > 0 {
+				continue
+			}
+		}
+		for _, s := range t.Steps {
+			out = append(out, policyStep{s.Role, s.Approvals})
+		}
+		break
+	}
+	return out, nil
+}
+
 // steps resolves the steps the active configuration requires.
 func steps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
 	switch in.ObjectType {
 	case Requisition:
-		exp, err := currency.Exponent(ctx, tx, *in.Currency, nil) // the requisition's currency is in the reference data
-		if err != nil {
-			return nil, fmt.Errorf("approvals: policy steps: %w", err)
-		}
-		for _, t := range doc.Purchasing.RequisitionApproval {
-			limit, _ := money.ParseDecimal(t.UpTo, exp) // validated with the document; "" is the last tier
-			if t.UpTo != "" && *in.Amount > limit {
-				continue
-			}
-			for _, s := range t.Steps {
-				out = append(out, policyStep{s.Role, s.Approvals})
-			}
-			break
-		}
+		return requisitionSteps(ctx, tx, doc, in)
 	case PartnerChange:
 		out = append(out, policyStep{doc.Payments.VendorApproverRole, 1})
 	case ConfigChange:
