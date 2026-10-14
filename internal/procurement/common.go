@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"regexp"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -99,15 +99,11 @@ func checkExtensions(ext map[string]any) error {
 
 // exponent returns the currency's minor-unit digits; an unknown currency is
 // 422 on field.
-func exponent(ctx context.Context, tx pgx.Tx, currency, field string) (int, error) {
-	var exp int
-	err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, currency).Scan(&exp)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, problem.Unprocessable("procurement.unknown_currency", "The currency is not known.",
-			problem.FieldError{Field: field, Code: "unknown", Message: "an ISO 4217 currency in the reference data"})
-	}
+func exponent(ctx context.Context, tx pgx.Tx, code, field string) (int, error) {
+	exp, err := currency.Exponent(ctx, tx, code, problem.Unprocessable("procurement.unknown_currency", "The currency is not known.",
+		problem.FieldError{Field: field, Code: "unknown", Message: "an ISO 4217 currency in the reference data"}))
 	if err != nil {
-		return 0, fmt.Errorf("procurement: read currency %s exponent: %w", currency, err)
+		return 0, fmt.Errorf("procurement: %w", err)
 	}
 	return exp, nil
 }
@@ -135,12 +131,6 @@ func quantity(value, field string) (*big.Rat, error) {
 		return nil, invalid("procurement.invalid_quantity", field+".value", "a positive quantity")
 	}
 	return q, nil
-}
-
-// rat reads a decimal the database rendered as text.
-func rat(s string) *big.Rat {
-	r, _ := new(big.Rat).SetString(s) // numeric columns render as decimals
-	return r
 }
 
 // itemsTotal is the sum of the items' extended amounts, quantity × price /

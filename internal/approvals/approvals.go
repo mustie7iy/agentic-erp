@@ -30,6 +30,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -204,9 +205,9 @@ func steps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([
 	var out []policyStep
 	switch in.ObjectType {
 	case Requisition:
-		var exp int
-		if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, *in.Currency).Scan(&exp); err != nil {
-			return nil, fmt.Errorf("approvals: read exponent of currency %s: %w", *in.Currency, err)
+		exp, err := currency.Exponent(ctx, tx, *in.Currency, nil) // the requisition's currency is in the reference data
+		if err != nil {
+			return nil, fmt.Errorf("approvals: policy steps: %w", err)
 		}
 		for _, t := range doc.Purchasing.RequisitionApproval {
 			limit, _ := money.ParseDecimal(t.UpTo, exp) // validated with the document; "" is the last tier

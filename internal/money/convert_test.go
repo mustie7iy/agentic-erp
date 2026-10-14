@@ -3,6 +3,7 @@ package money
 import (
 	"errors"
 	"math"
+	"math/big"
 	"slices"
 	"testing"
 )
@@ -133,5 +134,14 @@ func TestScale(t *testing.T) {
 				t.Errorf("Scale(%d, %q, %d): got %d, want %d", c.amount, c.factor, c.divisor, got, c.want)
 			}
 		})
+	}
+}
+
+func TestParseRat(t *testing.T) {
+	if got := ParseRat("12.500"); got == nil || got.Cmp(big.NewRat(25, 2)) != 0 {
+		t.Errorf("ParseRat(12.500): got %v, want 25/2", got)
+	}
+	if got := ParseRat("x"); got != nil {
+		t.Errorf("ParseRat(x): got %v, want nil", got)
 	}
 }

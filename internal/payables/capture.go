@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -152,9 +153,9 @@ func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uu
 	if ext.Currency != order.Currency {
 		return Input{}, unreadable("the invoice is in " + ext.Currency + " but the order in " + order.Currency)
 	}
-	var exp int
-	if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, order.Currency).Scan(&exp); err != nil {
-		return Input{}, fmt.Errorf("payables: read exponent of currency %s: %w", order.Currency, err)
+	exp, err := currency.Exponent(ctx, tx, order.Currency, nil) // the order's currency is in the reference data
+	if err != nil {
+		return Input{}, fmt.Errorf("payables: capture: %w", err)
 	}
 	amountOf := func(s, what string) (Amount, error) {
 		m, err := money.ParseDecimal(s, exp)

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -219,10 +220,10 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 		}
 		key := [2]any{it.PurchaseOrderID, it.POItemNo}
 		if added[key] == nil {
-			added[key] = rat(oi.received)
+			added[key] = money.ParseRat(oi.received)
 		}
-		added[key].Add(added[key], rat(it.Quantity))
-		limit := new(big.Rat).Mul(rat(oi.ordered), new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).Quo(rat(oi.tolerance), big.NewRat(100, 1))))
+		added[key].Add(added[key], money.ParseRat(it.Quantity))
+		limit := new(big.Rat).Mul(money.ParseRat(oi.ordered), new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).Quo(money.ParseRat(oi.tolerance), big.NewRat(100, 1))))
 		if added[key].Cmp(limit) > 0 {
 			return GoodsReceipt{}, problem.Conflict("procurement.over_delivery", fmt.Sprintf("Item %d of order %s would receive %s of %s ordered (tolerance %s%%).",
 				it.POItemNo, oi.documentNumber, added[key].FloatString(6), oi.ordered, oi.tolerance))
@@ -274,14 +275,14 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	for i, it := range orig.Items {
 		key := [2]any{it.PurchaseOrderID, it.POItemNo}
 		if left[key] == nil {
-			left[key] = rat(current[i].received)
+			left[key] = money.ParseRat(current[i].received)
 		}
-		left[key].Sub(left[key], rat(it.Quantity))
+		left[key].Sub(left[key], money.ParseRat(it.Quantity))
 		if left[key].Sign() < 0 {
 			return GoodsReceipt{}, problem.Conflict("procurement.reversal_exceeds_receipts",
 				fmt.Sprintf("Reversing would make the received quantity of item %d of order %s negative.", it.POItemNo, current[i].documentNumber))
 		}
-		it.Quantity = new(big.Rat).Neg(rat(it.Quantity)).FloatString(6)
+		it.Quantity = new(big.Rat).Neg(money.ParseRat(it.Quantity)).FloatString(6)
 		items[i] = it
 	}
 	date, err := database.Today(ctx, tx)

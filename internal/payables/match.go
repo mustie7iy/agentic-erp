@@ -131,8 +131,8 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 		if why := priceVariance(it, oi, absolute, int64(t.PricePercent), format); why != "" {
 			add(IssuePriceVariance, &it.ItemNo, "order item %d: %s", oi.ItemNo, why)
 		}
-		total := new(big.Rat).Add(rat(it.Quantity), rat(orDefault(invoiced[oi.ItemNo], "0")))
-		if total.Cmp(rat(oi.Received)) > 0 {
+		total := new(big.Rat).Add(money.ParseRat(it.Quantity), money.ParseRat(orDefault(invoiced[oi.ItemNo], "0")))
+		if total.Cmp(money.ParseRat(oi.Received)) > 0 {
 			add(IssueQtyReceived, &it.ItemNo, "order item %d: invoiced quantity %s exceeds received %s",
 				oi.ItemNo, total.FloatString(6), oi.Received)
 		}
@@ -183,11 +183,6 @@ func priceVariance(it Item, oi procurement.OrderItem, absolute money.Minor, pct 
 		return fmt.Sprintf("invoiced %s but the order price gives %s (variance %s, tolerance %s)", format(it.Amount), format(want), format(diff), format(allowed))
 	}
 	return ""
-}
-
-func rat(s string) *big.Rat {
-	r, _ := new(big.Rat).SetString(s) // numeric columns render as decimals
-	return r
 }
 
 // MatchInvoice evaluates a PO-based invoice against its order and goods

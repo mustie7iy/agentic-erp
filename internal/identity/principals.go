@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -113,16 +114,13 @@ func profile(ctx context.Context, tx pgx.Tx, in ProfileInput) (AgentProfile, err
 	if in.Budget == nil {
 		return ap, nil
 	}
-	var exponent int16
-	err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, in.Budget.Currency).Scan(&exponent)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ap, problem.Unprocessable("identity.unknown_currency", "The budget currency is not known.",
-			problem.FieldError{Field: "agent_profile.monthly_budget.currency", Code: "unknown", Message: "not an ISO 4217 currency in the reference data"})
-	}
+	exponent, err := currency.Exponent(ctx, tx, in.Budget.Currency,
+		problem.Unprocessable("identity.unknown_currency", "The budget currency is not known.",
+			problem.FieldError{Field: "agent_profile.monthly_budget.currency", Code: "unknown", Message: "not an ISO 4217 currency in the reference data"}))
 	if err != nil {
-		return ap, fmt.Errorf("identity: read exponent of currency %s: %w", in.Budget.Currency, err)
+		return ap, fmt.Errorf("identity: agent budget: %w", err)
 	}
-	amount, err := money.ParseDecimal(in.Budget.Amount, int(exponent))
+	amount, err := money.ParseDecimal(in.Budget.Amount, exponent)
 	if err != nil || amount < 0 {
 		return ap, problem.Unprocessable("request.invalid_amount", "The budget amount is not a valid non-negative amount in this currency.",
 			problem.FieldError{Field: "agent_profile.monthly_budget.amount", Code: "invalid", Message: "decimal string with the currency's minor-unit digits"})

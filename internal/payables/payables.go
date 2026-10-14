@@ -33,6 +33,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -383,14 +384,10 @@ func checkExtensionKeys(extensions map[string]any) error {
 }
 
 // currencyExponent reads the minor-unit digits of the invoice currency.
-func currencyExponent(ctx context.Context, tx pgx.Tx, currency string) (int, error) {
-	var exp int
-	err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, currency).Scan(&exp)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, invalid("payables.unknown_currency", "gross_amount.currency", "The currency is not known.")
-	}
+func currencyExponent(ctx context.Context, tx pgx.Tx, code string) (int, error) {
+	exp, err := currency.Exponent(ctx, tx, code, invalid("payables.unknown_currency", "gross_amount.currency", "The currency is not known."))
 	if err != nil {
-		return 0, fmt.Errorf("payables: read exponent of currency %s: %w", currency, err)
+		return 0, fmt.Errorf("payables: invoice: %w", err)
 	}
 	return exp, nil
 }
