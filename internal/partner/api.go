@@ -175,10 +175,7 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 		return nil, err
 	}
 	scope := "listBusinessPartners|" + params.Number.Value + "|" + params.NamePrefix.Value + "|" + params.Role.Value + "|" + params.Status.Value
-	ks, err := e.Pages.Keyset(partnerSort, scope, pagination.Request{
-		OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
-		PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(partnerSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -280,10 +277,7 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 		partnerID = &params.PartnerID.Value
 	}
 	scope := "listPartnerChanges|" + params.PartnerID.Value.String() + "|" + params.Kind.Value + "|" + params.Status.Value
-	ks, err := e.Pages.Keyset(changeSort, scope, pagination.Request{
-		OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
-		PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(changeSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -359,9 +353,7 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 		validOn = &params.ValidOn.Value
 		scope += params.ValidOn.Value.Format(time.DateOnly)
 	}
-	ks, err := e.Pages.Keyset(bankSort, scope, pagination.Request{
-		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(bankSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}

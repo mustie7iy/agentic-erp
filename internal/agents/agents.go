@@ -401,8 +401,7 @@ func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentS
 		return nil, err
 	}
 	agent := apitypes.Ptr[uuid.UUID](params.AgentID)
-	ks, err := e.Pages.Keyset(sessionSort, fmt.Sprintf("listAgentSessions|%s|%s", agent, params.Status.Value), pagination.Request{OrderBy: params.OrderBy.Value,
-		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(sessionSort, fmt.Sprintf("listAgentSessions|%s|%s", agent, params.Status.Value), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -531,8 +530,7 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 	}
 	session, object := apitypes.Ptr[uuid.UUID](params.SessionID), apitypes.Ptr[uuid.UUID](params.ObjectID)
 	scope := fmt.Sprintf("listRecommendations|%s|%s|%s|%s", session, params.ObjectType.Value, object, params.Outcome.Value)
-	ks, err := e.Pages.Keyset(recommendationSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
-		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(recommendationSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}

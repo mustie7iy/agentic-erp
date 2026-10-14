@@ -112,8 +112,7 @@ type Change struct {
 }
 
 func amountInput(minor int64, currency string, exp int) Amount {
-	a := money.EventAmount(minor, currency, exp)
-	return Amount{Value: a["amount"], Currency: currency}
+	return Amount{Value: money.Minor(minor).Plain(exp), Currency: currency}
 }
 
 // UpdateInvoice changes a parked invoice and validates it again.

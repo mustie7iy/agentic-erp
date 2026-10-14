@@ -80,8 +80,7 @@ func (e *Endpoints) ListPaymentRuns(ctx context.Context, params gen.ListPaymentR
 	}
 	le, from, to := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[time.Time](params.RunDateFrom), apitypes.Ptr[time.Time](params.RunDateTo)
 	scope := fmt.Sprintf("listPaymentRuns|%s|%s|%s|%v|%v", le, params.Status.Value, params.DocumentNumber.Value, from, to)
-	ks, err := e.Pages.Keyset(runSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
-		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(runSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -223,8 +222,7 @@ func (e *Endpoints) ListBankFiles(ctx context.Context, params gen.ListBankFilesP
 		return nil, err
 	}
 	run := apitypes.Ptr[uuid.UUID](params.PaymentRunID)
-	ks, err := e.Pages.Keyset(fileSort, fmt.Sprintf("listBankFiles|%s|%s", run, params.Status.Value), pagination.Request{OrderBy: params.OrderBy.Value,
-		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(fileSort, fmt.Sprintf("listBankFiles|%s|%s", run, params.Status.Value), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}

@@ -84,10 +84,7 @@ func (e *Endpoints) ListLegalEntities(ctx context.Context, params gen.ListLegalE
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(leSort, "listLegalEntities|"+params.Status.Value, pagination.Request{
-		OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
-		PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(leSort, "listLegalEntities|"+params.Status.Value, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -200,10 +197,7 @@ func (e *Endpoints) ListOrgUnits(ctx context.Context, params gen.ListOrgUnitsPar
 		le = &params.LegalEntityID.Value
 	}
 	scope := "listOrgUnits|" + params.LegalEntityID.Value.String() + "|" + params.Kind.Value + "|" + params.Status.Value
-	ks, err := e.Pages.Keyset(ouSort, scope, pagination.Request{
-		OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
-		PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(ouSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}

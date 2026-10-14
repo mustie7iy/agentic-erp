@@ -561,8 +561,7 @@ func (e *Endpoints) ListMigrationRuns(ctx context.Context, params gen.ListMigrat
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(runSort, "listMigrationRuns|"+params.Status.Value, pagination.Request{OrderBy: params.OrderBy.Value,
-		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(runSort, "listMigrationRuns|"+params.Status.Value, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}

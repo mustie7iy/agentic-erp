@@ -163,8 +163,7 @@ func (e *Endpoints) ListSupplierInvoices(ctx context.Context, params gen.ListSup
 	le, sup, po := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID), apitypes.Ptr[uuid.UUID](params.PurchaseOrderID)
 	from, to := apitypes.Ptr[time.Time](params.InvoiceDateFrom), apitypes.Ptr[time.Time](params.InvoiceDateTo)
 	scope := fmt.Sprintf("listSupplierInvoices|%s|%s|%s|%s|%s|%v|%v", le, sup, params.Status.Value, params.DocumentNumber.Value, po, from, to)
-	ks, err := e.Pages.Keyset(invoiceSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
-		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(invoiceSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -300,8 +299,7 @@ func (e *Endpoints) ListMatchResults(ctx context.Context, params gen.ListMatchRe
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(matchSort, "listMatchResults|"+params.ID.String(), pagination.Request{PageSize: params.PageSize.Value,
-		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(matchSort, "listMatchResults|"+params.ID.String(), apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}

@@ -75,8 +75,7 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 		object = &params.ObjectID.Value
 	}
 	scope := fmt.Sprintf("listApprovalRequests|%s|%s|%s", params.Status.Value, params.ObjectType.Value, params.ObjectID.Value)
-	ks, err := e.Pages.Keyset(requestSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
-		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(requestSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
