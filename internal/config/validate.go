@@ -296,7 +296,7 @@ func (v *validator) purchasing(c *Config) {
 		case !last && t.UpTo == "":
 			v.err(p+".up_to", "only the last tier may omit up_to")
 		case !last:
-			if m, ok := v.amount(p+".up_to", t.UpTo, 2); ok {
+			if m, ok := v.threshold(p+".up_to", t.UpTo, c); ok {
 				if m <= prev {
 					v.err(p+".up_to", "tiers must be in increasing order")
 				}
@@ -305,6 +305,30 @@ func (v *validator) purchasing(c *Config) {
 		}
 		v.approvalSteps(p, t.Steps)
 	}
+}
+
+// threshold reads a requisition approval limit. A limit applies to
+// requisitions in every company's currency, so it must read with the
+// digits of each (ref.currency): the approval routing then never meets a
+// limit it cannot parse. Its value, for the order of the tiers, is read
+// with the most digits.
+func (v *validator) threshold(path, s string, c *Config) (money.Minor, bool) {
+	most, known := 0, false
+	for _, co := range c.Companies {
+		exp, ok := v.exponents[co.Currency]
+		if !ok {
+			continue // the company's currency finding blocks activation
+		}
+		if _, err := money.ParseDecimal(s, exp); err != nil {
+			v.err(path, "%v for %s, the currency of company %s", err, co.Currency, co.Code)
+			return 0, false
+		}
+		most, known = max(most, exp), true
+	}
+	if !known {
+		return 0, false // no currency to read it with; the companies' findings block activation
+	}
+	return v.amount(path, s, most)
 }
 
 // approvalSteps checks the steps of one requisition approval tier.
