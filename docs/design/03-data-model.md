@@ -553,11 +553,20 @@ are the items of live runs not paid yet, and a manual clearing or reversal
 of one is refused while the run holds it. A reservation left behind (an
 application version from before 000034 rejecting a run during the rollout)
 only keeps its item out of proposals (`OpenItems.Payable` leaves reserved
-items out) until migration 000037 reconciles the reservations with the
-runs; it ships in the release after 000034, once no older version runs.
-Entry locks are taken per bucket (1,024 per tenant-independent key space),
-so a proposal or release check over 100,000 items holds a bounded number of
-advisory locks.
+items out), and refuses its manual clearing and reversal, until a
+reconciliation releases the reservations no live run holds and adds those
+missing. That reconciliation is a contract step (06 §6.4): it is a
+migration of its own, landed once 000034 runs everywhere, not part of the
+change that adds the table.
+
+Entry locks (clearing, reversal, settlement, reservation) are advisory
+locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
+|| bucket`, the bucket from the entry id's random low bits), each set
+taken once per transaction in bucket order. A proposal or release check
+over 100,000 items holds at most 64 locks, within
+`max_locks_per_transaction`'s default, and never holds another tenant's
+entries up; within a tenant, a reversal may wait for a clearing of another
+entry in its bucket.
 
 Proposals of a legal entity serialise on the advisory lock
 `payments.propose.<legal entity id>` (`hashtextextended`, transaction

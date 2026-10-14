@@ -237,6 +237,7 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 	}
 	for _, c := range []struct{ source, endpoint string }{
 		{"payables", "/v1/supplier-invoices/"},
+		{"procurement", "procurement context"},
 	} {
 		t.Run(c.source, func(t *testing.T) {
 			entry := post(c.source)

@@ -308,14 +308,16 @@ func reversedItem(i int) *problem.Problem {
 // insert-only: the application role has no UPDATE privilege on them, which
 // SELECT ... FOR SHARE requires.
 //
-// The lock is taken on the entry's bucket (EntryLockBuckets of them), not
-// on the entry: a transaction holds at most that many locks however many
-// entries it touches, where a proposal or a release check over 100,000
-// items would otherwise exhaust the server's shared lock table and fail
-// other tenants' transactions with it. Two entries of one bucket serialize
-// a reversal against a clearing of the other; shared locks never conflict.
-// Buckets are locked in order, so two transactions never wait for each
-// other in a cycle.
+// The lock is taken on the entry's bucket, one of EntryLockBuckets per
+// tenant, not on the entry: a transaction holds at most that many locks
+// however many entries it touches, where a proposal or a release check
+// over 100,000 items would otherwise exhaust the server's shared lock
+// table (max_locks_per_transaction, 64 by default, per connection) and
+// fail other transactions with it. The tenant is part of the key, so one
+// tenant's proposal never holds another's clearings up. Two entries of one
+// bucket serialize a reversal against a clearing of the other; shared
+// locks never conflict. Each transaction locks its buckets once, in one
+// sorted call, so two transactions never wait for each other in a cycle.
 func lockEntries(ctx context.Context, tx pgx.Tx, shared bool, ids []uuid.UUID) error {
 	buckets := make([]int32, len(ids))
 	for i, id := range ids {
@@ -326,19 +328,23 @@ func lockEntries(ctx context.Context, tx pgx.Tx, shared bool, ids []uuid.UUID) e
 	if shared {
 		lock = "pg_advisory_xact_lock_shared"
 	}
-	if _, err := tx.Exec(ctx, `SELECT `+lock+`(hashtextextended('ledger.journal_entry:' || b, 0)) FROM unnest($1::int[]) AS x(b)`,
+	if _, err := tx.Exec(ctx, `SELECT `+lock+`(hashtextextended('ledger.journal_entry:' || platform.current_tenant() || ':' || b, 0)) FROM unnest($1::int[]) AS x(b)`,
 		buckets); err != nil {
 		return fmt.Errorf("ledger: lock the entries of %d buckets: %w", len(buckets), err)
 	}
 	return nil
 }
 
-// EntryLockBuckets is how many locks journal entries share (lockEntries).
-const EntryLockBuckets = 1024
+// EntryLockBuckets is how many locks a tenant's journal entries share
+// (lockEntries): no more than max_locks_per_transaction's default of 64, so
+// a transaction holding all of them stays within its share of the lock
+// table.
+const EntryLockBuckets = 64
 
 // EntryLockBucket is the lock bucket of a journal entry: the low bits of
-// its id, which are random in version 4 and 7 ids. Its advisory lock key is
-// hashtextextended('ledger.journal_entry:' || bucket, 0).
+// its id, which are random because entry ids are version 7 (uuid.NewV7 in
+// post). Its advisory lock key is
+// hashtextextended('ledger.journal_entry:' || tenant || ':' || bucket, 0).
 func EntryLockBucket(id uuid.UUID) int32 {
 	return (int32(id[14])<<8 | int32(id[15])) % EntryLockBuckets
 }
@@ -360,16 +366,15 @@ func markCleared(ctx context.Context, tx pgx.Tx, tenant, clearing uuid.UUID, ref
 // open item, and nothing clears its lines again (a line is cleared once,
 // and other clearings of a reversed entry's lines are refused). It runs in
 // the reversal's transaction, which holds the exclusive lock on the
-// original. It locks the reversal too, defensively: no other transaction
-// can see the reversal before this one commits. The reversal's lines are
+// original. The reversal itself needs no lock: no other transaction can
+// see it before this one commits, and a second lock taken out of order
+// with the first could deadlock against a transaction that shares their
+// buckets (lockEntries). The reversal's lines are
 // the original's negated, in the same order (reversalLines, and post
 // numbers lines by position), so rev.Lines[i] offsets orig.Lines[i] and
 // each pair nets to zero in every currency. An entry without open items
 // needs no clearing.
 func clearReversal(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, orig, rev Entry) error {
-	if err := lockEntries(ctx, tx, false, []uuid.UUID{rev.ID}); err != nil {
-		return err
-	}
 	refs := make([]ItemRef, len(orig.Lines))
 	for i, l := range orig.Lines {
 		refs[i] = ItemRef{FiscalYear: orig.FiscalYear, EntryID: orig.ID, LineNo: l.LineNo}
