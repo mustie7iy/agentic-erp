@@ -132,7 +132,11 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 		return Entry{}, err
 	}
 	lines = append(lines, Line{AccountID: in.BankAccountID, TC: tc, LC: bank.lc, GC: bank.gc, Text: in.HeaderText})
-	fx, err := exchangeDifferenceLines(ctx, le.ID, lc-bank.lc, gc-bank.gc, in.HeaderText)
+	diffLC, diffGC, err := exchangeDifferences(lc, gc, bank)
+	if err != nil {
+		return Entry{}, err
+	}
+	fx, err := exchangeDifferenceLines(ctx, le.ID, diffLC, diffGC, in.HeaderText)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -256,6 +260,19 @@ func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines
 		return nil, 0, 0, 0, errTotalTooLarge("items")
 	}
 	return lines, tc, lc, gc, nil
+}
+
+// exchangeDifferences is what the bank line leaves of the items' local and
+// group totals: items booked at other rates than the settlement's differ,
+// and the difference of two amounts in range can be out of range.
+func exchangeDifferences(lc, gc money.Minor, bank settlementBank) (diffLC, diffGC money.Minor, err error) {
+	if diffLC, err = money.Diff(lc, bank.lc); err == nil {
+		diffGC, err = money.Diff(gc, bank.gc)
+	}
+	if err != nil {
+		return 0, 0, errTotalTooLarge("items")
+	}
+	return diffLC, diffGC, nil
 }
 
 // exchangeDifferenceLines books what the bank line leaves in local and in

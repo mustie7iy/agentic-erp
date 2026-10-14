@@ -33,6 +33,31 @@ func TestItemTotalsOutOfRange(t *testing.T) {
 	}
 }
 
+// The exchange difference of a settlement is checked: items booked at
+// 8.5e18 local minor units settled by a bank line of -8e18 differ by more
+// than an amount holds, which wrapped into the fx line before.
+func TestExchangeDifferenceOutOfRange(t *testing.T) {
+	cases := map[string]struct{ lc, gc, bankLC, bankGC money.Minor }{
+		"local":    {8_500_000_000_000_000_000, 0, -8_000_000_000_000_000_000, 0},
+		"group":    {0, -8_500_000_000_000_000_000, 0, 8_000_000_000_000_000_000},
+		"in range": {5, 7, 3, 2},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			lc, gc, err := exchangeDifferences(c.lc, c.gc, settlementBank{lc: c.bankLC, gc: c.bankGC})
+			if name == "in range" {
+				if err != nil || lc != 2 || gc != 5 {
+					t.Errorf("got %d, %d, %v, want 2, 5, nil", lc, gc, err)
+				}
+				return
+			}
+			if code := problemCode(err); code != "ledger.amount_too_large" {
+				t.Errorf("got %v, want ledger.amount_too_large", err)
+			}
+		})
+	}
+}
+
 // A conversion to int64's most negative value is too large to post: it has
 // no positive counterpart, so its reversal or clearing offset would keep
 // the sign, and it rendered as "--92233720368547758.-8".
