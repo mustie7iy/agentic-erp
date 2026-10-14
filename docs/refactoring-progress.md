@@ -303,7 +303,17 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   blocked supplier whose items overflow fails every proposal of its legal entity (a new
   exclusion reason needs a migration); a cancelled release's FinishRelease can orphan a bank
   file in object storage; analytics keeps every term per group in memory.
-- [ ] R55 Re-review until 9.5
+- [ ] R55 Re-review until 9.5. First re-review after Phase 7: **9.0 / 10** (architecture 9.2,
+  error handling 9.1, concurrency and tenancy 8.4, SQL 9.7, tests 9.3, readability 9.2,
+  duplication 8.8, money 9.3). Round two below.
+- [ ] F5 The ledger API cannot reverse or clear another context's document or a reserved item
+- [ ] F6 A releasing run cannot get stuck; a proposal cannot race an invoice reversal
+- [ ] F7 Security defaults fail closed (user: ERP_ENV required; production refuses an operator
+  token without roles, ADR-0027 amended; principals bound to issuer + subject, with a migration)
+- [ ] R56 Duplication and money residue (rat, currency exponent lookup, ptr, app ports, uow
+  job helper, pain001 sum, Minor.String, Diff)
+- [ ] R57 Error-handling and readability residue (release store failure, rates guard,
+  integration discards, pgx rows idiom documented, erp-server shutdown, two long tests)
 
 ## Baseline
 
