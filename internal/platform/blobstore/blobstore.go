@@ -123,19 +123,19 @@ func (d Dir) now() time.Time {
 
 func (d Dir) path(key string) string { return filepath.Join(d.Root, filepath.FromSlash(key)) }
 
-// createTemp, writeContent, link and writeFile are the filesystem calls Put
+// createTemp, writeContent, link and rename are the filesystem calls Put
 // makes; tests replace them to fail a write, so this package's tests do
 // not run in parallel.
 var (
 	createTemp   = os.CreateTemp
 	writeContent = (*os.File).Write
 	link         = os.Link
-	writeFile    = os.WriteFile
+	rename       = os.Rename
 )
 
 // tempMark separates a key from the random suffix of the temporary file its
-// content is written to. Keys cannot contain it (keyPattern), so a
-// temporary file never collides with a key; List reports it under its key
+// content or sidecar is written to. Keys cannot contain it (keyPattern), so
+// a temporary file never collides with a key; List reports it under its key
 // and Delete removes it with the key.
 const tempMark = "#"
 
@@ -144,6 +144,16 @@ const tempMark = "#"
 // failed cleanup or a crash leaves the key free, never holding part of an
 // object that a later Put would answer ErrExists for. A link, unlike a
 // rename, fails when the key is taken, which keeps objects write-once.
+//
+// The sidecar (content type and retention) follows the content, so a Put
+// that fails after the link leaves content without one, and its retry is
+// answered ErrExists, which callers take for "already stored" (an audit
+// anchor does). The retry therefore writes a missing sidecar from its own
+// options before answering (repairSidecar): once a Put of the key has
+// returned nil or ErrExists, the sidecar is there and an anchor's retention
+// holds (ADR-0011). A sidecar is written to a temporary file and moved into
+// place whole, so it is either missing or complete, never a content type
+// without the retention that follows it.
 func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions) error {
 	if err := checkKey(key); err != nil {
 		return err
@@ -160,20 +170,44 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 		return fmt.Errorf("blobstore: %w", err)
 	}
 	if err := link(tmp, p); errors.Is(err, os.ErrExist) {
-		return ErrExists
+		return repairSidecar(p, opts)
 	} else if err != nil {
 		return fmt.Errorf("blobstore: %w", err)
 	}
+	// This Put created the content, so a sidecar already there is stale (one
+	// a Delete could not remove) and is replaced.
+	if err := writeSidecar(p, opts, rename); err != nil {
+		return fmt.Errorf("blobstore: %w", err)
+	}
+	return nil
+}
+
+// repairSidecar answers a Put whose key is taken: ErrExists once the
+// object's sidecar is there, writing it from opts when an earlier Put failed
+// before writing it. A link never replaces a sidecar that exists, so the
+// options of the Put that stored the object win over a later one's.
+func repairSidecar(p string, opts PutOptions) error {
+	if err := writeSidecar(p, opts, link); err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("blobstore: %w", err)
+	}
+	return ErrExists
+}
+
+// writeSidecar writes the sidecar of the object at p to a temporary file and
+// moves it into place with place: rename to replace a sidecar, link to keep
+// one that exists.
+func writeSidecar(p string, opts PutOptions, place func(string, string) error) error {
 	meta := contentType(opts) + "\n"
 	if !opts.RetainUntil.IsZero() {
 		meta += opts.RetainUntil.UTC().Format(time.RFC3339) + "\n"
 	}
-	// The sidecar follows the content: a reader that finds content without
-	// it falls back to the default type.
-	if err := writeFile(p+".meta", []byte(meta), 0o600); err != nil {
-		return fmt.Errorf("blobstore: %w", err)
+	tmp, err := writeTemp(p, []byte(meta))
+	// Placed or not, the temporary name is not needed; see Put.
+	defer func() { _ = os.Remove(tmp) }()
+	if err != nil {
+		return err
 	}
-	return nil
+	return place(tmp, p+".meta")
 }
 
 // writeTemp writes content to a new temporary file next to p, synced so the

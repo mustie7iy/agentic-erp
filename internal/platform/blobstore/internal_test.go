@@ -37,10 +37,75 @@ func TestDirWriteFailures(t *testing.T) {
 		t.Errorf("got %v left after a failed link, want nothing", left)
 	}
 	link = os.Link
-	writeFile = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
-	defer func() { writeFile = os.WriteFile }()
+	rename = func(string, string) error { return errors.New("disk full") }
+	defer func() { rename = os.Rename }()
 	if err := d.Put(context.Background(), "tenants/x/b", []byte("1"), PutOptions{}); err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("sidecar: %v", err)
+	}
+	rename = os.Rename
+	if left := temporaries(t, filepath.Join(root, "tenants", "x")); len(left) != 0 {
+		t.Errorf("got %v left after a failed sidecar, want nothing", left)
+	}
+}
+
+// TestDirSidecarWriteFailures fails the sidecar's own temporary file, after
+// a Put and on the retry that repairs it: both report the failure rather
+// than leave or accept an object without its sidecar.
+func TestDirSidecarWriteFailures(t *testing.T) {
+	ctx := context.Background()
+	d := Dir{Root: t.TempDir()}
+	const key = "tenants/x/a"
+	calls := 0
+	createTemp = func(dir, pattern string) (*os.File, error) {
+		if calls++; calls > 1 {
+			return nil, errors.New("no temporary sidecar")
+		}
+		return os.CreateTemp(dir, pattern)
+	}
+	t.Cleanup(func() { createTemp = os.CreateTemp })
+	if err := d.Put(ctx, key, []byte("1"), PutOptions{}); err == nil || !strings.Contains(err.Error(), "no temporary sidecar") {
+		t.Fatalf("got %v from a Put whose sidecar could not be created, want its error", err)
+	}
+	calls = 0
+	if err := d.Put(ctx, key, []byte("1"), PutOptions{}); err == nil || errors.Is(err, ErrExists) {
+		t.Fatalf("got %v from a retry that could not repair the sidecar, want its error", err)
+	}
+	createTemp = os.CreateTemp
+	if err := d.Put(ctx, key, []byte("1"), PutOptions{ContentType: "text/plain"}); !errors.Is(err, ErrExists) {
+		t.Fatalf("got %v from the repairing retry, want ErrExists", err)
+	}
+	if _, ct, err := d.Stat(ctx, key); err != nil || ct != "text/plain" {
+		t.Errorf("got content type %q, %v after the repair, want text/plain", ct, err)
+	}
+	if err := d.Put(ctx, key, []byte("1"), PutOptions{ContentType: "image/png"}); !errors.Is(err, ErrExists) {
+		t.Fatalf("got %v from a Put of a whole object, want ErrExists", err)
+	}
+	if _, ct, _ := d.Stat(ctx, key); ct != "text/plain" {
+		t.Errorf("got content type %q after a later Put, want the stored text/plain", ct)
+	}
+	if left := temporaries(t, filepath.Join(d.Root, "tenants", "x")); len(left) != 0 {
+		t.Errorf("got %v left after the sidecar writes, want nothing", left)
+	}
+}
+
+// TestDirPutReplacesStaleSidecar: a sidecar whose content a Delete removed
+// is replaced by the next Put of the key, not taken for the new object's.
+func TestDirPutReplacesStaleSidecar(t *testing.T) {
+	ctx := context.Background()
+	d := Dir{Root: t.TempDir()}
+	const key = "tenants/x/a"
+	p := d.path(key)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p+".meta", []byte("text/stale\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Put(ctx, key, []byte("1"), PutOptions{ContentType: "text/plain"}); err != nil {
+		t.Fatalf("put over a stale sidecar: %v", err)
+	}
+	if _, ct, err := d.Stat(ctx, key); err != nil || ct != "text/plain" {
+		t.Errorf("got content type %q, %v, want text/plain", ct, err)
 	}
 }
 
@@ -195,5 +260,31 @@ func TestDeleteReportsTemporaryFilesItCannotRemove(t *testing.T) {
 	})
 	if err := d.Delete(ctx, "tenants/x/b"); err == nil {
 		t.Error("got nil from an unreadable directory, want its error")
+	}
+}
+
+// TestDirRetriedPutRecordsRetention: a Put whose sidecar failed is retried,
+// and callers take the retry's ErrExists for "already stored" (an audit
+// anchor does). The retention the retry carries must then hold, or an
+// erasure deletes an anchor that must stay locked (ADR-0011).
+func TestDirRetriedPutRecordsRetention(t *testing.T) {
+	ctx := context.Background()
+	d := Dir{Root: t.TempDir()}
+	const key = "tenants/x/audit/anchors/1"
+	opts := PutOptions{ContentType: "application/json", RetainUntil: time.Now().Add(time.Hour)}
+	rename = func(string, string) error { return errors.New("disk full") }
+	t.Cleanup(func() { rename = os.Rename })
+	if err := d.Put(ctx, key, []byte("{}"), opts); err == nil {
+		t.Fatal("got nil from a Put whose sidecar failed, want its error")
+	}
+	rename = os.Rename
+	if err := d.Put(ctx, key, []byte("{}"), opts); err != nil && !errors.Is(err, ErrExists) {
+		t.Fatalf("got %v retrying the Put, want nil or ErrExists", err)
+	}
+	if _, ct, err := d.Stat(ctx, key); err != nil || ct != "application/json" {
+		t.Errorf("got content type %q, %v after the retry, want application/json", ct, err)
+	}
+	if err := d.Delete(ctx, key); !errors.Is(err, ErrLocked) {
+		t.Errorf("got %v deleting the retried object, want ErrLocked", err)
 	}
 }
