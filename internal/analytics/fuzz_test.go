@@ -8,7 +8,7 @@ func FuzzNarrative(f *testing.F) {
 		f.Add(s)
 	}
 	r := &Result{Columns: []Column{{Name: "y", Kind: "dimension"}, {Name: "v", Kind: "measure", Type: Money}},
-		Rows: []Row{{"2025", 100.0}, {"2026", 150.0}}}
+		Rows: []Row{{"2025", usd("100.00")}, {"2026", usd("150.00")}}}
 	f.Fuzz(func(t *testing.T, text string) {
 		for _, fig := range extractFigures(text) {
 			if fig.decimals < 0 || fig.scale <= 0 {

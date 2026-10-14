@@ -87,8 +87,10 @@ linters:
       - path: (^cmd/|_test\.go$|/internal/platform/[a-z]+test/|/internal/llm/llmtest/|/internal/platform/pgtest/|/internal/platform/fixture/)
         linters: [forbidigo]
         text: panic
-      # Floats are fine outside money: metrics, rate limiting, analytics display, load tests.
-      - path: (internal/(nfr|analytics|platform/(ratelimit|telemetry))/|_test\.go$)
+      # Floats are fine outside money: metrics, rate limiting, load tests, and
+      # analytics drawing (charts, percentages) and prose matching only; its
+      # query results carry money as exact minor units (F9).
+      - path: (internal/(nfr|platform/(ratelimit|telemetry))/|internal/analytics/(render|narrative)\.go$|_test\.go$)
         linters: [forbidigo]
         text: float
       # Table-driven tests and fixtures are long and similar by nature.

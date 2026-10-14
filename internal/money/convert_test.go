@@ -137,6 +137,37 @@ func TestScale(t *testing.T) {
 	}
 }
 
+func TestRound(t *testing.T) {
+	cases := map[string]struct {
+		num, den         int64
+		exp              int
+		want             Minor
+		overflow, failed bool
+	}{
+		"to three digits":           {1234567, 1000, 3, 1234567, false, false},
+		"half up, away from zero":   {5, 2, 0, 3, false, false},
+		"half down, away from zero": {-5, 2, 0, -3, false, false},
+		"a third at four digits":    {1, 3, 4, 3333, false, false},
+		"out of range":              {math.MaxInt64, 1, 2, 0, true, false},
+		"negative exponent":         {1, 1, -1, 0, false, true},
+		"exponent too large":        {1, 1, 19, 0, false, true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := Round(big.NewRat(c.num, c.den), c.exp)
+			if errors.Is(err, ErrOverflow) != c.overflow {
+				t.Errorf("overflow: got %v, want %v", err, c.overflow)
+			}
+			if failed := err != nil && !errors.Is(err, ErrOverflow); failed != c.failed {
+				t.Errorf("invalid exponent: got %v, want an error %v", err, c.failed)
+			}
+			if got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
 func TestParseRat(t *testing.T) {
 	if got := ParseRat("12.500"); got == nil || got.Cmp(big.NewRat(25, 2)) != 0 {
 		t.Errorf("ParseRat(12.500): got %v, want 25/2", got)

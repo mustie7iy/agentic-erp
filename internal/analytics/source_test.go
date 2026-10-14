@@ -101,6 +101,23 @@ func TestSourceReadsEveryPage(t *testing.T) {
 	if got := f.Companies["1000"]; got != "USD" {
 		t.Errorf("currency of company 1000: got %s, want USD", got)
 	}
+	// The API writes each amount with its currency's digits from
+	// ref.currency, so those digits are the exponents.
+	for cur, want := range map[string]int{"USD": 2, "JPY": 0} {
+		if got, ok := f.Exponents[cur]; !ok || got != want {
+			t.Errorf("exponent of %s: got %d (%v), want %d", cur, got, ok, want)
+		}
+	}
+}
+
+// An amount whose digits disagree with an earlier one in its currency is
+// refused: rendering with either exponent could be wrong.
+func TestSourceRefusesInconsistentDigits(t *testing.T) {
+	m, _ := DefaultModel()
+	pages := validPages()
+	pages["/v1/supplier-invoices"][0] = strings.Replace(pages["/v1/supplier-invoices"][0], `"10.00"`, `"10.000"`, 1)
+	_, err := (Source{API: fakeAPI(t, pages)}).Facts(context.Background(), m, time.Now())
+	pgtest.CheckErr(t, err, "invoice i1: amount 10.000 USD has 3 decimals, other USD amounts 2")
 }
 
 func TestSourceErrors(t *testing.T) {

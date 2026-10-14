@@ -188,10 +188,11 @@ func aggregate(r *Result, keep []int, mi int) []point {
 	idx := map[string]int{}
 	var out []point
 	for _, row := range r.Rows {
-		v, ok := row[mi].(float64)
+		val, ok := row[mi].(Value)
 		if !ok {
 			continue
 		}
+		v := val.float() // evidence is matched at the precision a figure is written with
 		dims := make([]string, len(keep))
 		for i, k := range keep {
 			dims[i], _ = row[k].(string)

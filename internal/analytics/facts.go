@@ -22,6 +22,12 @@ type Fact struct {
 type Facts struct {
 	Tables    map[string][]Fact
 	Companies map[string]string // company code -> currency
+	// Exponents holds each fact currency's minor-unit digits, from
+	// ref.currency (ADR-0005): Source reads them off the API's amounts,
+	// which carry exactly their currency's digits. A money measure is
+	// rendered with them; a currency missing here refuses the query rather
+	// than being guessed.
+	Exponents map[string]int
 	AsOf      time.Time
 	// DataThrough is the latest posting or document date in the data.
 	DataThrough string

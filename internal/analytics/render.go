@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,7 +47,8 @@ func tileViews(s *Spec, results map[string]*Result) []tileView {
 		tv := tileView{Label: t.Label, Value: formatValue(cur, col)}
 		if t.CompareWhere != nil {
 			base, _, _ := r.sum(t.Measure, t.CompareWhere)
-			tv.Delta, tv.Pct, tv.Up = change(cur, base, col)
+			delta, _ := diff(cur, base) // validated: one currency, in range
+			tv.Delta, tv.Pct, tv.Up = change(base, delta, col)
 			tv.CompareLabel = t.CompareLabel
 			tv.HasCompare = true
 		}
@@ -158,30 +160,55 @@ func (td *tableData) plain(r *Result) {
 }
 
 // pivotPair is one pivot row: the values of the other dimensions and the
-// measure summed at the baseline and at the current value.
+// measure's values at the baseline and at the current value.
 type pivotPair struct {
 	keys       []string
-	base, curr float64
-	hasB, hasC bool
+	base, curr []Value
 }
 
 // pivot shows one row per combination of the other dimensions, with a
-// total row when there is more than one row of an additive measure.
+// total row when there is more than one row of an additive measure whose
+// sides each add up: amounts in several currencies have no total.
 func (td *tableData) pivot(cmp *Compare, r *Result) {
 	ci, mi := r.col(cmp.Dim), r.col(cmp.Measure)
 	col := r.Columns[mi]
 	keyCols := td.pivotHeader(cmp, r, ci, col)
 	order, pairs := pivotPairs(cmp, r, keyCols, ci, mi)
-	var totB, totC float64
+	var all pivotPair
 	for _, key := range order {
 		p := pairs[key]
 		td.Rows = append(td.Rows, pivotRow(p, r, keyCols, col))
-		totB += p.base
-		totC += p.curr
+		all.base = append(all.base, p.base...)
+		all.curr = append(all.curr, p.curr...)
 	}
 	if len(keyCols) > 0 && col.Type != Ratio && len(order) > 1 {
-		td.Rows = append(td.Rows, pivotTotal(keyCols, totB, totC, col))
+		if row, ok := pivotTotal(keyCols, &all, col); ok {
+			td.Rows = append(td.Rows, row)
+		}
 	}
+}
+
+// sides adds up a pivot row's baseline and current values; ok is false
+// when either side does not add up (several currencies, out of range).
+func (p *pivotPair) sides() (base, curr Value, hasB, hasC, ok bool) {
+	base, hasB, errB := sumValues(p.base)
+	curr, hasC, errC := sumValues(p.curr)
+	return base, curr, hasB, hasC, errB == nil && errC == nil
+}
+
+// changeCells renders the change between the sides, or dashes when one
+// is missing or they do not subtract (another currency, out of range).
+func changeCells(base, curr Value, both bool, col Column, class string) []cellView {
+	delta, err := diff(curr, base)
+	if !both || err != nil {
+		return []cellView{{Text: "—", Class: class}, {Text: "—", Class: class}}
+	}
+	d, pct, up := changeFull(base, delta, col)
+	cls := "pos"
+	if !up {
+		cls = "neg"
+	}
+	return []cellView{{Text: d, Class: strings.TrimSpace(cls + " " + class)}, {Text: pct, Class: strings.TrimSpace(cls + " " + class)}}
 }
 
 // pivotHeader adds the other dimensions' headers and the baseline,
@@ -221,15 +248,15 @@ func pivotPairs(cmp *Compare, r *Result, keyCols []int, ci, mi int) ([]string, m
 			pairs[key] = p
 			order = append(order, key)
 		}
-		val, ok := row[mi].(float64)
+		val, ok := row[mi].(Value)
 		if !ok {
 			continue
 		}
 		switch row[ci] {
 		case cmp.Baseline:
-			p.base, p.hasB = p.base+val, true
+			p.base = append(p.base, val)
 		case cmp.Current:
-			p.curr, p.hasC = p.curr+val, true
+			p.curr = append(p.curr, val)
 		}
 	}
 	sort.SliceStable(order, func(a, b int) bool {
@@ -251,45 +278,40 @@ func pivotRow(p *pivotPair, r *Result, keyCols []int, col Column) []cellView {
 	for i, k := range p.keys {
 		cells = append(cells, cellView{Text: dimText(k, r.Columns[keyCols[i]].Name)})
 	}
-	cells = append(cells, numCell(p.base, p.hasB, col), numCell(p.curr, p.hasC, col))
-	if p.hasB && p.hasC {
-		d, pct, up := changeFull(p.curr, p.base, col)
-		cls := "pos"
-		if !up {
-			cls = "neg"
-		}
-		return append(cells, cellView{Text: d, Class: cls}, cellView{Text: pct, Class: cls})
-	}
-	return append(cells, cellView{Text: "—"}, cellView{Text: "—"})
+	// A row has at most one value a side (result rows are unique per
+	// group), so its sides always add up.
+	base, curr, hasB, hasC, _ := p.sides()
+	cells = append(cells, numCell(base, hasB, col, ""), numCell(curr, hasC, col, ""))
+	return append(cells, changeCells(base, curr, hasB && hasC, col, "")...)
 }
 
-// pivotTotal renders the total row under the pivot.
-func pivotTotal(keyCols []int, totB, totC float64, col Column) []cellView {
-	cells := []cellView{{Text: "Total", Class: "total"}}
-	for range keyCols[1:] {
-		cells = append(cells, cellView{Class: "total"})
-	}
-	d, pct, up := changeFull(totC, totB, col)
-	cls := "pos total"
-	if !up {
-		cls = "neg total"
-	}
-	return append(cells, cellView{Text: formatFull(totB, col), Class: "total"}, cellView{Text: formatFull(totC, col), Class: "total"},
-		cellView{Text: d, Class: cls}, cellView{Text: pct, Class: cls})
-}
-
-func numCell(v float64, ok bool, c Column) cellView {
+// pivotTotal renders the total row under the pivot; ok is false when the
+// rows do not add up, as amounts in several currencies do not.
+func pivotTotal(keyCols []int, all *pivotPair, col Column) (row []cellView, ok bool) {
+	base, curr, hasB, hasC, ok := all.sides()
 	if !ok {
-		return cellView{Text: "—"}
+		return nil, false
 	}
-	return cellView{Text: formatFull(v, c)}
+	row = []cellView{{Text: "Total", Class: "total"}}
+	for range keyCols[1:] {
+		row = append(row, cellView{Class: "total"})
+	}
+	row = append(row, numCell(base, hasB, col, "total"), numCell(curr, hasC, col, "total"))
+	return append(row, changeCells(base, curr, hasB && hasC, col, "total")...), true
+}
+
+func numCell(v Value, ok bool, c Column, class string) cellView {
+	if !ok {
+		return cellView{Text: "—", Class: class}
+	}
+	return cellView{Text: formatFull(v, c), Class: class}
 }
 
 func cellText(v any, c Column) string {
 	switch x := v.(type) {
 	case string:
 		return dimText(x, c.Name)
-	case float64:
+	case Value:
 		return formatFull(x, c)
 	}
 	return "—"
@@ -329,7 +351,7 @@ const (
 // chartSVG draws a grouped bar or multi-line chart on one linear scale.
 func chartSVG(c Chart, r *Result) string {
 	col := r.Columns[r.col(c.Measure)]
-	xs, ss, vals := chartData(c, r)
+	xs, ss, vals, _ := chartData(c, r) // validated: every point adds up
 	if len(xs) == 0 {
 		return `<p class="muted">No data for this chart.</p>`
 	}
@@ -354,21 +376,23 @@ func chartSVG(c Chart, r *Result) string {
 }
 
 // chartData sums the measure per x value and series, both in natural
-// order; rows without a value are skipped.
-func chartData(c Chart, r *Result) (xs, ss []string, vals map[[2]string]float64) {
+// order; rows without a value are skipped. A point that would add amounts
+// in two currencies, or out of range, is an error: the spec validation
+// reports it, so the chart is broken down by company instead.
+func chartData(c Chart, r *Result) (xs, ss []string, vals map[[2]string]Value, err error) {
 	xi, mi := r.col(c.X), r.col(c.Measure)
 	si := -1
 	if c.Series != "" {
 		si = r.col(c.Series)
 	}
-	vals = map[[2]string]float64{}
+	points := map[[2]string][]Value{}
 	for _, row := range r.Rows {
 		x, _ := row[xi].(string)
 		s := ""
 		if si >= 0 {
 			s, _ = row[si].(string)
 		}
-		v, ok := row[mi].(float64)
+		v, ok := row[mi].(Value)
 		if !ok {
 			continue
 		}
@@ -378,11 +402,21 @@ func chartData(c Chart, r *Result) (xs, ss []string, vals map[[2]string]float64)
 		if !contains(ss, s) {
 			ss = append(ss, s)
 		}
-		vals[[2]string{x, s}] += v
+		points[[2]string{x, s}] = append(points[[2]string{x, s}], v)
 	}
 	sort.SliceStable(xs, func(a, b int) bool { return compareValues(xs[a], xs[b]) < 0 })
 	sort.SliceStable(ss, func(a, b int) bool { return compareValues(ss[a], ss[b]) < 0 })
-	return xs, ss, vals
+	vals = map[[2]string]Value{}
+	for _, x := range xs { // in order, so the error reported does not vary
+		for _, s := range ss {
+			if p, ok := points[[2]string{x, s}]; ok {
+				if vals[[2]string{x, s}], _, err = sumValues(p); err != nil {
+					return nil, nil, nil, fmt.Errorf("the point %q: %w; break the chart down by company", strings.TrimSpace(x+" "+s), err)
+				}
+			}
+		}
+	}
+	return xs, ss, vals, nil
 }
 
 // chartFrame is the value scale and the width of one x group.
@@ -392,10 +426,10 @@ type chartFrame struct {
 
 // newChartFrame picks a scale with about four nice steps that includes
 // zero and every value.
-func newChartFrame(vals map[[2]string]float64, groups int) chartFrame {
+func newChartFrame(vals map[[2]string]Value, groups int) chartFrame {
 	lo, hi := 0.0, 0.0
 	for _, v := range vals {
-		lo, hi = math.Min(lo, v), math.Max(hi, v)
+		lo, hi = math.Min(lo, v.float()), math.Max(hi, v.float())
 	}
 	step := niceStep((hi - lo) / 4)
 	if step == 0 {
@@ -436,7 +470,7 @@ func chartLegend(b *strings.Builder, c Chart, ss []string) {
 }
 
 // lines draws one polyline with point markers per series.
-func (fr chartFrame) lines(b *strings.Builder, xs, ss []string, vals map[[2]string]float64) {
+func (fr chartFrame) lines(b *strings.Builder, xs, ss []string, vals map[[2]string]Value) {
 	for si, s := range ss {
 		var pts []string
 		for i, x := range xs {
@@ -444,7 +478,7 @@ func (fr chartFrame) lines(b *strings.Builder, xs, ss []string, vals map[[2]stri
 			if !ok {
 				continue
 			}
-			pts = append(pts, fmt.Sprintf("%.1f,%.1f", chartLeft+fr.gw*float64(i)+fr.gw/2, fr.y(v)))
+			pts = append(pts, fmt.Sprintf("%.1f,%.1f", chartLeft+fr.gw*float64(i)+fr.gw/2, fr.y(v.float())))
 		}
 		color := seriesColors[si%len(seriesColors)]
 		fmt.Fprintf(b, `<polyline fill="none" stroke-width="2.5" style="stroke:%s" points="%s"/>`, color, strings.Join(pts, " "))
@@ -456,7 +490,7 @@ func (fr chartFrame) lines(b *strings.Builder, xs, ss []string, vals map[[2]stri
 }
 
 // bars draws one bar per series side by side in each x group, from zero.
-func (fr chartFrame) bars(b *strings.Builder, c Chart, col Column, xs, ss []string, vals map[[2]string]float64) {
+func (fr chartFrame) bars(b *strings.Builder, c Chart, col Column, xs, ss []string, vals map[[2]string]Value) {
 	n := float64(len(ss))
 	bw := math.Min(28, (fr.gw*0.8)/n)
 	for i, x := range xs {
@@ -466,7 +500,7 @@ func (fr chartFrame) bars(b *strings.Builder, c Chart, col Column, xs, ss []stri
 			if !ok {
 				continue
 			}
-			y0, y1 := fr.y(math.Max(v, 0)), fr.y(math.Min(v, 0))
+			y0, y1 := fr.y(math.Max(v.float(), 0)), fr.y(math.Min(v.float(), 0))
 			fmt.Fprintf(b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" style="fill:%s"><title>%s %s: %s</title></rect>`,
 				start+bw*float64(si)+1, y0, bw-2, math.Max(y1-y0, 0.5), seriesColors[si%len(seriesColors)],
 				template.HTMLEscapeString(dimText(x, c.X)), template.HTMLEscapeString(dimText(s, c.Series)), formatFull(v, col))
@@ -505,6 +539,131 @@ func axisLabel(v float64, c Column) string {
 	return fmt.Sprintf("%s%g", sign, av)
 }
 
+// round rounds a scale label to places decimals; the figures themselves
+// are Values, never rounded through a float.
+func round(v float64, places int) float64 {
+	p := math.Pow(10, float64(places))
+	return math.Round(v*p) / p
+}
+
+// float is a value for drawing and for percentages of change: never for a
+// figure shown as an amount, which is rendered from its exact digits.
+func (v Value) float() float64 {
+	f, _ := strconv.ParseFloat(v.String(), 64) // a plain decimal of an int64 always parses
+	return f
+}
+
+// formatValue renders a measure compactly, for tiles: an amount below
+// 10,000 in full with its currency's digits ("BHD 1,234.567", "JPY
+// 5,000"), larger ones in thousands, millions or billions.
+func formatValue(v Value, c Column) string {
+	switch c.Type {
+	case Ratio:
+		return fmt.Sprintf("%.1f%%", v.float()*100)
+	case Count:
+		return v.Units.Format(v.Scale)
+	case Money: // with the currency's symbol, below
+	}
+	prefix := currencySymbol(v.Currency)
+	av := math.Abs(v.float())
+	sign := ""
+	if v.Units < 0 {
+		sign = "−"
+	}
+	switch {
+	case av >= 1e9:
+		return fmt.Sprintf("%s%s%.2fB", sign, prefix, av/1e9)
+	case av >= 1e6:
+		return fmt.Sprintf("%s%s%.2fM", sign, prefix, av/1e6)
+	case av >= 1e4:
+		return fmt.Sprintf("%s%s%sK", sign, prefix, groupThousands(fmt.Sprintf("%.1f", av/1e3)))
+	}
+	return sign + prefix + v.Units.Abs().Format(v.Scale)
+}
+
+// formatFull renders a measure with all its digits, for tables.
+func formatFull(v Value, c Column) string {
+	if c.Type == Ratio {
+		return fmt.Sprintf("%.1f%%", v.float()*100)
+	}
+	s := v.Units.Abs().Format(v.Scale)
+	if v.Units < 0 {
+		return "−" + s
+	}
+	return s
+}
+
+func currencySymbol(cur string) string {
+	switch cur {
+	case "USD":
+		return "$"
+	case "EUR":
+		return "€"
+	case "GBP":
+		return "£"
+	case "":
+		return ""
+	}
+	return cur + " "
+}
+
+func groupThousands(s string) string {
+	intPart, frac, hasFrac := strings.Cut(s, ".")
+	neg := strings.HasPrefix(intPart, "-")
+	intPart = strings.TrimPrefix(intPart, "-")
+	var b strings.Builder
+	for i, r := range intPart {
+		if i > 0 && (len(intPart)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(r)
+	}
+	out := b.String()
+	if hasFrac {
+		out += "." + frac
+	}
+	if neg {
+		out = "-" + out
+	}
+	return out
+}
+
+// change describes the change delta from base, for tiles: compact, with
+// the percentage of the baseline.
+func change(base, delta Value, c Column) (text string, pct string, up bool) {
+	up = delta.Units >= 0
+	if c.Type == Ratio {
+		return fmt.Sprintf("%+.1f pts", delta.float()*100), "", up
+	}
+	sign := "+"
+	if delta.Units < 0 {
+		sign = "−"
+	}
+	text = sign + formatValue(delta.abs(), c)
+	if base.Units != 0 {
+		p := delta.float() / math.Abs(base.float()) * 100
+		ps := "+"
+		if p < 0 {
+			ps = "−"
+		}
+		pct = fmt.Sprintf("%s%.1f%%", ps, math.Abs(p))
+	}
+	return text, pct, up
+}
+
+// changeFull is change with the delta written in full, for tables.
+func changeFull(base, delta Value, c Column) (text string, pct string, up bool) {
+	text, pct, up = change(base, delta, c)
+	if c.Type == Ratio {
+		return text, pct, up
+	}
+	sign := "+"
+	if delta.Units < 0 {
+		sign = "−"
+	}
+	return sign + formatFull(delta.abs(), c), pct, up
+}
+
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
@@ -539,8 +698,8 @@ func WriteCSV(w io.Writer, r *Result) error {
 			switch x := v.(type) {
 			case string:
 				rec[i] = x
-			case float64:
-				rec[i] = fmt.Sprintf("%g", x)
+			case Value:
+				rec[i] = x.String() // exact, with the value's own digits
 			}
 		}
 		if err := cw.Write(rec); err != nil {

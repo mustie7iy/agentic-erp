@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,7 +39,7 @@ func twoYears(t *testing.T) *Facts {
 	t.Helper()
 	fixtureOnce.Do(func() {
 		m, _ := DefaultModel()
-		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, AsOf: time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC)}
+		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{"USD": 2, "EUR": 2}, AsOf: time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC)}
 		ledgerRevenue = map[string]int64{}
 		types := func(number string) string {
 			switch number[0] {
@@ -175,8 +176,8 @@ func TestRevenueMatchesLedger(t *testing.T) {
 		t.Fatalf("want 2 years, got %v", r.Rows)
 	}
 	for _, row := range r.Rows {
-		year, got := row[0].(string), row[1].(float64)
-		if want := float64(ledger[year]) / 100; got != want {
+		year, got := row[0].(string), row[1].(Value)
+		if want := (Value{Units: money.Minor(ledger[year]), Scale: 2, Currency: "USD"}); got != want {
 			t.Errorf("%s revenue %v, ledger says %v", year, got, want)
 		}
 	}
@@ -201,7 +202,7 @@ func TestFiltersOrderingAndLimit(t *testing.T) {
 	if len(r.Rows) != 2 {
 		t.Fatalf("rows: got %d %v, want the top 2", len(r.Rows), r.Rows)
 	}
-	if first, second := r.Rows[0][2].(float64), r.Rows[1][2].(float64); first < second {
+	if first, second := r.Rows[0][2].(Value), r.Rows[1][2].(Value); first.compare(second) < 0 {
 		t.Errorf("order: got %v before %v, want revenue descending", first, second)
 	}
 	for _, row := range r.Rows {
@@ -263,7 +264,7 @@ func TestAggregateOutOfRange(t *testing.T) {
 	}
 	const big = money.Minor(5_000_000_000_000_000_000)
 	facts := func(amounts ...money.Minor) *Facts {
-		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{"1000": "EUR"}}
+		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{"1000": "EUR"}, Exponents: map[string]int{"EUR": 2}}
 		for i, a := range amounts {
 			f.Tables["ap_invoices"] = append(f.Tables["ap_invoices"], Fact{ID: strconv.Itoa(i), Amount: a, Currency: "EUR",
 				Dims: map[string]string{"company": "1000", "fiscal_year": "2026"}})
@@ -301,7 +302,7 @@ func TestAggregateOutOfRange(t *testing.T) {
 		if err != nil {
 			t.Fatalf("got %v, want the total", err)
 		}
-		if got, want := res.Rows[0][1], float64(big)/100; got != want {
+		if got, want := res.Rows[0][1], (Value{Units: big, Scale: 2, Currency: "EUR"}); got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})
@@ -314,12 +315,13 @@ func TestDerivedMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, row := range r.Rows {
-		rev, exp, op, margin := row[1].(float64), row[2].(float64), row[3].(float64), row[4].(float64)
-		if want := round(rev-exp, 2); op != want {
-			t.Errorf("row %v: got operating profit %v, want %v", row, op, want)
+		rev, exp, op, margin := row[1].(Value), row[2].(Value), row[3].(Value), row[4].(Value)
+		if want, err := diff(rev, exp); err != nil || op != want {
+			t.Errorf("row %v: got operating profit %v, want %v (%v)", row, op, want, err)
 		}
-		if want := round(op/rev, 4); margin != want {
-			t.Errorf("row %v: got operating margin %v, want %v", row, margin, want)
+		units, err := money.Round(big.NewRat(int64(op.Units), int64(rev.Units)), ratioScale)
+		if want := (Value{Units: units, Scale: ratioScale}); err != nil || margin != want {
+			t.Errorf("row %v: got operating margin %v, want %v (%v)", row, margin, want, err)
 		}
 	}
 }
@@ -329,8 +331,8 @@ func TestNarrativeCheck(t *testing.T) {
 		Columns: []Column{{Name: "fiscal_year", Kind: "dimension"}, {Name: "fiscal_month", Kind: "dimension"},
 			{Name: "revenue", Kind: "measure", Type: Money}, {Name: "margin", Kind: "measure", Type: Ratio}},
 		Rows: []Row{
-			{"2025", "1", 2410000.0, 0.371}, {"2025", "2", 2280000.0, 0.36},
-			{"2026", "1", 2580000.0, 0.384}, {"2026", "2", 2390000.0, 0.39},
+			{"2025", "1", usd("2410000.00"), ratio("0.371")}, {"2025", "2", usd("2280000.00"), ratio("0.36")},
+			{"2026", "1", usd("2580000.00"), ratio("0.384")}, {"2026", "2", usd("2390000.00"), ratio("0.39")},
 		},
 	}
 	ok := []string{

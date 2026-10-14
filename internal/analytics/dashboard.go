@@ -2,7 +2,6 @@ package analytics
 
 import (
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 )
@@ -111,18 +110,29 @@ func (v *specValidator) tile(i int, t Tile) {
 		v.bad("%s: measure %q is not in query %s", where, t.Measure, t.QueryID)
 		return
 	}
-	if _, n, err := r.sum(t.Measure, t.Where); err != nil {
-		v.bad("%s: %v", where, err)
-	} else if n == 0 {
-		v.bad("%s: no rows match %v", where, t.Where)
+	cur, okC := v.tileSum(where, "", "where", r, t.Measure, t.Where)
+	if t.CompareWhere == nil {
+		return
 	}
-	if t.CompareWhere != nil {
-		if _, n, err := r.sum(t.Measure, t.CompareWhere); err != nil {
-			v.bad("%s compare: %v", where, err)
-		} else if n == 0 {
-			v.bad("%s: no rows match compare_where %v", where, t.CompareWhere)
-		}
+	base, okB := v.tileSum(where, " compare", "compare_where", r, t.Measure, t.CompareWhere)
+	if _, err := diff(cur, base); okC && okB && err != nil {
+		v.bad("%s compare: %v", where, err) // e.g. the baseline is in another currency
 	}
+}
+
+// tileSum sums a tile's measure over the rows matching filter, reporting a
+// failed sum or one of no rows.
+func (v *specValidator) tileSum(where, side, field string, r *Result, measure string, filter map[string]string) (Value, bool) {
+	total, n, err := r.sum(measure, filter)
+	switch {
+	case err != nil:
+		v.bad("%s%s: %v", where, side, err)
+	case n == 0 && field == "where":
+		v.bad("%s: no rows match %v", where, filter)
+	case n == 0:
+		v.bad("%s: no rows match %s %v", where, field, filter)
+	}
+	return total, err == nil && n > 0
 }
 
 func (v *specValidator) chart(i int, c Chart) {
@@ -134,6 +144,7 @@ func (v *specValidator) chart(i int, c Chart) {
 	if c.Type != "bar" && c.Type != "line" {
 		v.bad("%s: type must be bar or line", where)
 	}
+	n := len(v.problems)
 	if !r.hasColumn(c.X, "dimension") {
 		v.bad("%s: x %q is not a dimension of query %s", where, c.X, c.QueryID)
 	}
@@ -142,6 +153,12 @@ func (v *specValidator) chart(i int, c Chart) {
 	}
 	if !r.hasColumn(c.Measure, "measure") {
 		v.bad("%s: measure %q is not in query %s", where, c.Measure, c.QueryID)
+	}
+	if len(v.problems) > n {
+		return
+	}
+	if _, _, _, err := chartData(c, r); err != nil {
+		v.bad("%s: %v", where, err) // a point adds amounts in two currencies
 	}
 }
 
@@ -183,54 +200,32 @@ func (r *Result) hasColumn(name, kind string) bool {
 }
 
 // sum adds a measure over rows whose dimensions match every where entry.
-func (r *Result) sum(measure string, where map[string]string) (float64, int, error) {
+func (r *Result) sum(measure string, where map[string]string) (Value, int, error) {
 	mi := r.col(measure)
 	if mi < 0 {
-		return 0, 0, fmt.Errorf("measure %q not in result", measure)
+		return Value{}, 0, fmt.Errorf("measure %q not in result", measure)
 	}
 	for d := range where {
 		if i := r.col(d); i < 0 || r.Columns[i].Kind != "dimension" {
-			return 0, 0, fmt.Errorf("where uses %q, which is not a dimension of this query", d)
+			return Value{}, 0, fmt.Errorf("where uses %q, which is not a dimension of this query", d)
 		}
 	}
-	if r.Columns[mi].Type == Ratio {
-		return r.ratioValue(measure, mi, where)
-	}
-	total, n := r.total(mi, where)
-	return total, n, nil
-}
-
-// ratioValue reads a ratio from the one matching row: ratios do not add up.
-func (r *Result) ratioValue(measure string, mi int, where map[string]string) (float64, int, error) {
-	var val float64
-	n := 0
+	var vals []Value
 	for _, row := range r.Rows {
-		if rowMatches(r, row, where) {
-			if v, ok := row[mi].(float64); ok {
-				val, n = v, n+1
-			}
+		if v, ok := row[mi].(Value); ok && rowMatches(r, row, where) {
+			vals = append(vals, v)
 		}
 	}
-	if n > 1 {
-		return 0, n, fmt.Errorf("ratio %s matches %d rows; narrow where to one row", measure, n)
+	if len(vals) > 1 && r.Columns[mi].Type == Ratio {
+		return Value{}, len(vals), fmt.Errorf("ratio %s matches %d rows; narrow where to one row", measure, len(vals))
 	}
-	return val, n, nil
-}
-
-// total adds the measure over the matching rows that have a value.
-func (r *Result) total(mi int, where map[string]string) (float64, int) {
-	var total float64
-	n := 0
-	for _, row := range r.Rows {
-		if !rowMatches(r, row, where) {
-			continue
-		}
-		if v, ok := row[mi].(float64); ok {
-			total += v
-			n++
-		}
+	// Exact, in the amounts' own digits: a BHD total keeps its third
+	// decimal, and amounts in two currencies are refused, not added.
+	total, _, err := sumValues(vals)
+	if err != nil {
+		return Value{}, len(vals), fmt.Errorf("%s: %w; narrow where to one company", measure, err)
 	}
-	return round(total, 2), n
+	return total, len(vals), nil
 }
 
 func rowMatches(r *Result, row Row, where map[string]string) bool {
@@ -240,118 +235,4 @@ func rowMatches(r *Result, row Row, where map[string]string) bool {
 		}
 	}
 	return true
-}
-
-// formatValue renders a measure for display.
-func formatValue(v float64, c Column) string {
-	switch c.Type {
-	case Ratio:
-		return fmt.Sprintf("%.1f%%", v*100)
-	case Count:
-		return groupThousands(fmt.Sprintf("%.0f", v))
-	case Money: // with the currency's symbol, below
-	}
-	prefix := currencySymbol(c.Currency)
-	av := math.Abs(v)
-	sign := ""
-	if v < 0 {
-		sign = "−"
-	}
-	switch {
-	case av >= 1e9:
-		return fmt.Sprintf("%s%s%.2fB", sign, prefix, av/1e9)
-	case av >= 1e6:
-		return fmt.Sprintf("%s%s%.2fM", sign, prefix, av/1e6)
-	case av >= 1e4:
-		return fmt.Sprintf("%s%s%sK", sign, prefix, groupThousands(fmt.Sprintf("%.1f", av/1e3)))
-	}
-	return sign + prefix + groupThousands(fmt.Sprintf("%.2f", av))
-}
-
-// formatFull renders an amount with all digits, for tables.
-func formatFull(v float64, c Column) string {
-	switch c.Type {
-	case Ratio:
-		return fmt.Sprintf("%.1f%%", v*100)
-	case Count:
-		return groupThousands(fmt.Sprintf("%.0f", v))
-	case Money: // with the currency's symbol, below
-	}
-	s := groupThousands(fmt.Sprintf("%.2f", math.Abs(v)))
-	if v < 0 {
-		return "−" + s
-	}
-	return s
-}
-
-func currencySymbol(cur string) string {
-	switch cur {
-	case "USD":
-		return "$"
-	case "EUR":
-		return "€"
-	case "GBP":
-		return "£"
-	case "":
-		return ""
-	}
-	return cur + " "
-}
-
-func groupThousands(s string) string {
-	intPart, frac, hasFrac := strings.Cut(s, ".")
-	neg := strings.HasPrefix(intPart, "-")
-	intPart = strings.TrimPrefix(intPart, "-")
-	var b strings.Builder
-	for i, r := range intPart {
-		if i > 0 && (len(intPart)-i)%3 == 0 {
-			b.WriteByte(',')
-		}
-		b.WriteRune(r)
-	}
-	out := b.String()
-	if hasFrac {
-		out += "." + frac
-	}
-	if neg {
-		out = "-" + out
-	}
-	return out
-}
-
-// change describes current vs baseline for tiles and tables.
-func change(cur, base float64, c Column) (delta string, pct string, up bool) {
-	d := cur - base
-	up = d >= 0
-	if c.Type == Ratio {
-		return fmt.Sprintf("%+.1f pts", d*100), "", up
-	}
-	sign := "+"
-	if d < 0 {
-		sign = "−"
-	}
-	delta = sign + strings.TrimPrefix(formatValue(math.Abs(d), c), "−")
-	if base != 0 {
-		p := d / math.Abs(base) * 100
-		ps := "+"
-		if p < 0 {
-			ps = "−"
-		}
-		pct = fmt.Sprintf("%s%.1f%%", ps, math.Abs(p))
-	}
-	return delta, pct, up
-}
-
-// changeFull is change with the delta written in full, for tables.
-func changeFull(cur, base float64, c Column) (delta string, pct string, up bool) {
-	_, pct, up = change(cur, base, c)
-	if c.Type == Ratio {
-		delta, _, _ = change(cur, base, c)
-		return delta, pct, up
-	}
-	sign := "+"
-	if cur-base < 0 {
-		sign = "−"
-	}
-	return sign + formatFull(math.Abs(cur-base), c), pct, up
 }

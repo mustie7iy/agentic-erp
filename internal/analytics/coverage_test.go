@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -191,11 +192,11 @@ func fixtureResult() *Result {
 			{Name: "orders", Label: "Orders", Kind: "measure", Type: Count},
 		},
 		Rows: []Row{
-			{"2025", "1", 1000.0, 0.20, 3.0},
-			{"2025", "2", 2000.0, 0.25, 4.0},
-			{"2026", "1", 1500.0, 0.30, 5.0},
-			{"2026", "2", -500.0, nil, 1.0},
-			{"2026", "3", nil, 0.10, 2.0},
+			{"2025", "1", usd("1000.00"), ratio("0.20"), count(3)},
+			{"2025", "2", usd("2000.00"), ratio("0.25"), count(4)},
+			{"2026", "1", usd("1500.00"), ratio("0.30"), count(5)},
+			{"2026", "2", usd("-500.00"), nil, count(1)},
+			{"2026", "3", nil, ratio("0.10"), count(2)},
 		},
 	}
 }
@@ -249,8 +250,9 @@ func TestValidateCommentaryIsDeterministic(t *testing.T) {
 		r := fixtureResult()
 		r.ID = id
 		for _, row := range r.Rows {
-			if v, ok := row[2].(float64); ok {
-				row[2] = v + float64(i)*10000
+			if v, ok := row[2].(Value); ok {
+				v.Units += money.Minor(i) * 1_000_000
+				row[2] = v
 			}
 		}
 		results[id] = r
@@ -278,7 +280,7 @@ func TestSum(t *testing.T) {
 	if n != 2 {
 		t.Errorf("money sum skips nil values: got %d rows, want 2", n)
 	}
-	if v != 1000 {
+	if v != usd("1000.00") {
 		t.Errorf("money sum: got %v, want 1000", v)
 	}
 	v, n, err = r.sum("margin", map[string]string{"fiscal_year": "2025", "fiscal_month": "2"})
@@ -288,7 +290,7 @@ func TestSum(t *testing.T) {
 	if n != 1 {
 		t.Errorf("single-row ratio: got %d rows, want 1", n)
 	}
-	if v != 0.25 {
+	if v != ratio("0.25") {
 		t.Errorf("single-row ratio: got %v, want 0.25", v)
 	}
 	_, n, err = r.sum("margin", map[string]string{"fiscal_year": "2025"})
@@ -304,79 +306,6 @@ func TestSum(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("a nil ratio counts as no row: got %d rows, want 0", n)
-	}
-}
-
-func TestFormatting(t *testing.T) {
-	money := Column{Type: Money, Currency: "USD"}
-	cases := []struct {
-		got, want string
-	}{
-		{formatValue(0.256, Column{Type: Ratio}), "25.6%"},
-		{formatValue(12345, Column{Type: Count}), "12,345"},
-		{formatValue(2.5e9, money), "$2.50B"},
-		{formatValue(-3.25e6, money), "−$3.25M"},
-		{formatValue(45_600, money), "$45.6K"},
-		{formatValue(-1234.5, money), "−$1,234.50"},
-		{formatValue(10, Column{Type: Money, Currency: "EUR"}), "€10.00"},
-		{formatValue(10, Column{Type: Money, Currency: "GBP"}), "£10.00"},
-		{formatValue(10, Column{Type: Money}), "10.00"},
-		{formatValue(10, Column{Type: Money, Currency: "CHF"}), "CHF 10.00"},
-		{formatFull(0.5, Column{Type: Ratio}), "50.0%"},
-		{formatFull(1234, Column{Type: Count}), "1,234"},
-		{formatFull(-1234567.891, money), "−1,234,567.89"},
-		{formatFull(12, money), "12.00"},
-		{groupThousands("-1234567"), "-1,234,567"},
-		{groupThousands("12"), "12"},
-	}
-	for _, c := range cases {
-		t.Run(c.want, func(t *testing.T) {
-			if c.got != c.want {
-				t.Errorf("got %q, want %q", c.got, c.want)
-			}
-		})
-	}
-	for _, c := range []struct {
-		name       string
-		cur, prev  float64
-		col        Column
-		delta, pct string
-		up         bool
-	}{
-		{"change up", 110, 100, money, "+$10.00", "+10.0%", true},
-		{"change down", 90, 100, money, "−$10.00", "−10.0%", false},
-		{"ratio change", 0.3, 0.25, Column{Type: Ratio}, "+5.0 pts", "", true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			d, p, up := change(c.cur, c.prev, c.col)
-			if d != c.delta {
-				t.Errorf("delta: got %s, want %s", d, c.delta)
-			}
-			if p != c.pct {
-				t.Errorf("percent: got %q, want %q", p, c.pct)
-			}
-			if up != c.up {
-				t.Errorf("up: got %v, want %v", up, c.up)
-			}
-		})
-	}
-	if d, p, _ := change(5, 0, money); d != "+$5.00" {
-		t.Errorf("change from zero: got %s, want +$5.00", d)
-	} else if p != "" {
-		t.Errorf("no percent from zero: got %q, want none", p)
-	}
-	d, _, up := changeFull(90_000, 100_000, money)
-	if d != "−10,000.00" {
-		t.Errorf("full change down: got %s, want −10,000.00", d)
-	}
-	if up {
-		t.Error("full change down: got up, want down")
-	}
-	if d, _, _ := changeFull(100_500, 100_000, money); d != "+500.00" {
-		t.Errorf("full change up: %s", d)
-	}
-	if d, _, _ := changeFull(0.2, 0.3, Column{Type: Ratio}); d != "-10.0 pts" {
-		t.Errorf("full ratio change: %s", d)
 	}
 }
 
@@ -420,12 +349,12 @@ func TestQueryOperatorsAndBranches(t *testing.T) {
 	}
 	// Ascending order.
 	asc := run(Query{Measures: []string{"revenue"}, By: []string{"fiscal_month"}, Where: []Filter{{"fiscal_year", "in", []string{"2025"}}}, OrderBy: "revenue"})
-	if asc.Rows[0][1].(float64) > asc.Rows[1][1].(float64) {
+	if asc.Rows[0][1].(Value).compare(asc.Rows[1][1].(Value)) > 0 {
 		t.Fatal("ascending order")
 	}
 	// Distinct counts and derived metrics with missing inputs.
 	cnt := run(Query{Measures: []string{"invoice_count", "purchase_order_count"}, By: []string{"fiscal_year"}})
-	if cnt.Rows[0][1].(float64) == 0 {
+	if cnt.Rows[0][1].(Value).Units == 0 {
 		t.Fatal("count_distinct")
 	}
 	margin := run(Query{Measures: []string{"operating_margin", "operating_profit"}, By: []string{"fiscal_year", "fiscal_month", "document_type"}})
@@ -473,9 +402,10 @@ func TestComparisonHelpers(t *testing.T) {
 		a, b any
 		want int
 	}{
-		{1.0, 2.0, -1}, {2.0, 1.0, 1}, {1.0, 1.0, 0}, {1.0, nil, 1}, {1.0, "x", 1},
+		{usd("1.00"), usd("2.00"), -1}, {usd("2.00"), usd("1.00"), 1}, {usd("1.00"), usd("1.00"), 0}, {usd("1.00"), nil, 1}, {usd("1.00"), "x", 1},
+		{amt("BHD", "1.000"), usd("1.00"), 0}, {usd("0.99"), amt("BHD", "0.995"), -1}, {amt("JPY", "1"), usd("0.99"), 1},
 		{"2", "10", -1}, {"b", nil, 1},
-		{nil, nil, 0}, {nil, 1.0, -1},
+		{nil, nil, 0}, {nil, usd("1.00"), -1},
 	}
 	for _, c := range cases {
 		t.Run(fmt.Sprintf("compareCells(%v,%v)", c.a, c.b), func(t *testing.T) {
@@ -489,13 +419,6 @@ func TestComparisonHelpers(t *testing.T) {
 		if got := m.dimLabel(dim); got != want {
 			t.Errorf("dimLabel(%s): got %q, want %q", dim, got, want)
 		}
-	}
-	for cur, want := range map[string]int{"JPY": 0, "KWD": 3, "USD": 2} {
-		t.Run("currencyDecimals("+cur+")", func(t *testing.T) {
-			if got := currencyDecimals(cur); got != want {
-				t.Errorf("got %d, want %d", got, want)
-			}
-		})
 	}
 	for _, c := range []struct {
 		a, b []string
@@ -512,14 +435,14 @@ func TestZeroDecimalCurrency(t *testing.T) {
 	dims := func(typ string) map[string]string {
 		return map[string]string{"company": "3000", "account_type": typ, "fiscal_year": "2026", "fiscal_month": "1", "posting_date": "2026-01-05"}
 	}
-	f := &Facts{Companies: map[string]string{"3000": "JPY"}, Tables: map[string][]Fact{"gl_lines": {
+	f := &Facts{Companies: map[string]string{"3000": "JPY"}, Exponents: map[string]int{"JPY": 0}, Tables: map[string][]Fact{"gl_lines": {
 		{ID: "J1", Dims: dims("asset"), Amount: 5000, Currency: "JPY"}, {ID: "J1", Dims: dims("revenue"), Amount: -5000, Currency: "JPY"}}}}
 	m, _ := DefaultModel()
 	r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"revenue"}})
 	if err != nil {
 		t.Fatalf("JPY revenue: %v", err)
 	}
-	if got := r.Rows[0][0].(float64); got != 5000 {
+	if got := r.Rows[0][0]; got != amt("JPY", "5000") {
 		t.Errorf("JPY revenue: got %v, want 5000", got)
 	}
 	if r.Columns[0].Currency != "JPY" {
@@ -547,7 +470,7 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 	fact := func(id, company, cur string) Fact {
 		return Fact{ID: id, Dims: map[string]string{"company": company}, Amount: 500, Currency: cur}
 	}
-	f := &Facts{Tables: map[string][]Fact{"t": {fact("A", "3000", "JPY"), fact("B", "1000", "USD")}}}
+	f := &Facts{Exponents: map[string]int{"JPY": 0, "USD": 2}, Tables: map[string][]Fact{"t": {fact("A", "3000", "JPY"), fact("B", "1000", "USD")}}}
 	for i := range 50 {
 		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"units"}})
 		if err == nil {
@@ -562,7 +485,7 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := r.Rows[0][0], 2.0; got != want {
+		if got, want := r.Rows[0][0], count(2); got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})
@@ -573,7 +496,7 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := r.Rows[0][0], 1.0; got != want {
+		if got, want := r.Rows[0][0], ratio("1"); got != want {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})
@@ -595,7 +518,7 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 		if got, want := r.Columns[0].Currency, "USD"; got != want {
 			t.Errorf("currency: got %q, want %q", got, want)
 		}
-		if got, want := r.Rows[0][0], 2.5; got != want { // USD 5.00 over 2 documents
+		if got, want := r.Rows[0][0], usd("2.50"); got != want { // USD 5.00 over 2 documents
 			t.Errorf("value: got %v, want %v", got, want)
 		}
 	})
@@ -604,10 +527,10 @@ func TestCountSumRefusesMixedCurrencies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := r.Rows[0][1], 5.0; got != want { // USD 500 minor units
+		if got, want := r.Rows[0][1], usd("5.00"); got != want { // USD 500 minor units
 			t.Errorf("company 1000: got %v, want %v", got, want)
 		}
-		if got, want := r.Rows[1][1], 500.0; got != want { // JPY has no minor unit
+		if got, want := r.Rows[1][1], amt("JPY", "500"); got != want { // JPY has no minor unit
 			t.Errorf("company 3000: got %v, want %v", got, want)
 		}
 	})
@@ -657,8 +580,8 @@ func TestRenderingBranches(t *testing.T) {
 	// Totals turn negative when the current year is lower overall; two key columns.
 	down := &Result{Columns: []Column{{Name: "company", Kind: "dimension"}, {Name: "region", Kind: "dimension"}, {Name: "fiscal_year", Kind: "dimension"},
 		{Name: "v", Kind: "measure", Type: Money}},
-		Rows: []Row{{"1000", "a", "2025", 100.0}, {"1000", "a", "2026", 50.0}, {"1000", "b", "2025", 100.0}, {"1000", "b", "2026", 60.0},
-			{"1000", "01", "2025", 1.0}, {"1000", "1", "2025", 1.0}}}
+		Rows: []Row{{"1000", "a", "2025", usd("100.00")}, {"1000", "a", "2026", usd("50.00")}, {"1000", "b", "2025", usd("100.00")}, {"1000", "b", "2026", usd("60.00")},
+			{"1000", "01", "2025", usd("1.00")}, {"1000", "1", "2025", usd("1.00")}}}
 	tot := tableView(Table{Compare: &Compare{Dim: "fiscal_year", Baseline: "2025", Current: "2026", Measure: "v"}}, down)
 	last := tot.Rows[len(tot.Rows)-1]
 	if len(last) != 6 {
@@ -670,7 +593,7 @@ func TestRenderingBranches(t *testing.T) {
 	if !strings.Contains(last[4].Class, "neg") {
 		t.Errorf("total row change class: got %q, want neg", last[4].Class)
 	}
-	for name, got := range map[string]string{"numCell(0, false)": numCell(0, false, Column{}).Text, "cellText(nil)": cellText(nil, Column{}),
+	for name, got := range map[string]string{"numCell(0, false)": numCell(Value{}, false, Column{}, "").Text, "cellText(nil)": cellText(nil, Column{}),
 		"cellText(true)": cellText(true, Column{})} {
 		if got != "—" {
 			t.Errorf("%s: got %q, want —", name, got)
@@ -695,7 +618,7 @@ func TestRenderingBranches(t *testing.T) {
 	if !strings.Contains(chartSVG(Chart{X: "fiscal_month", Measure: "revenue"}, &Result{Columns: r.Columns}), "No data") {
 		t.Fatal("empty chart")
 	}
-	zero := &Result{Columns: []Column{{Name: "x", Kind: "dimension"}, {Name: "v", Kind: "measure", Type: Ratio}}, Rows: []Row{{"a", 0.0}}}
+	zero := &Result{Columns: []Column{{Name: "x", Kind: "dimension"}, {Name: "v", Kind: "measure", Type: Ratio}}, Rows: []Row{{"a", ratio("0")}}}
 	if !strings.Contains(chartSVG(Chart{Type: "bar", X: "x", Measure: "v"}, zero), "<svg") {
 		t.Fatal("all-zero chart")
 	}
@@ -736,8 +659,8 @@ func TestWriteCSV(t *testing.T) {
 	if lines[0] != "fiscal_year,fiscal_month,revenue,margin,orders" {
 		t.Errorf("csv header: got %q, want fiscal_year,fiscal_month,revenue,margin,orders", lines[0])
 	}
-	if lines[4] != "2026,2,-500,,1" {
-		t.Errorf("csv line 5: got %q, want 2026,2,-500,,1", lines[4])
+	if lines[4] != "2026,2,-500.00,,1" {
+		t.Errorf("csv line 5: got %q, want 2026,2,-500.00,,1", lines[4])
 	}
 	if err := WriteCSV(failWriter{}, r); err == nil {
 		t.Fatal("flush error must be returned")
@@ -804,7 +727,7 @@ func TestSessionErrorPaths(t *testing.T) {
 // A series without a value for some x leaves a gap in both chart types.
 func TestChartGaps(t *testing.T) {
 	r := &Result{Columns: []Column{{Name: "m", Kind: "dimension"}, {Name: "y", Kind: "dimension"}, {Name: "v", Kind: "measure", Type: Money}},
-		Rows: []Row{{"1", "2025", 10.0}, {"2", "2025", 12.0}, {"1", "2026", 11.0}}}
+		Rows: []Row{{"1", "2025", usd("10.00")}, {"2", "2025", usd("12.00")}, {"1", "2026", usd("11.00")}}}
 	for _, typ := range []string{"line", "bar"} {
 		t.Run(typ, func(t *testing.T) {
 			svg := chartSVG(Chart{Type: typ, X: "m", Series: "y", Measure: "v"}, r)

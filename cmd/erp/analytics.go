@@ -236,11 +236,9 @@ func printResult(tw *tabwriter.Writer, r *analytics.Result) {
 	fmt.Fprintln(tw)
 	for _, row := range r.Rows {
 		for _, v := range row {
-			switch x := v.(type) {
-			case string:
-				fmt.Fprintf(tw, "%s\t", x)
-			case float64: //nolint:forbidigo // analytics results carry measures as float64 for display (internal/analytics is exempt); this only prints them
-				fmt.Fprintf(tw, "%.2f\t", x)
+			switch v.(type) {
+			case string, analytics.Value: // a Value prints exactly, with its own digits
+				fmt.Fprintf(tw, "%s\t", v)
 			default:
 				fmt.Fprint(tw, "—\t")
 			}

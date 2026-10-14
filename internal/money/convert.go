@@ -53,6 +53,18 @@ func Scale(amount Minor, factor string, divisor int64) (Minor, error) {
 	return fromBig(roundHalfAway(v.Quo(v, new(big.Rat).SetInt64(divisor))))
 }
 
+// Round returns a rational number of major units in minor units with exp
+// digits, rounding half away from zero: a quotient of amounts, or a ratio
+// kept to a fixed number of digits, without a float in between. A result
+// out of range is ErrOverflow.
+func Round(major *big.Rat, exp int) (Minor, error) {
+	if exp < 0 || exp > maxExp {
+		return 0, fmt.Errorf("money: round to exponent %d: exponents are 0 to %d", exp, maxExp)
+	}
+	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil))
+	return fromBig(roundHalfAway(new(big.Rat).Mul(major, scale)))
+}
+
 // parsePlain accepts only plain non-negative decimals: big.Rat would also take
 // fractions and exponents ("1e1000000"), whose expansion is unbounded.
 func parsePlain(s string) (*big.Rat, error) {

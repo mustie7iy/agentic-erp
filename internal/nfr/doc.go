@@ -20,7 +20,7 @@ import (
 // journal entry of three lines, a purchase order line and the invoice.
 // Amounts are deterministic.
 func LargeFacts(vendors, invoices int) *analytics.Facts {
-	f := &analytics.Facts{Tables: map[string][]analytics.Fact{}, Companies: map[string]string{"1000": "USD"}}
+	f := &analytics.Facts{Tables: map[string][]analytics.Fact{}, Companies: map[string]string{"1000": "USD"}, Exponents: map[string]int{"USD": 2}}
 	for i := 0; i < invoices; i++ {
 		vendor := fmt.Sprintf("V%06d", i%vendors)
 		month := 1 + i%9

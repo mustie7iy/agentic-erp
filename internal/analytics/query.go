@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"math"
+	"math/big"
 	"slices"
 	"sort"
 	"strconv"
@@ -50,9 +50,10 @@ type Column struct {
 	Currency string     `json:"currency,omitempty"`
 }
 
-// Row values: dimension values are strings; measures are float64 in major
-// units (money), whole numbers (count), or fractions (ratio). A measure is
-// nil when it cannot be computed (e.g. a ratio with a zero denominator).
+// Row values: dimension values are strings; measures are Values, exact
+// decimals: amounts at their currency's exponent, whole counts, ratios at
+// ratioScale digits. A measure is nil when it cannot be computed (e.g. a
+// ratio with a zero denominator).
 type Row []any
 
 type Result struct {
@@ -175,15 +176,16 @@ type aggCell struct {
 
 // aggregation holds every base metric aggregated per group.
 type aggregation struct {
-	groups map[string][]string // key -> dim values
-	base   map[string]map[string]*aggCell
+	groups    map[string][]string // key -> dim values
+	base      map[string]map[string]*aggCell
+	exponents map[string]int // currency -> minor-unit digits (Facts.Exponents)
 }
 
 // aggregateMetrics computes every base metric the measures need, once each, per
 // group of the query's dimensions. A sum out of the range of an amount
 // refuses the query (money.ErrOverflow) rather than reporting it wrapped.
 func aggregateMetrics(m *Model, f *Facts, p Principal, q Query) (*aggregation, error) {
-	agg := &aggregation{groups: map[string][]string{}, base: map[string]map[string]*aggCell{}}
+	agg := &aggregation{groups: map[string][]string{}, base: map[string]map[string]*aggCell{}, exponents: f.Exponents}
 	for _, name := range q.Measures {
 		for _, b := range m.baseMetrics(name) {
 			if agg.base[b] != nil {
@@ -312,9 +314,8 @@ func fillRows(m *Model, q Query, agg *aggregation, res *Result, measureCol map[s
 // the column's amounts (not of documents a distinct count spans) to label
 // it.
 func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int, colCurrency map[string]map[string]bool) error {
-	ev := &cellEval{m: m, base: agg.base, key: key, summed: map[string]bool{}}
+	ev := &cellEval{m: m, agg: agg, key: key, summed: map[string]bool{}}
 	v, ok := ev.eval(name)
-	met := m.Metric(name)
 	if len(ev.summed) > 1 {
 		return fmt.Errorf("%s would add amounts in %s together; break down by company or filter to one company",
 			name, strings.Join(sortedSet(ev.summed), " and "))
@@ -325,65 +326,99 @@ func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int,
 	for c := range ev.summed {
 		colCurrency[name][c] = true
 	}
-	if ok {
-		if met.Type == Ratio {
-			row[col] = round(v, 4)
-		} else {
-			row[col] = round(v, 2)
-		}
+	if !ok {
+		return nil
 	}
+	val, err := agg.value(m.Metric(name), v, ev.summed)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	row[col] = val
 	return nil
 }
 
-// cellEval evaluates a metric for one group, collecting in summed the
-// currencies of the sum aggregates it reads, so the caller can refuse
-// mixed currencies and label the column. Fact amounts are
-// minor units of the fact's currency (facts.go), so a sum is an amount
-// whatever the metric's type, while a distinct count is not. A cell is
-// refused when its sums read several currencies, whether one sum spans
-// them or each operand of a derived metric is in its own; distinct
+// value keeps an exact result at its digits: a ratio at ratioScale, a value
+// read from sums in one currency at that currency's exponent, a count
+// whole. A quotient of amounts (a money metric derived by divide) is
+// rounded half away from zero to the currency's digits.
+func (agg *aggregation) value(met *Metric, v *big.Rat, summed map[string]bool) (Value, error) {
+	scale, cur := 0, ""
+	for c := range summed { // at most one: fillMeasure refuses more
+		exp, known := agg.exponents[c]
+		if !known {
+			return Value{}, fmt.Errorf("the minor-unit digits of %s are unknown", c)
+		}
+		scale, cur = exp, c
+	}
+	if met.Type == Ratio {
+		scale, cur = ratioScale, ""
+	}
+	units, err := money.Round(v, scale)
+	if err != nil {
+		return Value{}, fmt.Errorf("the value is out of range: %w", err)
+	}
+	return Value{Units: units, Scale: scale, Currency: cur}, nil
+}
+
+// cellEval evaluates a metric for one group, exactly and in major units,
+// collecting in summed the currencies of the sum aggregates it reads, so
+// the caller can refuse mixed currencies and label the column. Fact
+// amounts are minor units of the fact's currency (facts.go), so a sum is
+// an amount whatever the metric's type, while a distinct count is not. A
+// cell is refused when its sums read several currencies, whether one sum
+// spans them or each operand of a derived metric is in its own; distinct
 // counts, and ratios of them, may span currencies.
 type cellEval struct {
 	m      *Model
-	base   map[string]map[string]*aggCell
+	agg    *aggregation
 	key    string
 	summed map[string]bool
 }
 
-func (ev *cellEval) eval(n string) (float64, bool) {
+func (ev *cellEval) eval(n string) (*big.Rat, bool) {
 	met := ev.m.Metric(n)
 	if met.Derived != nil {
 		return ev.derived(met.Derived)
 	}
-	c := ev.base[n][ev.key]
+	c := ev.agg.base[n][ev.key]
 	if c == nil {
-		return 0, false
+		return nil, false
 	}
 	if met.Aggregate == "count_distinct" {
-		return float64(len(c.ids)), true
+		return new(big.Rat).SetInt64(int64(len(c.ids))), true
 	}
 	for cur := range c.currencies {
 		ev.summed[cur] = true
 	}
-	// With several currencies the caller refuses the cell, so the scale of
-	// the first one only keeps the value deterministic.
-	scale := math.Pow(10, float64(currencyDecimals(sortedSet(c.currencies)[0])))
-	return float64(c.sum) / scale, true
+	// With several currencies the caller refuses the cell, and with an
+	// unknown exponent it reports that, so the first currency's exponent
+	// only keeps the value deterministic.
+	cur := sortedSet(c.currencies)[0]
+	return Value{Units: c.sum, Scale: ev.agg.exponents[cur]}.rat(), true
 }
 
 // derived evaluates both inputs first, so both contribute currencies even
 // when the result is undefined: a ratio needs both inputs and a non-zero
 // denominator, a difference needs only one side.
-func (ev *cellEval) derived(d *Derived) (float64, bool) {
+func (ev *cellEval) derived(d *Derived) (*big.Rat, bool) {
 	l, okL := ev.eval(d.Left)
 	r, okR := ev.eval(d.Right)
 	if d.Op == "divide" {
-		if !okL || !okR || r == 0 {
-			return 0, false
+		if !okL || !okR || r.Sign() == 0 {
+			return nil, false
 		}
-		return l / r, true
+		return new(big.Rat).Quo(l, r), true
 	}
-	return l - r, okL || okR
+	if !okL && !okR {
+		return nil, false
+	}
+	if !okL {
+		l = new(big.Rat)
+	}
+	if !okR {
+		r = new(big.Rat)
+	}
+	return new(big.Rat).Sub(l, r), true
 }
 
 // orderRows sorts stably by the order_by column, so ties keep group order.
@@ -493,20 +528,16 @@ func compareValues(a, b string) int {
 	return strings.Compare(a, b)
 }
 
+// compareCells orders cells: measure values by size, before the cells
+// without one; dimension values as compareValues does.
 func compareCells(a, b any) int {
 	switch x := a.(type) {
-	case float64:
-		y, ok := b.(float64)
+	case Value:
+		y, ok := b.(Value)
 		if !ok {
 			return 1
 		}
-		switch {
-		case x < y:
-			return -1
-		case x > y:
-			return 1
-		}
-		return 0
+		return x.compare(y)
 	case string:
 		y, _ := b.(string)
 		return compareValues(x, y)
@@ -540,21 +571,4 @@ func sortedSet(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func round(v float64, places int) float64 {
-	p := math.Pow(10, float64(places))
-	return math.Round(v*p) / p
-}
-
-// currencyDecimals gives the minor-unit exponent (ISO 4217) for the
-// currencies that differ from the default of 2.
-func currencyDecimals(cur string) int {
-	switch cur {
-	case "JPY", "KRW", "CLP", "ISK", "VND":
-		return 0
-	case "BHD", "KWD", "OMR", "JOD", "TND":
-		return 3
-	}
-	return 2
 }

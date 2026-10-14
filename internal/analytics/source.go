@@ -25,15 +25,25 @@ type amount struct {
 	Amount, Currency string
 }
 
-// minor converts an API amount, which carries its currency's minor-unit
-// digits, to minor units.
-func (a amount) minor() (money.Minor, error) {
+// minor converts an API amount to minor units. The API writes an amount
+// with exactly its currency's minor-unit digits from ref.currency
+// (ADR-0005), so the digits are the currency's exponent: they are recorded
+// in Facts.Exponents, and an amount whose digits disagree with an earlier
+// one in the same currency is refused rather than rendered with either.
+func (b *factBuilder) minor(a amount) (money.Minor, error) {
 	decimals := 0
 	if i := strings.IndexByte(a.Amount, '.'); i >= 0 {
 		decimals = len(a.Amount) - i - 1
 	}
 	m, err := money.ParseDecimal(a.Amount, decimals)
-	return m, err
+	if err != nil {
+		return 0, err
+	}
+	if exp, seen := b.f.Exponents[a.Currency]; seen && exp != decimals {
+		return 0, fmt.Errorf("amount %s %s has %d decimals, other %s amounts %d", a.Amount, a.Currency, decimals, a.Currency, exp)
+	}
+	b.f.Exponents[a.Currency] = decimals
+	return m, nil
 }
 
 // list reads every page of a list operation.
@@ -126,7 +136,7 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 		return nil, err
 	}
 	b := &factBuilder{
-		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, AsOf: asOf},
+		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{}, AsOf: asOf},
 		startMonth: m.Calendar.FiscalYearStartMonth,
 		vendors:    map[string]partner{},
 	}
@@ -216,7 +226,7 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 		dims := map[string]string{"company": le.Code, "account": a.Number, "account_name": a.Name, "account_type": a.AccountType,
 			"document_type": je.DocumentType, "vendor": v.Number, "vendor_name": v.Name, "vendor_recon": strconv.FormatBool(recon),
 			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)])}
-		amt, err := l.AmountLC.minor()
+		amt, err := b.minor(l.AmountLC)
 		if err == nil {
 			err = b.calendar(dims, je.PostingDate)
 		}
@@ -249,7 +259,7 @@ func (b *factBuilder) addOrder(le legalEntity, o order, chart map[string]account
 		a := chart[it.AccountID]
 		dims := map[string]string{"company": le.Code, "vendor": v.Number, "vendor_name": v.Name, "account": a.Number, "account_name": a.Name}
 		qty, err := money.ParseQty(it.Quantity.Value)
-		price, perr := it.UnitPrice.minor()
+		price, perr := b.minor(it.UnitPrice)
 		if err == nil {
 			err = perr
 		}
@@ -277,7 +287,7 @@ func (s Source) addInvoices(ctx context.Context, b *factBuilder, le legalEntity,
 	for _, inv := range invoices {
 		v := b.vendors[inv.SupplierID]
 		dims := map[string]string{"company": le.Code, "vendor": v.Number, "vendor_name": v.Name, "invoice_status": inv.Status}
-		gross, err := inv.Gross.minor()
+		gross, err := b.minor(inv.Gross)
 		if err == nil {
 			err = b.calendar(dims, inv.InvoiceDate)
 		}

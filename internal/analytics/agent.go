@@ -96,7 +96,7 @@ func (m *Model) catalog() map[string]any {
 	return map[string]any{
 		"metrics": metrics, "dimensions": m.Dimensions, "defaults": m.Defaults,
 		"calendar": map[string]int{"fiscal_year_start_month": m.Calendar.FiscalYearStartMonth},
-		"units":    "money in major units of the column currency; ratio as a fraction (0.25 = 25%); count as whole numbers",
+		"units":    "money in major units with exactly its currency's digits (1234.567 for BHD, 5000 for JPY); ratio as a fraction to 4 digits (0.25 = 25%); count as whole numbers",
 	}
 }
 
