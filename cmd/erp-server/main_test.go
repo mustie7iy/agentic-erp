@@ -435,21 +435,68 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
 	delete(env, "ERP_OIDC_ISSUERS")
 	env["ERP_DEV_ISSUER"] = "true"
-	getenv := func(k string) string { return env[k] }
 	file := configFile(t)
-	var stdout, stderr bytes.Buffer
-	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|ada", "-admin-name", "Ada", "-admin-email", "ada@example.com", "-config", file}
-	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
-		t.Fatalf("provision: %d %s", code, stderr.String())
+	s := &devLogin{env: env, getenv: func(k string) string { return env[k] }, file: file, logs: &pgtest.SyncBuffer{},
+		args: []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "idp|ada", "-admin-name", "Ada", "-admin-email", "ada@example.com", "-config", file}}
+	// Each step builds on the ones before it, so the first failure stops the rest.
+	if !t.Run("provision", s.provision) {
+		t.FailNow()
 	}
-	var created struct {
+	if !t.Run("provision refusals", s.provisionRefusals) {
+		t.FailNow()
+	}
+	if !t.Run("serve", s.serve) {
+		t.FailNow()
+	}
+	if !t.Run("administrator token", s.administratorToken) {
+		t.FailNow()
+	}
+	if !t.Run("operator token", s.operatorToken) {
+		t.FailNow()
+	}
+	if !t.Run("anchoring", s.anchoring) {
+		t.FailNow()
+	}
+	if !t.Run("shutdown", s.shutdown) {
+		t.FailNow()
+	}
+}
+
+// devLogin is the state the steps of TestProvisionAndDevelopmentLogin share.
+type devLogin struct {
+	env     map[string]string
+	getenv  func(string) string
+	file    string   // the configuration document
+	args    []string // the provision command
+	created struct {
 		TenantID        string `json:"tenant_id"`
 		AdministratorID string `json:"administrator_id"`
 		Version         int    `json:"configuration_version"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &created); err != nil || created.Version != 1 {
+	ctx    context.Context // the server's; cancel stops it
+	cancel context.CancelFunc
+	done   chan int           // the server's exit code
+	logs   *pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	a      [2]string          // the API's and the admin listener's addresses
+	minted string             // the administrator's token
+}
+
+// provision: erp-server provision creates the tenant.
+func (s *devLogin) provision(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), s.args, s.getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &s.created); err != nil || s.created.Version != 1 {
 		t.Fatalf("%v %s", err, stdout.String())
 	}
+}
+
+// provisionRefusals: bad commands, and without a reachable database
+// provisioning fails after the configuration was accepted.
+func (s *devLogin) provisionRefusals(t *testing.T) {
+	env, getenv, file, args := s.env, s.getenv, s.file, s.args
+	var stderr bytes.Buffer
 	for name, c := range map[string]struct {
 		args []string
 		code int
@@ -469,7 +516,6 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 			}
 		})
 	}
-	// Without a reachable database provisioning fails after the configuration was accepted.
 	down := map[string]string{}
 	for k, v := range env {
 		down[k] = v
@@ -478,23 +524,28 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if code := cli(context.Background(), args, func(k string) string { return down[k] }, io.Discard, &stderr, nil); code != 1 {
 		t.Fatalf("database down: %d", code)
 	}
+}
 
-	// The server with the development issuer: a minted token works on the API.
-	ctx, cancel := context.WithCancel(context.Background())
+// serve: the server with the development issuer starts serving.
+func (s *devLogin) serve(t *testing.T) {
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 	addrs := make(chan [2]string, 1)
-	done := make(chan int, 1)
-	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	s.done = make(chan int, 1)
 	go func() {
-		done <- cli(ctx, nil, getenv, io.Discard, &logs, func(api, admin net.Listener) {
+		s.done <- cli(s.ctx, nil, s.getenv, io.Discard, s.logs, func(api, admin net.Listener) {
 			addrs <- [2]string{api.Addr().String(), admin.Addr().String()}
 		})
 	}()
-	var a [2]string
 	select {
-	case a = <-addrs:
-	case code := <-done:
-		t.Fatalf("the server stopped with %d before serving:\n%s", code, logs.String())
+	case s.a = <-addrs:
+	case code := <-s.done:
+		t.Fatalf("the server stopped with %d before serving:\n%s", code, s.logs.String())
 	}
+}
+
+// administratorToken: a minted token works on the API.
+func (s *devLogin) administratorToken(t *testing.T) {
+	a, created := s.a, s.created
 	mint, err := http.DefaultClient.Do(request(t, "POST", "http://"+a[1]+"/dev/token", `{"tenant_id": "`+created.TenantID+`", "subject": "idp|ada"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -504,6 +555,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if mint.StatusCode != 200 || minted.Token == "" {
 		t.Fatalf("mint: %d", mint.StatusCode)
 	}
+	s.minted = minted.Token
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/config-versions?is_active=true", nil)
 	req.Header.Set("Authorization", "Bearer "+minted.Token)
 	resp, err := http.DefaultClient.Do(req)
@@ -515,9 +567,14 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if resp.StatusCode != 200 || len(page["items"].([]any)) != 1 {
 		t.Fatalf("as the administrator: %d %v", resp.StatusCode, page)
 	}
-	// An operator token (no tenant) works on the control plane and nowhere else: the tenant is
-	// suspended, refused at the API's door, and resumed.
-	mint, err = http.DefaultClient.Do(request(t, "POST", "http://"+a[1]+"/dev/token", `{"subject": "ops|root"}`))
+}
+
+// operatorToken: an operator token (no tenant) works on the control plane
+// and nowhere else: the tenant is suspended, refused at the API's door, and
+// resumed.
+func (s *devLogin) operatorToken(t *testing.T) {
+	a, created := s.a, s.created
+	mint, err := http.DefaultClient.Do(request(t, "POST", "http://"+a[1]+"/dev/token", `{"subject": "ops|root"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +597,7 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if code, m := control("GET", "/tenants/"+created.TenantID, ""); code != 200 || m["status"] != "active" {
 		t.Fatalf("control get: %d %v", code, m)
 	}
-	req, _ = http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/roles", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/roles", nil)
 	req.Header.Set("Authorization", "Bearer "+operator.Token)
 	if code := status(t, req); code != 401 {
 		t.Fatalf("operator on the public API: got %d, want 401", code)
@@ -549,14 +606,19 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 		t.Fatalf("suspend: %d %v", code, m)
 	}
 	req, _ = http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/roles", nil)
-	req.Header.Set("Authorization", "Bearer "+minted.Token)
+	req.Header.Set("Authorization", "Bearer "+s.minted)
 	if code := status(t, req); code != 403 {
 		t.Fatalf("suspended tenant on the public API: got %d, want 403", code)
 	}
 	if code, m := control("POST", "/tenants/"+created.TenantID+":resume", `"2"`); code != 200 || m["status"] != "active" {
 		t.Fatalf("resume: %d %v", code, m)
 	}
-	// The anchoring worker wrote the tenant's chain head to the object store.
+}
+
+// anchoring: the anchoring worker wrote the tenant's chain head to the
+// object store.
+func (s *devLogin) anchoring(t *testing.T) {
+	ctx, env, created := s.ctx, s.env, s.created
 	conn, err := pgx.Connect(ctx, env["DATABASE_URL"])
 	if err != nil {
 		t.Fatal(err)
@@ -572,8 +634,13 @@ func TestProvisionAndDevelopmentLogin(t *testing.T) {
 	if objects, _ := filepath.Glob(filepath.Join(env["ERP_OBJECT_DIR"], "tenants", created.TenantID, "audit", "anchors", "*.json")); len(objects) == 0 {
 		t.Fatal("no anchor object")
 	}
-	cancel()
-	if code := <-done; code != 0 {
+}
+
+// shutdown: the server stops cleanly and logged what it did.
+func (s *devLogin) shutdown(t *testing.T) {
+	logs := s.logs
+	s.cancel()
+	if code := <-s.done; code != 0 {
 		t.Fatalf("exit: got %d, want 0\n%s", code, logs.String())
 	}
 	for _, want := range []string{"ERP_DEV_ISSUER", "control plane served", "suspendTenant"} {

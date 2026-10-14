@@ -14,6 +14,37 @@ import (
 )
 
 func TestDirectoryCommand(t *testing.T) {
+	global, seen := directoryPlane(t)
+	defer global.Close()
+	env := map[string]string{"ERP_DIRECTORY_API_URL": global.URL, "ERP_OPERATOR_TOKEN": "op"}
+	getenv = func(k string) string { return env[k] }
+	defer func() { getenv = os.Getenv }()
+	doc, _ := fixture.Document(t).Marshal()
+	file := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, file, doc)
+	s := &directoryCase{env: env, file: file, seen: seen}
+	// Each step builds on the ones before it, so the first failure stops the rest.
+	if !t.Run("reads and changes", s.readsAndChanges) {
+		t.FailNow()
+	}
+	if !t.Run("defaults", s.defaults) {
+		t.FailNow()
+	}
+	if !t.Run("lost output", s.lostOutput) {
+		t.FailNow()
+	}
+	if !t.Run("refusals", s.refusals) {
+		t.FailNow()
+	}
+	if !t.Run("token and connection", s.tokenAndConnection) {
+		t.FailNow()
+	}
+}
+
+// directoryPlane is a global control plane answering the directory
+// subcommands, and the requests it saw so far.
+func directoryPlane(t *testing.T) (*httptest.Server, func() string) {
+	t.Helper()
 	var mu sync.Mutex
 	var seen []string
 	global := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -72,14 +103,23 @@ func TestDirectoryCommand(t *testing.T) {
 			w.Write([]byte(`{"code": "request.not_found", "detail": "No cell serves this tenant."}`))
 		}
 	}))
-	defer global.Close()
-	env := map[string]string{"ERP_DIRECTORY_API_URL": global.URL, "ERP_OPERATOR_TOKEN": "op"}
-	getenv = func(k string) string { return env[k] }
-	defer func() { getenv = os.Getenv }()
-	doc, _ := fixture.Document(t).Marshal()
-	file := filepath.Join(t.TempDir(), "config.yaml")
-	writeFile(t, file, doc)
+	return global, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Join(seen, "\n")
+	}
+}
 
+// directoryCase is the state the steps of TestDirectoryCommand share.
+type directoryCase struct {
+	env  map[string]string // what getenv answers
+	file string            // a configuration document
+	seen func() string     // the requests the plane saw
+}
+
+// readsAndChanges: each subcommand calls the global plane as the operator, with the request it names.
+func (s *directoryCase) readsAndChanges(t *testing.T) {
+	file := s.file
 	if got := must(t, "directory", "cells", "-region", "eu-west"); !strings.Contains(got, `"tenants": 3`) {
 		t.Fatalf("cells: %s", got)
 	}
@@ -107,15 +147,17 @@ func TestDirectoryCommand(t *testing.T) {
 	if got := must(t, "directory", "move", "-id", "t1", "-cell", "eu-3", "-if-match", `"2"`); !strings.Contains(got, `"eu-3"`) {
 		t.Fatalf("move: %s", got)
 	}
-	mu.Lock()
-	joined := strings.Join(seen, "\n")
-	mu.Unlock()
+	joined := s.seen()
 	for _, want := range []string{"GET /directory/v1/cells?region=eu-west", "GET /directory/v1/tenants?cell=eu-1&order_by=cell+asc&page_size=1&page_token=n&region=eu-west&status=active",
 		"GET /directory/v1/tenants/t1 if-match=\nPOST /directory/v1/tenants/t1:freeze if-match=\"2\"", "POST /directory/v1/tenants/t1:move if-match=\"2\""} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("requests: got\n%s\nwant them to contain %q", joined, want)
 		}
 	}
+}
+
+// defaults: without filters, without an If-Match (the ETag is read first), and verify.
+func (s *directoryCase) defaults(t *testing.T) {
 	if got := must(t, "directory", "tenants"); !strings.Contains(got, `"t1"`) {
 		t.Fatalf("all tenants: %s", got)
 	}
@@ -125,6 +167,11 @@ func TestDirectoryCommand(t *testing.T) {
 	if got := must(t, "directory", "verify", "-id", "t1", "-cell", "eu-2"); !strings.Contains(got, `"equal": true`) {
 		t.Fatalf("verify: %s", got)
 	}
+}
+
+// lostOutput: a failed print fails each subcommand.
+func (s *directoryCase) lostOutput(t *testing.T) {
+	file := s.file
 	for name, args := range map[string][]string{
 		"cells":   {"cells"},
 		"tenants": {"tenants"},
@@ -136,6 +183,10 @@ func TestDirectoryCommand(t *testing.T) {
 	} {
 		t.Run(name+" with lost output", func(t *testing.T) { printFails(t, append([]string{"directory"}, args...)...) })
 	}
+}
+
+// refusals: what the plane refuses and what the command refuses itself.
+func (s *directoryCase) refusals(t *testing.T) {
 	fails(t, "the cells differ", "directory", "verify", "-id", "t1", "-cell", "eu-3")
 	fails(t, "404 request.not_found", "directory", "verify", "-id", "t9", "-cell", "eu-2")
 	fails(t, "-id and -cell are required", "directory", "verify", "-id", "t1")
@@ -157,6 +208,11 @@ func TestDirectoryCommand(t *testing.T) {
 			fails(t, "flag provided but not defined", "directory", sub, "-x")
 		})
 	}
+}
+
+// tokenAndConnection: a wrong or missing token, and a plane that cannot be reached.
+func (s *directoryCase) tokenAndConnection(t *testing.T) {
+	env, file := s.env, s.file
 	env["ERP_OPERATOR_TOKEN"] = "wrong"
 	fails(t, "401 authn.invalid_token", "directory", "cells")
 	fails(t, "401 authn.invalid_token", "directory", "tenants")
