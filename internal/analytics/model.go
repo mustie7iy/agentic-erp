@@ -1,4 +1,5 @@
-// Package analytics answers questions on demand. A governed semantic layer
+// Package analytics answers questions on demand (the analytics context of
+// 02-architecture §2.2, run as an API client). A governed semantic layer
 // defines every metric once; the engine computes results deterministically
 // from the core store; an agent turns a plain-language question into
 // semantic queries and a dashboard spec; the renderer checks that every

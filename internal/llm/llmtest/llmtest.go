@@ -1,5 +1,7 @@
 // Package llmtest is a scripted stand-in for the Claude Messages API, so
-// agent loops can be tested deterministically without network access.
+// agent loops can be tested deterministically without network access: the
+// LLM is stubbed in CI and live only in nightly evaluations
+// (06-engineering-process §6.6).
 package llmtest
 
 import (

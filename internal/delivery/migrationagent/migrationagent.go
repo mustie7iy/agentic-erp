@@ -1,8 +1,8 @@
 // Package migrationagent is the migration consultant agent: it rehearses a
-// migration scope through API tools, reads the quality findings and the
-// reconciliation report, and explains what blocks the cutover and how to
-// clean it up. It only rehearses: a rehearsal is rolled back after its
-// report, and the tools refuse a run that is not one.
+// migration scope through API tools (04-api-design §4.13), reads the quality
+// findings and the reconciliation report, and explains what blocks the
+// cutover and how to clean it up. It only rehearses: a rehearsal is rolled
+// back after its report, and the tools refuse a run that is not one.
 package migrationagent
 
 import (

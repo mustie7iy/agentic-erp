@@ -1,8 +1,9 @@
-// Package configagent is the functional consultant agent: it turns a
-// request in plain language (and, when given, a draft generated from SAP
-// customizing) into configuration change requests through API tools. It
-// proposes, submits and starts simulations; it cannot approve or activate
-// (activation is a person's act, and approvals are refused to agents).
+// Package configagent is the functional consultant agent: it turns a request
+// in plain language (and, when given, a draft generated from SAP
+// customizing) into configuration change requests through API tools
+// (04-api-design §4.13). It proposes, submits and starts simulations; it
+// cannot approve or activate (activation is a person's act, and approvals
+// are refused to agents, ADR-0010).
 package configagent
 
 import (

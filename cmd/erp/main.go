@@ -1,9 +1,10 @@
 // Command erp is the platform's command line, a thin client of the public
-// API: everything it reads or changes goes through erp-server with the
-// caller's token, under the same permissions, company access and audit as
-// any other client. The only local work is preparing input (a mock SAP
-// extract, a configuration draft from SAP customizing) and running agents
-// and analytics, which themselves call the API.
+// API (01-requirements §1.1; agents as in 04-api-design §4.13): everything
+// it reads or changes goes through erp-server with the caller's token, under
+// the same permissions, company access and audit as any other client. The
+// only local work is preparing input (a mock SAP extract, a configuration
+// draft from SAP customizing) and running agents and analytics, which
+// themselves call the API.
 //
 //	erp call OPERATION [-p name=value]... [-body JSON] [-if-match ETAG]
 //	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]

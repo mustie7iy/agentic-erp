@@ -1,5 +1,7 @@
 // Package llm holds what every Claude agent in the platform shares: client
-// setup, request defaults, tool result helpers and stop-reason handling.
+// setup, request defaults, tool result helpers and stop-reason handling. The
+// agents are API clients whose tools are the API's operations (04-api-design
+// §4.13).
 package llm
 
 import (

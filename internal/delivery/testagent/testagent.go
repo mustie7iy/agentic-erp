@@ -1,7 +1,7 @@
-// Package testagent is the test consultant agent: it reviews a
-// configuration change request through API tools (its items, tier,
-// evidence and the version it changes), leaves one recommendation on it
-// for the approvers, and writes the user acceptance test scripts the change
+// Package testagent is the test consultant agent: it reviews a configuration
+// change request through API tools (04-api-design §4.13: its items, tier,
+// evidence and the version it changes), leaves one recommendation on it for
+// the approvers, and writes the user acceptance test scripts the change
 // needs. It changes nothing.
 package testagent
 

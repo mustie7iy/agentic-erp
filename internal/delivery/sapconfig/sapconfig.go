@@ -1,9 +1,10 @@
-// Package sapconfig generates a draft configuration document from a
-// client's SAP customizing tables, so years of setup are migrated instead
-// of re-keyed. The draft is a proposal for a change request: anything
-// without an SAP equivalent gets a documented default and a note for the
-// reviewers. Roles and users are not part of the document (the identity
-// context owns them); the notes list the SAP roles to provision there.
+// Package sapconfig generates a draft configuration document (03-data-model
+// §3.5) from a client's SAP customizing tables (mapped as in §3.17), so
+// years of setup are migrated instead of re-keyed. The draft is a proposal
+// for a change request: anything without an SAP equivalent gets a documented
+// default and a note for the reviewers. Roles and users are not part of the
+// document (the identity context owns them); the notes list the SAP roles to
+// provision there.
 package sapconfig
 
 import (

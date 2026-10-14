@@ -1,9 +1,10 @@
 // Package agent is the accounts payable exceptions agent: for each supplier
 // invoice held at matching it investigates the invoice, its order, receipts
-// and the supplier through API tools, and leaves one recommendation for the
-// person who decides the exception. It reads and recommends; it cannot
-// post, release, pay or change master data, and the API would refuse it if
-// it tried. Bank details reach it masked, as the API returns them.
+// and the supplier through API tools (04-api-design §4.13), and leaves one
+// recommendation (03-data-model §3.14) for the person who decides the
+// exception. It reads and recommends; it cannot post, release, pay or change
+// master data, and the API would refuse it if it tried (ADR-0010). Bank
+// details reach it masked, as the API returns them.
 package agent
 
 import (
