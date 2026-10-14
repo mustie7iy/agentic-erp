@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -283,7 +284,7 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 		it.Quantity = new(big.Rat).Neg(rat(it.Quantity)).FloatString(6)
 		items[i] = it
 	}
-	date, err := today(ctx, tx)
+	date, err := database.Today(ctx, tx)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}

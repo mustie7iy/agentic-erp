@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -108,7 +109,7 @@ func invoicePostingDate(ctx context.Context, tx pgx.Tx, v Invoice, postingDate *
 		date = v.PostingDate
 	}
 	if date == nil {
-		d, err := today(ctx, tx)
+		d, err := database.Today(ctx, tx)
 		if err != nil {
 			return nil, err
 		}
@@ -189,7 +190,7 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 		return Invoice{}, problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+". Reject the run once it is proposed; a releasing run pays the invoice (resume a stopped release with :release), then reverse the payment first.")
 	}
 	if postingDate == nil {
-		d, err := today(ctx, tx)
+		d, err := database.Today(ctx, tx)
 		if err != nil {
 			return Invoice{}, err
 		}

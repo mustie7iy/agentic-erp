@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -244,7 +245,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	if err != nil {
 		return Requisition{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Requisition{}, err
 	}

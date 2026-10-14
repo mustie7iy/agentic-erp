@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -157,7 +158,7 @@ func GrantPermission(ctx context.Context, role uuid.UUID, permission string, fro
 	if !known {
 		return RolePermission{}, unknownPermission("permission_code")
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return RolePermission{}, err
 	}
@@ -202,7 +203,7 @@ func EndPermission(ctx context.Context, role, id uuid.UUID, ifMatch func(RolePer
 	if err := ifMatch(g); err != nil {
 		return RolePermission{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return RolePermission{}, err
 	}

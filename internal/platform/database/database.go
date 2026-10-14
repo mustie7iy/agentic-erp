@@ -149,6 +149,17 @@ func SetActor(ctx context.Context, tx pgx.Tx, actor uuid.UUID) error {
 	return nil
 }
 
+// Today is the database's current date in the transaction: the day the
+// validity checks and triggers judge by, so code that compares with them
+// uses it rather than the application clock.
+func Today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
+	var d time.Time
+	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d); err != nil {
+		return time.Time{}, fmt.Errorf("database: read current date: %w", err)
+	}
+	return d, nil
+}
+
 // InTx runs fn in a transaction and commits if it returns nil.
 func (p *Pool) InTx(ctx context.Context, s Scope, fn func(context.Context, pgx.Tx) error) error {
 	tx, err := p.Begin(ctx, s)

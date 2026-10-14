@@ -376,13 +376,3 @@ func toJSON(v any) map[string]any {
 	_ = json.Unmarshal(b, &m)
 	return m
 }
-
-// today is the database's current date, the one its validity triggers use.
-func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var d time.Time
-	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	if err != nil {
-		return d, fmt.Errorf("partner: read the database date: %w", err)
-	}
-	return d, nil
-}

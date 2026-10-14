@@ -584,14 +584,6 @@ func amount(minor int64, currency string, exp int) map[string]string {
 	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
 }
 
-func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var d time.Time
-	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d); err != nil {
-		return time.Time{}, fmt.Errorf("payables: read current date: %w", err)
-	}
-	return d, nil
-}
-
 // Count is how many of the invoices exist.
 func (Invoices) Count(ctx context.Context, ids []uuid.UUID) (int, error) {
 	tx, _, err := reqctx.Request(ctx)

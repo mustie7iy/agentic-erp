@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -62,7 +63,7 @@ func AssignRole(ctx context.Context, principal, role uuid.UUID, from, to *time.T
 	if r.Status != Active {
 		return RoleAssignment{}, problem.Conflict("identity.role_inactive", "The role is inactive and cannot be granted.")
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return RoleAssignment{}, err
 	}
@@ -102,7 +103,7 @@ func EndAssignment(ctx context.Context, id uuid.UUID, ifMatch func(RoleAssignmen
 	if err := ifMatch(g); err != nil {
 		return RoleAssignment{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return RoleAssignment{}, err
 	}
@@ -171,7 +172,7 @@ func GrantAccess(ctx context.Context, les LegalEntities, principal, legalEntity 
 		}
 		return CompanyAccess{}, referenceError(err, "legal_entity_id", "legal entity")
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return CompanyAccess{}, err
 	}
@@ -205,7 +206,7 @@ func EndAccess(ctx context.Context, id uuid.UUID, ifMatch func(CompanyAccess) er
 	if err := ifMatch(g); err != nil {
 		return CompanyAccess{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return CompanyAccess{}, err
 	}
@@ -273,7 +274,7 @@ func CreateSodRule(ctx context.Context, a, b, description string, from, to *time
 	if known != 2 {
 		return SodRule{}, unknownPermission("permission_a")
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return SodRule{}, err
 	}
@@ -318,7 +319,7 @@ func EndSodRule(ctx context.Context, id uuid.UUID, ifMatch func(SodRule) error, 
 	if err := ifMatch(r); err != nil {
 		return SodRule{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return SodRule{}, err
 	}

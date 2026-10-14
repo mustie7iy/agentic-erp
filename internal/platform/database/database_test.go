@@ -223,3 +223,25 @@ func TestPingClosedPool(t *testing.T) {
 		t.Errorf("got %v, want the failed ping reported", err)
 	}
 }
+
+// TestToday: the transaction's current_date, and a failed read reported.
+func TestToday(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx, database.Scope{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want time.Time
+	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := database.Today(ctx, tx)
+	if err != nil || !got.Equal(want) {
+		t.Errorf("got %v, %v, want %v", got, err, want)
+	}
+	tx.Rollback(ctx)
+	if got, err := database.Today(ctx, tx); err == nil || !got.IsZero() || !strings.Contains(err.Error(), "database: read current date") {
+		t.Errorf("closed transaction: got %v, %v, want the zero date and the failed read reported", got, err)
+	}
+}

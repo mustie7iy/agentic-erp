@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -443,7 +444,7 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err := checkNewPartner(&in); err != nil {
 		return Partner{}, Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -642,7 +643,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err := checkExtensions(ch.Extensions); err != nil {
 		return Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -704,7 +705,7 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if _, err := getPartner(ctx, tx, partnerID, false); err != nil {
 		return Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -740,7 +741,7 @@ func RequestBankAccountEnd(ctx context.Context, partnerID, bankID uuid.UUID, ifM
 	if err := ifMatch(b); err != nil {
 		return Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -788,7 +789,7 @@ func ApplyChange(ctx context.Context, id uuid.UUID) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}

@@ -97,16 +97,6 @@ func checkExtensions(ext map[string]any) error {
 	return nil
 }
 
-// today is the database's current date, the date documents without one
-// are numbered by.
-func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var d time.Time
-	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d); err != nil {
-		return time.Time{}, fmt.Errorf("procurement: read current date: %w", err)
-	}
-	return d, nil
-}
-
 // exponent returns the currency's minor-unit digits; an unknown currency is
 // 422 on field.
 func exponent(ctx context.Context, tx pgx.Tx, currency, field string) (int, error) {

@@ -81,16 +81,6 @@ func (g *Grant) fields() []any {
 	return []any{&g.ID, &g.ValidFrom, &g.ValidTo, &g.CreatedAt, &g.CreatedBy, &g.EndedAt, &g.EndedBy}
 }
 
-// today is the database's current date: the day validity is judged on.
-func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var d time.Time
-	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	if err != nil {
-		return d, fmt.Errorf("identity: read current date: %w", err)
-	}
-	return d, nil
-}
-
 // Validity is the requested period of a new grant.
 type Validity struct {
 	From time.Time
