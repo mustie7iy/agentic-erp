@@ -242,6 +242,11 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	for i, r := range refs {
 		years[i], entries[i], nos[i] = r.FiscalYear, r.EntryID, r.LineNo
 	}
+	// Locked before reading, so the reversal check below sees any reversal
+	// that committed while this waited (the transaction is read committed).
+	if err := lockEntries(ctx, tx, true, entries); err != nil {
+		return nil, err
+	}
 	rows, _ := tx.Query(ctx, `SELECT x.ord, l.journal_entry_id IS NOT NULL, ci.line_no IS NULL, coalesce(a.reconciliation_kind IN ('supplier', 'customer'), false),
 			coalesce(l.legal_entity_id, $4), coalesce(l.ledger_id, $4), coalesce(l.account_id, $4), l.partner_id,
 			coalesce(l.amount_tc, 0), coalesce(l.amount_lc, 0), coalesce(l.amount_gc, 0), coalesce(e.currency_tc, ''),
@@ -274,6 +279,28 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 		}
 	}
 	return items, nil
+}
+
+// lockEntries serializes clearing and reversal of the journal entries until
+// the transaction ends: clearings take a shared lock on the entries of their
+// items, so they do not wait for each other (clearing_item_pkey catches a
+// line cleared twice); a reversal takes an exclusive one. The two write
+// different tables, so no constraint would stop an entry from being both
+// reversed and cleared. The lock is advisory because journal entries are
+// insert-only: the application role has no UPDATE privilege on them, which
+// SELECT ... FOR SHARE requires. Entries are locked in id order, so two
+// transactions never wait for each other in a cycle.
+func lockEntries(ctx context.Context, tx pgx.Tx, shared bool, ids []uuid.UUID) error {
+	distinct := slices.Compact(slices.SortedFunc(slices.Values(ids), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }))
+	lock := "pg_advisory_xact_lock"
+	if shared {
+		lock = "pg_advisory_xact_lock_shared"
+	}
+	if _, err := tx.Exec(ctx, `SELECT `+lock+`(hashtextextended('ledger.journal_entry:' || id::text, 0)) FROM unnest($1::uuid[]) AS x(id)`,
+		distinct); err != nil {
+		return fmt.Errorf("ledger: lock %d journal entries: %w", len(distinct), err)
+	}
+	return nil
 }
 
 // markCleared records the lines as cleared by the clearing.

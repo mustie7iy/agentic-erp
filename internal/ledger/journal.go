@@ -651,6 +651,11 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if err != nil {
 		return Entry{}, err
 	}
+	// Locked before reading, so requireReversible sees any clearing of the
+	// entry that committed while this waited.
+	if err := lockEntries(ctx, tx, false, []uuid.UUID{id}); err != nil {
+		return Entry{}, err
+	}
 	orig, err := getEntry(ctx, tx, id)
 	if err != nil {
 		return Entry{}, err
