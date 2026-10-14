@@ -41,7 +41,11 @@ var (
 )
 
 // seeded parses the ref.currency rows the migrations insert, in migration
-// order, so a later row for a code replaces an earlier one.
+// order, so a later row for a code replaces an earlier one. It reads only
+// `INSERT INTO ref.currency (code, name, exponent) VALUES (...), ...;`
+// with no ';' inside a name; an UPDATE or DELETE of ref.currency, or
+// another form, is not read, and TestSeededMatchesTheDatabase fails until
+// this parser learns it.
 var seeded = sync.OnceValue(func() Exponents {
 	out := Exponents{}
 	for _, m := range db.Migrations() {

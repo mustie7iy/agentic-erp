@@ -233,7 +233,7 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 		if err != nil {
 			return fmt.Errorf("journal entry %s: %w", je.ID, err)
 		}
-		b.f.Tables["gl_lines"] = append(b.f.Tables["gl_lines"], Fact{ID: je.ID, Dims: dims, Amount: amt, Currency: le.LocalCurrency})
+		b.f.Tables["gl_lines"] = append(b.f.Tables["gl_lines"], Fact{ID: je.ID, Dims: dims, Amount: amt, Currency: l.AmountLC.Currency})
 	}
 	return nil
 }
