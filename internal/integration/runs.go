@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -433,8 +434,8 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	if _, err := tx.Exec(ctx, `SAVEPOINT load`); err != nil {
 		return operations.Operation{}, fmt.Errorf("integration: open the load savepoint of migration run %s: %w", r.ID, err)
 	}
-	var today time.Time
-	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&today); err != nil {
+	today, err := database.Today(ctx, tx)
+	if err != nil {
 		return operations.Operation{}, fmt.Errorf("integration: read the load date of migration run %s: %w", r.ID, err)
 	}
 	existing, err := loadRefs(ctx, tx, system(c))
