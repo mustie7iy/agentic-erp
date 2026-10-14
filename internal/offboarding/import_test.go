@@ -150,55 +150,116 @@ func TestImportRefusals(t *testing.T) {
 	pool := pgtest.Pool(t)
 	store := blobstore.Dir{Root: t.TempDir()}
 	im := &offboarding.Importer{Pool: pool, Store: store, AppRole: "erp_app"}
-	_, err := (&offboarding.Importer{Pool: pool, AppRole: "erp_app"}).Import(ctx, "x")
-	pgtest.WantErr(t, err, "no object store")
-	_, err = im.Import(ctx, "tenants/none/exports/1/manifest.json")
-	pgtest.WantErr(t, err, "reading the manifest")
-	if err := store.Put(ctx, "tenants/x/exports/1/manifest.json", []byte(`{"not":"a manifest"}`), blobstore.PutOptions{}); err != nil {
-		t.Fatalf("store a garbage manifest: %v", err)
-	}
-	_, err = im.Import(ctx, "tenants/x/exports/1/manifest.json")
-	pgtest.WantErr(t, err, "not an export manifest")
 	// Hand-made exports of a tenant that does not exist here.
 	tenant := uuid.Must(uuid.NewV7())
-	put := func(key string, content string) string {
+	put := func(tb testing.TB, key string, content string) string {
+		tb.Helper()
 		if err := store.Put(ctx, key, []byte(content), blobstore.PutOptions{}); err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 		sum := sha256.Sum256([]byte(content))
 		return hex.EncodeToString(sum[:])
 	}
 	tenantRow := `{"id":"` + tenant.String() + `","name":"Imported","region":"eu-west","group_currency":"EUR","status":"active"}`
 	roleLine := `{"tenant_id":"` + tenant.String() + `","id":"` + uuid.NewString() + `","code":"NOBODY","name":"Nobody","description":null,"status":"active","created_by":"` + uuid.NewString() + `","created_at":"2026-10-12T00:00:00Z","updated_at":"2026-10-12T00:00:00Z","updated_by":"` + uuid.NewString() + `","version":1}` + "\n"
-	manifest := func(dir string, tables string) string {
+	manifest := func(tb testing.TB, dir string, tables string) string {
+		tb.Helper()
 		key := dir + "/manifest.json"
-		put(key, `{"tenant_id":"`+tenant.String()+`","tenant":`+tenantRow+`,"exported_at":"2026-10-12T00:00:00Z","tables":[`+tables+`]}`)
+		put(tb, key, `{"tenant_id":"`+tenant.String()+`","tenant":`+tenantRow+`,"exported_at":"2026-10-12T00:00:00Z","tables":[`+tables+`]}`)
 		return key
 	}
+	sc := &refusalsScenario{ctx: ctx, pool: pool, store: store, im: im, tenant: tenant, put: put, tenantRow: tenantRow, roleLine: roleLine, manifest: manifest}
+	if !t.Run("unreadable manifests", sc.unreadableManifests) {
+		t.FailNow()
+	}
+	if !t.Run("parts that do not add up", sc.partsThatDoNotAddUp) {
+		t.FailNow()
+	}
+	if !t.Run("dangling references and an outbox", sc.danglingReferencesAndAnOutbox) {
+		t.FailNow()
+	}
+	if !t.Run("chain head refused", sc.chainHeadRefused) {
+		t.FailNow()
+	}
+	if !t.Run("rows and tables refused", sc.rowsAndTablesRefused) {
+		t.FailNow()
+	}
+	if !t.Run("savepoints failing", sc.savepointsFailing) {
+		t.FailNow()
+	}
+	if !t.Run("unreadable tenant row", sc.unreadableTenantRow) {
+		t.FailNow()
+	}
+	if !t.Run("each statement failing", sc.eachStatementFailing) {
+		t.FailNow()
+	}
+	t.Run("creating a tenant failing", sc.creatingATenantFailing)
+}
+
+// refusalsScenario is the state TestImportRefusals's steps share: a store
+// of hand-made exports of a tenant that does not exist here, and the
+// importer reading it.
+type refusalsScenario struct {
+	ctx        context.Context
+	pool       *database.Pool
+	store      blobstore.Dir
+	im         *offboarding.Importer
+	tenant     uuid.UUID
+	put        func(tb testing.TB, key string, content string) string // stores content, returns its hash
+	tenantRow  string
+	roleLine   string                                                // a role of the tenant, as exported
+	manifest   func(tb testing.TB, dir string, tables string) string // stores a manifest, returns its key
+	d          string                                                // an export directory
+	key        string                                                // its manifest
+	assignment string                                                // a role assignment whose role is not exported
+}
+
+// unreadableManifests is the step "unreadable manifests" of TestImportRefusals.
+func (sc *refusalsScenario) unreadableManifests(t *testing.T) {
+	var err error
+	_, err = (&offboarding.Importer{Pool: sc.pool, AppRole: "erp_app"}).Import(sc.ctx, "x")
+	pgtest.WantErr(t, err, "no object store")
+	_, err = sc.im.Import(sc.ctx, "tenants/none/exports/1/manifest.json")
+	pgtest.WantErr(t, err, "reading the manifest")
+	if err := sc.store.Put(sc.ctx, "tenants/x/exports/1/manifest.json", []byte(`{"not":"a manifest"}`), blobstore.PutOptions{}); err != nil {
+		t.Fatalf("store a garbage manifest: %v", err)
+	}
+	_, err = sc.im.Import(sc.ctx, "tenants/x/exports/1/manifest.json")
+	pgtest.WantErr(t, err, "not an export manifest")
+}
+
+// partsThatDoNotAddUp is the step "parts that do not add up" of TestImportRefusals.
+func (sc *refusalsScenario) partsThatDoNotAddUp(t *testing.T) {
+	var err error
 	// A part whose hash does not match.
-	d := "tenants/" + tenant.String() + "/exports/hash"
-	put(d+"/identity.role.00001.jsonl", roleLine)
-	_, err = im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"00"}`))
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/hash"
+	sc.put(t, sc.d+"/identity.role.00001.jsonl", sc.roleLine)
+	_, err = sc.im.Import(sc.ctx, sc.manifest(t, sc.d, `{"name":"identity.role","part":1,"key":"`+sc.d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"00"}`))
 	pgtest.WantErr(t, err, "hash")
 	// A part with more rows than the manifest says, and a part that is missing.
-	d = "tenants/" + tenant.String() + "/exports/rows"
-	sum := put(d+"/identity.role.00001.jsonl", roleLine)
-	_, err = im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":2,"bytes":1,"sha256":"`+sum+`"}`))
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/rows"
+	sum := sc.put(t, sc.d+"/identity.role.00001.jsonl", sc.roleLine)
+	_, err = sc.im.Import(sc.ctx, sc.manifest(t, sc.d, `{"name":"identity.role","part":1,"key":"`+sc.d+`/identity.role.00001.jsonl","rows":2,"bytes":1,"sha256":"`+sum+`"}`))
 	pgtest.WantErr(t, err, "manifest says 2")
-	d = "tenants/" + tenant.String() + "/exports/missing"
-	_, err = im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sum+`"}`))
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/missing"
+	_, err = sc.im.Import(sc.ctx, sc.manifest(t, sc.d, `{"name":"identity.role","part":1,"key":"`+sc.d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sum+`"}`))
 	pgtest.WantErr(t, err, "reading")
+}
+
+// danglingReferencesAndAnOutbox is the step "dangling references and an outbox" of TestImportRefusals.
+func (sc *refusalsScenario) danglingReferencesAndAnOutbox(t *testing.T) {
+	var err error
 	// Rows that reference rows the export does not hold stay referenced; an outbox is skipped; a chain head the manifest
 	// promises but the parts do not deliver is refused.
-	d = "tenants/" + tenant.String() + "/exports/fk"
-	assignment := `{"tenant_id":"` + tenant.String() + `","id":"` + uuid.NewString() + `","principal_id":"` + uuid.NewString() + `","role_id":"` + uuid.NewString() + `","valid_from":"2026-01-01","valid_to":null,"created_by":"` + uuid.NewString() + `","created_at":"2026-10-12T00:00:00Z","ended_by":null,"ended_at":null}` + "\n"
-	sumA := put(d+"/identity.principal_role.00001.jsonl", assignment)
-	_, err = im.Import(ctx, manifest(d, `{"name":"identity.principal_role","part":1,"key":"`+d+`/identity.principal_role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumA+`"}`))
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/fk"
+	sc.assignment = `{"tenant_id":"` + sc.tenant.String() + `","id":"` + uuid.NewString() + `","principal_id":"` + uuid.NewString() + `","role_id":"` + uuid.NewString() + `","valid_from":"2026-01-01","valid_to":null,"created_by":"` + uuid.NewString() + `","created_at":"2026-10-12T00:00:00Z","ended_by":null,"ended_at":null}` + "\n"
+	sumA := sc.put(t, sc.d+"/identity.principal_role.00001.jsonl", sc.assignment)
+	_, err = sc.im.Import(sc.ctx, sc.manifest(t, sc.d, `{"name":"identity.principal_role","part":1,"key":"`+sc.d+`/identity.principal_role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumA+`"}`))
 	pgtest.WantErr(t, err, "stay referenced")
-	d = "tenants/" + tenant.String() + "/exports/outbox"
-	sumR := put(d+"/identity.role.00001.jsonl", roleLine)
-	put(d+"/tenancy.outbox.00001.jsonl", `{"anything":true}`+"\n")
-	res, err := im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumR+`"},{"name":"tenancy.outbox","part":1,"key":"`+d+`/tenancy.outbox.00001.jsonl","rows":1,"bytes":1,"sha256":"x"}`))
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/outbox"
+	sumR := sc.put(t, sc.d+"/identity.role.00001.jsonl", sc.roleLine)
+	sc.put(t, sc.d+"/tenancy.outbox.00001.jsonl", `{"anything":true}`+"\n")
+	res, err := sc.im.Import(sc.ctx, sc.manifest(t, sc.d, `{"name":"identity.role","part":1,"key":"`+sc.d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumR+`"},{"name":"tenancy.outbox","part":1,"key":"`+sc.d+`/tenancy.outbox.00001.jsonl","rows":1,"bytes":1,"sha256":"x"}`))
 	if err != nil {
 		t.Fatalf("outbox skipped: %v", err)
 	}
@@ -211,68 +272,91 @@ func TestImportRefusals(t *testing.T) {
 	if res.ChainHead != nil {
 		t.Errorf("outbox skipped: got chain head %+v, want nil", res.ChainHead)
 	}
-	if n := count(t, `SELECT count(*) FROM identity.role WHERE tenant_id = $1`, tenant); n != 1 {
+	if n := count(t, `SELECT count(*) FROM identity.role WHERE tenant_id = $1`, sc.tenant); n != 1 {
 		t.Fatalf("%d roles imported", n)
 	}
+}
+
+// chainHeadRefused is the step "chain head refused" of TestImportRefusals.
+func (sc *refusalsScenario) chainHeadRefused(t *testing.T) {
+	var err error
 	// The tenant exists now and is live: refused; erased (by the function), a chain head that is not delivered is refused too.
-	pgtest.Exec(t, `SELECT platform.erase_tenant('`+tenant.String()+`')`)
-	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', exported_at = now(), export_ref = 'x', erase_after = now(), erased_at = now(), version = version + 1 WHERE id = $1`, tenant)
-	d = "tenants/" + tenant.String() + "/exports/head"
-	sumH := put(d+"/identity.role.00001.jsonl", roleLine)
-	key := d + "/manifest.json"
-	put(key, `{"tenant_id":"`+tenant.String()+`","tenant":`+tenantRow+`,"exported_at":"2026-10-12T00:00:00Z","audit_chain_head":{"seq":3,"hash":"ab"},"tables":[{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumH+`"}]}`)
-	_, err = im.Import(ctx, key)
+	pgtest.Exec(t, `SELECT platform.erase_tenant('`+sc.tenant.String()+`')`)
+	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', exported_at = now(), export_ref = 'x', erase_after = now(), erased_at = now(), version = version + 1 WHERE id = $1`, sc.tenant)
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/head"
+	sumH := sc.put(t, sc.d+"/identity.role.00001.jsonl", sc.roleLine)
+	sc.key = sc.d + "/manifest.json"
+	sc.put(t, sc.key, `{"tenant_id":"`+sc.tenant.String()+`","tenant":`+sc.tenantRow+`,"exported_at":"2026-10-12T00:00:00Z","audit_chain_head":{"seq":3,"hash":"ab"},"tables":[{"name":"identity.role","part":1,"key":"`+sc.d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumH+`"}]}`)
+	_, err = sc.im.Import(sc.ctx, sc.key)
 	pgtest.WantErr(t, err, "chain head was not imported")
 	// A delivered chain head that differs from the manifest's.
-	d = "tenants/" + tenant.String() + "/exports/head2"
-	head := `{"tenant_id":"` + tenant.String() + `","seq":1,"hash":"\\x` + strings.Repeat("00", 32) + `","updated_at":"2026-10-12T00:00:00Z"}` + "\n"
-	sumHead := put(d+"/audit.chain_head.00001.jsonl", head)
-	key = d + "/manifest.json"
-	put(key, `{"tenant_id":"`+tenant.String()+`","tenant":`+tenantRow+`,"exported_at":"2026-10-12T00:00:00Z","audit_chain_head":{"seq":1,"hash":"ab"},"tables":[{"name":"audit.chain_head","part":1,"key":"`+d+`/audit.chain_head.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumHead+`"}]}`)
-	_, err = im.Import(ctx, key)
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/head2"
+	head := `{"tenant_id":"` + sc.tenant.String() + `","seq":1,"hash":"\\x` + strings.Repeat("00", 32) + `","updated_at":"2026-10-12T00:00:00Z"}` + "\n"
+	sumHead := sc.put(t, sc.d+"/audit.chain_head.00001.jsonl", head)
+	sc.key = sc.d + "/manifest.json"
+	sc.put(t, sc.key, `{"tenant_id":"`+sc.tenant.String()+`","tenant":`+sc.tenantRow+`,"exported_at":"2026-10-12T00:00:00Z","audit_chain_head":{"seq":1,"hash":"ab"},"tables":[{"name":"audit.chain_head","part":1,"key":"`+sc.d+`/audit.chain_head.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumHead+`"}]}`)
+	_, err = sc.im.Import(sc.ctx, sc.key)
 	pgtest.WantErr(t, err, "differs from the export")
+}
+
+// rowsAndTablesRefused is the step "rows and tables refused" of TestImportRefusals.
+func (sc *refusalsScenario) rowsAndTablesRefused(t *testing.T) {
+	var err error
 	// A row the table refuses for another reason than a foreign key is reported as such.
-	d = "tenants/" + tenant.String() + "/exports/bad"
-	sumB := put(d+"/identity.role.00001.jsonl", `{"tenant_id":"`+tenant.String()+`","id":"`+uuid.NewString()+`","name":"No code"}`+"\n")
-	_, err = im.Import(ctx, manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumB+`"}`))
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/bad"
+	sumB := sc.put(t, sc.d+"/identity.role.00001.jsonl", `{"tenant_id":"`+sc.tenant.String()+`","id":"`+uuid.NewString()+`","name":"No code"}`+"\n")
+	_, err = sc.im.Import(sc.ctx, sc.manifest(t, sc.d, `{"name":"identity.role","part":1,"key":"`+sc.d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumB+`"}`))
 	pgtest.WantErr(t, err, "inserting into identity.role")
 	// A table the cell does not have.
-	d = "tenants/" + tenant.String() + "/exports/table"
-	sumT := put(d+"/nowhere.thing.00001.jsonl", `{"tenant_id":"`+tenant.String()+`"}`+"\n")
-	_, err = im.Import(ctx, manifest(d, `{"name":"nowhere.thing","part":1,"key":"`+d+`/nowhere.thing.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumT+`"}`))
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/table"
+	sumT := sc.put(t, sc.d+"/nowhere.thing.00001.jsonl", `{"tenant_id":"`+sc.tenant.String()+`"}`+"\n")
+	_, err = sc.im.Import(sc.ctx, sc.manifest(t, sc.d, `{"name":"nowhere.thing","part":1,"key":"`+sc.d+`/nowhere.thing.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumT+`"}`))
 	pgtest.WantErr(t, err, "nowhere.thing")
+}
+
+// savepointsFailing is the step "savepoints failing" of TestImportRefusals.
+func (sc *refusalsScenario) savepointsFailing(t *testing.T) {
 	// Savepoints that cannot start, commit or roll back.
-	dOK := "tenants/" + tenant.String() + "/exports/sp"
-	sumS := put(dOK+"/identity.role.00001.jsonl", roleLine)
-	keyOK := manifest(dOK, `{"name":"identity.role","part":1,"key":"`+dOK+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumS+`"}`)
-	dFK := "tenants/" + tenant.String() + "/exports/spfk"
-	sumF := put(dFK+"/identity.principal_role.00001.jsonl", assignment)
-	keyFK := manifest(dFK, `{"name":"identity.principal_role","part":1,"key":"`+dFK+`/identity.principal_role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumF+`"}`)
+	dOK := "tenants/" + sc.tenant.String() + "/exports/sp"
+	sumS := sc.put(t, dOK+"/identity.role.00001.jsonl", sc.roleLine)
+	keyOK := sc.manifest(t, dOK, `{"name":"identity.role","part":1,"key":"`+dOK+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumS+`"}`)
+	dFK := "tenants/" + sc.tenant.String() + "/exports/spfk"
+	sumF := sc.put(t, dFK+"/identity.principal_role.00001.jsonl", sc.assignment)
+	keyFK := sc.manifest(t, dFK, `{"name":"identity.principal_role","part":1,"key":"`+dFK+`/identity.principal_role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumF+`"}`)
 	for mode, key := range map[string]string{"begin": keyOK, "commit": keyOK, "rollback": keyFK} {
 		t.Run("savepoint "+mode+" failing", func(t *testing.T) {
-			im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
-				return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, savepointFails{Tx: tx, mode: mode}) })
+			sc.im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+				return sc.pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, savepointFails{Tx: tx, mode: mode}) })
 			}
-			_, err := im.Import(ctx, key)
+			_, err := sc.im.Import(sc.ctx, key)
 			pgtest.CheckErr(t, err, "savepoint "+mode)
 		})
 	}
-	im.InTx = nil
+	sc.im.InTx = nil
+}
+
+// unreadableTenantRow is the step "unreadable tenant row" of TestImportRefusals.
+func (sc *refusalsScenario) unreadableTenantRow(t *testing.T) {
+	var err error
 	// A manifest whose tenant row is unreadable.
-	d = "tenants/" + tenant.String() + "/exports/row"
-	key = d + "/manifest.json"
-	put(key, `{"tenant_id":"`+tenant.String()+`","tenant":{"name":""},"exported_at":"2026-10-12T00:00:00Z","tables":[]}`)
-	_, err = im.Import(ctx, key)
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/row"
+	sc.key = sc.d + "/manifest.json"
+	sc.put(t, sc.key, `{"tenant_id":"`+sc.tenant.String()+`","tenant":{"name":""},"exported_at":"2026-10-12T00:00:00Z","tables":[]}`)
+	_, err = sc.im.Import(sc.ctx, sc.key)
 	pgtest.WantErr(t, err, "tenant row is not readable")
+}
+
+// eachStatementFailing is the step "each statement failing" of TestImportRefusals.
+func (sc *refusalsScenario) eachStatementFailing(t *testing.T) {
 	// Database statements failing in turn, on a valid import into the erased tenant.
-	d = "tenants/" + tenant.String() + "/exports/db"
-	sumD := put(d+"/identity.role.00001.jsonl", roleLine)
-	key = manifest(d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumD+`"}`)
+	sc.d = "tenants/" + sc.tenant.String() + "/exports/db"
+	sumD := sc.put(t, sc.d+"/identity.role.00001.jsonl", sc.roleLine)
+	sc.key = sc.manifest(t, sc.d, `{"name":"identity.role","part":1,"key":"`+sc.d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumD+`"}`)
 	for n := 1; n < 30; n++ {
-		im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
-			return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}) })
+		sc.im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+			return sc.pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}) })
 		}
-		_, err := im.Import(ctx, key)
+		_, err := sc.im.Import(sc.ctx, sc.key)
 		if err == nil {
 			if n == 1 {
 				t.Fatal("imported without a statement to fail")
@@ -283,23 +367,27 @@ func TestImportRefusals(t *testing.T) {
 			t.Fatalf("statement %d: %v", n, err)
 		}
 	}
+}
+
+// creatingATenantFailing is the step "creating a tenant failing" of TestImportRefusals.
+func (sc *refusalsScenario) creatingATenantFailing(t *testing.T) {
 	// Creating a tenant this cell has never held failing: statements fail in
 	// turn on fresh tenants until the creation is the one that fails.
 	created := false
 	for n := 1; n < 10 && !created; n++ {
 		fresh := uuid.Must(uuid.NewV7()).String()
 		key := "tenants/" + fresh + "/exports/fresh/manifest.json"
-		put(key, `{"tenant_id":"`+fresh+`","tenant":{"id":"`+fresh+`","name":"Fresh","region":"eu-west","group_currency":"EUR","status":"active"},"exported_at":"2026-10-12T00:00:00Z","tables":[]}`)
-		im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
-			return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}) })
+		sc.put(t, key, `{"tenant_id":"`+fresh+`","tenant":{"id":"`+fresh+`","name":"Fresh","region":"eu-west","group_currency":"EUR","status":"active"},"exported_at":"2026-10-12T00:00:00Z","tables":[]}`)
+		sc.im.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+			return sc.pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}) })
 		}
-		_, err := im.Import(ctx, key)
+		_, err := sc.im.Import(sc.ctx, key)
 		created = errors.Is(err, pgtest.ErrInjected) && strings.Contains(err.Error(), "offboarding: create tenant "+fresh)
 	}
 	if !created {
 		t.Error("no injected failure reached the creation of a new tenant")
 	}
-	im.InTx = nil
+	sc.im.InTx = nil
 }
 
 // wipeTrail removes a tenant's audit trail the way a destination cell
