@@ -47,6 +47,14 @@ type sim struct {
 	fixture.Env
 }
 
+// in returns s reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (s sim) in(t *testing.T) sim {
+	t.Helper()
+	s.T = t
+	return s
+}
+
 // suite captures a regression suite on version 1 (the fake regressor
 // supplies the cases), which tier 3 evidence needs.
 func (s sim) suite(t *testing.T) {
