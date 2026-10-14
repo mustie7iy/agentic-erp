@@ -178,7 +178,10 @@ func TestProvisioningRefusals(t *testing.T) {
 	if pr := problem.From(err); pr.Status != 500 {
 		t.Errorf("no issuer: got status %d (%v), want 500", pr.Status, err)
 	}
-	if err == nil || !strings.Contains(err.Error(), "no tenant issuer") {
+	if err == nil {
+		t.Fatal("no issuer: got provisioned, want refused")
+	}
+	if !strings.Contains(err.Error(), "no tenant issuer") {
 		t.Errorf("no issuer: got %v, want an error naming the missing tenant issuer", err)
 	}
 }

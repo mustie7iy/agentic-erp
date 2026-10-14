@@ -40,8 +40,11 @@ func TestProposalAndReversalSerialize(t *testing.T) {
 				return err
 			}
 			j, ok, err := h.JobFor(ctx, tx, run)
-			if err != nil || !ok {
-				return fmt.Errorf("proposal job of run %s: found %v, %w", run, ok, err)
+			if err != nil {
+				return fmt.Errorf("proposal job of run %s: %w", run, err)
+			}
+			if !ok {
+				return fmt.Errorf("proposal job of run %s: got none, want one", run)
 			}
 			return h.Process(ctx, j)
 		}

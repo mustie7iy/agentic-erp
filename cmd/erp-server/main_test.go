@@ -385,8 +385,11 @@ func TestExitCodes(t *testing.T) {
 	// says what to set.
 	delete(env, "ERP_ENV")
 	stderr.Reset()
-	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 2 || !strings.Contains(stderr.String(), "ERP_ENV is required: set ERP_ENV=development") {
-		t.Fatalf("no ERP_ENV: got exit %d and %q, want exit 2 naming ERP_ENV", code, stderr.String())
+	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 2 {
+		t.Fatalf("no ERP_ENV: got exit %d (%q), want 2", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ERP_ENV is required: set ERP_ENV=development") {
+		t.Fatalf("no ERP_ENV: got %q, want it naming ERP_ENV and what to set", stderr.String())
 	}
 	env = environment(t, is, "")
 	env["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = "not a url"

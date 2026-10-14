@@ -401,10 +401,14 @@ func TestPrincipalsBoundToIssuer(t *testing.T) {
 		_ = json.Unmarshal(rec.Body.Bytes(), &body) // the status is checked first; a non-JSON body leaves the map empty
 		return rec.Code, body
 	}
-	if code, body := read(a.issuer, ten.ID, ten.Human.Subject); code != 200 || body["principal"] != ten.Human.ID.String() {
-		t.Fatalf("own issuer: got %d %v, want 200 as %s", code, body, ten.Human.ID)
+	code, body := read(a.issuer, ten.ID, ten.Human.Subject)
+	if code != 200 {
+		t.Fatalf("own issuer: got %d %v, want 200", code, body)
 	}
-	code, body := read(other, ten.ID, ten.Human.Subject)
+	if body["principal"] != ten.Human.ID.String() {
+		t.Fatalf("own issuer: got principal %v, want %s", body["principal"], ten.Human.ID)
+	}
+	code, body = read(other, ten.ID, ten.Human.Subject)
 	if code != 403 {
 		t.Fatalf("other issuer, same subject: got %d %v, want 403", code, body)
 	}
@@ -417,8 +421,12 @@ func TestPrincipalsBoundToIssuer(t *testing.T) {
 	theirs := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
 		VALUES ($1, $2, 'human', $3, $4, 'Theirs', 'active', $2, $2)`, ten2.ID, theirs, other.URL, ten.Human.Subject)
-	if code, body := read(other, ten2.ID, ten.Human.Subject); code != 200 || body["principal"] != theirs.String() {
-		t.Errorf("other issuer in its tenant: got %d %v, want 200 as %s", code, body, theirs)
+	code, body = read(other, ten2.ID, ten.Human.Subject)
+	if code != 200 {
+		t.Fatalf("other issuer in its tenant: got %d %v, want 200", code, body)
+	}
+	if body["principal"] != theirs.String() {
+		t.Errorf("other issuer in its tenant: got principal %v, want %s", body["principal"], theirs)
 	}
 	if code, _ := read(a.issuer, ten2.ID, ten.Human.Subject); code != 403 {
 		t.Errorf("own issuer in the other tenant: got %d, want 403", code)

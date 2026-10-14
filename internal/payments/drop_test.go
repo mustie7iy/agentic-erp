@@ -94,8 +94,12 @@ func TestUnpayablePaymentIsDropped(t *testing.T) {
 		t.Errorf("exclusions: got %v, want vendor item_reversed 40.00", exs)
 	}
 	// The dropped payment is not listed; its items are freed.
-	if pays := e.payments(t, run); len(pays) != 1 || id(pays[0].(map[string]any)) != payA.String() {
-		t.Errorf("payments listed: got %v, want payment A alone", pays)
+	pays := e.payments(t, run)
+	if len(pays) != 1 {
+		t.Fatalf("payments listed: got %d %v, want 1, payment A alone", len(pays), pays)
+	}
+	if got := id(pays[0].(map[string]any)); got != payA.String() {
+		t.Errorf("payment listed: got %s, want payment A %s", got, payA)
 	}
 	var active bool
 	pgtest.Scan(t, `SELECT bool_or(is_active) FROM payments.payment_item WHERE payment_id = $1`, []any{payX}, &active)
@@ -109,8 +113,12 @@ func TestUnpayablePaymentIsDropped(t *testing.T) {
 	if dropped[0]["payment_id"] != payX.String() {
 		t.Errorf("payment_excluded payment: got %v, want %s", dropped[0]["payment_id"], payX)
 	}
-	if released := events(t, e.Tenant, "payment_run_released"); len(released) != 1 || released[0]["payment_count"] != float64(1) {
-		t.Errorf("payment_run_released: got %v, want one with payment_count 1", released)
+	released := events(t, e.Tenant, "payment_run_released")
+	if len(released) != 1 {
+		t.Fatalf("payment_run_released events: got %d %v, want 1", len(released), released)
+	}
+	if got := released[0]["payment_count"]; got != float64(1) {
+		t.Errorf("payment_run_released payment_count: got %v, want 1", got)
 	}
 	var held int
 	pgtest.Scan(t, `SELECT count(*) FROM ledger.item_reservation WHERE owner_id = $1 AND released_at IS NULL`, []any{uuidOf(id(run))}, &held)

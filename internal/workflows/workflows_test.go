@@ -426,8 +426,12 @@ func (s *dispatchScenario) releaseAttempts(t *testing.T) {
 	if n, err := d.RunOnce(ctx); err != nil || n != 1 {
 		t.Fatalf("second release dispatch: %d %v", n, err)
 	}
-	if last := s.engine.started[len(s.engine.started)-1]; last.ID != workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 2) || last.Args[0].(workflows.ReleaseInput) != rel2 {
-		t.Fatalf("second release start: %+v", last)
+	last = s.engine.started[len(s.engine.started)-1]
+	if want := workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 2); last.ID != want {
+		t.Errorf("second release start id: got %s, want %s", last.ID, want)
+	}
+	if got := last.Args[0].(workflows.ReleaseInput); got != rel2 {
+		t.Errorf("second release start input: got %+v, want %+v", got, rel2)
 	}
 }
 

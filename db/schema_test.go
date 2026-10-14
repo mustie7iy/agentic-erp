@@ -1005,8 +1005,11 @@ func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
 	if err := testDB.QueryRow(context.Background(), "SELECT indisvalid, indisunique FROM pg_index WHERE indexrelid = 'identity.principal_issuer_subject'::regclass").Scan(&valid, &unique); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	if !valid || !unique {
-		t.Errorf("principal_issuer_subject: got valid %v unique %v, want both", valid, unique)
+	if !valid {
+		t.Errorf("principal_issuer_subject valid: got %v, want true", valid)
+	}
+	if !unique {
+		t.Errorf("principal_issuer_subject unique: got %v, want true", unique)
 	}
 }
 
