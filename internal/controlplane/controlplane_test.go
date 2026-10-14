@@ -70,6 +70,14 @@ func newPlane(t *testing.T) *plane {
 	return &plane{t: t, s: s, is: is, srv: srv}
 }
 
+// in is the plane for a subtest: its failures stop the subtest.
+func (p *plane) in(t *testing.T) *plane {
+	t.Helper()
+	c := *p
+	c.t = t
+	return &c
+}
+
 // operator mints an operator token: the issuer's token without a tenant.
 func (p *plane) operator(subject string) string {
 	return p.is.Token(p.t, uuid.Nil, subject, map[string]any{"tenant_id": nil})
@@ -145,9 +153,53 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	p := newPlane(t)
 	recorded := &memoryDirectory{entries: map[uuid.UUID]directory.Entry{}}
 	p.s.Directory = &directory.Sync{Directory: recorded, Cell: "test", APIURL: "https://test.api.example.com", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	ctx := context.Background()
+	s := &lifecycle{p: p, recorded: recorded}
+	// Each step builds on the ones before it, so the first failure stops the rest.
+	if !t.Run("only operators get in", s.operatorsOnly) {
+		t.FailNow()
+	}
+	if !t.Run("provisioning", s.provision) {
+		t.FailNow()
+	}
+	if !t.Run("request rules", s.requestRules) {
+		t.FailNow()
+	}
+	if !t.Run("listing", s.listing) {
+		t.FailNow()
+	}
+	if !t.Run("reading one", s.readOne) {
+		t.FailNow()
+	}
+	if !t.Run("transitions", s.transitions) {
+		t.FailNow()
+	}
+	if !t.Run("offboarded listing", s.offboardedListing) {
+		t.FailNow()
+	}
+	if !t.Run("events and audit", s.eventsAndAudit) {
+		t.FailNow()
+	}
+	if !t.Run("erasure", s.erasure) {
+		t.FailNow()
+	}
+}
 
-	// Only operators get in: no token, a tenant's token and a token from an untrusted issuer are refused.
+// lifecycle is the state the steps of
+// TestTenantsLifecycleThroughTheControlPlane share: one tenant taken from
+// provisioning to erasure, and a second one for the listings.
+type lifecycle struct {
+	p        *plane
+	recorded *memoryDirectory
+	body     string         // the provisioning request
+	id       string         // the tenant
+	prov     map[string]any // what provisioning made for it
+	second   map[string]any // the second tenant
+	ten      pgtest.Tenant
+}
+
+// operatorsOnly: no token, a tenant's token and a token from an untrusted issuer are refused.
+func (s *lifecycle) operatorsOnly(t *testing.T) {
+	p := s.p.in(t)
 	if code, m, _ := p.do("GET", tenants, "", nil); code != 401 || m["code"] != "authn.invalid_token" {
 		t.Fatalf("no token: %d %v", code, m)
 	}
@@ -157,8 +209,11 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	if code, _, _ := p.do("GET", tenants, "", map[string]string{"Authorization": "Bearer " + authntest.New(t).Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil})}); code != 401 {
 		t.Fatalf("untrusted operator: %d", code)
 	}
+}
 
-	// Provisioning: the tenant is active with everything made for it; the Idempotency-Key replays it.
+// provision: the tenant is active with everything made for it; the Idempotency-Key replays it.
+func (s *lifecycle) provision(t *testing.T) {
+	p := s.p.in(t)
 	key := "key-" + uuid.NewString()
 	body := tenantBody(t, "Acme")
 	created, h := p.must(201, "ops|alice", "POST", tenants, body, "Idempotency-Key", key)
@@ -197,7 +252,13 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	}
 	p.problem(422, "request.idempotency_key_reused", "ops|alice", "POST", tenants, tenantBody(t, "Other"), "Idempotency-Key", key)
 	p.problem(422, "request.idempotency_key_reused", "ops|bob", "POST", tenants, body, "Idempotency-Key", key)
-	// The request's rules.
+	s.body, s.id, s.prov = body, id, prov
+}
+
+// requestRules: what a create request must carry.
+func (s *lifecycle) requestRules(t *testing.T) {
+	p := s.p.in(t)
+	body := s.body
 	p.problem(428, "request.precondition_required", "ops|alice", "POST", tenants, body)
 	p.problem(400, "request.invalid_idempotency_key", "ops|alice", "POST", tenants, body, "Idempotency-Key", "short")
 	p.problem(400, "request.invalid_body", "ops|alice", "POST", tenants, `{"name": `, "Idempotency-Key", "key-"+uuid.NewString())
@@ -213,8 +274,12 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	if errs := noDoc["errors"].([]any); errs[0].(map[string]any)["field"] != "document" {
 		t.Fatalf("missing document: %v", noDoc)
 	}
+}
 
-	// Listing: filters, order and pages across the cell.
+// listing: filters, order and pages across the cell.
+func (s *lifecycle) listing(t *testing.T) {
+	p := s.p.in(t)
+	id := s.id
 	second, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Beta"), "Idempotency-Key", "key-"+uuid.NewString())
 	page, _ := p.must(200, "ops|alice", "GET", tenants+"?status=active&page_size=1", "")
 	if n := len(page["items"].([]any)); n != 1 {
@@ -265,8 +330,13 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	p.problem(400, "request.invalid_page_size", "ops|alice", "GET", tenants+"?page_size=0", "")
 	p.problem(400, "request.invalid_order_by", "ops|alice", "GET", tenants+"?order_by=region", "")
 	p.problem(400, "request.invalid_page_token", "ops|alice", "GET", tenants+"?page_token=x.y", "")
+	s.second = second
+}
 
-	// Reading one.
+// readOne: one tenant, and the methods each path allows.
+func (s *lifecycle) readOne(t *testing.T) {
+	p := s.p.in(t)
+	id := s.id
 	got, h := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	if got["name"] != "Acme" {
 		t.Errorf("get name: got %v, want Acme", got["name"])
@@ -297,8 +367,12 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	} else if got := h.Get("Allow"); got != "POST" {
 		t.Errorf("GET custom Allow: got %q, want POST", got)
 	}
+}
 
-	// Transitions: guarded by If-Match, refused in the wrong status, felt at the public API's door.
+// transitions: guarded by If-Match, refused in the wrong status, felt at the public API's door.
+func (s *lifecycle) transitions(t *testing.T) {
+	p := s.p.in(t)
+	id, prov, recorded := s.id, s.prov, s.recorded
 	ten := pgtest.Tenant{ID: uuid.MustParse(id)}
 	admin := pgtest.Actor{ID: uuid.MustParse(prov["administrator_id"].(string)), Subject: "idp|ada", Kind: "human"}
 	public := apitest.Client{T: t, API: apitest.New(t), Tenant: ten, As: admin}
@@ -352,6 +426,13 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 		t.Fatalf("%d directory writes", recorded.writes)
 	}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":suspend", "", "If-Match", `"4"`)
+	s.ten = ten
+}
+
+// offboardedListing: only offboarded tenants, and of this test's two only the offboarded one.
+func (s *lifecycle) offboardedListing(t *testing.T) {
+	p := s.p.in(t)
+	id, second := s.id, s.second
 	// Other tests offboard tenants in the same database: every item must be
 	// offboarded, and of this test's two tenants only the offboarded one listed.
 	filtered, _ := p.must(200, "ops|alice", "GET", tenants+"?status=offboarded&page_size=500", "")
@@ -374,8 +455,12 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	if len(ours) != 1 || ours[0] != id {
 		t.Fatalf("offboarded tenants of this test: got %v, want [%s]", ours, id)
 	}
+}
 
-	// Every change was published and recorded in the tenant's chain as the operator, kind system.
+// eventsAndAudit: every change was published and recorded in the tenant's chain as the operator, kind system.
+func (s *lifecycle) eventsAndAudit(t *testing.T) {
+	p := s.p.in(t)
+	ten, ctx := s.ten, context.Background()
 	events := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "tenant_status_changed"})
 	statuses := []string{}
 	for _, e := range events {
@@ -445,8 +530,12 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	if res.Checked < 4 {
 		t.Errorf("chain checked: got %d, want at least 4", res.Checked)
 	}
+}
 
-	// Erasure: not before the export, which the offboarding worker does; then on request, once.
+// erasure: not before the export, which the offboarding worker does; then on request, once.
+func (s *lifecycle) erasure(t *testing.T) {
+	p := s.p.in(t)
+	id, ctx := s.id, context.Background()
 	p.problem(503, "platform.unavailable", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
 	clock := time.Now().UTC().Truncate(time.Second)
 	store := blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}

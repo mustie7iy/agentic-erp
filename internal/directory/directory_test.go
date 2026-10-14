@@ -74,7 +74,39 @@ func TestPostgresDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	again.Close()
-	tenant := uuid.New()
+	s := &dirScenario{dir: dir, url: dirURL, tenant: uuid.New()}
+	// Each step builds on the ones before it, so the first failure stops the rest.
+	if !t.Run("entries", s.entries) {
+		t.FailNow()
+	}
+	if !t.Run("status changes and moves", s.statusAndMoves) {
+		t.FailNow()
+	}
+	if !t.Run("cells and placement", s.cellsAndPlacement) {
+		t.FailNow()
+	}
+	if !t.Run("listing tenants", s.listingTenants) {
+		t.FailNow()
+	}
+	if !t.Run("opening fails", s.openingFails) {
+		t.FailNow()
+	}
+	if !t.Run("closed directory", s.closedDirectory) {
+		t.FailNow()
+	}
+}
+
+// dirScenario is the state the steps of TestPostgresDirectory share.
+type dirScenario struct {
+	dir    *directory.Postgres
+	url    string    // the directory's own database
+	tenant uuid.UUID // the tenant the entry, status and move steps work on
+}
+
+// entries: an entry is stored and read back; an upsert moves the version on only when it changes something, and passes the cell's status changes through.
+func (s *dirScenario) entries(t *testing.T) {
+	ctx := context.Background()
+	dir, tenant := s.dir, s.tenant
 	if _, err := dir.Lookup(ctx, tenant); !errors.Is(err, directory.ErrUnknown) {
 		t.Fatalf("unknown: %v", err)
 	}
@@ -115,7 +147,12 @@ func TestPostgresDirectory(t *testing.T) {
 	} else if e.Version != 2 {
 		t.Fatalf("suspended version: got %d, want 2", e.Version)
 	}
-	// Status changes and moves check the version they were read at (0: any).
+}
+
+// statusAndMoves: they check the version they were read at (0: any); a read_only set in the directory survives the cell's upserts; moves go to registered cells of the tenant's region only.
+func (s *dirScenario) statusAndMoves(t *testing.T) {
+	ctx := context.Background()
+	dir, tenant := s.dir, s.tenant
 	if _, err := dir.SetStatus(ctx, tenant, 1, directory.ReadOnly); !errors.Is(err, directory.ErrVersion) {
 		t.Fatalf("stale version: %v", err)
 	}
@@ -180,7 +217,12 @@ func TestPostgresDirectory(t *testing.T) {
 	} else if errors.Is(err, directory.ErrUnknown) || errors.Is(err, directory.ErrVersion) {
 		t.Fatalf("bogus status set: got %v, want an invalid status, not an unknown tenant or a version mismatch", err)
 	}
-	// Cells register themselves; listing orders by load; placement picks the emptiest accepting cell of the region, once per key.
+}
+
+// cellsAndPlacement: cells register themselves; listing orders by load; placement picks the emptiest accepting cell of the region, once per key.
+func (s *dirScenario) cellsAndPlacement(t *testing.T) {
+	ctx := context.Background()
+	dir := s.dir
 	for _, c := range []directory.Cell{
 		{Name: "eu-1", Region: "eu-west", APIURL: "https://eu-1.api.example.com", ControlURL: "http://eu-1:9090", Accepting: true},
 		{Name: "eu-2", Region: "eu-west", APIURL: "https://eu-2.api.example.com", ControlURL: "http://eu-2:9090", Accepting: true},
@@ -233,7 +275,12 @@ func TestPostgresDirectory(t *testing.T) {
 			}
 		})
 	}
-	// Listing tenants: filters, order and pages.
+}
+
+// listingTenants: filters, order and pages.
+func (s *dirScenario) listingTenants(t *testing.T) {
+	ctx := context.Background()
+	dir := s.dir
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("k", 32)))
 	ks, _ := pages.Keyset(directory.Sort, "list", pagination.Request{PageSize: 1, PageSizeSet: true})
 	first, next, err := dir.ListTenants(ctx, directory.Filter{Cell: "eu-1"}, ks)
@@ -261,7 +308,11 @@ func TestPostgresDirectory(t *testing.T) {
 	if none, _, err := dir.ListTenants(ctx, directory.Filter{Status: directory.Offboarded}, ks); err != nil || len(none) != 0 {
 		t.Fatalf("none: %+v %v", none, err)
 	}
-	// Opening fails on a bad URL, and on a database where the schema cannot be created.
+}
+
+// openingFails: on a bad URL, and on a database where the schema cannot be created.
+func (s *dirScenario) openingFails(t *testing.T) {
+	ctx := context.Background()
 	if _, err := directory.Open(ctx, "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"); err == nil {
 		t.Fatal("opened nothing")
 	}
@@ -271,9 +322,14 @@ func TestPostgresDirectory(t *testing.T) {
 	pgtest.Exec(t, `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dir_limited') THEN CREATE ROLE dir_limited LOGIN PASSWORD 'x'; END IF; END $$`)
 	limited, _ := url.Parse(pgtest.URL(t))
 	limited.User = url.UserPassword("dir_limited", "x")
-	_, err = directory.Open(ctx, limited.String())
+	_, err := directory.Open(ctx, limited.String())
 	pgtest.WantErr(t, err, "schema")
-	// Lookups failing are reported.
+}
+
+// closedDirectory: lookups failing are reported.
+func (s *dirScenario) closedDirectory(t *testing.T) {
+	ctx := context.Background()
+	dirURL, tenant := s.url, s.tenant
 	closed, _ := directory.Open(ctx, dirURL)
 	closed.Close()
 	if _, err := closed.Lookup(ctx, tenant); err == nil || errors.Is(err, directory.ErrUnknown) {
