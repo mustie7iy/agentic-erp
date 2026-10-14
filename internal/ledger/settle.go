@@ -132,11 +132,7 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 		return Entry{}, err
 	}
 	lines = append(lines, Line{AccountID: in.BankAccountID, TC: tc, LC: bank.lc, GC: bank.gc, Text: in.HeaderText})
-	diffLC, diffGC, err := exchangeDifferences(lc, gc, bank)
-	if err != nil {
-		return Entry{}, err
-	}
-	fx, err := exchangeDifferenceLines(ctx, le.ID, diffLC, diffGC, in.HeaderText)
+	fx, err := exchangeDifferenceLines(ctx, le.ID, lc, gc, bank, in.HeaderText)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -278,7 +274,11 @@ func exchangeDifferences(lc, gc money.Minor, bank settlementBank) (diffLC, diffG
 // exchangeDifferenceLines books what the bank line leaves in local and in
 // group currency on the fx_gain or fx_loss account of the account
 // determination: one line per currency with a difference.
-func exchangeDifferenceLines(ctx context.Context, legalEntity uuid.UUID, diffLC, diffGC money.Minor, text *string) ([]Line, error) {
+func exchangeDifferenceLines(ctx context.Context, legalEntity uuid.UUID, lc, gc money.Minor, bank settlementBank, text *string) ([]Line, error) {
+	diffLC, diffGC, err := exchangeDifferences(lc, gc, bank)
+	if err != nil {
+		return nil, err
+	}
 	var lines []Line
 	for _, d := range []Line{{LC: diffLC}, {GC: diffGC}} {
 		if d.LC == 0 && d.GC == 0 {

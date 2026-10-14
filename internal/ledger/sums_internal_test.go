@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"context"
 	"errors"
 	"math"
 	"testing"
@@ -44,7 +45,8 @@ func TestExchangeDifferenceOutOfRange(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			lc, gc, err := exchangeDifferences(c.lc, c.gc, settlementBank{lc: c.bankLC, gc: c.bankGC})
+			bank := settlementBank{lc: c.bankLC, gc: c.bankGC}
+			lc, gc, err := exchangeDifferences(c.lc, c.gc, bank)
 			if name == "in range" {
 				if err != nil || lc != 2 || gc != 5 {
 					t.Errorf("got %d, %d, %v, want 2, 5, nil", lc, gc, err)
@@ -53,6 +55,10 @@ func TestExchangeDifferenceOutOfRange(t *testing.T) {
 			}
 			if code := problemCode(err); code != "ledger.amount_too_large" {
 				t.Errorf("got %v, want ledger.amount_too_large", err)
+			}
+			// Refused before the lines read the account determination.
+			if _, err := exchangeDifferenceLines(context.Background(), uuid.Nil, c.lc, c.gc, bank, nil); problemCode(err) != "ledger.amount_too_large" {
+				t.Errorf("lines: got %v, want ledger.amount_too_large", err)
 			}
 		})
 	}
