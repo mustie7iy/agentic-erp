@@ -195,6 +195,9 @@ func TestReversedItemsAreNotCleared(t *testing.T) {
 	invoice, tag := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-01", "EUR", line{expense, "100.00", ""}, line{ap, "-100.00", e.supplier.String()}), "")
 	reversal, _ := e.Must(200, "POST", "/v1/journal-entries/"+invoice["id"].(string)+":reverse", "", tag)
 	e.Problem(409, "ledger.entry_reversed", "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{invoice, 2}, ref{reversal, 2}), "")
+	// What is not an open item at all, or not one of this legal entity, is refused as such first.
+	e.Problem(422, "ledger.not_an_open_item", "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{invoice, 1}, ref{reversal, 1}), "")
+	e.Problem(422, "ledger.not_an_open_item", "POST", "/v1/clearings", clearing(e.us, "2026-03-31", ref{invoice, 2}, ref{reversal, 2}), "")
 
 	item := func(m map[string]any) ledger.ItemRef {
 		return ledger.ItemRef{FiscalYear: int16(m["fiscal_year"].(float64)), EntryID: uuid.MustParse(m["id"].(string)), LineNo: 2}
@@ -205,18 +208,28 @@ func TestReversedItemsAreNotCleared(t *testing.T) {
 			BankAccountID: uuid.MustParse(bank), HeaderText: &text, SourceContext: "payments", SourceDocumentID: uuid.New(), Items: items}
 	}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		for name, call := range map[string]func() error{
-			"settle the original": func() error { _, err := postings().Settle(ctx, settle(item(invoice))); return err },
-			"settle the reversal": func() error { _, err := postings().Settle(ctx, settle(item(reversal))); return err },
-			"settle both":         func() error { _, err := postings().Settle(ctx, settle(item(invoice), item(reversal))); return err },
-			"clear by migration": func() error {
+		expense := ledger.ItemRef{FiscalYear: 2026, EntryID: item(invoice).EntryID, LineNo: 1}
+		for name, c := range map[string]struct {
+			call func() error
+			code string
+		}{
+			"settle the original": {func() error { _, err := postings().Settle(ctx, settle(item(invoice))); return err }, "ledger.entry_reversed"},
+			"settle the reversal": {func() error { _, err := postings().Settle(ctx, settle(item(reversal))); return err }, "ledger.entry_reversed"},
+			"settle both": {func() error { _, err := postings().Settle(ctx, settle(item(invoice), item(reversal))); return err },
+				"ledger.entry_reversed"},
+			"clear by migration": {func() error {
 				_, err := postings().Clear(ctx, e.de, date("2026-03-31"), item(reversal), []ledger.ItemRef{item(invoice), item(reversal)})
 				return err
-			},
+			}, "ledger.entry_reversed"},
+			"settle an expense line": {func() error { _, err := postings().Settle(ctx, settle(expense)); return err }, "ledger.not_an_open_item"},
+			"clear an expense line by migration": {func() error {
+				_, err := postings().Clear(ctx, e.de, date("2026-03-31"), item(reversal), []ledger.ItemRef{expense})
+				return err
+			}, "ledger.not_an_open_item"},
 		} {
 			t.Run(name, func(t *testing.T) {
-				if got := problem.From(call()).Code; got != "ledger.entry_reversed" {
-					t.Errorf("code: got %s, want ledger.entry_reversed", got)
+				if got := problem.From(c.call()).Code; got != c.code {
+					t.Errorf("code: got %s, want %s", got, c.code)
 				}
 			})
 		}

@@ -215,6 +215,8 @@ func requireClearable(i int, it, first item, legalEntity uuid.UUID) error {
 			problem.FieldError{Field: field, Code: "not_an_open_item", Message: "a line on a supplier or customer reconciliation account"})
 	case !it.open:
 		return problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+	case it.reversed:
+		return reversedItem(i)
 	case it.currency != first.currency || it.ledger != first.ledger:
 		return problem.Unprocessable("ledger.mixed_items", "The items of one clearing share their ledger and transaction currency.",
 			problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + first.currency + " of the same ledger"})
@@ -234,9 +236,8 @@ func clearedItemsPayload(items []item, entry Entry) []map[string]any {
 }
 
 // loadItems reads the journal lines to clear, in the order of refs; lines
-// that do not exist come back with found false. It refuses lines of a
-// reversed entry or of a reversal: the reversal cancelled them, so they are
-// not open items to settle.
+// that do not exist come back with found false, and lines of a reversed
+// entry or of a reversal with reversed true.
 func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	years, entries, nos := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
 	for i, r := range refs {
@@ -272,13 +273,16 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("ledger: load %d open items: %w", len(refs), err)
 	}
-	for i, it := range items {
-		if it.reversed {
-			return nil, problem.Conflict("ledger.entry_reversed", "Item "+fmt.Sprint(i+1)+
-				" is a line of a reversed journal entry or of a reversal; the reversal cancelled it, so it cannot be cleared.")
-		}
-	}
 	return items, nil
+}
+
+// reversedItem refuses item i, a line of a reversed journal entry or of a
+// reversal: the reversal cancelled it, so it is not an open item to settle.
+// Callers check it after the item is known to be an open item of the legal
+// entity, so the refusal tells nothing about other legal entities.
+func reversedItem(i int) *problem.Problem {
+	return problem.Conflict("ledger.entry_reversed", "Item "+fmt.Sprint(i+1)+
+		" is a line of a reversed journal entry or of a reversal; the reversal cancelled it, so it cannot be cleared.")
 }
 
 // lockEntries serializes clearing and reversal of the journal entries until

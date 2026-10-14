@@ -228,6 +228,8 @@ func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines
 			return nil, 0, 0, 0, problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line on a reconciliation account of this legal entity.")
 		case !it.open:
 			return nil, 0, 0, 0, problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+		case it.reversed:
+			return nil, 0, 0, 0, reversedItem(i)
 		case it.currency != in.Currency || it.ledger != items[0].ledger:
 			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
 		}
