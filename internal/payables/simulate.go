@@ -99,7 +99,7 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 		}
 		t.invoice(r, base.Company(r.Company), proposed.Company(r.Company))
 	}
-	return t.result(window, len(invoices)), nil
+	return t.result(window, len(invoices))
 }
 
 // tally collects the outcome of replaying invoices under the base and the
@@ -109,6 +109,9 @@ type tally struct {
 	changes []Decision
 	breaks  []Broken
 	moves   map[string]*Posting
+	// err is the first amount a posting rule moves that is out of range;
+	// result returns it rather than a total that wrapped.
+	err error
 }
 
 // invoice decides one invoice under both configurations and records a
@@ -173,12 +176,20 @@ func (t *tally) move(co, key, from, to string, amount money.Minor) {
 		t.moves[k] = &Posting{Company: co, Key: key, Base: from, Proposed: to}
 	}
 	t.moves[k].Invoices++
-	t.moves[k].Amount += amount
+	sum, err := money.Sum(t.moves[k].Amount, amount)
+	if err != nil && t.err == nil {
+		t.err = fmt.Errorf("payables: simulate: amount moved by %s: %w", k, err)
+	}
+	t.moves[k].Amount = sum
 }
 
 // result is the simulation's verdict, summary and detail; it passes when
-// every invoice can be evaluated under the proposal.
-func (t *tally) result(window time.Duration, invoices int) configuration.Simulation {
+// every invoice can be evaluated under the proposal. An amount moved out of
+// range fails the simulation.
+func (t *tally) result(window time.Duration, invoices int) (configuration.Simulation, error) {
+	if t.err != nil {
+		return configuration.Simulation{}, t.err
+	}
 	postings := []Posting{}
 	for _, p := range t.moves {
 		postings = append(postings, *p)
@@ -193,7 +204,7 @@ func (t *tally) result(window time.Duration, invoices int) configuration.Simulat
 	if len(t.breaks) > 0 {
 		summary += fmt.Sprintf("; %d cannot be evaluated under the proposal", len(t.breaks))
 	}
-	return configuration.Simulation{Passed: len(t.breaks) == 0, Summary: summary, Detail: detail}
+	return configuration.Simulation{Passed: len(t.breaks) == 0, Summary: summary, Detail: detail}, nil
 }
 
 func first[T any](list []T, n int) []T {
