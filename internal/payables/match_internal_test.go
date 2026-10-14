@@ -50,4 +50,10 @@ func TestMatchOutOfRange(t *testing.T) {
 			}
 		})
 	}
+	// Items plus tax are summed exactly: items out of range alone, with a
+	// credit tax bringing the total in range, match their gross amount.
+	v := Invoice{Exponent: 2, Items: []Item{{ItemNo: 1, Amount: top}, {ItemNo: 2, Amount: 1}}, Tax: -1, Gross: top}
+	if why := totalMismatch(v, money.Minor.String); why != "" {
+		t.Errorf("exact total: got %q, want a match", why)
+	}
 }

@@ -143,18 +143,20 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, t c
 // totalMismatch says why the items plus tax do not equal the gross amount,
 // or "" when they do. Sums out of range never equal it.
 func totalMismatch(v Invoice, format func(money.Minor) string) string {
-	amounts := make([]money.Minor, len(v.Items))
+	n := len(v.Items)
+	amounts := make([]money.Minor, n+1)
 	for i, it := range v.Items {
 		amounts[i] = it.Amount
 	}
-	net, err := money.Sum(amounts...)
+	amounts[n] = v.Tax
+	if total, err := money.Sum(amounts...); err == nil && total == v.Gross {
+		return ""
+	}
+	net, err := money.Sum(amounts[:n]...)
 	if err != nil {
 		return "the items add up to more than an amount holds"
 	}
-	if total, err := money.Sum(net, v.Tax); err != nil || total != v.Gross {
-		return fmt.Sprintf("gross %s does not equal items %s + tax %s", format(v.Gross), format(net), format(v.Tax))
-	}
-	return ""
+	return fmt.Sprintf("gross %s does not equal items %s + tax %s", format(v.Gross), format(net), format(v.Tax))
 }
 
 // priceVariance says why the invoiced amount of an item is outside the
@@ -172,9 +174,12 @@ func priceVariance(it Item, oi procurement.OrderItem, absolute money.Minor, pct 
 	}
 	// Only a percentage above 100 of an amount near the range fails; the
 	// item is then flagged rather than let through.
-	byPct, err := money.Scale(want.Abs(), fmt.Sprint(pct), 100)
+	byPct, err := money.Percent(want.Abs(), pct)
+	if err != nil {
+		return fmt.Sprintf("invoiced %s but the order price gives %s, whose percentage tolerance is out of range", format(it.Amount), format(want))
+	}
 	allowed := max(absolute, byPct)
-	if err != nil || diff > allowed || diff < -allowed {
+	if diff > allowed || diff < -allowed {
 		return fmt.Sprintf("invoiced %s but the order price gives %s (variance %s, tolerance %s)", format(it.Amount), format(want), format(diff), format(allowed))
 	}
 	return ""
