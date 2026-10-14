@@ -582,7 +582,9 @@ change that adds the table.
 
 Entry locks (clearing, reversal, settlement, reservation) are advisory
 locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
-|| bucket`, the bucket from the entry id's random low bits), each set
+|| bucket`, the bucket from the entry id's random low bits; the tenant from
+`platform.require_tenant()` (migration 000039), which fails a transaction
+without one where a NULL key would take no lock), each set
 taken once per transaction in bucket order. A proposal or release check
 over 100,000 items holds at most 64 locks, within
 `max_locks_per_transaction`'s default, and never holds another tenant's

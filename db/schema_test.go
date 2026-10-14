@@ -1056,3 +1056,23 @@ func TestPrincipalIssuerBackfill(t *testing.T) {
 		}
 	}
 }
+
+// TestRequireTenant: platform.require_tenant() is the transaction's tenant,
+// and fails a transaction without one rather than answer NULL (000039).
+func TestRequireTenant(t *testing.T) {
+	need(t)
+	tenant := id()
+	mustApp(t, tenant, func(tx pgx.Tx) error {
+		var got uuid.UUID
+		if err := tx.QueryRow(context.Background(), `SELECT platform.require_tenant()`).Scan(&got); err != nil {
+			return err
+		}
+		if got != tenant {
+			t.Errorf("require_tenant: got %s, want %s", got, tenant)
+		}
+		return nil
+	})
+	failsWith(t, asApp(t, uuid.Nil, func(tx pgx.Tx) error {
+		return exec(tx, `SELECT platform.require_tenant()`)
+	}), "no tenant scope")
+}

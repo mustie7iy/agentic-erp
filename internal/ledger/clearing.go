@@ -314,7 +314,10 @@ func reversedItem(i int) *problem.Problem {
 // over 100,000 items would otherwise exhaust the server's shared lock
 // table (max_locks_per_transaction, 64 by default, per connection) and
 // fail other transactions with it. The tenant is part of the key, so one
-// tenant's proposal never holds another's clearings up. Two entries of one
+// tenant's proposal never holds another's clearings up; it comes from
+// platform.require_tenant(), which fails a transaction without a tenant
+// where a NULL key would make the strict lock functions take no lock at
+// all. Two entries of one
 // bucket serialize a reversal against a clearing of the other; shared
 // locks never conflict. Each transaction locks its buckets once, in one
 // sorted call, so two transactions never wait for each other in a cycle.
@@ -328,7 +331,7 @@ func lockEntries(ctx context.Context, tx pgx.Tx, shared bool, ids []uuid.UUID) e
 	if shared {
 		lock = "pg_advisory_xact_lock_shared"
 	}
-	if _, err := tx.Exec(ctx, `SELECT `+lock+`(hashtextextended('ledger.journal_entry:' || platform.current_tenant() || ':' || b, 0)) FROM unnest($1::int[]) AS x(b)`,
+	if _, err := tx.Exec(ctx, `SELECT `+lock+`(hashtextextended('ledger.journal_entry:' || platform.require_tenant() || ':' || b, 0)) FROM unnest($1::int[]) AS x(b)`,
 		buckets); err != nil {
 		return fmt.Errorf("ledger: lock the entries of %d buckets: %w", len(buckets), err)
 	}
