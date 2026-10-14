@@ -223,13 +223,13 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 		return Run{}, err
 	}
 	if _, err := operations.Succeed(ctx, *r.ReleaseOpID, "/v1/payment-runs/"+r.ID.String(), map[string]any{"payment_run_id": r.ID, "status": Released,
-		"payment_count": len(pays), "bank_file_id": file.ID, "total_amount": amount(released.Total, released.Currency, released.Exponent)}); err != nil {
+		"payment_count": len(pays), "bank_file_id": file.ID, "total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent)}); err != nil {
 		return Run{}, err
 	}
 	return released, record(ctx, "payments.payment_run.complete", r.ID, map[string]any{"payments": len(pays), "bank_file_id": file.ID},
 		fileEvent(file, "bank_file_created", map[string]any{"format": file.Format, "sha256": hex.EncodeToString(file.SHA256), "status": file.Status}),
 		runEvent(released, "payment_run_released", map[string]any{"house_bank_id": released.HouseBankID, "run_date": released.RunDate.Format(time.DateOnly),
-			"total_amount": amount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": nil,
+			"total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": nil,
 			"released_at": released.DecidedAt.UTC().Format(time.RFC3339Nano)}))
 }
 

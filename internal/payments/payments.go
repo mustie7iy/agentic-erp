@@ -33,7 +33,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
-	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -319,10 +318,6 @@ func runEvent(r Run, name string, payload map[string]any) outbox.Event {
 func fileEvent(f BankFile, name string, payload map[string]any) outbox.Event {
 	payload["bank_file_id"], payload["payment_run_id"] = f.ID, f.RunID
 	return outbox.Event{Context: "payments", Name: name, AggregateType: "payments.bank_file", AggregateID: f.ID, Payload: payload}
-}
-
-func amount(minor int64, currency string, exp int) map[string]string {
-	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
 }
 
 // Reservations answers whether an entry's open items are in a live payment

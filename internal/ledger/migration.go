@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -84,7 +85,7 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 		}
 		s.tc, s.lc = s.tc+it.tc, s.lc+it.lc
 		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
-			"account_id": it.account, "partner_id": it.partner, "amount_tc": amount(it.tc, it.currency, exps[it.currency])}
+			"account_id": it.account, "partner_id": it.partner, "amount_tc": money.EventAmount(it.tc, it.currency, exps[it.currency])}
 	}
 	for partner, s := range perPartner {
 		if *s != (sums{}) {

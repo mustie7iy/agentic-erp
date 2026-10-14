@@ -155,10 +155,6 @@ func extend(qty string, price int64, priceUnit int32) int64 {
 	return q.Int64()
 }
 
-func moneyOf(minor int64, currency string, exp int) map[string]string {
-	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
-}
-
 // legalEntity loads a legal entity the caller may act in that is active.
 func (e *Endpoints) legalEntity(ctx context.Context, id uuid.UUID) (tenancy.Entity, error) {
 	access, err := authz.Companies(ctx)

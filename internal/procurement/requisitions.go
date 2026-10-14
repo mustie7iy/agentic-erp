@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -437,7 +438,7 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 		link = &request
 	}
 	submitted, err := setStatus(ctx, tx, p, r, PendingApproval, link, "requisition_submitted", map[string]any{"requester_id": r.RequesterID,
-		"supplier_id": r.SupplierID, "contract_id": r.ContractID, "needed_by": date(r.NeededBy), "estimated_total": moneyOf(sum, r.Currency, r.Exponent),
+		"supplier_id": r.SupplierID, "contract_id": r.ContractID, "needed_by": date(r.NeededBy), "estimated_total": money.EventAmount(sum, r.Currency, r.Exponent),
 		"item_count": len(r.Items)})
 	if err != nil || needed {
 		return submitted, err

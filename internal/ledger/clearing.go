@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -230,7 +231,7 @@ func clearedItemsPayload(items []item, entry Entry) []map[string]any {
 	payload := make([]map[string]any, len(items))
 	for i, it := range items {
 		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
-			"account_id": it.account, "partner_id": it.partner, "amount_tc": amount(it.tc, entry.CurrencyTC, entry.ExpTC)}
+			"account_id": it.account, "partner_id": it.partner, "amount_tc": money.EventAmount(it.tc, entry.CurrencyTC, entry.ExpTC)}
 	}
 	return payload
 }

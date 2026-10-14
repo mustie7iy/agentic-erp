@@ -1,6 +1,9 @@
 package money
 
-import "testing"
+import (
+	"maps"
+	"testing"
+)
 
 func TestParseDecimal(t *testing.T) {
 	cases := []struct {
@@ -68,5 +71,25 @@ func TestFormat(t *testing.T) {
 	}
 	if s := Minor(-5).Decimal(); s != "-0.05" {
 		t.Errorf("got %s", s)
+	}
+}
+
+func TestEventAmount(t *testing.T) {
+	cases := map[string]struct {
+		minor    int64
+		currency string
+		decimals int
+		want     map[string]string
+	}{
+		"two decimals, no separators": {-123456789, "EUR", 2, map[string]string{"amount": "-1234567.89", "currency": "EUR"}},
+		"no decimals":                 {1500, "JPY", 0, map[string]string{"amount": "1500", "currency": "JPY"}},
+		"three decimals":              {5, "KWD", 3, map[string]string{"amount": "0.005", "currency": "KWD"}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := EventAmount(c.minor, c.currency, c.decimals); !maps.Equal(got, c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
@@ -498,7 +499,7 @@ func currentItems(o PurchaseOrder) []ItemInput {
 	for _, it := range o.Items {
 		price := it.UnitPrice
 		in = append(in, ItemInput{MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-			Price: moneyOf(price, o.Currency, o.Exponent)["amount"], Currency: o.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID,
+			Price: money.Minor(price).Plain(o.Exponent), Currency: o.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID,
 			OverDelivery: &it.OverDelivery, TaxCode: it.TaxCode, ContractItemNo: it.ContractItemNo})
 	}
 	return in
@@ -539,7 +540,7 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		}
 		if c.ConsumedValue+value > c.TargetValue {
 			return PurchaseOrder{}, problem.Conflict("procurement.contract_exceeded", fmt.Sprintf("The order (%s) exceeds what remains of contract %s (%s).",
-				moneyOf(value, o.Currency, o.Exponent)["amount"], c.DocumentNumber, moneyOf(c.TargetValue-c.ConsumedValue, c.Currency, c.Exponent)["amount"]))
+				money.Minor(value).Plain(o.Exponent), c.DocumentNumber, money.Minor(c.TargetValue-c.ConsumedValue).Plain(c.Exponent)))
 		}
 		if value != 0 {
 			if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract_release (tenant_id, contract_id, purchase_order_id, value, released_at, released_by)
@@ -558,13 +559,13 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	items := make([]map[string]any, len(o.Items))
 	for i, it := range o.Items {
 		items[i] = map[string]any{"item_no": it.No, "quantity": map[string]string{"value": it.Quantity, "unit": it.Unit},
-			"unit_price": moneyOf(it.UnitPrice, o.Currency, o.Exponent), "price_unit": it.PriceUnit, "account_id": it.AccountID,
+			"unit_price": money.EventAmount(it.UnitPrice, o.Currency, o.Exponent), "price_unit": it.PriceUnit, "account_id": it.AccountID,
 			"tax_code": it.TaxCode, "contract_item_no": it.ContractItemNo}
 	}
 	return released, audit.Record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", id, map[string]any{"value": value},
 		event("purchase_order_released", "purchase_order", id, orderEvent(o, map[string]any{"purchasing_org_id": o.PurchasingOrgID,
 			"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
-			"contract_id": o.ContractID, "total_amount": moneyOf(value, o.Currency, o.Exponent), "items": items})))
+			"contract_id": o.ContractID, "total_amount": money.EventAmount(value, o.Currency, o.Exponent), "items": items})))
 }
 
 // closeOrder closes a released order: no further receipts or invoices are
@@ -625,7 +626,7 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 			VALUES ($1, $2, $3, $4, clock_timestamp(), $5)`, p.TenantID, *o.ContractID, id, -o.Total(), p.ID); err != nil {
 			return PurchaseOrder{}, fmt.Errorf("procurement: cancel purchase order %s: return contract %s consumption: %w", id, *o.ContractID, err)
 		}
-		releasedValue = moneyOf(o.Total(), o.Currency, o.Exponent)
+		releasedValue = money.EventAmount(o.Total(), o.Currency, o.Exponent)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'cancelled', version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: cancel purchase order %s: %w", id, err)

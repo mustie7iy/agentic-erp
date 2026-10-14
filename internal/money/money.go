@@ -123,6 +123,13 @@ func (m Minor) String() string { return m.Format(2) }
 // separators, "-1234.56" or "100": the API format (ADR-0005).
 func (m Minor) Plain(decimals int) string { return strings.ReplaceAll(m.Format(decimals), ",", "") }
 
+// EventAmount is an amount as event payloads carry it, the same shape as in
+// the API: {"amount": "1234.56", "currency": "EUR"} with the currency's
+// minor-unit digits (ADR-0005, ADR-0007).
+func EventAmount(minor int64, currency string, decimals int) map[string]string {
+	return map[string]string{"amount": Minor(minor).Plain(decimals), "currency": currency}
+}
+
 // Decimal renders minor units as a plain decimal string ("-1234.56"), the
 // format SAP extracts and OData use.
 func (m Minor) Decimal() string {

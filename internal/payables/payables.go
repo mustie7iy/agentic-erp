@@ -580,10 +580,6 @@ func event(v Invoice, name string, payload map[string]any) outbox.Event {
 	return outbox.Event{Context: "payables", Name: name, AggregateType: "payables.supplier_invoice", AggregateID: v.ID, Payload: payload}
 }
 
-func amount(minor int64, currency string, exp int) map[string]string {
-	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
-}
-
 // Count is how many of the invoices exist.
 func (Invoices) Count(ctx context.Context, ids []uuid.UUID) (int, error) {
 	tx, _, err := reqctx.Request(ctx)

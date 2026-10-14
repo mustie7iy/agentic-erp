@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -78,8 +79,8 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 		sha = &s
 	}
 	events := []outbox.Event{event(v, "supplier_invoice_captured", map[string]any{"document_number": v.DocumentNumber, "supplier_reference": v.SupplierReference,
-		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "gross_amount": amount(v.Gross, v.Currency, v.Exponent),
-		"tax_amount": amount(v.Tax, v.Currency, v.Exponent), "purchase_order_id": v.PurchaseOrderID, "source": v.Source,
+		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "gross_amount": money.EventAmount(v.Gross, v.Currency, v.Exponent),
+		"tax_amount": money.EventAmount(v.Tax, v.Currency, v.Exponent), "purchase_order_id": v.PurchaseOrderID, "source": v.Source,
 		"capture_sha256": sha, "status": v.Status})}
 	if v.Status == OnHold {
 		events = append(events, heldEvent(v))
@@ -111,7 +112,7 @@ type Change struct {
 }
 
 func amountInput(minor int64, currency string, exp int) Amount {
-	a := amount(minor, currency, exp)
+	a := money.EventAmount(minor, currency, exp)
 	return Amount{Value: a["amount"], Currency: currency}
 }
 

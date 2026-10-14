@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -79,7 +80,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	return posted, record(ctx, "payables.supplier_invoice.post", id, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
 		event(posted, "supplier_invoice_posted", map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
 			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": date.Format(time.DateOnly),
-			"gross_amount": amount(posted.Gross, posted.Currency, posted.Exponent), "tax_amount": amount(posted.Tax, posted.Currency, posted.Exponent),
+			"gross_amount": money.EventAmount(posted.Gross, posted.Currency, posted.Exponent), "tax_amount": money.EventAmount(posted.Tax, posted.Currency, posted.Exponent),
 			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
 }
 
@@ -211,7 +212,7 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	}
 	return reversed, record(ctx, "payables.supplier_invoice.reverse", id, map[string]any{"reason": reason, "reversal_entry_id": rev.ID},
 		event(reversed, "supplier_invoice_reversed", map[string]any{"document_number": v.DocumentNumber,
-			"gross_amount": amount(v.Gross, v.Currency, v.Exponent), "journal_entry_id": *v.JournalEntryID, "journal_entry_year": *v.JournalEntryYear,
+			"gross_amount": money.EventAmount(v.Gross, v.Currency, v.Exponent), "journal_entry_id": *v.JournalEntryID, "journal_entry_year": *v.JournalEntryYear,
 			"reversal_entry_id": rev.ID, "reversal_entry_year": rev.FiscalYear, "reversal_posting_date": rev.PostingDate.Format(time.DateOnly),
 			"status": Reversed}))
 }

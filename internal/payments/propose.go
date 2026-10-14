@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
@@ -197,7 +198,7 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 		return Run{}, err
 	}
 	if _, err := operations.Succeed(ctx, *r.OperationID, "/v1/payment-runs/"+r.ID.String(), map[string]any{"payment_run_id": r.ID, "status": Proposed,
-		"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "item_count": n, "total_amount": amount(pr.total, r.Currency, r.Exponent)}); err != nil {
+		"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "item_count": n, "total_amount": money.EventAmount(pr.total, r.Currency, r.Exponent)}); err != nil {
 		return Run{}, err
 	}
 	proposed, err := load(ctx, tx, r.ID, false)
@@ -206,7 +207,7 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 	}
 	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(pr.payIDs), "exclusions": len(pr.exSuppliers), "items": n},
 		runEvent(proposed, "payment_run_proposed", map[string]any{"house_bank_id": proposed.HouseBankID, "run_date": proposed.RunDate.Format(time.DateOnly),
-			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": amount(pr.total, proposed.Currency, proposed.Exponent),
+			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": money.EventAmount(pr.total, proposed.Currency, proposed.Exponent),
 			"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
 }
 

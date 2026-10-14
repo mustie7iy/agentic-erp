@@ -232,8 +232,8 @@ func postedEvent(e Entry) outbox.Event {
 	lines := make([]map[string]any, len(e.Lines))
 	for i, l := range e.Lines {
 		line := map[string]any{"line_no": l.LineNo, "account_id": l.AccountID, "partner_id": l.PartnerID, "tax_code": l.TaxCode,
-			"amount_tc": amount(l.TC, e.CurrencyTC, e.ExpTC), "amount_lc": amount(l.LC, e.CurrencyLC, e.ExpLC),
-			"amount_gc": amount(l.GC, e.CurrencyGC, e.ExpGC)}
+			"amount_tc": money.EventAmount(l.TC, e.CurrencyTC, e.ExpTC), "amount_lc": money.EventAmount(l.LC, e.CurrencyLC, e.ExpLC),
+			"amount_gc": money.EventAmount(l.GC, e.CurrencyGC, e.ExpGC)}
 		if l.Quantity != nil {
 			line["quantity"] = map[string]any{"value": *l.Quantity, "unit": *l.Unit}
 		}
@@ -248,10 +248,6 @@ func postedEvent(e Entry) outbox.Event {
 			"source_context": e.SourceContext, "source_document_id": e.SourceDocumentID, "reversal_of_id": e.ReversalOfID,
 			"reversal_of_year": e.ReversalOfYear, "lines": lines,
 		}}
-}
-
-func amount(minor int64, currency string, exp int) map[string]string {
-	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
 }
 
 // NewLine is a line of a manual entry, in transaction currency.

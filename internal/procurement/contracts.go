@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -305,9 +306,9 @@ func changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	switch t.to {
 	case Active:
 		payload["valid_from"], payload["valid_to"] = c.ValidFrom.Format(time.DateOnly), c.ValidTo.Format(time.DateOnly)
-		payload["target_value"] = moneyOf(c.TargetValue, c.Currency, c.Exponent)
+		payload["target_value"] = money.EventAmount(c.TargetValue, c.Currency, c.Exponent)
 	case Terminated:
-		payload["consumed_value"] = moneyOf(c.ConsumedValue, c.Currency, c.Exponent)
+		payload["consumed_value"] = money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent)
 	}
 	detail := map[string]any{"from_status": c.Status}
 	if reason != "" {

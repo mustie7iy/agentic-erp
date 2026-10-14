@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -84,7 +85,7 @@ func (x *ContractExpirer) Expire(ctx context.Context, tenant uuid.UUID) (int, er
 			return 0, fmt.Errorf("procurement: expire contract %s: %w", id, err)
 		}
 		payload := map[string]any{"contract_id": id, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
-			"valid_to": c.ValidTo.Format(time.DateOnly), "consumed_value": moneyOf(c.ConsumedValue, c.Currency, c.Exponent), "previous_status": Active, "status": Expired}
+			"valid_to": c.ValidTo.Format(time.DateOnly), "consumed_value": money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent), "previous_status": Active, "status": Expired}
 		if _, err := outbox.Write(ctx, tx, tenant, ExpirerActor, "", event("contract_expired", "contract", id, payload)); err != nil {
 			return 0, err
 		}
