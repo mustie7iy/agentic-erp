@@ -1126,9 +1126,9 @@ func TestTenantFingerprint(t *testing.T) {
 	if status, _, _ := p.do("GET", tenants+"/"+id+"/fingerprint", "", reader); status != 200 {
 		t.Fatalf("reader: %d", status)
 	}
-	// Every database failure is reported: the tenant row, the table list,
-	// a count, the chain head (one statement per table, more than
-	// everyFailure walks).
+	// Every database failure is reported: the tenant row, its key, its
+	// verification, the table list, a count, the chain head (one statement
+	// per table, more than everyFailure walks).
 	failingAt := func(n int, count *int) {
 		p.s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 			tx, err := p.s.Pool.Begin(ctx, scope)
@@ -1144,10 +1144,10 @@ func TestTenantFingerprint(t *testing.T) {
 	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err != nil {
 		t.Fatalf("counting statements: %v", err)
 	}
-	if total < 4 {
-		t.Fatalf("counting statements: got %d, want at least 4", total)
+	if total < 6 {
+		t.Fatalf("counting statements: got %d, want at least 6", total)
 	}
-	for _, n := range []int{1, 2, 3, total} {
+	for _, n := range []int{1, 2, 3, 4, 5, total} {
 		t.Run(fmt.Sprintf("statement %d failing", n), func(t *testing.T) {
 			count := 0
 			failingAt(n, &count)
