@@ -17,9 +17,9 @@ func FuzzParseDecimal(f *testing.F) {
 		if err != nil {
 			return
 		}
-		back, err := ParseDecimal(v.Decimal(), 2)
+		back, err := ParseDecimal(v.Plain(2), 2)
 		if err != nil || back != v {
-			t.Fatalf("%q -> %d -> %q -> %d (%v)", s, v, v.Decimal(), back, err)
+			t.Fatalf("%q -> %d -> %q -> %d (%v)", s, v, v.Plain(2), back, err)
 		}
 		if q, err := ParseQty(s); err == nil && strings.Contains(s, "e") {
 			t.Fatalf("exponent accepted: %q -> %d", s, q)

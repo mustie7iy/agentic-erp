@@ -134,17 +134,6 @@ func EventAmount(amount Minor, currency string, decimals int) map[string]string 
 	return map[string]string{"amount": amount.Plain(decimals), "currency": currency}
 }
 
-// Decimal renders minor units as a plain decimal string ("-1234.56"), the
-// format SAP extracts and OData use.
-func (m Minor) Decimal() string {
-	v := int64(m)
-	sign := ""
-	if v < 0 {
-		sign, v = "-", -v
-	}
-	return fmt.Sprintf("%s%d.%02d", sign, v/100, v%100)
-}
-
 func (q Qty) String() string {
 	v := int64(q)
 	sign := ""

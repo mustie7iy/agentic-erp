@@ -57,6 +57,11 @@ type mockGen struct {
 	through int // last month with revenue postings
 }
 
+// mockDecimals is the digits of the mock's amounts: they are generated in
+// hundredths, and its companies are in USD and EUR, two-digit currencies
+// in ref.currency. SAP extracts write an amount with its currency's digits.
+const mockDecimals = 2
+
 var mockCompanies = []T001{
 	{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US"},
 	{BUKRS: "2000", BUTXT: "Acme GmbH", WAERS: "EUR", LAND1: "DE"},
@@ -154,7 +159,7 @@ func (g *mockGen) fiDoc(cc, budat, blart, xblnr string, lines []fiLine) string {
 		total += l.amount
 		g.e.ACDOCA = append(g.e.ACDOCA, ACDOCA{
 			RLDNR: "0L", RBUKRS: cc, GJAHR: g.gj, BELNR: belnr, DOCLN: fmt.Sprintf("%06d", i+1),
-			RACCT: l.acct, HSL: l.amount.Decimal(), BUDAT: budat, BLART: blart, LIFNR: l.vendor, XBLNR: xblnr,
+			RACCT: l.acct, HSL: l.amount.Plain(mockDecimals), BUDAT: budat, BLART: blart, LIFNR: l.vendor, XBLNR: xblnr,
 		})
 	}
 	if total != 0 {
@@ -269,7 +274,7 @@ func (g *mockGen) poLine(ebeln string, i, j int, scenarios bool) mockPOLine {
 	g.e.EKPO = append(g.e.EKPO, EKPO{
 		EBELN: ebeln, EBELP: l.item, MATNR: fmt.Sprintf("MAT-%04d", g.r.IntN(9000)+1000),
 		TXZ01: fmt.Sprintf("Item %d for %s", j+1, ebeln), MENGE: l.qty.String(),
-		NETPR: l.price.Decimal(), PEINH: fmt.Sprint(l.peinh), SAKTO: l.sakto,
+		NETPR: l.price.Plain(mockDecimals), PEINH: fmt.Sprint(l.peinh), SAKTO: l.sakto,
 	})
 	return l
 }
@@ -325,7 +330,7 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 		net += amt
 		g.e.RSEG = append(g.e.RSEG, RSEG{
 			BELNR: belnr, GJAHR: g.gj, BUZEI: fmt.Sprintf("%06d", k+1), EBELN: ebeln, EBELP: l.item,
-			MENGE: l.qty.String(), WRBTR: amt.Decimal(),
+			MENGE: l.qty.String(), WRBTR: amt.Plain(mockDecimals),
 		})
 	}
 	tax, _ := money.Percent(net, taxPct) // mock amounts are far from the range
@@ -339,7 +344,7 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 	}
 	g.e.RBKP = append(g.e.RBKP, RBKP{
 		BELNR: belnr, GJAHR: g.gj, BUKRS: cc, LIFNR: vendor, XBLNR: xblnr, BLDAT: g.date(month, 15),
-		WAERS: mockCurrency(cc), RMWWR: gross.Decimal(), WMWST1: tax.Decimal(), RBSTAT: status,
+		WAERS: mockCurrency(cc), RMWWR: gross.Plain(mockDecimals), WMWST1: tax.Plain(mockDecimals), RBSTAT: status,
 	})
 	if !posted {
 		return
