@@ -33,6 +33,15 @@ func TestItemTotalsOutOfRange(t *testing.T) {
 	}
 }
 
+// A rate the database never renders is an internal error, not the
+// caller's amount.
+func TestConvertInvalidRate(t *testing.T) {
+	_, err := convert(100, "1e5", 2, 2)
+	if err == nil || problemCode(err) != "" {
+		t.Errorf("got %v, want an error that is not a problem", err)
+	}
+}
+
 func problemCode(err error) string {
 	var p *problem.Problem
 	if !errors.As(err, &p) {

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
@@ -485,49 +484,24 @@ func netsToZero(amounts ...money.Minor) bool {
 	return err == nil && sum == 0
 }
 
-// convert translates minor units at the rate, rounding half away from zero.
+// convert translates minor units at the rate (money.Convert); an amount
+// out of range is too large to post.
 func convert(minor money.Minor, r string, fromExp, toExp int) (money.Minor, error) {
-	rat, _ := new(big.Rat).SetString(r) // rates come from numeric columns
-	v := new(big.Rat).Mul(new(big.Rat).SetInt64(int64(minor)), rat)
-	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(abs(toExp-fromExp))), nil))
-	if toExp > fromExp {
-		v.Mul(v, scale)
-	} else {
-		v.Quo(v, scale)
-	}
-	num, den := new(big.Int).Abs(v.Num()), v.Denom()
-	q, m := new(big.Int).QuoRem(num, den, new(big.Int))
-	if m.Mul(m, big.NewInt(2)).Cmp(den) >= 0 {
-		q.Add(q, big.NewInt(1))
-	}
-	if v.Sign() < 0 {
-		q.Neg(q)
-	}
-	if !q.IsInt64() {
-		return 0, errTooLarge
-	}
-	return money.Minor(q.Int64()), nil
+	v, err := money.Convert(minor, r, fromExp, toExp)
+	return v, convertErr(err)
 }
 
-func abs(n int) int {
-	if n < 0 {
-		return -n
+// convertErr maps a failed conversion: out of range is the caller's
+// amount, anything else (a rate or exponent the database never stores) is
+// an internal error.
+func convertErr(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, money.ErrOverflow):
+		return errTooLarge
 	}
-	return n
-}
-
-// balance puts the rounding difference of converted amounts on the line
-// with the largest amount, so the entry balances in that currency too.
-func balance(amounts []money.Minor) {
-	var sum money.Minor
-	largest := 0
-	for i, a := range amounts {
-		sum += a
-		if a.Abs() > amounts[largest].Abs() {
-			largest = i
-		}
-	}
-	amounts[largest] -= sum
+	return fmt.Errorf("ledger: convert: %w", err)
 }
 
 // postJournalEntry validates and posts a manual journal entry. Local and
@@ -630,20 +604,18 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 // amounts, and the group amounts, converted from the local ones; each
 // currency's rounding difference goes to its largest line.
 func convertLines(lines []Line, rateLC, rateGC string, expTC, expLC, expGC int) error {
-	var err error
-	lcs, gcs := make([]money.Minor, len(lines)), make([]money.Minor, len(lines))
+	tcs := make([]money.Minor, len(lines))
 	for i, l := range lines {
-		if lcs[i], err = convert(l.TC, rateLC, expTC, expLC); err != nil {
-			return err
-		}
+		tcs[i] = l.TC
 	}
-	balance(lcs)
-	for i := range lines {
-		if gcs[i], err = convert(lcs[i], rateGC, expLC, expGC); err != nil {
-			return err
-		}
+	lcs, err := money.ConvertAll(tcs, rateLC, expTC, expLC)
+	if err != nil {
+		return convertErr(err)
 	}
-	balance(gcs)
+	gcs, err := money.ConvertAll(lcs, rateGC, expLC, expGC)
+	if err != nil {
+		return convertErr(err)
+	}
 	for i := range lines {
 		lines[i].LC, lines[i].GC = lcs[i], gcs[i]
 	}

@@ -1,0 +1,114 @@
+package money
+
+import (
+	"fmt"
+	"math/big"
+	"strings"
+)
+
+// maxExp bounds currency exponents: ISO 4217 has none above 4, and 10^18
+// is the largest power of ten a Minor holds.
+const maxExp = 18
+
+// Convert translates an amount from a currency with fromExp minor-unit
+// digits to one with toExp at the rate (a plain non-negative decimal such
+// as "1.085" or "0.006200000000", as numeric columns render it), rounding
+// half away from zero: 0.5 becomes 1 and -0.5 becomes -1. Conversions are
+// exact rational arithmetic; floats are never involved (ADR-0005).
+func Convert(amount Minor, rate string, fromExp, toExp int) (Minor, error) {
+	r, err := parseRate(rate)
+	if err != nil {
+		return 0, err
+	}
+	if fromExp < 0 || fromExp > maxExp || toExp < 0 || toExp > maxExp {
+		return 0, fmt.Errorf("money: convert from exponent %d to %d: exponents are 0 to %d", fromExp, toExp, maxExp)
+	}
+	v := new(big.Rat).Mul(new(big.Rat).SetInt64(int64(amount)), r)
+	d := toExp - fromExp
+	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(max(d, -d))), nil))
+	if d > 0 {
+		v.Mul(v, scale)
+	} else {
+		v.Quo(v, scale)
+	}
+	q := roundHalfAway(v)
+	if !q.IsInt64() {
+		return 0, ErrOverflow
+	}
+	return Minor(q.Int64()), nil
+}
+
+// parseRate accepts only plain decimals: big.Rat would also take
+// fractions and exponents ("1e1000000"), whose expansion is unbounded.
+func parseRate(s string) (*big.Rat, error) {
+	intPart, frac, hasFrac := strings.Cut(s, ".")
+	if intPart == "" || !digits(intPart) || !digits(frac) || (hasFrac && frac == "") {
+		return nil, fmt.Errorf("money: invalid rate %q: want a plain non-negative decimal", s)
+	}
+	r, _ := new(big.Rat).SetString(s) // digits with at most one dot always parse
+	return r, nil
+}
+
+// roundHalfAway rounds a rational to the nearest integer, ties away from
+// zero.
+func roundHalfAway(v *big.Rat) *big.Int {
+	num, den := new(big.Int).Abs(v.Num()), v.Denom()
+	q, m := new(big.Int).QuoRem(num, den, new(big.Int))
+	if m.Mul(m, big.NewInt(2)).Cmp(den) >= 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	if v.Sign() < 0 {
+		q.Neg(q)
+	}
+	return q
+}
+
+// ConvertAll converts each amount (Convert) and puts the rounding
+// difference on the largest converted amount, the first of equals, so the
+// results add up to the converted total of the amounts. A balanced set of
+// amounts, adding up to zero, stays balanced: what a journal entry needs in
+// each of its currencies.
+func ConvertAll(amounts []Minor, rate string, fromExp, toExp int) ([]Minor, error) {
+	total, err := Sum(amounts...)
+	if err != nil {
+		return nil, err
+	}
+	want, err := Convert(total, rate, fromExp, toExp)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Minor, len(amounts))
+	largest := 0
+	for i, a := range amounts {
+		if out[i], err = Convert(a, rate, fromExp, toExp); err != nil {
+			return nil, err
+		}
+		if magnitude(out[i]) > magnitude(out[largest]) {
+			largest = i
+		}
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	// The largest takes want less the others, in big integers: the sum of
+	// the others alone may be out of range when the result is not.
+	adjusted := big.NewInt(int64(want))
+	for i, o := range out {
+		if i != largest {
+			adjusted.Sub(adjusted, big.NewInt(int64(o)))
+		}
+	}
+	if !adjusted.IsInt64() {
+		return nil, ErrOverflow
+	}
+	out[largest] = Minor(adjusted.Int64())
+	return out, nil
+}
+
+// magnitude is |m| without overflow at the most negative amount.
+func magnitude(m Minor) uint64 {
+	if m < 0 {
+		return uint64(-(m + 1)) + 1
+	}
+	return uint64(m)
+}
