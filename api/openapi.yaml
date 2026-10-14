@@ -15725,6 +15725,8 @@ components:
             - bank_change_pending
             - bank_change_hold
             - debit_balance
+            - item_reversed
+            - item_not_open
           readOnly: true
         amount:
           $ref: "#/components/schemas/Money"
