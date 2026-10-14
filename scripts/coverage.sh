@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Whole-suite statement coverage of production code, with a minimum,
 # compared on exact statement counts.
-# Excluded from the figure: test-only packages (nfr, testkit, llmtest, and the
-# platform's pgtest, authntest, natstest, apitest, blobstoretest, vaulttest, kmstest, fixture) and code generated from the
+# Excluded from the figure: test-only packages (nfr, llmtest, and the
+# platform's pgtest, authntest, natstest, apitest, blobstoretest, vaulttest, kmstest, workflowtest, fixture;
+# internal/layout's testSupport lists the same packages) and code generated from the
 # API contract (api/gen). Database-backed packages need DATABASE_URL; without
 # it their tests skip and the gate fails, so run `make db-up` first.
 set -euo pipefail
@@ -11,7 +12,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 MIN="${COVERAGE_MIN:-100.0}"
-excluded='/internal/(nfr|testkit|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fieldcrypt/kmstest|workflow/workflowtest|fixture)/|/api/gen/'
+excluded='/internal/(nfr|llm/llmtest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|httpapi/apitest|blobstore/blobstoretest|secrets/vaulttest|fieldcrypt/kmstest|workflow/workflowtest|fixture)/|/api/gen/'
 # Instrument only the packages the figure counts. With -coverpkg=./... every
 # one of the ~70 test binaries carried an instrumented copy of api/gen
 # (650,000 generated lines, 16 times the rest of the code), which filled a

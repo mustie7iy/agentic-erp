@@ -24,7 +24,8 @@ var shared = map[string]bool{"money": true}
 var platformUsers = map[string]bool{"platform/httpapi": true, "platform/fixture": true}
 
 // testSupport are packages only tests and other test support may import:
-// fixtures, fake servers and harnesses. Production code importing one would
+// fixtures, fake servers and harnesses; the same packages scripts/coverage.sh
+// leaves out of the coverage figure, so a new one is added to both. Production code importing one would
 // ship test machinery and, through fixture, half the contexts.
 var testSupport = map[string]bool{
 	"platform/pgtest": true, "platform/fixture": true, "platform/httpapi/apitest": true,
