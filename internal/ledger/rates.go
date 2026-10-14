@@ -93,7 +93,7 @@ func CreateRate(ctx context.Context, in NewRate) (Rate, error) {
 		return Rate{}, problem.Unprocessable("ledger.same_currency", "A rate converts between two different currencies.",
 			problem.FieldError{Field: "to_currency", Code: "same_currency", Message: "a currency other than from_currency"})
 	}
-	if r, _ := new(big.Rat).SetString(in.Rate); r.Sign() <= 0 { // the contract's pattern admits only decimals
+	if r, ok := new(big.Rat).SetString(in.Rate); !ok || r.Sign() <= 0 {
 		return Rate{}, problem.Unprocessable("ledger.invalid_rate", "A rate is positive.",
 			problem.FieldError{Field: "rate", Code: "not_positive", Message: "units of to_currency per unit of from_currency, above zero"})
 	}

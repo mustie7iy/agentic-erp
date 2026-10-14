@@ -85,6 +85,13 @@ func TestDatabaseFailures(t *testing.T) {
 				_, err := h.ListAccounts(ctx, gen.ListAccountsParams{PageSize: zero})
 				return err
 			},
+			// A caller other than the API, whose contract admits only
+			// decimals, can pass anything: refused, not a nil dereference.
+			"rate not a decimal": func(ctx context.Context) error {
+				_, err := ledger.CreateRate(ctx, ledger.NewRate{RateType: "average", FromCurrency: "USD", ToCurrency: "GBP", ValidFrom: date("2026-01-01"),
+					Rate: "x", Source: "x"})
+				return err
+			},
 			"duplicate clearing item": func(ctx context.Context) error {
 				ref := gen.ClearingItemRef{FiscalYear: 2026, JournalEntryID: d.id(d.inv2), LineNo: 2}
 				_, err := h.CreateClearing(ctx, &gen.ClearingCreate{LegalEntityID: e.de, ClearingDate: date("2026-03-31"), Items: []gen.ClearingItemRef{ref, ref}},
