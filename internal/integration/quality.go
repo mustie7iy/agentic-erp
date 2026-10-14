@@ -273,7 +273,7 @@ func (q *qualityCheck) journal() {
 	}
 	for _, key := range sortedKeys(s.docLines) {
 		if total, err := money.Sum(s.docLines[key]...); err != nil || total != 0 {
-			q.add(SevError, "ACDOCA", key, "document does not balance (off by %s minor units)", offBy(total, err))
+			q.add(SevError, "ACDOCA", key, "document does not balance (%s)", offBy(total, err))
 		}
 	}
 	for _, cc := range sortedKeys(s.sizes) {
@@ -390,7 +390,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // offBy renders a document's imbalance, which can be out of range.
 func offBy(total money.Minor, err error) string {
 	if err != nil {
-		return "more than an amount holds in"
+		return "its lines add up to more than an amount holds"
 	}
-	return strconv.FormatInt(int64(total), 10)
+	return "off by " + strconv.FormatInt(int64(total), 10) + " minor units"
 }

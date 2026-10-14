@@ -43,7 +43,7 @@ func TestQualityGateRefusesJournalOutOfRange(t *testing.T) {
 	run := e.run(t, e.connector(t, "journal.json"), "documents", false, e.DE.String())
 	_, got := e.act(t, run, "start")
 	quality := fmt.Sprint(got["report"].(map[string]any)["quality"])
-	for _, want := range []string{"off by more than an amount holds", "the journal lines of company 2000 add up to more than an amount holds"} {
+	for _, want := range []string{"its lines add up to more than an amount holds", "the journal lines of company 2000 add up to more than an amount holds"} {
 		if !strings.Contains(quality, want) {
 			t.Errorf("quality gate: got %s, want it to report %q", quality, want)
 		}

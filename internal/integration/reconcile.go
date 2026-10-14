@@ -125,7 +125,10 @@ func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[str
 			continue
 		}
 		documents[documentKey(l)] = true
-		amt, _ := rc.t.amount(l.HSL, s.cur) // checked by the quality gate, which also bounds these sums (journal)
+		// Parsed and summed in range when the load's quality gate passed on
+		// this extract (journal); a reconciliation run reads it again
+		// without the gate, so that rests on the extract being unchanged.
+		amt, _ := rc.t.amount(l.HSL, s.cur)
 		sapTB[sap.Alpha(l.RACCT)] += amt
 		sapDebits += max(amt, 0)
 		if l.LIFNR != "" && l.AUGBL == "" && rc.recon[s.cc+"/"+l.RACCT] {
