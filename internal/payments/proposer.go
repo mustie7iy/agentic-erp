@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Proposer builds the proposals that payment-runs:propose queues (ADR-0012
@@ -120,18 +121,8 @@ func (w *Proposer) RunOnce(ctx context.Context) (int, error) {
 // Run does jobs until ctx ends; errors are logged and retried after the
 // interval.
 func (w *Proposer) Run(ctx context.Context) {
-	interval := w.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
-		if _, err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			w.Log.ErrorContext(ctx, "payment proposal failed", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+	worker.Loop(ctx, w.Interval, time.Second, func(ctx context.Context) (bool, error) {
+		_, err := w.RunOnce(ctx)
+		return false, err
+	}, w.Log, "payment proposal failed")
 }

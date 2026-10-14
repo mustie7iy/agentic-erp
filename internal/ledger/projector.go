@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Projector maintains ledger.period_balance from posted entries (ADR-0006).
@@ -69,22 +70,8 @@ func (p *Projector) RunOnce(ctx context.Context) (int, error) {
 // Run projects until ctx ends. A full batch is followed at once by the
 // next; errors are logged and retried after the interval.
 func (p *Projector) Run(ctx context.Context) {
-	interval := p.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
+	worker.Loop(ctx, p.Interval, time.Second, func(ctx context.Context) (bool, error) {
 		n, err := p.RunOnce(ctx)
-		if err != nil && ctx.Err() == nil {
-			p.Log.ErrorContext(ctx, "balance projection failed", "error", err)
-		}
-		if err == nil && n >= p.batch() {
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return n >= p.batch(), err
+	}, p.Log, "balance projection failed")
 }

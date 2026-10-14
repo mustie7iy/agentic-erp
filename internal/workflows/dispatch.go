@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 )
 
@@ -215,22 +216,13 @@ func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
 
 // Run dispatches until ctx ends, logging failures and work done.
 func (d *Dispatcher) Run(ctx context.Context) {
-	interval := d.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
-		if n, err := d.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			d.Log.ErrorContext(ctx, "workflow dispatch failed", "error", err)
-		} else if n > 0 {
+	worker.Loop(ctx, d.Interval, time.Second, func(ctx context.Context) (bool, error) {
+		n, err := d.RunOnce(ctx)
+		if n > 0 && !worker.Failed(ctx, err) {
 			d.Log.InfoContext(ctx, "workflows started", "count", n)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return false, err
+	}, d.Log, "workflow dispatch failed")
 }
 
 // Register registers the workflows and activities a cell's worker hosts.

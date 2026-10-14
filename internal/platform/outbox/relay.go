@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Message is one event in CloudEvents binary mode, ready for the bus.
@@ -142,22 +143,8 @@ func (r *Relay) message(schema string, e row) Message {
 // followed immediately by the next; errors are logged and retried after the
 // interval.
 func (r *Relay) Run(ctx context.Context) {
-	interval := r.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
+	worker.Loop(ctx, r.Interval, time.Second, func(ctx context.Context) (bool, error) {
 		n, err := r.RunOnce(ctx)
-		if err != nil && ctx.Err() == nil {
-			r.Log.ErrorContext(ctx, "outbox relay failed", "error", err)
-		}
-		if err == nil && n >= r.batch() {
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return n >= r.batch(), err
+	}, r.Log, "outbox relay failed")
 }

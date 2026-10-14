@@ -8,7 +8,6 @@ package worker
 
 import (
 	"context"
-	"log/slog"
 	"time"
 )
 
@@ -17,11 +16,16 @@ import (
 // waiting.
 type Round func(ctx context.Context) (again bool, err error)
 
+// Logger is where Loop reports failed rounds; *slog.Logger is one.
+type Logger interface {
+	ErrorContext(ctx context.Context, msg string, args ...any)
+}
+
 // Loop runs round until ctx ends, waiting interval between rounds, or
 // fallback when interval is not positive. A failed round is logged as msg
 // with the error and retried after the interval; an error after ctx ended
 // is the shutdown, not a failure, and is not logged.
-func Loop(ctx context.Context, interval, fallback time.Duration, round Round, log *slog.Logger, msg string) {
+func Loop(ctx context.Context, interval, fallback time.Duration, round Round, log Logger, msg string) {
 	if interval <= 0 {
 		interval = fallback
 	}

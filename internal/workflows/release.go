@@ -18,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Payment release (T27, ADR-0012): the release of a run is a workflow that
@@ -271,18 +272,8 @@ func (w *Releaser) RunOnce(ctx context.Context) (int, error) {
 
 // Run releases until ctx ends; errors are logged and retried after the interval.
 func (w *Releaser) Run(ctx context.Context) {
-	interval := w.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
-		if _, err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			w.Log.ErrorContext(ctx, "payment release failed", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+	worker.Loop(ctx, w.Interval, time.Second, func(ctx context.Context) (bool, error) {
+		_, err := w.RunOnce(ctx)
+		return false, err
+	}, w.Log, "payment release failed")
 }

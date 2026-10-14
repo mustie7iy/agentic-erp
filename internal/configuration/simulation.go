@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // SimulateKind is the operation kind of a simulation (:simulate).
@@ -301,18 +302,8 @@ func (w *SimulationWorker) RunOnce(ctx context.Context) (int, error) {
 // Run simulates until ctx ends; errors are logged and retried after the
 // interval.
 func (w *SimulationWorker) Run(ctx context.Context) {
-	interval := w.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
-		if _, err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			w.Log.ErrorContext(ctx, "simulation failed", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+	worker.Loop(ctx, w.Interval, time.Second, func(ctx context.Context) (bool, error) {
+		_, err := w.RunOnce(ctx)
+		return false, err
+	}, w.Log, "simulation failed")
 }
