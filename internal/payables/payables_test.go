@@ -29,6 +29,14 @@ func setup(t *testing.T) env {
 	return env{Env: f, expense: f.Account(t, "2000", "520000"), tax: f.Account(t, "2000", "140000"), ap: f.Account(t, "2000", "211000")}
 }
 
+// in returns e reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (e env) in(t *testing.T) env {
+	t.Helper()
+	e.T = t
+	return e
+}
+
 // order inserts a released purchase order of the supplier in legal entity
 // 2000 (EUR): item 1 is 10 EA at 12.00 with tax code V1, item 2 is 5 KG at
 // 3.00 per 1 KG.
