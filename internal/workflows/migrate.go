@@ -65,27 +65,20 @@ func (m *Migrations) begin(ctx context.Context, s database.Scope) (pgx.Tx, error
 // transaction with its report, audit entries and events; an operation no
 // longer running is left alone.
 func (m *Migrations) Execute(ctx context.Context, in MigrateInput) error {
-	tx, err := m.begin(ctx, database.Scope{Role: m.AppRole, TenantID: in.TenantID})
-	if err != nil {
-		return err
+	requester := func(ctx context.Context, tx pgx.Tx) (reqctx.Principal, bool, error) {
+		var by uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT created_by FROM platform.operation WHERE id = $1`, in.OperationID).Scan(&by); err != nil {
+			return reqctx.Principal{}, false, fmt.Errorf("workflows: migration run %s: read the requester of operation %s: %w", in.RunID, in.OperationID, err)
+		}
+		actor, err := m.Actors.Actor(ctx, tx, by)
+		if err != nil {
+			return reqctx.Principal{}, false, fmt.Errorf("workflows: migration run %s: %w", in.RunID, err)
+		}
+		return actor, true, nil
 	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	var by uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT created_by FROM platform.operation WHERE id = $1`, in.OperationID).Scan(&by); err != nil {
-		return fmt.Errorf("workflows: migration run %s: read the requester of operation %s: %w", in.RunID, in.OperationID, err)
-	}
-	actor, err := m.Actors.Actor(ctx, tx, by)
-	if err != nil {
-		return fmt.Errorf("workflows: migration run %s: %w", in.RunID, err)
-	}
-	if err := uow.Act(ctx, tx, actor, m.Now, func(ctx context.Context) error {
+	return uow.Job{Begin: m.begin, Scope: database.Scope{Role: m.AppRole, TenantID: in.TenantID}, Now: m.Now,
+		Name: fmt.Sprintf("workflows: migration run %s", in.RunID)}.As(ctx, requester, func(ctx context.Context) error {
 		_, err := m.Endpoints.Execute(ctx, in.RunID)
 		return err
-	}); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("workflows: migration run %s: commit: %w", in.RunID, err)
-	}
-	return nil
+	})
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // Approval deadlines (T29, ADR-0012): every pending approval request is
@@ -105,20 +106,20 @@ func (a *Approvals) begin(ctx context.Context, s database.Scope) (pgx.Tx, error)
 // count no retry can repair fails the activity for good, so the workflow
 // fails visibly instead of retrying every minute.
 func (a *Approvals) Escalate(ctx context.Context, in EscalateInput) (bool, error) {
-	tx, err := a.begin(ctx, database.Scope{Role: a.AppRole, TenantID: in.TenantID})
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	pending, err := approvals.Escalate(ctx, tx, in.TenantID, in.RequestID, in.Prior, clock.Now(a.Now).UTC())
-	if errors.Is(err, approvals.ErrEscalationCount) {
-		return false, temporal.NewNonRetryableApplicationError(err.Error(), "EscalationCount", err) //nolint:wrapcheck // constructs the engine's error with err as its cause; nothing to wrap
-	}
-	if err != nil || !pending {
-		return false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return true, fmt.Errorf("workflows: escalate approval request %s: commit: %w", in.RequestID, err)
-	}
-	return true, nil
+	// pending is set only once the escalation succeeded, so a failed begin or
+	// escalation reports false and a failed commit true, as the request is.
+	pending := false
+	err := uow.Job{Begin: a.begin, Scope: database.Scope{Role: a.AppRole, TenantID: in.TenantID},
+		Name: fmt.Sprintf("workflows: escalate approval request %s", in.RequestID)}.Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		still, err := approvals.Escalate(ctx, tx, in.TenantID, in.RequestID, in.Prior, clock.Now(a.Now).UTC())
+		if errors.Is(err, approvals.ErrEscalationCount) {
+			return false, temporal.NewNonRetryableApplicationError(err.Error(), "EscalationCount", err) //nolint:wrapcheck // constructs the engine's error with err as its cause; nothing to wrap
+		}
+		if err != nil {
+			return false, err
+		}
+		pending = still
+		return still, nil
+	})
+	return pending, err
 }

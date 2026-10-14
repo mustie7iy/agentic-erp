@@ -71,30 +71,24 @@ func (p *Payments) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) 
 // run and its operation (the proposer's rules); any other error is
 // returned for the retry policy.
 func (p *Payments) Propose(ctx context.Context, in ProposeInput) error {
-	tx, err := p.begin(ctx, database.Scope{Role: p.AppRole, TenantID: in.TenantID})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
-	if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
-		return fmt.Errorf("workflows: propose payment run %s: set the statement timeout: %w", in.RunID, err)
+	var job payments.Job
+	proposer := func(ctx context.Context, tx pgx.Tx) (reqctx.Principal, bool, error) {
+		if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
+			return reqctx.Principal{}, false, fmt.Errorf("workflows: propose payment run %s: set the statement timeout: %w", in.RunID, err)
+		}
+		var ok bool
+		var err error
+		if job, ok, err = p.Endpoints.JobFor(ctx, tx, in.RunID); err != nil || !ok {
+			return reqctx.Principal{}, false, err
+		}
+		return reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: in.TenantID}, true, nil
 	}
-	job, ok, err := p.Endpoints.JobFor(ctx, tx, in.RunID)
-	if err != nil || !ok {
-		return err
-	}
-	actor := reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: in.TenantID}
-	if err := uow.Act(ctx, tx, actor, p.Now, func(ctx context.Context) error {
+	return uow.Job{Begin: p.begin, Scope: database.Scope{Role: p.AppRole, TenantID: in.TenantID}, Now: p.Now,
+		Name: fmt.Sprintf("workflows: propose payment run %s", in.RunID)}.As(ctx, proposer, func(ctx context.Context) error {
 		return p.Endpoints.Process(ctx, job)
-	}); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("workflows: propose payment run %s: commit: %w", in.RunID, err)
-	}
-	return nil
+	})
 }
