@@ -104,6 +104,34 @@ func TestMigrateIsSafeForConcurrentReplicas(t *testing.T) {
 	}
 }
 
+// TestMigrateWaitsForTheLock: while another session holds the migration
+// lock, Migrate tries again every lockPoll, outside any statement, and
+// gives up when its context ends.
+func TestMigrateWaitsForTheLock(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	holder, err := pgx.Connect(ctx, conn.Config().ConnString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Close(ctx) }() // closing ends the session and its lock
+	mustExec(t, holder, fmt.Sprintf("SELECT pg_advisory_lock(%d)", lockKey))
+	lockPoll = time.Hour // one try, then the wait, which the context ends
+	t.Cleanup(func() { lockPoll = 100 * time.Millisecond })
+	waiting, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if _, err := Migrate(waiting, conn); err == nil || !strings.Contains(err.Error(), "migrate: lock: context deadline exceeded") {
+		t.Fatalf("migrate with the lock held: got %v, want the lock wait to end with the context", err)
+	}
+	var tables int
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM pg_tables WHERE tablename = 'erp_schema_migration'").Scan(&tables); err != nil {
+		t.Fatal(err)
+	}
+	if tables != 0 {
+		t.Fatalf("version tables after waiting: got %d, want 0", tables)
+	}
+}
+
 func TestMigrateRunsNoTransactionMigrationsAlone(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
