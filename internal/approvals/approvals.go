@@ -116,7 +116,7 @@ type Request struct {
 	ObjectID    uuid.UUID
 	Title       string
 	RequesterID uuid.UUID
-	Amount      *int64
+	Amount      *money.Minor
 	Currency    *string
 	Exponent    int
 	PolicyID    *uuid.UUID
@@ -188,9 +188,9 @@ type NewRequest struct {
 	ObjectType string
 	ObjectID   uuid.UUID
 	Title      string
-	Amount     *int64  // minor units of Currency; selects the requisition tier
-	Currency   *string // with Amount
-	Tier       int     // configuration change tier
+	Amount     *money.Minor // minor units of Currency; selects the requisition tier
+	Currency   *string      // with Amount
+	Tier       int          // configuration change tier
 }
 
 // policyStep is a step as the configuration names it.
@@ -210,7 +210,7 @@ func steps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([
 		}
 		for _, t := range doc.Purchasing.RequisitionApproval {
 			limit, _ := money.ParseDecimal(t.UpTo, exp) // validated with the document; "" is the last tier
-			if t.UpTo != "" && *in.Amount > int64(limit) {
+			if t.UpTo != "" && *in.Amount > limit {
 				continue
 			}
 			for _, s := range t.Steps {
@@ -311,7 +311,7 @@ func moneyOf(r Request) any {
 	if r.Amount == nil {
 		return nil
 	}
-	return map[string]any{"amount": money.Minor(*r.Amount).Plain(r.Exponent), "currency": *r.Currency}
+	return map[string]any{"amount": r.Amount.Plain(r.Exponent), "currency": *r.Currency}
 }
 
 // complete ends a pending request with the outcome and publishes

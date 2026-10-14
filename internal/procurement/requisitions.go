@@ -427,7 +427,7 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	sum := r.Total()
+	sum := money.Minor(r.Total())
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: id,
 		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency})
 	if err != nil {

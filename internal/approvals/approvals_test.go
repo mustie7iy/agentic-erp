@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -229,7 +230,7 @@ func TestSteps(t *testing.T) {
 	f := setup(t)
 	var calls []string
 	d := approvals.Decider{Roles: identity.Directory{}, Handlers: map[string]approvals.Handler{approvals.Requisition: recorder{&calls}}}
-	open := func(amount int64) uuid.UUID {
+	open := func(amount money.Minor) uuid.UUID {
 		var id uuid.UUID
 		eur := "EUR"
 		if err := apitest.Committed(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
@@ -406,7 +407,7 @@ func TestDatabaseFailures(t *testing.T) {
 	var calls []string
 	handlers := map[string]approvals.Handler{approvals.Requisition: recorder{&calls}}
 	e := &approvals.Endpoints{Pages: pages, Decider: approvals.Decider{Roles: identity.Directory{}, Handlers: handlers}}
-	eur, amount := "EUR", int64(100)
+	eur, amount := "EUR", money.Minor(100)
 	newRequest := func(ctx context.Context) (uuid.UUID, error) {
 		id, _, err := fixture.Approvals().Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: uuid.New(), Title: "T",
 			Amount: &amount, Currency: &eur})
@@ -464,7 +465,7 @@ func TestDatabaseFailures(t *testing.T) {
 		})
 	}
 	// A two-step request moving to its second step fails like the others.
-	two := int64(5000000)
+	two := money.Minor(5000000)
 	var multi uuid.UUID
 	if err := apitest.Committed(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) (err error) {
 		multi, _, err = fixture.Approvals().Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: uuid.New(), Title: "T",
