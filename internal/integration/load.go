@@ -253,8 +253,8 @@ func (l *loader) orders(ctx context.Context) error {
 		lines := items[h.EBELN]
 		slices.SortFunc(lines, func(a, b sap.EKPO) int { return cmp.Compare(a.EBELP, b.EBELP) })
 		for _, it := range lines {
-			price, _ := l.t.amount(it.NETPR, h.WAERS)
-			priceUnit, _ := strconv.Atoi(it.PEINH)
+			price, _ := l.t.amount(it.NETPR, h.WAERS) // checked by the quality gate (item)
+			priceUnit, _ := strconv.Atoi(it.PEINH)    // the gate admits only a positive number or empty; empty fails here and max makes it 1
 			description := cmp.Or(it.TXZ01, it.MATNR, "Item "+it.EBELP)
 			in.Items = append(in.Items, procurement.ItemInput{Description: description, Quantity: it.MENGE, Unit: unit,
 				Price: l.plain(price, h.WAERS), Currency: h.WAERS, PriceUnit: int32(max(priceUnit, 1)), AccountID: l.t.charts[h.BUKRS][sap.Alpha(it.SAKTO)].ID})
@@ -339,9 +339,9 @@ func (l *loader) invoices(ctx context.Context) error {
 		if _, ok := l.refs["RBKP/"+key]; ok || h.RBSTAT != "A" || dups[key] != "" {
 			continue
 		}
-		date, _ := sapDate(h.BLDAT) // checked by the quality gate
-		gross, _ := l.t.amount(h.RMWWR, h.WAERS)
-		tax, _ := l.t.amount(h.WMWST1, h.WAERS)
+		date, _ := sapDate(h.BLDAT)              // checked by the quality gate
+		gross, _ := l.t.amount(h.RMWWR, h.WAERS) // checked by the quality gate
+		tax, _ := l.t.amount(h.WMWST1, h.WAERS)  // checked by the quality gate
 		in := payables.Input{LegalEntityID: l.t.entities[h.BUKRS].ID, SupplierID: l.vendors[h.LIFNR], SupplierReference: cmp.Or(h.XBLNR, h.BELNR),
 			InvoiceDate: date, Gross: payables.Amount{Value: l.plain(gross, h.WAERS), Currency: h.WAERS},
 			Tax: payables.Amount{Value: l.plain(tax, h.WAERS), Currency: h.WAERS}}
@@ -349,7 +349,7 @@ func (l *loader) invoices(ctx context.Context) error {
 		slices.SortFunc(lines, func(a, b sap.RSEG) int { return cmp.Compare(a.BUZEI, b.BUZEI) })
 		for _, it := range lines {
 			po, no := l.refs["EKKO/"+it.EBELN], nos[it.EBELN+"/"+it.EBELP]
-			amt, _ := l.t.amount(it.WRBTR, h.WAERS)
+			amt, _ := l.t.amount(it.WRBTR, h.WAERS) // checked by the quality gate
 			if in.PurchaseOrderID == nil {
 				in.PurchaseOrderID = &po
 			}
@@ -441,7 +441,7 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 	}
 	posted := loadedEntry{lines: map[string]int32{}, date: date}
 	for _, line := range lines {
-		amt, _ := l.t.amount(line.HSL, in.Currency)
+		amt, _ := l.t.amount(line.HSL, in.Currency) // checked by the quality gate (journal)
 		if amt == 0 {
 			continue
 		}
@@ -481,7 +481,7 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 	if len(lines) == 0 {
 		return nil
 	}
-	date, _ := sapDate(last)
+	date, _ := sapDate(last) // the latest of the lines' dates, each checked by the quality gate
 	text := "Opening balances from SAP " + strconv.Itoa(int(l.t.year))
 	in := ledger.Posting{LegalEntityID: l.t.entities[c.BUKRS].ID, DocumentType: "OB", DocumentDate: date, PostingDate: date, Currency: c.WAERS,
 		HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID, Lines: lines}
