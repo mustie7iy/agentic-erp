@@ -4,6 +4,10 @@
 // unblocked; nothing is deleted. Every read and write is limited to the
 // legal entities the caller may act in, and anything outside them is
 // answered as not found.
+//
+// It also owns the tenant row itself (tenant.go): the control plane,
+// provisioning, offboarding and the directory read and change it through
+// this package (ADR-0003, ADR-0015, ADR-0021, 06 §6.7).
 package tenancy
 
 import (

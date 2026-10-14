@@ -14,8 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Re-onboarding (T24, ADR-0029): an export (ADR-0021) is also a tenant's
@@ -269,13 +271,15 @@ func (im *Importer) insertTable(ctx context.Context, tx pgx.Tx, name, ident stri
 // export recorded, when it recorded one.
 func checkChainHead(ctx context.Context, tx pgx.Tx, m manifest) error {
 	if m.ChainHead != nil {
-		var seq int64
-		var hash []byte
-		if err := tx.QueryRow(ctx, `SELECT seq, hash FROM audit.chain_head WHERE tenant_id = $1`, m.TenantID).Scan(&seq, &hash); err != nil {
+		head, ok, err := audit.ReadHead(ctx, tx, m.TenantID)
+		if err == nil && !ok {
+			err = pgx.ErrNoRows
+		}
+		if err != nil {
 			return fmt.Errorf("offboarding: the audit chain head was not imported: %w", err)
 		}
-		if seq != m.ChainHead.Seq || hex.EncodeToString(hash) != m.ChainHead.Hash {
-			return fmt.Errorf("offboarding: the audit chain head (%d) differs from the export's (%d)", seq, m.ChainHead.Seq)
+		if head.Seq != m.ChainHead.Seq || hex.EncodeToString(head.Hash) != m.ChainHead.Hash {
+			return fmt.Errorf("offboarding: the audit chain head (%d) differs from the export's (%d)", head.Seq, m.ChainHead.Seq)
 		}
 	}
 	return nil
@@ -294,24 +298,21 @@ func (im *Importer) tenantRow(ctx context.Context, tx pgx.Tx, m manifest) error 
 	if err := json.Unmarshal(m.Tenant, &t); err != nil || t.Name == "" {
 		return fmt.Errorf("offboarding: the manifest's tenant row is not readable")
 	}
-	var status string
-	var erased *time.Time
-	switch err := tx.QueryRow(ctx, `SELECT status, erased_at FROM tenancy.tenant WHERE id = $1`, m.TenantID).Scan(&status, &erased); {
+	row := tenancy.NewTenant{ID: m.TenantID, Name: t.Name, Region: t.Region, GroupCurrency: t.GroupCurrency}
+	existing, err := tenancy.GetTenant(ctx, tx, m.TenantID, false)
+	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		_, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, $2, $3, $4, 'active')`, m.TenantID, t.Name, t.Region, t.GroupCurrency)
-		if err != nil {
+		if err := tenancy.CreateTenant(ctx, tx, row); err != nil {
 			return fmt.Errorf("offboarding: create tenant %s: %w", m.TenantID, err)
 		}
 		return nil
 	case err != nil:
-		return fmt.Errorf("offboarding: read tenant %s: %w", m.TenantID, err)
-	case erased == nil:
-		return fmt.Errorf("offboarding: tenant %s is %s in this cell and not erased; import into an empty or erased tenant", m.TenantID, status)
+		return fmt.Errorf("offboarding: %w", err)
+	case existing.ErasedAt == nil:
+		return fmt.Errorf("offboarding: tenant %s is %s in this cell and not erased; import into an empty or erased tenant", m.TenantID, existing.Status)
 	}
-	_, err := tx.Exec(ctx, `UPDATE tenancy.tenant SET status = 'active', name = $2, region = $3, group_currency = $4,
-		exported_at = NULL, export_ref = NULL, erase_after = NULL, erased_at = NULL, version = version + 1 WHERE id = $1`, m.TenantID, t.Name, t.Region, t.GroupCurrency)
-	if err != nil {
-		return fmt.Errorf("offboarding: restore tenant %s: %w", m.TenantID, err)
+	if err := tenancy.RestoreTenant(ctx, tx, row); err != nil {
+		return fmt.Errorf("offboarding: %w", err)
 	}
 	return nil
 }

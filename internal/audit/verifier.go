@@ -125,6 +125,23 @@ func nullable(n int64) *int64 {
 	return &n
 }
 
+// LatestVerifications returns the latest scheduled verification of each of
+// the tenants that has one (what the control plane shows of a tenant's
+// chain), in the caller's transaction.
+func LatestVerifications(ctx context.Context, tx pgx.Tx, tenants []uuid.UUID) (map[uuid.UUID]Verification, error) {
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT ON (tenant_id) tenant_id, verified_at, head_seq, checked, anchors_checked, coalesce(broken_at, 0), ok
+		FROM audit.verification WHERE tenant_id = ANY($1) ORDER BY tenant_id, verified_at DESC`, tenants)
+	latest := map[uuid.UUID]Verification{}
+	var v Verification
+	if _, err := pgx.ForEachRow(rows, []any{&v.TenantID, &v.VerifiedAt, &v.HeadSeq, &v.Checked, &v.AnchorsChecked, &v.BrokenAt, &v.OK}, func() error {
+		latest[v.TenantID] = v
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("audit: read the latest verifications of %d tenants: %w", len(tenants), err)
+	}
+	return latest, nil
+}
+
 // RunOnce verifies every tenant and returns how many verified and how many
 // did not; the first database failure stops the round.
 func (v *Verifier) RunOnce(ctx context.Context) (ok, broken int, err error) {

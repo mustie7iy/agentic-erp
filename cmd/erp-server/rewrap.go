@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // rewrapCmd moves every tenant's field-encryption keys onto the ring's
@@ -65,12 +66,10 @@ func rewrap(ctx context.Context, cfg platformconfig.Config) (rewrapResult, error
 	res := rewrapResult{Master: keys.Masters[0].ID()}
 	var tenants []uuid.UUID
 	err = pool.InTx(ctx, database.Scope{Role: cfg.ControlRole, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
-		rows, _ := tx.Query(ctx, `SELECT id FROM tenancy.tenant ORDER BY id`)
-		var id uuid.UUID
-		_, err := pgx.ForEachRow(rows, []any{&id}, func() error {
-			tenants = append(tenants, id)
-			return nil
-		})
+		all, err := tenancy.AllTenants(ctx, tx)
+		for _, t := range all {
+			tenants = append(tenants, t.ID)
+		}
 		return errs.Wrapf(err, "read tenants")
 	})
 	if err != nil {

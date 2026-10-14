@@ -21,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Statuses of a directory entry. The cell's statuses pass through; ReadOnly
@@ -486,12 +487,7 @@ func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT id, region, status FROM tenancy.tenant ORDER BY id`)
-	type tenant struct {
-		ID             uuid.UUID
-		Region, Status string
-	}
-	tenants, err := pgx.CollectRows(rows, pgx.RowToStructByPos[tenant])
+	tenants, err := tenancy.AllTenants(ctx, tx)
 	if err != nil {
 		return 0, fmt.Errorf("directory: read tenants of cell %s: %w", s.Cell, err)
 	}

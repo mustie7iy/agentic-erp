@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Key rotation policy (T23, ADR-0028): a worker rotates the field
@@ -51,12 +52,19 @@ func (k *KeyRotator) due(ctx context.Context) ([]uuid.UUID, error) {
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT t.id FROM tenancy.tenant t
-		LEFT JOIN tenancy.tenant_key k ON k.tenant_id = t.id AND k.status = 'active'
-		WHERE t.status = 'active' AND (k.created_at IS NULL OR k.created_at < $1) ORDER BY t.id`, time.Now().Add(-k.Age))
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	all, err := tenancy.Lifecycles(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("controlplane: list tenants due for key rotation: %w", err)
+	}
+	fresh, err := fieldcrypt.KeyedSince(ctx, tx, time.Now().Add(-k.Age))
+	if err != nil {
+		return nil, fmt.Errorf("controlplane: list tenants due for key rotation: %w", err)
+	}
+	var tenants []uuid.UUID
+	for _, t := range all {
+		if t.Status == Active && !fresh[t.ID] {
+			tenants = append(tenants, t.ID)
+		}
 	}
 	return tenants, nil
 }
@@ -69,12 +77,12 @@ func (k *KeyRotator) Rotate(ctx context.Context, tenant uuid.UUID) (fieldcrypt.R
 		return fieldcrypt.Rotation{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	var status string
-	if err := tx.QueryRow(ctx, `SELECT status FROM tenancy.tenant WHERE id = $1 FOR UPDATE`, tenant).Scan(&status); err != nil {
+	t, err := tenancy.GetTenant(ctx, tx, tenant, true)
+	if err != nil {
 		return fieldcrypt.Rotation{}, fmt.Errorf("controlplane: lock tenant %s: %w", tenant, err)
 	}
-	if status != Active {
-		return fieldcrypt.Rotation{}, fmt.Errorf("tenant %s is %s", tenant, status)
+	if t.Status != Active {
+		return fieldcrypt.Rotation{}, fmt.Errorf("tenant %s is %s", tenant, t.Status)
 	}
 	if err := database.SetActor(ctx, tx, RotatorActor); err != nil {
 		return fieldcrypt.Rotation{}, err

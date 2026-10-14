@@ -323,3 +323,22 @@ func VerifyRange(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, from, to int6
 	}
 	return res, nil
 }
+
+// Head is the head of a tenant's chain: its last sequence number and hash.
+type Head struct {
+	Seq  int64
+	Hash []byte
+}
+
+// ReadHead reads the tenant's chain head; ok is false when the tenant has
+// no chain yet.
+func ReadHead(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Head, bool, error) {
+	var h Head
+	switch err := tx.QueryRow(ctx, `SELECT seq, hash FROM audit.chain_head WHERE tenant_id = $1`, tenant).Scan(&h.Seq, &h.Hash); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return Head{}, false, nil
+	case err != nil:
+		return Head{}, false, fmt.Errorf("audit: read the chain head of tenant %s: %w", tenant, err)
+	}
+	return h, true, nil
+}

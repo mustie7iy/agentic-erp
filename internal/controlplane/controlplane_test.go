@@ -955,6 +955,19 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if !found {
 		t.Fatalf("listing lacks the fields: %v", listed)
 	}
+	// A later round that found the chain broken is the one shown.
+	pgtest.Exec(t, `INSERT INTO audit.verification (tenant_id, verified_at, head_seq, checked, anchors_checked, broken_at, ok)
+		VALUES ($1, now() + interval '1 hour', 9, 9, 0, 4, false)`, uuid.MustParse(id))
+	shown, _ = p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
+	if ver, _ = shown["audit_verification"].(map[string]any); ver == nil {
+		t.Fatalf("broken verification shown: got none, want one: %v", shown)
+	}
+	if ver["ok"] != false {
+		t.Errorf("broken verification ok: got %v, want false", ver["ok"])
+	}
+	if ver["broken_at"] != float64(4) {
+		t.Errorf("broken verification broken at: got %v, want 4", ver["broken_at"])
+	}
 	var resealed []byte
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&resealed); err != nil {
 		t.Fatalf("read the re-sealed house bank: %v", err)

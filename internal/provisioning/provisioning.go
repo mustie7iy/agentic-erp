@@ -196,8 +196,8 @@ func (p *Provisioner) populate(ctx context.Context, tx pgx.Tx, req Request, res 
 // createTenant writes the tenant row as the connection's own role, then
 // becomes AppRole for the rest (uow.Act makes it act as the administrator).
 func (p *Provisioner) createTenant(ctx context.Context, tx pgx.Tx, req Request, res Result) error {
-	if _, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, $2, $3, $4, 'active')`,
-		res.TenantID, strings.TrimSpace(req.Name), req.Region, strings.ToUpper(req.GroupCurrency)); err != nil {
+	if err := tenancy.CreateTenant(ctx, tx, tenancy.NewTenant{ID: res.TenantID, Name: strings.TrimSpace(req.Name), Region: req.Region,
+		GroupCurrency: strings.ToUpper(req.GroupCurrency)}); err != nil {
 		return fmt.Errorf("provisioning: tenant: %w", problem.From(err))
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{p.AppRole}.Sanitize()); err != nil {

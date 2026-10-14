@@ -31,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Actor is the worker's id in audit trails: a system actor, never a token
@@ -138,13 +139,11 @@ func (w *Worker) pending(ctx context.Context) (toExport, toErase []uuid.UUID, er
 		return nil, nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT id FROM tenancy.tenant WHERE status = 'offboarded' AND exported_at IS NULL ORDER BY id`)
-	if toExport, err = pgx.CollectRows(rows, pgx.RowTo[uuid.UUID]); err != nil {
-		return nil, nil, fmt.Errorf("offboarding: list tenants to export: %w", err)
+	if toExport, err = tenancy.TenantsToExport(ctx, tx); err != nil {
+		return nil, nil, fmt.Errorf("offboarding: %w", err)
 	}
-	rows, _ = tx.Query(ctx, `SELECT id FROM tenancy.tenant WHERE status = 'offboarded' AND erased_at IS NULL AND erase_after <= $1 ORDER BY id`, w.now())
-	if toErase, err = pgx.CollectRows(rows, pgx.RowTo[uuid.UUID]); err != nil {
-		return nil, nil, fmt.Errorf("offboarding: list tenants to erase: %w", err)
+	if toErase, err = tenancy.TenantsToErase(ctx, tx, w.now()); err != nil {
+		return nil, nil, fmt.Errorf("offboarding: %w", err)
 	}
 	return toExport, toErase, nil
 }
@@ -244,21 +243,17 @@ func (w *Worker) writeExport(ctx context.Context, tenant uuid.UUID) (Export, err
 // readExportable reads the tenant row as JSON and its offboarding time,
 // when the tenant is offboarded and not exported yet.
 func readExportable(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (json.RawMessage, time.Time, error) {
-	var row json.RawMessage
-	var status string
-	var offboardedAt time.Time
-	var exportedAt *time.Time
-	err := tx.QueryRow(ctx, `SELECT row_to_json(t), status, updated_at, exported_at FROM tenancy.tenant t WHERE id = $1`, tenant).Scan(&row, &status, &offboardedAt, &exportedAt)
+	t, row, err := tenancy.TenantJSON(ctx, tx, tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, time.Time{}, problem.NotFound("No tenant with this id.")
 	}
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("offboarding: read tenant %s: %w", tenant, err)
+		return nil, time.Time{}, fmt.Errorf("offboarding: %w", err)
 	}
-	if status != "offboarded" || exportedAt != nil {
+	if t.Status != "offboarded" || t.ExportedAt != nil {
 		return nil, time.Time{}, problem.Conflict("tenancy.invalid_transition", "Only an offboarded tenant that has not been exported is exported.")
 	}
-	return row, offboardedAt, nil
+	return row, t.UpdatedAt, nil
 }
 
 // recordExport records the export on the tenant, in its audit trail and
@@ -270,12 +265,11 @@ func (w *Worker) recordExport(ctx context.Context, tenant uuid.UUID, ex Export) 
 		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	tag, err := tx.Exec(ctx, `UPDATE tenancy.tenant SET exported_at = $2, export_ref = $3, erase_after = $4, version = version + 1 WHERE id = $1 AND exported_at IS NULL`,
-		tenant, now, ex.Ref, ex.EraseAfter)
+	recorded, err := tenancy.RecordExport(ctx, tx, tenant, now, ex.Ref, ex.EraseAfter)
 	if err != nil {
-		return fmt.Errorf("offboarding: record export of tenant %s: %w", tenant, err)
+		return fmt.Errorf("offboarding: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if !recorded {
 		return problem.Conflict("tenancy.invalid_transition", "The tenant was exported by another round.")
 	}
 	if err := database.SetActor(ctx, tx, Actor); err != nil {
@@ -394,21 +388,20 @@ func (w *Worker) eraseRows(ctx context.Context, tenant uuid.UUID) (map[string]in
 		return nil, "", err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	var status, ref string
-	var exportedAt, erasedAt *time.Time
-	err = tx.QueryRow(ctx, `SELECT status, coalesce(export_ref, ''), exported_at, erased_at FROM tenancy.tenant WHERE id = $1`, tenant).Scan(&status, &ref, &exportedAt, &erasedAt)
+	t, err := tenancy.GetLifecycle(ctx, tx, tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", problem.NotFound("No tenant with this id.")
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("offboarding: read tenant %s: %w", tenant, err)
+		return nil, "", fmt.Errorf("offboarding: %w", err)
 	}
 	switch {
-	case status != "offboarded" || exportedAt == nil:
+	case t.Status != "offboarded" || t.ExportedAt == nil:
 		return nil, "", problem.Conflict("tenancy.invalid_transition", "Only an offboarded tenant whose export is complete is erased.")
-	case erasedAt != nil:
+	case t.ErasedAt != nil:
 		return nil, "", problem.Conflict("tenancy.invalid_transition", "The tenant has already been erased.")
 	}
+	ref := *t.ExportRef // set with exported_at
 	var counts map[string]int64
 	if err := tx.QueryRow(ctx, `SELECT platform.erase_tenant($1)`, tenant).Scan(&counts); err != nil {
 		return nil, "", fmt.Errorf("offboarding: erase rows of tenant %s: %w", tenant, err)
@@ -428,11 +421,11 @@ func (w *Worker) recordErasure(ctx context.Context, tenant, actor uuid.UUID, det
 		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	tag, err := tx.Exec(ctx, `UPDATE tenancy.tenant SET erased_at = $2, version = version + 1 WHERE id = $1 AND erased_at IS NULL`, tenant, er.ErasedAt)
+	recorded, err := tenancy.RecordErasure(ctx, tx, tenant, er.ErasedAt)
 	if err != nil {
-		return fmt.Errorf("offboarding: record erasure of tenant %s: %w", tenant, err)
+		return fmt.Errorf("offboarding: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if !recorded {
 		return problem.Conflict("tenancy.invalid_transition", "The tenant was erased by another round.")
 	}
 	if err := database.SetActor(ctx, tx, actor); err != nil {

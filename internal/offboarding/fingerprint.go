@@ -3,12 +3,13 @@ package offboarding
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 )
 
 // Cross-cell verification (T25, ADR-0030): a tenant's fingerprint is what a
@@ -65,14 +66,9 @@ func TakeFingerprint(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, now time.
 
 // readHead reads the tenant's audit chain head; nil when it has none.
 func readHead(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*ChainHead, error) {
-	var head ChainHead
-	var hash []byte
-	switch err := tx.QueryRow(ctx, `SELECT seq, hash FROM audit.chain_head WHERE tenant_id = $1`, tenant).Scan(&head.Seq, &hash); {
-	case errors.Is(err, pgx.ErrNoRows):
-		return nil, nil
-	case err != nil:
-		return nil, fmt.Errorf("offboarding: read audit chain head of tenant %s: %w", tenant, err)
+	head, ok, err := audit.ReadHead(ctx, tx, tenant)
+	if err != nil || !ok {
+		return nil, err
 	}
-	head.Hash = hex.EncodeToString(hash)
-	return &head, nil
+	return &ChainHead{Seq: head.Seq, Hash: hex.EncodeToString(head.Hash)}, nil
 }

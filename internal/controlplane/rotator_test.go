@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"slices"
@@ -123,15 +124,19 @@ func TestKeyRotationPolicy(t *testing.T) {
 	k.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("pool down") }
 	_, err = k.RunOnce(ctx)
 	pgtest.WantErr(t, err, "pool down")
-	k.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-		tx, err := pool.Begin(ctx, s)
-		if err != nil {
-			return nil, err
-		}
-		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
-	}
-	if _, err := k.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
-		t.Fatalf("due query: got %v, want %v", err, pgtest.ErrInjected)
+	for _, n := range []int{1, 2} { // the tenants' statuses, then their recent keys
+		t.Run(fmt.Sprintf("due statement %d failing", n), func(t *testing.T) {
+			k.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+				tx, err := pool.Begin(ctx, s)
+				if err != nil {
+					return nil, err
+				}
+				return &pgtest.FailingTx{Tx: tx, FailAt: n}, nil
+			}
+			if _, err := k.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+				t.Fatalf("due query: got %v, want %v", err, pgtest.ErrInjected)
+			}
+		})
 	}
 	calls := 0
 	k.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
