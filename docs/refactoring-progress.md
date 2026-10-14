@@ -354,15 +354,23 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   lock order buckets → period → number range. A close can be starved by steady postings in its
   period (accepted, documented: closes come after posting stops). Follow-up F8b: the trigger's
   own read FOR SHARE, after 000040 (F5b). Reviewer: APPROVE.
-- [ ] F9 Analytics rounds money with the currency's exponent; no hard-coded exponent tables
+- [x] F9 Analytics rounds money with the currency's exponent; no hard-coded exponent tables.
+  Analytics carries money as exact values (money.Minor, scale, currency) to the page; tiles and
+  charts refuse to add two currencies. config.Validate takes exponents from ref.currency
+  (currency.Load in a transaction; currency.Seeded from the embedded migration seed for the
+  offline CLI, held equal to the database by a test). Requisition thresholds are read with each
+  company currency's digits and compared with a requisition exactly (a dropped parse error sent
+  1000.12 USD to the next tier). The float lint exclusion narrowed to render.go and narrative.go.
+  Reviewer: changes asked (one), APPROVE after the fix.
 - [x] F10 Issuer rollout: the contract step re-backfills; CreatePrincipal refuses an actor without
   an issuer (422 identity.creator_without_issuer, named in the contract's description).
   Reviewer: APPROVE.
 - [x] F11 A failed workflow worker stops the server (or fails readiness) instead of serving without it:
   spawnCritical; the other workers keep logging and retrying a failed round, on purpose.
   Reviewer: APPROVE.
-- [ ] R58 Round-three residue: one open-item check, reversal fragment, sorted partners, checked
-  sums, Minor.Decimal, CLI discards, assertions, reverseJournalEntry length
+- [x] R58 Round-three residue: one open-item check (checkItem), one reversed-line condition,
+  sorted partners, checked sums (ledger totals, payables simulation), Minor.Decimal removed, CLI
+  read errors reported, combined assertions split, reverseJournalEntry in named steps.
 
 ## Baseline
 
