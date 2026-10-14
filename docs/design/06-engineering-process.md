@@ -115,25 +115,43 @@ tested against the database.
 
 ## 6.7 Code layout for contexts
 
-Each bounded context is one Go package tree with the layers of
-02-architecture §2.1:
+Each bounded context is one flat Go package, `internal/<context>`, holding the
+layers of 02-architecture §2.1 as files rather than sub-packages: its types and
+invariants, its use cases (each in the unit of work: transaction, authorization,
+idempotency, outbox, audit), the SQL against its own schema, and `api.go`, the
+handlers of its part of the generated OpenAPI interface. What other contexts may
+call is the package's exported Go API, usually a small interface the caller declares
+and the context satisfies (for example `payables` declares the `Payments` it
+needs and `payments.Reservations` satisfies it), wired together in one place.
 
 ```
-internal/<context>/
-  domain/        entities, value objects, invariants, events (no I/O imports)
-  app/           use cases: transaction, authorization, idempotency, outbox
-  postgres/      repositories implementing ports in domain/ or app/
-  api/           handlers implementing the generated OpenAPI interface
-  <context>.go   the published Go interface other contexts may call
+internal/<context>/      one context: types, use cases, SQL, api.go handlers
+internal/delivery/<agent>/  each delivery agent stands alone
+internal/money/          shared kernel every context may import
+internal/platform/<pkg>/ technical services the contexts use (database, uow,
+                         outbox, audit, authn, problem, ...) and test support
+internal/platform/httpapi/  the composition root: builds the API from every
+                         context's handlers and wires their ports together
 ```
 
-Import rules, checked by a test that parses imports:
+Import rules, checked by `internal/layout`'s test, which parses the imports of
+every production file under `internal/`:
 
-- `domain` imports only the standard library and shared kernel packages
-  (`money`, identifiers).
-- No package imports another context's `domain`, `app` or `postgres`; only
-  its published interface.
-- Only `postgres` packages import the database driver.
+- A platform package imports no context. The two exceptions are named in the
+  test: `platform/httpapi`, the composition root, and `platform/fixture`, test
+  support that builds a configured tenant.
+- Any package may import the platform and the shared kernel (`money`).
+- A context imports another context only where the test's allowlist says so.
+  The list is exact: a new dependency fails the test until it is added there,
+  in the same change as the interface it uses (and an ADR if it reverses a
+  dependency direction), and an entry no longer used fails it too.
+- Tests are not checked: a test may import whatever it needs.
+
+The test checks Go imports only. SQL can still read another context's schema;
+where it does today (offboarding and the control plane over tenancy and audit,
+payments and configuration reading identity, the directory over tenancy) it is
+listed in docs/refactoring-progress.md as a gap to close through the owning
+context's Go API.
 
 ## 6.8 Definition of done
 
