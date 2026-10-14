@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/nfr"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -259,7 +260,9 @@ func TestTrialBalanceBudget(t *testing.T) {
 	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
 	p95 := times[len(times)*95/100]
 	t.Logf("trial balance of 10,000 rows: median %v, p95 %v", times[len(times)/2], p95)
-	if p95 > time.Second {
-		t.Fatalf("trial balance p95 %v exceeds the 1 s budget", p95)
+	// Scaled by ERP_BUDGET_SCALE like the other latency budgets, so a slower
+	// CI runner still catches a regression.
+	if budget := nfr.Budget(time.Second); p95 > budget {
+		t.Fatalf("trial balance p95 %v exceeds the %v budget (1 s scaled by ERP_BUDGET_SCALE)", p95, budget)
 	}
 }
