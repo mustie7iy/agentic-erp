@@ -351,9 +351,12 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   Round three below.
 - [ ] F8 A posting cannot land in a period being closed
 - [ ] F9 Analytics rounds money with the currency's exponent; no hard-coded exponent tables
-- [ ] F10 Issuer rollout: the contract step re-backfills; CreatePrincipal refuses an actor without
-  an issuer
-- [ ] F11 A failed workflow worker stops the server (or fails readiness) instead of serving without it
+- [x] F10 Issuer rollout: the contract step re-backfills; CreatePrincipal refuses an actor without
+  an issuer (422 identity.creator_without_issuer, named in the contract's description).
+  Reviewer: APPROVE.
+- [x] F11 A failed workflow worker stops the server (or fails readiness) instead of serving without it:
+  spawnCritical; the other workers keep logging and retrying a failed round, on purpose.
+  Reviewer: APPROVE.
 - [ ] R58 Round-three residue: one open-item check, reversal fragment, sorted partners, checked
   sums, Minor.Decimal, CLI discards, assertions, reverseJournalEntry length
 
