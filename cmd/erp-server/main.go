@@ -655,7 +655,10 @@ func maintain(ctx context.Context, interval time.Duration, job func(context.Cont
 
 // backlogs exposes the queues the workers drain (05-scalability §5.7:
 // projector lag is a monitored metric), read on each scrape as the role
-// that drains them.
+// that drains them. The counts read several contexts' tables directly: an
+// accepted exception to reading through the owning context (06 §6.7),
+// since they are the operators' view of the cell, read-only, and change
+// with the queues they watch.
 func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
 	//nolint:forbidigo // a row count read as a Prometheus gauge value, which is float64; no amount or quantity
 	count := func(role, sql string, args ...any) func(context.Context) (float64, error) {

@@ -201,11 +201,17 @@ Each a separate Fix commit with a test that fails before the fix.
   message says 74; 71 is right). money is the shared kernel; an unused allowlist entry fails too.
   Checked by mutation. §6.7 rewritten for the flat layout. Reviewer: changes asked (an incomplete
   cross-schema list, a stale Makefile comment), fixed.
-  - Gap, not covered by the test: SQL that reads or writes another context's schema. Today:
-    offboarding and controlplane (tenancy, audit), payments and configuration (identity),
-    directory (tenancy), workflows (payments, config, integration, identity: finding the work
-    it dispatches), provisioning (creates a tenant's first rows in tenancy and identity). nfr is
-    test support and exempt. Closing it means reading through the owning context's Go API.
+  - Gap, not covered by the test: SQL that reads or writes another context's schema. Closed in
+    R53: the tenant row goes through tenancy (control plane, key rotator, offboarding,
+    provisioning, directory, rewrap), with the key from fieldcrypt, the latest verification
+    from audit and the chain head from platform/audit; payments, configuration and workflows
+    read who they act as through identity.Actors; workflows finds its work through the owners'
+    listings (payments.Queued and Releases, configuration.QueuedSimulations,
+    integration.QueuedRuns, approvals.Unwatched and Watched); provisioning creates the first
+    administrator through identity. New imports: workflows -> operations; controlplane ->
+    audit, tenancy; directory -> tenancy; offboarding -> tenancy. What remains are the named
+    exceptions of 06 §6.7: the platform schema (operations, idempotency keys), ref, offboarding's
+    catalog-driven export and import, cmd/erp-server's backlog gauges, and nfr.
 - [x] R42 Final verification and scored review.
   - Gates at the end: `make lint-all` 0 issues; `make test` (vet, -race) passes in 65 packages;
     `make coverage` 16950 of 16950 statements; `make fuzz FUZZTIME=10s` 7 of 7 targets clean;

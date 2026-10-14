@@ -6,6 +6,11 @@
 // It is the first context built on the T1 skeleton: handlers implement the
 // generated API interface and use the request transaction, audit and outbox
 // from the unit of work, never their own.
+//
+// platform.operation is in the platform schema, like the outbox and the
+// idempotency keys: the contexts whose work runs as an operation join it to
+// their own rows to find and claim that work, locking both in one statement
+// (06 §6.7 names this exception).
 package operations
 
 import (

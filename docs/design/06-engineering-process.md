@@ -157,14 +157,33 @@ every production file under `internal/` and `cmd/`:
 The test also refuses a production import of test support (`pgtest`,
 `fixture`, `apitest`, the fake servers, `nfr`).
 
-The test checks Go imports only. SQL can still read or write another
-context's schema, and today it does in: offboarding and the control plane
-(tenancy, audit), payments and configuration (identity), the directory
-(tenancy), workflows (payments, config, integration and identity, to find the
-work it dispatches), and provisioning, which creates a tenant's first rows in
-tenancy and identity. docs/refactoring-progress.md lists them as a gap to
-close through the owning context's Go API; nfr, test support, reads several
-schemas to check its load runs and is exempt.
+The test checks Go imports only; the same rule holds for SQL by review. A
+context's SQL names its own schema; another context's rows are read and
+written through that context's Go API, in the caller's transaction. So
+`tenancy` owns the tenant row (the control plane, provisioning, offboarding
+and the directory go through it), `identity` answers who deferred work acts
+as (`identity.Actors`) and creates a tenant's first administrator, and each
+context lists its own operations waiting for a workflow
+(`operations.Waiting`) for the workflows dispatcher. Platform packages
+own technical tables that sit in context schemas: `fieldcrypt` the tenant
+keys (`tenancy.tenant_key`), `platform/audit` the hash chain
+(`audit.audit_event`, `audit.chain_head`); `uow` and `authz` read
+`tenancy.tenant` and identity's grants to admit a request. Accepted
+exceptions, each named at its query:
+
+- The `platform` schema (the outbox, idempotency keys, `platform.operation`)
+  is shared technical state. Contexts whose work runs as an operation join
+  `platform.operation` to their own rows to find and claim it, locking both
+  in one statement; provisioning and the control plane store and replay
+  their idempotency keys in it.
+- The `ref` schema (currencies, permissions) is reference data every
+  context reads.
+- Offboarding's export, import and fingerprint read and write every tenant
+  table through the catalog (ADR-0021, ADR-0030): they move the tenant's
+  data as data.
+- `cmd/erp-server`'s backlog gauges count queues across schemas as the role
+  that drains each: the operators' read-only view of the cell.
+- nfr, test support, reads several schemas to check its load runs.
 
 ## 6.8 Definition of done
 

@@ -160,7 +160,10 @@ type tenantTable struct {
 func (t tenantTable) ident() string { return pgx.Identifier{t.Schema, t.Table}.Sanitize() }
 
 // tenantTables lists the tenant tables: every table with a tenant_id
-// column, partitioned parents rather than their partitions.
+// column, partitioned parents rather than their partitions. Export, import
+// and the fingerprint read and write every context's tables through this
+// list (ADR-0021, ADR-0030): an accepted exception to going through the
+// owning context (06 §6.7), since they move the tenant's data as data.
 func tenantTables(ctx context.Context, tx pgx.Tx) ([]tenantTable, error) {
 	rows, _ := tx.Query(ctx, `SELECT format('%I.%I', ns.nspname, c.relname), ns.nspname, c.relname FROM pg_class c
 		JOIN pg_namespace ns ON ns.oid = c.relnamespace
