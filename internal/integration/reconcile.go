@@ -318,21 +318,18 @@ func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error 
 }
 
 // extend is an item's net value: quantity times price per price unit,
-// rounded half away from zero (procurement's rule). Only lineValue calls
-// it, having refused prices that do not parse and price units other than
-// empty (1) or a positive number; a quantity can still be positive yet
-// finer than a Qty holds.
+// rounded half away from zero (procurement's rule), from the quantity's
+// decimal string, which has up to six decimals. Only lineValue calls it,
+// having refused quantities that are not plain positive decimals, prices
+// that do not parse and price units other than empty (1) or a positive
+// number, so its only error is money.ErrOverflow.
 func extend(qty, price, priceUnit string, t target, currency string) (money.Minor, error) {
-	q, err := money.ParseQty(qty)
-	if err != nil {
-		return 0, fmt.Errorf("quantity %q: %w", qty, err)
-	}
 	p, _ := t.amount(price, currency) // checked by lineValue
 	unit, err := strconv.ParseInt(priceUnit, 10, 64)
 	if err != nil || unit < 1 {
 		unit = 1
 	}
-	return money.Extend(q, p, unit)
+	return money.Scale(p, qty, unit)
 }
 
 func diffs(cc string, sapM, platformM map[string]money.Minor, format func(money.Minor) string) []Diff {

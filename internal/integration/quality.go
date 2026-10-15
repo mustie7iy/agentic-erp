@@ -2,7 +2,6 @@ package integration
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -247,11 +246,8 @@ func lineValue(i sap.EKPO, t target, currency string) (money.Minor, []string) {
 		return 0, why
 	}
 	v, err := extend(i.MENGE, i.NETPR, i.PEINH, t, currency)
-	switch {
-	case errors.Is(err, money.ErrOverflow):
+	if err != nil { // money.ErrOverflow: the inputs are checked above
 		return 0, []string{fmt.Sprintf("net value of %s at %s per %s is out of range", i.MENGE, i.NETPR, cmp.Or(i.PEINH, "1"))}
-	case err != nil:
-		return 0, []string{err.Error()}
 	}
 	return v, nil
 }
