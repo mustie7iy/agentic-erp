@@ -423,9 +423,10 @@ func (s *dispatchScenario) proposalsStartOnce(t *testing.T) {
 	}
 	found := false
 	for _, st := range s.engine.started {
-		// This is the scenario's first round and its engine is new: the
-		// tests before it leave nothing queued (R66), so every start here is
-		// a proposal, and any other start is work this test should not see.
+		// This is the scenario's first round and its engine is new, and no
+		// test of the package leaves work queued (R66): only proposals are
+		// queued at this point, so any other start is work this test should
+		// not see.
 		in, ok := st.Args[0].(workflows.ProposeInput)
 		if !ok {
 			t.Fatalf("start %s: got input %T, want workflows.ProposeInput: only proposals are queued", st.ID, st.Args[0])
