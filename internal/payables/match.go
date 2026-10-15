@@ -1,6 +1,7 @@
 package payables
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -163,7 +164,7 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, lim
 		if why := priceVariance(it, oi, lim, conv, format); why != "" {
 			add(IssuePriceVariance, &it.ItemNo, "order item %d: %s", oi.ItemNo, why)
 		}
-		total := new(big.Rat).Add(money.ParseRat(it.Quantity), money.ParseRat(orDefault(invoiced[oi.ItemNo], "0")))
+		total := new(big.Rat).Add(money.ParseRat(it.Quantity), money.ParseRat(cmp.Or(invoiced[oi.ItemNo], "0")))
 		if total.Cmp(money.ParseRat(oi.Received)) > 0 {
 			add(IssueQtyReceived, &it.ItemNo, "order item %d: invoiced quantity %s exceeds received %s",
 				oi.ItemNo, total.FloatString(6), oi.Received)
@@ -306,6 +307,8 @@ func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 			return Invoice{}, nil, err
 		}
 		return held, []outbox.Event{heldEvent(held)}, nil
+	// An on-hold invoice always has a hold reason: the table's CHECK
+	// ((status = 'on_hold') = (hold_reason IS NOT NULL)), migration 000007.
 	case issueCount == 0 && v.Status == OnHold && strings.HasPrefix(*v.HoldReason, matchHold):
 		if err := e.Approvals.Withdraw(ctx, approvals.InvoiceException, v.ID, "The invoice now matches."); err != nil {
 			return Invoice{}, nil, err
@@ -333,11 +336,4 @@ func (e *Endpoints) holdForException(ctx context.Context, tx pgx.Tx, p reqctx.Pr
 		r = &request
 	}
 	return transition(ctx, tx, p, v, OnHold, &reason, r)
-}
-
-func orDefault(s, d string) string {
-	if s == "" {
-		return d
-	}
-	return s
 }
