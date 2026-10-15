@@ -399,15 +399,23 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - Round five paused (2026-10-15): the account's weekly usage limit stopped all three agents
   mid-step. Nothing from round five is merged into this branch; the work sits unreviewed on local
   branches:
-  - f13 (95aaaff, b67769f): match_result.invoice_version (migration 000040) and posting requires a
-    clean match of the current version; the CLI posts with the ETag it matched. Not done: exact
-    tolerance and auto-post comparisons; the 000040 renumbering note for F5b/F8b.
+  - f13: done and merged (see F13 below).
   - f14 (d43b2f0, c8bcabe, f4f6fe4, 0b3496e after the rebase): F14 and R61 items 1-4; go-reviewer
     APPROVE, no blocking findings.
   - r60: finished and rebased onto this branch (R60 below).
   Resume: review each branch, finish the open items, merge, run the gates and the scored review.
-- [ ] F13 A clean match only authorises posting the invoice version it evaluated; tolerances and
-  the auto-post limit compared exactly, before rounding
+- [x] F13 A clean match only authorises posting the invoice version it evaluated; tolerances and
+  the auto-post limit compared exactly, before rounding. match_result.invoice_version (migration
+  000040, expand step: nullable, check NOT VALID) records the version the match leaves the
+  invoice at; :post needs the latest match clean and of the current version (409
+  payables.match_required; a match without a version counts for none); `erp invoices` posts or
+  holds with the ETag it sent to :match. The absolute tolerance and the auto-post limit are
+  compared with amount × rate exactly (money.Exact, ledger.Conversion.Exact), shown rounded; an
+  invoice without a rate is decided without being matched. F5b and F8b take the next free number
+  in the release after this one. Reviewer: APPROVE. Follow-ups: a clean match is trusted
+  against the order, receipts and configuration as they were at match time; the review reason
+  can show 50000.00 above a 50000.00 limit when rounding hides the difference; the 000040 check
+  stays NOT VALID (validated in F5b's migration); match.go reads hold_reason without a nil check.
 - [x] F14 A configuration's company currency must equal the legal entity's local currency
 - [x] R60 Round-five duplication: extension keys (platform/extensions), control/global plane HTTP
   helpers (httpapi.Operator), reference errors (problem.Reference), positive quantities
