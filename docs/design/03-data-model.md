@@ -282,7 +282,8 @@ reported by the ledger's section check), and a legal entity's
 `local_currency` never changes after it is created (F14). A document in
 another currency is converted into the company's currency with the
 ledger's posting lookup (the latest average
-rate of the pair, inverted when only the reverse is recorded) on the
+rate of the pair; when only the reverse is recorded, the amount is
+divided by it exactly, never multiplied by a rounded reciprocal, F19) on the
 document's date: a requisition on the day it was raised (UTC), so a
 resubmission is routed at the same rate, an invoice on its invoice date
 (a posting converts on the posting date instead). The converted amount is

@@ -176,8 +176,15 @@ Decisions taken while building it:
   422 `config.no_number_range`, an exhausted one 409
   `config.number_range_exhausted`.
 - **Conversion.** Local and group amounts use the latest average rate valid
-  on the posting date in either direction (an inverse rate is rounded to 12
-  decimals and stored); amounts round half away from zero and the rounding
+  on the posting date in either direction. When only the reverse pair is
+  recorded, amounts are divided by it exactly and rounded once; the entry
+  records its reciprocal rounded to 12 decimals, and a reciprocal that
+  rounds to zero (a recorded rate above 2e12) is refused with 422
+  `ledger.rate_not_recordable` (F19). Before F19 amounts were multiplied by
+  that rounded reciprocal, so an amount converted at a reciprocal with no
+  12-decimal form (1/3, 1/0.96) may now differ by a minor unit or more on
+  large amounts; at a reciprocal with one (1/160) it is unchanged. Amounts
+  round half away from zero and the rounding
   difference goes to the largest line, per currency. Reversals copy the
   original rates and negate every amount; they post on the original date
   unless another is given, and refuse reversals of reversals and entries

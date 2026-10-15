@@ -16,10 +16,23 @@ const maxExp = 18
 // half away from zero: 0.5 becomes 1 and -0.5 becomes -1. Conversions are
 // exact rational arithmetic; floats are never involved (ADR-0005).
 func Convert(amount Minor, rate string, fromExp, toExp int) (Minor, error) {
+	r, err := ParsePlain(rate)
+	if err != nil {
+		return 0, err
+	}
+	return ConvertAt(amount, r, fromExp, toExp)
+}
+
+// ConvertAt is Convert at a rate given as an exact rational: the
+// reciprocal of a recorded rate, when only the other direction is
+// recorded, has no decimal form in general (1/3), and rounding it first
+// would change the result, or make it zero for a rate above 2e12 (F19).
+// The amount is rounded once, at the end. The rate is not modified.
+func ConvertAt(amount Minor, rate *big.Rat, fromExp, toExp int) (Minor, error) {
 	if toExp < 0 || toExp > maxExp {
 		return 0, fmt.Errorf("money: convert from exponent %d to %d: exponents are 0 to %d", fromExp, toExp, maxExp)
 	}
-	v, err := Exact(amount, rate, fromExp)
+	v, err := ExactAt(amount, rate, fromExp)
 	if err != nil {
 		return 0, err
 	}
@@ -35,10 +48,19 @@ func Exact(amount Minor, rate string, fromExp int) (*big.Rat, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ExactAt(amount, r, fromExp)
+}
+
+// ExactAt is Exact at a rate given as an exact rational (ConvertAt), which
+// is not modified.
+func ExactAt(amount Minor, rate *big.Rat, fromExp int) (*big.Rat, error) {
+	if rate == nil || rate.Sign() < 0 {
+		return nil, fmt.Errorf("money: convert at %v: a rate is a non-negative number", rate)
+	}
 	if fromExp < 0 || fromExp > maxExp {
 		return nil, fmt.Errorf("money: convert from exponent %d: exponents are 0 to %d", fromExp, maxExp)
 	}
-	return r.Mul(Rat(amount, fromExp), r), nil
+	return new(big.Rat).Mul(Rat(amount, fromExp), rate), nil
 }
 
 // Scale returns amount × factor / divisor rounded half away from zero, in
@@ -128,18 +150,28 @@ func roundHalfAway(v *big.Rat) *big.Int {
 // amounts, adding up to zero, stays balanced: what a journal entry needs in
 // each of its currencies.
 func ConvertAll(amounts []Minor, rate string, fromExp, toExp int) ([]Minor, error) {
+	r, err := ParsePlain(rate)
+	if err != nil {
+		return nil, err
+	}
+	return ConvertAllAt(amounts, r, fromExp, toExp)
+}
+
+// ConvertAllAt is ConvertAll at a rate given as an exact rational
+// (ConvertAt), which is not modified.
+func ConvertAllAt(amounts []Minor, rate *big.Rat, fromExp, toExp int) ([]Minor, error) {
 	total, err := Sum(amounts...)
 	if err != nil {
 		return nil, err
 	}
-	want, err := Convert(total, rate, fromExp, toExp)
+	want, err := ConvertAt(total, rate, fromExp, toExp)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Minor, len(amounts))
 	largest := 0
 	for i, a := range amounts {
-		if out[i], err = Convert(a, rate, fromExp, toExp); err != nil {
+		if out[i], err = ConvertAt(a, rate, fromExp, toExp); err != nil {
 			return nil, err
 		}
 		if magnitude(out[i]) > magnitude(out[largest]) {

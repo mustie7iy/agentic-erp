@@ -144,6 +144,36 @@ func TestMatchDecisionInTheCompanysCurrency(t *testing.T) {
 	}
 }
 
+// TestMatchDecisionAtAnInverseRate: with only EUR into JPY recorded, at
+// 3,000,000,000,000 JPY a euro, a JPY invoice is divided by that rate,
+// exactly, and decided as an invoice of the same EUR value at a forward
+// rate is (F19). Before, the inverse was rounded to 12 decimals, which made
+// it zero: the invoice was worth 0.00 EUR and posted automatically. The
+// forward case is KRW at 0.000000000001 EUR, the inverse of 3e12 having no
+// 12-decimal form to record as a forward rate.
+func TestMatchDecisionAtAnInverseRate(t *testing.T) {
+	e := foreign(t)
+	e.rate(t, "EUR", "JPY", "3000000000000")
+	e.rate(t, "KRW", "EUR", "0.000000000001")
+	const want = "review: gross 50001.00 EUR is above the auto-post limit 50000.00 EUR"
+	for _, c := range []struct {
+		name, currency string
+		price          int64
+		gross          string
+	}{
+		{"only the reverse pair", "JPY", 15_000_300_000_000_000, "150003000000000000"}, // 50,001.00 EUR at 1/3e12
+		{"the forward pair", "KRW", 5_000_100_000_000_000, "50001000000000000"},        // 50,001.00 EUR at 1e-12
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := e.in(t)
+			inv := e.foreignInvoice(t, e.orderIn(t, c.currency, c.price), c.currency, c.currency+"-1", c.gross, "0", c.gross)
+			if got := decision(e.act(t, 200, inv, "match", "")); got != want {
+				t.Errorf("decision: got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 // TestNoRateRefusesTheMatch: without a rate from the invoice's currency to
 // the company's, the match is refused (the user's F12 decision), naming the
 // pair and the invoice date, rather than comparing the raw numbers; no

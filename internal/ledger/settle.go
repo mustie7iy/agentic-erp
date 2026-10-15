@@ -181,7 +181,7 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 		return Entry{}, err
 	}
 	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgerID: items[0].ledger, documentType: in.DocumentType, documentDate: in.PostingDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: bank.group, rateTCLC: bank.rateLC, rateLCGC: bank.rateGC,
+		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: bank.group, rateTCLC: bank.rateLC.shown, rateLCGC: bank.rateGC.shown,
 		reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext, sourceDocumentID: &in.SourceDocumentID, lines: lines})
 	if err != nil {
 		return Entry{}, err
@@ -207,7 +207,7 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 // rates of the posting date they were converted at.
 type settlementBank struct {
 	group          string
-	rateLC, rateGC string
+	rateLC, rateGC exchange
 	lc, gc         money.Minor
 }
 
@@ -223,10 +223,7 @@ func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, l
 	if err != nil {
 		return settlementBank{}, err
 	}
-	if b.rateLC, err = rate(ctx, tx, in.Currency, le.LocalCurrency, in.PostingDate); err != nil {
-		return settlementBank{}, err
-	}
-	if b.rateGC, err = rate(ctx, tx, le.LocalCurrency, b.group, in.PostingDate); err != nil {
+	if b.rateLC, b.rateGC, err = postingRates(ctx, tx, in.Currency, le.LocalCurrency, b.group, in.PostingDate); err != nil {
 		return settlementBank{}, err
 	}
 	if b.lc, err = convert(tc, b.rateLC, exps[in.Currency], exps[le.LocalCurrency]); err != nil {

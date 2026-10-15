@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/google/uuid"
@@ -68,15 +69,15 @@ func TestExchangeDifferenceOutOfRange(t *testing.T) {
 // no positive counterpart, so its reversal or clearing offset would keep
 // the sign, and it rendered as "--92233720368547758.-8".
 func TestConvertToMostNegative(t *testing.T) {
-	if got, err := convert(-1<<62, "2", 2, 2); problemCode(err) != "ledger.amount_too_large" {
+	if got, err := convert(-1<<62, exchange{exact: big.NewRat(2, 1)}, 2, 2); problemCode(err) != "ledger.amount_too_large" {
 		t.Errorf("got %d, %v, want ledger.amount_too_large", got, err)
 	}
 }
 
-// A rate the database never renders is an internal error, not the
+// A conversion without its rate is an internal error, not the
 // caller's amount.
 func TestConvertInvalidRate(t *testing.T) {
-	_, err := convert(100, "1e5", 2, 2)
+	_, err := convert(100, exchange{}, 2, 2) // no exact rate
 	if err == nil || problemCode(err) != "" {
 		t.Errorf("got %v, want an error that is not a problem", err)
 	}

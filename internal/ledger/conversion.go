@@ -30,19 +30,29 @@ type Rates struct {
 // Conversion translates minor units of one currency into another at a
 // rate valid on a date.
 type Conversion struct {
-	From, To       string
-	Rate           string // units of To per unit of From; "1" for one currency
+	From, To string
+	// Rate is units of To per unit of From, "1" for one currency, to 12
+	// decimals: for people. When only the reverse pair is recorded it is
+	// the reciprocal rounded, and amounts are converted at the exact
+	// reciprocal instead (F19). A Conversion made with Rate alone converts
+	// at Rate.
+	Rate           string
 	FromExp, ToExp int
+	exact          *big.Rat
 }
 
-// Convert translates an amount (money.Convert): rounded half away from
-// zero, a result out of range is money.ErrOverflow.
+// Convert translates an amount (money.Convert): rounded once, half away
+// from zero; a result out of range is money.ErrOverflow.
 func (c Conversion) Convert(amount money.Minor) (money.Minor, error) {
-	v, err := money.Convert(amount, c.Rate, c.FromExp, c.ToExp)
+	v, err := c.Exact(amount)
 	if err != nil {
-		return 0, fmt.Errorf("ledger: convert %s into %s: %w", c.From, c.To, err)
+		return 0, err
 	}
-	return v, nil
+	m, err := money.Round(v, c.ToExp)
+	if err != nil {
+		return 0, c.failed(err)
+	}
+	return m, nil
 }
 
 // Exact is an amount's value in major units of the target currency,
@@ -50,11 +60,23 @@ func (c Conversion) Convert(amount money.Minor) (money.Minor, error) {
 // amounts, while Convert's rounded value is what people are shown and what
 // is posted (F13).
 func (c Conversion) Exact(amount money.Minor) (*big.Rat, error) {
-	v, err := money.Exact(amount, c.Rate, c.FromExp)
+	r := c.exact
+	if r == nil {
+		var err error
+		if r, err = money.ParsePlain(c.Rate); err != nil {
+			return nil, c.failed(err)
+		}
+	}
+	v, err := money.ExactAt(amount, r, c.FromExp)
 	if err != nil {
-		return nil, fmt.Errorf("ledger: convert %s into %s: %w", c.From, c.To, err)
+		return nil, c.failed(err)
 	}
 	return v, nil
+}
+
+// failed names the pair of a failed conversion.
+func (c Conversion) failed(err error) error {
+	return fmt.Errorf("ledger: convert %s into %s: %w", c.From, c.To, err)
 }
 
 // errConversionTooLarge refuses a document amount whose value in the
@@ -85,7 +107,7 @@ func (Rates) Conversion(ctx context.Context, from, to string, date time.Time) (C
 	if err != nil {
 		return Conversion{}, err
 	}
-	c := Conversion{From: from, To: to, Rate: r}
+	c := Conversion{From: from, To: to, Rate: r.shown, exact: r.exact}
 	if c.FromExp, err = currency.Exponent(ctx, tx, from, nil); err != nil {
 		return Conversion{}, fmt.Errorf("ledger: conversion %s/%s: %w", from, to, err)
 	}

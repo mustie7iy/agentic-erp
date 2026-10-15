@@ -69,6 +69,7 @@ func TestConversion(t *testing.T) {
 	if later["rate_tc_lc"] != "2.000000000000" {
 		t.Fatalf("inverse rate: %v", later["rate_tc_lc"])
 	}
+	checkExactInverse(t, e, deBank, deRevenue)
 	e.Problem(422, "ledger.no_exchange_rate", "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "CHF", line{deBank, "1.00", ""}, line{deRevenue, "-1.00", ""}), "")
 	e.rate(t, "CHF", "EUR", "2026-01-01", "1000")
 	e.Problem(422, "ledger.amount_too_large", "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "CHF",
@@ -77,6 +78,29 @@ func TestConversion(t *testing.T) {
 	e.rate(t, "USD", "EUR", "2026-04-01", "1000")
 	e.Problem(422, "ledger.amount_too_large", "POST", "/v1/journal-entries", entry(e.us, "2026-04-15", "USD",
 		line{bank, "900000000000000.00", ""}, line{revenue, "-900000000000000.00", ""}), "")
+}
+
+// checkExactInverse: a rate maintained only the other way is divided by,
+// exactly, and the amounts rounded once; the entry records the inverse
+// rounded to 12 decimals (F19). Multiplying by that rounded inverse put
+// 3,000,000,000,000.02 SEK at 999,999,999,999.01 EUR instead of
+// 1,000,000,000,000.01. An inverse that rounds to zero cannot be recorded
+// on the entry, so the posting is refused rather than failing the check
+// of the column.
+func checkExactInverse(t *testing.T, e env, bank, revenue string) {
+	t.Helper()
+	e.rate(t, "EUR", "SEK", "2026-01-01", "3")
+	e.rate(t, "EUR", "KRW", "2026-01-01", "3000000000000")
+	je, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "SEK", line{bank, "3000000000000.02", ""},
+		line{revenue, "-3000000000000.02", ""}), "")
+	if got, want := amounts(t, je, "amount_lc"), "1000000000000.01,-1000000000000.01"; got != want {
+		t.Errorf("SEK amount_lc: got %s, want %s", got, want)
+	}
+	if got, want := je["rate_tc_lc"], "0.333333333333"; got != want {
+		t.Errorf("SEK rate_tc_lc: got %v, want %s", got, want)
+	}
+	e.Problem(422, "ledger.rate_not_recordable", "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "KRW", line{bank, "3000000000000", ""},
+		line{revenue, "-3000000000000", ""}), "")
 }
 
 func TestPostingRefusals(t *testing.T) {

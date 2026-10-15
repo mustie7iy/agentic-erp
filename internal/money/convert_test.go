@@ -230,3 +230,69 @@ func TestExact(t *testing.T) {
 		})
 	}
 }
+
+// The At forms take the rate as an exact rational, so a rate kept the
+// other way round is divided by rather than multiplied by a rounded
+// inverse: 1/3 has no decimal form, and 1/3e12 rounded to 12 decimals is
+// zero (F19). The rate is the caller's and is left as it was.
+func TestConvertAtARational(t *testing.T) {
+	third := big.NewRat(1, 3)
+	cases := map[string]struct {
+		amount         Minor
+		rate           *big.Rat
+		fromExp, toExp int
+		want           Minor
+	}{
+		"a third of 1.00":           {100, third, 2, 2, 33},
+		"two thirds of 0.01":        {2, third, 2, 2, 1},
+		"a third, large":            {300_000_000_000_002, third, 2, 2, 100_000_000_000_001},
+		"below 12 decimals":         {3_000_000_000_000, big.NewRat(1, 3_000_000_000_000), 0, 2, 100},
+		"negative, away from zero":  {-1, big.NewRat(3, 2), 2, 2, -2},
+		"zero digits to two digits": {1000, big.NewRat(62, 10_000), 0, 2, 620},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			before := new(big.Rat).Set(c.rate)
+			got, err := ConvertAt(c.amount, c.rate, c.fromExp, c.toExp)
+			if err != nil {
+				t.Fatalf("ConvertAt: got %v, want no error", err)
+			}
+			if got != c.want {
+				t.Errorf("ConvertAt(%d, %s): got %d, want %d", c.amount, c.rate.RatString(), got, c.want)
+			}
+			if c.rate.Cmp(before) != 0 {
+				t.Errorf("rate after ConvertAt: got %s, want %s", c.rate.RatString(), before.RatString())
+			}
+		})
+	}
+	exact, err := ExactAt(100, third, 2)
+	if err != nil {
+		t.Fatalf("ExactAt: got %v, want no error", err)
+	}
+	if exact.Cmp(third) != 0 {
+		t.Errorf("ExactAt(100, 1/3, 2): got %s, want 1/3", exact.RatString())
+	}
+	if third.Cmp(big.NewRat(1, 3)) != 0 {
+		t.Errorf("rate after ExactAt: got %s, want 1/3", third.RatString())
+	}
+	all, err := ConvertAllAt([]Minor{100, 100, -200}, third, 2, 2)
+	if err != nil {
+		t.Fatalf("ConvertAllAt: got %v, want no error", err)
+	}
+	if want := []Minor{33, 33, -66}; !slices.Equal(all, want) {
+		t.Errorf("ConvertAllAt: got %v, want %v", all, want)
+	}
+	for name, r := range map[string]*big.Rat{"nil": nil, "negative": big.NewRat(-1, 3)} {
+		t.Run(name+" rate", func(t *testing.T) {
+			if _, err := ConvertAt(1, r, 2, 2); err == nil || errors.Is(err, ErrOverflow) {
+				t.Errorf("ConvertAt: got %v, want an error other than overflow", err)
+			}
+			if _, err := ExactAt(1, r, 2); err == nil {
+				t.Errorf("ExactAt: got %v, want an error", err)
+			}
+			if _, err := ConvertAllAt([]Minor{1, -1}, r, 2, 2); err == nil || errors.Is(err, ErrOverflow) {
+				t.Errorf("ConvertAllAt: got %v, want an error other than overflow", err)
+			}
+		})
+	}
+}

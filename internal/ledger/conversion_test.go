@@ -24,6 +24,10 @@ func TestRatesPort(t *testing.T) {
 	e.rate(t, "USD", "EUR", "2026-01-01", "0.9")
 	e.rate(t, "EUR", "JPY", "2026-01-01", "160")
 	e.rate(t, "EUR", "CHF", "2026-01-01", "0.96") // only EUR into CHF: CHF converts at 1/0.96
+	// Only EUR into KRW and SEK: their inverses, 1/3e12 and 1/3, have no
+	// 12-decimal form, and 1/3e12 rounded to 12 decimals is zero (F19).
+	e.rate(t, "EUR", "KRW", "2026-01-01", "3000000000000")
+	e.rate(t, "EUR", "SEK", "2026-01-01", "3")
 	rates := ledger.Rates{LegalEntities: tenancy.Directory{}}
 	toCompany := func(le uuid.UUID, currency, day string, amount money.Minor) (money.Minor, int, error) {
 		var v money.Minor
@@ -42,6 +46,10 @@ func TestRatesPort(t *testing.T) {
 		{"rate", "USD", 1111111, 1000000},                  // 11,111.11 USD at 0.9: 9,999.999 EUR, rounded
 		{"inverted rate", "JPY", 1000, 625},                // 1,000 JPY at 1/160: 6.25 EUR
 		{"inverted repeating rate", "CHF", 100000, 104167}, // 1,000.00 CHF at 1/0.96 = 1.041666666667: 1,041.67 EUR
+		// Divided by the recorded rate, exactly, and rounded once (F19).
+		{"inverse below 12 decimals", "KRW", 3_000_000_000_000, 100},             // 3e12 KRW at 1/3e12: 1.00 EUR, not 0
+		{"inverse of 3", "SEK", 100, 33},                                         // 1.00 SEK / 3 = 0.333…: 0.33 EUR
+		{"inverse of 3, large", "SEK", 300_000_000_000_002, 100_000_000_000_001}, // 3,000,000,000,000.02 / 3 = 1,000,000,000,000.00667
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, exp, err := toCompany(e.de, c.currency, "2026-03-10", c.amount)
@@ -107,5 +115,8 @@ func TestRatesPort(t *testing.T) {
 	// reports it rather than returning zero.
 	if _, err := (ledger.Conversion{From: "USD", To: "EUR", Rate: "x", FromExp: 2, ToExp: 2}).Convert(1); err == nil || errors.Is(err, money.ErrOverflow) {
 		t.Errorf("invalid rate: got %v, want an error", err)
+	}
+	if _, err := (ledger.Conversion{From: "USD", To: "EUR", Rate: "1", FromExp: -1, ToExp: 2}).Convert(1); err == nil || errors.Is(err, money.ErrOverflow) {
+		t.Errorf("invalid exponent: got %v, want an error", err)
 	}
 }

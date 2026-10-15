@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -448,27 +449,69 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 	return nil
 }
 
+// exchange is a rate from one currency to another. exact is what amounts
+// are converted at: the recorded rate, or the exact reciprocal of the
+// reverse pair's. shown is the same rate rounded to the 12 decimals of
+// numeric(28,12), what a journal entry records and people read. Converting
+// at shown instead, as before F19, moved amounts by a minor unit or more
+// (3,000,000,000,000.02 at 1/3) and, for a recorded rate above 2e12 whose
+// rounded reciprocal is 0, converted every amount to 0.
+type exchange struct {
+	exact *big.Rat
+	shown string
+}
+
 // rate is the average rate from one currency to another valid on the date:
-// the latest rate of the pair in either direction, inverted when only the
-// reverse pair is maintained.
-func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (string, error) {
+// the latest rate of the pair in either direction, its reciprocal when
+// only the reverse pair is maintained.
+func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (exchange, error) {
 	if from == to {
-		return "1", nil
+		return exchange{exact: big.NewRat(1, 1), shown: "1"}, nil
 	}
-	var r string
-	err := tx.QueryRow(ctx, `SELECT CASE WHEN from_currency = $1 THEN rate ELSE round(1 / rate, 12) END::text
+	var recorded, shown string
+	var forward bool
+	err := tx.QueryRow(ctx, `SELECT rate::text, from_currency = $1, CASE WHEN from_currency = $1 THEN rate ELSE round(1 / rate, 12) END::text
 		FROM ledger.exchange_rate WHERE rate_type = 'average' AND valid_from <= $3
 			AND ((from_currency = $1 AND to_currency = $2) OR (from_currency = $2 AND to_currency = $1))
-		ORDER BY valid_from DESC, from_currency = $1 DESC LIMIT 1`, from, to, date).Scan(&r)
+		ORDER BY valid_from DESC, from_currency = $1 DESC LIMIT 1`, from, to, date).Scan(&recorded, &forward, &shown)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", problem.Unprocessable("ledger.no_exchange_rate",
+		return exchange{}, problem.Unprocessable("ledger.no_exchange_rate",
 			fmt.Sprintf("No average exchange rate from %s to %s is valid on %s.", from, to, date.Format(time.DateOnly)),
 			problem.FieldError{Field: "posting_date", Code: "no_exchange_rate", Message: "record the rate first"})
 	}
 	if err != nil {
-		return r, fmt.Errorf("ledger: rate %s/%s on %s: %w", from, to, date.Format(time.DateOnly), err)
+		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: %w", from, to, date.Format(time.DateOnly), err)
 	}
-	return r, nil
+	x := exchange{exact: money.ParseRat(recorded), shown: shown}
+	if !forward {
+		x.exact.Inv(x.exact) // never zero: the column's check keeps rates above zero
+	}
+	return x, nil
+}
+
+// postingRates are the rates a posting converts at, from its transaction
+// currency to the local one and from that to the group's. A rate whose
+// 12-decimal form is zero, the reciprocal of a recorded rate above 2e12,
+// cannot be recorded on the entry, so the posting is refused (F19).
+func postingRates(ctx context.Context, tx pgx.Tx, tc, lc, gc string, date time.Time) (toLC, toGC exchange, err error) {
+	if toLC, err = rate(ctx, tx, tc, lc, date); err != nil {
+		return exchange{}, exchange{}, err
+	}
+	if toGC, err = rate(ctx, tx, lc, gc, date); err != nil {
+		return exchange{}, exchange{}, err
+	}
+	for _, r := range []struct {
+		x        exchange
+		from, to string
+	}{{toLC, tc, lc}, {toGC, lc, gc}} {
+		if money.ParseRat(r.x.shown).Sign() == 0 {
+			return exchange{}, exchange{}, problem.Unprocessable("ledger.rate_not_recordable",
+				fmt.Sprintf("The average rate from %s to %s, the reciprocal of the recorded %s/%s rate, is zero to the 12 decimals a journal entry records.",
+					r.from, r.to, r.to, r.from),
+				problem.FieldError{Field: "currency", Code: "rate_not_recordable", Message: "record a " + r.from + "/" + r.to + " rate"})
+		}
+	}
+	return toLC, toGC, nil
 }
 
 var errTooLarge = problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")
@@ -488,10 +531,10 @@ func netsToZero(amounts ...money.Minor) bool {
 	return err == nil && sum == 0
 }
 
-// convert translates minor units at the rate (money.Convert); an amount
-// out of range is too large to post.
-func convert(minor money.Minor, r string, fromExp, toExp int) (money.Minor, error) {
-	v, err := money.Convert(minor, r, fromExp, toExp)
+// convert translates minor units at the exact rate (money.ConvertAt); an
+// amount out of range is too large to post.
+func convert(minor money.Minor, r exchange, fromExp, toExp int) (money.Minor, error) {
+	v, err := money.ConvertAt(minor, r.exact, fromExp, toExp)
 	return v, convertErr(err)
 }
 
@@ -547,11 +590,7 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 	if err := checkTaxCodes(ctx, tx, le.ID, in.PostingDate, lines); err != nil {
 		return Entry{}, err
 	}
-	rateLC, err := rate(ctx, tx, in.Currency, le.LocalCurrency, in.PostingDate)
-	if err != nil {
-		return Entry{}, err
-	}
-	rateGC, err := rate(ctx, tx, le.LocalCurrency, group, in.PostingDate)
+	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, le.LocalCurrency, group, in.PostingDate)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -559,8 +598,8 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 		return Entry{}, err
 	}
 	posted, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: group, rateTCLC: rateLC,
-		rateLCGC: rateGC, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
+		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: group, rateTCLC: rateLC.shown,
+		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
 		sourceDocumentID: in.SourceDocumentID, lines: lines})
 	if err != nil {
 		return Entry{}, err
@@ -607,16 +646,16 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 // convertLines sets the local amounts, converted from the transaction
 // amounts, and the group amounts, converted from the local ones; each
 // currency's rounding difference goes to its largest line.
-func convertLines(lines []Line, rateLC, rateGC string, expTC, expLC, expGC int) error {
+func convertLines(lines []Line, rateLC, rateGC exchange, expTC, expLC, expGC int) error {
 	tcs := make([]money.Minor, len(lines))
 	for i, l := range lines {
 		tcs[i] = l.TC
 	}
-	lcs, err := money.ConvertAll(tcs, rateLC, expTC, expLC)
+	lcs, err := money.ConvertAllAt(tcs, rateLC.exact, expTC, expLC)
 	if err != nil {
 		return convertErr(err)
 	}
-	gcs, err := money.ConvertAll(lcs, rateGC, expLC, expGC)
+	gcs, err := money.ConvertAllAt(lcs, rateGC.exact, expLC, expGC)
 	if err != nil {
 		return convertErr(err)
 	}
