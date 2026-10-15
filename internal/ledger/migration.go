@@ -81,26 +81,18 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 // the legal entity, not reversed, not reserved, netting to zero per partner
 // in transaction and local currency) and returns their event payload.
 func migratedItems(loaded []item, legalEntity uuid.UUID, exps map[string]int) ([]map[string]any, error) {
-	type amounts struct{ tc, lc []money.Minor }
-	perPartner := map[uuid.UUID]*amounts{}
+	sums := perPartner{}
 	payload := make([]map[string]any, len(loaded))
 	for i, it := range loaded {
 		if err := checkItem(i, it, &legalEntity, uuid.Nil); err != nil {
 			return nil, err
 		}
-		s := perPartner[*it.partner]
-		if s == nil {
-			s = &amounts{}
-			perPartner[*it.partner] = s
-		}
-		s.tc, s.lc = append(s.tc, it.tc), append(s.lc, it.lc)
+		sums.add(*it.partner, it.tc, it.lc)
 		payload[i] = map[string]any{"fiscal_year": it.ref.FiscalYear, "journal_entry_id": it.ref.EntryID, "line_no": it.ref.LineNo,
 			"account_id": it.account, "partner_id": it.partner, "amount_tc": money.EventAmount(it.tc, it.currency, exps[it.currency])}
 	}
-	for _, partner := range partnersInOrder(perPartner) {
-		if s := perPartner[partner]; !netsToZero(s.tc...) || !netsToZero(s.lc...) {
-			return nil, problem.Unprocessable("ledger.clearing_not_balanced", "The items of partner "+partner.String()+" do not net to zero in transaction and local currency.")
-		}
+	if partner, ok := sums.unbalanced(); ok {
+		return nil, problem.Unprocessable("ledger.clearing_not_balanced", "The items of partner "+partner.String()+" do not net to zero in transaction and local currency.")
 	}
 	return payload, nil
 }

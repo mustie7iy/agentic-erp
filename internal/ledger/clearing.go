@@ -169,36 +169,52 @@ func requireDistinct(refs []ItemRef) error {
 // every currency. Line i offsets items[i] and there is no other line:
 // createClearing clears item i with the entry's line i+1 (leadingLines).
 func clearingLines(items []item, legalEntity uuid.UUID, text *string) ([]Line, error) {
-	type amounts struct{ tc, lc, gc []money.Minor }
-	perPartner := map[uuid.UUID]*amounts{}
+	sums := perPartner{}
 	lines := make([]Line, len(items))
 	for i, it := range items {
 		if err := requireClearable(i, it, items[0], legalEntity); err != nil {
 			return nil, err
 		}
-		s := perPartner[*it.partner]
-		if s == nil {
-			s = &amounts{}
-			perPartner[*it.partner] = s
-		}
-		s.tc, s.lc, s.gc = append(s.tc, it.tc), append(s.lc, it.lc), append(s.gc, it.gc)
+		sums.add(*it.partner, it.tc, it.lc, it.gc)
 		lines[i] = Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text}
 	}
-	for _, partner := range partnersInOrder(perPartner) {
-		if s := perPartner[partner]; !netsToZero(s.tc...) || !netsToZero(s.lc...) || !netsToZero(s.gc...) {
-			return nil, problem.Unprocessable("ledger.clearing_not_balanced",
-				"The items of partner "+partner.String()+" do not net to zero in every currency; settle the difference with a posting first.",
-				problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that net to zero per partner"})
-		}
+	if partner, ok := sums.unbalanced(); ok {
+		return nil, problem.Unprocessable("ledger.clearing_not_balanced",
+			"The items of partner "+partner.String()+" do not net to zero in every currency; settle the difference with a posting first.",
+			problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that net to zero per partner"})
 	}
 	return lines, nil
 }
 
-// partnersInOrder are the partners of a per-partner map in id order, so
-// that a refusal naming one names the same partner on every run (map
-// iteration order varies).
-func partnersInOrder[T any](perPartner map[uuid.UUID]T) []uuid.UUID {
-	return slices.SortedFunc(maps.Keys(perPartner), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+// perPartner collects the amounts of the items a clearing settles per
+// partner, one list per currency (transaction, local and, where the caller
+// checks it, group), each to net to zero.
+type perPartner map[uuid.UUID][][]money.Minor
+
+// add records one item's amounts, in the same currency order every time.
+func (p perPartner) add(partner uuid.UUID, amounts ...money.Minor) {
+	s := p[partner]
+	if s == nil {
+		s = make([][]money.Minor, len(amounts))
+	}
+	for i, a := range amounts {
+		s[i] = append(s[i], a)
+	}
+	p[partner] = s
+}
+
+// unbalanced returns the first partner, in id order, whose items do not net
+// to zero in one of the currencies. The order makes a refusal name the same
+// partner on every run (map iteration order varies).
+func (p perPartner) unbalanced() (uuid.UUID, bool) {
+	for _, partner := range slices.SortedFunc(maps.Keys(p), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }) {
+		for _, amounts := range p[partner] {
+			if !netsToZero(amounts...) {
+				return partner, true
+			}
+		}
+	}
+	return uuid.Nil, false
 }
 
 // requireClearable checks item i: an open line on a reconciliation account
