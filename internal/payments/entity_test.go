@@ -2,7 +2,9 @@ package payments_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,7 +12,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -22,29 +23,54 @@ func (noEntity) Entity(context.Context, uuid.UUID) (tenancy.Entity, bool, error)
 	return tenancy.Entity{}, false, nil
 }
 
+// missingOnce is a tenancy context that does not find legal entity id the
+// first time it is asked, and finds every entity as real does after.
+type missingOnce struct {
+	real    payments.LegalEntities
+	id      uuid.UUID
+	missing *atomic.Bool
+}
+
+func (m missingOnce) Entity(ctx context.Context, id uuid.UUID) (tenancy.Entity, bool, error) {
+	if id == m.id && m.missing.CompareAndSwap(true, false) {
+		return tenancy.Entity{}, false, nil
+	}
+	return m.real.Entity(ctx, id)
+}
+
 // TestProposeWithoutTheLegalEntity: a proposal whose legal entity the
-// tenancy context no longer finds is refused, never built with end-to-end
-// ids that begin with an empty entity code.
+// tenancy context does not find fails, with a reason naming the entity,
+// never built with end-to-end ids that begin with an empty entity code;
+// and it fails for good, so the tenant's next proposal is still built
+// rather than queued behind it.
 func TestProposeWithoutTheLegalEntity(t *testing.T) {
 	e := setup(t)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
-	e.propose(t, "2026-04-15", "2026-04-15")
+	first := e.propose(t, "2026-04-15", "2026-04-15")
+	second := e.propose(t, "2026-04-16", "2026-04-16")
 	h := endpoints(nil)
-	h.LegalEntities = noEntity{}
-	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		tx, _, err := reqctx.Request(ctx)
-		if err != nil {
-			return err
-		}
-		j, _, err := h.NextJob(ctx, tx)
-		if err != nil {
-			return err
-		}
-		return h.Process(ctx, j)
-	})
-	if want := "no legal entity " + e.DE.String(); err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("process: got %v, want an error naming %q", err, want)
+	missing := &atomic.Bool{}
+	missing.Store(true)
+	h.LegalEntities = missingOnce{real: h.LegalEntities, id: e.DE, missing: missing}
+	w := proposer(t)
+	w.Endpoints = h
+	if _, err := w.RunOnce(context.Background()); err != nil {
+		t.Fatalf("proposer: %v", err)
+	}
+	op, _ := e.Must(200, "GET", "/v1/operations/"+id(first), "", "")
+	if op["status"] != "failed" {
+		t.Fatalf("first proposal, status: got %v, want failed: %v", op["status"], op)
+	}
+	why := op["error"].(map[string]any)
+	if why["code"] != "request.reference_not_found" {
+		t.Errorf("first proposal, error: got %v, want request.reference_not_found", why["code"])
+	}
+	if errs, _ := why["errors"].([]any); len(errs) != 1 || !strings.Contains(fmt.Sprint(errs[0]), e.DE.String()) {
+		t.Errorf("first proposal, field errors: got %v, want one naming legal entity %s", why["errors"], e.DE)
+	}
+	if r, _ := e.Must(200, "GET", second["resource"].(string), "", ""); r["status"] != "proposed" {
+		t.Errorf("second proposal, run status: got %v, want proposed", r["status"])
 	}
 }
 

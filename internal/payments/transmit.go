@@ -109,8 +109,7 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 	}
 	le, err := e.entityOf(ctx, r)
 	if errors.Is(err, errNoEntity) {
-		return operations.Operation{}, problem.ReferenceNotFound("legal_entity_id", "legal entity",
-			"legal entity "+r.LegalEntityID.String()+" of payment run "+r.DocumentNumber+" does not exist")
+		return operations.Operation{}, noEntity(r)
 	}
 	if err != nil {
 		return operations.Operation{}, err

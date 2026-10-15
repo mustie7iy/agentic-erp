@@ -321,10 +321,12 @@ var errNoEntity = errors.New("no legal entity")
 // no foreign key into tenancy, and legal entities are never deleted, so a
 // missing one is broken data: it is refused rather than read as an entity
 // with an empty code, which would begin the run's end-to-end ids, bank file
-// message id and file name with "-". The refusal is an error, not a
-// problem: the proposal job and the release activity leave it to their
-// retries (nothing is written), and an API caller that should say more
-// maps errNoEntity itself.
+// message id and file name with "-". The refusal is an error (errNoEntity):
+// the release activity leaves it to its retries (the release is approved
+// and nothing is written), and the bank file's download answers 500. The
+// proposal and :transmit answer noEntity instead: a proposal job left to
+// retry would stay first in its tenant's queue and hold back every later
+// proposal.
 func (e *Endpoints) entityOf(ctx context.Context, r Run) (tenancy.Entity, error) {
 	le, found, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
 	if err != nil {
@@ -334,6 +336,13 @@ func (e *Endpoints) entityOf(ctx context.Context, r Run) (tenancy.Entity, error)
 		return tenancy.Entity{}, fmt.Errorf("payments: run %s: %w %s", r.ID, errNoEntity, r.LegalEntityID)
 	}
 	return le, nil
+}
+
+// noEntity is the problem for entityOf's errNoEntity, naming the entity:
+// a proposal fails with it, and :transmit refuses with it.
+func noEntity(r Run) *problem.Problem {
+	return problem.ReferenceNotFound("legal_entity_id", "legal entity",
+		"legal entity "+r.LegalEntityID.String()+" of payment run "+r.DocumentNumber+" does not exist")
 }
 
 func requireProposed(r Run, done string) error {

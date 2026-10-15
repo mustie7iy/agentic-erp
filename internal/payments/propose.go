@@ -188,6 +188,9 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 		return Run{}, err
 	}
 	le, err := e.entityOf(ctx, r)
+	if errors.Is(err, errNoEntity) {
+		return Run{}, noEntity(r) // fails the run (Process) rather than holding back the tenant's queue
+	}
 	if err != nil {
 		return Run{}, err
 	}
