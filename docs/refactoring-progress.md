@@ -443,6 +443,16 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   invoice refuses a missing order or legal entity with 422 instead of an empty value (it
   panicked); `erp invoices` checks the read, leaves a gone or changed invoice parked, and settles
   every page (apitools.List). Reviewer: changes asked (409 → 422), APPROVE.
+- Sixth re-review after round six: **9.3 / 10** (architecture 9.5, error handling 9.1, concurrency
+  9.4, SQL 9.7, tests 9.3, readability 9.4, duplication 9.0, money 9.5): round six's claims hold,
+  but a crash reachable from tenant input was found. Round seven below.
+- [ ] F17 Replaying a regression case whose invoice lost its purchase order does not panic (a worker
+  panic stopped erp-server for every tenant)
+- [ ] F18 `erp invoices` leaves an invoice with an approved exception to its approval instead of
+  re-matching it back on hold
+- [ ] F19 A reverse exchange rate is inverted exactly (a rate above 2e12 inverted to 0)
+- [ ] R63 Round-seven duplication: one not-found helper, one accessible-row lookup, list paging; the
+  remaining discarded errors carry reasons
 - [x] R62 Round-six duplication and clocks: tenancy.Accessible replaces six copies of the
   accessible-legal-entity refusal; problem.ReferenceNotFound/Reference replace the procurement and
   payments copies (one client-visible change: an unknown requisition_id on an order now reports
