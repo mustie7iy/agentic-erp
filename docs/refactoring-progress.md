@@ -453,7 +453,13 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   re-matching it back on hold: the server's match no longer re-holds an exception approved at the
   invoice's current version (it re-opened approval on every run), and the CLI leaves such an
   invoice parked for a person. Reviewer: APPROVE.
-- [ ] F19 A reverse exchange rate is inverted exactly (a rate above 2e12 inverted to 0)
+- [x] F19 A reverse exchange rate is inverted exactly (a rate above 2e12 inverted to 0): posting,
+  settlement and the F12 comparisons divide by the stored rate exactly (money.ConvertAt/ExactAt),
+  rounding the amount once; an entry still records the 12-decimal rate, and a rate whose
+  12-decimal form is zero is refused (422 ledger.rate_not_recordable); CreateRate refuses digits
+  beyond numeric(28,12); a stored rate that is not a plain positive decimal is an error, not a
+  nil dereference. Posting results change by a minor unit only where the reciprocal has no
+  12-decimal form (1/3, 1/0.96), the new value being the exact one. Reviewer: APPROVE.
 - [ ] R63 Round-seven duplication: one not-found helper, one accessible-row lookup, list paging; the
   remaining discarded errors carry reasons
 - [x] R62 Round-six duplication and clocks: tenancy.Accessible replaces six copies of the
