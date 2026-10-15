@@ -142,7 +142,7 @@ func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency
 		if err := checkItemNo(it.No, i, field); err != nil {
 			return nil, err
 		}
-		if _, err := quantity(it.Quantity, field+".quantity"); err != nil {
+		if err := quantity(it.Quantity, field+".quantity"); err != nil {
 			return nil, err
 		}
 		price, err := amount(it.Price, it.Currency, currency, exp, field+".unit_price", false)

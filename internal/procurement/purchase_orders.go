@@ -147,7 +147,7 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 	if err := checkItemNo(it.No, i, field); err != nil {
 		return Item{}, err
 	}
-	if _, err := quantity(it.Quantity, field+".quantity"); err != nil {
+	if err := quantity(it.Quantity, field+".quantity"); err != nil {
 		return Item{}, err
 	}
 	price, err := amount(it.Price, it.Currency, h.currency, h.exp, field+".unit_price", false)

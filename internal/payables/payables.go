@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -438,8 +437,8 @@ func (v *invoiceCheck) order(id uuid.UUID, field string) (procurement.Order, err
 func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
 	field := fmt.Sprintf("items[%d]", i)
 	item := Item{ItemNo: int32(i + 1), Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, TaxCode: it.TaxCode, AccountID: it.AccountID}
-	if q, ok := new(big.Rat).SetString(it.Quantity); !ok || q.Sign() <= 0 {
-		return Item{}, invalid("payables.invalid_quantity", field+".quantity.value", "Quantities are positive.")
+	if money.PositiveQuantity(it.Quantity) != nil {
+		return Item{}, invalid("payables.invalid_quantity", field+".quantity.value", "A quantity is a positive decimal of at most 14 integer digits and 6 decimals.")
 	}
 	var err error
 	if item.Amount, err = v.parse(it.Amount, field+".amount"); err != nil {

@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 	"strconv"
 	"strings"
@@ -69,13 +68,6 @@ func (t target) amount(s, currency string) (money.Minor, error) {
 	}
 	m, err := money.ParseDecimal(s, exp)
 	return m, err
-}
-
-func quantity(s string) error {
-	if q, ok := new(big.Rat).SetString(s); !ok || q.Sign() <= 0 {
-		return fmt.Errorf("quantity %q is not a positive number", s)
-	}
-	return nil
 }
 
 // normalizeRef is platform.normalize_ref: duplicate supplier references
@@ -242,8 +234,8 @@ func (q *qualityCheck) purchaseOrderItem(i sap.EKPO, h sap.EKKO) {
 // range. The quality gate and the reconciliation both refuse such lines.
 func lineValue(i sap.EKPO, t target, currency string) (money.Minor, []string) {
 	var why []string
-	if err := quantity(i.MENGE); err != nil {
-		why = append(why, err.Error())
+	if money.PositiveQuantity(i.MENGE) != nil {
+		why = append(why, fmt.Sprintf("quantity %q is not a positive number of at most %d decimals", i.MENGE, money.QuantityDecimals))
 	}
 	if _, err := t.amount(i.NETPR, currency); err != nil {
 		why = append(why, err.Error())

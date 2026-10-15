@@ -43,6 +43,34 @@ func ParseQty(s string) (Qty, error) {
 	return Qty(v), err
 }
 
+// QuantityDecimals and QuantityIntDigits bound a document quantity: the
+// quantity columns are numeric(20,6), which round a seventh decimal away
+// and refuse a fifteenth integer digit.
+const (
+	QuantityDecimals  = 6
+	QuantityIntDigits = 14
+)
+
+// PositiveQuantity checks a document quantity (an order, receipt or
+// invoice line): a positive decimal in the grammar of ParseDecimal that a
+// quantity column stores exactly. A fraction ("1/3") or an exponent
+// ("1e3"), which big.Rat would read, is refused, as are significant
+// decimals beyond the sixth and integer digits beyond the fourteenth.
+func PositiveQuantity(s string) error {
+	neg, intPart, frac, err := decimalParts(s)
+	switch {
+	case err != nil:
+		return err
+	case len(strings.TrimRight(frac, "0")) > QuantityDecimals:
+		return fmt.Errorf("quantity %q has more than %d significant decimals", s, QuantityDecimals)
+	case len(strings.TrimLeft(intPart, "0")) > QuantityIntDigits:
+		return fmt.Errorf("quantity %q has more than %d integer digits", s, QuantityIntDigits)
+	case neg || strings.Trim(intPart+frac, "0") == "":
+		return fmt.Errorf("quantity %q is not positive", s)
+	}
+	return nil
+}
+
 // decimalParts splits a decimal in the grammar every amount is read with:
 // optional surrounding space, one sign (a leading "-" or "+", or the
 // trailing "-" of SAP table extracts), digits, and an optional "." with

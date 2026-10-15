@@ -3,7 +3,6 @@ package procurement
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -110,13 +109,13 @@ func amount(value, currency, docCurrency string, exp int, field string, positive
 	return m, nil
 }
 
-// quantity parses a positive decimal quantity.
-func quantity(value, field string) (*big.Rat, error) {
-	q, ok := new(big.Rat).SetString(value)
-	if !ok || q.Sign() <= 0 {
-		return nil, invalid("procurement.invalid_quantity", field+".value", "a positive quantity")
+// quantity checks a document quantity (money.PositiveQuantity): API input
+// is bounded by the contract already, migrated documents are not.
+func quantity(value, field string) error {
+	if money.PositiveQuantity(value) != nil {
+		return invalid("procurement.invalid_quantity", field+".value", "a positive quantity of at most 14 integer digits and 6 decimals")
 	}
-	return q, nil
+	return nil
 }
 
 // itemsTotal is the sum of the items' extended amounts, quantity × price /

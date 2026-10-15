@@ -198,7 +198,7 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 		return GoodsReceipt{}, err
 	}
 	for i, it := range in.Items {
-		if _, err := quantity(it.Quantity, fmt.Sprintf("items[%d].quantity", i)); err != nil {
+		if err := quantity(it.Quantity, fmt.Sprintf("items[%d].quantity", i)); err != nil {
 			return GoodsReceipt{}, err
 		}
 	}
