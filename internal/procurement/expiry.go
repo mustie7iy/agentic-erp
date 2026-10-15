@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -35,6 +36,9 @@ type ContractExpirer struct {
 	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
+	// Now dates the audit entries; nil means the wall clock. Tests fix it.
+	// Which contracts are due is the database's day, as valid_to is.
+	Now func() time.Time
 }
 
 func (x *ContractExpirer) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -75,7 +79,7 @@ func (x *ContractExpirer) Expire(ctx context.Context, tenant uuid.UUID) (int, er
 		return 0, fmt.Errorf("procurement: list contracts due in tenant %s: %w", tenant, err)
 	}
 	actor := reqctx.Principal{ID: ExpirerActor, Kind: reqctx.KindSystem, TenantID: tenant}
-	now := time.Now().UTC()
+	now := clock.Now(x.Now).UTC()
 	for _, id := range ids {
 		c, err := scanContract(tx.QueryRow(ctx, contractSelect+` WHERE c.id = $1`, id))
 		if err != nil {

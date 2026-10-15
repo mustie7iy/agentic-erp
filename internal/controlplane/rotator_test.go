@@ -217,3 +217,39 @@ func TestARotationFailureDoesNotStopTheRound(t *testing.T) {
 		t.Errorf("keys of the tenant behind the failing one: got %d, want 2", keys)
 	}
 }
+
+// TestKeyRotationClock: the rotator judges a key's age and dates its audit
+// entry by its own clock, not the wall clock.
+func TestKeyRotationClock(t *testing.T) {
+	p := newPlane(t)
+	ctx := context.Background()
+	created, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Clocked"), "Idempotency-Key", "key-"+uuid.NewString())
+	id := uuid.MustParse(created["id"].(string))
+	// 25 hours old by the database's clock, 23 by a clock two hours behind:
+	// inside the 24-hour policy for the rotator.
+	pgtest.Exec(t, `UPDATE tenancy.tenant_key SET created_at = now() - interval '25 hours', version = version + 1 WHERE tenant_id = $1 AND status = 'active'`, id)
+	at := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Microsecond)
+	k := &controlplane.KeyRotator{Pool: p.s.Pool, Keys: apitest.FieldKeys(), AppRole: "erp_app", WorkerRole: "erp_worker", Age: 24 * time.Hour,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return at }}
+	if _, err := k.RunOnce(ctx); err != nil {
+		t.Fatalf("round: %v", err)
+	}
+	admin := pgtest.Admin(t)
+	var keys int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant_key WHERE tenant_id = $1`, id).Scan(&keys); err != nil {
+		t.Fatalf("count tenant keys: %v", err)
+	}
+	if keys != 1 {
+		t.Errorf("keys after a round by the clock: got %d, want 1 (not due)", keys)
+	}
+	if _, err := k.Rotate(ctx, id); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	var occurred time.Time
+	if err := admin.QueryRow(ctx, `SELECT occurred_at FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.rotate_key' ORDER BY seq DESC LIMIT 1`, id).Scan(&occurred); err != nil {
+		t.Fatalf("audit: %v", err)
+	}
+	if !occurred.Equal(at) {
+		t.Errorf("audit time: got %v, want %v", occurred, at)
+	}
+}

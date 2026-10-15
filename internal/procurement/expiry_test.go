@@ -31,7 +31,9 @@ func TestContractExpiry(t *testing.T) {
 	// Validity is set by the calendar: the first two end yesterday, the draft too.
 	pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = current_date - 400, valid_to = current_date - 1, version = version + 1 WHERE id IN ($1, $2)`, uuid.MustParse(id(past)), uuid.MustParse(id(draft)))
 	logs := &pgtest.SyncBuffer{}
-	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil))}
+	at := time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC)
+	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)),
+		Now: func() time.Time { return at }}
 	n, err := x.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("round: %v", err)
@@ -68,9 +70,13 @@ func TestContractExpiry(t *testing.T) {
 	}
 	var actor uuid.UUID
 	var detail map[string]any
-	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT actor_id, detail FROM audit.audit_event WHERE tenant_id = $1 AND action = 'procurement.contract.expire' AND object_id = $2`,
-		e.Tenant.ID, uuid.MustParse(id(past))).Scan(&actor, &detail); err != nil {
+	var occurred time.Time
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT actor_id, detail, occurred_at FROM audit.audit_event WHERE tenant_id = $1 AND action = 'procurement.contract.expire' AND object_id = $2`,
+		e.Tenant.ID, uuid.MustParse(id(past))).Scan(&actor, &detail, &occurred); err != nil {
 		t.Fatalf("audit: %v", err)
+	}
+	if !occurred.Equal(at) {
+		t.Errorf("audit time: got %v, want the expirer's clock %v", occurred, at)
 	}
 	if actor != procurement.ExpirerActor {
 		t.Errorf("audit actor: got %v, want %v", actor, procurement.ExpirerActor)

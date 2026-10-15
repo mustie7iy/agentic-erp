@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -38,6 +39,9 @@ type KeyRotator struct {
 	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
+	// Now dates the keys' age and the audit entries; nil means the wall
+	// clock. Tests fix it.
+	Now func() time.Time
 }
 
 func (k *KeyRotator) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -56,7 +60,7 @@ func (k *KeyRotator) due(ctx context.Context) ([]uuid.UUID, error) {
 	if err != nil {
 		return nil, fmt.Errorf("controlplane: list tenants due for key rotation: %w", err)
 	}
-	fresh, err := fieldcrypt.KeyedSince(ctx, tx, time.Now().Add(-k.Age))
+	fresh, err := fieldcrypt.KeyedSince(ctx, tx, clock.Now(k.Now).Add(-k.Age))
 	if err != nil {
 		return nil, fmt.Errorf("controlplane: list tenants due for key rotation: %w", err)
 	}
@@ -92,7 +96,7 @@ func (k *KeyRotator) Rotate(ctx context.Context, tenant uuid.UUID) (fieldcrypt.R
 		return fieldcrypt.Rotation{}, err
 	}
 	actor := reqctx.Principal{ID: RotatorActor, Kind: reqctx.KindSystem, TenantID: tenant}
-	if err := audit.Write(ctx, tx, actor, "", time.Now().UTC(), audit.Entry{Action: "tenancy.tenant.rotate_key", ObjectType: "tenancy.tenant", ObjectID: tenant, Outcome: "succeeded",
+	if err := audit.Write(ctx, tx, actor, "", clock.Now(k.Now).UTC(), audit.Entry{Action: "tenancy.tenant.rotate_key", ObjectType: "tenancy.tenant", ObjectID: tenant, Outcome: "succeeded",
 		Detail: map[string]any{"key_id": rot.KeyID, "previous_key_id": rot.Previous, "master_key_id": rot.Master, "resealed": rot.Resealed, "policy": k.Age.String()}}); err != nil {
 		return fieldcrypt.Rotation{}, err
 	}
