@@ -172,15 +172,21 @@ func system(c Connector) string {
 }
 
 // source is the SAP reader a connector describes. Its settings were
-// checked when they were saved.
+// checked when they were saved and are checked again here: stored settings
+// may predate a rule, and a run must answer 422, not panic, on them.
 func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error) {
+	if err := checkSettings(c.Kind, c.Settings); err != nil {
+		return nil, err
+	}
 	if c.Kind == SAPFile {
 		if e.ExtractDir == "" {
 			return nil, problem.Unavailable("Extract files are not configured on this server (ERP_EXTRACT_DIR).", 0)
 		}
-		return sap.FileSource{Path: filepath.Join(e.ExtractDir, c.Settings["path"].(string))}, nil
+		path, _ := c.Settings["path"].(string) // checkSettings held it to a local path
+		return sap.FileSource{Path: filepath.Join(e.ExtractDir, path)}, nil
 	}
-	o := &sap.ODataSource{BaseURL: c.Settings["base_url"].(string), HTTP: e.HTTP}
+	baseURL, _ := c.Settings["base_url"].(string) // checkSettings held it to an http(s) URL
+	o := &sap.ODataSource{BaseURL: baseURL, HTTP: e.HTTP}
 	if v, ok := c.Settings["client"].(string); ok {
 		o.Client = v
 	}
