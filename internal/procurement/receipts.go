@@ -82,7 +82,7 @@ func getReceipt(ctx context.Context, tx pgx.Tx, id uuid.UUID) (GoodsReceipt, err
 	}
 	g, err := scanReceipt(tx.QueryRow(ctx, receiptSelect+` WHERE m.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(g.LegalEntityID)) {
-		return GoodsReceipt{}, notFound("goods receipt")
+		return GoodsReceipt{}, problem.NotFoundOf("goods receipt")
 	}
 	if err != nil {
 		return GoodsReceipt{}, fmt.Errorf("procurement: get goods receipt %s: %w", id, err)

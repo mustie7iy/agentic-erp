@@ -67,7 +67,7 @@ func getConnector(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Conn
 	}
 	c, err := scanConnector(tx.QueryRow(ctx, q, id))
 	if noRows(err) {
-		return c, notFound("connector")
+		return c, problem.NotFoundOf("connector")
 	}
 	if err != nil {
 		return c, fmt.Errorf("integration: read connector %s: %w", id, err)

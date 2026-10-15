@@ -80,7 +80,7 @@ func getOrder(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Purchase
 	}
 	o, err := scanOrder(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(o.LegalEntityID)) {
-		return PurchaseOrder{}, notFound("purchase order")
+		return PurchaseOrder{}, problem.NotFoundOf("purchase order")
 	}
 	if err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: get purchase order %s: %w", id, err)

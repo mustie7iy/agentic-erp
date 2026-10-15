@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -362,7 +363,7 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 		return nil, fmt.Errorf("partner: find business partner %s: %w", params.ID, err)
 	}
 	if !exists {
-		return nil, notFound("business partner")
+		return nil, problem.NotFoundOf("business partner")
 	}
 	q, args := ks.SQL(`SELECT `+bankColumns+` FROM partner.bank_account WHERE partner_id = $1
 		AND ($2::date IS NULL OR (valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2)))`, []any{params.ID, validOn})

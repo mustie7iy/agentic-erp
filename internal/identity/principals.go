@@ -94,7 +94,7 @@ func getPrincipal(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Prin
 	}
 	p, err := scanPrincipal(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p, notFound("principal")
+		return p, problem.NotFoundOf("principal")
 	}
 	if err != nil {
 		return p, fmt.Errorf("identity: read principal %s: %w", id, err)

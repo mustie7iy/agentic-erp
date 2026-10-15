@@ -137,6 +137,4 @@ func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
 
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
-
 func noRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }

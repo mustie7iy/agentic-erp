@@ -191,5 +191,3 @@ func agentApprovalsNow(ctx context.Context, tx pgx.Tx) error {
 	}
 	return nil
 }
-
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }

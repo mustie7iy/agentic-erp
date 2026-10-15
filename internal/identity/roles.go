@@ -51,7 +51,7 @@ func getRole(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Role, err
 	}
 	r, err := scanRole(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r, notFound("role")
+		return r, problem.NotFoundOf("role")
 	}
 	if err != nil {
 		return r, fmt.Errorf("identity: read role %s: %w", id, err)
@@ -134,7 +134,7 @@ func getRolePermission(ctx context.Context, tx pgx.Tx, role, id uuid.UUID, lock 
 	}
 	g, err := scanRolePermission(tx.QueryRow(ctx, q, role, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return g, notFound("permission grant of this role")
+		return g, problem.NotFoundOf("permission grant of this role")
 	}
 	if err != nil {
 		return g, fmt.Errorf("identity: read permission grant %s of role %s: %w", id, role, err)

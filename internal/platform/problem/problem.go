@@ -91,6 +91,10 @@ func NotFound(detail string) *Problem {
 	return New(http.StatusNotFound, "request.not_found", "Not found", detail)
 }
 
+// NotFoundOf is the 404 for a lookup by id of the resource named by what
+// ("No purchase order with this id."), the wording every context uses.
+func NotFoundOf(what string) *Problem { return NotFound("No " + what + " with this id.") }
+
 func Conflict(code, detail string) *Problem {
 	return New(http.StatusConflict, code, "Conflict", detail)
 }

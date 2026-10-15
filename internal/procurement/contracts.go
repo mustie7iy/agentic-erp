@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -67,7 +68,7 @@ func getContract(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Contr
 	}
 	c, err := scanContract(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(c.LegalEntityID)) {
-		return Contract{}, notFound("contract")
+		return Contract{}, problem.NotFoundOf("contract")
 	}
 	if err != nil {
 		return Contract{}, fmt.Errorf("procurement: get contract %s: %w", id, err)

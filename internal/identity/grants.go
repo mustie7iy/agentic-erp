@@ -38,7 +38,7 @@ func getAssignment(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Rol
 	}
 	g, err := scanAssignment(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return g, notFound("role assignment")
+		return g, problem.NotFoundOf("role assignment")
 	}
 	if err != nil {
 		return g, fmt.Errorf("identity: read role assignment %s: %w", id, err)
@@ -149,7 +149,7 @@ func getAccess(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Company
 	}
 	g, err := scanAccess(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return g, notFound("company access grant")
+		return g, problem.NotFoundOf("company access grant")
 	}
 	if err != nil {
 		return g, fmt.Errorf("identity: read company access %s: %w", id, err)
@@ -168,7 +168,7 @@ func GrantAccess(ctx context.Context, les LegalEntities, principal, legalEntity 
 	}
 	if _, ok, err := les.LegalEntityStatus(ctx, legalEntity); err != nil || !ok {
 		if err == nil {
-			err = notFound("legal entity")
+			err = problem.NotFoundOf("legal entity")
 		}
 		return CompanyAccess{}, problem.Reference(err, "legal_entity_id", "legal entity", "no legal entity with this id")
 	}
@@ -244,7 +244,7 @@ func getSod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (SodRule, e
 	}
 	r, err := scanSod(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r, notFound("segregation-of-duties rule")
+		return r, problem.NotFoundOf("segregation-of-duties rule")
 	}
 	if err != nil {
 		return r, fmt.Errorf("identity: read segregation-of-duties rule %s: %w", id, err)

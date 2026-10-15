@@ -78,6 +78,21 @@ func TestReference(t *testing.T) {
 	}
 }
 
+// TestNotFoundOf: the 404 of a lookup by id names the resource in the
+// wording every context uses.
+func TestNotFoundOf(t *testing.T) {
+	got := NotFoundOf("purchase order")
+	if got.Status != 404 {
+		t.Errorf("status: got %d, want 404", got.Status)
+	}
+	if got.Code != "request.not_found" {
+		t.Errorf("code: got %q, want request.not_found", got.Code)
+	}
+	if want := "No purchase order with this id."; got.Detail != want {
+		t.Errorf("detail: got %q, want %q", got.Detail, want)
+	}
+}
+
 // TestReferenceNotFound: the refusal for a lookup that reports "not found"
 // with a bool is the one Reference makes from a 404.
 func TestReferenceNotFound(t *testing.T) {

@@ -109,8 +109,6 @@ func scanOU(row pgx.Row) (OrgUnit, error) {
 // OrgUnitKinds are the kinds the database accepts.
 var OrgUnitKinds = map[string]bool{"purchasing_org": true, "plant": true, "storage_location": true, "sales_org": true}
 
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
-
 // getLE loads a legal entity the caller may act in; lock takes the row lock
 // for a change.
 func getLE(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (LegalEntity, error) {
@@ -124,7 +122,7 @@ func getLE(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (LegalEntity
 	}
 	e, err := scanLE(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(e.ID)) {
-		return LegalEntity{}, notFound("legal entity")
+		return LegalEntity{}, problem.NotFoundOf("legal entity")
 	}
 	if err != nil {
 		return e, fmt.Errorf("tenancy: read legal entity %s: %w", id, err)
@@ -143,7 +141,7 @@ func getOU(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (OrgUnit, er
 	}
 	u, err := scanOU(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(u.LegalEntityID)) {
-		return OrgUnit{}, notFound("org unit")
+		return OrgUnit{}, problem.NotFoundOf("org unit")
 	}
 	if err != nil {
 		return u, fmt.Errorf("tenancy: read org unit %s: %w", id, err)

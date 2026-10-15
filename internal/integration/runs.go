@@ -87,14 +87,14 @@ func getRun(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Run, error
 	}
 	r, err := scanRun(tx.QueryRow(ctx, q, id))
 	if noRows(err) {
-		return Run{}, notFound("migration run")
+		return Run{}, problem.NotFoundOf("migration run")
 	}
 	if err != nil {
 		return Run{}, fmt.Errorf("integration: read migration run %s: %w", id, err)
 	}
 	for _, le := range r.Scope.LegalEntityIDs {
 		if !access.Allows(le) {
-			return Run{}, notFound("migration run")
+			return Run{}, problem.NotFoundOf("migration run")
 		}
 	}
 	return r, nil

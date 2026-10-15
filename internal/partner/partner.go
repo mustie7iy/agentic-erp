@@ -200,8 +200,6 @@ func visible(p Partner, access authz.Access) Partner {
 	return p
 }
 
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
-
 func getPartner(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Partner, error) {
 	q := partnerSelect + ` WHERE p.id = $1`
 	if lock {
@@ -209,7 +207,7 @@ func getPartner(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Partne
 	}
 	p, err := scanPartner(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p, notFound("business partner")
+		return p, problem.NotFoundOf("business partner")
 	}
 	if err != nil {
 		return p, fmt.Errorf("partner: read business partner %s: %w", id, err)
@@ -261,7 +259,7 @@ func getChange(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Change,
 	}
 	c, err := scanChange(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return c, notFound("partner change")
+		return c, problem.NotFoundOf("partner change")
 	}
 	if err != nil {
 		return c, fmt.Errorf("partner: read partner change %s: %w", id, err)
@@ -328,7 +326,7 @@ func scanBank(row pgx.Row) (BankAccount, error) {
 func getBank(ctx context.Context, tx pgx.Tx, partnerID, id uuid.UUID) (BankAccount, error) {
 	b, err := scanBank(tx.QueryRow(ctx, `SELECT `+bankColumns+` FROM partner.bank_account WHERE id = $1 AND partner_id = $2`, id, partnerID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return b, notFound("bank account of this partner")
+		return b, problem.NotFoundOf("bank account of this partner")
 	}
 	if err != nil {
 		return b, fmt.Errorf("partner: read bank account %s of business partner %s: %w", id, partnerID, err)

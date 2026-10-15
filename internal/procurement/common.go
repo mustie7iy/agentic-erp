@@ -50,8 +50,6 @@ func unknownUnit() *problem.Problem {
 		problem.FieldError{Field: "items", Code: "unknown_unit", Message: "a unit of measure code from the reference data"})
 }
 
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
-
 func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }

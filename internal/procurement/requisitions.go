@@ -117,7 +117,7 @@ func getRequisition(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Re
 	}
 	r, err := scanRequisition(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(r.LegalEntityID)) {
-		return Requisition{}, notFound("requisition")
+		return Requisition{}, problem.NotFoundOf("requisition")
 	}
 	if err != nil {
 		return Requisition{}, fmt.Errorf("procurement: get requisition %s: %w", id, err)
