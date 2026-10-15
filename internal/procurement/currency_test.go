@@ -10,8 +10,8 @@ import (
 // TestThresholdInTheCompanysCurrency: the requisition approval thresholds
 // are in the company's currency (F12). A USD requisition of company 2000
 // (EUR) is converted at the ledger's average rate, 0.9, before it is
-// compared with the 10,000.00 tier: 11,111.11 USD is 10,000.00 EUR, one
-// step; 11,111.12 USD is 10,000.01 EUR, two. Before, 11,111.11 was compared
+// compared with the 10,000.00 tier: 11,111.11 USD is 9,999.999 EUR, one
+// step; 11,111.12 USD is 10,000.008 EUR, two. Before, 11,111.11 was compared
 // with 10,000.00 as it stood and took two steps. The converted amount is
 // compared exactly: 3,333,334 JPY at 0.003 is 10,000.002 EUR, over the
 // tier, although it rounds to 10,000.00 EUR.

@@ -651,7 +651,9 @@ func partitions(ctx context.Context, pool *database.Pool, log *slog.Logger) erro
 
 // maintain runs job every interval while the server runs; a failure is
 // logged and retried at the next interval (readiness reports a partition
-// horizon that got too short meanwhile).
+// horizon that got too short meanwhile). A panic in job fails that round
+// only (worker.Recover): ending the loop would stop the maintenance on this
+// replica for good with nothing but a log line.
 func maintain(ctx context.Context, interval time.Duration, job func(context.Context) error, log *slog.Logger) {
 	for {
 		select {
@@ -659,7 +661,8 @@ func maintain(ctx context.Context, interval time.Duration, job func(context.Cont
 			return
 		case <-time.After(interval):
 		}
-		if err := job(ctx); err != nil && ctx.Err() == nil {
+		err := worker.Recover(ctx, log, "partition maintenance", func() error { return job(ctx) })
+		if err != nil && ctx.Err() == nil {
 			log.ErrorContext(ctx, "partition maintenance failed", "error", err)
 		}
 	}

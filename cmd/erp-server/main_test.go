@@ -249,7 +249,10 @@ func TestMaintenanceRetries(t *testing.T) {
 	go func() {
 		maintain(ctx, time.Millisecond, func(context.Context) error {
 			runs++
-			if runs == 3 {
+			switch runs {
+			case 1: // a panic fails the round, not the maintenance for good
+				panic("partition boom")
+			case 3:
 				cancel()
 			}
 			return errors.New("not now")
@@ -262,6 +265,9 @@ func TestMaintenanceRetries(t *testing.T) {
 	}
 	if n := strings.Count(logs.String(), "partition maintenance failed"); n != 2 {
 		t.Errorf("logged failures: got %d, want 2:\n%s", n, logs.String())
+	}
+	if !strings.Contains(logs.String(), `error="panic: partition boom"`) {
+		t.Errorf("logs: got %s, want the panic as a failed round", logs.String())
 	}
 }
 
