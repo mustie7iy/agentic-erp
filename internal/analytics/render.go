@@ -78,7 +78,7 @@ func (v *view) addProvenance(results map[string]*Result) {
 	defs := map[string]MetricLineage{}
 	for _, id := range ids {
 		r := results[id]
-		q, _ := json.MarshalIndent(r.Query, "", "  ")
+		q, _ := json.MarshalIndent(r.Query, "", "  ") // a Query is strings, ints and bools: it always encodes
 		v.Queries = append(v.Queries, queryView{ID: id, JSON: string(q)})
 		for _, d := range r.Definitions {
 			defs[d.Name] = d
@@ -97,7 +97,7 @@ func definitionText(d MetricLineage) string {
 	if d.Source != "" {
 		line += fmt.Sprintf(" Source: %s", d.Source)
 		if len(d.Filter) > 0 {
-			f, _ := json.Marshal(d.Filter)
+			f, _ := json.Marshal(d.Filter) // a map of string slices always encodes
 			line += fmt.Sprintf(", filter %s", f)
 		}
 		line += "."

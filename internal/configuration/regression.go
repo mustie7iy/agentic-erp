@@ -120,13 +120,13 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 		return RegressionSuite{}, fmt.Errorf("configuration: count regression suites: %w", err)
 	}
 	id := uuid.Must(uuid.NewV7())
-	strata, _ := json.Marshal(strataOf(cases))
+	strata, _ := json.Marshal(strataOf(cases)) // a string slice always encodes
 	if _, err := tx.Exec(ctx, `INSERT INTO config.regression_suite (tenant_id, id, number, name, config_version, window_days, case_count, strata, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`, actor.TenantID, id, fmt.Sprintf("RS-%04d", n+1), in.Name, number, in.WindowDays, len(cases), strata, actor.ID); err != nil {
 		return RegressionSuite{}, fmt.Errorf("configuration: insert regression suite %s: %w", id, err)
 	}
 	for _, c := range cases {
-		issues, _ := json.Marshal(c.ExpectedIssues)
+		issues, _ := json.Marshal(c.ExpectedIssues) // a string slice always encodes
 		if _, err := tx.Exec(ctx, `INSERT INTO config.regression_case (tenant_id, suite_id, case_no, supplier_invoice_id, document_number, legal_entity_id, company,
 			why, expected_decision, expected_issues) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 			actor.TenantID, id, c.CaseNo, c.InvoiceID, c.DocumentNumber, c.LegalEntityID, c.Company, c.Why, c.ExpectedDecision, issues); err != nil {

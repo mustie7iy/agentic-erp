@@ -46,6 +46,7 @@ func provisionCmd(ctx context.Context, args []string, cfg platformconfig.Config,
 		fmt.Fprintln(stderr, "erp-server provision:", err)
 		return 1
 	}
+	// Ids, names and counts always encode.
 	out, _ := json.MarshalIndent(map[string]any{"tenant_id": res.TenantID, "administrator_id": res.AdministratorID,
 		"administrator_role": provisioning.AdministratorRole, "roles": res.Roles, "legal_entities": res.LegalEntities,
 		"configuration_version": res.ConfigurationVersion}, "", "  ")

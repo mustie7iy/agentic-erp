@@ -85,6 +85,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) ([]anthropic.Be
 	if t.observe != nil {
 		t.observe(resp)
 	}
+	// A status, a tag and a body nonEmpty has made valid JSON always encode.
 	out, _ := json.Marshal(map[string]any{"status": resp.Status, "etag": resp.ETag, "body": json.RawMessage(nonEmpty(resp.Body))})
 	text := string(out)
 	if len(text) > maxResult {
@@ -183,7 +184,7 @@ type contract struct {
 // embedded is the contract compiled into the binary, parsed once; api's
 // TestSpec keeps it valid YAML.
 var embedded = sync.OnceValue(func() contract {
-	c, _ := load(api.Spec())
+	c, _ := load(api.Spec()) // TestSpec keeps the embedded contract loadable
 	return c
 })
 

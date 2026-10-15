@@ -221,6 +221,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	w.WriteHeader(placed.Status)
+	// The status is sent: a failed write (the client gone) cannot be answered.
 	_, _ = io.Copy(w, bytes.NewReader(placed.Body))
 	return nil
 }

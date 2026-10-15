@@ -289,7 +289,7 @@ func (g *gen) numberRanges() []config.NumberRange {
 	var out []config.NumberRange
 	for _, t := range g.e.T001 {
 		for _, y := range sortedKeys(years) {
-			year, _ := strconv.Atoi(y)
+			year, _ := strconv.Atoi(y) // not a number: year 0, which validation of the draft refuses
 			for _, dt := range sortedKeys(types) {
 				out = append(out, config.NumberRange{Company: t.BUKRS, DocumentType: dt, FiscalYear: year, Prefix: types[dt], First: 100000, Last: 999999})
 			}

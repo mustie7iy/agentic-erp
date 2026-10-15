@@ -316,7 +316,7 @@ func (g *mockGen) revenue(cc string, m int) {
 }
 
 func (g *mockGen) year() int {
-	y, _ := strconv.Atoi(g.gj)
+	y, _ := strconv.Atoi(g.gj) // the callers' fiscal year is four digits; mock data only
 	return y
 }
 

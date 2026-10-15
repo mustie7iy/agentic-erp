@@ -80,6 +80,7 @@ const maxRows = 500
 // QueryID is stable for the same query and principal scope, so saved reports
 // can refer to queries and rerun them later.
 func QueryID(q Query, p Principal) string {
+	// A Query and company ids are plain data: they always encode.
 	b, _ := json.Marshal(struct {
 		Q Query
 		C []string

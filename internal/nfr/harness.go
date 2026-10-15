@@ -220,7 +220,7 @@ func (r Result) String() string { return fmt.Sprintf("%d %v %s", r.Status, r.Err
 // JSON decodes the body; it is nil when the body is not an object.
 func (r Result) JSON() map[string]any {
 	var m map[string]any
-	_ = json.Unmarshal(r.Body, &m)
+	_ = json.Unmarshal(r.Body, &m) // a body that is not an object leaves m nil, as documented
 	return m
 }
 
@@ -534,7 +534,7 @@ func (u *User) approve(ctx context.Context, st *Stats) {
 		return
 	}
 	req := items[0].(map[string]any)
-	version, _ := json.Marshal(req["version"])
+	version, _ := json.Marshal(req["version"]) // a value decoded from JSON always encodes
 	st.Add("approve", s.Call(ctx, Req{Method: "POST", Path: "/v1/approval-requests/" + req["id"].(string) + ":approve", Body: `{"comment": "ok"}`,
 		As: approver, IfMatch: `"` + string(version) + `"`}))
 }

@@ -249,7 +249,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 func asMap(v any) map[string]any {
 	b, _ := json.Marshal(v) // reports are plain data
 	var m map[string]any
-	_ = json.Unmarshal(b, &m)
+	_ = json.Unmarshal(b, &m) // b was just encoded from plain data
 	return m
 }
 

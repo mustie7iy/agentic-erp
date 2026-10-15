@@ -155,7 +155,7 @@ func readRun(ctx context.Context, c *apitools.Client, path string) (migrationRun
 func printRun(run migrationRun) error {
 	w := printer() // the whole report is checked once, at the flush
 	r := run.Report
-	loaded, _ := json.Marshal(r.Loaded)
+	loaded, _ := json.Marshal(r.Loaded) // a map of counts always encodes
 	fmt.Fprintf(w, "Migration run %s: %s\nLoaded: %s\n", run.ID, run.Status, loaded)
 	for _, list := range []struct {
 		title  string

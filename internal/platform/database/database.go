@@ -100,6 +100,8 @@ func (p *Pool) Begin(ctx context.Context, s Scope) (pgx.Tx, error) {
 		return nil, fmt.Errorf("database: begin: %w", err)
 	}
 	if err := p.setup(ctx, tx, s); err != nil {
+		// Best effort: the setup error is the one returned; a failed rollback
+		// only means the connection is discarded, which ends the transaction too.
 		_ = tx.Rollback(ctx)
 		return nil, err
 	}
@@ -167,6 +169,8 @@ func (p *Pool) InTx(ctx context.Context, s Scope, fn func(context.Context, pgx.T
 		return err
 	}
 	if err := fn(ctx, tx); err != nil {
+		// Best effort: fn's error is the one returned; a failed rollback only
+		// means the connection is discarded, which ends the transaction too.
 		_ = tx.Rollback(ctx)
 		return err
 	}

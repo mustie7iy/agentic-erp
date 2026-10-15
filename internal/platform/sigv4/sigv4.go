@@ -104,7 +104,7 @@ func Verify(req *http.Request, accessKey, secretKey, region, service string) (bo
 	q := req.URL.Query()
 	got := q.Get("X-Amz-Signature")
 	made, err := time.Parse("20060102T150405Z", q.Get("X-Amz-Date"))
-	secs, _ := strconv.Atoi(q.Get("X-Amz-Expires"))
+	secs, _ := strconv.Atoi(q.Get("X-Amz-Expires")) // unreadable is a validity of zero: the URL counts as expired
 	if err != nil || got == "" || q.Get("X-Amz-Credential") != accessKey+"/"+made.Format("20060102")+"/"+region+"/"+service+"/aws4_request" {
 		return false, made, 0
 	}

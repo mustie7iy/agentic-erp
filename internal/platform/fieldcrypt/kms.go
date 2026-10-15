@@ -132,8 +132,8 @@ func (k KMS) call(action string, in map[string]any, out any) error {
 	if err != nil {
 		return fmt.Errorf("fieldcrypt: kms %s: %w", action, err)
 	}
-	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	defer func() { _ = resp.Body.Close() }()               // only read from: closing frees the connection and cannot change the answer
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // a body cut short fails to decode below, or shortens a refusal's message
 	if resp.StatusCode != http.StatusOK {
 		e := &kmsError{Action: action, Status: resp.StatusCode}
 		var body struct {

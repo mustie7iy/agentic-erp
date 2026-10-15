@@ -44,7 +44,7 @@ func rewrapCmd(ctx context.Context, args []string, cfg platformconfig.Config, st
 		fmt.Fprintln(stderr, "erp-server rewrap:", err)
 		return 1
 	}
-	out, _ := json.MarshalIndent(res, "", "  ")
+	out, _ := json.MarshalIndent(res, "", "  ") // counts and ids always encode
 	fmt.Fprintln(stdout, string(out))
 	return 0
 }

@@ -143,8 +143,8 @@ func normalize(detail map[string]any) (json.RawMessage, error) {
 // values, so numbers and key order always come out the same way.
 func canonical(valid []byte) json.RawMessage {
 	var v any
-	_ = json.Unmarshal(valid, &v)
-	out, _ := json.Marshal(v)
+	_ = json.Unmarshal(valid, &v) // callers pass valid JSON: json.Marshal output or jsonb
+	out, _ := json.Marshal(v)     // values decoded from JSON always encode
 	return out
 }
 

@@ -55,7 +55,7 @@ func ValidIBAN(iban string) bool {
 			return false
 		}
 	}
-	n, _ := new(big.Int).SetString(digits.String(), 10)
+	n, _ := new(big.Int).SetString(digits.String(), 10) // only digits were written, at least four
 	return new(big.Int).Mod(n, big.NewInt(97)).Int64() == 1
 }
 

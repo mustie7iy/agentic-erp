@@ -436,6 +436,6 @@ func changed(pairs ...any) map[string]any {
 
 func jsonDiffers(a, b map[string]any) bool {
 	x, _ := json.Marshal(a) // decoded JSON always encodes
-	y, _ := json.Marshal(b)
+	y, _ := json.Marshal(b) // as above
 	return string(x) != string(y)
 }

@@ -88,7 +88,7 @@ func (s S3) do(ctx context.Context, method, key string, body []byte, headers map
 }
 
 func (s S3) failure(resp *http.Response, method, key string) error {
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10)) // the status is the failure; a body cut short only explains less
 	var e s3Error
 	_ = xml.Unmarshal(raw, &e) // a body that is not the S3 error document leaves the fields empty
 	if e.Code == "" {

@@ -357,6 +357,6 @@ func event(name string, aggregate uuid.UUID, aggregateType string, payload map[s
 func toJSON(v any) map[string]any {
 	b, _ := json.Marshal(v) // payload structs always encode
 	var m map[string]any
-	_ = json.Unmarshal(b, &m)
+	_ = json.Unmarshal(b, &m) // b was just encoded from a struct
 	return m
 }

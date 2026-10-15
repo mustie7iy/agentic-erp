@@ -188,6 +188,7 @@ func tenantsCreate(ctx context.Context, args []string) error {
 	if *email != "" {
 		admin["email"] = *email
 	}
+	// Strings and a parsed configuration (JSON-safe types only) always encode.
 	body, _ := json.Marshal(map[string]any{"name": *name, "region": *region, "group_currency": *currency, "administrator": admin, "configuration": doc})
 	if *key == "" {
 		*key = uuid.NewString()

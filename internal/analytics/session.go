@@ -69,7 +69,7 @@ func (s *Session) Build(spec Spec, createdBy string) (*Report, []string) {
 	for id, r := range used {
 		rep.Queries[id] = r.Query
 	}
-	b, _ := json.Marshal(rep)
+	b, _ := json.Marshal(rep) // plain data, as at save below: it always encodes
 	sum := sha256.Sum256(b)
 	rep.ID = "rpt_" + hex.EncodeToString(sum[:5])
 	return rep, nil

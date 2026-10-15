@@ -152,7 +152,7 @@ func directoryCreate(ctx context.Context, args []string) error {
 	if *cell != "" {
 		in["cell"] = *cell
 	}
-	body, _ := json.Marshal(in)
+	body, _ := json.Marshal(in) // strings and a parsed configuration (JSON-safe types only) always encode
 	if *key == "" {
 		*key = uuid.NewString()
 	}
@@ -203,7 +203,7 @@ func directoryVerify(ctx context.Context, args []string) error {
 	if *id == "" || *cell == "" {
 		return errors.New("-id and -cell are required")
 	}
-	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)})
+	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)}) // strings always encode
 	v, _, err := directory(ctx, http.MethodPost, "/tenants/"+*id+":verify", body, nil)
 	if err != nil {
 		return err
@@ -235,7 +235,7 @@ func directoryMove(ctx context.Context, args []string) error {
 		}
 		*ifMatch = h.Get("ETag")
 	}
-	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)})
+	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)}) // strings always encode
 	e, _, err := directory(ctx, http.MethodPost, "/tenants/"+*id+":move", body, map[string]string{"If-Match": *ifMatch})
 	if err != nil {
 		return err

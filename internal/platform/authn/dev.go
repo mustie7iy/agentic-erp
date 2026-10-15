@@ -65,10 +65,10 @@ func (d *DevIssuer) Token(tenant uuid.UUID, subject string) string {
 	if tenant != uuid.Nil {
 		claims[DefaultTenantClaim] = tenant.String()
 	}
-	payload, _ := json.Marshal(claims)
+	payload, _ := json.Marshal(claims) // strings and numbers always encode
 	// Signing a JSON payload with a valid RSA key cannot fail.
 	sig, _ := d.signer.Sign(payload)
-	tok, _ := sig.CompactSerialize()
+	tok, _ := sig.CompactSerialize() // a signature just made always serializes
 	return tok
 }
 

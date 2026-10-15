@@ -117,8 +117,8 @@ func (w WebIdentity) Credentials(ctx context.Context) (Credentials, error) {
 	if err != nil {
 		return Credentials{}, fmt.Errorf("awscreds: sts: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	defer func() { _ = resp.Body.Close() }()               // only read from: closing frees the connection and cannot change the answer
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // a body cut short fails to decode below, or shortens a refusal's message
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
 			Code    string `xml:"Error>Code"`
@@ -183,8 +183,8 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 	if err != nil {
 		return Credentials{}, ErrNone // no metadata service here
 	}
-	token, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	_ = resp.Body.Close() // the token has been read; closing frees the connection and cannot change it
+	token, _ := io.ReadAll(io.LimitReader(resp.Body, 4096)) // a token cut short is refused by the reads that use it
+	_ = resp.Body.Close()                                   // the token has been read; closing frees the connection and cannot change it
 	if resp.StatusCode != http.StatusOK {
 		return Credentials{}, ErrNone
 	}

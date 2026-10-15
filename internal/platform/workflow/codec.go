@@ -32,8 +32,8 @@ func NewCodec(key []byte) (*Codec, error) {
 	if len(key) != 32 {
 		return nil, fmt.Errorf("workflow: the payload codec key must be 32 bytes, got %d", len(key))
 	}
-	block, _ := aes.NewCipher(key) // a 32-byte key never fails
-	aead, _ := cipher.NewGCM(block)
+	block, _ := aes.NewCipher(key)  // a 32-byte key never fails
+	aead, _ := cipher.NewGCM(block) // GCM over an AES block never fails
 	return &Codec{aead: aead}, nil
 }
 

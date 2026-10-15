@@ -203,7 +203,7 @@ func VerifyChain(ctx context.Context, store blobstore.Store, from, to *int64) (o
 }
 
 func jsonNumber(n int64) string {
-	b, _ := json.Marshal(n)
+	b, _ := json.Marshal(n) // an int64 always encodes
 	return string(b)
 }
 

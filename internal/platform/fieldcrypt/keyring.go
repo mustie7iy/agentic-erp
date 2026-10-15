@@ -193,8 +193,8 @@ func (r *Keyring) unwrap(tenant, id uuid.UUID, masterID string, data, mac []byte
 	if err := errors.Join(err1, err2); err != nil {
 		return nil, err
 	}
-	block, _ := aes.NewCipher(dk) // 32 bytes, generated here
-	aead, _ := cipher.NewGCM(block)
+	block, _ := aes.NewCipher(dk)   // 32 bytes, generated here
+	aead, _ := cipher.NewGCM(block) // GCM over an AES block never fails
 	return &tenantKey{id: id, aead: aead, mac: mk, active: status == "active"}, nil
 }
 
@@ -393,8 +393,8 @@ func (r *Keyring) generate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*t
 		tenant, id, primary.ID(), wrappedData, wrappedMac); err != nil {
 		return nil, fmt.Errorf("fieldcrypt: insert key %s of tenant %s: %w", id, tenant, err)
 	}
-	block, _ := aes.NewCipher(data)
-	aead, _ := cipher.NewGCM(block)
+	block, _ := aes.NewCipher(data) // 32 bytes, generated above
+	aead, _ := cipher.NewGCM(block) // GCM over an AES block never fails
 	return &tenantKey{id: id, aead: aead, mac: mac, active: true}, nil
 }
 

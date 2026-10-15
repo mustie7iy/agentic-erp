@@ -260,7 +260,7 @@ func call(ctx context.Context, args []string) error {
 	if err := json.Unmarshal([]byte(res[0].OfText.Text), &r); err != nil {
 		return fmt.Errorf("call %s: the answer cannot be read (it may be over the size limit; ask for a smaller page): %w", args[0], err)
 	}
-	pretty, _ := json.MarshalIndent(r.Body, "", "  ")
+	pretty, _ := json.MarshalIndent(r.Body, "", "  ") // decoded above, so valid JSON
 	if err := printf("call", "%d %s\n%s\n", r.Status, r.ETag, pretty); err != nil {
 		return err
 	}
@@ -286,7 +286,7 @@ func token(ctx context.Context, args []string) error {
 	if admin == "" {
 		admin = "http://localhost:9090"
 	}
-	body, _ := json.Marshal(map[string]string{"tenant_id": *tenant, "subject": *subject})
+	body, _ := json.Marshal(map[string]string{"tenant_id": *tenant, "subject": *subject}) // strings always encode
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(admin, "/")+"/dev/token", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("token: ERP_ADMIN_URL %q: %w", admin, err)
