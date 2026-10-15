@@ -337,8 +337,7 @@ func (e *Endpoints) entityOf(ctx context.Context, r Run) (tenancy.Entity, error)
 // naming the entity. It has no field error: the entity was there when the
 // request was accepted, so no field of the request is wrong.
 func noEntity(r Run) *problem.Problem {
-	return problem.Unprocessable("request.reference_not_found",
-		"Legal entity "+r.LegalEntityID.String()+" of payment run "+r.DocumentNumber+" does not exist.")
+	return problem.MissingReference("Legal entity " + r.LegalEntityID.String() + " of payment run " + r.DocumentNumber + " does not exist.")
 }
 
 func requireProposed(r Run, done string) error {

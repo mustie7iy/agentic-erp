@@ -130,8 +130,15 @@ func Reference(err error, field, what, message string) error {
 // caller that learnt the resource is missing from a lookup's ok = false
 // rather than from a 404.
 func ReferenceNotFound(field, what, message string) *Problem {
-	return Unprocessable("request.reference_not_found", "No "+what+" with this id.",
+	return MissingReference("No "+what+" with this id.",
 		FieldError{Field: field, Code: "not_found", Message: message})
+}
+
+// MissingReference is the 422 request.reference_not_found that every
+// missing reference is reported as, with the caller's detail and field
+// errors; it keeps the code in one place.
+func MissingReference(detail string, errs ...FieldError) *Problem {
+	return Unprocessable("request.reference_not_found", detail, errs...)
 }
 
 func Unavailable(detail string, retryAfter int) *Problem {
@@ -195,7 +202,7 @@ func From(err error) *Problem {
 	case "23505": // unique_violation
 		return Conflict("request.duplicate", "A resource with the same unique values already exists.").WithCause(err)
 	case "23503": // foreign_key_violation
-		return Unprocessable("request.reference_not_found", "The request refers to a resource that does not exist.").WithCause(err)
+		return MissingReference("The request refers to a resource that does not exist.").WithCause(err)
 	case "23514", "23P01": // check_violation, exclusion_violation (also raised by business-rule triggers)
 		return Conflict("request.rule_violated", "The request violates a business rule.").WithCause(err)
 	case "23502", "22P02", "22001", "22003", "22007", "22008": // not null, invalid text, too long, out of range, dates
