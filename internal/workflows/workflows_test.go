@@ -1578,6 +1578,25 @@ func TestApprovalDeadlineReplay(t *testing.T) {
 	}
 }
 
+// TestReleasePaymentRunReplay: histories of ReleasePaymentRun recorded from
+// the code before R69 moved its body into releaseSteps.run (testdata,
+// recorded from 9ab06f8 on a development server with stand-in activities)
+// replay on the current code without a nondeterminism error, so the steps
+// issue the same commands in the same order: a release of two payments,
+// and one whose second posting fails with a business problem and goes to
+// FailRelease.
+func TestReleasePaymentRunReplay(t *testing.T) {
+	for _, file := range []string{"release_payment_run_v1.json", "release_payment_run_problem_v1.json"} {
+		t.Run(file, func(t *testing.T) {
+			r := worker.NewWorkflowReplayer()
+			r.RegisterWorkflowWithOptions(workflows.ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: workflows.ReleaseWorkflow})
+			if err := r.ReplayWorkflowHistoryFromJSONFile(nil, filepath.Join("testdata", file)); err != nil {
+				t.Fatalf("replay of %s: %v", file, err)
+			}
+		})
+	}
+}
+
 // TestApprovalDeadlineVersions: histories without the version marker and
 // those recorded under version 1 escalate without the prior count, as they
 // did; version 2, the one new workflows record, passes it.
