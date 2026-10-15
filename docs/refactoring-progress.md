@@ -395,6 +395,17 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - Fourth re-review after round four: **9.3 / 10** (architecture 9.3, error handling 9.3,
   concurrency 8.9, SQL 9.7, tests 9.4, readability 9.4, duplication 8.9, money 9.4). Round five
   below.
+- Round five paused (2026-10-15): the account's weekly usage limit stopped all three agents
+  mid-step. Nothing from round five is merged into this branch; the work sits unreviewed on local
+  branches:
+  - f13 (95aaaff, b67769f): match_result.invoice_version (migration 000040) and posting requires a
+    clean match of the current version; the CLI posts with the ETag it matched. Not done: exact
+    tolerance and auto-post comparisons; the 000040 renumbering note for F5b/F8b.
+  - f14 (d80093b, 630bcb0, a3a7516, ef3c8c6): F14 and R61 items 1-4; reviewer verdict unknown.
+  - r60 (d8c649c, 6db146c, b164312): extensions, operator HTTP helpers, problem.Reference; the
+    positive-quantity helper is uncommitted in its worktree; Postings.Clear and analytics decimals
+    not started.
+  Resume: review each branch, finish the open items, merge, run the gates and the scored review.
 - [ ] F13 A clean match only authorises posting the invoice version it evaluated; tolerances and
   the auto-post limit compared exactly, before rounding
 - [ ] F14 A configuration's company currency must equal the legal entity's local currency
