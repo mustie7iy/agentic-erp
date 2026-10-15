@@ -258,14 +258,12 @@ func (b *factBuilder) addOrder(le legalEntity, o order, chart map[string]account
 	for _, it := range o.Items {
 		a := chart[it.AccountID]
 		dims := map[string]string{"company": le.Code, "vendor": v.Number, "vendor_name": v.Name, "account": a.Number, "account_name": a.Name}
-		qty, err := money.ParseQty(it.Quantity.Value)
-		price, perr := b.minor(it.UnitPrice)
-		if err == nil {
-			err = perr
-		}
+		price, err := b.minor(it.UnitPrice)
 		var amount money.Minor
 		if err == nil {
-			amount, err = money.Extend(qty, price, max(it.PriceUnit, 1))
+			// Extended from the decimal string, as procurement does: a
+			// document quantity has up to six decimals.
+			amount, err = money.Scale(price, it.Quantity.Value, max(it.PriceUnit, 1))
 		}
 		if err == nil {
 			err = b.calendar(dims, o.OrderDate)
