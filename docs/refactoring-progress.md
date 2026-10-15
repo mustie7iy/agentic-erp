@@ -430,8 +430,12 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - Fifth re-review after round five: **9.4 / 10** (architecture 9.5, error handling 9.4,
   concurrency 9.4, SQL 9.6, tests 9.5, readability 9.3, duplication 8.9, money 9.3). Round six
   below.
-- [ ] F15 Analytics and SAP reconciliation extend document quantities at their 6 decimals; rates
-  read in money's plain grammar
+- [x] F15 Analytics and SAP reconciliation extend document quantities at their 6 decimals; rates
+  read in money's plain grammar. Both extend with money.Scale from the decimal string (a 0.0005
+  line failed a tenant's whole analytics build); money.ParseQty and Extend retired, Qty moved
+  into the SAP mock; ledger.CreateRate validates with money.ParsePlain (422 ledger.invalid_rate;
+  1e9 and .5 were accepted). Reviewer: APPROVE. Open: CreateRate does not check digit counts
+  against numeric(28,12) (only the API pattern does).
 - [ ] F16 An approved invoice exception only authorises posting the invoice version it was approved
   at; robustness of the regression lookups and `erp invoices`
 - [ ] R62 Round-six duplication and clocks: one accessible-legal-entity helper, the remaining
