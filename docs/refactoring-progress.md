@@ -460,6 +460,21 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   beyond numeric(28,12); a stored rate that is not a plain positive decimal is an error, not a
   nil dereference. Posting results change by a minor unit only where the reciprocal has no
   12-decimal form (1/3, 1/0.96), the new value being the exact one. Reviewer: APPROVE.
+- [x] R66 Shuffle-order test isolation: TestProposer and TestReleaseWorkflow left a proposal and a
+  release queued, which the payments worker and the workflows dispatcher (both read every
+  tenant's queue) picked up in a later test under -shuffle (payments seed 1792071129949462000,
+  workflows seed 2). Each test now finishes its own leftover work; a start of the wrong kind
+  fails the dispatcher test with a message instead of panicking. Reviewer: APPROVE.
+- [x] R67 Round-eight residue: a payment run whose legal entity is missing is refused (a proposal
+  fails that run with 422 request.reference_not_found rather than holding back the tenant's
+  queue; a release retries and writes nothing; :transmit answers 422, not a misleading 409),
+  never a bank file with an empty name and code; an unknown upload gets the standard not-found
+  detail; a recovered worker panic is logged once with its stack (worker.Panic, worker.Report);
+  the house-bank lookups say why the found flag may be ignored (foreign key); the contract lists
+  the match's real issue codes (description and example only, user approved). Reviewer: APPROVE.
+- [x] R68 Workflow test structure: TestProposalWorkflow, TestMigrationWorkflow,
+  TestApprovalDeadline and TestProposer run as named, ordered scenario steps (105-142 lines down
+  to 21-33); env.get replaces 30 discarded GET ETags; steps take their own t. Reviewer: APPROVE.
 - [x] R64 Round-seven robustness: a panic in a background worker is logged with its stack and
   fails that round (worker.Recover; Loop, spawn and partition maintenance), and a critical
   worker's panic stops the server cleanly instead of the process; an invoice item whose order
