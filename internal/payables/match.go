@@ -78,14 +78,14 @@ func GetMatch(ctx context.Context, id uuid.UUID) (Match, error) {
 	}
 	m, err := scanMatch(tx.QueryRow(ctx, `SELECT `+matchColumns+` FROM payables.match_result WHERE id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Match{}, problem.NotFound("No match result with this id.")
+		return Match{}, problem.NotFoundOf("match result")
 	}
 	if err != nil {
 		return Match{}, fmt.Errorf("payables: read match result %s: %w", id, err)
 	}
 	if _, err := get(ctx, tx, m.InvoiceID, false); err != nil {
 		if problem.From(err).Status == 404 {
-			err = problem.NotFound("No match result with this id.")
+			err = problem.NotFoundOf("match result")
 		}
 		return Match{}, err
 	}
