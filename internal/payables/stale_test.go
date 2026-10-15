@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // TestStaleMatchDoesNotPost: a clean match counts for the invoice as it was
@@ -77,6 +79,23 @@ func TestStaleMatchDoesNotPost(t *testing.T) {
 		e.act(t, 200, id(inv), "match", "")
 		if posted := e.act(t, 200, id(inv), "post", ""); posted["status"] != "posted" {
 			t.Errorf("status: got %v, want posted", posted["status"])
+		}
+	})
+
+	// A clean match without a version, recorded before 000040 or by the
+	// previous release during the rollout, counts for no version: the
+	// invoice is matched again before it posts.
+	t.Run("match without a version", func(t *testing.T) {
+		e := e.in(t)
+		inv := e.clean(t, received(t, "PO-5"), "INV-5")
+		e.act(t, 200, id(inv), "match", "")
+		pgtest.Exec(t, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, issues, config_version, evaluated_by)
+			SELECT tenant_id, $2, supplier_invoice_id, clock_timestamp(), true, issues, config_version, evaluated_by
+			FROM payables.match_result WHERE supplier_invoice_id = $1`, uuid.MustParse(id(inv)), uuid.Must(uuid.NewV7()))
+		e.Problem(409, "payables.match_required", "POST", path(inv)+":post", "", e.tag(t, id(inv)))
+		e.act(t, 200, id(inv), "match", "")
+		if posted := e.act(t, 200, id(inv), "post", ""); posted["status"] != "posted" {
+			t.Errorf("status after matching again: got %v, want posted", posted["status"])
 		}
 	})
 }
