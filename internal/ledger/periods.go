@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -68,11 +67,8 @@ func getPeriod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Period,
 		}
 	}
 	p, err := scanPeriod(tx.QueryRow(ctx, periodSelect+` WHERE id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(p.LegalEntityID)) {
-		return Period{}, problem.NotFound("No fiscal period with this id.")
-	}
-	if err != nil {
-		return Period{}, fmt.Errorf("ledger: read fiscal period %s: %w", id, err)
+	if err = authz.Visible(err, access, p.LegalEntityID, problem.NotFoundOf("fiscal period"), "ledger: read fiscal period %s", id); err != nil {
+		return Period{}, err
 	}
 	return p, nil
 }

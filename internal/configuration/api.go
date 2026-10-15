@@ -333,11 +333,8 @@ func (e *Endpoints) GetNumberRange(ctx context.Context, params gen.GetNumberRang
 		return nil, err
 	}
 	n, err := scanRange(tx.QueryRow(ctx, `SELECT `+rangeColumns+` FROM config.number_range WHERE id = $1`, params.ID))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(n.LegalEntityID)) {
-		return nil, problem.NotFound("No number range with this id.")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("configuration: read number range %s: %w", params.ID, err)
+	if err = authz.Visible(err, access, n.LegalEntityID, problem.NotFoundOf("number range"), "configuration: read number range %s", params.ID); err != nil {
+		return nil, err
 	}
 	return &gen.NumberRangeHeaders{ETag: gen.NewOptString(etag.Format(n.Version)), Response: rangeToAPI(n)}, nil
 }

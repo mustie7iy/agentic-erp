@@ -3,7 +3,6 @@ package ledger
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -69,11 +68,8 @@ func getClearing(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Clearing, error)
 		return Clearing{}, err
 	}
 	c, err := scanClearing(tx.QueryRow(ctx, clearingSelect+` WHERE c.id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(c.LegalEntityID)) {
-		return Clearing{}, problem.NotFound("No clearing with this id.")
-	}
-	if err != nil {
-		return Clearing{}, fmt.Errorf("ledger: read clearing %s: %w", id, err)
+	if err = authz.Visible(err, access, c.LegalEntityID, problem.NotFoundOf("clearing"), "ledger: read clearing %s", id); err != nil {
+		return Clearing{}, err
 	}
 	return c, nil
 }

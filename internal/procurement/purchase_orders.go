@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -79,11 +78,8 @@ func getOrder(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Purchase
 		q += ` FOR UPDATE OF o`
 	}
 	o, err := scanOrder(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(o.LegalEntityID)) {
-		return PurchaseOrder{}, problem.NotFoundOf("purchase order")
-	}
-	if err != nil {
-		return PurchaseOrder{}, fmt.Errorf("procurement: get purchase order %s: %w", id, err)
+	if err = authz.Visible(err, access, o.LegalEntityID, problem.NotFoundOf("purchase order"), "procurement: get purchase order %s", id); err != nil {
+		return PurchaseOrder{}, err
 	}
 	return o, nil
 }

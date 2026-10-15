@@ -109,11 +109,8 @@ func getEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Entry, error) {
 		return Entry{}, err
 	}
 	e, err := scanEntry(tx.QueryRow(ctx, entrySelect+` WHERE e.id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(e.LegalEntityID)) {
-		return Entry{}, problem.NotFound("No journal entry with this id.")
-	}
-	if err != nil {
-		return Entry{}, fmt.Errorf("ledger: read journal entry %s: %w", id, err)
+	if err = authz.Visible(err, access, e.LegalEntityID, problem.NotFoundOf("journal entry"), "ledger: read journal entry %s", id); err != nil {
+		return Entry{}, err
 	}
 	return e, nil
 }

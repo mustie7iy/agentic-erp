@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -116,11 +115,8 @@ func getRequisition(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Re
 		q += ` FOR UPDATE OF r`
 	}
 	r, err := scanRequisition(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(r.LegalEntityID)) {
-		return Requisition{}, problem.NotFoundOf("requisition")
-	}
-	if err != nil {
-		return Requisition{}, fmt.Errorf("procurement: get requisition %s: %w", id, err)
+	if err = authz.Visible(err, access, r.LegalEntityID, problem.NotFoundOf("requisition"), "procurement: get requisition %s", id); err != nil {
+		return Requisition{}, err
 	}
 	return r, nil
 }

@@ -199,6 +199,39 @@ func TestCompanies(t *testing.T) {
 	}
 }
 
+// TestVisible: a missing row and a row in a company outside the caller's
+// access are the same notFound; other read errors are wrapped with context;
+// an accessible row is no error.
+func TestVisible(t *testing.T) {
+	mine, other, id := uuid.New(), uuid.New(), uuid.New()
+	access := authz.Access{IDs: []uuid.UUID{mine}}
+	notFound := problem.NotFoundOf("thing")
+	boom := errors.New("boom")
+	cases := []struct {
+		name string
+		err  error
+		le   uuid.UUID
+		want error
+	}{
+		{"accessible", nil, mine, nil},
+		{"other company", nil, other, notFound},
+		{"no row", fmt.Errorf("scan: %w", pgx.ErrNoRows), mine, notFound},
+		{"read error", boom, mine, boom},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := authz.Visible(c.err, access, c.le, notFound, "read thing %s", id)
+			if !errors.Is(got, c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+	got := authz.Visible(boom, access, mine, notFound, "read thing %s", id)
+	if want := "read thing " + id.String() + ": boom"; got.Error() != want {
+		t.Errorf("read error: got %q, want %q", got, want)
+	}
+}
+
 // TestSegregationOfDutiesAtRuntime: a principal holding both permissions of
 // a rule in force may use neither; rules not in force today do not count.
 func TestSegregationOfDutiesAtRuntime(t *testing.T) {

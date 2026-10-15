@@ -3,7 +3,6 @@ package payments
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,11 +59,8 @@ func getFile(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (BankFile,
 		q += ` FOR UPDATE OF f`
 	}
 	f, err := scanFile(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(f.LegalEntityID)) {
-		return BankFile{}, fileNotFound()
-	}
-	if err != nil {
-		return BankFile{}, fmt.Errorf("payments: read bank file %s: %w", id, err)
+	if err = authz.Visible(err, access, f.LegalEntityID, fileNotFound(), "payments: read bank file %s", id); err != nil {
+		return BankFile{}, err
 	}
 	return f, nil
 }

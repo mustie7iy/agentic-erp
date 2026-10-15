@@ -13,7 +13,6 @@ package tenancy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -121,11 +120,8 @@ func getLE(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (LegalEntity
 		q += ` FOR UPDATE`
 	}
 	e, err := scanLE(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(e.ID)) {
-		return LegalEntity{}, problem.NotFoundOf("legal entity")
-	}
-	if err != nil {
-		return e, fmt.Errorf("tenancy: read legal entity %s: %w", id, err)
+	if err = authz.Visible(err, access, e.ID, problem.NotFoundOf("legal entity"), "tenancy: read legal entity %s", id); err != nil {
+		return LegalEntity{}, err
 	}
 	return e, nil
 }
@@ -140,11 +136,8 @@ func getOU(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (OrgUnit, er
 		q += ` FOR UPDATE`
 	}
 	u, err := scanOU(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(u.LegalEntityID)) {
-		return OrgUnit{}, problem.NotFoundOf("org unit")
-	}
-	if err != nil {
-		return u, fmt.Errorf("tenancy: read org unit %s: %w", id, err)
+	if err = authz.Visible(err, access, u.LegalEntityID, problem.NotFoundOf("org unit"), "tenancy: read org unit %s", id); err != nil {
+		return OrgUnit{}, err
 	}
 	return u, nil
 }

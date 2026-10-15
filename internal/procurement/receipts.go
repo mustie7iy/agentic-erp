@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -81,11 +80,8 @@ func getReceipt(ctx context.Context, tx pgx.Tx, id uuid.UUID) (GoodsReceipt, err
 		return GoodsReceipt{}, err
 	}
 	g, err := scanReceipt(tx.QueryRow(ctx, receiptSelect+` WHERE m.id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(g.LegalEntityID)) {
-		return GoodsReceipt{}, problem.NotFoundOf("goods receipt")
-	}
-	if err != nil {
-		return GoodsReceipt{}, fmt.Errorf("procurement: get goods receipt %s: %w", id, err)
+	if err = authz.Visible(err, access, g.LegalEntityID, problem.NotFoundOf("goods receipt"), "procurement: get goods receipt %s", id); err != nil {
+		return GoodsReceipt{}, err
 	}
 	return g, nil
 }

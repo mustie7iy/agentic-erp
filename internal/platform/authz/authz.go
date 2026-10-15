@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -135,6 +136,19 @@ func (a Access) Allows(legalEntity uuid.UUID) bool {
 		}
 	}
 	return false
+}
+
+// Visible finishes reading one company-scoped row by id, given the read's
+// error and the row's legal entity. No row, or a row in a legal entity
+// outside access, is notFound: the caller cannot tell the two apart, so ids
+// of other companies cannot be probed (04-api-design §4.9). Any other read
+// error comes back wrapped with the formatted context, as errs.Wrapf does;
+// nil means the row is there and the caller may see it.
+func Visible(err error, access Access, legalEntity uuid.UUID, notFound error, format string, args ...any) error {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(legalEntity)) {
+		return notFound
+	}
+	return errs.Wrapf(err, format, args...)
 }
 
 // Companies returns the principal's legal entity access. Contexts filter
