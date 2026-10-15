@@ -460,6 +460,13 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   beyond numeric(28,12); a stored rate that is not a plain positive decimal is an error, not a
   nil dereference. Posting results change by a minor unit only where the reciprocal has no
   12-decimal form (1/3, 1/0.96), the new value being the exact one. Reviewer: APPROVE.
+- [x] R69 Round-nine residue (round nine scored 9.5, no blocking defects): blobstore.Dir no longer
+  deletes a retention-locked object whose sidecar cannot be read (any error but a missing
+  sidecar fails Delete, Get and Stat; was fail-open); a run's missing legal entity is a 500 on
+  :transmit as on the download (a server-side integrity fault), while a proposal still fails its
+  own run with 422, now without a field error; entityOf wraps the tenancy error; one release
+  control flow (releaseSteps) for the workflow and the Releaser, with the same activities in the
+  same order; the Releaser logs through *slog.Logger. Reviewer: APPROVE.
 - [x] R66 Shuffle-order test isolation: TestProposer and TestReleaseWorkflow left a proposal and a
   release queued, which the payments worker and the workflows dispatcher (both read every
   tenant's queue) picked up in a later test under -shuffle (payments seed 1792071129949462000,
