@@ -110,8 +110,11 @@ func checkKey(key string) error {
 
 // Dir stores objects as files below Root, with the content type in a
 // sidecar file. Writes are exclusive links of a whole temporary file, so a
-// key is written once and never holds part of an object;
-// RetainUntil is recorded but not enforced (the filesystem cannot).
+// key is written once and never holds part of an object. RetainUntil is
+// recorded in the sidecar and enforced by Delete, which refuses while it
+// holds or when the sidecar cannot be read; the filesystem itself does not
+// enforce it, so anything else with write access to Root can still remove
+// a locked object.
 type Dir struct {
 	Root string
 	Now  func() time.Time // for retention checks on Delete; nil: time.Now
@@ -239,7 +242,11 @@ func (d Dir) Get(_ context.Context, key string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("blobstore: %w", err)
 	}
-	return content, d.contentTypeOf(key), nil
+	ct, _, err := d.meta(key)
+	if err != nil {
+		return nil, "", err
+	}
+	return content, ct, nil
 }
 
 // Stat implements Store.
@@ -254,28 +261,36 @@ func (d Dir) Stat(_ context.Context, key string) (int64, string, error) {
 	if err != nil {
 		return 0, "", fmt.Errorf("blobstore: %w", err)
 	}
-	return info.Size(), d.contentTypeOf(key), nil
-}
-
-// contentTypeOf reads the sidecar; content without one is binary.
-func (d Dir) contentTypeOf(key string) string {
-	ct, _ := d.meta(key)
-	return ct
+	ct, _, err := d.meta(key)
+	if err != nil {
+		return 0, "", err
+	}
+	return info.Size(), ct, nil
 }
 
 // meta reads the sidecar: content type and retention (zero when unlocked).
-func (d Dir) meta(key string) (string, time.Time) {
+// Only a missing sidecar means binary and unlocked. One that cannot be read
+// or decoded may hold a retention, so it is an error: Delete must not take
+// it for unlocked.
+func (d Dir) meta(key string) (string, time.Time, error) {
 	ct, until := "application/octet-stream", time.Time{}
-	if meta, err := os.ReadFile(d.path(key) + ".meta"); err == nil {
-		lines := strings.Split(string(meta), "\n")
-		if lines[0] != "" {
-			ct = lines[0]
-		}
-		if len(lines) > 1 {
-			until, _ = time.Parse(time.RFC3339, lines[1]) // written by Put; anything else is unlocked
+	meta, err := os.ReadFile(d.path(key) + ".meta")
+	if errors.Is(err, os.ErrNotExist) {
+		return ct, until, nil
+	}
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("blobstore: sidecar of %s: %w", key, err)
+	}
+	lines := strings.Split(string(meta), "\n")
+	if lines[0] != "" {
+		ct = lines[0]
+	}
+	if len(lines) > 1 && lines[1] != "" {
+		if until, err = time.Parse(time.RFC3339, lines[1]); err != nil {
+			return "", time.Time{}, fmt.Errorf("blobstore: sidecar of %s: retention: %w", key, err)
 		}
 	}
-	return ct, until
+	return ct, until, nil
 }
 
 // List implements Eraser.
@@ -321,7 +336,11 @@ func (d Dir) Delete(_ context.Context, key string) error {
 	if err := d.removeTemporary(key); err != nil {
 		return err
 	}
-	if _, until := d.meta(key); !until.IsZero() && d.now().Before(until) {
+	_, until, err := d.meta(key)
+	if err != nil {
+		return err
+	}
+	if !until.IsZero() && d.now().Before(until) {
 		return ErrLocked
 	}
 	if err := os.Remove(d.path(key)); err != nil && !errors.Is(err, os.ErrNotExist) {

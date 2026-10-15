@@ -467,3 +467,39 @@ func TestAmbientCredentials(t *testing.T) {
 		})
 	}
 }
+
+// TestDirDeleteFailsClosed: a sidecar that cannot be read or decoded may
+// hold a retention, so Delete refuses with its error and keeps the object
+// rather than take it for unlocked. Get and Stat report it too.
+func TestDirDeleteFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	for name, spoil := range map[string]func(sidecar string) error{
+		"a directory in its place": func(sidecar string) error {
+			return errors.Join(os.Remove(sidecar), os.Mkdir(sidecar, 0o700))
+		},
+		"an undecodable retention": func(sidecar string) error {
+			return os.WriteFile(sidecar, []byte("application/json\nnext year\n"), 0o600)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := blobstore.Dir{Root: t.TempDir()}
+			const key = "tenants/x/audit/anchors/1"
+			if err := d.Put(ctx, key, []byte("{}"), blobstore.PutOptions{RetainUntil: time.Now().Add(time.Hour)}); err != nil {
+				t.Fatal(err)
+			}
+			must(t, spoil(filepath.Join(d.Root, filepath.FromSlash(key))+".meta"))
+			if err := d.Delete(ctx, key); err == nil || errors.Is(err, blobstore.ErrLocked) {
+				t.Errorf("delete: got %v, want the sidecar's error", err)
+			}
+			if _, err := os.Stat(filepath.Join(d.Root, filepath.FromSlash(key))); err != nil {
+				t.Errorf("object after a refused delete: got %v, want it kept", err)
+			}
+			if _, _, err := d.Get(ctx, key); err == nil {
+				t.Error("get: got nil, want the sidecar's error")
+			}
+			if _, _, err := d.Stat(ctx, key); err == nil {
+				t.Error("stat: got nil, want the sidecar's error")
+			}
+		})
+	}
+}
