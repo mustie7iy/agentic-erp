@@ -12172,7 +12172,9 @@ func (s *MatchDecision) SetReason(val string) {
 // One three-way match issue.
 // Ref: #/components/schemas/MatchIssue
 type MatchIssue struct {
-	// Stable issue code, for example `price_variance`, `quantity_not_received`.
+	// Stable issue code: `tax_or_total_mismatch`, `order_not_open`, `order_item_missing`, `price_variance`
+	// or `quantity_exceeds_received`. New codes may be added, so a client treats an unknown code as an
+	// issue.
 	Code string `json:"code"`
 	// Invoice item concerned, if any.
 	ItemNo OptInt32 `json:"item_no"`

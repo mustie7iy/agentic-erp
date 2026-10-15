@@ -15279,7 +15279,7 @@ components:
       properties:
         code:
           type: string
-          description: "Stable issue code, for example `price_variance`, `quantity_not_received`."
+          description: "Stable issue code: `tax_or_total_mismatch`, `order_not_open`, `order_item_missing`, `price_variance` or `quantity_exceeds_received`. New codes may be added, so a client treats an unknown code as an issue."
         item_no:
           type: integer
           format: int32
@@ -15289,8 +15289,9 @@ components:
           type: string
           description: Explanation.
       examples:
-        - code: required
-          message: invoice_date is required.
+        - code: price_variance
+          item_no: 1
+          message: "order item 10: invoiced 109.00 but the order price gives 100.00 (variance 9.00, tolerance 2.00 or 5.50 EUR)"
     MatchResult:
       type: object
       description: "One three-way match evaluation (invoice vs order vs receipt). Insert-only history; `evaluated_*` play the role of `created_*`."
