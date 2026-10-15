@@ -7,14 +7,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // Decisions the invoice flow takes on a matched invoice.
@@ -79,10 +77,6 @@ const examples = 50
 
 // Simulate implements configuration.Simulator.
 func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config) (configuration.Simulation, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return configuration.Simulation{}, err
-	}
 	window, limit := s.Window, s.Limit
 	if window <= 0 {
 		window = 90 * 24 * time.Hour
@@ -90,24 +84,17 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 	if limit <= 0 {
 		limit = 2000
 	}
-	rows, _ := tx.Query(ctx, invoiceSelect+` WHERE i.purchase_order_id IS NOT NULL AND i.status IN ('parked', 'on_hold', 'posted') AND i.invoice_date >= $1
-		ORDER BY i.invoice_date DESC, i.id DESC LIMIT $2`, clock.Now(s.Now).Add(-window), limit)
-	invoices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
+	replays, err := invoicesOnOrders(ctx, sources{s.LegalEntities, s.Orders, s.Rates}, clock.Now(s.Now).Add(-window), limit)
 	if err != nil {
-		return configuration.Simulation{}, fmt.Errorf("payables: read invoices to simulate: %w", err)
+		return configuration.Simulation{}, err
 	}
-	cache := newReplayCache()
 	t := &tally{counts: map[string]map[string]int{"base": {}, "proposed": {}}, moves: map[string]*Posting{}}
-	for _, v := range invoices {
-		r, err := replay(ctx, tx, sources{s.LegalEntities, s.Orders, s.Rates}, v, cache)
-		if err != nil {
-			return configuration.Simulation{}, err
-		}
+	for _, r := range replays {
 		if err := t.invoice(r, base.Company(r.Company), proposed.Company(r.Company)); err != nil {
 			return configuration.Simulation{}, err
 		}
 	}
-	return t.result(window, len(invoices))
+	return t.result(window, len(replays))
 }
 
 // tally collects the outcome of replaying invoices under the base and the
