@@ -56,6 +56,28 @@ func TestConstructors(t *testing.T) {
 	}
 }
 
+// TestReference: a referenced resource that is not found is 422 on the
+// referring field; any other error passes through.
+func TestReference(t *testing.T) {
+	var p *Problem
+	if !errors.As(Reference(fmt.Errorf("read: %w", NotFound("x")), "role_id", "role", "no role with this id"), &p) {
+		t.Fatal("not found: got no problem, want one")
+	}
+	if p.Status != 422 || p.Code != "request.reference_not_found" {
+		t.Errorf("not found: got %d %s, want 422 request.reference_not_found", p.Status, p.Code)
+	}
+	if p.Detail != "No role with this id." {
+		t.Errorf("detail: got %q, want %q", p.Detail, "No role with this id.")
+	}
+	if want := (FieldError{Field: "role_id", Code: "not_found", Message: "no role with this id"}); len(p.Errors) != 1 || p.Errors[0] != want {
+		t.Errorf("field errors: got %+v, want [%+v]", p.Errors, want)
+	}
+	other := Conflict("x.y", "No.")
+	if got := Reference(other, "role_id", "role", "no role with this id"); got != other { //nolint:errorlint // the same error must come back, not a wrapper
+		t.Errorf("other error: got %v, want %v unchanged", got, other)
+	}
+}
+
 func TestErrorAndCause(t *testing.T) {
 	cause := errors.New("disk on fire")
 	p := Internal(cause)

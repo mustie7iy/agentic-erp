@@ -305,7 +305,7 @@ func CreateOrgUnit(ctx context.Context, in NewOrgUnit) (OrgUnit, error) {
 			problem.FieldError{Field: "kind", Code: "unknown", Message: "purchasing_org, plant, storage_location or sales_org"})
 	}
 	if _, err := getLE(ctx, tx, in.LegalEntityID, false); err != nil {
-		return OrgUnit{}, referenceError(err, "legal_entity_id", "legal entity")
+		return OrgUnit{}, problem.Reference(err, "legal_entity_id", "legal entity", "no legal entity with this id that you can access")
 	}
 	if err := checkParent(ctx, tx, in.LegalEntityID, uuid.Nil, in.ParentID); err != nil {
 		return OrgUnit{}, err
@@ -322,16 +322,6 @@ func CreateOrgUnit(ctx context.Context, in NewOrgUnit) (OrgUnit, error) {
 				"org_unit_id": u.ID, "legal_entity_id": u.LegalEntityID, "kind": u.Kind, "code": u.Code, "name": u.Name,
 				"parent_id": u.ParentID, "status": u.Status,
 			}})
-}
-
-// referenceError turns "not found" for a referenced resource into 422 on
-// the referencing field.
-func referenceError(err error, field, what string) error {
-	if problem.From(err).Status == 404 {
-		return problem.Unprocessable("request.reference_not_found", "No "+what+" with this id.",
-			problem.FieldError{Field: field, Code: "not_found", Message: "no " + what + " with this id that you can access"})
-	}
-	return err
 }
 
 // checkParent requires a parent in the same legal entity and no cycle: the

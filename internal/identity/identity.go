@@ -193,13 +193,3 @@ func agentApprovalsNow(ctx context.Context, tx pgx.Tx) error {
 }
 
 func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
-
-// referenceError turns "not found" for a referenced resource into 422 on
-// the referencing field.
-func referenceError(err error, field, what string) error {
-	if problem.From(err).Status == 404 {
-		return problem.Unprocessable("request.reference_not_found", "No "+what+" with this id.",
-			problem.FieldError{Field: field, Code: "not_found", Message: "no " + what + " with this id"})
-	}
-	return err
-}

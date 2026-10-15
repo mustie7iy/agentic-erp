@@ -54,11 +54,11 @@ func AssignRole(ctx context.Context, principal, role uuid.UUID, from, to *time.T
 	}
 	p, err := getPrincipal(ctx, tx, principal, false)
 	if err != nil {
-		return RoleAssignment{}, referenceError(err, "principal_id", "principal")
+		return RoleAssignment{}, problem.Reference(err, "principal_id", "principal", "no principal with this id")
 	}
 	r, err := getRole(ctx, tx, role, false)
 	if err != nil {
-		return RoleAssignment{}, referenceError(err, "role_id", "role")
+		return RoleAssignment{}, problem.Reference(err, "role_id", "role", "no role with this id")
 	}
 	if r.Status != Active {
 		return RoleAssignment{}, problem.Conflict("identity.role_inactive", "The role is inactive and cannot be granted.")
@@ -164,13 +164,13 @@ func GrantAccess(ctx context.Context, les LegalEntities, principal, legalEntity 
 		return CompanyAccess{}, err
 	}
 	if _, err := getPrincipal(ctx, tx, principal, false); err != nil {
-		return CompanyAccess{}, referenceError(err, "principal_id", "principal")
+		return CompanyAccess{}, problem.Reference(err, "principal_id", "principal", "no principal with this id")
 	}
 	if _, ok, err := les.LegalEntityStatus(ctx, legalEntity); err != nil || !ok {
 		if err == nil {
 			err = notFound("legal entity")
 		}
-		return CompanyAccess{}, referenceError(err, "legal_entity_id", "legal entity")
+		return CompanyAccess{}, problem.Reference(err, "legal_entity_id", "legal entity", "no legal entity with this id")
 	}
 	day, err := database.Today(ctx, tx)
 	if err != nil {

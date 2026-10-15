@@ -110,6 +110,19 @@ func Unprocessable(code, detail string, errs ...FieldError) *Problem {
 	return p
 }
 
+// Reference turns "not found" (404) from reading a resource the request
+// refers to into 422 request.reference_not_found on the referring field:
+// the request's content is wrong, not its URL. what names the resource in
+// the detail ("No legal entity with this id."), message is the field
+// error's message; any other error passes through unchanged.
+func Reference(err error, field, what, message string) error {
+	if From(err).Status == http.StatusNotFound {
+		return Unprocessable("request.reference_not_found", "No "+what+" with this id.",
+			FieldError{Field: field, Code: "not_found", Message: message})
+	}
+	return err
+}
+
 func Unavailable(detail string, retryAfter int) *Problem {
 	p := New(http.StatusServiceUnavailable, "platform.unavailable", "Service unavailable", detail)
 	p.RetryAfter = retryAfter
