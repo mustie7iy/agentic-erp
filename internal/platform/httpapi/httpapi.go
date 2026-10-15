@@ -1,9 +1,11 @@
 // Package httpapi is the request pipeline of the public API (ADR-0014):
 // telemetry, authentication and the unit of work around the server
 // generated from api/openapi.yaml, with authorization per operation and
-// every error as an RFC 9457 problem, and the operational endpoints. It
-// names no context: internal/app assembles the contexts' handlers into the
-// generated Handler and passes it to New.
+// every error as an RFC 9457 problem, and the operational endpoints; and
+// what the hand-written operator APIs (control plane, global directory)
+// share: Operator, NotAllowed and WriteJSON. It names no context:
+// internal/app assembles the contexts' handlers into the generated Handler
+// and passes it to New.
 package httpapi
 
 import (
