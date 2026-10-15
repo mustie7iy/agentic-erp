@@ -319,15 +319,8 @@ func (e *Endpoints) ListMatchResults(ctx context.Context, params gen.ListMatchRe
 	if err != nil {
 		return nil, fmt.Errorf("payables: list match results of invoice %s: %w", params.ID, err)
 	}
-	matches, next := pagination.Page(ks, matches, func(m Match) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, matches, func(m Match) (string, uuid.UUID) {
 		return m.EvaluatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), m.ID
-	})
-	page := gen.MatchResultPage{Items: make([]gen.MatchResult, len(matches))}
-	for i, m := range matches {
-		page.Items[i] = matchToAPI(m)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.MatchResultPageHeaders{Response: page}, nil
+	}, matchToAPI)
+	return &gen.MatchResultPageHeaders{Response: gen.MatchResultPage{Items: items, NextPageToken: next}}, nil
 }

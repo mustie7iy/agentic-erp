@@ -129,15 +129,8 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 	if err != nil {
 		return nil, fmt.Errorf("configuration: list change requests: %w", err)
 	}
-	crs, next := pagination.Page(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID })
-	page := gen.ChangeRequestPage{Items: make([]gen.ChangeRequest, 0, len(crs))}
-	for _, c := range crs {
-		page.Items = append(page.Items, crToAPI(c))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ChangeRequestPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID }, crToAPI)
+	return &gen.ChangeRequestPageHeaders{Response: gen.ChangeRequestPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateChangeRequest implements PATCH /v1/change-requests/{id}.
@@ -280,15 +273,8 @@ func (e *Endpoints) ListConfigVersions(ctx context.Context, params gen.ListConfi
 	if err != nil {
 		return nil, fmt.Errorf("configuration: list configuration versions: %w", err)
 	}
-	vs, next := pagination.Page(ks, vs, func(v version) (string, uuid.UUID) { return strconv.Itoa(int(v.Number)), v.ID })
-	page := gen.ConfigVersionPage{Items: make([]gen.ConfigVersion, 0, len(vs))}
-	for _, v := range vs {
-		page.Items = append(page.Items, versionToAPI(v))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ConfigVersionPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, vs, func(v version) (string, uuid.UUID) { return strconv.Itoa(int(v.Number)), v.ID }, versionToAPI)
+	return &gen.ConfigVersionPageHeaders{Response: gen.ConfigVersionPage{Items: items, NextPageToken: next}}, nil
 }
 
 // NumberRange is a row of config.number_range.
@@ -375,18 +361,11 @@ func (e *Endpoints) ListNumberRanges(ctx context.Context, params gen.ListNumberR
 		return nil, fmt.Errorf("configuration: list number ranges: %w", err)
 	}
 	byYear := ks.Field() == "fiscal_year"
-	ranges, next := pagination.Page(ks, ranges, func(n NumberRange) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, ranges, func(n NumberRange) (string, uuid.UUID) {
 		if byYear {
 			return strconv.Itoa(int(n.FiscalYear)), n.ID
 		}
 		return n.DocumentType, n.ID
-	})
-	page := gen.NumberRangePage{Items: make([]gen.NumberRange, 0, len(ranges))}
-	for _, n := range ranges {
-		page.Items = append(page.Items, rangeToAPI(n))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.NumberRangePageHeaders{Response: page}, nil
+	}, rangeToAPI)
+	return &gen.NumberRangePageHeaders{Response: gen.NumberRangePage{Items: items, NextPageToken: next}}, nil
 }

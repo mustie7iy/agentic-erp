@@ -100,20 +100,13 @@ func (e *Endpoints) ListLegalEntities(ctx context.Context, params gen.ListLegalE
 	if err != nil {
 		return nil, fmt.Errorf("tenancy: list legal entities: %w", err)
 	}
-	les, next := pagination.Page(ks, les, func(l LegalEntity) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, les, func(l LegalEntity) (string, uuid.UUID) {
 		if ks.Field() == "name" {
 			return l.Name, l.ID
 		}
 		return l.Code, l.ID
-	})
-	page := gen.LegalEntityPage{Items: make([]gen.LegalEntity, 0, len(les))}
-	for _, l := range les {
-		page.Items = append(page.Items, leToAPI(l))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.LegalEntityPageHeaders{Response: page}, nil
+	}, leToAPI)
+	return &gen.LegalEntityPageHeaders{Response: gen.LegalEntityPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateLegalEntity implements PATCH /v1/legal-entities/{id}.
@@ -214,20 +207,13 @@ func (e *Endpoints) ListOrgUnits(ctx context.Context, params gen.ListOrgUnitsPar
 	if err != nil {
 		return nil, fmt.Errorf("tenancy: list org units: %w", err)
 	}
-	units, next := pagination.Page(ks, units, func(u OrgUnit) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, units, func(u OrgUnit) (string, uuid.UUID) {
 		if ks.Field() == "name" {
 			return u.Name, u.ID
 		}
 		return u.Code, u.ID
-	})
-	page := gen.OrgUnitPage{Items: make([]gen.OrgUnit, 0, len(units))}
-	for _, u := range units {
-		page.Items = append(page.Items, ouToAPI(u))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.OrgUnitPageHeaders{Response: page}, nil
+	}, ouToAPI)
+	return &gen.OrgUnitPageHeaders{Response: gen.OrgUnitPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateOrgUnit implements PATCH /v1/org-units/{id}.

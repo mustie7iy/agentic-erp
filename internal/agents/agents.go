@@ -412,15 +412,8 @@ func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentS
 	if err != nil {
 		return nil, fmt.Errorf("agents: list sessions: %w", err)
 	}
-	sessions, next := pagination.Page(ks, sessions, func(s Session) (string, uuid.UUID) { return instant(s.StartedAt), s.ID })
-	page := gen.AgentSessionPage{Items: make([]gen.AgentSession, len(sessions))}
-	for i, s := range sessions {
-		page.Items[i] = sessionToAPI(s)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.AgentSessionPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, sessions, func(s Session) (string, uuid.UUID) { return instant(s.StartedAt), s.ID }, sessionToAPI)
+	return &gen.AgentSessionPageHeaders{Response: gen.AgentSessionPage{Items: items, NextPageToken: next}}, nil
 }
 
 // EndAgentSession implements POST /v1/agent-sessions/{id}:end.
@@ -542,15 +535,8 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 	if err != nil {
 		return nil, fmt.Errorf("agents: list recommendations: %w", err)
 	}
-	recs, next := pagination.Page(ks, recs, func(r Recommendation) (string, uuid.UUID) { return instant(r.CreatedAt), r.ID })
-	page := gen.RecommendationPage{Items: make([]gen.Recommendation, len(recs))}
-	for i, r := range recs {
-		page.Items[i] = recommendationToAPI(r)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.RecommendationPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, recs, func(r Recommendation) (string, uuid.UUID) { return instant(r.CreatedAt), r.ID }, recommendationToAPI)
+	return &gen.RecommendationPageHeaders{Response: gen.RecommendationPage{Items: items, NextPageToken: next}}, nil
 }
 
 // DecideRecommendation implements POST /v1/recommendations/{id}:decide.

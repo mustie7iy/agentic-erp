@@ -86,17 +86,10 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	if err != nil {
 		return nil, fmt.Errorf("approvals: list approval requests: %w", err)
 	}
-	requests, next := pagination.Page(ks, requests, func(r Request) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, requests, func(r Request) (string, uuid.UUID) {
 		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID
-	})
-	page := gen.ApprovalRequestPage{Items: make([]gen.ApprovalRequest, len(requests))}
-	for i, r := range requests {
-		page.Items[i] = toAPI(r)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ApprovalRequestPageHeaders{Response: page}, nil
+	}, toAPI)
+	return &gen.ApprovalRequestPageHeaders{Response: gen.ApprovalRequestPage{Items: items, NextPageToken: next}}, nil
 }
 
 // ApproveApprovalRequest implements POST /v1/approval-requests/{id}:approve.

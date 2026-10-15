@@ -93,6 +93,23 @@ func Page(orderBy gen.OptString, size gen.OptInt32, token gen.OptString) paginat
 	return pagination.Request{OrderBy: orderBy.Value, PageSize: size.Value, PageSizeSet: size.Set, PageToken: token.Value, PageTokenSet: token.Set}
 }
 
+// PageOf finishes a keyset-paged list (04-api-design §4.5): it trims rows
+// to the page, converts each to its API representation and returns the
+// next page's token, unset on the last page. Items is never nil, so an
+// empty page encodes as [].
+func PageOf[R, A any](k *pagination.Keyset, rows []R, key func(R) (string, uuid.UUID), toAPI func(R) A) ([]A, gen.OptString) {
+	rows, next := pagination.Page(k, rows, key)
+	items := make([]A, len(rows))
+	for i, r := range rows {
+		items[i] = toAPI(r)
+	}
+	var tok gen.OptString
+	if next != "" {
+		tok.SetTo(next)
+	}
+	return items, tok
+}
+
 // ETagOf is the entity tag of a resource without a version, derived from
 // its representation (04-api-design §4.7).
 func ETagOf[T any](v T) gen.OptString { return gen.NewOptString(etag.Of(&v)) }

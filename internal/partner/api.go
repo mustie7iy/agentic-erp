@@ -196,20 +196,13 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 	if err != nil {
 		return nil, fmt.Errorf("partner: list business partners: %w", err)
 	}
-	ps, next := pagination.Page(ks, ps, func(p Partner) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, ps, func(p Partner) (string, uuid.UUID) {
 		if ks.Field() == "name" {
 			return p.Name, p.ID
 		}
 		return p.Number, p.ID
-	})
-	page := gen.BusinessPartnerPage{Items: make([]gen.BusinessPartner, 0, len(ps))}
-	for _, p := range ps {
-		page.Items = append(page.Items, partnerToAPI(visible(p, access)))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.BusinessPartnerPageHeaders{Response: page}, nil
+	}, func(p Partner) gen.BusinessPartner { return partnerToAPI(visible(p, access)) })
+	return &gen.BusinessPartnerPageHeaders{Response: gen.BusinessPartnerPage{Items: items, NextPageToken: next}}, nil
 }
 
 // BlockBusinessPartner implements POST /v1/business-partners/{id}:block.
@@ -289,15 +282,8 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 	if err != nil {
 		return nil, fmt.Errorf("partner: list partner changes: %w", err)
 	}
-	cs, next := pagination.Page(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID })
-	page := gen.PartnerChangePage{Items: make([]gen.PartnerChange, 0, len(cs))}
-	for _, c := range cs {
-		page.Items = append(page.Items, changeToAPI(c))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.PartnerChangePageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID }, changeToAPI)
+	return &gen.PartnerChangePageHeaders{Response: gen.PartnerChangePage{Items: items, NextPageToken: next}}, nil
 }
 
 // RequestBankAccountChange implements POST /v1/business-partners/{id}/bank-accounts.
@@ -372,13 +358,6 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 	if err != nil {
 		return nil, fmt.Errorf("partner: list bank accounts of business partner %s: %w", params.ID, err)
 	}
-	bs, next := pagination.Page(ks, bs, func(b BankAccount) (string, uuid.UUID) { return b.ValidFrom.Format(time.DateOnly), b.ID })
-	page := gen.BankAccountPage{Items: make([]gen.BankAccount, 0, len(bs))}
-	for _, b := range bs {
-		page.Items = append(page.Items, bankToAPI(b))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.BankAccountPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, bs, func(b BankAccount) (string, uuid.UUID) { return b.ValidFrom.Format(time.DateOnly), b.ID }, bankToAPI)
+	return &gen.BankAccountPageHeaders{Response: gen.BankAccountPage{Items: items, NextPageToken: next}}, nil
 }

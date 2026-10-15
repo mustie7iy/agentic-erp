@@ -110,16 +110,8 @@ func list[R, A any](ctx context.Context, tx pgx.Tx, ks *pagination.Keyset, query
 	if err != nil {
 		return nil, gen.OptString{}, fmt.Errorf("identity: list %T rows: %w", *new(R), err)
 	}
-	items, next := pagination.Page(ks, items, key)
-	out := make([]A, 0, len(items))
-	for _, it := range items {
-		out = append(out, toAPI(it))
-	}
-	var tok gen.OptString
-	if next != "" {
-		tok.SetTo(next)
-	}
-	return out, tok, nil
+	out, next := apitypes.PageOf(ks, items, key, toAPI)
+	return out, next, nil
 }
 
 func dateKey(g Grant) (string, uuid.UUID) { return date(g.ValidFrom), g.ID }

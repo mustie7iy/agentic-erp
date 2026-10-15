@@ -587,17 +587,10 @@ func (e *Endpoints) ListMigrationRuns(ctx context.Context, params gen.ListMigrat
 	if err != nil {
 		return nil, fmt.Errorf("integration: list migration runs: %w", err)
 	}
-	runs, next := pagination.Page(ks, runs, func(r Run) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, runs, func(r Run) (string, uuid.UUID) {
 		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID
-	})
-	page := gen.MigrationRunPage{Items: make([]gen.MigrationRun, len(runs))}
-	for i, r := range runs {
-		page.Items[i] = runToAPI(r)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.MigrationRunPageHeaders{Response: page}, nil
+	}, runToAPI)
+	return &gen.MigrationRunPageHeaders{Response: gen.MigrationRunPage{Items: items, NextPageToken: next}}, nil
 }
 
 func operationOK(op operations.Operation) *gen.OperationHeaders {

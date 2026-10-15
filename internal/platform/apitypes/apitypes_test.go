@@ -2,6 +2,7 @@ package apitypes_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/go-faster/jx"
@@ -86,6 +87,43 @@ func TestPage(t *testing.T) {
 	}
 	if got := apitypes.Page(gen.OptString{}, gen.OptInt32{}, gen.OptString{}); got != (pagination.Request{}) {
 		t.Errorf("unset: got %+v, want the zero request", got)
+	}
+}
+
+// TestPageOf: rows past the page are dropped and give the next page's
+// token; the last page has none and an empty one still has items.
+func TestPageOf(t *testing.T) {
+	codec, err := pagination.NewCodec([]byte(strings.Repeat("k", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ks, err := codec.Keyset(pagination.Sort{Default: "n", Fields: []pagination.Field{{Name: "n", Column: "n", Type: "text"}}},
+		"test", pagination.Request{PageSize: 2, PageSizeSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := func(s string) (string, uuid.UUID) { return s, uuid.Nil }
+	upper := strings.ToUpper
+	cases := []struct {
+		name     string
+		rows     []string
+		want     []string
+		wantNext bool
+	}{
+		{"more follow", []string{"a", "b", "c"}, []string{"A", "B"}, true},
+		{"last page", []string{"a"}, []string{"A"}, false},
+		{"empty", nil, []string{}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			items, next := apitypes.PageOf(ks, c.rows, key, upper)
+			if !reflect.DeepEqual(items, c.want) {
+				t.Errorf("items: got %#v, want %#v", items, c.want)
+			}
+			if next.Set != c.wantNext {
+				t.Errorf("next page token set: got %t, want %t", next.Set, c.wantNext)
+			}
+		})
 	}
 }
 

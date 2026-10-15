@@ -313,20 +313,13 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 	if err != nil {
 		return nil, fmt.Errorf("procurement: list contracts: %w", err)
 	}
-	list, next := pagination.Page(ks, list, func(c Contract) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, list, func(c Contract) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
 			return c.DocumentNumber, c.ID
 		}
 		return c.ValidFrom.Format(time.DateOnly), c.ID
-	})
-	page := gen.ContractPage{Items: make([]gen.Contract, len(list))}
-	for i, c := range list {
-		page.Items[i] = contractToAPI(c)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ContractPageHeaders{Response: page}, nil
+	}, contractToAPI)
+	return &gen.ContractPageHeaders{Response: gen.ContractPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateContract implements PATCH /v1/contracts/{id}.
@@ -564,20 +557,13 @@ func (e *Endpoints) ListGoodsReceipts(ctx context.Context, params gen.ListGoodsR
 	if err != nil {
 		return nil, fmt.Errorf("procurement: list goods receipts: %w", err)
 	}
-	list, next := pagination.Page(ks, list, func(g GoodsReceipt) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, list, func(g GoodsReceipt) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
 			return g.DocumentNumber, g.ID
 		}
 		return g.PostingDate.Format(time.DateOnly), g.ID
-	})
-	page := gen.GoodsReceiptPage{Items: make([]gen.GoodsReceipt, len(list))}
-	for i, g := range list {
-		page.Items[i] = receiptToAPI(g)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.GoodsReceiptPageHeaders{Response: page}, nil
+	}, receiptToAPI)
+	return &gen.GoodsReceiptPageHeaders{Response: gen.GoodsReceiptPage{Items: items, NextPageToken: next}}, nil
 }
 
 // ReverseGoodsReceipt implements POST /v1/goods-receipts/{id}:reverse.

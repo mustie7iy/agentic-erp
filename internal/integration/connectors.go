@@ -290,15 +290,8 @@ func (e *Endpoints) ListConnectors(ctx context.Context, params gen.ListConnector
 	if err != nil {
 		return nil, fmt.Errorf("integration: list connectors: %w", err)
 	}
-	cs, next := pagination.Page(ks, cs, func(c Connector) (string, uuid.UUID) { return c.Name, c.ID })
-	page := gen.ConnectorPage{Items: make([]gen.Connector, len(cs))}
-	for i, c := range cs {
-		page.Items[i] = connectorToAPI(c)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ConnectorPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, cs, func(c Connector) (string, uuid.UUID) { return c.Name, c.ID }, connectorToAPI)
+	return &gen.ConnectorPageHeaders{Response: gen.ConnectorPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateConnector implements PATCH /v1/connectors/{id}.

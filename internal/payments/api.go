@@ -96,20 +96,13 @@ func (e *Endpoints) ListPaymentRuns(ctx context.Context, params gen.ListPaymentR
 	if err != nil {
 		return nil, fmt.Errorf("payments: list payment runs: %w", err)
 	}
-	runs, next := pagination.Page(ks, runs, func(r Run) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, runs, func(r Run) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
 			return r.DocumentNumber, r.ID
 		}
 		return r.RunDate.Format(time.DateOnly), r.ID
-	})
-	page := gen.PaymentRunPage{Items: make([]gen.PaymentRun, len(runs))}
-	for i, r := range runs {
-		page.Items[i] = runToAPI(r)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.PaymentRunPageHeaders{Response: page}, nil
+	}, runToAPI)
+	return &gen.PaymentRunPageHeaders{Response: gen.PaymentRunPage{Items: items, NextPageToken: next}}, nil
 }
 
 // ReleasePaymentRun implements POST /v1/payment-runs/{id}:release.
@@ -158,15 +151,9 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 	if err != nil {
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
-	pays, next := pagination.Page(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }))
-	page := gen.PaymentPage{Items: make([]gen.Payment, len(pays))}
-	for i, p := range pays {
-		page.Items[i] = paymentToAPI(p, r.Currency, r.Exponent)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.PaymentPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }),
+		func(p Payment) gen.Payment { return paymentToAPI(p, r.Currency, r.Exponent) })
+	return &gen.PaymentPageHeaders{Response: gen.PaymentPage{Items: items, NextPageToken: next}}, nil
 }
 
 // ListPaymentExclusions implements GET /v1/payment-runs/{id}/exclusions.
@@ -193,15 +180,11 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
-	exs, next := pagination.Page(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.SupplierID }))
-	page := gen.PaymentExclusionPage{Items: make([]gen.PaymentExclusion, len(exs))}
-	for i, x := range exs {
-		page.Items[i] = gen.PaymentExclusion{SupplierID: x.SupplierID, ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.PaymentExclusionPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.SupplierID }),
+		func(x Exclusion) gen.PaymentExclusion {
+			return gen.PaymentExclusion{SupplierID: x.SupplierID, ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
+		})
+	return &gen.PaymentExclusionPageHeaders{Response: gen.PaymentExclusionPage{Items: items, NextPageToken: next}}, nil
 }
 
 // GetBankFile implements GET /v1/bank-files/{id}.
@@ -237,17 +220,10 @@ func (e *Endpoints) ListBankFiles(ctx context.Context, params gen.ListBankFilesP
 	if err != nil {
 		return nil, fmt.Errorf("payments: list bank files: %w", err)
 	}
-	files, next := pagination.Page(ks, files, func(f BankFile) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, files, func(f BankFile) (string, uuid.UUID) {
 		return f.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), f.ID
-	})
-	page := gen.BankFilePage{Items: make([]gen.BankFile, len(files))}
-	for i, f := range files {
-		page.Items[i] = fileToAPI(f)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.BankFilePageHeaders{Response: page}, nil
+	}, fileToAPI)
+	return &gen.BankFilePageHeaders{Response: gen.BankFilePage{Items: items, NextPageToken: next}}, nil
 }
 
 // GetBankFileContent implements GET /v1/bank-files/{id}/content.

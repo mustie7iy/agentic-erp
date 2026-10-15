@@ -67,13 +67,6 @@ func (e *Endpoints) ListRegressionSuites(ctx context.Context, params gen.ListReg
 	if err != nil {
 		return nil, fmt.Errorf("configuration: list regression suites: %w", err)
 	}
-	suites, next := pagination.Page(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return s.CapturedAt.UTC().Format(time.RFC3339Nano), s.ID })
-	page := gen.RegressionSuitePage{Items: make([]gen.RegressionSuite, 0, len(suites))}
-	for _, s := range suites {
-		page.Items = append(page.Items, suiteToAPI(s))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.RegressionSuitePageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return s.CapturedAt.UTC().Format(time.RFC3339Nano), s.ID }, suiteToAPI)
+	return &gen.RegressionSuitePageHeaders{Response: gen.RegressionSuitePage{Items: items, NextPageToken: next}}, nil
 }
