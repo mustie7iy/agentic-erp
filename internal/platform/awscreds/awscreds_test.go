@@ -78,6 +78,10 @@ func TestWebIdentity(t *testing.T) {
 			w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
 				<AccessKeyId>ASIA1</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken><Expiration>soon</Expiration>
 				</Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`))
+		case "noexpiry":
+			w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
+				<AccessKeyId>ASIA1</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken>
+				</Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`))
 		default:
 			w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
 				<AccessKeyId>ASIA1</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken><Expiration>2030-01-01T00:00:00Z</Expiration>
@@ -113,6 +117,11 @@ func TestWebIdentity(t *testing.T) {
 	mode.Store("badexpiry")
 	_, err = w.Credentials(ctx)
 	pgtest.WantErr(t, err, `expiration "soon"`)
+	// No expiry at all on temporary credentials is refused too: the zero
+	// time is what Cached takes for long-lived keys.
+	mode.Store("noexpiry")
+	_, err = w.Credentials(ctx)
+	pgtest.WantErr(t, err, "awscreds: sts: a session token without an expiration")
 	mode.Store("ok")
 	if _, err := (awscreds.WebIdentity{}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("unset: %v", err)
@@ -183,6 +192,10 @@ func TestIMDS(t *testing.T) {
 				w.Write([]byte(`{"Code":"Success","AccessKeyId":"ASIA2","SecretAccessKey":"secret2","Token":"session2"}`))
 				return
 			}
+			if mode.Load() == "longlived" {
+				w.Write([]byte(`{"Code":"Success","AccessKeyId":"AKIA2","SecretAccessKey":"secret2"}`))
+				return
+			}
 			w.Write([]byte(`{"Code":"Success","AccessKeyId":"ASIA2","SecretAccessKey":"secret2","Token":"session2","Expiration":"2030-01-01T00:00:00Z"}`))
 		default:
 			w.WriteHeader(404)
@@ -219,14 +232,20 @@ func TestIMDS(t *testing.T) {
 	mode.Store("badexpiry")
 	_, err = m.Credentials(ctx)
 	pgtest.WantErr(t, err, `expiration "soon"`)
-	// No expiry at all: long-lived, the zero time.
+	// A session token without an expiry is a malformed answer, refused:
+	// the zero time would make Cached hold temporary credentials forever.
 	mode.Store("noexpiry")
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, "awscreds: imds: a session token without an expiration")
+	// Keys without a session token and without an expiry are long-lived:
+	// the zero time.
+	mode.Store("longlived")
 	c, err = m.Credentials(ctx)
 	if err != nil {
-		t.Errorf("no expiration: got err %v, want nil", err)
+		t.Errorf("long-lived keys: got err %v, want nil", err)
 	}
 	if !c.Expires.IsZero() {
-		t.Errorf("no expiration: Expires got %v, want zero", c.Expires)
+		t.Errorf("long-lived keys: Expires got %v, want zero", c.Expires)
 	}
 	if _, err := (awscreds.IMDS{Endpoint: "http://127.0.0.1:1"}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("no service: %v", err)
