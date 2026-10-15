@@ -446,10 +446,13 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
 - Sixth re-review after round six: **9.3 / 10** (architecture 9.5, error handling 9.1, concurrency
   9.4, SQL 9.7, tests 9.3, readability 9.4, duplication 9.0, money 9.5): round six's claims hold,
   but a crash reachable from tenant input was found. Round seven below.
-- [ ] F17 Replaying a regression case whose invoice lost its purchase order does not panic (a worker
-  panic stopped erp-server for every tenant)
-- [ ] F18 `erp invoices` leaves an invoice with an approved exception to its approval instead of
-  re-matching it back on hold
+- [x] F17 Replaying a regression case whose invoice lost its purchase order does not panic (a worker
+  panic stopped erp-server for every tenant): replay refuses it with 422 payables.no_purchase_order
+  and a suite records the case not_evaluable / no_purchase_order. Reviewer: APPROVE.
+- [x] F18 `erp invoices` leaves an invoice with an approved exception to its approval instead of
+  re-matching it back on hold: the server's match no longer re-holds an exception approved at the
+  invoice's current version (it re-opened approval on every run), and the CLI leaves such an
+  invoice parked for a person. Reviewer: APPROVE.
 - [ ] F19 A reverse exchange rate is inverted exactly (a rate above 2e12 inverted to 0)
 - [ ] R63 Round-seven duplication: one not-found helper, one accessible-row lookup, list paging; the
   remaining discarded errors carry reasons
