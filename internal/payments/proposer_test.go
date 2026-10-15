@@ -102,7 +102,7 @@ func TestProposer(t *testing.T) {
 			}
 		})
 	}
-	e.propose(t, "2026-04-16", "2026-04-16")
+	second := e.propose(t, "2026-04-16", "2026-04-16")
 	begun := 0
 	w := proposer(t)
 	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -116,6 +116,15 @@ func TestProposer(t *testing.T) {
 	}
 	if begun != 2 {
 		t.Errorf("tenant transaction: got %d transactions begun, want 2", begun)
+	}
+	// The worker is shared by every test of the package and takes the jobs
+	// of all tenants: finish this proposal here, or the next test's worker
+	// would do it too and count it as its own.
+	if n := work(t); n != 1 {
+		t.Errorf("leftover proposal: got %d jobs done, want 1", n)
+	}
+	if r, _ := e.Must(200, "GET", second["resource"].(string), "", ""); r["status"] != "proposed" {
+		t.Errorf("leftover proposal: got status %v, want proposed", r["status"])
 	}
 
 	// Run logs failed rounds and stops with its context.

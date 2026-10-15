@@ -339,7 +339,10 @@ func (s *dispatchScenario) proposalsStartOnce(t *testing.T) {
 	}
 	found := false
 	for _, st := range s.engine.started {
-		in := st.Args[0].(workflows.ProposeInput)
+		in, ok := st.Args[0].(workflows.ProposeInput)
+		if !ok {
+			t.Fatalf("start %s: got input %T, want workflows.ProposeInput: only proposals are queued", st.ID, st.Args[0])
+		}
 		found = found || st.ID == want && st.Queue == "erp-test" && st.Name == workflows.ProposeWorkflow && in.RunID == uuid.MustParse(run1) && in.OperationID == uuid.MustParse(id(op1)) && in.TenantID == e.Tenant.ID
 	}
 	if !found {
@@ -704,8 +707,9 @@ func (s *releaseScenario) resumeWithTheReleaser(t *testing.T) {
 // releaserFailures: the releaser's problem path and its loop: a refused
 // file is recorded, a dead database is logged, the loop stops with the
 // context; a failing listing and a release whose steps fail are reported.
+// The last is in leftForTheNextRound.
 func (s *releaseScenario) releaserFailures(t *testing.T) {
-	e, a, w, logs, run4 := s.e.in(t), s.a, s.w, s.logs, s.run4
+	e, w, logs, run4 := s.e.in(t), s.w, s.logs, s.run4
 	e.setHolder(t, " ")
 	in4 := e.releaseAsked(t, run4)
 	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 {
@@ -738,12 +742,38 @@ func (s *releaseScenario) releaserFailures(t *testing.T) {
 		t.Fatalf("pending listing: got %v, want the injected failure", err)
 	}
 	w.Begin = nil
-	// A pending release whose steps fail is reported and left for the next round.
-	e.releaseAsked(t, run4)
+	s.leftForTheNextRound(t)
+}
+
+// leftForTheNextRound: a pending release whose steps fail is reported and
+// left for the next round, which then takes it. That round is run here:
+// the releaser and the dispatcher serve every tenant, so a release left
+// queued would be taken by another test's round.
+func (s *releaseScenario) leftForTheNextRound(t *testing.T) {
+	t.Helper()
+	e, a, w := s.e.in(t), s.a, s.w
+	in := e.releaseAsked(t, s.run4)
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	_, err := w.RunOnce(context.Background())
 	pgtest.WantErr(t, err, "database down")
 	a.Begin = nil
+	if n := queuedReleases(t, e.Tenant.ID); n != 1 {
+		t.Fatalf("this tenant's queued releases after the failed round: got %d, want 1", n)
+	}
+	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 {
+		t.Fatalf("next round: %d %v", n, err)
+	}
+	if n := queuedReleases(t, e.Tenant.ID); n != 0 {
+		t.Fatalf("this tenant's queued releases after the next round: got %d, want 0", n)
+	}
+	// The holder is still blank, so the next round records the refused file.
+	failed, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+	if failed["status"] != "failed" {
+		t.Fatalf("release after the next round, status: got %v, want failed", failed["status"])
+	}
+	if code := failed["error"].(map[string]any)["code"]; code != "payments.bank_file_invalid" {
+		t.Fatalf("release after the next round, error: got %v, want payments.bank_file_invalid", code)
+	}
 }
 
 // twoPaymentFailures: every statement of the release activities failing in
