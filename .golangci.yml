@@ -25,7 +25,11 @@ linters:
     - bodyclose
     - noctx        # HTTP requests without a context
     - misspell
+    - nolintlint   # a //nolint must name its linter, give a reason and still suppress something
   settings:
+    nolintlint:
+      require-specific: true
+      require-explanation: true
     errcheck:
       exclude-functions:
         # Every call site writes console output (stdout/stderr, tabwriters) or

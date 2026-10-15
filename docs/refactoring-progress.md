@@ -3,6 +3,28 @@
 Programme: `docs/refactoring-prompt.md`. Branch: `refactor/quality-9.5`.
 Each step: lint before → after for its scope, tests, reviewer verdict, commit.
 
+## Closed (2026-10-15)
+
+The target is reached: rounds nine and ten of the whole-codebase review scored 9.5 / 10
+with no blocking defects (8.2 when Phase 7 began). Final gates: lint 1238 → 0 findings
+(nolintlint now enabled, with a linter and a reason required on every directive), statement
+coverage 17,510 of 17,510, make test across 71 packages, 8 fuzz targets, and -race
+-shuffle=on -count=3. Work returns to tracker items (CLAUDE.md, layer 4).
+
+Recommended next items, by priority:
+1. An additive `invoice_version` on MatchResult and SupplierInvoiceMatched, and
+   `external_issuer` in the API schema; `erp invoices` exits non-zero when a match is refused
+   (0 when invoices are only parked).
+2. The deferred contract-step migrations as one step: F5b (reservation reconciliation; work
+   in progress on the local branch `f5b`), F8b (the FOR SHARE trigger), the F7 index drop
+   with re-backfill, validating the NOT VALID checks of 000040 and 000041, and a guard on
+   legal_entity.local_currency. There is no real data yet, so they need not wait a release.
+3. An ADR on agents and LLM use (permitted actions, approval points, budgets, audit, data
+   sent to models), before further agent work.
+4. Planned, not urgent: a sweep for bank files a cancelled release leaves in object storage;
+   lock-contention relief (a large proposal holds most of its tenant's buckets; a period
+   close can be starved) if real load shows it.
+
 ## Steps
 
 ### Phase 0 — Baseline
