@@ -235,11 +235,13 @@ func checkItemNo(given *int32, i int, field string) error {
 	return nil
 }
 
-// removeItems marks the items beyond the first n removed.
+// removeItems marks the items beyond the first n removed; table is an item
+// table of the procurement schema and column its document's id.
 func removeItems(ctx context.Context, tx pgx.Tx, table, column string, doc uuid.UUID, n int) error {
-	_, err := tx.Exec(ctx, `UPDATE `+table+` SET is_removed = true WHERE `+column+` = $1 AND item_no > $2 AND NOT is_removed`, doc, n)
+	_, err := tx.Exec(ctx, `UPDATE `+pgx.Identifier{"procurement", table}.Sanitize()+` SET is_removed = true WHERE `+pgx.Identifier{column}.Sanitize()+
+		` = $1 AND item_no > $2 AND NOT is_removed`, doc, n)
 	if err != nil {
-		return fmt.Errorf("procurement: remove items of %s %s: %w", table, doc, err)
+		return fmt.Errorf("procurement: remove items of procurement.%s %s: %w", table, doc, err)
 	}
 	return nil
 }

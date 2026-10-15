@@ -87,11 +87,28 @@ func (m *LocalMaster) Unwrap(tenant uuid.UUID, wrapped []byte) ([]byte, error) {
 // fingerprint column of the same value, when there is one; Versioned tables
 // bump version on update (platform.touch).
 type Column struct {
-	Table       string
+	Table       string   // schema-qualified: "partner.bank_account"
 	Keys        []string // columns identifying a row within the tenant
 	Cipher      string
 	Fingerprint string
 	Versioned   bool
+}
+
+// quotedColumn is a Column's identifiers sanitized for SQL text.
+type quotedColumn struct {
+	table, cipher, fingerprint string
+	keys                       []string
+}
+
+// quoted sanitizes the column's identifiers (CLAUDE.md: identifiers go
+// through pgx.Identifier); the table splits into schema and name.
+func (c Column) quoted() quotedColumn {
+	q := quotedColumn{table: pgx.Identifier(strings.Split(c.Table, ".")).Sanitize(), cipher: pgx.Identifier{c.Cipher}.Sanitize(),
+		fingerprint: pgx.Identifier{c.Fingerprint}.Sanitize(), keys: make([]string, len(c.Keys))}
+	for i, k := range c.Keys {
+		q.keys[i] = pgx.Identifier{k}.Sanitize()
+	}
+	return q
 }
 
 var (
@@ -428,8 +445,8 @@ func (r *Keyring) Rotate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rota
 
 // reseal rewrites one column's rows under k.
 func (r *Keyring) reseal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c Column, k *tenantKey) (int, error) {
-	keys := strings.Join(c.Keys, ", ")
-	rows, _ := tx.Query(ctx, `SELECT `+keys+`, `+c.Cipher+` FROM `+c.Table+` WHERE tenant_id = $1`, tenant)
+	q := c.quoted()
+	rows, _ := tx.Query(ctx, `SELECT `+strings.Join(q.keys, ", ")+`, `+q.cipher+` FROM `+q.table+` WHERE tenant_id = $1`, tenant)
 	type row struct {
 		keys   []any
 		sealed []byte
@@ -456,21 +473,21 @@ func (r *Keyring) reseal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c Col
 		if err != nil {
 			return 0, err
 		}
-		set := []string{c.Cipher + " = $1"}
+		set := []string{q.cipher + " = $1"}
 		args := []any{seal(k, tenant, plain)}
 		if c.Fingerprint != "" {
-			set = append(set, fmt.Sprintf("%s = $%d", c.Fingerprint, len(args)+1))
+			set = append(set, fmt.Sprintf("%s = $%d", q.fingerprint, len(args)+1))
 			args = append(args, fingerprint(k.mac, tenant, plain))
 		}
 		if c.Versioned {
 			set = append(set, "version = version + 1")
 		}
 		var where []string
-		for i, name := range c.Keys {
+		for i, name := range q.keys {
 			where = append(where, fmt.Sprintf("%s = $%d", name, len(args)+1))
 			args = append(args, rw.keys[i])
 		}
-		if _, err := tx.Exec(ctx, `UPDATE `+c.Table+` SET `+strings.Join(set, ", ")+` WHERE tenant_id = $`+fmt.Sprint(len(args)+1)+` AND `+strings.Join(where, " AND "),
+		if _, err := tx.Exec(ctx, `UPDATE `+q.table+` SET `+strings.Join(set, ", ")+` WHERE tenant_id = $`+fmt.Sprint(len(args)+1)+` AND `+strings.Join(where, " AND "),
 			append(args, tenant)...); err != nil {
 			return 0, fmt.Errorf("update row %v: %w", rw.keys, err)
 		}

@@ -226,7 +226,7 @@ func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items
 		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, tolerances, taxes, contractItems); err != nil {
 		return fmt.Errorf("procurement: write items of purchase order %s: %w", id, err)
 	}
-	return removeItems(ctx, tx, "procurement.purchase_order_item", "purchase_order_id", id, n)
+	return removeItems(ctx, tx, "purchase_order_item", "purchase_order_id", id, n)
 }
 
 // header checks what an order's items depend on: currency, contract,

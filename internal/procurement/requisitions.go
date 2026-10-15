@@ -177,7 +177,7 @@ func writeRequisitionItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID,
 		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts); err != nil {
 		return fmt.Errorf("procurement: write items of requisition %s: %w", id, err)
 	}
-	return removeItems(ctx, tx, "procurement.requisition_item", "requisition_id", id, n)
+	return removeItems(ctx, tx, "requisition_item", "requisition_id", id, n)
 }
 
 // checkRequisitionContract requires a contract the requisition can refer
