@@ -153,6 +153,8 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	if len(unpayable) > 0 {
 		return false, e.dropPayment(ctx, tx, actor, r, p, unpayable)
 	}
+	// The run's house bank exists: payment_run has a foreign key to it
+	// (migration 000008), so the found flag is always true here.
 	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
 	if err != nil {
 		return false, err
@@ -272,6 +274,8 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	if tag.RowsAffected() != 1 {
 		return Run{}, fmt.Errorf("payments: complete the release of run %s: the run is no longer releasing", r.ID)
 	}
+	// The run's house bank exists: payment_run has a foreign key to it
+	// (migration 000008), so the found flag is always true here.
 	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
 	if err != nil {
 		return Run{}, err
@@ -656,6 +660,8 @@ func (e *Endpoints) rendered(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, f
 	if err != nil {
 		return nil, err
 	}
+	// The run's house bank exists: payment_run has a foreign key to it
+	// (migration 000008), so the found flag is always true here.
 	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
 	if err != nil {
 		return nil, err
