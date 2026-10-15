@@ -10,7 +10,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -70,17 +69,8 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	if err != nil {
 		return uuid.Nil, err
 	}
-	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, legalEntity, date, by.FiscalYear, by.EntryID, actor.ID); err != nil {
-		return uuid.Nil, fmt.Errorf("ledger: record migrated clearing %s: %w", id, err)
-	}
-	if err := markCleared(ctx, tx, actor.TenantID, id, items); err != nil {
-		return uuid.Nil, err
-	}
-	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
-		Payload: map[string]any{"clearing_id": id, "legal_entity_id": legalEntity, "clearing_date": date.Format(time.DateOnly),
-			"clearing_entry_id": by.EntryID, "clearing_entry_year": by.FiscalYear, "items": payload}}); err != nil {
+	id, err := recordClearing(ctx, tx, actor, clearingDoc{le: legalEntity, date: date, by: by}, items, payload)
+	if err != nil {
 		return uuid.Nil, err
 	}
 	return id, audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",

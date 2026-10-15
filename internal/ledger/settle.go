@@ -245,22 +245,39 @@ func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, l
 // line of the same position.
 func clearWithEntry(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, le uuid.UUID, date time.Time, entry Entry, items []item,
 	offsets []int32) (uuid.UUID, error) {
-	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, le, date, entry.FiscalYear, entry.ID, actor.ID); err != nil {
-		return uuid.Nil, fmt.Errorf("ledger: clear with entry %s: record clearing %s: %w", entry.ID, id, err)
-	}
 	cleared := make([]ItemRef, 0, 2*len(items))
 	for i, it := range items {
 		cleared = append(cleared, it.ref, ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: offsets[i]})
 	}
-	payload := clearedItemsPayload(items, entry)
+	by := ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID}
+	return recordClearing(ctx, tx, actor, clearingDoc{le: le, date: date, by: by}, cleared, clearedItemsPayload(items, entry))
+}
+
+// clearingDoc is a clearing's header: the legal entity, the clearing date
+// and the entry that is the clearing document (by.LineNo is unused).
+type clearingDoc struct {
+	le   uuid.UUID
+	date time.Time
+	by   ItemRef
+}
+
+// recordClearing records a clearing by the entry doc.by, marks the cleared
+// lines and publishes items_cleared with the items' payload: one path for a
+// clearing that posts its entry (clearWithEntry) and one whose entry was
+// migrated already posted (Postings.Clear), which clears no line of it.
+func recordClearing(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, doc clearingDoc, cleared []ItemRef,
+	payload []map[string]any) (uuid.UUID, error) {
+	id := uuid.Must(uuid.NewV7())
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, doc.le, doc.date, doc.by.FiscalYear, doc.by.EntryID, actor.ID); err != nil {
+		return uuid.Nil, fmt.Errorf("ledger: record clearing %s by entry %s: %w", id, doc.by.EntryID, err)
+	}
 	if err := markCleared(ctx, tx, actor.TenantID, id, cleared); err != nil {
 		return uuid.Nil, err
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
-		Payload: map[string]any{"clearing_id": id, "legal_entity_id": le, "clearing_date": date.Format(time.DateOnly),
-			"clearing_entry_id": entry.ID, "clearing_entry_year": entry.FiscalYear, "items": payload}}); err != nil {
+		Payload: map[string]any{"clearing_id": id, "legal_entity_id": doc.le, "clearing_date": doc.date.Format(time.DateOnly),
+			"clearing_entry_id": doc.by.EntryID, "clearing_entry_year": doc.by.FiscalYear, "items": payload}}); err != nil {
 		return uuid.Nil, err
 	}
 	return id, nil
