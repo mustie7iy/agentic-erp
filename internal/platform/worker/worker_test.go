@@ -112,6 +112,36 @@ func TestLoop(t *testing.T) {
 	})
 }
 
+// TestRecover: a panic comes back as a *Panic with its stack, still
+// matching the error it panicked with, if any.
+func TestRecover(t *testing.T) {
+	boom := errors.New("boom")
+	t.Run("an error", func(t *testing.T) {
+		err := Recover(func() error { panic(boom) })
+		if !errors.Is(err, boom) {
+			t.Errorf("got %v, want it to match the error panicked with", err)
+		}
+		var p *Panic
+		if !errors.As(err, &p) || len(p.Stack) == 0 {
+			t.Errorf("got %#v, want a *Panic with its stack", err)
+		}
+	})
+	t.Run("another value", func(t *testing.T) {
+		err := Recover(func() error { panic("boom") })
+		if got := errors.Unwrap(err); got != nil {
+			t.Errorf("unwrapped: got %v, want nil", got)
+		}
+		if got := err.Error(); got != "panic: boom" {
+			t.Errorf("got %q, want panic: boom", got)
+		}
+	})
+	t.Run("no panic", func(t *testing.T) {
+		if err := Recover(func() error { return boom }); !errors.Is(err, boom) {
+			t.Errorf("got %v, want boom", err)
+		}
+	})
+}
+
 // TestFailed: only an error while the context is live is a failure.
 func TestFailed(t *testing.T) {
 	live := context.Background()

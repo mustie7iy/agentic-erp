@@ -64,6 +64,13 @@ type Panic struct {
 
 func (p *Panic) Error() string { return fmt.Sprintf("panic: %v", p.Value) }
 
+// Unwrap is the error the code panicked with, if it was one, so errors.Is
+// and errors.As still see it through the recovery.
+func (p *Panic) Unwrap() error {
+	err, _ := p.Value.(error) // a panic with a value that is no error wraps nothing
+	return err
+}
+
 // Recover runs fn and returns what it returns, or a panic in it as a
 // *Panic. CLAUDE.md bans panic, not recover: a background worker has no
 // HTTP middleware above it (telemetry recovers a request's panic), so

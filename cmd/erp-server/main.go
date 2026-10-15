@@ -549,7 +549,8 @@ func (s *server) start(name string, critical bool, fn func() error) {
 	s.mu.Unlock()
 	s.workers.Go(func() {
 		err := worker.Recover(fn)
-		if p := (*worker.Panic)(nil); errors.As(err, &p) {
+		var p *worker.Panic
+		if errors.As(err, &p) {
 			// A worker outlives every request, so its panic is logged without one.
 			worker.Report(context.Background(), s.log, "worker panicked", err, "worker", name)
 		}
