@@ -46,8 +46,9 @@ type matched struct {
 }
 
 // settled is what the rule did with the invoices: posted, held for a
-// person, or left parked for want of a decision it knows.
-type settled struct{ posted, held, parked []string }
+// person, or left parked for want of a decision it knows. refused are the
+// parked invoices whose match the server refused, with the reason.
+type settled struct{ posted, held, parked, refused []string }
 
 // invoices is the matching rule as an API client: every parked invoice on
 // a purchase order is matched, and the server's decision is acted on. A
@@ -73,6 +74,13 @@ type settled struct{ posted, held, parked []string }
 // answers no decision, and :post does not check the auto-post limit).
 //
 // With -agent, the exceptions agent then investigates the held invoices.
+//
+// A run in which the server refused a match fails (exit 1) once every
+// invoice is settled and the agent has run: the refusal (no exchange rate,
+// no order) leaves the invoice parked until a person fixes its cause, which
+// a scheduler running the rule must see. Invoices only left parked (gone,
+// changed, an exception linked, no decision known) do not fail it; the
+// next run or a person settles them.
 func invoices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("invoices", flag.ContinueOnError)
 	withAgent := fs.Bool("agent", false, "let the exceptions agent investigate held invoices")
@@ -108,10 +116,24 @@ func invoices(ctx context.Context, args []string) error {
 	if err := errs.Wrapf(w.Flush(), "invoices: print"); err != nil {
 		return err
 	}
+	var agentErr error
 	if *withAgent {
-		return agentInvoices(ctx)
+		agentErr = agentInvoices(ctx)
 	}
-	return nil
+	return errors.Join(agentErr, done.refusal())
+}
+
+// refusal is the run's error when the server refused any match.
+func (done *settled) refusal() error {
+	n := len(done.refused)
+	if n == 0 {
+		return nil
+	}
+	noun := "match"
+	if n > 1 {
+		noun = "matches"
+	}
+	return fmt.Errorf("invoices: %d %s refused: %s", n, noun, strings.Join(done.refused, ", "))
 }
 
 // settle matches one invoice, shows the server's decision and acts on it,
@@ -125,6 +147,9 @@ func settle(ctx context.Context, c *apitools.Client, w io.Writer, inv parkedInvo
 		why := parkedOn[refused.Status]
 		fmt.Fprintf(w, "%s: %s: %s: %s\n", inv.DocumentNumber, why, refused.Code, refused.Detail)
 		done.parked = append(done.parked, inv.DocumentNumber+" ("+why+": "+refused.Code+")")
+		if refused.Status == http.StatusUnprocessableEntity {
+			done.refused = append(done.refused, inv.DocumentNumber+" ("+refused.Code+")")
+		}
 		return nil
 	}
 	if err != nil {
