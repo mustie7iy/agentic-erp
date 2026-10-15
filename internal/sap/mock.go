@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strconv"
+	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
@@ -180,9 +181,24 @@ func (g *mockGen) clear(cc, belnr, vendor, clearingDoc string) {
 
 func (g *mockGen) money(lo, hi int64) money.Minor { return money.Minor(lo + g.r.Int64N(hi-lo+1)) }
 
+// milli is a mock quantity in thousandths of a unit, SAP MENGE's three
+// decimals, kept as an integer so a partial receipt can halve it.
+type milli int64
+
+const perUnit = 1000
+
+// String renders the quantity as SAP extracts do, without trailing zeros:
+// "12.5", "3".
+func (q milli) String() string {
+	if q%perUnit == 0 {
+		return strconv.FormatInt(int64(q/perUnit), 10)
+	}
+	return strings.TrimRight(fmt.Sprintf("%d.%03d", q/perUnit, q%perUnit), "0")
+}
+
 type mockPOLine struct {
 	item   string
-	qty    money.Qty
+	qty    milli
 	price  money.Minor
 	peinh  int64
 	sakto  string
@@ -254,7 +270,7 @@ func (g *mockGen) purchaseOrder(cc string, i int, taxPct int64, vendors []string
 func (g *mockGen) poLine(ebeln string, i, j int, scenarios bool) mockPOLine {
 	l := mockPOLine{
 		item:  fmt.Sprintf("%05d", (j+1)*10),
-		qty:   money.Qty((1 + g.r.Int64N(50)) * money.QtyScale),
+		qty:   milli((1 + g.r.Int64N(50)) * perUnit),
 		price: g.money(1000, 200000),
 		peinh: 1,
 		sakto: expenseAccounts[g.r.IntN(len(expenseAccounts))],
@@ -264,13 +280,13 @@ func (g *mockGen) poLine(ebeln string, i, j int, scenarios bool) mockPOLine {
 	}
 	if i == 7 && j == 0 {
 		l.peinh = 100 // price per 100 units
-		l.qty = 2400 * money.QtyScale
+		l.qty = 2400 * perUnit
 	}
 	if scenarios && i == 17 {
 		l.price = g.money(2000000, 3000000) // pushes the invoice over the auto-post limit
-		l.qty += 10 * money.QtyScale
+		l.qty += 10 * perUnit
 	}
-	l.amount, _ = money.Extend(l.qty, l.price, l.peinh) // mock quantities and prices are far from the range
+	l.amount, _ = money.Scale(l.price, l.qty.String(), l.peinh) // mock quantities and prices are far from the range
 	g.e.EKPO = append(g.e.EKPO, EKPO{
 		EBELN: ebeln, EBELP: l.item, MATNR: fmt.Sprintf("MAT-%04d", g.r.IntN(9000)+1000),
 		TXZ01: fmt.Sprintf("Item %d for %s", j+1, ebeln), MENGE: l.qty.String(),

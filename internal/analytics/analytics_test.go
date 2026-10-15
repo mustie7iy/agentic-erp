@@ -96,10 +96,9 @@ func twoYears(t *testing.T) *Facts {
 			}
 			for _, it := range e.EKPO {
 				h := heads[it.EBELN]
-				qty, _ := money.ParseQty(it.MENGE)
 				price, _ := money.ParseDecimal(it.NETPR, 2)
 				unit, _ := strconv.ParseInt(it.PEINH, 10, 64)
-				amount, _ := money.Extend(qty, price, max(unit, 1)) // mock amounts are far from the range
+				amount, _ := money.Scale(price, it.MENGE, max(unit, 1)) // mock amounts are far from the range
 				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, amount, map[string]string{
 					"vendor": sap.Alpha(h.LIFNR), "vendor_name": names[sap.Alpha(h.LIFNR)], "account": sap.Alpha(it.SAKTO), "account_name": accounts[sap.Alpha(it.SAKTO)]})
 			}

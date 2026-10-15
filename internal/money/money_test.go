@@ -40,16 +40,6 @@ func TestParseDecimal(t *testing.T) {
 	}
 }
 
-func TestParseQty(t *testing.T) {
-	q, err := ParseQty("12.5")
-	if err != nil || q != 12500 {
-		t.Fatalf("got %d %v", q, err)
-	}
-	if q.String() != "12.5" {
-		t.Errorf("String = %q", q.String())
-	}
-}
-
 // TestPositiveQuantity: what numeric(20,6) holds exactly and is above
 // zero, in the plain grammar Scale reads; nothing big.Rat or ParseDecimal
 // alone would read (a sign, space, a bare "." side).
@@ -70,32 +60,11 @@ func TestPositiveQuantity(t *testing.T) {
 	}
 }
 
-func TestExtendRoundsHalfAwayFromZero(t *testing.T) {
-	// 1.5 units at 0.01 = 0.015 -> 0.02
-	if got, err := Extend(1500, 1, 1); err != nil || got != 2 {
-		t.Errorf("got %d, %v, want 2", got, err)
-	}
-	if got, err := Extend(-1500, 1, 1); err != nil || got != -2 {
-		t.Errorf("got %d, %v, want -2", got, err)
-	}
-	// 2400 units at 12.34 per 100 units = 296.16
-	if got, err := Extend(2400*QtyScale, 1234, 100); err != nil || got != 29616 {
-		t.Errorf("price unit: got %d, %v, want 29616", got, err)
-	}
-}
-
-// Products are exact: quantity × price and amount × percentage were formed
-// in int64 and wrapped while the result was well in range.
-func TestExtendAndPercentLarge(t *testing.T) {
-	// 10,000,000 units at 10,000,000.00 is 100,000,000,000,000.00.
-	if got, err := Extend(10_000_000*QtyScale, 1_000_000_000, 1); err != nil || got != 10_000_000_000_000_000 {
-		t.Errorf("Extend: got %d, %v, want 10000000000000000", got, err)
-	}
+// Products are exact: amount × percentage was formed in int64 and wrapped
+// while the result was well in range (TestScale covers quantity × price).
+func TestPercentLarge(t *testing.T) {
 	if got, err := Percent(1_000_000_000_000_000_000, 50); err != nil || got != 500_000_000_000_000_000 {
 		t.Errorf("Percent: got %d, %v, want 500000000000000000", got, err)
-	}
-	if _, err := Extend(2*QtyScale, math.MaxInt64, 1); !errors.Is(err, ErrOverflow) {
-		t.Errorf("Extend out of range: got %v, want ErrOverflow", err)
 	}
 	if _, err := Percent(math.MaxInt64, 101); !errors.Is(err, ErrOverflow) {
 		t.Errorf("Percent out of range: got %v, want ErrOverflow", err)

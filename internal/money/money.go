@@ -1,6 +1,7 @@
-// Package money handles amounts as integer minor units and quantities as
-// integer milli-units (ADR-0005). Floats are never used for financial
-// values.
+// Package money handles amounts as integer minor units and document
+// quantities as plain decimal strings of up to six decimals, the
+// numeric(20,6) columns (ADR-0005), extended with Scale. Floats are never
+// used for financial values.
 package money
 
 import (
@@ -13,11 +14,6 @@ import (
 
 // Minor is an amount in minor currency units (e.g. cents).
 type Minor int64
-
-// Qty is a quantity in thousandths of a unit (SAP MENGE has 3 decimals).
-type Qty int64
-
-const QtyScale = 1000
 
 // ParseDecimal parses a decimal string such as SAP's "1234.56" or "-0.5"
 // into minor units. Extra decimals are accepted only if they are zero.
@@ -35,12 +31,6 @@ func ParseAmount(s string, decimals int) (Minor, error) {
 		return 0, fmt.Errorf("amount %q must have exactly %d decimals", s, decimals)
 	}
 	return ParseDecimal(s, decimals)
-}
-
-// ParseQty parses a decimal quantity string into milli-units.
-func ParseQty(s string) (Qty, error) {
-	v, err := parseScaled(s, 3)
-	return Qty(v), err
 }
 
 // QuantityDecimals and QuantityIntDigits bound a document quantity: the
@@ -190,30 +180,6 @@ func (m Minor) Plain(decimals int) string { return strings.ReplaceAll(m.Format(d
 // minor-unit digits (ADR-0005, ADR-0007).
 func EventAmount(amount Minor, currency string, decimals int) map[string]string {
 	return map[string]string{"amount": amount.Plain(decimals), "currency": currency}
-}
-
-func (q Qty) String() string {
-	v := int64(q)
-	sign := ""
-	if v < 0 {
-		sign, v = "-", -v
-	}
-	if v%QtyScale == 0 {
-		return fmt.Sprintf("%s%d", sign, v/QtyScale)
-	}
-	return strings.TrimRight(fmt.Sprintf("%s%d.%03d", sign, v/QtyScale, v%QtyScale), "0")
-}
-
-// Extend computes qty * price / priceUnit, rounded half away from zero,
-// exactly (Scale): the product of quantity and price is no longer formed in
-// int64, where it wrapped long before the result left the range.
-// priceUnit is SAP's PEINH (price per N units); 0 is treated as 1. A
-// result out of range is ErrOverflow.
-func Extend(qty Qty, price Minor, priceUnit int64) (Minor, error) {
-	if priceUnit <= 0 {
-		priceUnit = 1
-	}
-	return Scale(price, qty.String(), priceUnit)
 }
 
 // Percent returns amount * pct / 100 rounded half away from zero (pct 8 =

@@ -108,6 +108,8 @@ func TestScale(t *testing.T) {
 	}{
 		"quantity times price":             {1234, "2400", 100, 29616, false, false},
 		"fractional quantity":              {400, "2.5", 2, 500, false, false},
+		"six-decimal quantity":             {100000, "0.0005", 1, 50, false, false},
+		"product beyond int64, in range":   {1_000_000_000, "10000000", 1, 10_000_000_000_000_000, false, false},
 		"half rounds away from zero":       {1, "1.5", 1, 2, false, false},
 		"negative half rounds away":        {-1, "1.5", 1, -2, false, false},
 		"negative factor":                  {1, "-1.5", 1, -2, false, false},

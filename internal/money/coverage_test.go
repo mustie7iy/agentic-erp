@@ -9,19 +9,6 @@ func TestMoneyEdges(t *testing.T) {
 	if Minor(-1234).Format(0) != "-1,234" {
 		t.Fatalf("zero decimals: %s", Minor(-1234).Format(0))
 	}
-	if got := Qty(-12500).String(); got != "-12.5" {
-		t.Errorf("Qty(-12500).String() = %q, want %q", got, "-12.5")
-	}
-	if got := Qty(3000).String(); got != "3" {
-		t.Errorf("Qty(3000).String() = %q, want %q", got, "3")
-	}
-	// The price unit defaults to 1 when it is not positive.
-	if got, err := Extend(2_000, 150, 0); err != nil || got != 300 {
-		t.Errorf("Extend with price unit 0 = %d, %v, want 300", got, err)
-	}
-	if got, err := Extend(2_000, 150, -5); err != nil || got != 300 {
-		t.Errorf("Extend with price unit -5 = %d, %v, want 300", got, err)
-	}
 	if got, err := Percent(1_000, 8); err != nil || got != 80 {
 		t.Errorf("Percent(1000, 8) = %d, %v, want 80", got, err)
 	}

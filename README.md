@@ -176,7 +176,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 
 ## Guardrails built in
 
-- **Money is never a float.** Amounts are integer minor units; quantities are integer milli-units.
+- **Money is never a float.** Amounts are integer minor units; quantities are exact decimals of up to six places.
 - **The ledger validates everything**, including migrated SAP documents: balanced, known accounts, vendor on AP lines.
 - **Agents cannot post exceptions.** Only a clean three-way match can be posted by a non-human, and only within the auto-post limit (default 50,000.00).
 - **The exception agent has read-only and escalate tools only.** It cannot post, pay or change master data. Bank details are masked in what it sees, and vendor-supplied text is treated as untrusted data.
