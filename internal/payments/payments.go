@@ -191,7 +191,7 @@ func load(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Run, error) 
 	}
 	r, err := scanRun(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Run{}, problem.NotFound("No payment run with this id.")
+		return Run{}, problem.NotFoundOf("payment run")
 	}
 	if err != nil {
 		return Run{}, fmt.Errorf("payments: read run %s: %w", id, err)
@@ -207,7 +207,7 @@ func get(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Run, error) {
 	}
 	r, err := load(ctx, tx, id, lock)
 	if err == nil && !access.Allows(r.LegalEntityID) {
-		return Run{}, problem.NotFound("No payment run with this id.")
+		return Run{}, problem.NotFoundOf("payment run")
 	}
 	return r, err
 }

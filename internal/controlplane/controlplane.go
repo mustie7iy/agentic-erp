@@ -208,7 +208,7 @@ func view(ctx context.Context, tx pgx.Tx, r tenancy.Tenant) (Tenant, error) {
 func read(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (tenancy.Tenant, error) {
 	t, err := tenancy.GetTenant(ctx, tx, id, lock)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return tenancy.Tenant{}, problem.NotFound("No tenant with this id.")
+		return tenancy.Tenant{}, problem.NotFoundOf("tenant")
 	}
 	if err != nil {
 		return tenancy.Tenant{}, fmt.Errorf("controlplane: %w", err)

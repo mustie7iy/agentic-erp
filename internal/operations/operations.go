@@ -123,7 +123,7 @@ func get(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Operation, er
 	}
 	o, err := scan(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return o, problem.NotFound("No operation with this id.")
+		return o, problem.NotFoundOf("operation")
 	}
 	if err != nil {
 		return o, fmt.Errorf("operations: read operation %s: %w", id, err)

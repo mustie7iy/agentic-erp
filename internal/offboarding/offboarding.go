@@ -248,7 +248,7 @@ func (w *Worker) writeExport(ctx context.Context, tenant uuid.UUID) (Export, err
 func readExportable(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (json.RawMessage, time.Time, error) {
 	t, row, err := tenancy.TenantJSON(ctx, tx, tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, time.Time{}, problem.NotFound("No tenant with this id.")
+		return nil, time.Time{}, problem.NotFoundOf("tenant")
 	}
 	if err != nil {
 		return nil, time.Time{}, fmt.Errorf("offboarding: %w", err)
@@ -393,7 +393,7 @@ func (w *Worker) eraseRows(ctx context.Context, tenant uuid.UUID) (map[string]in
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	t, err := tenancy.GetLifecycle(ctx, tx, tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, "", problem.NotFound("No tenant with this id.")
+		return nil, "", problem.NotFoundOf("tenant")
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("offboarding: %w", err)

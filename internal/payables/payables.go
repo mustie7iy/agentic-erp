@@ -228,7 +228,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	return v, errs.Wrapf(err, "scan invoice")
 }
 
-func notFound() error { return problem.NotFound("No supplier invoice with this id.") }
+func notFound() error { return problem.NotFoundOf("supplier invoice") }
 
 // load reads an invoice without company access, for the workflow context's
 // callbacks; lock takes the row lock for a change.

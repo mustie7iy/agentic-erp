@@ -64,7 +64,7 @@ func GetRate(ctx context.Context, id uuid.UUID) (Rate, error) {
 	}
 	r, err := scanRate(tx.QueryRow(ctx, `SELECT `+rateColumns+` FROM ledger.exchange_rate WHERE id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Rate{}, problem.NotFound("No exchange rate with this id.")
+		return Rate{}, problem.NotFoundOf("exchange rate")
 	}
 	if err != nil {
 		return Rate{}, fmt.Errorf("ledger: read exchange rate %s: %w", id, err)

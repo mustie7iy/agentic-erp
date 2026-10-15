@@ -169,7 +169,7 @@ func splitWhy(why string) []string {
 func getSuite(ctx context.Context, tx pgx.Tx, id uuid.UUID) (RegressionSuite, error) {
 	s, err := scanSuite(tx.QueryRow(ctx, suiteSelect+` WHERE s.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return RegressionSuite{}, problem.NotFound("No regression suite with this id.")
+		return RegressionSuite{}, problem.NotFoundOf("regression suite")
 	}
 	if err != nil {
 		return s, fmt.Errorf("configuration: read regression suite %s: %w", id, err)

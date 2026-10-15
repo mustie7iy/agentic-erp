@@ -81,7 +81,7 @@ func getSession(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Sessio
 	}
 	s, err := scanSession(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return s, problem.NotFound("No agent session with this id.")
+		return s, problem.NotFoundOf("agent session")
 	}
 	if err != nil {
 		return s, fmt.Errorf("agents: read session %s: %w", id, err)
@@ -142,7 +142,7 @@ func EndSession(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, u 
 	if err != nil {
 		return Session{}, err
 	}
-	s, err := ownRunning(ctx, tx, p, id, func() error { return problem.NotFound("No agent session with this id.") })
+	s, err := ownRunning(ctx, tx, p, id, func() error { return problem.NotFoundOf("agent session") })
 	if err != nil {
 		return Session{}, err
 	}
@@ -205,7 +205,7 @@ func RecordToolCall(ctx context.Context, session uuid.UUID, tool string, input m
 	if err != nil {
 		return ToolCall{}, err
 	}
-	if _, err := ownRunning(ctx, tx, p, session, func() error { return problem.NotFound("No agent session with this id.") }); err != nil {
+	if _, err := ownRunning(ctx, tx, p, session, func() error { return problem.NotFoundOf("agent session") }); err != nil {
 		return ToolCall{}, err
 	}
 	c, err := scanToolCall(tx.QueryRow(ctx, `INSERT INTO agents.tool_call (tenant_id, session_id, seq, tool, input, result_summary, is_error)
@@ -251,7 +251,7 @@ func getRecommendation(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) 
 	}
 	r, err := scanRecommendation(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r, problem.NotFound("No recommendation with this id.")
+		return r, problem.NotFoundOf("recommendation")
 	}
 	if err != nil {
 		return r, fmt.Errorf("agents: read recommendation %s: %w", id, err)

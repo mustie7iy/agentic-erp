@@ -159,7 +159,7 @@ func getRequest(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Reques
 	}
 	r, err := scanRequest(tx.QueryRow(ctx, requestSelect+` WHERE r.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Request{}, problem.NotFound("No approval request with this id.")
+		return Request{}, problem.NotFoundOf("approval request")
 	}
 	if err != nil {
 		return r, fmt.Errorf("approvals: read request %s: %w", id, err)

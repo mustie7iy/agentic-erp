@@ -69,7 +69,7 @@ func GetAccount(ctx context.Context, id uuid.UUID) (Account, error) {
 	}
 	a, err := scanAccount(tx.QueryRow(ctx, accountSelect+` WHERE a.id = $3`, access.All, access.IDs, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Account{}, problem.NotFound("No account with this id.")
+		return Account{}, problem.NotFoundOf("account")
 	}
 	if err != nil {
 		return Account{}, fmt.Errorf("ledger: read account %s: %w", id, err)

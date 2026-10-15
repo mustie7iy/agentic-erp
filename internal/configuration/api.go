@@ -233,7 +233,7 @@ func (e *Endpoints) GetConfigVersion(ctx context.Context, params gen.GetConfigVe
 	}
 	v, err := scanVersion(tx.QueryRow(ctx, versionSelect+` WHERE v.id = $1`, params.ID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem.NotFound("No configuration version with this id.")
+		return nil, problem.NotFoundOf("configuration version")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("configuration: read configuration version %s: %w", params.ID, err)

@@ -184,7 +184,7 @@ func getCR(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (ChangeReque
 	}
 	c, err := scanCR(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return c, problem.NotFound("No change request with this id.")
+		return c, problem.NotFoundOf("change request")
 	}
 	if err != nil {
 		return c, fmt.Errorf("configuration: read change request %s: %w", id, err)

@@ -46,7 +46,7 @@ func (d DirConnector) Transmit(_ context.Context, f File) error {
 	return nil
 }
 
-func fileNotFound() error { return problem.NotFound("No bank file with this id.") }
+func fileNotFound() error { return problem.NotFoundOf("bank file") }
 
 // getFile reads a bank file of a legal entity the caller may act in.
 func getFile(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (BankFile, error) {
