@@ -1275,3 +1275,37 @@ func TestKeyringFailures(t *testing.T) {
 		pgtest.WantErr(t, err, "no master key is configured")
 	})
 }
+
+// TestAPanickingWorkerIsContained: a worker that panics does not crash the
+// replica for every tenant. The panic is logged with its stack; a critical
+// worker's panic stops the server with an error, as its failure would, and
+// another worker's leaves the server serving.
+func TestAPanickingWorkerIsContained(t *testing.T) {
+	var logs pgtest.SyncBuffer
+	s := &server{log: slog.New(slog.NewTextHandler(&logs, nil)), failed: make(chan struct{})}
+	s.spawn("reporter", func() { panic("reporter boom") })
+	s.wait()
+	select {
+	case <-s.failed:
+		t.Fatalf("got the server failed by a worker that is not critical: %v", s.failure)
+	default:
+	}
+	if !strings.Contains(logs.String(), "reporter boom") || !strings.Contains(logs.String(), "stack=") {
+		t.Errorf("logs: got %s, want the panic with its stack", logs.String())
+	}
+	s.spawnCritical("workflow worker", func() error { panic("worker boom") })
+	s.wait()
+	select {
+	case <-s.failed:
+	default:
+		t.Fatal("got the server serving after its critical worker panicked, want it stopped")
+	}
+	pgtest.WantErr(t, s.failure, "erp-server: workflow worker: panic: worker boom")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for name, running := range s.running {
+		if running {
+			t.Errorf("worker %s: got running, want stopped", name)
+		}
+	}
+}

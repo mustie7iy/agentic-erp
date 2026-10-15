@@ -8,6 +8,8 @@ package worker
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 	"time"
 )
 
@@ -24,13 +26,15 @@ type Logger interface {
 // Loop runs round until ctx ends, waiting interval between rounds, or
 // fallback when interval is not positive. A failed round is logged as msg
 // with the error and retried after the interval; an error after ctx ended
-// is the shutdown, not a failure, and is not logged.
+// is the shutdown, not a failure, and is not logged. A round that panics
+// fails like any other (Recover): one bad row must not crash the replica
+// serving every tenant.
 func Loop(ctx context.Context, interval, fallback time.Duration, round Round, log Logger, msg string) {
 	if interval <= 0 {
 		interval = fallback
 	}
 	for {
-		again, err := round(ctx)
+		again, err := recovered(ctx, round, log, msg)
 		if Failed(ctx, err) {
 			log.ErrorContext(ctx, msg, "error", err)
 		}
@@ -43,6 +47,31 @@ func Loop(ctx context.Context, interval, fallback time.Duration, round Round, lo
 		case <-time.After(interval):
 		}
 	}
+}
+
+// recovered runs one round through Recover.
+func recovered(ctx context.Context, round Round, log Logger, msg string) (again bool, err error) {
+	err = Recover(ctx, log, msg, func() error {
+		var rerr error
+		again, rerr = round(ctx)
+		return rerr
+	})
+	return again, err
+}
+
+// Recover runs fn and returns what it returns, or a panic in it as an
+// error after logging the panic with its stack under name. CLAUDE.md bans
+// panic, not recover: a background worker has no HTTP middleware above it
+// (telemetry recovers a request's panic), so without this a panic in any
+// worker would end the process and every tenant's requests with it.
+func Recover(ctx context.Context, log Logger, name string, fn func() error) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.ErrorContext(ctx, "worker panicked", "worker", name, "panic", fmt.Sprint(rec), "stack", string(debug.Stack()))
+			err = fmt.Errorf("panic: %v", rec)
+		}
+	}()
+	return fn()
 }
 
 // Failed reports whether err is a failure to log: an error while ctx is

@@ -47,6 +47,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
@@ -521,8 +522,25 @@ func listen(cfg config.Config) (apiLn, adminLn net.Listener, err error) {
 }
 
 // spawn runs the worker fn in the background, counted for wait: no worker
-// started this way can be left out of a shutdown.
+// started this way can be left out of a shutdown. A panic in fn is logged
+// with its stack and ends that worker only (worker.Recover).
 func (s *server) spawn(name string, fn func()) {
+	s.start(name, false, func() error { fn(); return nil })
+}
+
+// spawnCritical runs fn as a worker the replica cannot serve without: fn
+// returns nil once runCtx ends, and an error when it could not run, which
+// fails the server, as a panic in it does. The other workers log a failed
+// round and try again on the next one, so a transient database error does
+// not stop a replica; their Run returns nothing to fail with.
+func (s *server) spawnCritical(name string, fn func() error) {
+	s.start(name, true, fn)
+}
+
+// start is spawn and spawnCritical: it records the worker by name, runs fn
+// with its panics contained, and fails the server when a critical worker
+// returns an error or panics.
+func (s *server) start(name string, critical bool, fn func() error) {
 	s.mu.Lock()
 	if s.running == nil {
 		s.running = map[string]bool{}
@@ -530,23 +548,14 @@ func (s *server) spawn(name string, fn func()) {
 	s.running[name] = true
 	s.mu.Unlock()
 	s.workers.Go(func() {
-		fn()
+		// A worker outlives every request, so its panic is logged without one.
+		err := worker.Recover(context.Background(), s.log, name, fn)
+		if err != nil && critical {
+			s.fail(fmt.Errorf("erp-server: %s: %w", name, err))
+		}
 		s.mu.Lock()
 		s.running[name] = false
 		s.mu.Unlock()
-	})
-}
-
-// spawnCritical runs fn through spawn as a worker the replica cannot serve
-// without: fn returns nil once runCtx ends, and an error when it could not
-// run, which fails the server. The other workers log a failed round and try
-// again on the next one, so a transient database error does not stop a
-// replica; their Run returns nothing to fail with.
-func (s *server) spawnCritical(name string, fn func() error) {
-	s.spawn(name, func() {
-		if err := fn(); err != nil {
-			s.fail(fmt.Errorf("erp-server: %s: %w", name, err))
-		}
 	})
 }
 

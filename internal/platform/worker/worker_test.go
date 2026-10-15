@@ -78,6 +78,26 @@ func TestLoop(t *testing.T) {
 			t.Errorf("got log %q, want the failure", logged)
 		}
 	})
+	t.Run("a round that panics is logged with its stack and the next round runs", func(t *testing.T) {
+		rounds := 0
+		logged := run(t, time.Millisecond, time.Hour, func(_ context.Context, cancel context.CancelFunc) (bool, error) {
+			rounds++
+			if rounds == 1 {
+				panic("boom")
+			}
+			cancel()
+			return false, nil
+		})
+		if rounds != 2 {
+			t.Errorf("got %d rounds, want 2", rounds)
+		}
+		if !strings.Contains(logged, `msg="round failed" error="panic: boom"`) {
+			t.Errorf("got log %q, want the panic as the round's failure", logged)
+		}
+		if !strings.Contains(logged, "stack=") {
+			t.Errorf("got log %q, want the panic's stack", logged)
+		}
+	})
 	t.Run("an error after the context ended is not logged", func(t *testing.T) {
 		logged := run(t, time.Millisecond, time.Hour, func(_ context.Context, cancel context.CancelFunc) (bool, error) {
 			cancel()
