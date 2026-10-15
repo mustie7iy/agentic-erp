@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -305,7 +306,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	if err := checkExtensions(in.Extensions); err != nil {
+	if err := extensions.Check(in.Extensions); err != nil {
 		return PurchaseOrder{}, err
 	}
 	req, err := orderedRequisition(ctx, tx, &in, le.ID)
@@ -485,7 +486,7 @@ func changedOrderHeader(o PurchaseOrder, ch OrderChange) (orderHeaderFields, err
 	}
 	if ch.Extensions != nil {
 		f.ext = mergepatch.Apply(f.ext, ch.Extensions)
-		if err := checkExtensions(f.ext); err != nil {
+		if err := extensions.Check(f.ext); err != nil {
 			return orderHeaderFields{}, err
 		}
 	}

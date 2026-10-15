@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +34,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -310,8 +310,6 @@ func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
 
-var extensionKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
 // validate checks an invoice for entry: a legal entity the caller may act
 // in, a usable supplier, amounts in one currency with its minor-unit
 // digits, items on the order or on postable accounts, known tax codes.
@@ -320,7 +318,7 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if err != nil {
 		return checked{}, err
 	}
-	if err := checkExtensionKeys(in.Extensions); err != nil {
+	if err := extensions.Check(in.Extensions); err != nil {
 		return checked{}, err
 	}
 	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID}
@@ -377,17 +375,6 @@ func (e *Endpoints) invoiceParties(ctx context.Context, in Input) (tenancy.Entit
 		return tenancy.Entity{}, partner.Supplier{}, invalid("payables.supplier_not_usable", "supplier_id", "The supplier cannot be invoiced: "+why+".")
 	}
 	return le, sup, nil
-}
-
-// checkExtensionKeys rejects custom field keys that are not snake_case.
-func checkExtensionKeys(extensions map[string]any) error {
-	for k := range extensions {
-		if !extensionKey.MatchString(k) {
-			return problem.Unprocessable("request.invalid_extension", "Custom field keys are snake_case.",
-				problem.FieldError{Field: "extensions." + k, Code: "invalid_key", Message: "snake_case, starting with a letter"})
-		}
-	}
-	return nil
 }
 
 // currencyExponent reads the minor-unit digits of the invoice currency.

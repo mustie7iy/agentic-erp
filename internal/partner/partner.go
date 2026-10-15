@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -350,19 +349,6 @@ func nextNumber(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, table, prefix 
 		return n, fmt.Errorf("partner: issue the next %s number: %w", table, err)
 	}
 	return n, nil
-}
-
-var extensionKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// checkExtensions enforces snake_case keys (ADR-0009).
-func checkExtensions(ext map[string]any) error {
-	for k := range ext {
-		if !extensionKey.MatchString(k) {
-			return problem.Unprocessable("request.invalid_extension", "Custom field keys are snake_case.",
-				problem.FieldError{Field: "extensions." + k, Code: "invalid_key", Message: "snake_case, starting with a letter"})
-		}
-	}
-	return nil
 }
 
 func event(name string, aggregate uuid.UUID, aggregateType string, payload map[string]any) outbox.Event {

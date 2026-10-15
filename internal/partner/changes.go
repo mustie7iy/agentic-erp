@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -509,7 +510,7 @@ func checkNewPartner(in *NewPartner) error {
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	return checkExtensions(in.Extensions)
+	return extensions.Check(in.Extensions)
 }
 
 // newPartnerCountries lists the country codes of a new partner with the
@@ -640,7 +641,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err != nil {
 		return Change{}, err
 	}
-	if err := checkExtensions(ch.Extensions); err != nil {
+	if err := extensions.Check(ch.Extensions); err != nil {
 		return Change{}, err
 	}
 	day, err := database.Today(ctx, tx)

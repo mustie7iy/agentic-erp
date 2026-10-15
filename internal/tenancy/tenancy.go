@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -109,21 +109,6 @@ func scanOU(row pgx.Row) (OrgUnit, error) {
 // OrgUnitKinds are the kinds the database accepts.
 var OrgUnitKinds = map[string]bool{"purchasing_org": true, "plant": true, "storage_location": true, "sales_org": true}
 
-var extensionKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// checkExtensions enforces snake_case keys (ADR-0009). Validation against
-// the tenant's published custom field schema comes with the configuration
-// context's custom field schemas.
-func checkExtensions(ext map[string]any) error {
-	for k := range ext {
-		if !extensionKey.MatchString(k) {
-			return problem.Unprocessable("request.invalid_extension", "Custom field keys are snake_case.",
-				problem.FieldError{Field: "extensions." + k, Code: "invalid_key", Message: "snake_case, starting with a letter"})
-		}
-	}
-	return nil
-}
-
 func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
 
 // getLE loads a legal entity the caller may act in; lock takes the row lock
@@ -183,7 +168,7 @@ func CreateLegalEntity(ctx context.Context, in NewLegalEntity) (LegalEntity, err
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	if err := checkExtensions(in.Extensions); err != nil {
+	if err := extensions.Check(in.Extensions); err != nil {
 		return LegalEntity{}, err
 	}
 	e, err := scanLE(tx.QueryRow(ctx, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency,
@@ -226,7 +211,7 @@ func UpdateLegalEntity(ctx context.Context, id uuid.UUID, ifMatch func(int32) er
 	}
 	if ch.Extensions != nil {
 		ext = mergepatch.Apply(ext, ch.Extensions)
-		if err := checkExtensions(ext); err != nil {
+		if err := extensions.Check(ext); err != nil {
 			return LegalEntity{}, err
 		}
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -82,19 +81,6 @@ func allows(current string, allowed ...string) bool {
 
 func event(name, aggregate string, id uuid.UUID, payload map[string]any) outbox.Event {
 	return outbox.Event{Context: "procurement", Name: name, AggregateType: "procurement." + aggregate, AggregateID: id, Payload: payload}
-}
-
-var extensionKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// checkExtensions enforces snake_case custom field keys (ADR-0009).
-func checkExtensions(ext map[string]any) error {
-	for k := range ext {
-		if !extensionKey.MatchString(k) {
-			return problem.Unprocessable("request.invalid_extension", "Custom field keys are snake_case.",
-				problem.FieldError{Field: "extensions." + k, Code: "invalid_key", Message: "snake_case, starting with a letter"})
-		}
-	}
-	return nil
 }
 
 // exponent returns the currency's minor-unit digits; an unknown currency is
