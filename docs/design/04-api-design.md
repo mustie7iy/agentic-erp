@@ -319,8 +319,9 @@ stored result. Clients act on the server's decision rather than
 compare amounts themselves; a server without the field leaves the decision
 unavailable, not guessed. `:post` of an invoice on a purchase order needs
 its latest match to be clean and of the invoice's current version (or an
-approved exception): an invoice changed after its match is refused (409
-`payables.match_required`) until it is matched again (F13). `erp invoices`
+exception approved at that version, F16): an invoice changed after its
+match or its approval is refused (409 `payables.match_required`) until it
+is matched, or its exception approved, again (F13). `erp invoices`
 posts or holds with the ETag it sent to `:match`, which a clean match of a
 parked invoice leaves valid, so an edit in between fails with 412 and the
 invoice is left parked for the next run rather than acted on unmatched.
