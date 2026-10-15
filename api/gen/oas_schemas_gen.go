@@ -8069,7 +8069,8 @@ func (*ExchangeRatePageHeaders) listExchangeRatesRes() {}
 // Read-only copies of referenced resources requested with `expand`.
 // Ref: #/components/schemas/Expanded
 type Expanded struct {
-	// The supplier, when `expand=supplier` was requested.
+	// The supplier, when `expand=supplier` was requested and the supplier is found; otherwise `expanded`
+	// is left out.
 	Supplier OptPartnerSummary `json:"supplier"`
 }
 

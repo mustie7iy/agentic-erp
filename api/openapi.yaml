@@ -9728,7 +9728,7 @@ components:
       properties:
         supplier:
           $ref: "#/components/schemas/PartnerSummary"
-          description: "The supplier, when `expand=supplier` was requested."
+          description: "The supplier, when `expand=supplier` was requested and the supplier is found; otherwise `expanded` is left out."
           readOnly: true
       examples:
         - supplier:
