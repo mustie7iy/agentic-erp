@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,32 +45,69 @@ const ReleaseWorkflow = "ReleasePaymentRun"
 // operation.
 const ProblemError = "problem"
 
-// ReleasePaymentRun posts the run's payments one activity each and ends
-// the release; a problem fails the release instead.
-func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
-	ao := workflow.ActivityOptions{StartToCloseTimeout: 10 * time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5, NonRetryableErrorTypes: []string{ProblemError}}}
-	ctx = workflow.WithActivityOptions(ctx, ao)
-	var a *Payments
-	var todo []uuid.UUID
-	err := workflow.ExecuteActivity(ctx, a.PaymentsToPost, in).Get(ctx, &todo)
+// releaseSteps are the steps of a run's release. The workflow runs each as
+// an activity and the Releaser calls them directly, so both share one
+// control flow (run) and differ only in how a step is carried out.
+type releaseSteps struct {
+	toPost func() ([]uuid.UUID, error)
+	post   func(pay uuid.UUID) error
+	finish func() error
+	fail   func(why problem.Problem) error
+}
+
+// run posts the run's payments in order and ends the release; a problem
+// fails the release instead. In a workflow it is deterministic: it only
+// sequences the steps, which issue the same activities in the same order
+// on every replay.
+func (s releaseSteps) run() error {
+	todo, err := s.toPost()
 	for _, pay := range todo {
 		if err != nil {
 			break
 		}
-		err = workflow.ExecuteActivity(ctx, a.PostPayment, in, pay).Get(ctx, nil)
+		err = s.post(pay)
 	}
 	if err == nil {
-		err = workflow.ExecuteActivity(ctx, a.FinishRelease, in).Get(ctx, nil)
+		err = s.finish()
 	}
 	var app *temporal.ApplicationError
 	if errors.As(err, &app) && app.Type() == ProblemError {
 		var why problem.Problem
 		if app.Details(&why) == nil {
-			return workflow.ExecuteActivity(ctx, a.FailRelease, in, why).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+			return s.fail(why)
 		}
 	}
-	return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+	return err
+}
+
+// ReleasePaymentRun posts the run's payments one activity each and ends
+// the release; a problem fails the release instead.
+//
+// The steps return Future.Get's error unwrapped: it is the workflow result,
+// and the engine records Get's ActivityError, which carries the activity
+// type and id, as the failure; a wrap would put a generic wrapError failure
+// on top and add no context.
+func ReleasePaymentRun(ctx workflow.Context, in ReleaseInput) error {
+	ao := workflow.ActivityOptions{StartToCloseTimeout: 10 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5, NonRetryableErrorTypes: []string{ProblemError}}}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+	var a *Payments
+	return releaseSteps{
+		toPost: func() ([]uuid.UUID, error) {
+			var todo []uuid.UUID
+			err := workflow.ExecuteActivity(ctx, a.PaymentsToPost, in).Get(ctx, &todo)
+			return todo, err //nolint:wrapcheck // the workflow result, see ReleasePaymentRun
+		},
+		post: func(pay uuid.UUID) error {
+			return workflow.ExecuteActivity(ctx, a.PostPayment, in, pay).Get(ctx, nil)
+		},
+		finish: func() error {
+			return workflow.ExecuteActivity(ctx, a.FinishRelease, in).Get(ctx, nil)
+		},
+		fail: func(why problem.Problem) error {
+			return workflow.ExecuteActivity(ctx, a.FailRelease, in, why).Get(ctx, nil)
+		},
+	}.run()
 }
 
 // inRelease runs fn in one transaction as the run's releaser, with the
@@ -191,9 +229,7 @@ type Releaser struct {
 	Pool       *database.Pool
 	WorkerRole string // erp_worker: finds release operations across tenants
 	Interval   time.Duration
-	Log        interface {
-		ErrorContext(context.Context, string, ...any)
-	}
+	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
 }
@@ -220,26 +256,15 @@ func (w *Releaser) pending(ctx context.Context) ([]ReleaseInput, error) {
 	return jobs, nil
 }
 
-// Release does one run's release: the steps of the workflow, in order.
+// Release does one run's release: the steps of the workflow, in order,
+// each called directly in its own transaction.
 func (w *Releaser) Release(ctx context.Context, in ReleaseInput) error {
-	todo, err := w.Payments.PaymentsToPost(ctx, in)
-	for _, pay := range todo {
-		if err != nil {
-			break
-		}
-		err = w.Payments.PostPayment(ctx, in, pay)
-	}
-	if err == nil {
-		err = w.Payments.FinishRelease(ctx, in)
-	}
-	var app *temporal.ApplicationError
-	if errors.As(err, &app) && app.Type() == ProblemError {
-		var why problem.Problem
-		if app.Details(&why) == nil {
-			return w.Payments.FailRelease(ctx, in, why)
-		}
-	}
-	return err
+	return releaseSteps{
+		toPost: func() ([]uuid.UUID, error) { return w.Payments.PaymentsToPost(ctx, in) },
+		post:   func(pay uuid.UUID) error { return w.Payments.PostPayment(ctx, in, pay) },
+		finish: func() error { return w.Payments.FinishRelease(ctx, in) },
+		fail:   func(why problem.Problem) error { return w.Payments.FailRelease(ctx, in, why) },
+	}.run()
 }
 
 // RunOnce releases every queued run and returns how many it completed.
