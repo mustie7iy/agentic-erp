@@ -75,13 +75,16 @@ func scanPrincipal(row pgx.Row) (Principal, error) {
 	err := row.Scan(&p.ID, &p.Kind, &p.ExternalSubject, &p.DisplayName, &p.Email, &p.AllCompanies, &p.Status, &p.Version,
 		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy,
 		&hasProfile, &ap.AutonomyLevel, &ap.Model, &ap.Description, &ap.MonthlyBudget, &ap.BudgetCurrency, &exponent)
+	if err != nil {
+		return p, errs.Wrapf(err, "scan principal")
+	}
 	if hasProfile {
 		p.Profile = &ap
 		if ap.MonthlyBudget != nil {
 			p.BudgetDecimal = &Budget{Amount: ap.MonthlyBudget.Plain(int(exponent)), Currency: *ap.BudgetCurrency}
 		}
 	}
-	return p, errs.Wrapf(err, "scan principal")
+	return p, nil
 }
 
 func getPrincipal(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Principal, error) {
@@ -107,8 +110,8 @@ type ProfileInput struct {
 	Budget        *Budget
 }
 
-// profile converts the input, parsing the budget with the currency's
-// minor-unit digits.
+// profile converts the input, parsing the budget as an API amount: exactly
+// the currency's minor-unit digits (ADR-0005).
 func profile(ctx context.Context, tx pgx.Tx, in ProfileInput) (AgentProfile, error) {
 	ap := AgentProfile{AutonomyLevel: in.AutonomyLevel, Model: in.Model, Description: in.Description}
 	if in.Budget == nil {
@@ -120,7 +123,7 @@ func profile(ctx context.Context, tx pgx.Tx, in ProfileInput) (AgentProfile, err
 	if err != nil {
 		return ap, fmt.Errorf("identity: agent budget: %w", err)
 	}
-	amount, err := money.ParseDecimal(in.Budget.Amount, exponent)
+	amount, err := money.ParseAmount(in.Budget.Amount, exponent)
 	if err != nil || amount < 0 {
 		return ap, problem.Unprocessable("request.invalid_amount", "The budget amount is not a valid non-negative amount in this currency.",
 			problem.FieldError{Field: "agent_profile.monthly_budget.amount", Code: "invalid", Message: "decimal string with the currency's minor-unit digits"})

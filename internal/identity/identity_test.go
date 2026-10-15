@@ -112,13 +112,14 @@ func (s *principals) createPrincipals(t *testing.T) {
 		status int
 		code   string
 	}{
-		"unknown kind":     {`{"kind": "robot", "display_name": "R", "external_subject": "s1"}`, 422, "identity.unknown_principal_kind"},
-		"no subject":       {`{"kind": "human", "display_name": "H"}`, 422, "identity.subject_required"},
-		"agent no profile": {`{"kind": "agent", "display_name": "A"}`, 422, "identity.agent_profile"},
-		"human profile":    {`{"kind": "human", "display_name": "H", "external_subject": "s2", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d"}}`, 422, "identity.agent_profile"},
-		"subject taken":    {`{"kind": "human", "display_name": "H", "external_subject": "auth0|jonas"}`, 409, "identity.subject_taken"},
-		"bad budget":       {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d", "monthly_budget": {"amount": "5.001", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
-		"unknown currency": {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d", "monthly_budget": {"amount": "5.00", "currency": "XXQ"}}}`, 422, "identity.unknown_currency"},
+		"unknown kind":          {`{"kind": "robot", "display_name": "R", "external_subject": "s1"}`, 422, "identity.unknown_principal_kind"},
+		"no subject":            {`{"kind": "human", "display_name": "H"}`, 422, "identity.subject_required"},
+		"agent no profile":      {`{"kind": "agent", "display_name": "A"}`, 422, "identity.agent_profile"},
+		"human profile":         {`{"kind": "human", "display_name": "H", "external_subject": "s2", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d"}}`, 422, "identity.agent_profile"},
+		"subject taken":         {`{"kind": "human", "display_name": "H", "external_subject": "auth0|jonas"}`, 409, "identity.subject_taken"},
+		"bad budget":            {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d", "monthly_budget": {"amount": "5.001", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
+		"budget too few digits": {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d", "monthly_budget": {"amount": "5.0", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
+		"unknown currency":      {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d", "monthly_budget": {"amount": "5.00", "currency": "XXQ"}}}`, 422, "identity.unknown_currency"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			api := c
