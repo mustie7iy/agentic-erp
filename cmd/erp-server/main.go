@@ -548,8 +548,11 @@ func (s *server) start(name string, critical bool, fn func() error) {
 	s.running[name] = true
 	s.mu.Unlock()
 	s.workers.Go(func() {
-		// A worker outlives every request, so its panic is logged without one.
-		err := worker.Recover(context.Background(), s.log, name, fn)
+		err := worker.Recover(fn)
+		if p := (*worker.Panic)(nil); errors.As(err, &p) {
+			// A worker outlives every request, so its panic is logged without one.
+			worker.Report(context.Background(), s.log, "worker panicked", err, "worker", name)
+		}
 		if err != nil && critical {
 			s.fail(fmt.Errorf("erp-server: %s: %w", name, err))
 		}
@@ -661,9 +664,9 @@ func maintain(ctx context.Context, interval time.Duration, job func(context.Cont
 			return
 		case <-time.After(interval):
 		}
-		err := worker.Recover(ctx, log, "partition maintenance", func() error { return job(ctx) })
-		if err != nil && ctx.Err() == nil {
-			log.ErrorContext(ctx, "partition maintenance failed", "error", err)
+		err := worker.Recover(func() error { return job(ctx) })
+		if worker.Failed(ctx, err) {
+			worker.Report(ctx, log, "partition maintenance failed", err)
 		}
 	}
 }

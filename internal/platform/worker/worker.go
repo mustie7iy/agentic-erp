@@ -8,6 +8,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"time"
@@ -25,18 +26,23 @@ type Logger interface {
 
 // Loop runs round until ctx ends, waiting interval between rounds, or
 // fallback when interval is not positive. A failed round is logged as msg
-// with the error and retried after the interval; an error after ctx ended
-// is the shutdown, not a failure, and is not logged. A round that panics
-// fails like any other (Recover): one bad row must not crash the replica
-// serving every tenant.
+// with the error (Report) and retried after the interval; an error after
+// ctx ended is the shutdown, not a failure, and is not logged. A round that
+// panics fails like any other (Recover), logged once with its stack: one
+// bad row must not crash the replica serving every tenant.
 func Loop(ctx context.Context, interval, fallback time.Duration, round Round, log Logger, msg string) {
 	if interval <= 0 {
 		interval = fallback
 	}
 	for {
-		again, err := recovered(ctx, round, log, msg)
+		var again bool
+		err := Recover(func() error {
+			var rerr error
+			again, rerr = round(ctx)
+			return rerr
+		})
 		if Failed(ctx, err) {
-			log.ErrorContext(ctx, msg, "error", err)
+			Report(ctx, log, msg, err)
 		}
 		if again && err == nil {
 			continue
@@ -49,29 +55,40 @@ func Loop(ctx context.Context, interval, fallback time.Duration, round Round, lo
 	}
 }
 
-// recovered runs one round through Recover.
-func recovered(ctx context.Context, round Round, log Logger, msg string) (again bool, err error) {
-	err = Recover(ctx, log, msg, func() error {
-		var rerr error
-		again, rerr = round(ctx)
-		return rerr
-	})
-	return again, err
+// Panic is a panic Recover caught: its value and the stack it was raised
+// on, which the error text alone would lose.
+type Panic struct {
+	Value any
+	Stack []byte
 }
 
-// Recover runs fn and returns what it returns, or a panic in it as an
-// error after logging the panic with its stack under name. CLAUDE.md bans
-// panic, not recover: a background worker has no HTTP middleware above it
-// (telemetry recovers a request's panic), so without this a panic in any
-// worker would end the process and every tenant's requests with it.
-func Recover(ctx context.Context, log Logger, name string, fn func() error) (err error) {
+func (p *Panic) Error() string { return fmt.Sprintf("panic: %v", p.Value) }
+
+// Recover runs fn and returns what it returns, or a panic in it as a
+// *Panic. CLAUDE.md bans panic, not recover: a background worker has no
+// HTTP middleware above it (telemetry recovers a request's panic), so
+// without this a panic in any worker would end the process and every
+// tenant's requests with it. Recover does not log: its caller reports the
+// error once (Report), stack included, where logging here too would log
+// the panic twice, once more as the caller's failure.
+func Recover(fn func() error) (err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.ErrorContext(ctx, "worker panicked", "worker", name, "panic", fmt.Sprint(rec), "stack", string(debug.Stack()))
-			err = fmt.Errorf("panic: %v", rec)
+			err = &Panic{Value: rec, Stack: debug.Stack()}
 		}
 	}()
 	return fn()
+}
+
+// Report logs err as msg with args, and with the stack when err is a
+// recovered panic (Recover).
+func Report(ctx context.Context, log Logger, msg string, err error, args ...any) {
+	args = append(args, "error", err)
+	var p *Panic
+	if errors.As(err, &p) {
+		args = append(args, "stack", string(p.Stack))
+	}
+	log.ErrorContext(ctx, msg, args...)
 }
 
 // Failed reports whether err is a failure to log: an error while ctx is

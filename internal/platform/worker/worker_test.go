@@ -97,6 +97,9 @@ func TestLoop(t *testing.T) {
 		if !strings.Contains(logged, "stack=") {
 			t.Errorf("got log %q, want the panic's stack", logged)
 		}
+		if n := strings.Count(logged, "\n"); n != 1 {
+			t.Errorf("got %d log records %q, want the panic logged once", n, logged)
+		}
 	})
 	t.Run("an error after the context ended is not logged", func(t *testing.T) {
 		logged := run(t, time.Millisecond, time.Hour, func(_ context.Context, cancel context.CancelFunc) (bool, error) {

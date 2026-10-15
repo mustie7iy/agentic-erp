@@ -269,6 +269,12 @@ func TestMaintenanceRetries(t *testing.T) {
 	if !strings.Contains(logs.String(), `error="panic: partition boom"`) {
 		t.Errorf("logs: got %s, want the panic as a failed round", logs.String())
 	}
+	if !strings.Contains(logs.String(), "stack=") {
+		t.Errorf("logs: got %s, want the panic's stack", logs.String())
+	}
+	if n := strings.Count(logs.String(), "\n"); n != 2 { // the panic is logged once, as its round's failure
+		t.Errorf("log records: got %d, want 2:\n%s", n, logs.String())
+	}
 }
 
 func TestStartupFailures(t *testing.T) {
