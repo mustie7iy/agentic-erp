@@ -187,7 +187,7 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 	if err := lockProposals(ctx, tx, r.LegalEntityID); err != nil {
 		return Run{}, err
 	}
-	le, _, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
+	le, err := e.entityOf(ctx, r)
 	if err != nil {
 		return Run{}, err
 	}

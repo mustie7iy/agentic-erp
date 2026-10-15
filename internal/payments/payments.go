@@ -313,6 +313,29 @@ func loadHouseBank(ctx context.Context, tx pgx.Tx, id uuid.UUID) (houseBank, boo
 	return h, true, nil
 }
 
+// errNoEntity is entityOf's error for a run whose legal entity the tenancy
+// context does not find.
+var errNoEntity = errors.New("no legal entity")
+
+// entityOf reads the legal entity of run r. payment_run.legal_entity_id has
+// no foreign key into tenancy, and legal entities are never deleted, so a
+// missing one is broken data: it is refused rather than read as an entity
+// with an empty code, which would begin the run's end-to-end ids, bank file
+// message id and file name with "-". The refusal is an error, not a
+// problem: the proposal job and the release activity leave it to their
+// retries (nothing is written), and an API caller that should say more
+// maps errNoEntity itself.
+func (e *Endpoints) entityOf(ctx context.Context, r Run) (tenancy.Entity, error) {
+	le, found, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
+	if err != nil {
+		return tenancy.Entity{}, err
+	}
+	if !found {
+		return tenancy.Entity{}, fmt.Errorf("payments: run %s: %w %s", r.ID, errNoEntity, r.LegalEntityID)
+	}
+	return le, nil
+}
+
 func requireProposed(r Run, done string) error {
 	if r.Status != Proposed {
 		return problem.Conflict("payments.invalid_status", "Only a proposed payment run can be "+done+"; this one is "+r.Status+".")

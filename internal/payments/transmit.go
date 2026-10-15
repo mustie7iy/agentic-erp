@@ -3,6 +3,7 @@ package payments
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -102,15 +103,19 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	content, err := e.fileOf(ctx, tx, p.TenantID, f)
-	if err != nil {
-		return operations.Operation{}, err
-	}
 	r, err := load(ctx, tx, f.RunID, false)
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	le, _, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
+	le, err := e.entityOf(ctx, r)
+	if errors.Is(err, errNoEntity) {
+		return operations.Operation{}, problem.ReferenceNotFound("legal_entity_id", "legal entity",
+			"legal entity "+r.LegalEntityID.String()+" of payment run "+r.DocumentNumber+" does not exist")
+	}
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	content, err := e.fileOf(ctx, tx, p.TenantID, f)
 	if err != nil {
 		return operations.Operation{}, err
 	}
