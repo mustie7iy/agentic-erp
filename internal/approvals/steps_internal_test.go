@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -20,8 +21,8 @@ import (
 // (TestThresholdInTheCompanysCurrency).
 type inCompany struct{ exp int }
 
-func (c inCompany) ToCompany(_ context.Context, _ uuid.UUID, _ string, _ time.Time, amount money.Minor) (money.Minor, int, error) {
-	return amount, c.exp, nil
+func (c inCompany) ExactToCompany(_ context.Context, _ uuid.UUID, _ string, _ time.Time, amount money.Minor) (*big.Rat, error) {
+	return money.Rat(amount, c.exp), nil
 }
 
 // TestRequisitionTierAtTheThresholdsDigits: a threshold is validated with
@@ -99,8 +100,8 @@ func TestRequisitionThresholdNotADecimal(t *testing.T) {
 // noRate is a ledger without the rate a requisition needs.
 type noRate struct{ err error }
 
-func (r noRate) ToCompany(context.Context, uuid.UUID, string, time.Time, money.Minor) (money.Minor, int, error) {
-	return 0, 0, r.err
+func (r noRate) ExactToCompany(context.Context, uuid.UUID, string, time.Time, money.Minor) (*big.Rat, error) {
+	return nil, r.err
 }
 
 // TestRequisitionWithoutARate: a requisition the ledger cannot convert is

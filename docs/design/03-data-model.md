@@ -290,9 +290,11 @@ divided by it exactly, never multiplied by a rounded reciprocal, F19) on the
 document's date: a requisition on the day it was raised (UTC), so a
 resubmission is routed at the same rate, an invoice on its invoice date
 (a posting converts on the posting date instead). The converted amount is
-rounded half away from zero to the company's minor units, as it would be
-posted, and that figure is compared exactly with the configured one: a
-variance worth 5.004 EUR is 5.00 EUR and within a 5.00 tolerance. Without
+compared with the configured one exactly, as amount × rate before any
+rounding to the company's minor units (F13): a variance worth 5.004 EUR is
+beyond a 5.00 tolerance, and a requisition worth 1,000.004 EUR is above an
+"up to 1000.00" tier. Amounts shown to people are rounded half away from
+zero to the company's minor units, as they would be posted. Without
 a rate a requisition's submission and an invoice's match are refused (422
 `ledger.no_exchange_rate`, naming the pair and the date; nothing is
 recorded); the raw numbers of two currencies are never compared. An

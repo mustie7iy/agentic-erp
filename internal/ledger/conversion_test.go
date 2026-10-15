@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/google/uuid"
@@ -16,10 +17,21 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
+// ratOf reads a decimal or a fraction a/b.
+func ratOf(t *testing.T, s string) *big.Rat {
+	t.Helper()
+	r, ok := new(big.Rat).SetString(s)
+	if !ok {
+		t.Fatalf("not a rational: %s", s)
+	}
+	return r
+}
+
 // TestRatesPort converts document amounts into a company's currency the
 // way posting does: the average rate valid on the date, inverted when only
-// the other direction is maintained; a missing rate or an amount out of
-// range is refused, never compared unconverted (F12).
+// the other direction is maintained, and unrounded, as the company's
+// configured amounts are compared with it (F13); a missing rate is
+// refused, never compared unconverted (F12).
 func TestRatesPort(t *testing.T) {
 	e := setup(t)
 	e.rate(t, "USD", "EUR", "2026-01-01", "0.9")
@@ -30,64 +42,58 @@ func TestRatesPort(t *testing.T) {
 	e.rate(t, "EUR", "KRW", "2026-01-01", "3000000000000")
 	e.rate(t, "EUR", "SEK", "2026-01-01", "3")
 	rates := ledger.Rates{LegalEntities: tenancy.Directory{}}
-	toCompany := func(le uuid.UUID, currency, day string, amount money.Minor) (money.Minor, int, error) {
-		var v money.Minor
-		var exp int
+	toCompany := func(le uuid.UUID, currency, day string, amount money.Minor) (*big.Rat, error) {
+		var v *big.Rat
 		err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
-			v, exp, err = rates.ToCompany(ctx, le, currency, date(day), amount)
+			v, err = rates.ExactToCompany(ctx, le, currency, date(day), amount)
 			return err
 		})
-		return v, exp, err
+		return v, err
 	}
 	for _, c := range []struct {
 		name, currency string
-		amount, want   money.Minor
+		le             uuid.UUID
+		amount         money.Minor
+		want           string // major units of the company's currency, as big.Rat reads it
 	}{
-		{"same currency", "EUR", 12345, 12345},
-		{"rate", "USD", 1111111, 1000000},                  // 11,111.11 USD at 0.9: 9,999.999 EUR, rounded
-		{"inverted rate", "JPY", 1000, 625},                // 1,000 JPY at 1/160: 6.25 EUR
-		{"inverted repeating rate", "CHF", 100000, 104167}, // 1,000.00 CHF at 1/0.96 = 1.041666666667: 1,041.67 EUR
-		// Divided by the recorded rate, exactly, and rounded once (F19).
-		{"inverse below 12 decimals", "KRW", 3_000_000_000_000, 100},             // 3e12 KRW at 1/3e12: 1.00 EUR, not 0
-		{"inverse of 3", "SEK", 100, 33},                                         // 1.00 SEK / 3 = 0.333…: 0.33 EUR
-		{"inverse of 3, large", "SEK", 300_000_000_000_002, 100_000_000_000_001}, // 3,000,000,000,000.02 / 3 = 1,000,000,000,000.00667
+		{"same currency", "EUR", e.de, 12345, "123.45"},
+		{"rate", "USD", e.de, 1111111, "9999.999"},                 // 11,111.11 USD at 0.9, not rounded to 10,000.00
+		{"inverted rate", "JPY", e.de, 1000, "6.25"},               // 1,000 JPY at 1/160
+		{"inverted repeating rate", "CHF", e.de, 100000, "3125/3"}, // 1,000.00 CHF at 1/0.96, not at 1.041666666667
+		// Divided by the recorded rate, exactly (F19).
+		{"inverse below 12 decimals", "KRW", e.de, 3_000_000_000_000, "1"},                      // 3e12 KRW at 1/3e12, not 0
+		{"inverse of 3", "SEK", e.de, 100, "1/3"},                                               // 1.00 SEK / 3
+		{"inverse of 3, large", "SEK", e.de, 300_000_000_000_002, "150000000000001/150"},        // 3,000,000,000,000.02 / 3
+		{"beyond the range of an amount", "EUR", e.us, math.MaxInt64, "9223372036854775807/90"}, // 92,233,720,368,547,758.07 EUR at 1/0.9, never wrapped
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, exp, err := toCompany(e.de, c.currency, "2026-03-10", c.amount)
+			got, err := toCompany(c.le, c.currency, "2026-03-10", c.amount)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != c.want {
-				t.Errorf("amount: got %d, want %d", got, c.want)
-			}
-			if exp != 2 {
-				t.Errorf("exponent: got %d, want 2", exp)
+			want := ratOf(t, c.want)
+			if got.Cmp(want) != 0 {
+				t.Errorf("amount: got %s, want %s", got.RatString(), want.RatString())
 			}
 		})
 	}
 	refusals := []struct {
-		name, currency, day, code string
-		amount                    money.Minor
+		name, currency, day string
 	}{
-		{"before the rate", "USD", "2025-12-31", "ledger.no_exchange_rate", 100},
-		{"no rate", "GBP", "2026-03-10", "ledger.no_exchange_rate", 100},
-		{"out of range", "EUR", "2026-03-10", "ledger.amount_too_large", math.MaxInt64}, // in USD company 1000, at 1/0.9
+		{"before the rate", "USD", "2025-12-31"},
+		{"no rate", "GBP", "2026-03-10"},
 	}
 	for _, c := range refusals {
 		t.Run(c.name, func(t *testing.T) {
-			le := e.de
-			if c.code == "ledger.amount_too_large" {
-				le = e.us
-			}
-			_, _, err := toCompany(le, c.currency, c.day, c.amount)
-			if got := problem.From(err).Code; got != c.code {
-				t.Errorf("problem: got %s (%v), want %s", got, err, c.code)
+			_, err := toCompany(e.de, c.currency, c.day, 100)
+			if got := problem.From(err).Code; got != "ledger.no_exchange_rate" {
+				t.Errorf("problem: got %s (%v), want ledger.no_exchange_rate", got, err)
 			}
 		})
 	}
 	// Callers pass the legal entity of a stored document, so this is a
 	// refusal of the request rather than a server error should it happen.
-	if _, _, err := toCompany(uuid.New(), "EUR", "2026-03-10", 1); problem.From(err).Code != "request.reference_not_found" {
+	if _, err := toCompany(uuid.New(), "EUR", "2026-03-10", 1); problem.From(err).Code != "request.reference_not_found" {
 		t.Errorf("unknown legal entity: got %v, want request.reference_not_found", err)
 	}
 	t.Run("inverse rate", func(t *testing.T) {
@@ -109,7 +115,7 @@ func TestRatesPort(t *testing.T) {
 		t.Error("outside a unit of work: got no error, want one")
 	}
 	apitest.EveryFailure(t, e.ten, e.ten.Human, "to company", func(ctx context.Context) error {
-		_, _, err := rates.ToCompany(ctx, e.de, "USD", date("2026-03-10"), 100)
+		_, err := rates.ExactToCompany(ctx, e.de, "USD", date("2026-03-10"), 100)
 		return err
 	})
 	// An invalid rate cannot come from the database; the conversion still
@@ -119,6 +125,16 @@ func TestRatesPort(t *testing.T) {
 	}
 	if _, err := (ledger.Conversion{From: "USD", To: "EUR", Rate: "1", FromExp: -1, ToExp: 2}).Convert(1); err == nil || errors.Is(err, money.ErrOverflow) {
 		t.Errorf("invalid exponent: got %v, want an error", err)
+	}
+	// Convert rounds once, half away from zero: 11,111.11 USD at 0.9 is
+	// 9,999.999 EUR, 10,000.00 rounded.
+	if got, err := (ledger.Conversion{From: "USD", To: "EUR", Rate: "0.9", FromExp: 2, ToExp: 2}).Convert(1111111); err != nil || got != 1000000 {
+		t.Errorf("converted: got %d (%v), want 1000000", got, err)
+	}
+	// Rounded into the other currency's minor units, an amount can leave the
+	// range; Convert reports it rather than wrapping.
+	if _, err := (ledger.Conversion{From: "EUR", To: "USD", Rate: "2", FromExp: 2, ToExp: 2}).Convert(math.MaxInt64); !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("out of range: got %v, want money.ErrOverflow", err)
 	}
 }
 
@@ -131,7 +147,7 @@ func TestUnreadableStoredRate(t *testing.T) {
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'EUR', 'GBP', '2026-01-01', 'NaN', 'test', $2)`, e.ten.ID, e.ten.Human.ID)
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		_, _, err := ledger.Rates{LegalEntities: tenancy.Directory{}}.ToCompany(ctx, e.de, "GBP", date("2026-03-10"), 100)
+		_, err := ledger.Rates{LegalEntities: tenancy.Directory{}}.ExactToCompany(ctx, e.de, "GBP", date("2026-03-10"), 100)
 		return err
 	})
 	pgtest.WantErr(t, err, `stored rate "NaN"`)

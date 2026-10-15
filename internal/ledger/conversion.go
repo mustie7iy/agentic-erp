@@ -79,13 +79,6 @@ func (c Conversion) failed(err error) error {
 	return fmt.Errorf("ledger: convert %s into %s: %w", c.From, c.To, err)
 }
 
-// errConversionTooLarge refuses a document amount whose value in the
-// company's currency is out of range.
-func errConversionTooLarge() error {
-	return problem.Unprocessable("ledger.amount_too_large",
-		"The amount in the company's currency is too large to compare with its configured amounts.")
-}
-
 // Conversion returns the conversion from one currency into another on the
 // date. Without a rate it refuses with ledger.no_exchange_rate, naming the
 // pair and the date.
@@ -117,26 +110,25 @@ func (Rates) Conversion(ctx context.Context, from, to string, date time.Time) (C
 	return c, nil
 }
 
-// ToCompany converts an amount in the currency from into the legal
-// entity's local currency at the rate valid on the date, and returns it
-// with that currency's minor-unit digits. Callers pass the legal entity of
-// a stored document, which always exists; an unknown one is still refused
-// as the reference it is rather than failing the request.
-func (r Rates) ToCompany(ctx context.Context, legalEntity uuid.UUID, from string, date time.Time, amount money.Minor) (money.Minor, int, error) {
+// ExactToCompany converts an amount in the currency from into the legal
+// entity's local currency at the rate valid on the date, unrounded
+// (Conversion.Exact): its value in major units of that currency, for
+// comparing with the company's configured amounts, where rounding to the
+// currency's digits first would let 1000.004 pass a limit of 1000.00
+// (F13). Callers pass the legal entity of a stored document, which always
+// exists; an unknown one is still refused as the reference it is rather
+// than failing the request.
+func (r Rates) ExactToCompany(ctx context.Context, legalEntity uuid.UUID, from string, date time.Time, amount money.Minor) (*big.Rat, error) {
 	le, ok, err := r.LegalEntities.Entity(ctx, legalEntity)
 	if err != nil {
-		return 0, 0, fmt.Errorf("ledger: convert into the currency of legal entity %s: %w", legalEntity, err)
+		return nil, fmt.Errorf("ledger: convert into the currency of legal entity %s: %w", legalEntity, err)
 	}
 	if !ok {
-		return 0, 0, problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id")
+		return nil, problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id")
 	}
 	c, err := r.Conversion(ctx, from, le.LocalCurrency, date)
 	if err != nil {
-		return 0, 0, err
+		return nil, err
 	}
-	v, err := c.Convert(amount)
-	if errors.Is(err, money.ErrOverflow) {
-		return 0, 0, errConversionTooLarge()
-	}
-	return v, c.ToExp, err
+	return c.Exact(amount)
 }

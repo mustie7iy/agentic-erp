@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -178,10 +179,10 @@ func GetRequest(ctx context.Context, id uuid.UUID) (Request, error) {
 
 // Rates converts a requisition's amount into its company's currency
 // (ledger context): the approval thresholds are in that currency (F12). It
-// returns the amount in minor units of the company's currency with that
-// currency's digits, and refuses when no rate is valid on the date.
+// returns the amount's exact value in major units of the company's
+// currency, unrounded, and refuses when no rate is valid on the date.
 type Rates interface {
-	ToCompany(ctx context.Context, legalEntity uuid.UUID, from string, date time.Time, amount money.Minor) (money.Minor, int, error)
+	ExactToCompany(ctx context.Context, legalEntity uuid.UUID, from string, date time.Time, amount money.Minor) (*big.Rat, error)
 }
 
 // Approvals opens and withdraws approval requests for the contexts that
@@ -217,14 +218,15 @@ type policyStep struct {
 // requisition's amount, in its company's currency, does not exceed.
 func requisitionSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
-	minor, exp, err := rates.ToCompany(ctx, in.LegalEntityID, *in.Currency, in.Date, *in.Amount)
+	// The converted amount is compared exactly, unrounded: rounded to the
+	// company's digits first, 1000.004 would fall under an "up to 1000.00"
+	// tier and need fewer approvals. A threshold is validated with each
+	// company currency's digits, which may be more than this company's, so
+	// it is read exactly too rather than at the company's digits.
+	amount, err := rates.ExactToCompany(ctx, in.LegalEntityID, *in.Currency, in.Date, *in.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("approvals: policy steps: %w", err)
 	}
-	// A threshold is validated with each company currency's digits, which
-	// may be more than this company's, so amount and threshold are compared
-	// exactly rather than read at the company's digits.
-	amount := money.Rat(minor, exp)
 	for _, t := range doc.Purchasing.RequisitionApproval {
 		if t.UpTo != "" { // "" is the last tier
 			limit, err := money.ParseDecimalRat(t.UpTo) // the grammar the document was validated with
