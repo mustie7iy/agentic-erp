@@ -216,11 +216,13 @@ func priceVariance(it Item, oi procurement.OrderItem, lim limits, conv ledger.Co
 	if diff <= byPct && diff >= -byPct {
 		return ""
 	}
-	inCompany, err := conv.Convert(diff)
+	// The variance's exact value in the company's currency is compared:
+	// rounded to its digits first, 5.004 EUR would pass 5.00 EUR (F13).
+	inCompany, err := conv.Exact(diff)
 	if err != nil {
-		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance out of range in %s", format(it.Amount), format(want), conv.To)
+		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance that cannot be converted into %s", format(it.Amount), format(want), conv.To)
 	}
-	if new(big.Rat).Abs(money.Rat(inCompany, conv.ToExp)).Cmp(lim.priceAbsolute) <= 0 {
+	if inCompany.Abs(inCompany).Cmp(lim.priceAbsolute) <= 0 {
 		return ""
 	}
 	return fmt.Sprintf("invoiced %s but the order price gives %s (variance %s, tolerance %s or %s %s)",

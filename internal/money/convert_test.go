@@ -199,3 +199,32 @@ func TestRat(t *testing.T) {
 		})
 	}
 }
+
+// Exact is the converted value unrounded: 105,004 fils at par is 105.004
+// euros, where Convert gives 105.00.
+func TestExact(t *testing.T) {
+	cases := map[string]struct {
+		amount  Minor
+		rate    string
+		fromExp int
+		want    string
+		failed  bool
+	}{
+		"third digit kept":   {105_004, "1", 3, "26251/250", false},
+		"negative":           {-5_004, "1", 3, "-1251/250", false},
+		"at a rate":          {8_064_517, "0.0062", 0, "500000054/10000", false},
+		"rate not a decimal": {1, "1e5", 2, "", true},
+		"negative exponent":  {1, "1", -1, "", true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := Exact(c.amount, c.rate, c.fromExp)
+			if (err != nil) != c.failed {
+				t.Fatalf("Exact(%d, %q, %d) error: got %v, want an error %v", c.amount, c.rate, c.fromExp, err, c.failed)
+			}
+			if err == nil && got.Cmp(ParseRat(c.want)) != 0 {
+				t.Errorf("Exact(%d, %q, %d): got %s, want %s", c.amount, c.rate, c.fromExp, got.RatString(), c.want)
+			}
+		})
+	}
+}

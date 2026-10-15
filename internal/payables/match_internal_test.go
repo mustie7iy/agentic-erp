@@ -16,6 +16,14 @@ import (
 // inEUR is the conversion of a EUR invoice of a EUR company.
 var inEUR = ledger.Conversion{From: "EUR", To: "EUR", Rate: "1", FromExp: 2, ToExp: 2}
 
+// grossIn is a replayed invoice of the gross amount in the conversion's
+// source currency.
+func grossIn(gross money.Minor, conv ledger.Conversion) replayed {
+	r := replayed{Invoice: Invoice{Gross: gross, Exponent: conv.FromExp}}
+	r.convert(conv)
+	return r
+}
+
 // noLimits are the limits of a company the configuration does not have.
 func noLimits(t *testing.T) limits {
 	t.Helper()
@@ -59,8 +67,10 @@ func TestMatchOutOfRange(t *testing.T) {
 		"extended price out of range": {[]Item{{ItemNo: 1, POItemNo: &one, Quantity: "2", Amount: -2}}, -2, 0, noLimits(t), inEUR, IssuePriceVariance},
 		"variance out of range":       {[]Item{{ItemNo: 1, POItemNo: &two, Quantity: "1", Amount: -2}}, -2, 0, noLimits(t), inEUR, IssuePriceVariance},
 		"percentage out of range":     {[]Item{{ItemNo: 1, POItemNo: &three, Quantity: "1", Amount: 0}}, 0, 0, pct300, inEUR, IssuePriceVariance},
-		"variance out of range in the company's currency": {[]Item{{ItemNo: 1, POItemNo: &four, Quantity: "1", Amount: 0}}, 0, 0,
+		"variance huge in the company's currency": {[]Item{{ItemNo: 1, POItemNo: &four, Quantity: "1", Amount: 0}}, 0, 0,
 			noLimits(t), huge, IssuePriceVariance},
+		"variance that cannot be converted": {[]Item{{ItemNo: 1, POItemNo: &four, Quantity: "1", Amount: 0}}, 0, 0,
+			noLimits(t), ledger.Conversion{From: "JPY", To: "EUR", Rate: "not a rate"}, IssuePriceVariance},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -145,19 +155,19 @@ func TestNearTheAutoPostLimit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := near(replayed{Gross: tc.gross, Conversion: inEUR}, limit(tc.limit)); got != tc.want {
+			if got := near(grossIn(tc.gross, inEUR), limit(tc.limit)); got != tc.want {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
 	}
-	if near(replayed{Gross: 1, Conversion: inEUR}, noLimits(t)) {
+	if near(grossIn(1, inEUR), noLimits(t)) {
 		t.Error("without a company: got near, want not")
 	}
 	// Near is exactly l×8/10 ≤ gross ≤ l×12/10.
 	for l := money.Minor(1); l <= 300; l++ {
 		lim := limit(l.Plain(2))
 		for gross := money.Minor(0); gross <= 400; gross++ {
-			if got, want := near(replayed{Gross: gross, Conversion: inEUR}, lim), gross*10 >= l*8 && gross*10 <= l*12; got != want {
+			if got, want := near(grossIn(gross, inEUR), lim), gross*10 >= l*8 && gross*10 <= l*12; got != want {
 				t.Fatalf("limit %d, gross %d: got %v, want %v", l, gross, got, want)
 			}
 		}
@@ -173,12 +183,8 @@ func TestDecideAtTheLimit(t *testing.T) {
 	jpy := ledger.Conversion{From: "JPY", To: "EUR", Rate: "0.0062", FromExp: 0, ToExp: 2}
 	for gross, want := range map[money.Minor]string{8064516: DecisionAutoPost, 8064517: DecisionReview} {
 		t.Run(gross.String(), func(t *testing.T) {
-			eur, err := jpy.Convert(gross)
-			if err != nil {
-				t.Fatal(err)
-			}
-			r := replayed{Invoice: Invoice{Exponent: 0, Gross: gross, Items: []Item{{ItemNo: 1, Amount: gross}}}, Order: procurement.Order{Status: "released"},
-				Conversion: jpy, Gross: eur}
+			r := replayed{Invoice: Invoice{Exponent: 0, Gross: gross, Items: []Item{{ItemNo: 1, Amount: gross}}}, Order: procurement.Order{Status: "released"}}
+			r.convert(jpy)
 			if got, issues := decide(lim, r); got.Outcome != want {
 				t.Errorf("decision: got %s (%v), want %s", got, issues, want)
 			}

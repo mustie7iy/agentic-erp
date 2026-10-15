@@ -45,9 +45,12 @@ type replayed struct {
 	Invoiced map[int32]string
 	// Conversion takes the invoice's amounts into the company's currency,
 	// the currency of its configured amounts (F12); Gross is the gross
-	// amount converted.
+	// amount converted and rounded, for people, and grossExact its exact
+	// value in major units, which the auto-post limit is compared with
+	// (F13).
 	Conversion ledger.Conversion
 	Gross      money.Minor
+	grossExact *big.Rat
 	// Unevaluable says why the invoice cannot be compared with its
 	// company's amounts (no rate on its date, a gross amount out of range
 	// in the company's currency), or is "". Such an invoice is reported,
@@ -168,18 +171,28 @@ func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, t
 	if err != nil {
 		return err
 	}
-	// Convert fails only for a result out of range (money.ErrOverflow), as
-	// the rate and exponents come from the database; the reason carries the
-	// error, whatever it is.
+	r.convert(conv)
+	return nil
+}
+
+// convert sets the conversion of the invoice into the company's currency
+// and its gross amount there, exactly and rounded, or why the gross amount
+// cannot be converted. Convert fails only for a result out of range
+// (money.ErrOverflow), as the rate and exponents come from the database;
+// the reason carries the error, whatever it is.
+func (r *replayed) convert(conv ledger.Conversion) {
+	v := r.Invoice
 	r.Conversion = conv
 	gross, err := conv.Convert(v.Gross)
 	if err != nil {
-		r.Unevaluable = fmt.Sprintf("gross amount %s %s cannot be converted into %s: %v", v.Gross.Plain(v.Exponent), v.Currency, to, err)
+		r.Unevaluable = fmt.Sprintf("gross amount %s %s cannot be converted into %s: %v", v.Gross.Plain(v.Exponent), v.Currency, conv.To, err)
 		r.unevaluableCode = "amount_too_large"
-		return nil
+		return
 	}
-	r.Gross = gross
-	return nil
+	// Exact reads the rate and exponent Convert has just accepted, and
+	// cannot overflow, so it cannot fail here.
+	exact, _ := conv.Exact(v.Gross)
+	r.Gross, r.grossExact = gross, exact
 }
 
 // outcome is a decision with its issue codes; an invoice that cannot be
@@ -200,12 +213,13 @@ func outcome(lim limits, r replayed) (string, []string) {
 }
 
 // near is within 20% of the auto-post limit, either side, compared
-// exactly in the company's currency: from l×8/10 to l×12/10.
+// exactly in the company's currency: from l×8/10 to l×12/10. An invoice
+// that cannot be converted is near nothing.
 func near(r replayed, lim limits) bool {
-	if lim.autoPost.Sign() <= 0 {
+	if lim.autoPost.Sign() <= 0 || r.Unevaluable != "" {
 		return false
 	}
-	gross := money.Rat(r.Gross, r.Conversion.ToExp)
+	gross := r.grossExact
 	return gross.Cmp(new(big.Rat).Mul(lim.autoPost, big.NewRat(8, 10))) >= 0 && gross.Cmp(new(big.Rat).Mul(lim.autoPost, big.NewRat(12, 10))) <= 0
 }
 

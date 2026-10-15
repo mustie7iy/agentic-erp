@@ -16,15 +16,29 @@ const maxExp = 18
 // half away from zero: 0.5 becomes 1 and -0.5 becomes -1. Conversions are
 // exact rational arithmetic; floats are never involved (ADR-0005).
 func Convert(amount Minor, rate string, fromExp, toExp int) (Minor, error) {
-	r, err := parsePlain(rate)
+	if toExp < 0 || toExp > maxExp {
+		return 0, fmt.Errorf("money: convert from exponent %d to %d: exponents are 0 to %d", fromExp, toExp, maxExp)
+	}
+	v, err := Exact(amount, rate, fromExp)
 	if err != nil {
 		return 0, err
 	}
-	if fromExp < 0 || fromExp > maxExp || toExp < 0 || toExp > maxExp {
-		return 0, fmt.Errorf("money: convert from exponent %d to %d: exponents are 0 to %d", fromExp, toExp, maxExp)
-	}
-	v := new(big.Rat).Mul(Rat(amount, fromExp), r)
 	return fromBig(roundHalfAway(v.Mul(v, new(big.Rat).SetInt(pow10(toExp)))))
+}
+
+// Exact is an amount of fromExp minor-unit digits at the rate (as for
+// Convert) in major units of the other currency, unrounded: for comparing
+// a converted amount with a configured one, where rounding to the other
+// currency's digits first would let 5.004 pass a limit of 5.00 (F13).
+func Exact(amount Minor, rate string, fromExp int) (*big.Rat, error) {
+	r, err := parsePlain(rate)
+	if err != nil {
+		return nil, err
+	}
+	if fromExp < 0 || fromExp > maxExp {
+		return nil, fmt.Errorf("money: convert from exponent %d: exponents are 0 to %d", fromExp, maxExp)
+	}
+	return r.Mul(Rat(amount, fromExp), r), nil
 }
 
 // Scale returns amount × factor / divisor rounded half away from zero, in

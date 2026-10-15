@@ -279,7 +279,7 @@ func decide(lim limits, r replayed) (Verdict, []Issue) {
 	}
 	c := r.Conversion
 	gross, limit := r.Gross.Plain(c.ToExp)+" "+c.To, lim.autoPostText+" "+c.To
-	if money.Rat(r.Gross, c.ToExp).Cmp(lim.autoPost) > 0 {
+	if r.grossExact.Cmp(lim.autoPost) > 0 {
 		return Verdict{DecisionReview, "gross " + gross + " is above the auto-post limit " + limit}, issues
 	}
 	reason := "gross " + gross + " is within the auto-post limit " + limit

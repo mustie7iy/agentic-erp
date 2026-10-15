@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,6 +41,18 @@ func (c Conversion) Convert(amount money.Minor) (money.Minor, error) {
 	v, err := money.Convert(amount, c.Rate, c.FromExp, c.ToExp)
 	if err != nil {
 		return 0, fmt.Errorf("ledger: convert %s into %s: %w", c.From, c.To, err)
+	}
+	return v, nil
+}
+
+// Exact is an amount's value in major units of the target currency,
+// unrounded (money.Exact): what is compared with the company's configured
+// amounts, while Convert's rounded value is what people are shown and what
+// is posted (F13).
+func (c Conversion) Exact(amount money.Minor) (*big.Rat, error) {
+	v, err := money.Exact(amount, c.Rate, c.FromExp)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: convert %s into %s: %w", c.From, c.To, err)
 	}
 	return v, nil
 }
