@@ -863,9 +863,9 @@ type Invoker interface {
 	//
 	// Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
 	// status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
-	// approved exception; 409 `payables.match_required` otherwise: an invoice changed after its match,
-	// including a hold and release by hand, is matched again, and an edit unlinks an approved exception),
-	// an open period and an unblocked supplier.
+	// exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an
+	// invoice changed after its match, including a hold and release by hand, is matched again, and an edit
+	// unlinks an approved exception), an open period and an unblocked supplier.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
@@ -23044,9 +23044,9 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 //
 // Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
 // status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
-// approved exception; 409 `payables.match_required` otherwise: an invoice changed after its match,
-// including a hold and release by hand, is matched again, and an edit unlinks an approved exception),
-// an open period and an unblocked supplier.
+// exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an
+// invoice changed after its match, including a hold and release by hand, is matched again, and an edit
+// unlinks an approved exception), an open period and an unblocked supplier.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (c *Client) PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error) {
