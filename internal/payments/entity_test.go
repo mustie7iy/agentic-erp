@@ -66,8 +66,13 @@ func TestProposeWithoutTheLegalEntity(t *testing.T) {
 	if why["code"] != "request.reference_not_found" {
 		t.Errorf("first proposal, error: got %v, want request.reference_not_found", why["code"])
 	}
-	if errs, _ := why["errors"].([]any); len(errs) != 1 || !strings.Contains(fmt.Sprint(errs[0]), e.DE.String()) {
-		t.Errorf("first proposal, field errors: got %v, want one naming legal entity %s", why["errors"], e.DE)
+	// The entity went missing after the request was accepted: the reason
+	// names it, on no field of the request.
+	if detail := fmt.Sprint(why["detail"]); !strings.Contains(detail, e.DE.String()) {
+		t.Errorf("first proposal, detail: got %q, want one naming legal entity %s", detail, e.DE)
+	}
+	if errs, _ := why["errors"].([]any); len(errs) != 0 {
+		t.Errorf("first proposal, field errors: got %v, want none", errs)
 	}
 	if r, _ := e.Must(200, "GET", second["resource"].(string), "", ""); r["status"] != "proposed" {
 		t.Errorf("second proposal, run status: got %v, want proposed", r["status"])
@@ -104,7 +109,9 @@ func TestReleaseWithoutTheLegalEntity(t *testing.T) {
 
 // TestTransmitWithoutTheLegalEntity: a bank file whose run's legal entity
 // the tenancy context no longer finds is not transmitted, never under the
-// name "-<run>-<id>.xml"; the refusal names the entity.
+// name "-<run>-<id>.xml". The run exists, so its missing entity is a
+// server-side fault (500, as the file's download answers), not a 422 on a
+// field the client never sent; the error names the entity.
 func TestTransmitWithoutTheLegalEntity(t *testing.T) {
 	e := setup(t)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
@@ -119,12 +126,11 @@ func TestTransmitWithoutTheLegalEntity(t *testing.T) {
 		_, err := h.TransmitFile(ctx, file, yes)
 		return err
 	})
-	p := problem.From(err)
-	if p.Status != 422 || p.Code != "request.reference_not_found" {
-		t.Fatalf("transmit: got %d %s (%v), want 422 request.reference_not_found", p.Status, p.Code, err)
+	if p := problem.From(err); p.Status != 500 {
+		t.Fatalf("transmit: got %d %s (%v), want 500", p.Status, p.Code, err)
 	}
-	if len(p.Errors) != 1 || !strings.Contains(p.Errors[0].Message, e.DE.String()) {
-		t.Errorf("transmit, field errors: got %+v, want one naming legal entity %s", p.Errors, e.DE)
+	if want := "no legal entity " + e.DE.String(); !strings.Contains(err.Error(), want) {
+		t.Errorf("transmit: got %v, want an error naming %q", err, want)
 	}
 	if len(e.connector.files) != 0 {
 		t.Errorf("files transmitted: got %v, want none", e.connector.files)

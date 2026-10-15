@@ -3,7 +3,6 @@ package payments
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -108,10 +107,7 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 		return operations.Operation{}, err
 	}
 	le, err := e.entityOf(ctx, r)
-	if errors.Is(err, errNoEntity) {
-		return operations.Operation{}, noEntity(r)
-	}
-	if err != nil {
+	if err != nil { // errNoEntity included: an existing run's missing entity is a 500, as on the download
 		return operations.Operation{}, err
 	}
 	content, err := e.fileOf(ctx, tx, p.TenantID, f)

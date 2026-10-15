@@ -323,8 +323,8 @@ var errNoEntity = errors.New("no legal entity")
 // with an empty code, which would begin the run's end-to-end ids, bank file
 // message id and file name with "-". The refusal is an error (errNoEntity):
 // the release activity leaves it to its retries (the release is approved
-// and nothing is written), and the bank file's download answers 500. The
-// proposal and :transmit answer noEntity instead: a proposal job left to
+// and nothing is written), and the bank file's download and :transmit
+// answer 500. The proposal answers noEntity instead: a proposal job left to
 // retry would stay first in its tenant's queue and hold back every later
 // proposal.
 func (e *Endpoints) entityOf(ctx context.Context, r Run) (tenancy.Entity, error) {
@@ -338,11 +338,12 @@ func (e *Endpoints) entityOf(ctx context.Context, r Run) (tenancy.Entity, error)
 	return le, nil
 }
 
-// noEntity is the problem for entityOf's errNoEntity, naming the entity:
-// a proposal fails with it, and :transmit refuses with it.
+// noEntity is the problem a proposal fails with for entityOf's errNoEntity,
+// naming the entity. It has no field error: the entity was there when the
+// request was accepted, so no field of the request is wrong.
 func noEntity(r Run) *problem.Problem {
-	return problem.ReferenceNotFound("legal_entity_id", "legal entity",
-		"legal entity "+r.LegalEntityID.String()+" of payment run "+r.DocumentNumber+" does not exist")
+	return problem.Unprocessable("request.reference_not_found",
+		"Legal entity "+r.LegalEntityID.String()+" of payment run "+r.DocumentNumber+" does not exist.")
 }
 
 func requireProposed(r Run, done string) error {
