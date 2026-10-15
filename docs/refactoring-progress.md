@@ -460,6 +460,22 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   beyond numeric(28,12); a stored rate that is not a plain positive decimal is an error, not a
   nil dereference. Posting results change by a minor unit only where the reciprocal has no
   12-decimal form (1/3, 1/0.96), the new value being the exact one. Reviewer: APPROVE.
+- [x] R64 Round-seven robustness: a panic in a background worker is logged with its stack and
+  fails that round (worker.Recover; Loop, spawn and partition maintenance), and a critical
+  worker's panic stops the server cleanly instead of the process; an invoice item whose order
+  item is missing is the match issue order_item_missing, never a comparison with another order
+  item; a connector's invalid stored settings answer 422 integration.invalid_settings instead of
+  panicking in a run; requisition tiers compare the exact converted amount (ExactToCompany: 1,000.004
+  EUR is above an "up to 1000.00" tier); temporary AWS credentials without an expiry are refused;
+  posting refuses a supplier that is not found with a real reason. Reviewer: APPROVE.
+- [x] R65 Round-seven duplication and readability: problem.NotFoundOf for the remaining 20
+  hand-written not-found problems; the long doc comments of erp invoices and payables replay
+  split into paragraphs. requireStatus stays twice: the two differ in code, subject and how they
+  list statuses. Reviewer: APPROVE.
+- [x] F20 An invoice whose supplier the partner context does not find is returned without the
+  supplier expansion, not with a zero-value summary; the contract's description says so (user
+  approved; description only). The migration's two lookups that ignore the found flag say why it
+  is safe. Reviewer: APPROVE.
 - [x] R63 Round-seven duplication: problem.NotFoundOf replaces five copies; authz.Visible the
   company-scoped one-row read at 11 sites; apitypes.PageOf finishes 21 keyset-paged lists; about
   40 discarded errors state why they are safe. Fix on the way: awscreds treated temporary
