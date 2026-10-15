@@ -38,7 +38,9 @@ func (o Operator) Required(operation string) string {
 // answers, or fails with an error sent as a problem.
 func (o Operator) Serve(w http.ResponseWriter, r *http.Request, operation string, body func(http.ResponseWriter, *http.Request) error) {
 	reqctx.InfoFrom(r.Context()).Operation = operation
-	if claims, _ := reqctx.ClaimsFrom(r.Context()); !authn.OperatorAllowed(claims, o.Required(operation)) {
+	// No claims means no authenticating middleware ran: refused, since the
+	// zero Claims (nil roles) would read as a development token's.
+	if claims, ok := reqctx.ClaimsFrom(r.Context()); !ok || !authn.OperatorAllowed(claims, o.Required(operation)) {
 		problem.Write(w, r, problem.Forbidden("authz.operator_role", "This operation needs the operator role "+o.Required(operation)+"."))
 		return
 	}

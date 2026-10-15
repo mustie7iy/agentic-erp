@@ -97,3 +97,24 @@ func TestWriteJSON(t *testing.T) {
 		t.Errorf("body: got %s, want {\"id\":\"x\"}", got)
 	}
 }
+
+// TestOperatorServeWithoutClaims: a request that reached Serve without the
+// authenticating middleware carries no claims. Their zero value has nil
+// roles, which reads as a development token holding every role, so the
+// request is refused instead.
+func TestOperatorServeWithoutClaims(t *testing.T) {
+	op := httpapi.Operator{Log: slog.New(slog.DiscardHandler), Name: "control"}
+	ran := false
+	ctx, _ := reqctx.WithInfo(t.Context())
+	w := httptest.NewRecorder()
+	op.Serve(w, httptest.NewRequestWithContext(ctx, "GET", "/", nil), "suspend", func(http.ResponseWriter, *http.Request) error {
+		ran = true
+		return nil
+	})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status: got %d, want %d: %s", w.Code, http.StatusForbidden, w.Body)
+	}
+	if ran {
+		t.Error("ran: got true, want the operation refused before it runs")
+	}
+}
