@@ -303,8 +303,10 @@ and role administration) are never exposed as agent tools.
 `:match` on a supplier invoice answers the match result with the invoice
 flow's `decision` (F12b): `outcome` `auto_post` (clean, gross within the
 company's auto-post limit), `review` (above it) or `not_evaluable` (the
-gross cannot be converted into the company's currency; `reason` is the
-stable code `no_exchange_rate` or `amount_too_large`), with a `reason`. It
+gross is out of range in the company's currency; `reason` is the stable
+code `amount_too_large`), with a `reason`. Without an average rate on the
+invoice date the match is refused (422 `ledger.no_exchange_rate`) and
+nothing is recorded. It
 is the rule simulations and regression suites apply (03 §3.9): the gross is
 converted at the average rate of the invoice date and compared exactly. A
 match with issues has no `decision` (the invoice is held and decided on its

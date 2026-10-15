@@ -50,8 +50,9 @@ type settled struct{ posted, held, parked []string }
 // clean match it decides auto_post is posted, one it reviews or cannot
 // evaluate is held for a person, and the match holds the others itself,
 // opening their exception requests. Without a decision it knows (an older
-// server, a new outcome) the invoice is left parked; the rule never
-// compares amounts itself. With -agent, the exceptions agent then
+// server, a new outcome), or when the server refuses the match (422, e.g.
+// no exchange rate), the invoice is left parked; the rule never compares
+// amounts itself. With -agent, the exceptions agent then
 // investigates the held invoices.
 func invoices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("invoices", flag.ContinueOnError)
@@ -98,6 +99,14 @@ func invoices(ctx context.Context, args []string) error {
 func settle(ctx context.Context, c *apitools.Client, w io.Writer, inv parkedInvoice, done *settled) error {
 	path := "/v1/supplier-invoices/" + inv.ID
 	m, err := matchInvoice(ctx, c, path, inv)
+	var refused *apitools.Error
+	if errors.As(err, &refused) && refused.Status == http.StatusUnprocessableEntity {
+		// The server refuses to match this invoice (no exchange rate, no
+		// order): a person resolves it, and the other invoices go on.
+		fmt.Fprintf(w, "%s: refused by the server: %s: %s\n", inv.DocumentNumber, refused.Code, refused.Detail)
+		done.parked = append(done.parked, inv.DocumentNumber+" (refused: "+refused.Code+")")
+		return nil
+	}
 	if err != nil {
 		return err
 	}

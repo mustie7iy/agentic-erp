@@ -12139,11 +12139,12 @@ func (s *LegalEntityUpdate) SetExtensions(val OptExtensions) {
 // Ref: #/components/schemas/MatchDecision
 type MatchDecision struct {
 	// `auto_post`: within the limit, the rule posts it; `review`: above it, a person posts it;
-	// `not_evaluable`: it cannot be converted into the company's currency. Open enumeration: clients must
-	// accept and preserve values not listed here; values may be added within /v1.
+	// `not_evaluable`: its gross amount is out of range in the company's currency (without a rate the
+	// match is refused, 422 `ledger.no_exchange_rate`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Outcome string `json:"outcome"`
 	// Why: the converted gross and the limit, or for `not_evaluable` the stable issue code
-	// (`no_exchange_rate`, `amount_too_large`).
+	// (`amount_too_large`).
 	Reason string `json:"reason"`
 }
 

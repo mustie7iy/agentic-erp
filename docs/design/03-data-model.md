@@ -281,13 +281,13 @@ resubmission is routed at the same rate, an invoice on its invoice date
 rounded half away from zero to the company's minor units, as it would be
 posted, and that figure is compared exactly with the configured one: a
 variance worth 5.004 EUR is 5.00 EUR and within a 5.00 tolerance. Without
-a rate a requisition's submission is refused (422
-`ledger.no_exchange_rate`); the raw numbers of two currencies are never
-compared. An invoice without a rate, or whose gross amount is out of range
-in the company's currency, is not evaluable rather than a failure for the
-whole tenant: its match is recorded (an item beyond the percentage
-tolerance is flagged, as its variance cannot be compared with the absolute
-one), a clean match answers the decision `not_evaluable` (F12b), a
+a rate a requisition's submission and an invoice's match are refused (422
+`ledger.no_exchange_rate`, naming the pair and the date; nothing is
+recorded); the raw numbers of two currencies are never compared. An
+invoice whose gross amount is out of range in the company's currency is
+matched, and a clean match answers the decision `not_evaluable` (F12b).
+Replaying history does not refuse: an invoice without a rate or out of
+range is not evaluable rather than a failure for the whole tenant, a
 simulation reports it as
 one it cannot evaluate, and a regression suite records it as
 `not_evaluable` (issue `no_exchange_rate` or `amount_too_large`).

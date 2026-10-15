@@ -298,7 +298,7 @@ func TestInvoicesErrors(t *testing.T) {
 		"invoices garbled":   {routes{"GET /v1/supplier-invoices": {ok(`{`)}}, "unexpected end"},
 		"invoice aborted":    {routes{"GET " + invoicePath: {aborted}}, "EOF"},
 		"match aborted":      {routes{"POST " + invoicePath + ":match": {aborted}}, "EOF"},
-		"match refused":      {routes{"POST " + invoicePath + ":match": {{422, `{"code": "payables.no_order"}`}}}, "invoice 5101: API 422"},
+		"match failed":       {routes{"POST " + invoicePath + ":match": {{500, `{"code": "internal"}`}}}, "invoice 5101: API 500"},
 		"reread aborted":     {routes{"GET " + invoicePath: {ok(`{}`), aborted}}, "EOF"},
 		"post aborted":       {routes{"POST " + invoicePath + ":post": {aborted}}, "EOF"},
 		"post refused":       {routes{"POST " + invoicePath + ":post": {{409, `{"code": "payables.period_closed"}`}}}, "period_closed"},
@@ -347,10 +347,17 @@ func TestInvoicesDecision(t *testing.T) {
 			[]string{"5101: decision unavailable (the server does not return it)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
 		"unknown": {`{"is_clean": true, "decision": {"outcome": "escalate", "reason": "new rule"}}`,
 			[]string{"5101: escalate (new rule)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
+		"refused": {`422 {"code": "ledger.no_exchange_rate", "detail": "No average exchange rate from USD to EUR is valid on 2026-03-10."}`,
+			[]string{"5101: refused by the server: ledger.no_exchange_rate: No average exchange rate from USD to EUR is valid on 2026-03-10.",
+				"Posted 0:", "Held 0:", "Left parked 1: 5101 (refused: ledger.no_exchange_rate)"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// A call the decision does not call for is refused, failing the command.
-			r := routes{"POST " + invoicePath + ":match": {ok(c.match)}, posted: {{409, `{"code": "unexpected"}`}}, held: {{409, `{"code": "unexpected"}`}}}
+			match := ok(c.match)
+			if body, refused := strings.CutPrefix(c.match, "422 "); refused {
+				match = reply{422, body}
+			}
+			r := routes{"POST " + invoicePath + ":match": {match}, posted: {{409, `{"code": "unexpected"}`}}, held: {{409, `{"code": "unexpected"}`}}}
 			switch name {
 			case "auto_post":
 				r[posted] = []reply{ok(`{}`)}

@@ -212,12 +212,6 @@ func priceVariance(it Item, oi procurement.OrderItem, lim limits, conv ledger.Co
 	if diff <= byPct && diff >= -byPct {
 		return ""
 	}
-	if conv.Rate == "" {
-		// No rate into the company's currency (inCompany): the variance
-		// cannot be compared with the absolute tolerance, so it is flagged.
-		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance that cannot be compared with the tolerance of %s %s without an average rate from %s",
-			format(it.Amount), format(want), lim.absoluteText, conv.To, conv.From)
-	}
 	inCompany, err := conv.Convert(diff)
 	if err != nil {
 		return fmt.Sprintf("invoiced %s but the order price gives %s, a variance out of range in %s", format(it.Amount), format(want), conv.To)
@@ -256,10 +250,14 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 		return Match{}, err
 	}
 	// The inputs and the decision are those a simulation or regression
-	// suite replays: an invoice without a rate is matched and not evaluable.
+	// suite replays, but a missing rate refuses the match (422
+	// ledger.no_exchange_rate) rather than recording one.
 	r, err := replay(ctx, tx, sources{e.LegalEntities, e.Orders, e.Rates}, v, newReplayCache())
 	if err != nil {
 		return Match{}, err
+	}
+	if r.noRate != nil {
+		return Match{}, r.noRate
 	}
 	lim, err := companyLimits(doc.Company(r.Company))
 	if err != nil {

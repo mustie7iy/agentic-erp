@@ -388,9 +388,10 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   (auto_post | review | not_evaluable, with a reason; additive contract change the user
   approved) from payables.decide, the one rule simulations and regression suites apply, and
   `erp invoices` acts on it instead of comparing the raw gross with the limit; a server without
-  the field leaves the invoice parked, decision unavailable. An invoice without a rate is now
-  matched and not_evaluable rather than refused with 422; regression cases list
-  not_evaluable in the contract.
+  the field leaves the invoice parked, decision unavailable. Without a rate the match is still
+  refused (422 ledger.no_exchange_rate, user decision), which the CLI reports, leaving the
+  invoice parked; a gross out of range in the company's currency is matched and not_evaluable.
+  Regression cases list not_evaluable in the contract.
 - [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
   Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
   panic); a period close locks only a period the caller may see; provision and rewrap report a

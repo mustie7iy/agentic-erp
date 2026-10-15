@@ -56,6 +56,9 @@ type replayed struct {
 	// unevaluableCode is the stable code of Unevaluable, the issue of its
 	// regression case: no_exchange_rate or amount_too_large.
 	unevaluableCode string
+	// noRate is the ledger's refusal for want of a rate, which the match
+	// returns (the user's F12 decision): only replaying history goes on.
+	noRate error
 }
 
 // sources are the ports replaying an invoice reads through.
@@ -159,9 +162,7 @@ func (c *replayCache) inCompany(ctx context.Context, rates Rates, r *replayed, t
 	if errors.As(err, &p) && p.Code == "ledger.no_exchange_rate" {
 		r.Unevaluable = fmt.Sprintf("no average exchange rate from %s to %s on %s", v.Currency, to, v.InvoiceDate.Format(time.DateOnly))
 		r.unevaluableCode = "no_exchange_rate"
-		// A conversion without a rate: the match flags a variance it would
-		// need to convert (priceVariance).
-		r.Conversion = ledger.Conversion{From: v.Currency, To: to}
+		r.noRate = err
 		return nil
 	}
 	if err != nil {

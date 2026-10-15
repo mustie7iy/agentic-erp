@@ -15362,7 +15362,7 @@ components:
       properties:
         outcome:
           type: string
-          description: "`auto_post`: within the limit, the rule posts it; `review`: above it, a person posts it; `not_evaluable`: it cannot be converted into the company's currency. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "`auto_post`: within the limit, the rule posts it; `review`: above it, a person posts it; `not_evaluable`: its gross amount is out of range in the company's currency (without a rate the match is refused, 422 `ledger.no_exchange_rate`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum:
             - auto_post
             - review
@@ -15370,7 +15370,7 @@ components:
           readOnly: true
         reason:
           type: string
-          description: "Why: the converted gross and the limit, or for `not_evaluable` the stable issue code (`no_exchange_rate`, `amount_too_large`)."
+          description: "Why: the converted gross and the limit, or for `not_evaluable` the stable issue code (`amount_too_large`)."
           readOnly: true
       examples:
         - outcome: auto_post
