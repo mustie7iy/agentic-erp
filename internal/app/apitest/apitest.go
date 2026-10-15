@@ -117,6 +117,8 @@ func Fingerprint(tb testing.TB, tenant uuid.UUID, value string) string {
 // one. Lookups use the request's transaction, so outside a request the ring
 // seals with the legacy key.
 func FieldKeys() *fieldcrypt.Keyring {
+	// Both constructors fail only for a secret under 32 bytes or an empty
+	// master id; these are constants that meet both, so the errors are nil.
 	legacy, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
 	master, _ := fieldcrypt.NewLocalMaster("test", []byte(strings.Repeat("f", 32)))
 	return &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{master}, Legacy: legacy, AppRole: "erp_app"}
