@@ -542,6 +542,7 @@ erDiagram
     uuid journal_entry_id
     uuid reversal_entry_id
     uuid workflow_request_id
+    int exception_version
     int version }
   supplier_invoice_item { uuid supplier_invoice_id PK
     int item_no PK
@@ -567,15 +568,29 @@ evaluation with the configuration version used and the invoice version the
 match left the invoice at (`invoice_version`, migration 000040, F13; after
 the hold or release the match itself causes). An invoice on a purchase
 order posts only when its latest match is clean and of its current version,
-or with an approved exception (409 `payables.match_required` otherwise): any
-change after the match (an edit of amounts, items, order or any other
-field, a hold and release by hand) needs a new match, and an edit unlinks
-an approved exception request, which was decided on the invoice as it was.
-Matches recorded before 000040, or by the previous release during the
-rollout, have no version and count for none: such an invoice is matched
-again before it posts. The column is the expand step of 06 §6.4 (nullable,
-its positive check `NOT VALID`, no backfill: nothing records which version
-an old match evaluated).
+or with an approved exception of its current version (409
+`payables.match_required` otherwise): any change after the match (an edit of
+amounts, items, order or any other field, a hold and release by hand) needs
+a new match, and an edit unlinks an approved exception request, which was
+decided on the invoice as it was. Matches recorded before 000040, or by the
+previous release during the rollout, have no version and count for none:
+such an invoice is matched again before it posts. The column is the expand
+step of 06 §6.4 (nullable, its positive check `NOT VALID`, no backfill:
+nothing records which version an old match evaluated).
+
+The invoice likewise records the version the approval of its exception left
+it at (`exception_version`, migration 000041, F16), and the linked approved
+request authorises posting only that version. The unlinking edit is not
+enough on its own: the edit before 000040, and the previous release's
+during the rollout, kept the request linked, so an invoice edited there
+would post on an approval of different amounts. An invoice changed after
+its approval is matched clean, or held and approved again, before it posts.
+Approvals before 000041, or by the previous release, have no version and
+count for none. The column is again the expand step (nullable, its check of
+`0 < exception_version <= version` `NOT VALID`, no backfill); it is not tied
+to `workflow_request_id` by a rule, as the previous release unlinks requests
+without clearing it, and a stale value is always below the invoice's
+version.
 
 The match compares an item's price variance with the company's tolerances:
 within the percentage of the expected amount (in the invoice's currency),

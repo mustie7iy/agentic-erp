@@ -320,13 +320,23 @@ func decided(ctx context.Context, id uuid.UUID) (pgx.Tx, reqctx.Principal, Invoi
 }
 
 // Approved releases the invoice from hold; the approved exception lets it
-// be posted despite its match issues.
+// be posted despite its match issues, as it now stands: the invoice records
+// the version the release leaves it at (exception_version, F16), and any
+// later change, even one that keeps the request linked, needs a new match
+// or approval.
 func (Approvals) Approved(ctx context.Context, invoice, request uuid.UUID) error {
 	tx, p, v, err := decided(ctx, invoice)
 	if err != nil {
 		return err
 	}
-	released, err := transition(ctx, tx, p, v, Parked, nil, &request)
+	// transition's release, recording the version it leaves the invoice at
+	// in the same statement: every update moves the version on by one (the
+	// optimistic lock trigger), and v is locked since decided.
+	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'parked', hold_reason = NULL, workflow_request_id = $2,
+		exception_version = $4, version = $4, updated_by = $3 WHERE id = $1`, invoice, request, p.ID, v.Version+1); err != nil {
+		return fmt.Errorf("payables: release invoice %s on approved exception %s: %w", invoice, request, err)
+	}
+	released, err := load(ctx, tx, invoice, false)
 	if err != nil {
 		return err
 	}

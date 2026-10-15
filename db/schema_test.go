@@ -1123,3 +1123,43 @@ func TestMatchResultInvoiceVersion(t *testing.T) {
 		return exec(tx, `UPDATE payables.match_result SET invoice_version = 2 WHERE supplier_invoice_id = $1`, invoice)
 	}), "permission denied")
 }
+
+// TestInvoiceExceptionVersion: an invoice records the version its approved
+// exception left it at, a positive one no later than its own, or none
+// (approvals before 000041, which count for no version) (F16).
+func TestInvoiceExceptionVersion(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	for i, c := range []struct {
+		name    string
+		version any
+		fails   string
+	}{
+		{"current", 2, ""},
+		{"earlier", 1, ""},
+		{"none", nil, ""},
+		{"zero", 0, "supplier_invoice_exception_version_valid"},
+		{"later", 3, "supplier_invoice_exception_version_valid"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// An invoice of version 1 moved on to version 2, as approved.
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				invoice := id()
+				if err := exec(tx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
+					invoice_date, currency, gross_amount, tax_amount, status, source, created_by, updated_by)
+					VALUES ($1,$2,$3,$4,$5,$3,'2026-06-01','USD',100,0,'parked','manual',$6,$6)`,
+					f.tenant, invoice, fmt.Sprintf("E-%d", i), f.entity, f.supplier, f.actor); err != nil {
+					return err
+				}
+				return exec(tx, `UPDATE payables.supplier_invoice SET exception_version = $2, version = 2 WHERE id = $1`, invoice, c.version)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("approve: got %v, want success", err)
+				}
+				return
+			}
+			failsWith(t, err, c.fails)
+		})
+	}
+}

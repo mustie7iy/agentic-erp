@@ -99,3 +99,101 @@ func TestStaleMatchDoesNotPost(t *testing.T) {
 		}
 	})
 }
+
+// TestApprovedExceptionCountsForItsVersion: an approved exception lets the
+// invoice post as it was approved, not as it was edited afterwards (F16).
+// Before this release an edit kept the link to the approved request, and
+// the previous release still does during the rollout: an invoice approved
+// at 167.80 EUR, edited to 90,167.80 EUR on that path, posted without a new
+// match or approval.
+func TestApprovedExceptionCountsForItsVersion(t *testing.T) {
+	e := setup(t)
+	path := func(inv map[string]any) string { return "/v1/supplier-invoices/" + id(inv) }
+	// approved is an invoice whose price variance on item 1 (130.00 for
+	// 120.00) was approved as an exception.
+	held := func(t *testing.T, e env, number string) map[string]any {
+		t.Helper()
+		po := e.order(t, e.Supplier, number)
+		e.receive(t, po, 1, "10")
+		e.receive(t, po, 2, "5")
+		inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-"+number, "167.80", "22.80",
+			poItem(po, 1, "10", "EA", "130.00"), poItem(po, 2, "5", "KG", "15.00")), "")
+		if m := e.act(t, 200, id(inv), "match", ""); m["is_clean"] != false {
+			t.Fatalf("match is_clean: got %v, want false", m["is_clean"])
+		}
+		return inv
+	}
+	approved := func(t *testing.T, e env, number string) map[string]any {
+		t.Helper()
+		inv := held(t, e, number)
+		e.Approve(t, id(inv))
+		return inv
+	}
+	// oldEdit changes item 1 and the gross amount by delta minor units as
+	// the previous release's edit did: the version moves on, the approved
+	// request stays linked.
+	oldEdit := func(t *testing.T, inv map[string]any, delta int64) {
+		t.Helper()
+		invoice := uuid.MustParse(id(inv))
+		pgtest.Exec(t, `UPDATE payables.supplier_invoice_item SET amount = amount + $2 WHERE supplier_invoice_id = $1 AND item_no = 1`, invoice, delta)
+		pgtest.Exec(t, `UPDATE payables.supplier_invoice SET gross_amount = gross_amount + $2, version = version + 1 WHERE id = $1`, invoice, delta)
+	}
+	posted := func(t *testing.T, e env, inv map[string]any) {
+		t.Helper()
+		if p := e.act(t, 200, id(inv), "post", ""); p["status"] != "posted" {
+			t.Errorf("status: got %v, want posted", p["status"])
+		}
+	}
+
+	t.Run("approved again", func(t *testing.T) {
+		e := e.in(t)
+		inv := approved(t, e, "PO-1")
+		oldEdit(t, inv, 9000000)
+		if got, _ := e.Must(200, "GET", path(inv), "", ""); got["workflow_request_id"] == nil {
+			t.Fatalf("workflow request after the old edit: got none, want the approved one")
+		}
+		e.Problem(409, "payables.match_required", "POST", path(inv)+":post", "", e.tag(t, id(inv)))
+		if m := e.act(t, 200, id(inv), "match", ""); m["is_clean"] != false {
+			t.Fatalf("match of the edited invoice: got is_clean %v, want false", m["is_clean"])
+		}
+		e.Approve(t, id(inv))
+		posted(t, e, inv)
+	})
+
+	t.Run("matched again", func(t *testing.T) {
+		e := e.in(t)
+		inv := approved(t, e, "PO-2")
+		oldEdit(t, inv, -1000) // item 1 at the order price: the match is clean
+		e.Problem(409, "payables.match_required", "POST", path(inv)+":post", "", e.tag(t, id(inv)))
+		if m := e.act(t, 200, id(inv), "match", ""); m["is_clean"] != true {
+			t.Fatalf("match of the corrected invoice: got is_clean %v, want true", m["is_clean"])
+		}
+		posted(t, e, inv)
+	})
+
+	t.Run("not edited", func(t *testing.T) {
+		e := e.in(t)
+		posted(t, e, approved(t, e, "PO-3"))
+	})
+
+	// An exception approved before 000041, or by the previous release during
+	// the rollout, has no version and counts for none: the invoice is
+	// matched and approved again before it posts.
+	t.Run("approval without a version", func(t *testing.T) {
+		e := e.in(t)
+		inv := held(t, e, "PO-4")
+		invoice := uuid.MustParse(id(inv))
+		// The previous release's approval: the request completes and the
+		// invoice is released with it linked, no version recorded.
+		pgtest.Exec(t, `UPDATE workflow.approval_request SET status = 'approved', completed_at = now(), version = version + 1
+			WHERE object_id = $1 AND status = 'pending'`, invoice)
+		pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'parked', hold_reason = NULL, version = version + 1 WHERE id = $1`, invoice)
+		if got, _ := e.Must(200, "GET", path(inv), "", ""); got["workflow_request_id"] == nil || got["status"] != "parked" {
+			t.Fatalf("invoice approved by the previous release: got %v, want parked with its request", got)
+		}
+		e.Problem(409, "payables.match_required", "POST", path(inv)+":post", "", e.tag(t, id(inv)))
+		e.act(t, 200, id(inv), "match", "")
+		e.Approve(t, id(inv))
+		posted(t, e, inv)
+	})
+}
