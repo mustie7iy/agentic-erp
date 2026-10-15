@@ -36,6 +36,9 @@ const (
 	IssueOrderNotOpen  = "order_not_open"
 	IssuePriceVariance = "price_variance"
 	IssueQtyReceived   = "quantity_exceeds_received"
+	// IssueOrderItemMissing is an invoice item naming an order item its
+	// order does not have, which procurement's invariants should prevent.
+	IssueOrderItemMissing = "order_item_missing"
 )
 
 // Match is a row of payables.match_result.
@@ -162,10 +165,16 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, lim
 		}
 		// An item with an order item is on the invoice's order (the invoice
 		// is for one order, and replay refuses one without it), and its
-		// order item was checked to exist when the invoice was written; a
-		// released order's items no longer change (procurement edits drafts
-		// only), so the lookup finds it.
-		oi := order.Items[items[*it.POItemNo]]
+		// order item was checked to exist when the invoice was written. A
+		// released order's items should no longer change, but that is
+		// procurement's invariant: an item missing here is an issue, never
+		// a comparison with another order item.
+		i, ok := items[*it.POItemNo]
+		if !ok {
+			add(IssueOrderItemMissing, &it.ItemNo, "order item %d is not on purchase order %s", *it.POItemNo, order.DocumentNumber)
+			continue
+		}
+		oi := order.Items[i]
 		if why := priceVariance(it, oi, lim, conv, format); why != "" {
 			add(IssuePriceVariance, &it.ItemNo, "order item %d: %s", oi.ItemNo, why)
 		}

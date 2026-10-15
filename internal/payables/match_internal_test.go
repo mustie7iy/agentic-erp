@@ -92,6 +92,34 @@ func TestMatchOutOfRange(t *testing.T) {
 	}
 }
 
+// evaluate does not lean on procurement's invariants: an invoice item whose
+// order item the order does not have is an issue, never compared with
+// another order item (a missing key read as index 0) and never a panic on
+// an order with no items.
+func TestMatchOrderItemMissing(t *testing.T) {
+	two := int32(2)
+	v := Invoice{Exponent: 2, Gross: 1000, Items: []Item{{ItemNo: 1, POItemNo: &two, Quantity: "1", Amount: 1000}}}
+	first := procurement.OrderItem{ItemNo: 1, Quantity: "1", UnitPrice: 1000, PriceUnit: 1, Received: "1"}
+	for name, items := range map[string][]procurement.OrderItem{
+		"another order item": {first},
+		"no order items":     nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			order := procurement.Order{Status: "released", Items: items}
+			issues := evaluate(v, order, map[int32]string{}, noLimits(t), inEUR)
+			if len(issues) != 1 {
+				t.Fatalf("issues: got %v, want one", issues)
+			}
+			if issues[0].Code != IssueOrderItemMissing {
+				t.Errorf("code: got %s, want %s", issues[0].Code, IssueOrderItemMissing)
+			}
+			if issues[0].ItemNo == nil || *issues[0].ItemNo != 1 {
+				t.Errorf("item: got %v, want 1", issues[0].ItemNo)
+			}
+		})
+	}
+}
+
 // The variance message names both tolerances: the percentage in the
 // invoice's currency and the absolute one in the company's.
 func TestVarianceMessage(t *testing.T) {
