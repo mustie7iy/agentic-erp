@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -99,6 +100,13 @@ func CreateRate(ctx context.Context, in NewRate) (Rate, error) {
 	if r, err := money.ParsePlain(in.Rate); err != nil || r.Sign() <= 0 {
 		return Rate{}, problem.Unprocessable("ledger.invalid_rate", "A rate is a plain positive decimal.",
 			problem.FieldError{Field: "rate", Code: "not_positive", Message: "units of to_currency per unit of from_currency, above zero, as digits with an optional decimal point"})
+	}
+	// numeric(28,12), as the Decimal pattern has it: the database would
+	// round a 13th decimal away, the rate then being one nobody entered or
+	// zero, and refuse a 17th integer digit as an internal error (F19).
+	if whole, decimals, _ := strings.Cut(in.Rate, "."); len(strings.TrimLeft(whole, "0")) > 16 || len(decimals) > 12 {
+		return Rate{}, problem.Unprocessable("ledger.invalid_rate", "A rate has at most 16 integer digits and 12 decimals.",
+			problem.FieldError{Field: "rate", Code: "too_many_digits", Message: "at most 16 digits before the decimal point and 12 after it"})
 	}
 	r, err := scanRate(tx.QueryRow(ctx, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9) RETURNING `+rateColumns,

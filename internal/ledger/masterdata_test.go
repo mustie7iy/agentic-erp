@@ -143,6 +143,36 @@ func TestCreateRateRefusesRatesNotPlain(t *testing.T) {
 	}
 }
 
+// A rate is numeric(28,12): at most 16 integer digits and 12 decimals.
+// CreateRate refuses more itself, not only the API's Decimal pattern (F19):
+// the database rounded a 13th decimal away and refused a 17th integer
+// digit as an out-of-range value. Leading zeros are not digits of the
+// value; the largest rate that fits is recorded.
+func TestCreateRateRefusesDigitsBeyondTheColumn(t *testing.T) {
+	e := setup(t)
+	create := func(rate string) error {
+		return apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+			_, err := ledger.CreateRate(ctx, ledger.NewRate{RateType: "average", FromCurrency: "USD", ToCurrency: "GBP",
+				ValidFrom: date("2026-01-01"), Rate: rate, Source: "x"})
+			return err
+		})
+	}
+	for _, rate := range []string{"12345678901234567", "12345678901234567.5", "1.0000000000001", "0.0000000000001"} {
+		t.Run(rate, func(t *testing.T) {
+			p := problem.From(create(rate))
+			if p.Code != "ledger.invalid_rate" {
+				t.Errorf("code: got %q, want ledger.invalid_rate", p.Code)
+			}
+			if p.Status != 422 {
+				t.Errorf("status: got %d, want 422", p.Status)
+			}
+		})
+	}
+	if err := create("0009999999999999999.999999999999"); err != nil {
+		t.Errorf("largest rate: got %v, want it recorded", err)
+	}
+}
+
 func TestExchangeRates(t *testing.T) {
 	e := setup(t)
 	r, tag := e.Must(201, "POST", "/v1/exchange-rates", `{"rate_type": "average", "from_currency": "USD", "to_currency": "EUR", "valid_from": "2026-01-01", "rate": "0.92", "source": "ECB"}`, "")

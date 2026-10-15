@@ -68,7 +68,10 @@ assignments, company access, SoD rules, tax codes, approval policies.
 Assignments are ended, never rewritten: `platform.end_validity()` permits only
 setting or shortening `valid_to` (not into the past) with `ended_by`, and the
 application role may update only those columns. Exchange rates are
-insert-only; a new rate is a new row with a later `valid_from`.
+insert-only; a new rate is a new row with a later `valid_from`. A rate is
+`numeric(28,12)`, and recording one refuses more than 16 integer digits or
+12 decimals (422 `ledger.invalid_rate`) rather than letting the column
+round a decimal away (F19).
 
 ### Naming
 `snake_case`; singular table names (`purchase_order`); `<entity>_id` for
