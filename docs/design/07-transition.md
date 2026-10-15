@@ -1643,13 +1643,13 @@ its open contract steps and follow-ups moved into the modules they belong to, an
 each planned item carries the step that builds it (T0, T30–T47). Items without a
 step stay planned until a later step is drafted for them.
 
-## 7.6 After the transition: completing Phase 1 (T30–T47, draft)
+## 7.6 After the transition: completing Phase 1 (T30–T47)
 
 T1–T29 moved Phase 1 onto the foundation. These steps finish what Phase 1 still
 needs for a pilot company code: the refactoring follow-ups first, then the
 accounting it lacks, then security, deployment and recovery, then agents, banks
-and the rest of procure-to-pay. The draft awaits the product owner's approval;
-the order may change, the bar in §7.7 may not.
+and the rest of procure-to-pay. The product owner approved the steps on
+2026-10-15; the order may change with their agreement, the bar in §7.7 may not.
 
 T0 (design approval) is still open: the product owner confirms the six modelling
 assumptions, decides each ADR, and has the data model reviewed by a finance/SAP
