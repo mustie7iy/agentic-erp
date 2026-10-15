@@ -52,20 +52,22 @@ const (
 )
 
 // PositiveQuantity checks a document quantity (an order, receipt or
-// invoice line): a positive decimal in the grammar of ParseDecimal that a
-// quantity column stores exactly. A fraction ("1/3") or an exponent
-// ("1e3"), which big.Rat would read, is refused, as are significant
-// decimals beyond the sixth and integer digits beyond the fourteenth.
+// invoice line): a plain positive decimal (digits, an optional "." with
+// digits) that a quantity column stores exactly and Scale reads when the
+// line is extended. A fraction ("1/3"), an exponent ("1e3"), a sign,
+// surrounding space or a bare "." side, which big.Rat or ParseDecimal
+// would read, is refused, as are significant decimals beyond the sixth and
+// integer digits beyond the fourteenth.
 func PositiveQuantity(s string) error {
-	neg, intPart, frac, err := decimalParts(s)
+	intPart, frac, ok := plainParts(s)
 	switch {
-	case err != nil:
-		return err
+	case !ok:
+		return fmt.Errorf("quantity %q is not a plain decimal", s)
 	case len(strings.TrimRight(frac, "0")) > QuantityDecimals:
 		return fmt.Errorf("quantity %q has more than %d significant decimals", s, QuantityDecimals)
 	case len(strings.TrimLeft(intPart, "0")) > QuantityIntDigits:
 		return fmt.Errorf("quantity %q has more than %d integer digits", s, QuantityIntDigits)
-	case neg || strings.Trim(intPart+frac, "0") == "":
+	case strings.Trim(intPart+frac, "0") == "":
 		return fmt.Errorf("quantity %q is not positive", s)
 	}
 	return nil

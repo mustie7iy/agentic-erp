@@ -2,6 +2,7 @@ package payables_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
@@ -26,14 +27,15 @@ func TestCapturedQuantity(t *testing.T) {
 			return err
 		})
 	}
-	for _, q := range []string{"1/3", "1e3", "0.1234567", "123456789012345", "0.000000", "-2"} {
+	for i, q := range []string{"1/3", "1e3", "0.1234567", "123456789012345", "0.000000", "-2", " 5", "5.", "+5", ".5"} {
 		t.Run(q, func(t *testing.T) {
-			pgtest.WantErr(t, capture(t, q, "CAP-Q "+q), "payables.invalid_quantity")
+			// A reference per case: duplicate references differ only in punctuation.
+			pgtest.WantErr(t, capture(t, q, fmt.Sprintf("CAP-R%d", i)), "payables.invalid_quantity")
 		})
 	}
-	for _, q := range []string{"99999999999999.999999", "0.000001", "2.5000000"} {
+	for i, q := range []string{"99999999999999.999999", "0.000001", "2.5000000"} {
 		t.Run(q, func(t *testing.T) {
-			if err := capture(t, q, "CAP-Q "+q); err != nil {
+			if err := capture(t, q, fmt.Sprintf("CAP-A%d", i)); err != nil {
 				t.Errorf("got %v, want the invoice captured", err)
 			}
 		})

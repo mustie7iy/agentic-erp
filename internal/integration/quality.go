@@ -234,8 +234,8 @@ func (q *qualityCheck) purchaseOrderItem(i sap.EKPO, h sap.EKKO) {
 // range. The quality gate and the reconciliation both refuse such lines.
 func lineValue(i sap.EKPO, t target, currency string) (money.Minor, []string) {
 	var why []string
-	if money.PositiveQuantity(i.MENGE) != nil {
-		why = append(why, fmt.Sprintf("quantity %q is not a positive number of at most %d decimals", i.MENGE, money.QuantityDecimals))
+	if err := money.PositiveQuantity(i.MENGE); err != nil {
+		why = append(why, err.Error())
 	}
 	if _, err := t.amount(i.NETPR, currency); err != nil {
 		why = append(why, err.Error())

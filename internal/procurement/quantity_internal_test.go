@@ -12,7 +12,7 @@ import (
 // plain decimal that numeric(20,6) stores exactly. A fraction, an exponent
 // or a seventh decimal is 422, not a database error or a silent rounding.
 func TestQuantity(t *testing.T) {
-	for _, q := range []string{"1/3", "1e3", "0.1234567", "123456789012345", "0", "-1", "abc"} {
+	for _, q := range []string{"1/3", "1e3", "0.1234567", "123456789012345", "0", "-1", "abc", " 5", "5.", "+5", ".5"} {
 		t.Run(q, func(t *testing.T) {
 			pgtest.WantErr(t, quantity(q, "items[0].quantity"), "procurement.invalid_quantity")
 		})

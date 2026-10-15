@@ -51,13 +51,15 @@ func TestParseQty(t *testing.T) {
 }
 
 // TestPositiveQuantity: what numeric(20,6) holds exactly and is above
-// zero, in ParseDecimal's grammar; nothing big.Rat alone would read.
+// zero, in the plain grammar Scale reads; nothing big.Rat or ParseDecimal
+// alone would read (a sign, space, a bare "." side).
 func TestPositiveQuantity(t *testing.T) {
 	for in, ok := range map[string]bool{
-		"12.5": true, "0.000001": true, "99999999999999.999999": true, "+3": true, ".5": true, "007": true,
+		"12.5": true, "0.000001": true, "99999999999999.999999": true, "007": true,
 		"1.0000000": true, // the seventh decimal is a zero: nothing is rounded away
 		"1/3":       false, "1e3": false, "0x10": false, "Inf": false, "": false, "abc": false,
 		"0.1234567": false, "123456789012345": false, "0": false, "0.000000": false, "-1": false, "1-": false,
+		"+3": false, ".5": false, "5.": false, " 5": false, "5.000 ": false,
 	} {
 		t.Run(in, func(t *testing.T) {
 			err := PositiveQuantity(in)

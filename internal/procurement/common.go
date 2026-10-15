@@ -110,10 +110,11 @@ func amount(value, currency, docCurrency string, exp int, field string, positive
 }
 
 // quantity checks a document quantity (money.PositiveQuantity): API input
-// is bounded by the contract already, migrated documents are not.
+// is bounded by the contract already, migrated documents are not, and
+// itemsTotal's Scale reads only the plain form.
 func quantity(value, field string) error {
 	if money.PositiveQuantity(value) != nil {
-		return invalid("procurement.invalid_quantity", field+".value", "a positive quantity of at most 14 integer digits and 6 decimals")
+		return invalid("procurement.invalid_quantity", field+".value", fmt.Sprintf("a positive plain decimal quantity of at most %d integer digits and %d decimals", money.QuantityIntDigits, money.QuantityDecimals))
 	}
 	return nil
 }
@@ -134,8 +135,9 @@ func itemsTotal(items []Item) (money.Minor, error) {
 
 // checkTotal refuses items whose extended amounts or total are out of
 // range: a wrapped total would select the wrong approval tier and pass a
-// contract's remaining value. The API admits only plain decimal
-// quantities, so what fails is the range.
+// contract's remaining value. quantity admits only plain decimal
+// quantities, from the API and from a migration alike, so what fails is
+// the range.
 func checkTotal(items []Item) error {
 	_, err := documentTotal(items)
 	return err

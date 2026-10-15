@@ -438,7 +438,7 @@ func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
 	field := fmt.Sprintf("items[%d]", i)
 	item := Item{ItemNo: int32(i + 1), Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, TaxCode: it.TaxCode, AccountID: it.AccountID}
 	if money.PositiveQuantity(it.Quantity) != nil {
-		return Item{}, invalid("payables.invalid_quantity", field+".quantity.value", "A quantity is a positive decimal of at most 14 integer digits and 6 decimals.")
+		return Item{}, invalid("payables.invalid_quantity", field+".quantity.value", fmt.Sprintf("A quantity is a positive plain decimal of at most %d integer digits and %d decimals.", money.QuantityIntDigits, money.QuantityDecimals))
 	}
 	var err error
 	if item.Amount, err = v.parse(it.Amount, field+".amount"); err != nil {

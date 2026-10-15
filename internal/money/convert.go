@@ -73,12 +73,22 @@ func pow10(n int) *big.Int { return new(big.Int).Exp(big.NewInt(10), big.NewInt(
 // parsePlain accepts only plain non-negative decimals: big.Rat would also take
 // fractions and exponents ("1e1000000"), whose expansion is unbounded.
 func parsePlain(s string) (*big.Rat, error) {
-	intPart, frac, hasFrac := strings.Cut(s, ".")
-	if intPart == "" || !digits(intPart) || !digits(frac) || (hasFrac && frac == "") {
+	if _, _, ok := plainParts(s); !ok {
 		return nil, fmt.Errorf("money: invalid rate or factor %q: want a plain decimal", s)
 	}
 	r, _ := new(big.Rat).SetString(s) // digits with at most one dot always parse
 	return r, nil
+}
+
+// plainParts splits a plain non-negative decimal: digits, and an optional
+// "." with digits. No sign, no space, no bare "." side: the form a numeric
+// column prints and Scale reads.
+func plainParts(s string) (intPart, frac string, ok bool) {
+	intPart, frac, hasFrac := strings.Cut(s, ".")
+	if intPart == "" || !digits(intPart) || !digits(frac) || (hasFrac && frac == "") {
+		return "", "", false
+	}
+	return intPart, frac, true
 }
 
 // roundHalfAway rounds a rational to the nearest integer, ties away from

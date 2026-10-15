@@ -312,7 +312,7 @@ func TestQualityGateAndRefusedLoads(t *testing.T) {
 	quality := fmt.Sprint(got["report"].(map[string]any)["quality"])
 	for _, want := range []string{"not the legal entity's local currency", "not in the legal entity's chart", "reconciliation account on one side",
 		"vendor has no name", "possible duplicate vendors", "without vendor master", "not a vendor reconciliation account of company", `payment terms "ZZ99"`,
-		"vendor 0000000077 not in extract", "invalid SAP date", "G/L account 888888", "not a positive number", "price unit",
+		"vendor 0000000077 not in extract", "invalid SAP date", "G/L account 888888", `quantity "-1" is not a plain decimal`, "price unit",
 		"movement type 102", "missing from chart of accounts", "without vendor", "vendor 0000000066 not in extract", "journal_xx number range",
 		"does not balance", "posting-blocked but has open payables", "repeats invoice", "unparseable amounts", "status \"B\"", "currency \"XXX\""} {
 		if !strings.Contains(quality, want) {

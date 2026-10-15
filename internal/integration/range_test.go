@@ -72,7 +72,9 @@ func TestReconciliationRefusesSumsOutOfRange(t *testing.T) {
 	x.EKPO = append(x.EKPO, sap.EKPO{EBELN: "4500000001", EBELP: "00020", MATNR: "MAT-2", MENGE: "2", NETPR: "92233720368547758.07", PEINH: "1",
 		SAKTO: "0000520000"}, sap.EKPO{EBELN: "4500000001", EBELP: "00030", MATNR: "MAT-3", MENGE: "abc", NETPR: "1.234,00", PEINH: "x",
 		SAKTO: "0000520000"}, sap.EKPO{EBELN: "4500000001", EBELP: "00040", MATNR: "MAT-4", MENGE: "1.2345", NETPR: "1.00", PEINH: "1",
-		SAKTO: "0000520000"})
+		SAKTO: "0000520000"},
+		// A space-padded fixed-width MENGE: the gate refuses it, as procurement would at load.
+		sap.EKPO{EBELN: "4500000001", EBELP: "00050", MATNR: "MAT-5", MENGE: " 5.000", NETPR: "1.00", PEINH: "1", SAKTO: "0000520000"})
 	write(t, e.dir, "changing.json", x)
 	_, got := e.act(t, run, "reconcile")
 	if got["status"] != "failed" {
@@ -81,7 +83,7 @@ func TestReconciliationRefusesSumsOutOfRange(t *testing.T) {
 	issues := fmt.Sprint(got["report"].(map[string]any)["issues"])
 	for _, want := range []string{"the lines of account 100000 add up to more than an amount holds", "the debits of company 2000 add up to more than an amount holds",
 		"2000/2026/0100000009/000004", "net value of 2 at 92233720368547758.07 per 1 is out of range",
-		`quantity "abc" is not a positive number`, `price unit "x" is not a positive whole number`, "4500000001/00030", `quantity "1.2345"`} {
+		`quantity "abc" is not a plain decimal`, `quantity " 5.000" is not a plain decimal`, "4500000001/00050", `price unit "x" is not a positive whole number`, "4500000001/00030", `quantity "1.2345"`} {
 		if !strings.Contains(issues, want) {
 			t.Errorf("reconciliation issues: got %s, want %q", issues, want)
 		}
