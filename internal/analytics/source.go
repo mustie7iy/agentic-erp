@@ -263,7 +263,9 @@ func (b *factBuilder) addOrder(le legalEntity, o order, chart map[string]account
 		if err == nil {
 			// Extended from the decimal string, as procurement does: a
 			// document quantity has up to six decimals.
-			amount, err = money.Scale(price, it.Quantity.Value, max(it.PriceUnit, 1))
+			if amount, err = money.Scale(price, it.Quantity.Value, max(it.PriceUnit, 1)); err != nil {
+				err = fmt.Errorf("quantity %s: %w", it.Quantity.Value, err)
+			}
 		}
 		if err == nil {
 			err = b.calendar(dims, o.OrderDate)

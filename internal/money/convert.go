@@ -87,11 +87,11 @@ func pow10(n int) *big.Int { return new(big.Int).Exp(big.NewInt(10), big.NewInt(
 // ParsePlain reads a plain non-negative decimal, the grammar Convert and
 // Scale read: digits and an optional "." with digits. big.Rat alone would
 // also take fractions ("1/3") and exponents ("1e1000000", whose expansion
-// is unbounded); validate a rate or factor with ParsePlain before storing
-// it, so what is stored is what Convert will read.
+// is unbounded): a rate or factor validated with ParsePlain is one Convert
+// and Scale read.
 func ParsePlain(s string) (*big.Rat, error) {
 	if _, _, ok := plainParts(s); !ok {
-		return nil, fmt.Errorf("money: invalid rate or factor %q: want a plain decimal", s)
+		return nil, fmt.Errorf("money: %q is not a plain decimal", s)
 	}
 	r, _ := new(big.Rat).SetString(s) // digits with at most one dot always parse
 	return r, nil
