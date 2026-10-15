@@ -160,6 +160,11 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, lim
 		if it.POItemNo == nil {
 			continue
 		}
+		// An item with an order item is on the invoice's order (the invoice
+		// is for one order, and replay refuses one without it), and its
+		// order item was checked to exist when the invoice was written; a
+		// released order's items no longer change (procurement edits drafts
+		// only), so the lookup finds it.
 		oi := order.Items[items[*it.POItemNo]]
 		if why := priceVariance(it, oi, lim, conv, format); why != "" {
 			add(IssuePriceVariance, &it.ItemNo, "order item %d: %s", oi.ItemNo, why)
@@ -250,7 +255,7 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 		return Match{}, err
 	}
 	if v.PurchaseOrderID == nil {
-		return Match{}, problem.Unprocessable("payables.no_purchase_order", "Only invoices on a purchase order are matched.")
+		return Match{}, noPurchaseOrder()
 	}
 	doc, version, err := e.Settings.Document(ctx)
 	if err != nil {

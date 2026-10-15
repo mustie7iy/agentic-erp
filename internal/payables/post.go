@@ -148,6 +148,9 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 			taxCode = it.TaxCode
 		}
 		if it.Amount != 0 {
+			// Every item has an account: validation requires one on an item
+			// without an order item and fills it from the order item
+			// otherwise (orderItem).
 			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: it.Amount, TaxCode: it.TaxCode, Text: it.Description})
 		}
 	}
@@ -194,6 +197,9 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := requireStatus(v, "reverse", Posted); err != nil {
 		return Invoice{}, err
 	}
+	// A posted invoice always has its entry: the table's CHECK
+	// ((status IN ('posted', 'reversed')) = (journal_entry_id IS NOT NULL))
+	// and the pairing of id and year, migration 000007.
 	cleared, err := e.Postings.IsCleared(ctx, *v.JournalEntryYear, *v.JournalEntryID)
 	if err != nil {
 		return Invoice{}, err

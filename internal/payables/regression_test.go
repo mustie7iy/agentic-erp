@@ -334,3 +334,52 @@ func TestReplayWithoutOrderOrEntity(t *testing.T) {
 		})
 	}
 }
+
+// TestReplayInvoiceWithoutOrder: a captured invoice that later lost its
+// purchase order (still parked, edited onto accounts) is a not_evaluable
+// case with the stable reason no_purchase_order, and the replay goes on
+// with the other cases (F17). Before, replaying dereferenced the missing
+// order and panicked, taking the server down.
+func TestReplayInvoiceWithoutOrder(t *testing.T) {
+	e := setup(t)
+	po := e.order(t, e.Supplier, "PO-1")
+	e.receive(t, po, 1, "10")
+	e.receive(t, po, 2, "5")
+	moved := e.clean(t, po, "INV-1")
+	e.clean(t, po, "INV-2")
+	doc := fixture.Document(t)
+	g := payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates,
+		Now: func() time.Time { return time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC) }}
+	var cases []configuration.RegressionCase
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+		cases, err = g.Capture(ctx, doc, 90*24*time.Hour, 0)
+		return err
+	}); err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if len(cases) != 2 {
+		t.Fatalf("captured cases: got %d, want 2", len(cases))
+	}
+	e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(moved), fmt.Sprintf(`{"purchase_order_id": null, "items": [%s]}`,
+		accountItem(e.expense, "135.00")), e.tag(t, id(moved)))
+	var failures []configuration.RegressionFailure
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+		failures, err = g.Replay(ctx, doc, cases)
+		return err
+	}); err != nil {
+		t.Fatalf("replay: got %v, want the case reported", err)
+	}
+	if len(failures) != 1 {
+		t.Fatalf("replay failures: got %d, want 1: %+v", len(failures), failures)
+	}
+	f := failures[0]
+	if got := f.Case.InvoiceID.String(); got != id(moved) {
+		t.Errorf("failed case: got %s, want %s", got, id(moved))
+	}
+	if f.Decision != payables.DecisionNotEvaluable {
+		t.Errorf("decision: got %s, want %s", f.Decision, payables.DecisionNotEvaluable)
+	}
+	if got := strings.Join(f.Issues, ","); got != "no_purchase_order" {
+		t.Errorf("issues: got %s, want no_purchase_order", got)
+	}
+}

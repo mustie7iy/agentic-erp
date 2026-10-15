@@ -298,7 +298,10 @@ Replaying history does not refuse: an invoice without a rate or out of
 range is not evaluable rather than a failure for the whole tenant, a
 simulation reports it as
 one it cannot evaluate, and a regression suite records it as
-`not_evaluable` (issue `no_exchange_rate` or `amount_too_large`).
+`not_evaluable` (issue `no_exchange_rate` or `amount_too_large`). A
+captured invoice that has since lost its purchase order (a parked invoice
+edited onto accounts) is replayed as `not_evaluable` with the issue
+`no_purchase_order` (F17).
 
 ## 3.6 Business partners (`partner`)
 

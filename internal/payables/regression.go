@@ -124,8 +124,26 @@ func invoicesOnOrders(ctx context.Context, src sources, since time.Time, limit i
 	return out, nil
 }
 
-// replay gathers one invoice's inputs, through the cache.
+// noPurchaseOrder is the refusal to match or replay an invoice without a
+// purchase order (422 payables.no_purchase_order): there is no order to
+// compare it with.
+func noPurchaseOrder() error {
+	return problem.Unprocessable(noPurchaseOrderCode, "Only invoices on a purchase order are matched.")
+}
+
+// noPurchaseOrderCode is the problem code of noPurchaseOrder; without its
+// "payables." prefix, the stable issue of a regression case whose invoice
+// lost its order.
+const noPurchaseOrderCode = "payables.no_purchase_order"
+
+// replay gathers one invoice's inputs, through the cache. An invoice
+// without a purchase order is refused (noPurchaseOrder): a parked invoice
+// can lose its order after it was captured into a suite, and everything
+// below reads the order.
 func replay(ctx context.Context, tx pgx.Tx, src sources, v Invoice, c *replayCache) (replayed, error) {
+	if v.PurchaseOrderID == nil {
+		return replayed{}, noPurchaseOrder()
+	}
 	le, err := c.entity(ctx, src.legalEntities, v)
 	if err != nil {
 		return replayed{}, err
@@ -357,22 +375,38 @@ func (g Regression) Replay(ctx context.Context, doc *config.Config, cases []conf
 	cache := newReplayCache()
 	failures := []configuration.RegressionFailure{}
 	for _, c := range cases {
-		v, err := load(ctx, tx, c.InvoiceID, false)
+		decision, issues, err := g.replayCase(ctx, tx, doc, c, cache)
 		if err != nil {
 			return nil, err
 		}
-		r, err := replay(ctx, tx, g.sources(), v, cache)
-		if err != nil {
-			return nil, err
-		}
-		lim, err := companyLimits(doc.Company(r.Company))
-		if err != nil {
-			return nil, err
-		}
-		decision, issues := outcome(lim, r)
 		if decision != c.ExpectedDecision || !slices.Equal(issues, c.ExpectedIssues) {
 			failures = append(failures, configuration.RegressionFailure{Case: c, Decision: decision, Issues: issues})
 		}
 	}
 	return failures, nil
+}
+
+// replayCase decides one case again under doc. An invoice that lost its
+// purchase order since the capture (a parked invoice can be edited onto
+// accounts) is not evaluable, with no_purchase_order as its issue: it is
+// reported, as an invoice without a rate is, not a reason to fail the
+// simulation (F17).
+func (g Regression) replayCase(ctx context.Context, tx pgx.Tx, doc *config.Config, c configuration.RegressionCase, cache *replayCache) (string, []string, error) {
+	v, err := load(ctx, tx, c.InvoiceID, false)
+	if err != nil {
+		return "", nil, err
+	}
+	r, err := replay(ctx, tx, g.sources(), v, cache)
+	if p := (*problem.Problem)(nil); errors.As(err, &p) && p.Code == noPurchaseOrderCode {
+		return DecisionNotEvaluable, []string{strings.TrimPrefix(noPurchaseOrderCode, "payables.")}, nil
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	lim, err := companyLimits(doc.Company(r.Company))
+	if err != nil {
+		return "", nil, err
+	}
+	decision, issues := outcome(lim, r)
+	return decision, issues, nil
 }
