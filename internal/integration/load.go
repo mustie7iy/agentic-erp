@@ -169,8 +169,8 @@ func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, i
 	l.vendors[v.LIFNR] = id
 	var missing []partner.SupplierCompanyInput
 	for _, c := range in {
-		// A partner not found is not set up either, so it is added below,
-		// where AddCompanies refuses a partner that does not exist.
+		// A partner not found has SetUp false, so the company is requested
+		// from AddCompanies, which refuses an unknown partner.
 		s, _, err := l.e.Suppliers.Supplier(ctx, id, c.LegalEntityID)
 		if err != nil {
 			return err

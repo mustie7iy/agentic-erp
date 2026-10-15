@@ -57,8 +57,11 @@ func TestExpandWithoutTheSupplier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	got := res.(*gen.GetSupplierInvoiceOKHeaders).Response
-	if got.Expanded.Set {
+	ok, isOK := res.(*gen.GetSupplierInvoiceOKHeaders)
+	if !isOK {
+		t.Fatalf("response: got %T, want *gen.GetSupplierInvoiceOKHeaders", res)
+	}
+	if got := ok.Response; got.Expanded.Set {
 		t.Errorf("expanded: got %+v, want no expansion", got.Expanded.Value)
 	}
 }
