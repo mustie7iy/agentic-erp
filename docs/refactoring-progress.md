@@ -392,6 +392,16 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   refused (422 ledger.no_exchange_rate, user decision), which the CLI reports, leaving the
   invoice parked; a gross out of range in the company's currency is matched and not_evaluable.
   Regression cases list not_evaluable in the contract.
+- Fourth re-review after round four: **9.3 / 10** (architecture 9.3, error handling 9.3,
+  concurrency 8.9, SQL 9.7, tests 9.4, readability 9.4, duplication 8.9, money 9.4). Round five
+  below.
+- [ ] F13 A clean match only authorises posting the invoice version it evaluated; tolerances and
+  the auto-post limit compared exactly, before rounding
+- [ ] F14 A configuration's company currency must equal the legal entity's local currency
+- [ ] R60 Round-five duplication: extension keys, control/global plane HTTP helpers, reference
+  errors, positive quantities, migrated clearing record
+- [ ] R61 Round-five residue: scanPrincipal, agent budget parsing, inverse-rate test, clocks,
+  small readability items
 - [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
   Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
   panic); a period close locks only a period the caller may see; provision and rewrap report a
