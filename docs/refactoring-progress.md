@@ -438,9 +438,12 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   against numeric(28,12) (only the API pattern does).
 - [ ] F16 An approved invoice exception only authorises posting the invoice version it was approved
   at; robustness of the regression lookups and `erp invoices`
-- [ ] R62 Round-six duplication and clocks: one accessible-legal-entity helper, the remaining
-  reference copies, Simulate's invoice query, per-partner netting, rotator and expiry clocks,
-  constant identifiers through Sanitize
+- [x] R62 Round-six duplication and clocks: tenancy.Accessible replaces six copies of the
+  accessible-legal-entity refusal; problem.ReferenceNotFound/Reference replace the procurement and
+  payments copies (one client-visible change: an unknown requisition_id on an order now reports
+  field code not_found, not invalid; top-level code unchanged); Simulate reads through
+  invoicesOnOrders; one perPartner netting check; KeyRotator and ContractExpirer take a clock;
+  constant identifiers quoted through pgx.Identifier. Reviewer: APPROVE.
 - [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
   Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
   panic); a period close locks only a period the caller may see; provision and rewrap report a
