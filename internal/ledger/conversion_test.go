@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -119,4 +120,19 @@ func TestRatesPort(t *testing.T) {
 	if _, err := (ledger.Conversion{From: "USD", To: "EUR", Rate: "1", FromExp: -1, ToExp: 2}).Convert(1); err == nil || errors.Is(err, money.ErrOverflow) {
 		t.Errorf("invalid exponent: got %v, want an error", err)
 	}
+}
+
+// TestUnreadableStoredRate: a rate that is not a plain positive decimal,
+// which CreateRate cannot store but a direct write to the table could
+// ('NaN' passes the column's rate > 0 check), is refused with an error,
+// never read as nil and dereferenced.
+func TestUnreadableStoredRate(t *testing.T) {
+	e := setup(t)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'EUR', 'GBP', '2026-01-01', 'NaN', 'test', $2)`, e.ten.ID, e.ten.Human.ID)
+	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		_, _, err := ledger.Rates{LegalEntities: tenancy.Directory{}}.ToCompany(ctx, e.de, "GBP", date("2026-03-10"), 100)
+		return err
+	})
+	pgtest.WantErr(t, err, `stored rate "NaN"`)
 }

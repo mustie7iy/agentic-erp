@@ -482,9 +482,15 @@ func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (exch
 	if err != nil {
 		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: %w", from, to, date.Format(time.DateOnly), err)
 	}
-	x := exchange{exact: money.ParseRat(recorded), shown: shown}
+	// Read in money's plain grammar: the column's rate > 0 check lets 'NaN'
+	// through, which CreateRate never stores but a direct write could.
+	exact, err := money.ParsePlain(recorded)
+	if err != nil || exact.Sign() <= 0 {
+		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: stored rate %q is not a positive decimal", from, to, date.Format(time.DateOnly), recorded)
+	}
+	x := exchange{exact: exact, shown: shown}
 	if !forward {
-		x.exact.Inv(x.exact) // never zero: the column's check keeps rates above zero
+		x.exact.Inv(x.exact) // never zero: checked above
 	}
 	return x, nil
 }
