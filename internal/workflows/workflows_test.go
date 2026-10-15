@@ -660,7 +660,14 @@ func queuedReleases(t *testing.T, tenant uuid.UUID) int {
 // its validation, so a bank file is refused (blank) or accepted again.
 func (e env) setHolder(t *testing.T, holder string) {
 	t.Helper()
-	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE partner.bank_account SET holder_name = '%s' WHERE partner_id = '%s'; END $$`, holder, e.Supplier))
+	ctx := context.Background()
+	c := pgtest.Admin(t) // a connection of its own, so the replica role below ends with it
+	if _, err := c.Exec(ctx, `SET session_replication_role = replica`); err != nil {
+		t.Fatalf("skip the bank account's triggers: %v", err)
+	}
+	if _, err := c.Exec(ctx, `UPDATE partner.bank_account SET holder_name = $1 WHERE partner_id = $2`, holder, e.Supplier); err != nil {
+		t.Fatalf("set the holder: %v", err)
+	}
 }
 
 // TestReleaseWorkflow: the release posts one payment per activity and

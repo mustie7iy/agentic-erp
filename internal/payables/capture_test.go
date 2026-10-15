@@ -37,9 +37,12 @@ func (x extractor) Extract(context.Context, []byte) (*capture.Extraction, error)
 type orderNumbers struct{}
 
 func (orderNumbers) OrderByNumber(ctx context.Context, le uuid.UUID, number string) (uuid.UUID, bool, error) {
-	tx, _, _ := reqctx.Request(ctx)
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
 	var id uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT id FROM procurement.purchase_order WHERE legal_entity_id = $1 AND document_number = $2`, le, number).Scan(&id)
+	err = tx.QueryRow(ctx, `SELECT id FROM procurement.purchase_order WHERE legal_entity_id = $1 AND document_number = $2`, le, number).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, false, nil
 	}

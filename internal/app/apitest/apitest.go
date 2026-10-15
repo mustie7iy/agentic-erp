@@ -72,7 +72,10 @@ func NewWith(tb testing.TB, configure func(*app.Config)) *API {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	pages, err := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	if err != nil {
+		tb.Fatal(err)
+	}
 	a := &API{t: tb, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &syncBuffer{}}
 	cfg := app.Config{
 		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(), UploadKey: []byte(strings.Repeat("u", 32)),

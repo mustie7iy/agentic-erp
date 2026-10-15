@@ -63,7 +63,12 @@ func New(t *testing.T, steps ...Step) *Server {
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	body, _ := io.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		// The client went away mid-request; there is nothing to record or answer.
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	s.Requests = append(s.Requests, string(body))
 	s.Headers = append(s.Headers, r.Header.Clone())
 	n := len(s.Requests) - 1
