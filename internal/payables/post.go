@@ -42,12 +42,9 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if totalMismatch(v, money.Minor.String) != "" {
 		return Invoice{}, problem.Unprocessable("payables.amounts_mismatch", "The gross amount must equal the items plus tax.")
 	}
-	sup, _, err := e.Suppliers.Supplier(ctx, v.SupplierID, v.LegalEntityID)
+	sup, err := e.postableSupplier(ctx, v)
 	if err != nil {
 		return Invoice{}, err
-	}
-	if why := sup.Usable(); why != "" {
-		return Invoice{}, problem.Unprocessable("payables.supplier_not_usable", "The supplier cannot be posted: "+why+".")
 	}
 	date, err := invoicePostingDate(ctx, tx, v, postingDate)
 	if err != nil {
@@ -77,6 +74,25 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": date.Format(time.DateOnly),
 			"gross_amount": money.EventAmount(posted.Gross, posted.Currency, posted.Exponent), "tax_amount": money.EventAmount(posted.Tax, posted.Currency, posted.Exponent),
 			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
+}
+
+// postableSupplier is the invoice's supplier when it can be posted to. A
+// supplier the partner context no longer finds is refused as unusable with
+// that reason, as invoiceParties refuses it, never read as a supplier with
+// an empty status.
+func (e *Endpoints) postableSupplier(ctx context.Context, v Invoice) (partner.Supplier, error) {
+	sup, ok, err := e.Suppliers.Supplier(ctx, v.SupplierID, v.LegalEntityID)
+	if err != nil {
+		return partner.Supplier{}, err
+	}
+	why := sup.Usable()
+	if !ok {
+		why = "no business partner with this id"
+	}
+	if why != "" {
+		return partner.Supplier{}, problem.Unprocessable("payables.supplier_not_usable", "The supplier cannot be posted: "+why+".")
+	}
+	return sup, nil
 }
 
 // requireCleanMatch lets an invoice on a purchase order post only after a
