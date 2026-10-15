@@ -347,7 +347,7 @@ func TestInvoicesDecision(t *testing.T) {
 		"unknown": {`{"is_clean": true, "decision": {"outcome": "escalate", "reason": "new rule"}}`,
 			[]string{"5101: escalate (new rule)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
 		"refused": {`422 {"code": "ledger.no_exchange_rate", "detail": "No average exchange rate from USD to EUR is valid on 2026-03-10."}`,
-			[]string{"5101: refused by the server: ledger.no_exchange_rate: No average exchange rate from USD to EUR is valid on 2026-03-10.",
+			[]string{"5101: refused: ledger.no_exchange_rate: No average exchange rate from USD to EUR is valid on 2026-03-10.",
 				"Posted 0:", "Held 0:", "Left parked 1: 5101 (refused: ledger.no_exchange_rate)"}},
 	} {
 		t.Run(name, func(t *testing.T) {

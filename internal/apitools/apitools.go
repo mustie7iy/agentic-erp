@@ -69,6 +69,35 @@ func (r Response) Decode(into any) error {
 	return errs.Wrapf(json.Unmarshal(r.Body, into), "decode response body")
 }
 
+// List reads every page of the list operation at path with the query, 500
+// items a page, following next_page_token until a page has none: a caller
+// that read only the first page would silently miss the rest.
+func List[T any](ctx context.Context, c *Client, path string, query url.Values) ([]T, error) {
+	q := url.Values{"page_size": {"500"}}
+	for k, v := range query {
+		q[k] = v
+	}
+	var out []T
+	for {
+		resp, err := c.Do(ctx, http.MethodGet, path, q, nil, "")
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Items         []T
+			NextPageToken string `json:"next_page_token"`
+		}
+		if err := resp.Decode(&page); err != nil {
+			return nil, fmt.Errorf("apitools: list %s: %w", path, err)
+		}
+		out = append(out, page.Items...)
+		if page.NextPageToken == "" {
+			return out, nil
+		}
+		q.Set("page_token", page.NextPageToken)
+	}
+}
+
 // Do performs a call. Unsafe calls get a fresh Idempotency-Key; ifMatch,
 // when not empty, is sent as If-Match.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any, ifMatch string) (Response, error) {

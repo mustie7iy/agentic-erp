@@ -49,12 +49,13 @@ type settled struct{ posted, held, parked []string }
 // a purchase order is matched, and the server's decision is acted on: a
 // clean match it decides auto_post is posted, one it reviews or cannot
 // evaluate is held for a person, and the match holds the others itself,
-// opening their exception requests. Without a decision it knows (an older
-// server, a new outcome), or when the server refuses the match (422, e.g.
-// no exchange rate), or when the invoice changed between its match and the
-// post or hold (412: the server acts only on the matched version), the
-// invoice is left parked; the rule never compares
-// amounts itself. With -agent, the exceptions agent then
+// opening their exception requests. Every page of parked invoices is
+// settled. Without a decision it knows (an older server, a new outcome),
+// or when the server refuses the match (422, e.g. no exchange rate), or
+// when the invoice is gone (404) or changed between its read and its match
+// or between its match and the post or hold (412: the server acts only on
+// the matched version), the invoice is left parked; the rule never
+// compares amounts itself. With -agent, the exceptions agent then
 // investigates the held invoices.
 func invoices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("invoices", flag.ContinueOnError)
@@ -66,17 +67,13 @@ func invoices(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.Do(ctx, http.MethodGet, "/v1/supplier-invoices", url.Values{"status": {"parked"}, "page_size": {"500"}}, nil, "")
+	parked, err := apitools.List[parkedInvoice](ctx, c, "/v1/supplier-invoices", url.Values{"status": {"parked"}})
 	if err != nil {
-		return err
-	}
-	var page struct{ Items []parkedInvoice }
-	if err := resp.Decode(&page); err != nil {
 		return err
 	}
 	w := printer()
 	var done settled
-	for _, inv := range page.Items {
+	for _, inv := range parked {
 		if inv.PurchaseOrderID == "" {
 			continue // entered by hand without an order: a person posts it
 		}
@@ -104,12 +101,10 @@ func invoices(ctx context.Context, args []string) error {
 func settle(ctx context.Context, c *apitools.Client, w io.Writer, inv parkedInvoice, done *settled) error {
 	path := "/v1/supplier-invoices/" + inv.ID
 	m, tag, err := matchInvoice(ctx, c, path, inv)
-	var refused *apitools.Error
-	if errors.As(err, &refused) && refused.Status == http.StatusUnprocessableEntity {
-		// The server refuses to match this invoice (no exchange rate, no
-		// order): a person resolves it, and the other invoices go on.
-		fmt.Fprintf(w, "%s: refused by the server: %s: %s\n", inv.DocumentNumber, refused.Code, refused.Detail)
-		done.parked = append(done.parked, inv.DocumentNumber+" (refused: "+refused.Code+")")
+	if refused := (*apitools.Error)(nil); errors.As(err, &refused) && parkedOn[refused.Status] != "" {
+		why := parkedOn[refused.Status]
+		fmt.Fprintf(w, "%s: %s: %s: %s\n", inv.DocumentNumber, why, refused.Code, refused.Detail)
+		done.parked = append(done.parked, inv.DocumentNumber+" ("+why+": "+refused.Code+")")
 		return nil
 	}
 	if err != nil {
@@ -142,6 +137,18 @@ func settle(ctx context.Context, c *apitools.Client, w io.Writer, inv parkedInvo
 	return nil
 }
 
+// parkedOn are the refusals of an invoice's read or match that leave it
+// parked for a person or the next run, while the other invoices go on, by
+// how they are listed.
+var parkedOn = map[int]string{
+	// The server refuses to match it: no exchange rate, no order.
+	http.StatusUnprocessableEntity: "refused",
+	// It is gone from the caller's view since the listing.
+	http.StatusNotFound: "not found",
+	// It changed between its read and its match; the next run reads it again.
+	http.StatusPreconditionFailed: "changed before its match",
+}
+
 // listIfDone lists an invoice (as listed) once the action on it succeeded
 // (err nil). An invoice changed since its match (412) is left parked for
 // the next run, which matches it again; other errors stop the rule.
@@ -160,11 +167,15 @@ func (done *settled) listIfDone(w io.Writer, list *[]string, invoice, listed str
 
 // matchInvoice matches the invoice at path against its order, on its
 // current version, and returns the match with the server's decision and
-// the ETag the match was sent with: the version the decision is for.
+// the ETag the match was sent with: the version the decision is for. A
+// failed read is returned, never matched with the empty ETag it carries.
 func matchInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice) (matched, string, error) {
 	cur, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
 	if err != nil {
 		return matched{}, "", err
+	}
+	if err := cur.Err(); err != nil {
+		return matched{}, "", fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
 	}
 	resp, err := c.Do(ctx, http.MethodPost, path+":match", nil, nil, cur.ETag)
 	if err != nil {
