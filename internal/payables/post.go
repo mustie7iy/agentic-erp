@@ -81,19 +81,30 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 }
 
 // requireCleanMatch lets an invoice on a purchase order post only after a
-// clean latest match, unless an approved exception request is linked.
+// clean latest match of its current version (F13), unless an approved
+// exception request is linked (an edit unlinks it). v is read FOR UPDATE,
+// and a match locks the invoice too, so no match or edit lands between this
+// check and the posting. Any change of the invoice since the match (an
+// edit, a hold or release by hand) needs a new match; a match recorded
+// without a version (before migration 000040) counts for none.
 func requireCleanMatch(ctx context.Context, tx pgx.Tx, v Invoice) error {
 	if v.PurchaseOrderID == nil || v.WorkflowRequestID != nil {
 		return nil
 	}
-	var clean *bool
-	err := tx.QueryRow(ctx, `SELECT is_clean FROM payables.match_result WHERE supplier_invoice_id = $1 ORDER BY evaluated_at DESC LIMIT 1`, v.ID).Scan(&clean)
+	var clean bool
+	var version *int32
+	err := tx.QueryRow(ctx, `SELECT is_clean, invoice_version FROM payables.match_result WHERE supplier_invoice_id = $1
+		ORDER BY evaluated_at DESC LIMIT 1`, v.ID).Scan(&clean, &version)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("payables: read latest match of invoice %s: %w", v.ID, err)
 	}
-	if clean == nil || !*clean {
+	if !clean {
 		return problem.Conflict("payables.match_required",
 			"An invoice on a purchase order is posted after a clean match or an approved exception; match it first.")
+	}
+	if version == nil || *version != v.Version {
+		return problem.Conflict("payables.match_required",
+			"The invoice changed after its last clean match; match it again before it is posted.")
 	}
 	return nil
 }

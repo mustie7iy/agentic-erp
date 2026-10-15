@@ -115,7 +115,10 @@ func amountInput(minor money.Minor, currency string, exp int) Amount {
 	return Amount{Value: minor.Plain(exp), Currency: currency}
 }
 
-// UpdateInvoice changes a parked invoice and validates it again.
+// UpdateInvoice changes a parked invoice and validates it again. The edit
+// needs a new match before the invoice posts (F13): it changes the version
+// the latest match was recorded at, and it unlinks an approved exception
+// request, which was decided on the invoice as it was.
 func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch Change) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -131,6 +134,33 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	if err := requireStatus(v, "change", Parked); err != nil {
 		return Invoice{}, err
 	}
+	in := changed(v, ch)
+	c, err := e.validate(ctx, tx, in)
+	if err != nil {
+		return Invoice{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
+			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, workflow_request_id = NULL, version = version + 1, updated_by = $10
+		WHERE id = $1`,
+		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID); err != nil {
+		return Invoice{}, fmt.Errorf("payables: update invoice %s: %w", id, err)
+	}
+	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
+		return Invoice{}, err
+	}
+	updated, err := load(ctx, tx, id, false)
+	if err != nil {
+		return Invoice{}, err
+	}
+	detail := map[string]any{"items": len(c.items)}
+	if v.WorkflowRequestID != nil {
+		detail["exception_unlinked"] = *v.WorkflowRequestID
+	}
+	return updated, record(ctx, "payables.supplier_invoice.update", id, detail)
+}
+
+// changed is the input of a parked invoice with a change applied.
+func changed(v Invoice, ch Change) Input {
 	in := Input{LegalEntityID: v.LegalEntityID, SupplierID: v.SupplierID, SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate,
 		PostingDate: v.PostingDate, Gross: amountInput(v.Gross, v.Currency, v.Exponent), Tax: amountInput(v.Tax, v.Currency, v.Exponent),
 		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergepatch.Apply(v.Extensions, ch.Extensions)}
@@ -159,23 +189,7 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	if ch.Items != nil {
 		in.Items = ch.Items
 	}
-	c, err := e.validate(ctx, tx, in)
-	if err != nil {
-		return Invoice{}, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
-			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, version = version + 1, updated_by = $10 WHERE id = $1`,
-		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID); err != nil {
-		return Invoice{}, fmt.Errorf("payables: update invoice %s: %w", id, err)
-	}
-	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
-		return Invoice{}, err
-	}
-	updated, err := load(ctx, tx, id, false)
-	if err != nil {
-		return Invoice{}, err
-	}
-	return updated, record(ctx, "payables.supplier_invoice.update", id, map[string]any{"items": len(c.items)})
+	return in
 }
 
 func requireStatus(v Invoice, action string, allowed ...string) error {

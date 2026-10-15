@@ -186,7 +186,23 @@ func TestExceptionApproved(t *testing.T) {
 	// The approved exception covers the issues, but not a gross that does not add up.
 	e.Problem(422, "payables.amounts_mismatch", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", e.tag(t, id(inv)))
 	tag := e.tag(t, id(inv))
-	e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), `{"gross_amount": {"amount": "185.64", "currency": "EUR"}}`, tag)
+	// The correction unlinks the approved exception, decided on the invoice
+	// as it was (F13): it is matched, held and approved again.
+	edited, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), `{"gross_amount": {"amount": "185.64", "currency": "EUR"}}`, tag)
+	if edited["workflow_request_id"] != nil {
+		t.Errorf("edited workflow request: got %v, want none", edited["workflow_request_id"])
+	}
+	var unlinked string
+	pgtest.Scan(t, `SELECT coalesce(detail->>'exception_unlinked', '') FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2
+		AND action = 'payables.supplier_invoice.update'`, []any{e.Tenant.ID, id(inv)}, &unlinked)
+	if unlinked != held["workflow_request_id"] {
+		t.Errorf("audited unlinked request: got %q, want %v", unlinked, held["workflow_request_id"])
+	}
+	e.Problem(409, "payables.match_required", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", e.tag(t, id(inv)))
+	if m := e.act(t, 200, id(inv), "match", ""); len(m["issues"].([]any)) != 2 {
+		t.Errorf("issues of the corrected invoice: got %v, want price and quantity", m["issues"])
+	}
+	e.Approve(t, id(inv))
 	if p := e.act(t, 200, id(inv), "post", ""); p["status"] != "posted" {
 		t.Fatalf("posted: %v", p)
 	}
@@ -211,7 +227,7 @@ func TestExceptionApproved(t *testing.T) {
 	e.Problem(404, "request.not_found", "GET", "/v1/supplier-invoices/"+uuid.NewString()+"/match-results", "", "")
 	svc := e.As(e.Tenant.Service)
 	svc.Problem(404, "request.not_found", "GET", "/v1/match-results/"+first["id"].(string), "", "")
-	if ev := events(t, e.Tenant, "supplier_invoice_matched"); len(ev) != 2 {
+	if ev := events(t, e.Tenant, "supplier_invoice_matched"); len(ev) != 3 {
 		t.Fatalf("matched events: %v", ev)
 	}
 }

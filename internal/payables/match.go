@@ -46,6 +46,10 @@ type Match struct {
 	Issues        []Issue
 	ConfigVersion int32
 	EvaluatedBy   uuid.UUID
+	// InvoiceVersion is the invoice version the match left the invoice at,
+	// the only version it lets post (F13); nil for matches recorded before
+	// migration 000040, which count for no version.
+	InvoiceVersion *int32
 	// Decision is the invoice flow's decision on a clean match, set by
 	// MatchInvoice only: it is not stored, as the limit and the rate it was
 	// taken with may change before the invoice is posted. A match with
@@ -54,11 +58,11 @@ type Match struct {
 	Decision *Verdict
 }
 
-const matchColumns = `id, supplier_invoice_id, evaluated_at, is_clean, issues, config_version, evaluated_by`
+const matchColumns = `id, supplier_invoice_id, evaluated_at, is_clean, issues, config_version, evaluated_by, invoice_version`
 
 func scanMatch(row pgx.Row) (Match, error) {
 	var m Match
-	err := row.Scan(&m.ID, &m.InvoiceID, &m.EvaluatedAt, &m.IsClean, &m.Issues, &m.ConfigVersion, &m.EvaluatedBy)
+	err := row.Scan(&m.ID, &m.InvoiceID, &m.EvaluatedAt, &m.IsClean, &m.Issues, &m.ConfigVersion, &m.EvaluatedBy, &m.InvoiceVersion)
 	return m, errs.Wrapf(err, "scan match result")
 }
 
@@ -264,20 +268,21 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 		return Match{}, err
 	}
 	decision, issues := decide(lim, r)
-	m, err := scanMatch(tx.QueryRow(ctx, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, issues,
-		config_version, evaluated_by) VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7) RETURNING `+matchColumns,
-		p.TenantID, uuid.Must(uuid.NewV7()), id, len(issues) == 0, issues, version, p.ID))
-	if err != nil {
-		return Match{}, fmt.Errorf("payables: record the match of invoice %s: %w", id, err)
-	}
-	events := []outbox.Event{{Context: "payables", Name: "supplier_invoice_matched", AggregateType: "payables.match_result", AggregateID: m.ID,
-		Payload: map[string]any{"match_result_id": m.ID, "supplier_invoice_id": id, "evaluated_at": m.EvaluatedAt.UTC().Format(time.RFC3339Nano),
-			"is_clean": m.IsClean, "config_version": version, "issues": issues}}}
-	followUp, err := e.applyMatch(ctx, tx, p, v, m, len(issues))
+	// The hold or release the match causes comes first, so the result
+	// records the version the invoice is left at: the one it lets post.
+	after, followUp, err := e.applyMatch(ctx, tx, p, v, len(issues))
 	if err != nil {
 		return Match{}, err
 	}
-	events = append(events, followUp...)
+	m, err := scanMatch(tx.QueryRow(ctx, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, issues,
+		config_version, evaluated_by, invoice_version) VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7, $8) RETURNING `+matchColumns,
+		p.TenantID, uuid.Must(uuid.NewV7()), id, len(issues) == 0, issues, version, p.ID, after.Version))
+	if err != nil {
+		return Match{}, fmt.Errorf("payables: record the match of invoice %s: %w", id, err)
+	}
+	events := append([]outbox.Event{{Context: "payables", Name: "supplier_invoice_matched", AggregateType: "payables.match_result", AggregateID: m.ID,
+		Payload: map[string]any{"match_result_id": m.ID, "supplier_invoice_id": id, "evaluated_at": m.EvaluatedAt.UTC().Format(time.RFC3339Nano),
+			"is_clean": m.IsClean, "config_version": version, "issues": issues}}}, followUp...)
 	detail := map[string]any{"match_result_id": m.ID, "issues": len(issues)}
 	if m.IsClean {
 		m.Decision = &decision
@@ -286,29 +291,30 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	return m, record(ctx, "payables.supplier_invoice.match", id, detail, events...)
 }
 
-// applyMatch acts on a recorded match: issues hold the invoice and open an
-// invoice_exception request (unless a held invoice already has one); a
-// clean match releases a hold the match had set. It returns the events of
-// the transition, if any.
-func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, m Match, issueCount int) ([]outbox.Event, error) {
+// applyMatch acts on a match with issueCount issues: issues hold the
+// invoice and open an invoice_exception request (unless a held invoice
+// already has one); a clean match releases a hold the match had set. It
+// returns the invoice as the match leaves it and the events of the
+// transition, if any.
+func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, issueCount int) (Invoice, []outbox.Event, error) {
 	switch {
-	case !m.IsClean && (v.Status == Parked || v.WorkflowRequestID == nil):
+	case issueCount > 0 && (v.Status == Parked || v.WorkflowRequestID == nil):
 		held, err := e.holdForException(ctx, tx, p, v, issueCount)
 		if err != nil {
-			return nil, err
+			return Invoice{}, nil, err
 		}
-		return []outbox.Event{heldEvent(held)}, nil
-	case m.IsClean && v.Status == OnHold && len(*v.HoldReason) >= len(matchHold) && (*v.HoldReason)[:len(matchHold)] == matchHold:
+		return held, []outbox.Event{heldEvent(held)}, nil
+	case issueCount == 0 && v.Status == OnHold && strings.HasPrefix(*v.HoldReason, matchHold):
 		if err := e.Approvals.Withdraw(ctx, approvals.InvoiceException, v.ID, "The invoice now matches."); err != nil {
-			return nil, err
+			return Invoice{}, nil, err
 		}
 		released, err := transition(ctx, tx, p, v, Parked, nil, nil)
 		if err != nil {
-			return nil, err
+			return Invoice{}, nil, err
 		}
-		return []outbox.Event{releasedEvent(released, nil)}, nil
+		return released, []outbox.Event{releasedEvent(released, nil)}, nil
 	}
-	return nil, nil
+	return v, nil, nil
 }
 
 // holdForException opens an invoice_exception approval request and puts

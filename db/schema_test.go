@@ -1079,3 +1079,47 @@ func TestRequireTenant(t *testing.T) {
 		return exec(tx, `SELECT platform.require_tenant()`)
 	}), "no tenant scope")
 }
+
+// TestMatchResultInvoiceVersion: a match result records the positive
+// invoice version it is valid for, or none (matches before 000040, which
+// count for no version), and keeps it: results are insert-only (F13).
+func TestMatchResultInvoiceVersion(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	invoice := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
+			invoice_date, currency, gross_amount, tax_amount, status, source, created_by, updated_by)
+			VALUES ($1,$2,'M-1',$3,$4,'R-M1','2026-06-01','USD',100,0,'parked','manual',$5,$5)`, f.tenant, invoice, f.entity, f.supplier, f.actor)
+	})
+	match := func(version any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, config_version, evaluated_by,
+				invoice_version) VALUES ($1,$2,$3,clock_timestamp(),true,1,$4,$5)`, f.tenant, id(), invoice, f.actor, version)
+		}
+	}
+	for _, c := range []struct {
+		name    string
+		version any
+		fails   string
+	}{
+		{"positive", 1, ""},
+		{"none", nil, ""},
+		{"zero", 0, "match_result_invoice_version_positive"},
+		{"negative", -1, "match_result_invoice_version_positive"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, match(c.version))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsWith(t, err, c.fails)
+		})
+	}
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE payables.match_result SET invoice_version = 2 WHERE supplier_invoice_id = $1`, invoice)
+	}), "permission denied")
+}

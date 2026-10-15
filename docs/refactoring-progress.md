@@ -316,7 +316,8 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   (no tenant holds another's clearings, a transaction stays within max_locks_per_transaction),
   and a reversal takes no second lock. :reverse is an allowlist (ledger, integration, payments).
   Follow-up F5b (tracker, status T): the contract-step migration reconciling reservations with
-  live runs (000040 or later, F7 took 000037-000038 and require_tenant 000039), to ship once
+  live runs (the next free number in the release after this one: F7 took 000037-000038,
+  require_tenant 000039 and F13 000040), to ship once
   000034 runs everywhere (03-data-model §3.10). Second round (f5f6b): entry locks fail without a
   tenant (platform.require_tenant, migration 000039); a migration load takes every entry bucket
   before it posts (Postings.LockAllEntries; it deadlocked against a reservation); refusals of
@@ -353,7 +354,7 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   FOR SHARE, so a posting waits for a close and is then refused (409 ledger.period_not_open);
   lock order buckets → period → number range. A close can be starved by steady postings in its
   period (accepted, documented: closes come after posting stops). Follow-up F8b: the trigger's
-  own read FOR SHARE, after 000040 (F5b). Reviewer: APPROVE.
+  own read FOR SHARE, in a migration after F5b's. Reviewer: APPROVE.
 - [x] F9 Analytics rounds money with the currency's exponent; no hard-coded exponent tables.
   Analytics carries money as exact values (money.Minor, scale, currency) to the page; tiles and
   charts refuse to add two currencies. config.Validate takes exponents from ref.currency

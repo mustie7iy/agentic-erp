@@ -556,13 +556,26 @@ erDiagram
     timestamptz evaluated_at
     bool is_clean
     jsonb issues
-    int config_version }
+    int config_version
+    int invoice_version }
 ```
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
 level, not just detectable. `match_result` keeps the history of every match
-evaluation with the configuration version used.
+evaluation with the configuration version used and the invoice version the
+match left the invoice at (`invoice_version`, migration 000040, F13; after
+the hold or release the match itself causes). An invoice on a purchase
+order posts only when its latest match is clean and of its current version,
+or with an approved exception (409 `payables.match_required` otherwise): any
+change after the match (an edit of amounts, items, order or any other
+field, a hold and release by hand) needs a new match, and an edit unlinks
+an approved exception request, which was decided on the invoice as it was.
+Matches recorded before 000040, or by the previous release during the
+rollout, have no version and count for none: such an invoice is matched
+again before it posts. The column is the expand step of 06 §6.4 (nullable,
+its positive check `NOT VALID`, no backfill: nothing records which version
+an old match evaluated).
 
 The match compares an item's price variance with the company's tolerances:
 within the percentage of the expected amount (in the invoice's currency),
@@ -642,7 +655,8 @@ only keeps its item out of proposals (`OpenItems.Payable` leaves reserved
 items out), and refuses its manual clearing and reversal, until a
 reconciliation releases the reservations no live run holds and adds those
 missing. That reconciliation is a contract step (06 §6.4): it is a
-migration of its own (000040 or later; tracker F5b), landed once 000034 runs everywhere, not part of the
+migration of its own (the next free number in the release after the one taking 000040, which
+went to F13; tracker F5b), landed once 000034 runs everywhere, not part of the
 change that adds the table.
 
 Entry locks (clearing, reversal, settlement, reservation) are advisory

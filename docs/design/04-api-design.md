@@ -314,7 +314,10 @@ exception request), and neither do reads of the match history, as the
 decision is not stored; the ETag of the `:match` response is that of the
 stored result. Clients act on the server's decision rather than
 compare amounts themselves; a server without the field leaves the decision
-unavailable, not guessed.
+unavailable, not guessed. `:post` of an invoice on a purchase order needs
+its latest match to be clean and of the invoice's current version (or an
+approved exception): an invoice changed after its match is refused (409
+`payables.match_required`) until it is matched again (F13).
 
 ## 4.15 Control plane
 

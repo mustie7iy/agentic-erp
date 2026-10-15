@@ -862,8 +862,10 @@ type Invoker interface {
 	// PostSupplierInvoice invokes postSupplierInvoice operation.
 	//
 	// Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
-	// status `parked`, a clean latest match for PO-based invoices (or an approved exception), an open
-	// period and an unblocked supplier.
+	// status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
+	// approved exception; 409 `payables.match_required` otherwise: an invoice changed after its match,
+	// including a hold and release by hand, is matched again, and an edit unlinks an approved exception),
+	// an open period and an unblocked supplier.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
@@ -1135,7 +1137,9 @@ type Invoker interface {
 	// UpdateSupplierInvoice invokes updateSupplierInvoice operation.
 	//
 	// Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are
-	// unchanged, `null` clears an optional field, arrays are replaced as a whole.
+	// unchanged, `null` clears an optional field, arrays are replaced as a whole. An invoice on a purchase
+	// order is matched again after a change before it posts, and the change unlinks an approved exception
+	// request (`workflow_request_id`), decided on the invoice as it was.
 	//
 	// PATCH /v1/supplier-invoices/{id}
 	UpdateSupplierInvoice(ctx context.Context, request *SupplierInvoiceUpdate, params UpdateSupplierInvoiceParams) (UpdateSupplierInvoiceRes, error)
@@ -23039,8 +23043,10 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 // PostSupplierInvoice invokes postSupplierInvoice operation.
 //
 // Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
-// status `parked`, a clean latest match for PO-based invoices (or an approved exception), an open
-// period and an unblocked supplier.
+// status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
+// approved exception; 409 `payables.match_required` otherwise: an invoice changed after its match,
+// including a hold and release by hand, is matched again, and an edit unlinks an approved exception),
+// an open period and an unblocked supplier.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (c *Client) PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error) {
@@ -28600,7 +28606,9 @@ func (c *Client) sendUpdateRole(ctx context.Context, request *RoleUpdate, params
 // UpdateSupplierInvoice invokes updateSupplierInvoice operation.
 //
 // Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are
-// unchanged, `null` clears an optional field, arrays are replaced as a whole.
+// unchanged, `null` clears an optional field, arrays are replaced as a whole. An invoice on a purchase
+// order is matched again after a change before it posts, and the change unlinks an approved exception
+// request (`workflow_request_id`), decided on the invoice as it was.
 //
 // PATCH /v1/supplier-invoices/{id}
 func (c *Client) UpdateSupplierInvoice(ctx context.Context, request *SupplierInvoiceUpdate, params UpdateSupplierInvoiceParams) (UpdateSupplierInvoiceRes, error) {

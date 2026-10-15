@@ -841,8 +841,10 @@ type Handler interface {
 	// PostSupplierInvoice implements postSupplierInvoice operation.
 	//
 	// Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
-	// status `parked`, a clean latest match for PO-based invoices (or an approved exception), an open
-	// period and an unblocked supplier.
+	// status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
+	// approved exception; 409 `payables.match_required` otherwise: an invoice changed after its match,
+	// including a hold and release by hand, is matched again, and an edit unlinks an approved exception),
+	// an open period and an unblocked supplier.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, req OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
@@ -1114,7 +1116,9 @@ type Handler interface {
 	// UpdateSupplierInvoice implements updateSupplierInvoice operation.
 	//
 	// Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are
-	// unchanged, `null` clears an optional field, arrays are replaced as a whole.
+	// unchanged, `null` clears an optional field, arrays are replaced as a whole. An invoice on a purchase
+	// order is matched again after a change before it posts, and the change unlinks an approved exception
+	// request (`workflow_request_id`), decided on the invoice as it was.
 	//
 	// PATCH /v1/supplier-invoices/{id}
 	UpdateSupplierInvoice(ctx context.Context, req *SupplierInvoiceUpdate, params UpdateSupplierInvoiceParams) (UpdateSupplierInvoiceRes, error)
