@@ -210,6 +210,10 @@ func TestOrderRefusals(t *testing.T) {
 			}
 		})
 	}
+	// An unknown requisition is the shared reference refusal: not_found on its field.
+	if _, m, _ := e.Do("POST", "/v1/purchase-orders", body(fmt.Sprintf(`, "requisition_id": %q`, uuid.New()), ok), ""); fmt.Sprint(m["errors"]) != "[map[code:not_found field:requisition_id message:no requisition with this id that you can access]]" {
+		t.Errorf("unknown requisition field errors: got %v, want not_found on requisition_id", m["errors"])
+	}
 	// Contract orders take the contract price and consume the contract.
 	cpath := "/v1/contracts/" + id(contract)
 	e.act(t, cpath, "release", "")

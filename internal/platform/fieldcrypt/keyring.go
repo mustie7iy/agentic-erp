@@ -104,7 +104,10 @@ type quotedColumn struct {
 // through pgx.Identifier); the table splits into schema and name.
 func (c Column) quoted() quotedColumn {
 	q := quotedColumn{table: pgx.Identifier(strings.Split(c.Table, ".")).Sanitize(), cipher: pgx.Identifier{c.Cipher}.Sanitize(),
-		fingerprint: pgx.Identifier{c.Fingerprint}.Sanitize(), keys: make([]string, len(c.Keys))}
+		keys: make([]string, len(c.Keys))}
+	if c.Fingerprint != "" {
+		q.fingerprint = pgx.Identifier{c.Fingerprint}.Sanitize()
+	}
 	for i, k := range c.Keys {
 		q.keys[i] = pgx.Identifier{k}.Sanitize()
 	}

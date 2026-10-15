@@ -31,13 +31,15 @@ func TestAccessible(t *testing.T) {
 	r := reader{entities: map[uuid.UUID]tenancy.Entity{known: {ID: known, Code: "DE01"}, other: {ID: other}}}
 	access := authz.Access{IDs: []uuid.UUID{known}}
 
-	le, err := tenancy.Accessible(context.Background(), r, access, known, "legal_entity_id")
-	if err != nil {
-		t.Fatalf("accessible: got %v, want no error", err)
-	}
-	if le.Code != "DE01" {
-		t.Errorf("accessible: got %s, want DE01", le.Code)
-	}
+	t.Run("accessible", func(t *testing.T) {
+		le, err := tenancy.Accessible(context.Background(), r, access, known, "legal_entity_id")
+		if err != nil {
+			t.Fatalf("got %v, want no error", err)
+		}
+		if le.Code != "DE01" {
+			t.Errorf("got %s, want DE01", le.Code)
+		}
+	})
 	for name, id := range map[string]uuid.UUID{"missing": uuid.New(), "not accessible": other} {
 		t.Run(name, func(t *testing.T) {
 			_, err := tenancy.Accessible(context.Background(), r, access, id, "lines[0].legal_entity_id")

@@ -345,7 +345,7 @@ type EntityReader interface {
 func Accessible(ctx context.Context, r EntityReader, access authz.Access, id uuid.UUID, field string) (Entity, error) {
 	le, ok, err := r.Entity(ctx, id)
 	if err != nil {
-		return Entity{}, err
+		return Entity{}, fmt.Errorf("tenancy: read legal entity %s: %w", id, err)
 	}
 	if !ok || !access.Allows(id) {
 		return Entity{}, problem.ReferenceNotFound(field, "legal entity", "no legal entity with this id that you can access")
