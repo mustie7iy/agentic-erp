@@ -107,7 +107,7 @@ func readUpload(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Upload
 	}
 	up, err := scanUpload(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Upload{}, problem.NotFound("No such upload.")
+		return Upload{}, problem.NotFoundOf("upload")
 	}
 	if err != nil {
 		return Upload{}, fmt.Errorf("payables: read upload %s: %w", id, err)

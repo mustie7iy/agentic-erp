@@ -239,7 +239,9 @@ func (u *uploadScenario) refusals(t *testing.T) {
 	if res, code := u.capture(t, uuid.NewString()); code != 404 {
 		t.Fatalf("unknown upload: %d %v", code, res)
 	}
-	e.Must(404, "GET", "/v1/uploads/"+uuid.NewString(), "", "")
+	if got := e.Problem(404, "request.not_found", "GET", "/v1/uploads/"+uuid.NewString(), "", ""); got["detail"] != "No upload with this id." {
+		t.Errorf("unknown upload, detail: got %v, want No upload with this id.", got["detail"])
+	}
 	// A direct document above the request limit points at uploads.
 	r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/supplier-invoices:capture", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(),
 		Header: map[string][]string{"Content-Type": {"multipart/form-data; boundary=b"}},
