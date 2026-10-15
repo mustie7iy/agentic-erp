@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -36,5 +37,28 @@ func TestPostWithoutTheSupplier(t *testing.T) {
 	}
 	if want := "The supplier cannot be posted: no business partner with this id."; p.Detail != want {
 		t.Errorf("detail: got %q, want %q", p.Detail, want)
+	}
+}
+
+// TestExpandWithoutTheSupplier: an invoice whose supplier the partner
+// context no longer finds is returned without the expansion, never with a
+// supplier summary of zero values (a nil id and an empty name).
+func TestExpandWithoutTheSupplier(t *testing.T) {
+	e := setup(t)
+	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Vendor, "V-1", "119.00", "19.00", accountItem(e.expense, "100.00")), "")
+	h := endpoints(nil)
+	h.Suppliers = vanished{}
+	var res gen.GetSupplierInvoiceRes
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		var err error
+		res, err = h.GetSupplierInvoice(ctx, gen.GetSupplierInvoiceParams{ID: uuid.MustParse(id(inv)), Expand: []string{"supplier"}})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	got := res.(*gen.GetSupplierInvoiceOKHeaders).Response
+	if got.Expanded.Set {
+		t.Errorf("expanded: got %+v, want no expansion", got.Expanded.Value)
 	}
 }

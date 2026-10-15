@@ -70,9 +70,14 @@ func (e *Endpoints) expand(ctx context.Context, v Invoice, expand []string) (gen
 	if !slices.Contains(expand, "supplier") {
 		return out, nil
 	}
-	s, _, err := e.Suppliers.Supplier(ctx, v.SupplierID, v.LegalEntityID)
+	s, found, err := e.Suppliers.Supplier(ctx, v.SupplierID, v.LegalEntityID)
 	if err != nil {
 		return out, err
+	}
+	if !found {
+		// Nothing to embed: an expansion is a read-only copy, and a summary
+		// of zero values would claim a supplier with a nil id.
+		return out, nil
 	}
 	out.Expanded.SetTo(gen.Expanded{Supplier: gen.NewOptPartnerSummary(gen.PartnerSummary{ID: s.ID, Number: s.Number, Name: s.Name,
 		CountryCode: s.CountryCode, Status: s.Status})})
