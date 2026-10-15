@@ -3,7 +3,6 @@ package analytics
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -44,33 +43,6 @@ func (b *factBuilder) minor(a amount) (money.Minor, error) {
 	}
 	b.f.Exponents[a.Currency] = decimals
 	return m, nil
-}
-
-// list reads every page of a list operation.
-func list[T any](ctx context.Context, api *apitools.Client, path string, query url.Values) ([]T, error) {
-	var out []T
-	q := url.Values{"page_size": {"500"}}
-	for k, v := range query {
-		q[k] = v
-	}
-	for {
-		resp, err := api.Do(ctx, http.MethodGet, path, q, nil, "")
-		if err != nil {
-			return nil, err
-		}
-		var page struct {
-			Items         []T
-			NextPageToken string `json:"next_page_token"`
-		}
-		if err := resp.Decode(&page); err != nil {
-			return nil, fmt.Errorf("analytics: %s: %w", path, err)
-		}
-		out = append(out, page.Items...)
-		if page.NextPageToken == "" {
-			return out, nil
-		}
-		q.Set("page_token", page.NextPageToken)
-	}
 }
 
 type legalEntity struct {
@@ -127,11 +99,11 @@ type invoice struct {
 
 // Facts reads the data of every legal entity the principal may see.
 func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, error) {
-	les, err := list[legalEntity](ctx, s.API, "/v1/legal-entities", nil)
+	les, err := apitools.List[legalEntity](ctx, s.API, "/v1/legal-entities", nil)
 	if err != nil {
 		return nil, err
 	}
-	partners, err := list[partner](ctx, s.API, "/v1/business-partners", nil)
+	partners, err := apitools.List[partner](ctx, s.API, "/v1/business-partners", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +150,7 @@ func (b *factBuilder) calendar(dims map[string]string, date string) error {
 func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) error {
 	b.f.Companies[le.Code] = le.LocalCurrency
 	byLE := url.Values{"legal_entity_id": {le.ID}}
-	accounts, err := list[account](ctx, s.API, "/v1/accounts", byLE)
+	accounts, err := apitools.List[account](ctx, s.API, "/v1/accounts", byLE)
 	if err != nil {
 		return err
 	}
@@ -198,7 +170,7 @@ func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) e
 // addJournal adds one fact per journal line to gl_lines; a supplier line
 // counts as cleared when it is no longer an open item.
 func (s Source) addJournal(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
-	open, err := list[openItem](ctx, s.API, "/v1/open-items", byLE)
+	open, err := apitools.List[openItem](ctx, s.API, "/v1/open-items", byLE)
 	if err != nil {
 		return err
 	}
@@ -206,7 +178,7 @@ func (s Source) addJournal(ctx context.Context, b *factBuilder, le legalEntity, 
 	for _, o := range open {
 		isOpen[o.JournalEntryID+"/"+strconv.Itoa(o.LineNo)] = true
 	}
-	entries, err := list[journalEntry](ctx, s.API, "/v1/journal-entries", byLE)
+	entries, err := apitools.List[journalEntry](ctx, s.API, "/v1/journal-entries", byLE)
 	if err != nil {
 		return err
 	}
@@ -241,7 +213,7 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 // addOrders adds one fact per purchase order item to po_lines, valued at
 // quantity times unit price per price unit.
 func (s Source) addOrders(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
-	orders, err := list[order](ctx, s.API, "/v1/purchase-orders", byLE)
+	orders, err := apitools.List[order](ctx, s.API, "/v1/purchase-orders", byLE)
 	if err != nil {
 		return err
 	}
@@ -280,7 +252,7 @@ func (b *factBuilder) addOrder(le legalEntity, o order, chart map[string]account
 
 // addInvoices adds one fact per supplier invoice to ap_invoices.
 func (s Source) addInvoices(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values) error {
-	invoices, err := list[invoice](ctx, s.API, "/v1/supplier-invoices", byLE)
+	invoices, err := apitools.List[invoice](ctx, s.API, "/v1/supplier-invoices", byLE)
 	if err != nil {
 		return err
 	}
