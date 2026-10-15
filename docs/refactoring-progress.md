@@ -460,8 +460,11 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   beyond numeric(28,12); a stored rate that is not a plain positive decimal is an error, not a
   nil dereference. Posting results change by a minor unit only where the reciprocal has no
   12-decimal form (1/3, 1/0.96), the new value being the exact one. Reviewer: APPROVE.
-- [ ] R63 Round-seven duplication: one not-found helper, one accessible-row lookup, list paging; the
-  remaining discarded errors carry reasons
+- [x] R63 Round-seven duplication: problem.NotFoundOf replaces five copies; authz.Visible the
+  company-scoped one-row read at 11 sites; apitypes.PageOf finishes 21 keyset-paged lists; about
+  40 discarded errors state why they are safe. Fix on the way: awscreds treated temporary
+  credentials with an unreadable expiry as long-lived (kept signing after they ended).
+  Reviewer: APPROVE.
 - [x] R62 Round-six duplication and clocks: tenancy.Accessible replaces six copies of the
   accessible-legal-entity refusal; problem.ReferenceNotFound/Reference replace the procurement and
   payments copies (one client-visible change: an unknown requisition_id on an order now reports
