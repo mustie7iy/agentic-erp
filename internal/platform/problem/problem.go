@@ -136,7 +136,7 @@ func ReferenceNotFound(field, what, message string) *Problem {
 
 // MissingReference is the 422 request.reference_not_found that every
 // missing reference is reported as, with the caller's detail and field
-// errors; it keeps the code in one place.
+// errors.
 func MissingReference(detail string, errs ...FieldError) *Problem {
 	return Unprocessable("request.reference_not_found", detail, errs...)
 }

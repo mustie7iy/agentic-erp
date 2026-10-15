@@ -303,7 +303,7 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   blocked supplier whose items overflow fails every proposal of its legal entity (a new
   exclusion reason needs a migration); a cancelled release's FinishRelease can orphan a bank
   file in object storage; analytics keeps every term per group in memory.
-- [ ] R55 Re-review until 9.5. First re-review after Phase 7: **9.0 / 10** (architecture 9.2,
+- [x] R55 Re-review until 9.5. Reached: rounds nine and ten scored **9.5 / 10** with no blocking defects (round ten: architecture 9.5, error handling 9.5, concurrency and tenancy 9.5, SQL 9.7, tests 9.5, readability 9.5, duplication 9.5, money 9.5). First re-review after Phase 7: **9.0 / 10** (architecture 9.2,
   error handling 9.1, concurrency and tenancy 8.4, SQL 9.7, tests 9.3, readability 9.2,
   duplication 8.8, money 9.3). Round two below.
 - [x] F5 The ledger API cannot reverse or clear another context's document or a reserved item.
@@ -460,6 +460,12 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   beyond numeric(28,12); a stored rate that is not a plain positive decimal is an error, not a
   nil dereference. Posting results change by a minor unit only where the reciprocal has no
   12-decimal form (1/3, 1/0.96), the new value being the exact one. Reviewer: APPROVE.
+- [x] R70 Round-ten polish (round ten confirmed 9.5): ReleasePaymentRun histories recorded with
+  the pre-R69 code (a two-payment release and a FailRelease) replay on the current code
+  (TestReleasePaymentRunReplay; a changed command order fails it with TMPRL1100);
+  problem.MissingReference builds request.reference_not_found in one place; an ad hoc nolintlint
+  run found two directives that suppressed nothing, both removed (.golangci.yml unchanged).
+  Reviewer: APPROVE.
 - [x] R69 Round-nine residue (round nine scored 9.5, no blocking defects): blobstore.Dir no longer
   deletes a retention-locked object whose sidecar cannot be read (any error but a missing
   sidecar fails Delete, Get and Stat; was fail-open); a run's missing legal entity is a 500 on
