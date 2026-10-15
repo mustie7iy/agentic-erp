@@ -308,7 +308,10 @@ code `amount_too_large`), with a `reason`. Without an average rate on the
 invoice date the match is refused (422 `ledger.no_exchange_rate`) and
 nothing is recorded. It
 is the rule simulations and regression suites apply (03 §3.9): the gross is
-converted at the average rate of the invoice date and compared exactly. A
+converted at the average rate of the invoice date and its exact value, before
+rounding to the company's minor units, is compared with the limit, as an item's
+price variance is with the absolute tolerance (F13): 50,000.004 EUR is above
+a limit of 50,000.00, though `reason` shows amounts rounded. A
 match with issues has no `decision` (the invoice is held and decided on its
 exception request), and neither do reads of the match history, as the
 decision is not stored; the ETag of the `:match` response is that of the

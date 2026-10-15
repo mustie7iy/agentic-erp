@@ -580,7 +580,12 @@ an old match evaluated).
 The match compares an item's price variance with the company's tolerances:
 within the percentage of the expected amount (in the invoice's currency),
 or within the absolute tolerance once converted into the company's currency
-at the average rate of the invoice date (§3.5). Simulations and regression
+at the average rate of the invoice date (§3.5). The converted variance is
+compared exactly, as amount × rate before any rounding to the company's
+minor units (F13): a variance worth 5.004 EUR is beyond a tolerance of 5.00
+EUR. The auto-post limit is compared with the gross amount's exact value the
+same way; the amounts shown in messages and reasons are rounded. An invoice
+without a rate on its date is not matched at all. Simulations and regression
 suites decide the auto-post limit the same way, and the amounts a changed
 posting rule moves are each converted into the company's currency before
 they are added up. One function (`payables.decide`) takes the decision for
@@ -655,8 +660,8 @@ only keeps its item out of proposals (`OpenItems.Payable` leaves reserved
 items out), and refuses its manual clearing and reversal, until a
 reconciliation releases the reservations no live run holds and adds those
 missing. That reconciliation is a contract step (06 §6.4): it is a
-migration of its own (the next free number in the release after the one taking 000040, which
-went to F13; tracker F5b), landed once 000034 runs everywhere, not part of the
+migration of its own (the next free number in the release after this one; 000040 went to
+F13; tracker F5b), landed once 000034 runs everywhere, not part of the
 change that adds the table.
 
 Entry locks (clearing, reversal, settlement, reservation) are advisory
