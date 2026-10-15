@@ -120,7 +120,7 @@ func TestApprovedExceptionLeftParked(t *testing.T) {
 	getenv = func(k string) string { return env[k] }
 	t.Cleanup(func() { getenv = os.Getenv })
 	got := must(t, "invoices")
-	for _, want := range []string{"Posted 0:", "Held 0:", "Left parked 1: 5101 (approved exception: a person posts it)"} {
+	for _, want := range []string{"Posted 0:", "Held 0:", "Left parked 1: 5101 (exception request linked: a person decides)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
 		}

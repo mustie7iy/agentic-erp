@@ -59,9 +59,11 @@ type settled struct{ posted, held, parked []string }
 // when the invoice is gone (404) or changed between its read and its match
 // or between its match and the post or hold (412: the server acts only on
 // the matched version), the invoice is left parked; the rule never
-// compares amounts itself. An invoice parked on an approved exception is
-// neither matched nor posted but listed as left parked for a person to
-// post (F18): matching it again only finds the issues the approval covers,
+// compares amounts itself. An invoice parked with an exception request
+// linked is neither matched nor posted but listed as left parked for a
+// person to decide (F18): normally it is an approved exception, but after
+// an edit by the previous release the approval may no longer cover it,
+// which :post then refuses (409 payables.match_required): matching it again only finds the issues the approval covers,
 // and posting it is a person's decision, as the rule cannot tell whether
 // the server would decide review (a match with issues answers no decision,
 // and :post does not check the auto-post limit). With -agent, the
@@ -87,7 +89,7 @@ func invoices(ctx context.Context, args []string) error {
 			continue // entered by hand without an order: a person posts it
 		}
 		if inv.WorkflowRequestID != "" {
-			done.parked = append(done.parked, inv.DocumentNumber+" (approved exception: a person posts it)")
+			done.parked = append(done.parked, inv.DocumentNumber+" (exception request linked: a person decides)")
 			continue
 		}
 		if err := settle(ctx, c, w, inv, &done); err != nil {

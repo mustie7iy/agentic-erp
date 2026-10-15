@@ -332,7 +332,7 @@ match such an invoice (`workflow_request_id` set) at all, nor post it: a
 match with issues answers no decision and `:post` does not check the
 auto-post limit, so the rule cannot tell an approved exception it may post
 from one a person reviews; it lists the invoice as left parked for a
-person to post.
+person to decide.
 
 ## 4.15 Control plane
 

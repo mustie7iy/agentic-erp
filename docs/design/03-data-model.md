@@ -590,7 +590,8 @@ would post on an approval of different amounts. An invoice changed after
 its approval is matched clean, or held and approved again, before it posts.
 Approvals before 000041, or by the previous release, have no version and
 count for none. A match of an invoice parked on an approval of its current
-version leaves it parked rather than holding it for a new request (F18). The column is again the expand step (nullable, its check of
+version leaves it parked rather than holding it for a new request (F18).
+The column is again the expand step (nullable, its check of
 `0 < exception_version <= version` `NOT VALID`, no backfill); it is not tied
 to `workflow_request_id` by a rule, as the previous release unlinks requests
 without clearing it, and a stale value is always below the invoice's

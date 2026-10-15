@@ -131,10 +131,13 @@ func noPurchaseOrder() error {
 	return problem.Unprocessable(noPurchaseOrderCode, "Only invoices on a purchase order are matched.")
 }
 
-// noPurchaseOrderCode is the problem code of noPurchaseOrder; without its
-// "payables." prefix, the stable issue of a regression case whose invoice
-// lost its order.
-const noPurchaseOrderCode = "payables.no_purchase_order"
+// noPurchaseOrderCode is the problem code of noPurchaseOrder, and
+// issueNoPurchaseOrder the stable issue of a regression case whose invoice
+// lost its order since the capture.
+const (
+	noPurchaseOrderCode  = "payables.no_purchase_order"
+	issueNoPurchaseOrder = "no_purchase_order"
+)
 
 // replay gathers one invoice's inputs, through the cache. An invoice
 // without a purchase order is refused (noPurchaseOrder): a parked invoice
@@ -398,7 +401,7 @@ func (g Regression) replayCase(ctx context.Context, tx pgx.Tx, doc *config.Confi
 	}
 	r, err := replay(ctx, tx, g.sources(), v, cache)
 	if p := (*problem.Problem)(nil); errors.As(err, &p) && p.Code == noPurchaseOrderCode {
-		return DecisionNotEvaluable, []string{strings.TrimPrefix(noPurchaseOrderCode, "payables.")}, nil
+		return DecisionNotEvaluable, []string{issueNoPurchaseOrder}, nil
 	}
 	if err != nil {
 		return "", nil, err
