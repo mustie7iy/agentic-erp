@@ -394,7 +394,9 @@ func TestComparisonHelpers(t *testing.T) {
 	}{{"2", "10", -1}, {"10", "2", 1}, {"1", "1.0", 0}, {"a", "b", -1},
 		// Past a float's 15 to 17 digits: two codes that differ only in the last digit.
 		{"10000000000000000", "10000000000000001", -1}, {"-10000000000000000", "-10000000000000001", 1},
-		{"+7", "-8", 1}, {"0.10000000000000001", "0.1", 1}, {"1e3", "999", -1}} {
+		{"+7", "-8", 1}, {"0.10000000000000001", "0.1", 1}, {"1e3", "999", -1},
+		// Codes stay strings where SAP extracts would read a number (plainDecimal).
+		{"5-", "-3", 1}, {" 12", "3", -1}, {".5", "0.4", -1}} {
 		t.Run(fmt.Sprintf("compareValues(%s,%s)", c.a, c.b), func(t *testing.T) {
 			if got := compareValues(c.a, c.b); got != c.want {
 				t.Errorf("got %d, want %d", got, c.want)

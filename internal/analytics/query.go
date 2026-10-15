@@ -525,6 +525,13 @@ func compareValues(a, b string) int {
 // plainDecimal reads an optional sign, digits and an optional "." with
 // digits, exactly; anything else ("1e3", "0x10", "Inf", a date) is not a
 // number here.
+//
+// It is deliberately stricter than money's decimal grammar (ParseDecimal,
+// ParseDecimalRat), which reads input from SAP extracts: that grammar trims
+// space and takes a trailing minus ("12-") and a bare "." side (".5",
+// "5."). Here the operands are dimension values, mostly codes, so a code
+// such as "12-" or " 12" must stay a string: read as -12 or 12 it would
+// sort among the numbers and compare equal to a different value.
 func plainDecimal(s string) (*big.Rat, bool) {
 	body := s
 	if body != "" && (body[0] == '-' || body[0] == '+') {
