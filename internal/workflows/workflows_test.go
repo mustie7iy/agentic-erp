@@ -147,56 +147,120 @@ func execute(t *testing.T, a *workflows.Payments, in workflows.ProposeInput, can
 // a cancelled operation fails the run; a run already built is left alone;
 // a cancelled workflow still settles the run; failures are reported.
 func TestProposalWorkflow(t *testing.T) {
-	e := setup(t)
+	s := &proposalScenario{e: setup(t), a: activities(t)}
+	// Each step proposes from the invoices the ones before it left open, and
+	// the second runs again what the first built, so the first failure stops
+	// the rest.
+	if !t.Run("the workflow builds the run", s.buildTheRun) {
+		t.FailNow()
+	}
+	if !t.Run("a run already built is left alone", s.runAgain) {
+		t.FailNow()
+	}
+	if !t.Run("a cancelled operation fails the run", s.cancelledOperation) {
+		t.FailNow()
+	}
+	if !t.Run("a cancelled workflow still settles the run", s.cancelledWorkflow) {
+		t.FailNow()
+	}
+	if !t.Run("database failures are reported", s.databaseFailures) {
+		t.FailNow()
+	}
+	t.Run("the activity's clock dates the audit", s.clock)
+}
+
+// proposalScenario is what the steps of TestProposalWorkflow share: the
+// tenant, the activities, and the run the first step builds for the second.
+type proposalScenario struct {
+	e     env
+	a     *workflows.Payments
+	op    map[string]any // the first proposal's operation
+	run   string         // the first proposal's run
+	built map[string]any // that run as the workflow built it
+}
+
+// get reads a resource for its body. The ETag that Must also returns is
+// what a following write would send; the checks that use get write nothing
+// after it, so dropping it loses nothing.
+func (e env) get(path string) map[string]any {
+	e.T.Helper()
+	got, _ := e.Must(200, "GET", path, "", "")
+	return got
+}
+
+// buildTheRun: the workflow builds the run through its activity and the
+// operation succeeds.
+func (s *proposalScenario) buildTheRun(t *testing.T) {
+	e := s.e.in(t)
 	e.invoice(t, "INV-1", "100.00")
-	a := activities(t)
-	op, run := e.propose(t, "2026-04-15")
-	if err := execute(t, a, input(e, op, run), false); err != nil {
+	s.op, s.run = e.propose(t, "2026-04-15")
+	if err := execute(t, s.a, input(e, s.op, s.run), false); err != nil {
 		t.Fatal(err)
 	}
-	built, _ := e.Must(200, "GET", "/v1/payment-runs/"+run, "", "")
-	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if built["status"] != "proposed" {
-		t.Fatalf("built run status: got %v, want proposed", built["status"])
+	s.built = e.get("/v1/payment-runs/" + s.run)
+	done := e.get("/v1/operations/" + id(s.op))
+	if s.built["status"] != "proposed" {
+		t.Fatalf("built run status: got %v, want proposed", s.built["status"])
 	}
-	if amount := built["total_amount"].(map[string]any)["amount"]; amount != "100.00" {
+	if amount := s.built["total_amount"].(map[string]any)["amount"]; amount != "100.00" {
 		t.Fatalf("built run total: got %v, want 100.00", amount)
 	}
 	if done["status"] != "succeeded" {
 		t.Fatalf("operation status: got %v, want succeeded", done["status"])
 	}
-	// Again: nothing left to do, nothing done twice.
-	if err := execute(t, a, input(e, op, run), false); err != nil {
+}
+
+// runAgain: the workflow run again finds nothing left to do and does
+// nothing twice.
+func (s *proposalScenario) runAgain(t *testing.T) {
+	e := s.e.in(t)
+	if err := execute(t, s.a, input(e, s.op, s.run), false); err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := e.Must(200, "GET", "/v1/payment-runs/"+run, "", ""); again["version"] != built["version"] {
+	if again := e.get("/v1/payment-runs/" + s.run); again["version"] != s.built["version"] {
 		t.Fatalf("built twice: %v", again)
 	}
-	// The operation cancelled before the work ran: the run fails, its items are free.
+}
+
+// cancelledOperation: the operation cancelled before the work ran fails the
+// run, and its items are free again.
+func (s *proposalScenario) cancelledOperation(t *testing.T) {
+	e := s.e.in(t)
 	e.invoice(t, "INV-2", "50.00")
 	op2, run2 := e.propose(t, "2026-04-16")
 	e.Must(200, "POST", "/v1/operations/"+id(op2)+":cancel", "", `"1"`)
-	if err := execute(t, a, input(e, op2, run2), false); err != nil {
+	if err := execute(t, s.a, input(e, op2, run2), false); err != nil {
 		t.Fatal(err)
 	}
-	if failed, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", ""); failed["status"] != "failed" {
+	if failed := e.get("/v1/payment-runs/" + run2); failed["status"] != "failed" {
 		t.Fatalf("cancelled: %v", failed)
 	}
-	// The workflow itself cancelled: the detached activity still settles the run.
+}
+
+// cancelledWorkflow: the workflow itself cancelled, its detached activity
+// still settles the run.
+func (s *proposalScenario) cancelledWorkflow(t *testing.T) {
+	e := s.e.in(t)
 	op3, run3 := e.propose(t, "2026-04-17")
-	if err := execute(t, a, input(e, op3, run3), true); err != nil {
+	if err := execute(t, s.a, input(e, op3, run3), true); err != nil {
 		t.Fatal(err)
 	}
-	if settled, _ := e.Must(200, "GET", "/v1/payment-runs/"+run3, "", ""); settled["status"] != "proposed" {
+	if settled := e.get("/v1/payment-runs/" + run3); settled["status"] != "proposed" {
 		t.Fatalf("after the cancelled workflow: %v", settled)
 	}
-	// Database failures are returned for the retry policy, and nothing is half done.
+}
+
+// databaseFailures: a failing commit, statement or begin is returned for the
+// retry policy, and nothing is half done. The activities' Begin is left
+// unset for the next step.
+func (s *proposalScenario) databaseFailures(t *testing.T) {
+	e, a, pool := s.e.in(t), s.a, pgtest.Pool(t)
+	defer func() { a.Begin = nil }()
 	e.invoice(t, "INV-3", "25.00")
 	op4, run4 := e.propose(t, "2026-04-18")
-	pool := pgtest.Pool(t)
-	a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-		tx, err := pool.Begin(ctx, s)
-		if err != nil || s.TenantID == uuid.Nil {
+	a.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, scope)
+		if err != nil || scope.TenantID == uuid.Nil {
 			return tx, err
 		}
 		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
@@ -204,19 +268,30 @@ func TestProposalWorkflow(t *testing.T) {
 	if err := a.Propose(context.Background(), input(e, op4, run4)); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "commit") {
 		t.Fatalf("failed commit: got %v, want the injected failure", err)
 	}
-	if r, _ := e.Must(200, "GET", "/v1/payment-runs/"+run4, "", ""); r["status"] != "proposing" {
+	if r := e.get("/v1/payment-runs/" + run4); r["status"] != "proposing" {
 		t.Fatalf("after a failed commit: got %v, want proposing", r["status"])
 	}
+	s.everyStatementFails(t, pool, input(e, op4, run4))
+	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	pgtest.WantErr(t, a.Propose(context.Background(), input(e, op4, run4)), "database down")
+}
+
+// everyStatementFails proposes in with its first, second, ... statement
+// failing until the run is built, and checks each failure left the run
+// proposing.
+func (s *proposalScenario) everyStatementFails(t *testing.T, pool *database.Pool, in workflows.ProposeInput) {
+	t.Helper()
+	e, a := s.e.in(t), s.a
 	for n := 1; n < 60; n++ {
 		count := 0
-		a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pool.Begin(ctx, s)
+		a.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, scope)
 			if err != nil {
 				return nil, err
 			}
 			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
 		}
-		err := a.Propose(context.Background(), input(e, op4, run4))
+		err := a.Propose(context.Background(), in)
 		if err == nil {
 			if n == 1 {
 				t.Fatal("built without a statement to fail")
@@ -226,13 +301,16 @@ func TestProposalWorkflow(t *testing.T) {
 		if !errors.Is(err, pgtest.ErrInjected) {
 			t.Fatalf("statement %d: %v", n, err)
 		}
-		if r, _ := e.Must(200, "GET", "/v1/payment-runs/"+run4, "", ""); r["status"] != "proposing" {
+		if r := e.get("/v1/payment-runs/" + in.RunID.String()); r["status"] != "proposing" {
 			t.Fatalf("statement %d: half built: %v", n, r)
 		}
 	}
-	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	pgtest.WantErr(t, a.Propose(context.Background(), input(e, op4, run4)), "database down")
-	a.Begin = nil
+}
+
+// clock: an unknown run is nothing to do, and the activities' clock, not
+// the database's, dates the audit entries.
+func (s *proposalScenario) clock(t *testing.T) {
+	e, a := s.e.in(t), s.a
 	a.Timeout = time.Minute
 	a.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) } // later than any request's own entry
 	if err := a.Propose(context.Background(), workflows.ProposeInput{TenantID: e.Tenant.ID, RunID: uuid.New()}); err != nil {
@@ -298,6 +376,9 @@ func TestDispatcher(t *testing.T) {
 	if !t.Run("a release is dispatched by its attempt", s.releaseAttempts) {
 		t.FailNow()
 	}
+	if !t.Run("a resumed release is the next attempt", s.resumedRelease) {
+		t.FailNow()
+	}
 	if !t.Run("database failures are reported", s.databaseFailures) {
 		t.FailNow()
 	}
@@ -305,14 +386,17 @@ func TestDispatcher(t *testing.T) {
 }
 
 // dispatchScenario is what the steps of TestDispatcher share: the tenant,
-// the dispatcher with its engine and log, and the pool the failure steps
-// wrap.
+// the dispatcher with its engine and log, the pool the failure steps
+// wrap, and the release one step dispatches for the next to resume.
 type dispatchScenario struct {
-	e      env
-	d      *workflows.Dispatcher
-	engine *fakeEngine
-	logs   *pgtest.SyncBuffer
-	pool   *database.Pool
+	e         env
+	d         *workflows.Dispatcher
+	engine    *fakeEngine
+	logs      *pgtest.SyncBuffer
+	pool      *database.Pool
+	builtRun  string                 // the run releaseAttempts releases
+	rel       workflows.ReleaseInput // its first release
+	relNumber string                 // its document number
 }
 
 // proposalsStartOnce: queued proposals start their workflows under the
@@ -339,6 +423,9 @@ func (s *dispatchScenario) proposalsStartOnce(t *testing.T) {
 	}
 	found := false
 	for _, st := range s.engine.started {
+		// This is the scenario's first round and its engine is new: the
+		// tests before it leave nothing queued (R66), so every start here is
+		// a proposal, and any other start is work this test should not see.
 		in, ok := st.Args[0].(workflows.ProposeInput)
 		if !ok {
 			t.Fatalf("start %s: got input %T, want workflows.ProposeInput: only proposals are queued", st.ID, st.Args[0])
@@ -384,7 +471,7 @@ func (s *dispatchScenario) cancelledAndRefused(t *testing.T) {
 }
 
 // releaseAttempts: a release operation is dispatched under the run's key
-// and attempt; a resumed release is the next attempt.
+// and its first attempt.
 func (s *dispatchScenario) releaseAttempts(t *testing.T) {
 	e, d, ctx := s.e.in(t), s.d, context.Background()
 	e.invoice(t, "INV-D", "3.00")
@@ -404,18 +491,25 @@ func (s *dispatchScenario) releaseAttempts(t *testing.T) {
 		t.Fatalf("read the released run number: %v", err)
 	}
 	wantRel := workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 1)
-	last := s.engine.started[len(s.engine.started)-1]
+	last, got := s.lastRelease(t)
 	if last.ID != wantRel {
 		t.Fatalf("release start id: got %s, want %s", last.ID, wantRel)
 	}
 	if last.Name != workflows.ReleaseWorkflow {
 		t.Fatalf("release start workflow: got %s, want %s", last.Name, workflows.ReleaseWorkflow)
 	}
-	if got := last.Args[0].(workflows.ReleaseInput); got != rel {
+	if got != rel {
 		t.Fatalf("release start input: got %+v, want %+v", got, rel)
 	}
+	s.builtRun, s.rel, s.relNumber = builtRun, rel, relNumber
+}
+
+// resumedRelease: the release fails with nothing posted, so the run is
+// proposed again, and the next release is dispatched as attempt 2.
+func (s *dispatchScenario) resumedRelease(t *testing.T) {
+	e, d, ctx := s.e.in(t), s.d, context.Background()
 	if err := apitest.Committed(t, e.Tenant, e.Approver, func(ctx context.Context) error {
-		r, err := payments.GetRun(ctx, rel.RunID)
+		r, err := payments.GetRun(ctx, s.rel.RunID)
 		if err != nil {
 			return err
 		}
@@ -424,18 +518,30 @@ func (s *dispatchScenario) releaseAttempts(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Nothing posted: the run is proposed again; the next release is attempt 2.
-	rel2 := e.releaseAsked(t, builtRun)
+	rel2 := e.releaseAsked(t, s.builtRun)
 	if n, err := d.RunOnce(ctx); err != nil || n != 1 {
 		t.Fatalf("second release dispatch: %d %v", n, err)
 	}
-	last = s.engine.started[len(s.engine.started)-1]
-	if want := workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, relNumber, 2); last.ID != want {
+	last, got := s.lastRelease(t)
+	if want := workflows.ReleaseWorkflowID(e.Tenant.ID, e.DE, s.relNumber, 2); last.ID != want {
 		t.Errorf("second release start id: got %s, want %s", last.ID, want)
 	}
-	if got := last.Args[0].(workflows.ReleaseInput); got != rel2 {
+	if got != rel2 {
 		t.Errorf("second release start input: got %+v, want %+v", got, rel2)
 	}
+}
+
+// lastRelease returns the engine's latest start and its release input. The
+// round before it dispatched exactly one operation, the release asked for,
+// so a latest start that is not a release fails the step.
+func (s *dispatchScenario) lastRelease(t *testing.T) (workflow.Start, workflows.ReleaseInput) {
+	t.Helper()
+	last := s.engine.started[len(s.engine.started)-1]
+	in, ok := last.Args[0].(workflows.ReleaseInput)
+	if !ok {
+		t.Fatalf("start %s: got input %T, want workflows.ReleaseInput", last.ID, last.Args[0])
+	}
+	return last, in
 }
 
 // databaseFailures: a failing statement, begin or commit of a round is
@@ -608,7 +714,7 @@ func (s *releaseScenario) machineryFails(t *testing.T) {
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	pgtest.WantErr(t, executeRelease(t, a, in3), "database down")
 	a.Begin = nil
-	if still, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", ""); still["status"] != "releasing" {
+	if still := e.get("/v1/payment-runs/" + run2); still["status"] != "releasing" {
 		t.Fatalf("after the machinery failed: %v", still)
 	}
 }
@@ -640,8 +746,8 @@ func (s *releaseScenario) releaseAndWriteTheFile(t *testing.T) {
 	if err := executeRelease(t, a, in); err != nil {
 		t.Fatal(err)
 	}
-	released, _ := e.Must(200, "GET", "/v1/payment-runs/"+run, "", "")
-	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+	released := e.get("/v1/payment-runs/" + run)
+	done := e.get("/v1/operations/" + in.OperationID.String())
 	if released["status"] != "released" {
 		t.Fatalf("run status: got %v, want released", released["status"])
 	}
@@ -670,8 +776,8 @@ func (s *releaseScenario) refuseTheBankFile(t *testing.T) {
 	if err := executeRelease(t, a, in2); err != nil {
 		t.Fatal(err)
 	}
-	failed, _ := e.Must(200, "GET", "/v1/operations/"+in2.OperationID.String(), "", "")
-	after, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", "")
+	failed := e.get("/v1/operations/" + in2.OperationID.String())
+	after := e.get("/v1/payment-runs/" + run2)
 	if failed["status"] != "failed" {
 		t.Fatalf("refused file operation status: got %v, want failed", failed["status"])
 	}
@@ -699,15 +805,16 @@ func (s *releaseScenario) resumeWithTheReleaser(t *testing.T) {
 	if n := queuedReleases(t, e.Tenant.ID); n != 0 {
 		t.Fatalf("this tenant's queued releases after the round: got %d, want 0", n)
 	}
-	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+run2, "", ""); got["status"] != "released" {
+	if got := e.get("/v1/payment-runs/" + run2); got["status"] != "released" {
 		t.Fatalf("resumed by the releaser: %v", got)
 	}
 }
 
 // releaserFailures: the releaser's problem path and its loop: a refused
 // file is recorded, a dead database is logged, the loop stops with the
-// context; a failing listing and a release whose steps fail are reported.
-// The last is in leftForTheNextRound.
+// context; a failing listing is reported. It ends with leftForTheNextRound,
+// which checks that a release whose steps fail is reported and left queued
+// for the next round, and runs that round.
 func (s *releaseScenario) releaserFailures(t *testing.T) {
 	e, w, logs, run4 := s.e.in(t), s.w, s.logs, s.run4
 	e.setHolder(t, " ")
@@ -718,7 +825,7 @@ func (s *releaseScenario) releaserFailures(t *testing.T) {
 	if n := queuedReleases(t, e.Tenant.ID); n != 0 {
 		t.Fatalf("this tenant's queued releases after the refused file: got %d, want 0", n)
 	}
-	if failed, _ := e.Must(200, "GET", "/v1/operations/"+in4.OperationID.String(), "", ""); failed["status"] != "failed" {
+	if failed := e.get("/v1/operations/" + in4.OperationID.String()); failed["status"] != "failed" {
 		t.Fatalf("releaser did not record the problem: %v", failed)
 	}
 	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
@@ -767,7 +874,7 @@ func (s *releaseScenario) leftForTheNextRound(t *testing.T) {
 		t.Fatalf("this tenant's queued releases after the next round: got %d, want 0", n)
 	}
 	// The holder is still blank, so the next round records the refused file.
-	failed, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+	failed := e.get("/v1/operations/" + in.OperationID.String())
 	if failed["status"] != "failed" {
 		t.Fatalf("release after the next round, status: got %v, want failed", failed["status"])
 	}
@@ -789,7 +896,7 @@ func (s *releaseScenario) twoPaymentFailures(t *testing.T) {
 	if err := execute(t, a, input(e, op5, run5), false); err != nil {
 		t.Fatal(err)
 	}
-	if pays, _ := e.Must(200, "GET", "/v1/payment-runs/"+run5+"/payments", "", ""); len(pays["items"].([]any)) != 2 {
+	if pays := e.get("/v1/payment-runs/" + run5 + "/payments"); len(pays["items"].([]any)) != 2 {
 		t.Fatalf("two payments expected: %v", pays)
 	}
 	in5 := e.releaseAsked(t, run5)
@@ -821,7 +928,7 @@ func (s *releaseScenario) twoPaymentFailures(t *testing.T) {
 	}
 	everyStatementFails(t, a, w, pool, in5)
 	a.Begin = nil
-	if got, _ := e.Must(200, "GET", "/v1/payment-runs/"+run5, "", ""); got["status"] != "released" {
+	if got := e.get("/v1/payment-runs/" + run5); got["status"] != "released" {
 		t.Fatalf("two-payment run after the failures: %v", got)
 	}
 }
@@ -919,8 +1026,8 @@ func TestSimulationWorkflow(t *testing.T) {
 	if err := run(); err != nil {
 		t.Fatal(err)
 	}
-	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
-	cr, _ := e.Must(200, "GET", path, "", "")
+	done := e.get("/v1/operations/" + in.OperationID.String())
+	cr := e.get(path)
 	if done["status"] != "succeeded" {
 		t.Fatalf("simulated operation status: got %v, want succeeded: %v", done["status"], cr)
 	}
@@ -934,7 +1041,7 @@ func TestSimulationWorkflow(t *testing.T) {
 	if err := run(); err != nil { // nothing left to do
 		t.Fatal(err)
 	}
-	if again, _ := e.Must(200, "GET", path, "", ""); again["version"] != cr["version"] {
+	if again := e.get(path); again["version"] != cr["version"] {
 		t.Fatalf("simulated twice: %v", again)
 	}
 	s.Worker.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
@@ -991,7 +1098,7 @@ func migrationAsked(t *testing.T, file string) (env, string, workflows.MigrateIn
 	if op["status"] != "queued" {
 		t.Fatalf("start with an engine: %v", op)
 	}
-	if running, _ := e.Must(200, "GET", path, "", ""); running["status"] != "running" || running["operation_id"] != id(op) {
+	if running := e.get(path); running["status"] != "running" || running["operation_id"] != id(op) {
 		t.Fatalf("run handed to the engine: %v", running)
 	}
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
@@ -1015,12 +1122,59 @@ func executeMigration(t *testing.T, m *workflows.Migrations, in workflows.Migrat
 // whose extract cannot be read goes back to queued with the problem on its
 // operation; an operation already done is left alone; failures are reported.
 func TestMigrationWorkflow(t *testing.T) {
-	e, path, in, m := migrationAsked(t, "extract.json")
-	if err := executeMigration(t, m, in); err != nil {
+	s := &migrationScenario{engine: &fakeEngine{}}
+	s.e, s.path, s.in, s.m = migrationAsked(t, "extract.json")
+	// The second run and the dispatcher are the test's, not one step's:
+	// what they open is closed when the test that opened them ends.
+	s.e3, s.path3, s.in3, s.m3 = migrationAsked(t, "nowhere.json")
+	s.d = &workflows.Dispatcher{Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: s.engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}
+	// Each step goes on from the runs and operations the ones before it
+	// left, so the first failure stops the rest.
+	if !t.Run("the start loads the run", s.load) {
+		t.FailNow()
+	}
+	if !t.Run("reconciliation runs the same way", s.reconcile) {
+		t.FailNow()
+	}
+	if !t.Run("a start is dispatched by its run, kind and attempt", s.dispatch) {
+		t.FailNow()
+	}
+	if !t.Run("an unreadable extract fails the operation and queues the run", s.unreadableExtract) {
+		t.FailNow()
+	}
+	if !t.Run("a second start is the next attempt", s.startAgain) {
+		t.FailNow()
+	}
+	if !t.Run("the machinery failing is reported", s.machineryFails) {
+		t.FailNow()
+	}
+	t.Run("every failing statement is reported", s.everyStatementFails)
+}
+
+// migrationScenario is what the steps of TestMigrationWorkflow share: the
+// run that loads (e, path, in, m) and its reconciliation (in2), the run
+// whose extract is missing (e3, path3, in3, m3) and its second start
+// (again), and the dispatcher with its engine.
+type migrationScenario struct {
+	e, e3       env
+	path, path3 string
+	in, in2     workflows.MigrateInput
+	in3         workflows.MigrateInput
+	m, m3       *workflows.Migrations
+	engine      *fakeEngine
+	d           *workflows.Dispatcher
+	again       map[string]any
+}
+
+// load: the workflow loads the run and the operation succeeds; run again,
+// the operation is done and nothing happens.
+func (s *migrationScenario) load(t *testing.T) {
+	e := s.e.in(t)
+	if err := executeMigration(t, s.m, s.in); err != nil {
 		t.Fatal(err)
 	}
-	loaded, _ := e.Must(200, "GET", path, "", "")
-	done, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+	loaded := e.get(s.path)
+	done := e.get("/v1/operations/" + s.in.OperationID.String())
 	if loaded["status"] != "loaded" {
 		t.Fatalf("run status: got %v, want loaded", loaded["status"])
 	}
@@ -1030,39 +1184,49 @@ func TestMigrationWorkflow(t *testing.T) {
 	if n := loaded["report"].(map[string]any)["loaded"].(map[string]any)["journal_entries"]; n != float64(43) {
 		t.Fatalf("loaded journal entries: got %v, want 43", n)
 	}
-	if err := executeMigration(t, m, in); err != nil { // the operation is done: nothing happens
+	if err := executeMigration(t, s.m, s.in); err != nil { // the operation is done: nothing happens
 		t.Fatal(err)
 	}
-	// Reconciliation the same way.
-	_, tag := e.Must(200, "GET", path, "", "")
-	rec, _ := e.Must(202, "POST", path+":reconcile", "", tag)
-	in2 := workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: in.RunID, OperationID: uuid.MustParse(id(rec))}
-	if err := executeMigration(t, m, in2); err != nil {
+}
+
+// reconcile: the loaded run's reconciliation is a workflow too.
+func (s *migrationScenario) reconcile(t *testing.T) {
+	e := s.e.in(t)
+	_, tag := e.Must(200, "GET", s.path, "", "")
+	rec, _ := e.Must(202, "POST", s.path+":reconcile", "", tag) // the operation's ETag: nothing writes to it
+	s.in2 = workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: s.in.RunID, OperationID: uuid.MustParse(id(rec))}
+	if err := executeMigration(t, s.m, s.in2); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := e.Must(200, "GET", path, "", ""); got["status"] != "reconciled" {
+	if got := e.get(s.path); got["status"] != "reconciled" {
 		t.Fatalf("reconciled by the workflow: %v", got)
 	}
-	// Dispatched under the run and the operation's kind and attempt.
-	engine := &fakeEngine{}
-	d := &workflows.Dispatcher{Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}
-	e3, path3, in3, m3 := migrationAsked(t, "nowhere.json")
-	if n, err := d.RunOnce(context.Background()); err != nil || n < 1 {
+}
+
+// dispatch: a queued start is dispatched under the run, the operation's
+// kind and its attempt.
+func (s *migrationScenario) dispatch(t *testing.T) {
+	if n, err := s.d.RunOnce(context.Background()); err != nil || n < 1 {
 		t.Fatalf("dispatch: %d %v", n, err)
 	}
 	found := false
-	for _, st := range engine.started {
-		found = found || st.ID == workflows.MigrateWorkflowID(e3.Tenant.ID, in3.RunID, "integration.migrate", 1) && st.Name == workflows.MigrateWorkflow && st.Args[0].(workflows.MigrateInput) == in3
+	for _, st := range s.engine.started {
+		found = found || st.ID == workflows.MigrateWorkflowID(s.e3.Tenant.ID, s.in3.RunID, "integration.migrate", 1) && st.Name == workflows.MigrateWorkflow && st.Args[0].(workflows.MigrateInput) == s.in3
 	}
 	if !found {
-		t.Fatalf("migration start: %+v", engine.started)
+		t.Fatalf("migration start: %+v", s.engine.started)
 	}
-	// The extract cannot be read: the operation fails with the problem and the run is queued again.
-	if err := executeMigration(t, m3, in3); err != nil {
+}
+
+// unreadableExtract: the extract cannot be read, so the operation fails
+// with the problem and the run is queued again.
+func (s *migrationScenario) unreadableExtract(t *testing.T) {
+	e3 := s.e3.in(t)
+	if err := executeMigration(t, s.m3, s.in3); err != nil {
 		t.Fatal(err)
 	}
-	failed, _ := e3.Must(200, "GET", "/v1/operations/"+in3.OperationID.String(), "", "")
-	back, _ := e3.Must(200, "GET", path3, "", "")
+	failed := e3.get("/v1/operations/" + s.in3.OperationID.String())
+	back := e3.get(s.path3)
 	if failed["status"] != "failed" {
 		t.Fatalf("unreadable extract operation status: got %v, want failed", failed["status"])
 	}
@@ -1072,31 +1236,46 @@ func TestMigrationWorkflow(t *testing.T) {
 	if back["status"] != "queued" {
 		t.Fatalf("unreadable extract run status: got %v, want queued", back["status"])
 	}
-	// Started again: the next attempt.
-	_, tag = e3.Must(200, "GET", path3, "", "")
-	again, _ := e3.Must(202, "POST", path3+":start", "", tag)
-	if n, err := d.RunOnce(context.Background()); err != nil || n != 1 {
+}
+
+// startAgain: the queued run started again is dispatched as the next
+// attempt.
+func (s *migrationScenario) startAgain(t *testing.T) {
+	e3 := s.e3.in(t)
+	_, tag := e3.Must(200, "GET", s.path3, "", "")
+	s.again, _ = e3.Must(202, "POST", s.path3+":start", "", tag) // the operation's ETag: nothing writes to it
+	if n, err := s.d.RunOnce(context.Background()); err != nil || n != 1 {
 		t.Fatalf("second dispatch: %d %v", n, err)
 	}
-	if last := engine.started[len(engine.started)-1]; last.ID != workflows.MigrateWorkflowID(e3.Tenant.ID, in3.RunID, "integration.migrate", 2) || last.Args[0].(workflows.MigrateInput).OperationID != uuid.MustParse(id(again)) {
+	if last := s.engine.started[len(s.engine.started)-1]; last.ID != workflows.MigrateWorkflowID(e3.Tenant.ID, s.in3.RunID, "integration.migrate", 2) || last.Args[0].(workflows.MigrateInput).OperationID != uuid.MustParse(id(s.again)) {
 		t.Fatalf("second attempt: %+v", last)
 	}
-	// Failures of the machinery are reported, and a run that is not running is refused.
-	m3.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	pgtest.WantErr(t, m3.Execute(context.Background(), in3), "database down")
-	m3.Begin = nil
-	if err := m.Execute(context.Background(), workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: in.RunID, OperationID: in2.OperationID}); err != nil {
+}
+
+// machineryFails: a failing begin is reported; a finished operation is
+// nothing to do; an unknown operation is refused.
+func (s *migrationScenario) machineryFails(t *testing.T) {
+	s.m3.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	pgtest.WantErr(t, s.m3.Execute(context.Background(), s.in3), "database down")
+	s.m3.Begin = nil
+	if err := s.m.Execute(context.Background(), workflows.MigrateInput{TenantID: s.e.Tenant.ID, RunID: s.in.RunID, OperationID: s.in2.OperationID}); err != nil {
 		t.Fatalf("executing a finished run does nothing: %v", err)
 	}
-	if err := m.Execute(context.Background(), workflows.MigrateInput{TenantID: e.Tenant.ID, RunID: in.RunID, OperationID: uuid.New()}); err == nil {
+	if err := s.m.Execute(context.Background(), workflows.MigrateInput{TenantID: s.e.Tenant.ID, RunID: s.in.RunID, OperationID: uuid.New()}); err == nil {
 		t.Fatal("unknown operation")
 	}
-	pool := pgtest.Pool(t)
-	in4 := workflows.MigrateInput{TenantID: e3.Tenant.ID, RunID: in3.RunID, OperationID: uuid.MustParse(id(again))}
+}
+
+// everyStatementFails: the second start's commit and then each of its
+// statements failing in turn is reported, until the start goes through.
+func (s *migrationScenario) everyStatementFails(t *testing.T) {
+	m3, pool := s.m3, pgtest.Pool(t)
+	defer func() { m3.Begin = nil }()
+	in4 := workflows.MigrateInput{TenantID: s.e3.Tenant.ID, RunID: s.in3.RunID, OperationID: uuid.MustParse(id(s.again))}
 	m3.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) }
-	m3.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-		tx, err := pool.Begin(ctx, s)
-		if err != nil || s.TenantID == uuid.Nil {
+	m3.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, scope)
+		if err != nil || scope.TenantID == uuid.Nil {
 			return tx, err
 		}
 		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
@@ -1106,8 +1285,8 @@ func TestMigrationWorkflow(t *testing.T) {
 	}
 	for n := 1; n < 60; n++ {
 		count := 0
-		m3.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pool.Begin(ctx, s)
+		m3.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, scope)
 			if err != nil {
 				return nil, err
 			}
@@ -1124,7 +1303,6 @@ func TestMigrationWorkflow(t *testing.T) {
 			t.Fatalf("statement %d: %v", n, err)
 		}
 	}
-	m3.Begin = nil
 }
 
 // approvalPending submits a requisition that needs approval and returns the
@@ -1146,21 +1324,67 @@ func approvalPending(t *testing.T) (env, map[string]any, string) {
 // request ends the workflow at the next check; the dispatcher watches every
 // pending request once; failures are reported.
 func TestApprovalDeadline(t *testing.T) {
-	e, pending, reqID := approvalPending(t)
-	a := &workflows.Approvals{Pool: pgtest.Pool(t), AppRole: "erp_app"}
-	in := workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: uuid.MustParse(id(pending)), After: 48 * time.Hour, Max: 2}
-	var s testsuite.WorkflowTestSuite
-	run := func() error {
-		env := workflowEnv(&s)
-		env.RegisterWorkflow(workflows.ApprovalDeadline)
-		env.RegisterActivity(a)
-		env.ExecuteWorkflow(workflows.ApprovalDeadline, in)
-		return env.GetWorkflowError()
+	s := &deadlineScenario{engine: &fakeEngine{}}
+	var pending map[string]any
+	s.e, pending, s.reqID = approvalPending(t)
+	s.a = &workflows.Approvals{Pool: pgtest.Pool(t), AppRole: "erp_app"}
+	s.in = workflows.DeadlineInput{TenantID: s.e.Tenant.ID, RequestID: uuid.MustParse(id(pending)), After: 48 * time.Hour, Max: 2}
+	// The second request and the dispatcher are the test's, not one step's:
+	// what they open is closed when the test that opened them ends.
+	s.e2, s.pending2, _ = approvalPending(t) // its requisition is not needed: the dispatcher watches the request
+	s.d = &workflows.Dispatcher{Deadline: time.Hour, Escalations: 3, Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: s.engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}
+	// Each step goes on from the requests the ones before it escalated,
+	// decided or watched, so the first failure stops the rest.
+	if !t.Run("a pending request is escalated up to the limit", s.escalate) {
+		t.FailNow()
 	}
-	if err := run(); err != nil {
+	if !t.Run("a decided request ends the workflow", s.decided) {
+		t.FailNow()
+	}
+	if !t.Run("the dispatcher watches each pending request once", s.dispatch) {
+		t.FailNow()
+	}
+	if !t.Run("the activity's database failures are reported", s.activityFailures) {
+		t.FailNow()
+	}
+	if !t.Run("the dispatcher's database failures are reported", s.dispatcherFailures) {
+		t.FailNow()
+	}
+	t.Run("a failing activity ends the workflow", s.failingWorkflow)
+}
+
+// deadlineScenario is what the steps of TestApprovalDeadline share: the
+// request the workflow escalates (e, reqID, in) and its activities, the
+// request the dispatcher watches (e2, pending2), and the dispatcher with
+// its engine.
+type deadlineScenario struct {
+	e, e2    env
+	reqID    string
+	pending2 map[string]any
+	in       workflows.DeadlineInput
+	a        *workflows.Approvals
+	suite    testsuite.WorkflowTestSuite
+	engine   *fakeEngine
+	d        *workflows.Dispatcher
+}
+
+// run executes the deadline workflow for in with the real activities.
+func (s *deadlineScenario) run(in workflows.DeadlineInput) error {
+	env := workflowEnv(&s.suite)
+	env.RegisterWorkflow(workflows.ApprovalDeadline)
+	env.RegisterActivity(s.a)
+	env.ExecuteWorkflow(workflows.ApprovalDeadline, in)
+	return env.GetWorkflowError()
+}
+
+// escalate: the workflow escalates the pending request each period up to
+// the limit, with an event each time and the audit entry of a system actor.
+func (s *deadlineScenario) escalate(t *testing.T) {
+	e := s.e.in(t)
+	if err := s.run(s.in); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := e.Must(200, "GET", "/v1/approval-requests/"+id(pending), "", "")
+	got := e.get("/v1/approval-requests/" + s.in.RequestID.String())
 	ev := apitest.Published(t, e.Tenant, outbox.Event{Context: "workflow", Name: "approval_escalated"})
 	if got["escalations"] != float64(2) {
 		t.Errorf("escalations: got %v, want 2", got["escalations"])
@@ -1187,32 +1411,41 @@ func TestApprovalDeadline(t *testing.T) {
 	if actor != approvals.EscalatorActor {
 		t.Fatalf("escalated by %v", actor)
 	}
-	// Decided: the next check ends the workflow without an escalation.
-	e.Approve(t, reqID)
-	if err := run(); err != nil {
+}
+
+// decided: once the request is decided, the next check ends the workflow
+// without an escalation.
+func (s *deadlineScenario) decided(t *testing.T) {
+	e := s.e.in(t)
+	e.Approve(t, s.reqID)
+	if err := s.run(s.in); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := e.Must(200, "GET", "/v1/approval-requests/"+id(pending), "", ""); got["escalations"] != float64(2) || got["status"] != "approved" {
+	if got := e.get("/v1/approval-requests/" + s.in.RequestID.String()); got["escalations"] != float64(2) || got["status"] != "approved" {
 		t.Fatalf("after the decision: %v", got)
 	}
-	// The dispatcher starts one deadline workflow per pending request and records it; a refused start is retried.
-	e2, pending2, _ := approvalPending(t)
-	engine := &fakeEngine{fail: id(pending2)}
-	d := &workflows.Dispatcher{Deadline: time.Hour, Escalations: 3, Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Log: slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))}
+}
+
+// dispatch: the dispatcher starts one deadline workflow per pending request
+// and records it; a refused start is retried; a watched request is not
+// watched twice.
+func (s *deadlineScenario) dispatch(t *testing.T) {
+	d, engine := s.d, s.engine
+	engine.fail = id(s.pending2)
 	_, err := d.RunOnce(context.Background())
 	pgtest.WantErr(t, err, "engine refused")
 	engine.fail = ""
 	if _, err := d.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	want := workflows.DeadlineWorkflowID(e2.Tenant.ID, uuid.MustParse(id(pending2)))
+	want := workflows.DeadlineWorkflowID(s.e2.Tenant.ID, uuid.MustParse(id(s.pending2)))
 	found := false
 	for _, st := range engine.started {
 		in := st.Args[0]
 		found = found || st.ID == want && st.Name == workflows.DeadlineWorkflow && in.(workflows.DeadlineInput).After == time.Hour && in.(workflows.DeadlineInput).Max == 3
 	}
 	var recorded *string
-	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM workflow.approval_request WHERE id = $1`, uuid.MustParse(id(pending2))).Scan(&recorded); err != nil {
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT workflow_id FROM workflow.approval_request WHERE id = $1`, uuid.MustParse(id(s.pending2))).Scan(&recorded); err != nil {
 		t.Fatalf("read the recorded workflow id: %v", err)
 	}
 	if !found {
@@ -1225,17 +1458,22 @@ func TestApprovalDeadline(t *testing.T) {
 	if _, err := d.RunOnce(context.Background()); err != nil || len(engine.started) != before {
 		t.Fatalf("watched twice: %v %d", err, len(engine.started))
 	}
-	// Failures: the database refusing statements, in the activity and the dispatcher.
+}
+
+// activityFailures: a failing begin and each failing statement of the
+// escalation activity are reported. The activities' Begin is left unset.
+func (s *deadlineScenario) activityFailures(t *testing.T) {
+	a, pool := s.a, pgtest.Pool(t)
+	defer func() { a.Begin = nil }()
 	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	_, err = a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in})
+	_, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: s.in})
 	pgtest.WantErr(t, err, "database down")
-	pool := pgtest.Pool(t)
-	in2 := workflows.DeadlineInput{TenantID: e2.Tenant.ID, RequestID: uuid.MustParse(id(pending2)), After: time.Hour, Max: 1}
+	in2 := workflows.DeadlineInput{TenantID: s.e2.Tenant.ID, RequestID: uuid.MustParse(id(s.pending2)), After: time.Hour, Max: 1}
 	a.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) }
 	for n := 1; n < 30; n++ {
 		count := 0
-		a.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pool.Begin(ctx, s)
+		a.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, scope)
 			if err != nil {
 				return nil, err
 			}
@@ -1252,14 +1490,18 @@ func TestApprovalDeadline(t *testing.T) {
 			t.Fatalf("statement %d: %v", n, err)
 		}
 	}
-	a.Begin = nil
-	e3, pending3, _ := approvalPending(t)
-	_ = e3
-	_ = pending3
+}
+
+// dispatcherFailures: with a new pending request to watch, each failing
+// statement of the dispatcher's round is reported. Its Begin is left unset.
+func (s *deadlineScenario) dispatcherFailures(t *testing.T) {
+	d, pool := s.d, pgtest.Pool(t)
+	defer func() { d.Begin = nil }()
+	approvalPending(t) // only its request is needed: the round below watches it
 	for n := 1; n < 10; n++ {
 		count := 0
-		d.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-			tx, err := pool.Begin(ctx, s)
+		d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, scope)
 			if err != nil {
 				return nil, err
 			}
@@ -1276,14 +1518,13 @@ func TestApprovalDeadline(t *testing.T) {
 			t.Fatalf("dispatcher statement %d: %v", n, err)
 		}
 	}
-	d.Begin = nil
-	// A failing workflow: the activity's error ends it.
-	a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	env := workflowEnv(&s)
-	env.RegisterWorkflow(workflows.ApprovalDeadline)
-	env.RegisterActivity(a)
-	env.ExecuteWorkflow(workflows.ApprovalDeadline, workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: in.RequestID, After: time.Minute, Max: 1})
-	if err := env.GetWorkflowError(); err == nil {
+}
+
+// failingWorkflow: the activity's error ends the workflow.
+func (s *deadlineScenario) failingWorkflow(t *testing.T) {
+	s.a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	t.Cleanup(func() { s.a.Begin = nil })
+	if err := s.run(workflows.DeadlineInput{TenantID: s.e.Tenant.ID, RequestID: s.in.RequestID, After: time.Minute, Max: 1}); err == nil {
 		t.Fatal("workflow with a failing activity succeeded")
 	}
 }
@@ -1305,7 +1546,7 @@ func TestEscalateTwice(t *testing.T) {
 			t.Fatalf("run %d: got pending false, want true", run)
 		}
 	}
-	got, _ := e.Must(200, "GET", "/v1/approval-requests/"+id(pending), "", "")
+	got := e.get("/v1/approval-requests/" + id(pending))
 	if got["escalations"] != float64(1) {
 		t.Errorf("escalations: got %v, want 1", got["escalations"])
 	}
@@ -1393,7 +1634,10 @@ func TestEscalateGuard(t *testing.T) {
 	e, pending, _ := approvalPending(t)
 	a := &workflows.Approvals{Pool: pgtest.Pool(t), AppRole: "erp_app"}
 	in := workflows.DeadlineInput{TenantID: e.Tenant.ID, RequestID: uuid.MustParse(id(pending)), After: time.Hour, Max: 3}
-	t.Run("no prior", func(t *testing.T) {
+	// The subtests share the request and run in order: "workflow ahead of
+	// the request" and "read fails" rely on the two escalations made here,
+	// so its failure stops the rest.
+	if !t.Run("no prior", func(t *testing.T) {
 		for run := 1; run <= 2; run++ {
 			if escalated, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in}); err != nil || !escalated {
 				t.Fatalf("run %d: got %v, %v, want true, nil", run, escalated, err)
@@ -1402,9 +1646,9 @@ func TestEscalateGuard(t *testing.T) {
 		if n := escalationAudits(t, e.Tenant.ID); n != 2 {
 			t.Errorf("audit entries: got %d, want 2", n)
 		}
-	})
-	// The subtests share the request and run in order: the next two rely on
-	// the two escalations made here.
+	}) {
+		t.FailNow()
+	}
 	t.Run("workflow ahead of the request", func(t *testing.T) {
 		ahead := int16(5)
 		_, err := a.Escalate(context.Background(), workflows.EscalateInput{DeadlineInput: in, Prior: &ahead})

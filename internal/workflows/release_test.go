@@ -225,7 +225,7 @@ func TestCancelledReleaseResumes(t *testing.T) {
 		e.Must(200, "POST", "/v1/operations/"+in.OperationID.String()+":cancel", "", "*")
 	}
 	operation := func(in workflows.ReleaseInput) string {
-		got, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", "")
+		got := e.get("/v1/operations/" + in.OperationID.String())
 		return got["status"].(string)
 	}
 	e.invoice(t, "INV-1", "100.00")
