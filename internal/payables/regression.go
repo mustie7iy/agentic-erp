@@ -126,21 +126,13 @@ func invoicesOnOrders(ctx context.Context, src sources, since time.Time, limit i
 
 // replay gathers one invoice's inputs, through the cache.
 func replay(ctx context.Context, tx pgx.Tx, src sources, v Invoice, c *replayCache) (replayed, error) {
-	le, ok := c.companies[v.LegalEntityID]
-	if !ok {
-		var err error
-		if le, _, err = src.legalEntities.Entity(ctx, v.LegalEntityID); err != nil {
-			return replayed{}, err
-		}
-		c.companies[v.LegalEntityID] = le
+	le, err := c.entity(ctx, src.legalEntities, v)
+	if err != nil {
+		return replayed{}, err
 	}
-	order, ok := c.orders[*v.PurchaseOrderID]
-	if !ok {
-		var err error
-		if order, _, err = src.orders.Order(ctx, *v.PurchaseOrderID); err != nil {
-			return replayed{}, err
-		}
-		c.orders[*v.PurchaseOrderID] = order
+	order, err := c.order(ctx, src.orders, v)
+	if err != nil {
+		return replayed{}, err
 	}
 	r := replayed{Invoice: v, Company: le.Code, Order: order}
 	if err := c.inCompany(ctx, src.rates, &r, le.LocalCurrency); err != nil {
@@ -152,6 +144,49 @@ func replay(ctx context.Context, tx pgx.Tx, src sources, v Invoice, c *replayCac
 	}
 	r.Invoiced = invoiced
 	return r, nil
+}
+
+// entity is the invoice's legal entity. One its context does not have is
+// refused (409 payables.legal_entity_not_found), never replaced by an empty
+// one: there is no company to take the limits and currency of. Neither it
+// nor the order below is a not_evaluable case, as a missing rate is: the
+// reference has no foreign key across contexts, but legal entities and
+// orders are never deleted, so a missing one is broken data that stops the
+// simulation or suite (a problem below 500 fails it at once) rather than a
+// case it reports and goes on past.
+func (c *replayCache) entity(ctx context.Context, les LegalEntities, v Invoice) (tenancy.Entity, error) {
+	if le, ok := c.companies[v.LegalEntityID]; ok {
+		return le, nil
+	}
+	le, ok, err := les.Entity(ctx, v.LegalEntityID)
+	if err != nil {
+		return tenancy.Entity{}, err
+	}
+	if !ok {
+		return tenancy.Entity{}, problem.Conflict("payables.legal_entity_not_found",
+			fmt.Sprintf("Invoice %s is for legal entity %s, which does not exist.", v.DocumentNumber, v.LegalEntityID))
+	}
+	c.companies[v.LegalEntityID] = le
+	return le, nil
+}
+
+// order is the invoice's purchase order. One its context does not have is
+// refused (409 payables.order_not_found), never replaced by an empty one,
+// whose missing items the match would index.
+func (c *replayCache) order(ctx context.Context, orders Orders, v Invoice) (procurement.Order, error) {
+	if o, ok := c.orders[*v.PurchaseOrderID]; ok {
+		return o, nil
+	}
+	o, ok, err := orders.Order(ctx, *v.PurchaseOrderID)
+	if err != nil {
+		return procurement.Order{}, err
+	}
+	if !ok {
+		return procurement.Order{}, problem.Conflict("payables.order_not_found",
+			fmt.Sprintf("Invoice %s is on purchase order %s, which does not exist.", v.DocumentNumber, *v.PurchaseOrderID))
+	}
+	c.orders[*v.PurchaseOrderID] = o
+	return o, nil
 }
 
 // inCompany sets the conversion of the invoice into the company's currency

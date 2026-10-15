@@ -271,3 +271,59 @@ func checkCaptureAll(t *testing.T, e env, base *config.Config, today time.Time) 
 		}
 	}
 }
+
+// noOrders and noEntities are ports that know no purchase order and no
+// legal entity: the invoice refers to one their context does not have.
+type (
+	noOrders   struct{}
+	noEntities struct{}
+)
+
+func (noOrders) Order(context.Context, uuid.UUID) (procurement.Order, bool, error) {
+	return procurement.Order{}, false, nil
+}
+
+func (noEntities) Entity(context.Context, uuid.UUID) (tenancy.Entity, bool, error) {
+	return tenancy.Entity{}, false, nil
+}
+
+// TestReplayWithoutOrderOrEntity: an invoice whose purchase order or legal
+// entity its context does not have is refused with a stable code (F16).
+// Before, replaying went on with an empty order or company: evaluate
+// indexed the empty order's items and panicked (or, with items, compared
+// the invoice with the wrong one).
+func TestReplayWithoutOrderOrEntity(t *testing.T) {
+	e := setup(t)
+	po := e.order(t, e.Supplier, "PO-1")
+	e.receive(t, po, 1, "10")
+	e.receive(t, po, 2, "5")
+	inv := e.clean(t, po, "INV-1")
+	today := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+	doc := fixture.Document(t)
+	for _, c := range []struct {
+		name string
+		g    payables.Regression
+		code string
+	}{
+		{"no order", payables.Regression{LegalEntities: tenancy.Directory{}, Orders: noOrders{}, Rates: rates}, "payables.order_not_found"},
+		{"no legal entity", payables.Regression{LegalEntities: noEntities{}, Orders: procurement.Orders{}, Rates: rates}, "payables.legal_entity_not_found"},
+	} {
+		t.Run(c.name+" capture", func(t *testing.T) {
+			c.g.Now = func() time.Time { return today }
+			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+				_, err := c.g.Capture(ctx, doc, 90*24*time.Hour, 0)
+				return err
+			})
+			pgtest.WantErr(t, err, c.code)
+		})
+		t.Run(c.name+" match", func(t *testing.T) {
+			h := endpoints(nil)
+			h.LegalEntities, h.Orders = c.g.LegalEntities, c.g.Orders
+			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+				_, err := h.MatchInvoice(ctx, uuid.MustParse(id(inv)), func(int32) error { return nil })
+				return err
+			})
+			pgtest.WantErr(t, err, c.code)
+		})
+	}
+}
