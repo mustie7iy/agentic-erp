@@ -401,14 +401,15 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   - f13 (95aaaff, b67769f): match_result.invoice_version (migration 000040) and posting requires a
     clean match of the current version; the CLI posts with the ETag it matched. Not done: exact
     tolerance and auto-post comparisons; the 000040 renumbering note for F5b/F8b.
-  - f14 (d80093b, 630bcb0, a3a7516, ef3c8c6): F14 and R61 items 1-4; reviewer verdict unknown.
+  - f14 (d43b2f0, c8bcabe, f4f6fe4, 0b3496e after the rebase): F14 and R61 items 1-4; go-reviewer
+    APPROVE, no blocking findings.
   - r60 (d8c649c, 6db146c, b164312): extensions, operator HTTP helpers, problem.Reference; the
     positive-quantity helper is uncommitted in its worktree; Postings.Clear and analytics decimals
     not started.
   Resume: review each branch, finish the open items, merge, run the gates and the scored review.
 - [ ] F13 A clean match only authorises posting the invoice version it evaluated; tolerances and
   the auto-post limit compared exactly, before rounding
-- [ ] F14 A configuration's company currency must equal the legal entity's local currency
+- [x] F14 A configuration's company currency must equal the legal entity's local currency
 - [ ] R60 Round-five duplication: extension keys, control/global plane HTTP helpers, reference
   errors, positive quantities, migrated clearing record
 - [ ] R61 Round-five residue: scanPrincipal, agent budget parsing, inverse-rate test, clocks,

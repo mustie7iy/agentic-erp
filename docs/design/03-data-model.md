@@ -279,8 +279,9 @@ configuration whose company currency differs from its legal entity's local
 currency is refused when it is checked, at submission and at bootstrap
 (422 `config.validation_failed`, field `proposed.companies[<code>].currency`,
 reported by the ledger's section check), and a legal entity's
-`local_currency` never changes after it is created (F14). A document in another currency is converted into the
-company's currency with the ledger's posting lookup (the latest average
+`local_currency` never changes after it is created (F14). A document in
+another currency is converted into the company's currency with the
+ledger's posting lookup (the latest average
 rate of the pair, inverted when only the reverse is recorded) on the
 document's date: a requisition on the day it was raised (UTC), so a
 resubmission is routed at the same rate, an invoice on its invoice date

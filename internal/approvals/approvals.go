@@ -181,7 +181,7 @@ func GetRequest(ctx context.Context, id uuid.UUID) (Request, error) {
 // returns the amount in minor units of the company's currency with that
 // currency's digits, and refuses when no rate is valid on the date.
 type Rates interface {
-	ToCompany(ctx context.Context, legalEntity uuid.UUID, currency string, date time.Time, amount money.Minor) (money.Minor, int, error)
+	ToCompany(ctx context.Context, legalEntity uuid.UUID, from string, date time.Time, amount money.Minor) (money.Minor, int, error)
 }
 
 // Approvals opens and withdraws approval requests for the contexts that
