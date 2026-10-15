@@ -16,8 +16,8 @@ and T44 of docs/design/07-transition.md §7.6.
 
 Recommended next items, by priority:
 1. An additive `invoice_version` on MatchResult and SupplierInvoiceMatched, and
-   `external_issuer` in the API schema; `erp invoices` exits non-zero when a match is refused
-   (0 when invoices are only parked).
+   `external_issuer` in the API schema (both done in T30); `erp invoices` exits non-zero when
+   a match is refused (0 when invoices are only parked).
 2. The deferred contract-step migrations as one step: F5b (reservation reconciliation; work
    in progress on the local branch `f5b`), F8b (the FOR SHARE trigger), the F7 index drop
    with re-backfill, validating the NOT VALID checks of 000040 and 000041, and a guard on

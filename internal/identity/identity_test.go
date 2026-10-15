@@ -96,14 +96,24 @@ func (s *principals) createPrincipals(t *testing.T) {
 	}
 	bridge, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "service", "external_subject": "client|sap-bridge", "display_name": "SAP bridge"}`, "")
 	// Subjects are bound to the issuer the creating administrator signed in
-	// with, the tenant's identity provider (ADR-0010); agents have neither.
+	// with, the tenant's identity provider (ADR-0010), which the API names
+	// (T30); agents have neither.
 	for _, p := range []struct {
-		name, id, issuer string
-	}{{"human", human["id"].(string), s.c.API.Issuer.URL}, {"service", bridge["id"].(string), s.c.API.Issuer.URL}, {"agent", agent["id"].(string), "(none)"}} {
-		var got string
-		pgtest.Scan(t, `SELECT coalesce(external_issuer, '(none)') FROM identity.principal WHERE id = $1`, []any{p.id}, &got)
-		if got != p.issuer {
-			t.Errorf("%s issuer: got %s, want %s", p.name, got, p.issuer)
+		name   string
+		got    map[string]any
+		issuer string
+	}{{"human", human, s.c.API.Issuer.URL}, {"service", bridge, s.c.API.Issuer.URL}, {"agent", agent, "(none)"}} {
+		var stored string
+		pgtest.Scan(t, `SELECT coalesce(external_issuer, '(none)') FROM identity.principal WHERE id = $1`, []any{p.got["id"]}, &stored)
+		if stored != p.issuer {
+			t.Errorf("%s issuer: got %s, want %s", p.name, stored, p.issuer)
+		}
+		answered, present := p.got["external_issuer"]
+		if !present {
+			answered = "(none)"
+		}
+		if answered != p.issuer {
+			t.Errorf("%s external_issuer in the response: got %v, want %s", p.name, answered, p.issuer)
 		}
 	}
 
@@ -223,6 +233,12 @@ func (s *principals) blockPrincipal(t *testing.T) {
 	}
 	if created[1]["all_companies"] != true {
 		t.Errorf("second created event all companies: got %v, want true", created[1]["all_companies"])
+	}
+	if got, want := created[0]["external_issuer"], any(c.API.Issuer.URL); got != want {
+		t.Errorf("first created event external_issuer: got %v, want %v", got, want)
+	}
+	if got, present := created[1]["external_issuer"]; !present || got != nil {
+		t.Errorf("second created event external_issuer: got %v (present %t), want null", got, present)
 	}
 	if len(blocked) != 1 {
 		t.Fatalf("blocked events: got %d, want 1: %v", len(blocked), blocked)

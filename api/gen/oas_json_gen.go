@@ -23357,6 +23357,12 @@ func (s *Principal) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.ExternalIssuer.Set {
+			e.FieldStart("external_issuer")
+			s.ExternalIssuer.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("display_name")
 		e.Str(s.DisplayName)
 	}
@@ -23382,7 +23388,7 @@ func (s *Principal) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPrincipal = [13]string{
+var jsonFieldsNameOfPrincipal = [14]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -23391,11 +23397,12 @@ var jsonFieldsNameOfPrincipal = [13]string{
 	5:  "updated_by",
 	6:  "kind",
 	7:  "external_subject",
-	8:  "display_name",
-	9:  "email",
-	10: "all_companies",
-	11: "status",
-	12: "agent_profile",
+	8:  "external_issuer",
+	9:  "display_name",
+	10: "email",
+	11: "all_companies",
+	12: "status",
+	13: "agent_profile",
 }
 
 // Decode decodes Principal from json.
@@ -23499,8 +23506,18 @@ func (s *Principal) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"external_subject\"")
 			}
+		case "external_issuer":
+			if err := func() error {
+				s.ExternalIssuer.Reset()
+				if err := s.ExternalIssuer.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"external_issuer\"")
+			}
 		case "display_name":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.DisplayName = string(v)
@@ -23522,7 +23539,7 @@ func (s *Principal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"email\"")
 			}
 		case "all_companies":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Bool()
 				s.AllCompanies = bool(v)
@@ -23534,7 +23551,7 @@ func (s *Principal) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"all_companies\"")
 			}
 		case "status":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -23566,7 +23583,7 @@ func (s *Principal) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b01011111,
-		0b00001101,
+		0b00011010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -32,7 +32,8 @@ func profileInput(p gen.AgentProfile) *ProfileInput {
 func principalToAPI(p Principal) gen.Principal {
 	out := gen.Principal{
 		ID: p.ID, Version: p.Version, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.UpdatedAt, UpdatedBy: gen.NewOptUUID(p.UpdatedBy),
-		Kind: p.Kind, ExternalSubject: apitypes.OptString(p.ExternalSubject), DisplayName: p.DisplayName, Email: apitypes.OptString(p.Email),
+		Kind: p.Kind, ExternalSubject: apitypes.OptString(p.ExternalSubject),
+		ExternalIssuer: apitypes.OptString(p.ExternalIssuer), DisplayName: p.DisplayName, Email: apitypes.OptString(p.Email),
 		AllCompanies: p.AllCompanies, Status: p.Status,
 	}
 	if p.Profile != nil {

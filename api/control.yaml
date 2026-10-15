@@ -67,7 +67,7 @@ paths:
       tags:
         - tenants
       summary: Provision a tenant
-      description: "Creates a tenant with its first administrator (every permission, through the `tenant_admin` role), the roles its configuration names, an active legal entity per company of the configuration and the configuration as version 1, all in one transaction; the tenant is active when the response arrives. The request names the administrator's subject but no issuer, so the administrator is bound to the cell's single trusted tenant identity provider (`iss`) with that subject, and only that provider's tokens sign in as them; a cell that trusts several tenant identity providers refuses with 422 `provisioning.issuer_ambiguous`. A retry with the same `Idempotency-Key` answers the tenant the first request created with `Idempotent-Replayed: true`; two concurrent requests with the same key create one tenant (409 for the loser, retry to get it)."
+      description: "Creates a tenant with its first administrator (every permission, through the `tenant_admin` role), the roles its configuration names, an active legal entity per company of the configuration and the configuration as version 1, all in one transaction; the tenant is active when the response arrives. The request names the administrator's subject but no issuer, so the administrator is bound to the cell's single trusted tenant identity provider (`iss`) with that subject, and only that provider's tokens sign in as them (the public API names it as the principal's `external_issuer`); a cell that trusts several tenant identity providers refuses with 422 `provisioning.issuer_ambiguous`, until a per-tenant identity provider registry lets the request name the issuer. A retry with the same `Idempotency-Key` answers the tenant the first request created with `Idempotent-Replayed: true`; two concurrent requests with the same key create one tenant (409 for the loser, retry to get it)."
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -754,7 +754,7 @@ components:
       properties:
         subject:
           type: string
-          description: The administrator's subject at the tenant's identity provider.
+          description: "The administrator's subject at the tenant's identity provider, the cell's single trusted tenant issuer."
           minLength: 1
           maxLength: 255
         display_name:

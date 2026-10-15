@@ -183,8 +183,9 @@ A token authenticates the principal whose `external_issuer` and
 trusted issuer may name any tenant, so the subject alone would let one
 tenant's identity provider sign in as another tenant's principal whose
 subject it also issues (ADR-0010, amended 2026-10-14). People and services
-carry both; agents carry an issuer only when they have a subject. The
-contract names no issuer, so a principal is bound to the issuer of the
+carry both; agents carry an issuer only when they have a subject. Requests
+name no issuer (the API reports it read-only as `external_issuer`, T30), so a
+principal is bound to the issuer of the
 administrator who creates it, and a new tenant's first administrator to
 the cell's only tenant issuer (a cell that trusts several refuses to
 provision, `provisioning.issuer_ambiguous`). `principal_issuer_subject`

@@ -1591,7 +1591,7 @@ components:
       examples:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000055", "source": "/erp/eu-1/identity", "type": "com.example.erp.identity.principal_created.v1", "subject": "0192a000-0000-7000-8000-000000000107", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000102"}
-          payload: {"principal_id": "0192a000-0000-7000-8000-000000000107", "kind": "human", "display_name": "Jonas Weber", "all_companies": false, "status": "active"}
+          payload: {"principal_id": "0192a000-0000-7000-8000-000000000107", "kind": "human", "external_issuer": "https://login.acme.example/", "display_name": "Jonas Weber", "all_companies": false, "status": "active"}
     PrincipalBlocked:
       name: PrincipalBlocked
       title: Principal blocked
@@ -2838,6 +2838,7 @@ components:
       properties:
         principal_id: {"$ref": "#/components/schemas/Uuid"}
         kind: {"type": "string", "description": "Open enum: human, agent, service."}
+        external_issuer: {"type": ["string", "null"], "description": "The identity provider (OIDC iss) the principal's subject belongs to; null when the principal has no subject. Absent from events of releases before it was published."}
         display_name: {"type": "string"}
         all_companies: {"type": "boolean"}
         status: {"type": "string", "description": "Open enum: active, blocked, deprovisioned."}

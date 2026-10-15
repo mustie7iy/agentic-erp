@@ -17627,6 +17627,13 @@ type Principal struct {
 	Kind string `json:"kind"`
 	// Subject at the tenant's identity provider; required for humans and services. Immutable.
 	ExternalSubject OptString `json:"external_subject"`
+	// The identity provider (OIDC `iss`) the principal's subject belongs to: only that provider's tokens
+	// sign in as this principal. Set when a principal with a subject is created, to the issuer of the
+	// principal creating it (a tenant's first administrator: the cell's trusted tenant identity provider).
+	// Not changed through the API. Absent when the principal has no subject, and for a person or service
+	// the previous release created during an issuer rollout: such a principal cannot sign in until an
+	// operator binds it.
+	ExternalIssuer OptString `json:"external_issuer"`
 	// Display name.
 	DisplayName string `json:"display_name"`
 	// E-mail address.
@@ -17678,6 +17685,11 @@ func (s *Principal) GetKind() string {
 // GetExternalSubject returns the value of ExternalSubject.
 func (s *Principal) GetExternalSubject() OptString {
 	return s.ExternalSubject
+}
+
+// GetExternalIssuer returns the value of ExternalIssuer.
+func (s *Principal) GetExternalIssuer() OptString {
+	return s.ExternalIssuer
 }
 
 // GetDisplayName returns the value of DisplayName.
@@ -17743,6 +17755,11 @@ func (s *Principal) SetKind(val string) {
 // SetExternalSubject sets the value of ExternalSubject.
 func (s *Principal) SetExternalSubject(val OptString) {
 	s.ExternalSubject = val
+}
+
+// SetExternalIssuer sets the value of ExternalIssuer.
+func (s *Principal) SetExternalIssuer(val OptString) {
+	s.ExternalIssuer = val
 }
 
 // SetDisplayName sets the value of DisplayName.

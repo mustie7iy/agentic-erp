@@ -70,3 +70,47 @@ func TestFirstAdministratorWithoutIssuer(t *testing.T) {
 		t.Errorf("administrator without an issuer: got %v, want an error naming the missing issuer", err)
 	}
 }
+
+// TestIssuerFollowsTheSubject: the API reports a principal's issuer
+// whenever it has a subject, whatever its kind (T30): an agent created
+// with a subject is bound like a person; an agent without one has none,
+// published as null; and a person the previous release created during the
+// issuer rollout, still unbound, is read back without one.
+func TestIssuerFollowsTheSubject(t *testing.T) {
+	c, ten := admin(t)
+	profile := `"agent_profile": {"autonomy_level": 0, "model": "m", "description": "d"}`
+	bound, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "external_subject": "bot|ap", "display_name": "Bot", `+profile+`}`, "")
+	plain, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "display_name": "Plain", `+profile+`}`, "")
+	unbound := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', 'previous|unbound', 'Unbound', 'active', $2, $2)`, ten.ID, unbound)
+	read, _ := c.Must(200, "GET", "/v1/principals/"+unbound.String(), "", "")
+
+	t.Run("agent with a subject", func(t *testing.T) {
+		if got, want := bound["external_issuer"], any(c.API.Issuer.URL); got != want {
+			t.Errorf("external_issuer: got %v, want %v", got, want)
+		}
+	})
+	t.Run("agent without a subject", func(t *testing.T) {
+		if got, present := plain["external_issuer"]; present {
+			t.Errorf("external_issuer: got %v, want absent", got)
+		}
+	})
+	t.Run("person not yet bound", func(t *testing.T) {
+		if got, present := read["external_issuer"]; present {
+			t.Errorf("external_issuer: got %v, want absent", got)
+		}
+	})
+	t.Run("events", func(t *testing.T) {
+		created := events(t, ten, "principal_created")
+		if len(created) != 2 {
+			t.Fatalf("created events: got %d, want 2", len(created))
+		}
+		if got, want := created[0]["external_issuer"], any(c.API.Issuer.URL); got != want {
+			t.Errorf("agent with a subject: event external_issuer: got %v, want %v", got, want)
+		}
+		if got, present := created[1]["external_issuer"]; !present || got != nil {
+			t.Errorf("agent without a subject: event external_issuer: got %v (present %t), want null", got, present)
+		}
+	})
+}
