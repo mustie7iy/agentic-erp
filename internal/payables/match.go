@@ -300,7 +300,7 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	}
 	events := append([]outbox.Event{{Context: "payables", Name: "supplier_invoice_matched", AggregateType: "payables.match_result", AggregateID: m.ID,
 		Payload: map[string]any{"match_result_id": m.ID, "supplier_invoice_id": id, "evaluated_at": m.EvaluatedAt.UTC().Format(time.RFC3339Nano),
-			"is_clean": m.IsClean, "config_version": version, "issues": issues}}}, followUp...)
+			"is_clean": m.IsClean, "config_version": version, "invoice_version": m.InvoiceVersion, "issues": issues}}}, followUp...)
 	detail := map[string]any{"match_result_id": m.ID, "issues": len(issues)}
 	if m.IsClean {
 		m.Decision = &decision

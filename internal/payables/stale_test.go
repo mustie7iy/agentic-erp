@@ -226,3 +226,103 @@ func TestApprovedExceptionCountsForItsVersion(t *testing.T) {
 		posted(t, e, inv)
 	})
 }
+
+// TestMatchNamesItsInvoiceVersion: a match result and its
+// SupplierInvoiceMatched event name the invoice version the match left the
+// invoice at, the one :post accepts it for (T30); a match recorded without
+// a version (before 000040) names none.
+func TestMatchNamesItsInvoiceVersion(t *testing.T) {
+	e := setup(t)
+	version := func(t *testing.T, e env, inv string) any {
+		t.Helper()
+		got, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+inv, "", "")
+		return got["version"]
+	}
+	matched := func(t *testing.T, e env, inv string) map[string]any {
+		t.Helper()
+		for _, ev := range events(t, e.Tenant, "supplier_invoice_matched") {
+			if ev["supplier_invoice_id"] == inv {
+				return ev
+			}
+		}
+		t.Fatalf("no supplier_invoice_matched event for invoice %s", inv)
+		return nil
+	}
+	t.Run("clean", func(t *testing.T) {
+		e := e.in(t)
+		po := e.order(t, e.Supplier, "PO-1")
+		e.receive(t, po, 1, "10")
+		e.receive(t, po, 2, "5")
+		inv := id(e.clean(t, po, "INV-1"))
+		m := e.act(t, 200, inv, "match", "")
+		want := version(t, e, inv)
+		if m["invoice_version"] != want {
+			t.Errorf("match response invoice_version: got %v, want %v", m["invoice_version"], want)
+		}
+		if got := matched(t, e, inv)["invoice_version"]; got != want {
+			t.Errorf("event invoice_version: got %v, want %v", got, want)
+		}
+		list, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+inv+"/match-results", "", "")
+		items := list["items"].([]any)
+		if len(items) != 1 {
+			t.Fatalf("match history: got %d results, want 1", len(items))
+		}
+		if got := items[0].(map[string]any)["invoice_version"]; got != want {
+			t.Errorf("history invoice_version: got %v, want %v", got, want)
+		}
+	})
+	// A match with issues holds the invoice and names the held version.
+	t.Run("held by the match", func(t *testing.T) {
+		e := e.in(t)
+		po := e.order(t, e.Supplier, "PO-2")
+		e.receive(t, po, 1, "10")
+		inv := id(e.clean(t, po, "INV-2"))
+		before := version(t, e, inv)
+		m := e.act(t, 200, inv, "match", "")
+		want := version(t, e, inv)
+		if want == before {
+			t.Fatalf("invoice version: got %v after the hold, want a version after %v", want, before)
+		}
+		if m["invoice_version"] != want {
+			t.Errorf("match response invoice_version: got %v, want %v", m["invoice_version"], want)
+		}
+		if got := matched(t, e, inv)["invoice_version"]; got != want {
+			t.Errorf("event invoice_version: got %v, want %v", got, want)
+		}
+	})
+	// A clean match of an invoice its earlier match held releases it and
+	// names the released version.
+	t.Run("released by the match", func(t *testing.T) {
+		e := e.in(t)
+		po := e.order(t, e.Supplier, "PO-4")
+		e.receive(t, po, 1, "10")
+		inv := id(e.clean(t, po, "INV-4"))
+		e.act(t, 200, inv, "match", "")
+		held := version(t, e, inv)
+		e.receive(t, po, 2, "5")
+		m := e.act(t, 200, inv, "match", "")
+		want := version(t, e, inv)
+		if want == held {
+			t.Fatalf("invoice version: got %v after the release, want a version after %v", want, held)
+		}
+		if m["invoice_version"] != want {
+			t.Errorf("match response invoice_version: got %v, want %v", m["invoice_version"], want)
+		}
+	})
+	t.Run("recorded without a version", func(t *testing.T) {
+		e := e.in(t)
+		po := e.order(t, e.Supplier, "PO-3")
+		e.receive(t, po, 1, "10")
+		e.receive(t, po, 2, "5")
+		inv := id(e.clean(t, po, "INV-3"))
+		e.act(t, 200, inv, "match", "")
+		old := uuid.Must(uuid.NewV7())
+		pgtest.Exec(t, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, issues, config_version, evaluated_by)
+			SELECT tenant_id, $2, supplier_invoice_id, clock_timestamp(), true, issues, config_version, evaluated_by
+			FROM payables.match_result WHERE supplier_invoice_id = $1`, uuid.MustParse(inv), old)
+		read, _ := e.Must(200, "GET", "/v1/match-results/"+old.String(), "", "")
+		if got, present := read["invoice_version"]; present {
+			t.Errorf("invoice_version of a match without one: got %v, want absent", got)
+		}
+	})
+}

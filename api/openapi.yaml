@@ -15340,6 +15340,12 @@ components:
           format: uuid
           description: Principal that ran the match.
           readOnly: true
+        invoice_version:
+          type: integer
+          format: int32
+          description: "The supplier invoice version the match left the invoice at (its `version` after any hold or release the match caused): `:post` accepts the latest clean match only while the invoice is still at this version. Absent on matches recorded before invoice versions were kept, which authorise no posting."
+          minimum: 1
+          readOnly: true
         decision:
           $ref: "#/components/schemas/MatchDecision"
           description: "The invoice flow's decision on a clean match, in the response of `:match` only (it is not stored, and the ETag is that of the stored result): the rule regression suites and simulations apply. Absent when the match found issues (the invoice is held and decided on its exception request) and on reads of the history."
@@ -15354,6 +15360,7 @@ components:
               message: invoice_date is required.
           config_version: 42
           evaluated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbb"
+          invoice_version: 3
     MatchDecision:
       type: object
       description: "Whether a matched invoice is posted automatically: its gross amount, converted into the company's currency at the average rate of its invoice date, compared exactly with the company's `auto_post_limit`."

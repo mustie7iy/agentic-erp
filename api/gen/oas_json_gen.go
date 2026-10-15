@@ -16385,6 +16385,12 @@ func (s *MatchResult) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.EvaluatedBy)
 	}
 	{
+		if s.InvoiceVersion.Set {
+			e.FieldStart("invoice_version")
+			s.InvoiceVersion.Encode(e)
+		}
+	}
+	{
 		if s.Decision.Set {
 			e.FieldStart("decision")
 			s.Decision.Encode(e)
@@ -16392,7 +16398,7 @@ func (s *MatchResult) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMatchResult = [8]string{
+var jsonFieldsNameOfMatchResult = [9]string{
 	0: "id",
 	1: "supplier_invoice_id",
 	2: "evaluated_at",
@@ -16400,7 +16406,8 @@ var jsonFieldsNameOfMatchResult = [8]string{
 	4: "issues",
 	5: "config_version",
 	6: "evaluated_by",
-	7: "decision",
+	7: "invoice_version",
+	8: "decision",
 }
 
 // Decode decodes MatchResult from json.
@@ -16408,7 +16415,7 @@ func (s *MatchResult) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode MatchResult to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -16502,6 +16509,16 @@ func (s *MatchResult) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"evaluated_by\"")
 			}
+		case "invoice_version":
+			if err := func() error {
+				s.InvoiceVersion.Reset()
+				if err := s.InvoiceVersion.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"invoice_version\"")
+			}
 		case "decision":
 			if err := func() error {
 				s.Decision.Reset()
@@ -16521,8 +16538,9 @@ func (s *MatchResult) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b01111111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
