@@ -423,8 +423,10 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   "1e3"), migrated clearing record (ledger recordClearing); analytics plainDecimal documented as
   deliberately stricter than money's grammar. Review fixes: a padded quantity passed the
   quality gate then failed the load; an operator request without claims ran with every role.
-- [ ] R61 Round-five residue: scanPrincipal, agent budget parsing, inverse-rate test, clocks,
-  small readability items
+- [x] R61 Round-five residue: agent budget read with ParseAmount, scanPrincipal checks the scan
+  error first, an unknown legal entity in ToCompany is a reference problem, injected clocks for
+  analytics pages and key rotation, a reverse-rate test; match.go uses cmp.Or and documents the
+  hold_reason invariant. Reviewer: APPROVE.
 - [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
   Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
   panic); a period close locks only a period the caller may see; provision and rewrap report a
