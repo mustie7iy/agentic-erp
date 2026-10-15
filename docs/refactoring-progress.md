@@ -427,6 +427,16 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   error first, an unknown legal entity in ToCompany is a reference problem, injected clocks for
   analytics pages and key rotation, a reverse-rate test; match.go uses cmp.Or and documents the
   hold_reason invariant. Reviewer: APPROVE.
+- Fifth re-review after round five: **9.4 / 10** (architecture 9.5, error handling 9.4,
+  concurrency 9.4, SQL 9.6, tests 9.5, readability 9.3, duplication 8.9, money 9.3). Round six
+  below.
+- [ ] F15 Analytics and SAP reconciliation extend document quantities at their 6 decimals; rates
+  read in money's plain grammar
+- [ ] F16 An approved invoice exception only authorises posting the invoice version it was approved
+  at; robustness of the regression lookups and `erp invoices`
+- [ ] R62 Round-six duplication and clocks: one accessible-legal-entity helper, the remaining
+  reference copies, Simulate's invoice query, per-partner netting, rotator and expiry clocks,
+  constant identifiers through Sanitize
 - [x] R59 Round-four residue: createClearing through clearWithEntry; currency.LoadCodes beside
   Load (one loader); money.Rat; MonthlyBudget as *money.Minor; Render validates the spec (was a
   panic); a period close locks only a period the caller may see; provision and rewrap report a
