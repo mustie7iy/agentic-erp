@@ -237,7 +237,8 @@ func priceVariance(it Item, oi procurement.OrderItem, lim limits, conv ledger.Co
 
 // MatchInvoice evaluates a PO-based invoice against its order and goods
 // receipts with the active tolerances and records the result. Issues put a
-// parked invoice on hold and open an invoice_exception approval request;
+// parked invoice on hold and open an invoice_exception approval request,
+// unless its exception was approved at its current version (applyMatch);
 // a clean result releases a hold the match had set.
 func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Match, error) {
 	tx, p, err := reqctx.Request(ctx)
@@ -303,8 +304,20 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 // invoice and open an invoice_exception request (unless a held invoice
 // already has one); a clean match releases a hold the match had set. It
 // returns the invoice as the match leaves it and the events of the
-// transition, if any.
+// transition, if any. A parked invoice whose exception was approved at its
+// current version is left as it is: the approval covers the invoice as it
+// stands, which :post accepts whatever a later match finds (F16), so
+// holding it would only ask the approvers again, on every match (F18).
 func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, issueCount int) (Invoice, []outbox.Event, error) {
+	if issueCount > 0 && v.Status == Parked && v.WorkflowRequestID != nil {
+		var approved *int32
+		if err := tx.QueryRow(ctx, `SELECT exception_version FROM payables.supplier_invoice WHERE id = $1`, v.ID).Scan(&approved); err != nil {
+			return Invoice{}, nil, fmt.Errorf("payables: read the approval of invoice %s: %w", v.ID, err)
+		}
+		if approvedAsIs(v, approved) {
+			return v, nil, nil
+		}
+	}
 	switch {
 	case issueCount > 0 && (v.Status == Parked || v.WorkflowRequestID == nil):
 		held, err := e.holdForException(ctx, tx, p, v, issueCount)

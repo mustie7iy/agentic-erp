@@ -325,6 +325,14 @@ is matched, or its exception approved, again (F13). `erp invoices`
 posts or holds with the ETag it sent to `:match`, which a clean match of a
 parked invoice leaves valid, so an edit in between fails with 412 and the
 invoice is left parked for the next run rather than acted on unmatched.
+A match of a parked invoice whose exception was approved at its current
+version records its issues but leaves it parked on that approval: it is not
+held again nor its approvers asked again (F18). `erp invoices` does not
+match such an invoice (`workflow_request_id` set) at all, nor post it: a
+match with issues answers no decision and `:post` does not check the
+auto-post limit, so the rule cannot tell an approved exception it may post
+from one a person reviews; it lists the invoice as left parked for a
+person to post.
 
 ## 4.15 Control plane
 

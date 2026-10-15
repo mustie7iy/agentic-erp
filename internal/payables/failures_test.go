@@ -33,6 +33,9 @@ func TestDatabaseFailures(t *testing.T) {
 	e.act(t, 200, id(posted), "post", "")
 	over, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "P-4", "142.80", "22.80", poItem(po, 1, "10", "EA", "120.00")), "")
 	e.act(t, 200, id(over), "match", "") // on hold: item 1 is already invoiced by P-3
+	excused, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "P-5", "142.80", "22.80", poItem(po, 1, "10", "EA", "120.00")), "")
+	e.act(t, 200, id(excused), "match", "")
+	e.Approve(t, id(excused)) // parked on its approved exception
 	results, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(matched)+"/match-results", "", "")
 	result := uuid.MustParse(results["items"].([]any)[0].(map[string]any)["id"].(string))
 	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
@@ -75,6 +78,10 @@ func TestDatabaseFailures(t *testing.T) {
 				return err
 			}
 			_, err = h.MatchSupplierInvoice(ctx, gen.MatchSupplierInvoiceParams{ID: u(over), IfMatch: "*"})
+			return err
+		},
+		"match of an approved exception": func(ctx context.Context) error {
+			_, err := h.MatchSupplierInvoice(ctx, gen.MatchSupplierInvoiceParams{ID: u(excused), IfMatch: "*"})
 			return err
 		},
 		"clean match after hold": func(ctx context.Context) error {

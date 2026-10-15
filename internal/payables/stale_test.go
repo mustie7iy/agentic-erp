@@ -176,6 +176,35 @@ func TestApprovedExceptionCountsForItsVersion(t *testing.T) {
 		posted(t, e, approved(t, e, "PO-3"))
 	})
 
+	// Matching an approved, unchanged invoice again finds the issues the
+	// approval covers: it leaves the invoice parked on its approval rather
+	// than holding it and asking the approvers again, which every run of
+	// `erp invoices` did (F18).
+	t.Run("matched again unchanged", func(t *testing.T) {
+		e := e.in(t)
+		inv := approved(t, e, "PO-5")
+		before, tag := e.Must(200, "GET", path(inv), "", "")
+		if m := e.act(t, 200, id(inv), "match", ""); m["is_clean"] != false {
+			t.Fatalf("match of the approved invoice: got is_clean %v, want false", m["is_clean"])
+		}
+		after, afterTag := e.Must(200, "GET", path(inv), "", "")
+		if after["status"] != "parked" {
+			t.Errorf("status after the match: got %v, want parked", after["status"])
+		}
+		if after["workflow_request_id"] != before["workflow_request_id"] {
+			t.Errorf("workflow request after the match: got %v, want %v", after["workflow_request_id"], before["workflow_request_id"])
+		}
+		if afterTag != tag {
+			t.Errorf("etag after the match: got %s, want %s (unchanged)", afterTag, tag)
+		}
+		var n int
+		pgtest.Scan(t, `SELECT count(*) FROM workflow.approval_request WHERE object_id = $1`, []any{uuid.MustParse(id(inv))}, &n)
+		if n != 1 {
+			t.Errorf("approval requests: got %d, want 1", n)
+		}
+		posted(t, e, inv)
+	})
+
 	// An exception approved before 000041, or by the previous release during
 	// the rollout, has no version and counts for none: the invoice is
 	// matched and approved again before it posts.

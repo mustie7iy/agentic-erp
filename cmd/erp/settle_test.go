@@ -100,6 +100,33 @@ func TestSettleWhenTheInvoiceIsGoneOrChanged(t *testing.T) {
 	fails(t, "invoice 5101: API 500", "invoices")
 }
 
+// TestApprovedExceptionLeftParked: an invoice parked on an approved
+// exception (workflow_request_id set) is neither matched nor posted by the
+// rule, but listed for a person to post (F18). Before, the rule matched
+// it, and the match held it again and asked the approvers again on every
+// run.
+func TestApprovedExceptionLeftParked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method+" "+r.URL.Path == "GET /v1/supplier-invoices" {
+			w.Write([]byte(`{"items": [{"id": "i1", "document_number": "5101", "purchase_order_id": "po", "workflow_request_id": "wr"}]}`))
+			return
+		}
+		t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	env := map[string]string{"ERP_API_URL": srv.URL, "ERP_TOKEN": "t"}
+	getenv = func(k string) string { return env[k] }
+	t.Cleanup(func() { getenv = os.Getenv })
+	got := must(t, "invoices")
+	for _, want := range []string{"Posted 0:", "Held 0:", "Left parked 1: 5101 (approved exception: a person posts it)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+		}
+	}
+}
+
 // TestInvoicesFollowEveryPage: the rule settles the parked invoices of
 // every page, not the first 500 (F16).
 func TestInvoicesFollowEveryPage(t *testing.T) {

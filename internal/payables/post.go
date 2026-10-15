@@ -104,7 +104,7 @@ func requireCleanMatch(ctx context.Context, tx pgx.Tx, v Invoice) error {
 		return fmt.Errorf("payables: read the approval and latest match of invoice %s: %w", v.ID, err)
 	}
 	switch {
-	case v.WorkflowRequestID != nil && approved != nil && *approved == v.Version:
+	case approvedAsIs(v, approved):
 		return nil
 	case clean && matched != nil && *matched == v.Version:
 		return nil
@@ -118,6 +118,13 @@ func requireCleanMatch(ctx context.Context, tx pgx.Tx, v Invoice) error {
 		return problem.Conflict("payables.match_required",
 			"The invoice changed after its last clean match; match it again before it is posted.")
 	}
+}
+
+// approvedAsIs says whether the invoice has an approved exception request
+// linked that was approved at its current version (approved is its
+// exception_version): the approval covers the invoice as it stands (F16).
+func approvedAsIs(v Invoice, approved *int32) bool {
+	return v.WorkflowRequestID != nil && approved != nil && *approved == v.Version
 }
 
 // invoicePostingDate is the requested posting date, else the invoice's,
