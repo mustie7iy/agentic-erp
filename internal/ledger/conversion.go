@@ -106,8 +106,7 @@ func (r Rates) ToCompany(ctx context.Context, legalEntity uuid.UUID, from string
 		return 0, 0, fmt.Errorf("ledger: convert into the currency of legal entity %s: %w", legalEntity, err)
 	}
 	if !ok {
-		return 0, 0, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-			problem.FieldError{Field: "legal_entity_id", Code: "not_found", Message: "no legal entity with this id"})
+		return 0, 0, problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id")
 	}
 	c, err := r.Conversion(ctx, from, le.LocalCurrency, date)
 	if err != nil {

@@ -354,21 +354,16 @@ func (e *Endpoints) invoiceParties(ctx context.Context, in Input) (tenancy.Entit
 	if err != nil {
 		return tenancy.Entity{}, partner.Supplier{}, err
 	}
-	le, ok, err := e.LegalEntities.Entity(ctx, in.LegalEntityID)
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, in.LegalEntityID, "legal_entity_id")
 	if err != nil {
 		return tenancy.Entity{}, partner.Supplier{}, err
-	}
-	if !ok || !access.Allows(le.ID) {
-		return tenancy.Entity{}, partner.Supplier{}, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-			problem.FieldError{Field: "legal_entity_id", Code: "not_found", Message: "no legal entity with this id that you can access"})
 	}
 	sup, ok, err := e.Suppliers.Supplier(ctx, in.SupplierID, le.ID)
 	if err != nil {
 		return tenancy.Entity{}, partner.Supplier{}, err
 	}
 	if !ok {
-		return tenancy.Entity{}, partner.Supplier{}, problem.Unprocessable("request.reference_not_found", "No business partner with this id.",
-			problem.FieldError{Field: "supplier_id", Code: "not_found", Message: "no business partner with this id"})
+		return tenancy.Entity{}, partner.Supplier{}, problem.ReferenceNotFound("supplier_id", "business partner", "no business partner with this id")
 	}
 	if why := sup.Usable(); why != "" {
 		return tenancy.Entity{}, partner.Supplier{}, invalid("payables.supplier_not_usable", "supplier_id", "The supplier cannot be invoiced: "+why+".")

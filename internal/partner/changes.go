@@ -22,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 var (
@@ -185,13 +186,8 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, 
 			return invalid("partner.duplicate_company", f+".legal_entity_id", "one entry per legal entity")
 		}
 		seen[s.LegalEntityID] = true
-		_, ok, err := ports.LegalEntities.Entity(ctx, s.LegalEntityID)
-		if err != nil {
+		if _, err := tenancy.Accessible(ctx, ports.LegalEntities, access, s.LegalEntityID, f+".legal_entity_id"); err != nil {
 			return err
-		}
-		if !ok || !access.Allows(s.LegalEntityID) {
-			return problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-				problem.FieldError{Field: f + ".legal_entity_id", Code: "not_found", Message: "no legal entity with this id that you can access"})
 		}
 		recon, err := ports.Accounts.IsReconciliationAccount(ctx, s.LegalEntityID, s.ReconciliationAccountID, "supplier")
 		if err != nil {
@@ -627,11 +623,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	}
 	bp, err := getPartner(ctx, tx, partnerID, false)
 	if err != nil {
-		if problem.From(err).Status == 404 {
-			return Change{}, problem.Unprocessable("request.reference_not_found", "No business partner with this id.",
-				problem.FieldError{Field: "partner_id", Code: "not_found", Message: "no business partner with this id"})
-		}
-		return Change{}, err
+		return Change{}, problem.Reference(err, "partner_id", "business partner", "no business partner with this id")
 	}
 	if ch.Name == nil && ch.LegalName == nil && ch.Language == nil && ch.Roles == nil && len(ch.SupplierCompanies) == 0 &&
 		len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 {

@@ -119,12 +119,8 @@ func (e *Endpoints) CreateRun(ctx context.Context, in NewRun) (Run, error) {
 		return Run{}, invalid("integration.unknown_mode", "mode", "documents or balances")
 	}
 	c, err := getConnector(ctx, tx, in.ConnectorID, false)
-	if problem.From(err).Status == 404 {
-		return Run{}, problem.Unprocessable("request.reference_not_found", "No connector with this id.",
-			problem.FieldError{Field: "connector_id", Code: "not_found", Message: "no connector with this id"})
-	}
 	if err != nil {
-		return Run{}, err
+		return Run{}, problem.Reference(err, "connector_id", "connector", "no connector with this id")
 	}
 	if c.Kind != SAPFile && c.Kind != SAPOData {
 		return Run{}, invalid("integration.not_a_source", "connector_id", "Migration runs read from an sap_file or sap_odata connector.")
@@ -151,14 +147,10 @@ func (e *Endpoints) entities(ctx context.Context, s Scope) (map[string]tenancy.E
 	}
 	out := map[string]tenancy.Entity{}
 	for i, id := range s.LegalEntityIDs {
-		le, ok, err := e.LegalEntities.Entity(ctx, id)
+		field := fmt.Sprintf("scope.legal_entity_ids[%d]", i)
+		le, err := tenancy.Accessible(ctx, e.LegalEntities, access, id, field)
 		if err != nil {
 			return nil, err
-		}
-		field := fmt.Sprintf("scope.legal_entity_ids[%d]", i)
-		if !ok || !access.Allows(id) {
-			return nil, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-				problem.FieldError{Field: field, Code: "not_found", Message: "no legal entity with this id that you can access"})
 		}
 		if le.Status != "active" {
 			return nil, invalid("integration.legal_entity_not_active", field, "The legal entity is "+le.Status+".")

@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -328,6 +329,28 @@ type Entity struct {
 // access is not applied: callers apply it where it matters.
 func (Directory) Entity(ctx context.Context, id uuid.UUID) (Entity, bool, error) {
 	return entity(ctx, `id = $1`, id)
+}
+
+// EntityReader is the part of a context's legal-entity port that
+// Accessible reads through; Directory implements it.
+type EntityReader interface {
+	Entity(ctx context.Context, id uuid.UUID) (Entity, bool, error)
+}
+
+// Accessible returns the legal entity with the id that a request refers to
+// in field, when it exists and access allows it. Otherwise it refuses with
+// 422 request.reference_not_found: a legal entity the caller may not act in
+// is answered as missing, as every tenancy read does, so its existence does
+// not leak. Whether it must also be active is each caller's own rule.
+func Accessible(ctx context.Context, r EntityReader, access authz.Access, id uuid.UUID, field string) (Entity, error) {
+	le, ok, err := r.Entity(ctx, id)
+	if err != nil {
+		return Entity{}, err
+	}
+	if !ok || !access.Allows(id) {
+		return Entity{}, problem.ReferenceNotFound(field, "legal entity", "no legal entity with this id that you can access")
+	}
+	return le, nil
 }
 
 // EntityByCode returns the legal entity with the company code, or ok = false.

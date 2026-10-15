@@ -100,9 +100,9 @@ func GetOrder(ctx context.Context, id uuid.UUID) (PurchaseOrder, error) {
 // usableContract requires a contract an order of the legal entity,
 // supplier and currency can use on the order date.
 func usableContract(ctx context.Context, tx pgx.Tx, id uuid.UUID, le, supplier uuid.UUID, currency string, on time.Time) (Contract, error) {
-	c, err := getContract(ctx, tx, id, false)
+	c, err := referencedContract(ctx, tx, id)
 	if err != nil {
-		return Contract{}, reference(err, "procurement.invalid_contract", "contract_id", "no contract with this id that you can access")
+		return Contract{}, err
 	}
 	switch {
 	case c.Status != Active:
@@ -362,7 +362,7 @@ func orderedRequisition(ctx context.Context, tx pgx.Tx, in *NewOrder, le uuid.UU
 	}
 	req, err := getRequisition(ctx, tx, *in.RequisitionID, true)
 	if err != nil {
-		return Requisition{}, reference(err, "request.reference_not_found", "requisition_id", "no requisition with this id that you can access")
+		return Requisition{}, problem.Reference(err, "requisition_id", "requisition", "no requisition with this id that you can access")
 	}
 	switch {
 	case req.Status != Approved:

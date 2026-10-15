@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Exclusion reasons.
@@ -41,11 +42,6 @@ type Proposal struct {
 	DueBy         time.Time
 }
 
-func referenceNotFound(field, what string) error {
-	return problem.Unprocessable("request.reference_not_found", "No "+what+" with this id.",
-		problem.FieldError{Field: field, Code: "not_found", Message: "no " + what + " with this id that you can access"})
-}
-
 // ProposeRun creates a run in status proposing, numbered from the
 // payment_run range of the run date's fiscal year, and queues its
 // payments.propose operation, whose resource is the run from the start.
@@ -59,13 +55,11 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	le, ok, err := e.LegalEntities.Entity(ctx, in.LegalEntityID)
-	switch {
-	case err != nil:
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, in.LegalEntityID, "legal_entity_id")
+	if err != nil {
 		return operations.Operation{}, err
-	case !ok || !access.Allows(le.ID):
-		return operations.Operation{}, referenceNotFound("legal_entity_id", "legal entity")
-	case le.Status != "active":
+	}
+	if le.Status != "active" {
 		return operations.Operation{}, problem.Unprocessable("payments.legal_entity_not_active", "The legal entity is "+le.Status+"; payment runs need it active.")
 	}
 	hb, ok, err := loadHouseBank(ctx, tx, in.HouseBankID)
@@ -73,7 +67,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 	case err != nil:
 		return operations.Operation{}, err
 	case !ok || hb.LegalEntityID != le.ID:
-		return operations.Operation{}, referenceNotFound("house_bank_id", "house bank of the legal entity")
+		return operations.Operation{}, problem.ReferenceNotFound("house_bank_id", "house bank of the legal entity", "no house bank of the legal entity with this id that you can access")
 	case hb.Status != "active":
 		return operations.Operation{}, problem.Unprocessable("payments.house_bank_inactive", "House bank "+hb.Code+" is inactive.",
 			problem.FieldError{Field: "house_bank_id", Code: "inactive", Message: "an active house bank"})

@@ -117,10 +117,17 @@ func Unprocessable(code, detail string, errs ...FieldError) *Problem {
 // error's message; any other error passes through unchanged.
 func Reference(err error, field, what, message string) error {
 	if From(err).Status == http.StatusNotFound {
-		return Unprocessable("request.reference_not_found", "No "+what+" with this id.",
-			FieldError{Field: field, Code: "not_found", Message: message})
+		return ReferenceNotFound(field, what, message)
 	}
 	return err
+}
+
+// ReferenceNotFound is Reference's 422 request.reference_not_found for a
+// caller that learnt the resource is missing from a lookup's ok = false
+// rather than from a 404.
+func ReferenceNotFound(field, what, message string) *Problem {
+	return Unprocessable("request.reference_not_found", "No "+what+" with this id.",
+		FieldError{Field: field, Code: "not_found", Message: message})
 }
 
 func Unavailable(detail string, retryAfter int) *Problem {

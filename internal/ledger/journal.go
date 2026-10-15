@@ -295,14 +295,11 @@ func (e *Endpoints) legalEntity(ctx context.Context, id uuid.UUID, field string)
 	if err != nil {
 		return tenancy.Entity{}, err
 	}
-	le, ok, err := e.LegalEntities.Entity(ctx, id)
-	switch {
-	case err != nil:
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, id, field)
+	if err != nil {
 		return tenancy.Entity{}, err
-	case !ok || !access.Allows(id):
-		return tenancy.Entity{}, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-			problem.FieldError{Field: field, Code: "not_found", Message: "no legal entity with this id that you can access"})
-	case le.Status != "active":
+	}
+	if le.Status != "active" {
 		return tenancy.Entity{}, problem.Unprocessable("ledger.legal_entity_not_active", "The legal entity is "+le.Status+"; postings need it active.",
 			problem.FieldError{Field: field, Code: "not_active", Message: "an active legal entity"})
 	}

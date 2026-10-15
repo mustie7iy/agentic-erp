@@ -3,6 +3,7 @@ package procurement
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,13 +56,16 @@ func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
 
-// reference turns "not found" for a referenced document into 422 on the
-// referencing field; other errors pass.
-func reference(err error, code, field, message string) error {
-	if problem.From(err).Status == 404 {
-		return invalid(code, field, message)
+// referencedContract reads the contract a requisition or order names. An
+// unknown one is procurement.invalid_contract on contract_id, the code of
+// every other reason the contract cannot be used, rather than the generic
+// problem.Reference; other errors pass.
+func referencedContract(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Contract, error) {
+	c, err := getContract(ctx, tx, id, false)
+	if err != nil && problem.From(err).Status == http.StatusNotFound {
+		return Contract{}, invalid("procurement.invalid_contract", "contract_id", "no contract with this id that you can access")
 	}
-	return err
+	return c, err
 }
 
 // statusConflict refuses a transition from the current status.
@@ -160,14 +164,11 @@ func (e *Endpoints) legalEntity(ctx context.Context, id uuid.UUID) (tenancy.Enti
 	if err != nil {
 		return tenancy.Entity{}, err
 	}
-	le, ok, err := e.LegalEntities.Entity(ctx, id)
-	switch {
-	case err != nil:
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, id, "legal_entity_id")
+	if err != nil {
 		return tenancy.Entity{}, err
-	case !ok || !access.Allows(id):
-		return tenancy.Entity{}, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-			problem.FieldError{Field: "legal_entity_id", Code: "not_found", Message: "no legal entity with this id that you can access"})
-	case le.Status != "active":
+	}
+	if le.Status != "active" {
 		return tenancy.Entity{}, invalid("procurement.legal_entity_not_active", "legal_entity_id", "the legal entity is "+le.Status)
 	}
 	return le, nil

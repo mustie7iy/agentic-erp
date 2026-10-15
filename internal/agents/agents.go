@@ -274,8 +274,7 @@ func Recommend(ctx context.Context, in NewRecommendation) (Recommendation, error
 		return Recommendation{}, err
 	}
 	if _, err := ownRunning(ctx, tx, p, in.SessionID, func() error {
-		return problem.Unprocessable("request.reference_not_found", "No agent session with this id.",
-			problem.FieldError{Field: "session_id", Code: "not_found", Message: "a running session of yours"})
+		return problem.ReferenceNotFound("session_id", "agent session", "a running session of yours")
 	}); err != nil {
 		return Recommendation{}, err
 	}

@@ -78,6 +78,22 @@ func TestReference(t *testing.T) {
 	}
 }
 
+// TestReferenceNotFound: the refusal for a lookup that reports "not found"
+// with a bool is the one Reference makes from a 404.
+func TestReferenceNotFound(t *testing.T) {
+	got := ReferenceNotFound("role_id", "role", "no role with this id")
+	var want *Problem
+	if !errors.As(Reference(NotFound("x"), "role_id", "role", "no role with this id"), &want) {
+		t.Fatal("Reference: got no problem, want one")
+	}
+	if got.Status != want.Status || got.Code != want.Code || got.Detail != want.Detail {
+		t.Errorf("got %d %s %q, want %d %s %q", got.Status, got.Code, got.Detail, want.Status, want.Code, want.Detail)
+	}
+	if len(got.Errors) != 1 || got.Errors[0] != want.Errors[0] {
+		t.Errorf("field errors: got %+v, want %+v", got.Errors, want.Errors)
+	}
+}
+
 func TestErrorAndCause(t *testing.T) {
 	cause := errors.New("disk on fire")
 	p := Internal(cause)

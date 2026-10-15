@@ -187,9 +187,9 @@ func checkRequisitionContract(ctx context.Context, tx pgx.Tx, contract *uuid.UUI
 	if contract == nil {
 		return supplier, nil
 	}
-	c, err := getContract(ctx, tx, *contract, false)
+	c, err := referencedContract(ctx, tx, *contract)
 	if err != nil {
-		return nil, reference(err, "procurement.invalid_contract", "contract_id", "no contract with this id that you can access")
+		return nil, err
 	}
 	switch {
 	case c.Status != Active:
