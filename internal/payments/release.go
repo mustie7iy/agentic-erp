@@ -589,6 +589,8 @@ func sameTransfer(a, b transfer) bool {
 // from the house bank, in end-to-end id order, each telling the supplier
 // the references of the items it settles.
 func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, hb houseBank, pays []Payment, created time.Time) ([]byte, error) {
+	// errNoEntity stays an error: the release activity leaves it to its
+	// retries (nothing is written), and the download answers 500.
 	le, err := e.entityOf(ctx, r)
 	if err != nil {
 		return nil, err

@@ -187,9 +187,12 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 	if err := lockProposals(ctx, tx, r.LegalEntityID); err != nil {
 		return Run{}, err
 	}
+	// errNoEntity becomes a problem, which fails this run (Process): left an
+	// error, the job would be retried first in its tenant's queue forever,
+	// holding back every later proposal.
 	le, err := e.entityOf(ctx, r)
 	if errors.Is(err, errNoEntity) {
-		return Run{}, noEntity(r) // fails the run (Process) rather than holding back the tenant's queue
+		return Run{}, noEntity(r)
 	}
 	if err != nil {
 		return Run{}, err

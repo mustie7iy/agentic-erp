@@ -317,20 +317,15 @@ func loadHouseBank(ctx context.Context, tx pgx.Tx, id uuid.UUID) (houseBank, boo
 // context does not find.
 var errNoEntity = errors.New("no legal entity")
 
-// entityOf reads the legal entity of run r. payment_run.legal_entity_id has
-// no foreign key into tenancy, and legal entities are never deleted, so a
-// missing one is broken data: it is refused rather than read as an entity
-// with an empty code, which would begin the run's end-to-end ids, bank file
-// message id and file name with "-". The refusal is an error (errNoEntity):
-// the release activity leaves it to its retries (the release is approved
-// and nothing is written), and the bank file's download and :transmit
-// answer 500. The proposal answers noEntity instead: a proposal job left to
-// retry would stay first in its tenant's queue and hold back every later
-// proposal.
+// entityOf reads the legal entity of run r. A missing one is broken data
+// (payment_run.legal_entity_id has no foreign key into tenancy, and legal
+// entities are never deleted), so it is errNoEntity, never an entity with
+// an empty code that would begin the run's ids and file names with "-".
+// Each caller says what errNoEntity means to it.
 func (e *Endpoints) entityOf(ctx context.Context, r Run) (tenancy.Entity, error) {
 	le, found, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
 	if err != nil {
-		return tenancy.Entity{}, err
+		return tenancy.Entity{}, fmt.Errorf("payments: legal entity %s of run %s: %w", r.LegalEntityID, r.ID, err)
 	}
 	if !found {
 		return tenancy.Entity{}, fmt.Errorf("payments: run %s: %w %s", r.ID, errNoEntity, r.LegalEntityID)
