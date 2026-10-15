@@ -2,12 +2,14 @@ package configuration
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -55,7 +57,7 @@ func (e *Endpoints) ListRegressionSuites(ctx context.Context, params gen.ListReg
 		return nil, err
 	}
 	version := params.ConfigVersion.Value
-	ks, err := e.Pages.Keyset(suiteSort, "listRegressionSuites|"+etag.Format(version), pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(suiteSort, "listRegressionSuites|"+etag.Format(version), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -63,15 +65,8 @@ func (e *Endpoints) ListRegressionSuites(ctx context.Context, params gen.ListReg
 	rows, _ := tx.Query(ctx, q, args...)
 	suites, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (RegressionSuite, error) { return scanSuite(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: list regression suites: %w", err)
 	}
-	suites, next := pagination.Page(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return s.CapturedAt.UTC().Format(time.RFC3339Nano), s.ID })
-	page := gen.RegressionSuitePage{Items: make([]gen.RegressionSuite, 0, len(suites))}
-	for _, s := range suites {
-		page.Items = append(page.Items, suiteToAPI(s))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.RegressionSuitePageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return s.CapturedAt.UTC().Format(time.RFC3339Nano), s.ID }, suiteToAPI)
+	return &gen.RegressionSuitePageHeaders{Response: gen.RegressionSuitePage{Items: items, NextPageToken: next}}, nil
 }

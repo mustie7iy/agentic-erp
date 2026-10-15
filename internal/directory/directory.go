@@ -17,8 +17,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Statuses of a directory entry. The cell's statuses pass through; ReadOnly
@@ -125,7 +128,10 @@ func Open(ctx context.Context, url string) (*Postgres, error) {
 		// CREATE SCHEMA IF NOT EXISTS otherwise race into a unique violation
 		// on pg_namespace.
 		_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('directory.schema'));`+Schema)
-		return err
+		if err != nil {
+			return fmt.Errorf("lock and create: %w", err)
+		}
+		return nil
 	}); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("directory: schema: %w", err)
@@ -167,7 +173,10 @@ func (p *Postgres) Upsert(ctx context.Context, e Entry) error {
 			WHERE (directory.tenant.region, directory.tenant.cell, directory.tenant.api_url) IS DISTINCT FROM (EXCLUDED.region, EXCLUDED.cell, EXCLUDED.api_url)
 			   OR (directory.tenant.status <> 'read_only' AND directory.tenant.status <> EXCLUDED.status)`,
 			e.TenantID, e.Region, e.Cell, e.APIURL, e.Status)
-		return err
+		if err != nil {
+			return fmt.Errorf("write tenant %s: %w", e.TenantID, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("directory: upsert: %w", err)
@@ -185,7 +194,7 @@ func (p *Postgres) update(ctx context.Context, tenant uuid.UUID, version int32, 
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrUnknown
 			}
-			return err
+			return fmt.Errorf("read version of tenant %s: %w", tenant, err)
 		}
 		if version != 0 && version != current {
 			return fmt.Errorf("%w: current version %d", ErrVersion, current)
@@ -225,7 +234,7 @@ func (p *Postgres) Move(ctx context.Context, tenant uuid.UUID, version int32, ce
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrUnknown
 			}
-			return err
+			return fmt.Errorf("read version of tenant %s: %w", tenant, err)
 		}
 		if version != 0 && version != current {
 			return fmt.Errorf("%w: current version %d", ErrVersion, current)
@@ -235,7 +244,7 @@ func (p *Postgres) Move(ctx context.Context, tenant uuid.UUID, version int32, ce
 		case errors.Is(err, pgx.ErrNoRows):
 			return ErrUnknownCell
 		case err != nil:
-			return err
+			return fmt.Errorf("read cell %s: %w", cell, err)
 		case cellRegion != region:
 			return fmt.Errorf("%w: %s is in %s, the tenant in %s", ErrRegion, cell, cellRegion, region)
 		}
@@ -276,7 +285,10 @@ func (p *Postgres) ListTenants(ctx context.Context, f Filter, ks *pagination.Key
 			var e Entry
 			return e, r.Scan(e.fields()...)
 		})
-		return err
+		if err != nil {
+			return fmt.Errorf("read tenants: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("directory: list: %w", err)
@@ -296,7 +308,10 @@ func (p *Postgres) UpsertCell(ctx context.Context, c Cell) error {
 		_, err := tx.Exec(ctx, `INSERT INTO directory.cell (name, region, api_url, control_url, accepting) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (name) DO UPDATE SET region = EXCLUDED.region, api_url = EXCLUDED.api_url, control_url = EXCLUDED.control_url, accepting = EXCLUDED.accepting, updated_at = now()`,
 			c.Name, c.Region, c.APIURL, c.ControlURL, c.Accepting)
-		return err
+		if err != nil {
+			return fmt.Errorf("write cell %s: %w", c.Name, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("directory: upsert cell: %w", err)
@@ -313,7 +328,10 @@ func (p *Postgres) ListCells(ctx context.Context, region string) ([]Cell, error)
 			FROM directory.cell c WHERE $1 = '' OR c.region = $1 ORDER BY 6, c.name`, region)
 		var err error
 		cells, err = pgx.CollectRows(rows, pgx.RowToStructByPos[Cell])
-		return err
+		if err != nil {
+			return fmt.Errorf("read cells: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("directory: list cells: %w", err)
@@ -333,7 +351,7 @@ func (p *Postgres) Place(ctx context.Context, key, region, cell string) (Cell, e
 		case err == nil:
 			cell = name
 		case !errors.Is(err, pgx.ErrNoRows):
-			return err
+			return fmt.Errorf("read placement of key %s: %w", key, err)
 		}
 		err := tx.QueryRow(ctx, `SELECT c.name, c.region, c.api_url, c.control_url, c.accepting, (SELECT count(*) FROM directory.tenant t WHERE t.cell = c.name), c.updated_at
 			FROM directory.cell c WHERE ($1 = '' OR c.region = $1) AND ($2 = '' OR c.name = $2) AND (c.accepting OR $2 <> '' AND $3)
@@ -342,10 +360,13 @@ func (p *Postgres) Place(ctx context.Context, key, region, cell string) (Cell, e
 			return ErrUnknownCell
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("choose cell: %w", err)
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO directory.placement (idempotency_key, cell) VALUES ($1, $2) ON CONFLICT (idempotency_key) DO NOTHING`, key, chosen.Name)
-		return err
+		if err != nil {
+			return fmt.Errorf("record placement of key %s in cell %s: %w", key, chosen.Name, err)
+		}
+		return nil
 	})
 	if errors.Is(err, ErrUnknownCell) {
 		return Cell{}, err
@@ -374,10 +395,7 @@ type cached struct {
 }
 
 func (c *Cache) now() time.Time {
-	if c.Now != nil {
-		return c.Now()
-	}
-	return time.Now()
+	return clock.Now(c.Now)
 }
 
 // Lookup implements Store from the cache, else from the store.
@@ -435,14 +453,11 @@ type Sync struct {
 	Interval   time.Duration // between rounds; default 1 minute
 	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (s *Sync) begin(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
-	if s.Begin != nil {
-		return s.Begin(ctx, scope)
-	}
-	return s.Pool.Begin(ctx, scope)
+	return database.BeginOr(ctx, s.Pool, s.Begin, scope)
 }
 
 // Register records one tenant of the cell right after a change (a
@@ -472,14 +487,9 @@ func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT id, region, status FROM tenancy.tenant ORDER BY id`)
-	type tenant struct {
-		ID             uuid.UUID
-		Region, Status string
-	}
-	tenants, err := pgx.CollectRows(rows, pgx.RowToStructByPos[tenant])
+	tenants, err := tenancy.AllTenants(ctx, tx)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("directory: read tenants of cell %s: %w", s.Cell, err)
 	}
 	for _, t := range tenants {
 		status := t.Status
@@ -495,18 +505,8 @@ func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 
 // Run rounds until ctx ends, logging failures.
 func (s *Sync) Run(ctx context.Context) {
-	interval := s.Interval
-	if interval <= 0 {
-		interval = time.Minute
-	}
-	for {
-		if _, err := s.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			s.Log.ErrorContext(ctx, "directory sync failed", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+	worker.Loop(ctx, s.Interval, time.Minute, func(ctx context.Context) (bool, error) {
+		_, err := s.RunOnce(ctx)
+		return false, err
+	}, s.Log, "directory sync failed")
 }

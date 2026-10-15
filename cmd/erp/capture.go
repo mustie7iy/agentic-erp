@@ -36,7 +36,7 @@ func captureCmd(ctx context.Context, args []string) error {
 	file := fs.String("file", "", "the document: PDF, PNG, JPEG or e-invoice XML")
 	ct := fs.String("content-type", "", "content type of the document (default: by extension)")
 	force := fs.Bool("upload", false, "upload first even for a small document")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *le == "" || *file == "" {
@@ -47,7 +47,7 @@ func captureCmd(ctx context.Context, args []string) error {
 	}
 	doc, err := os.ReadFile(*file)
 	if err != nil {
-		return err
+		return fmt.Errorf("capture: read document: %w", err)
 	}
 	if *ct == "" {
 		*ct = contentTypeOf(*file)
@@ -71,8 +71,7 @@ func captureCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(op)
-	return nil
+	return printJSON(op)
 }
 
 // contentTypeOf is the content type a document's extension implies.
@@ -116,10 +115,12 @@ func upload(ctx context.Context, c *apitools.Client, doc []byte, contentType str
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("capture: upload %s: %w", up.ID, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	if resp.StatusCode >= 300 {
+		// The refusal's status is the error; its body only explains it, so
+		// a body cut off still reports the status with what arrived.
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return "", fmt.Errorf("uploading the document: %d %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
@@ -130,25 +131,30 @@ func upload(ctx context.Context, c *apitools.Client, doc []byte, contentType str
 // capture posts the multipart capture request and returns the Operation.
 func capture(ctx context.Context, c *apitools.Client, fields map[string]string, document []byte) (map[string]any, error) {
 	var body bytes.Buffer
+	// The multipart writer writes to a bytes.Buffer, whose writes never
+	// fail, so none of these calls can return an error.
 	w := multipart.NewWriter(&body)
 	for k, v := range fields {
-		w.WriteField(k, v) // writes to a buffer never fail
+		_ = w.WriteField(k, v)
 	}
 	if document != nil {
 		part, _ := w.CreateFormFile("document", "document")
-		part.Write(document)
+		_, _ = part.Write(document)
 	}
-	w.Close()
+	_ = w.Close()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/v1/supplier-invoices:capture", &body) // a fixed method and URL always parse
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("Idempotency-Key", uuid.NewString())
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("capture: send: %w", err)
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil { // an answer cut off is not one that is not JSON
+		return nil, fmt.Errorf("capture: read the answer (%d): %w", resp.StatusCode, err)
+	}
 	var m map[string]any
 	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {
 		return nil, fmt.Errorf("the API answered %d with a body that is not JSON", resp.StatusCode)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -110,22 +111,35 @@ func TestRelayPublishesInOrderOnce(t *testing.T) {
 	for _, m := range msgs {
 		if m.Header["ce-type"] == "com.example.erp.platform.operation_completed.v1" {
 			var p map[string]float64
-			json.Unmarshal(m.Data, &p)
-			order = append(order, p["i"])
-			if m.Subject != "erp.eu1.platform."+ten.ID.String()+".operation_completed" || m.Header["ce-source"] != "/erp/eu1/platform" ||
-				m.Header["ce-subject"] != agg.String() || m.Header["ce-actorid"] != ten.Human.ID.String() ||
-				m.Header["ce-traceid"] != "4bf92f3577b34da6a3ce929d0e0e4736" || m.Header["ce-id"] != m.ID.String() {
-				t.Fatalf("%+v", m)
+			if err := json.Unmarshal(m.Data, &p); err != nil {
+				t.Fatalf("payload %s: %v", m.Data, err)
 			}
-		} else if m.Subject != "erp.eu1.configuration."+ten.ID.String()+".configuration_activated" {
-			t.Fatal(m.Subject)
+			order = append(order, p["i"])
+			if want := "erp.eu1.platform." + ten.ID.String() + ".operation_completed"; m.Subject != want {
+				t.Errorf("message %s subject: got %q, want %q", m.ID, m.Subject, want)
+			}
+			for _, h := range []struct{ key, want string }{
+				{"ce-source", "/erp/eu1/platform"},
+				{"ce-subject", agg.String()},
+				{"ce-actorid", ten.Human.ID.String()},
+				{"ce-traceid", "4bf92f3577b34da6a3ce929d0e0e4736"},
+				{"ce-id", m.ID.String()},
+			} {
+				if got := m.Header[h.key]; got != h.want {
+					t.Errorf("message %s header %s: got %q, want %q", m.ID, h.key, got, h.want)
+				}
+			}
+		} else if want := "erp.eu1.configuration." + ten.ID.String() + ".configuration_activated"; m.Subject != want {
+			t.Errorf("message %s subject: got %q, want %q", m.ID, m.Subject, want)
 		}
 	}
-	if len(order) != 3 || order[0] != 0 || order[1] != 1 || order[2] != 2 {
-		t.Fatalf("order %v", order)
+	if want := []float64{0, 1, 2}; !slices.Equal(order, want) {
+		t.Errorf("publication order: got %v, want %v", order, want)
 	}
 	var unpublished int
-	pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&unpublished)
+	if err := pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&unpublished); err != nil {
+		t.Fatal(err)
+	}
 	if unpublished != 0 {
 		t.Fatal("rows left unpublished")
 	}
@@ -140,12 +154,13 @@ func TestRelayRetriesAfterPublishFailure(t *testing.T) {
 	})
 	rec := &recorder{fail: errors.New("bus down")}
 	relay := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}
-	if _, err := relay.RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "bus down") {
-		t.Fatal(err)
-	}
+	_, err := relay.RunOnce(context.Background())
+	pgtest.WantErr(t, err, "bus down")
 	rec.fail = nil
 	for i := 0; i < 3 && len(rec.forTenant(ten.ID)) == 0; i++ {
-		relay.RunOnce(context.Background())
+		if _, err := relay.RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(rec.forTenant(ten.ID)) != 1 {
 		t.Fatal("event lost after a failed publish")
@@ -169,47 +184,27 @@ func TestRelayToJetStream(t *testing.T) {
 		_, err := outbox.Add(ctx, outbox.Event{Context: "platform", Name: "operation_completed", AggregateID: uuid.New(), Payload: 1})
 		return err
 	})
-	var buf safeBuffer
+	var buf pgtest.SyncBuffer
 	relay := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: bus, Cell: "eu1", Interval: 10 * time.Millisecond,
 		Log: slog.New(slog.NewTextHandler(&buf, nil))}
 	done := make(chan struct{})
 	go func() { relay.Run(ctx); close(done) }()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
+	defer func() { cancel(); <-done }() // stops the relay should the wait fail; deferred so it runs before the bus closes
+	admin := pgtest.Admin(t)            // one connection for every check: Admin opens a new one per call
+	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var n int
-		pgtest.Admin(t).QueryRow(context.Background(), "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&n)
-		if n == 0 {
-			break
+		if err := admin.QueryRow(context.Background(), "SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL", ten.ID).Scan(&n); err != nil {
+			t.Fatal(err)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("relay did not publish")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		return n == 0
+	}, "relay did not publish: %s", &buf)
 	cancel()
 	<-done
 }
 
-type safeBuffer struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (s *safeBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *safeBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
-}
-
 func TestRelayLogsErrorsAndKeepsRunning(t *testing.T) {
 	pool := pgtest.Pool(t)
-	var buf safeBuffer
+	var buf pgtest.SyncBuffer
 	relay := &outbox.Relay{Pool: pool, Role: "no_such_role", Publisher: &recorder{}, Cell: "eu1", Interval: 5 * time.Millisecond,
 		Log: slog.New(slog.NewTextHandler(&buf, nil))}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -298,15 +293,21 @@ func TestRelayWaitsForTheContextLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('erp.outbox.platform'))")
+	if _, err := other.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('erp.outbox.platform'))"); err != nil {
+		t.Fatal(err)
+	}
 	rec := &recorder{}
 	relay := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}
-	relay.RunOnce(ctx)
+	if _, err := relay.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if len(rec.forTenant(ten.ID)) != 0 {
 		t.Fatal("published while another relay held the context")
 	}
 	other.Rollback(ctx)
-	relay.RunOnce(ctx)
+	if _, err := relay.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if len(rec.forTenant(ten.ID)) != 1 {
 		t.Fatal("not published after the lock was released")
 	}
@@ -329,13 +330,67 @@ func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 	if _, err := ro.RunOnce(context.Background()); err == nil {
 		t.Fatal("marking failure not reported")
 	}
-	(&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}).RunOnce(context.Background())
+	if _, err := (&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	msgs := rec.forTenant(ten.ID)
-	if len(msgs) != 2 || msgs[0].ID != msgs[1].ID {
-		t.Fatalf("want the same event published twice, got %d", len(msgs))
+	if len(msgs) != 2 {
+		t.Fatalf("published: got %d, want the same event twice", len(msgs))
+	}
+	if msgs[0].ID != msgs[1].ID {
+		t.Errorf("republished event id: got %s, want %s", msgs[1].ID, msgs[0].ID)
 	}
 	// A role that cannot read the outbox fails the round.
 	if _, err := (&outbox.Relay{Pool: pool, Role: "pg_monitor", Publisher: rec, Cell: "eu1"}).RunOnce(context.Background()); err == nil {
 		t.Fatal("unreadable outbox not reported")
+	}
+}
+
+// TestRelayPublishesAnUnversionedType: an event type without the version
+// suffix, which the outbox's CHECK refuses and only a bypassed constraint
+// could store, is published under the name it has instead of stopping the
+// relay (a panic) or the context's queue behind it (ADR-0007).
+func TestRelayPublishesAnUnversionedType(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	ctx := context.Background()
+	admin := pgtest.Admin(t)
+	var check, def string
+	if err := admin.QueryRow(ctx, `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+		WHERE conrelid = 'platform.outbox'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%event_type%'`).Scan(&check, &def); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `ALTER TABLE platform.outbox DROP CONSTRAINT `+pgx.Identifier{check}.Sanitize())
+	id := uuid.New()
+	t.Cleanup(func() {
+		// The lock timeout ends a failed run instead of hanging on a
+		// transaction the failure left open.
+		pgtest.Exec(t, `DELETE FROM platform.outbox WHERE id = $1`, id)
+		pgtest.Exec(t, `SET lock_timeout = '10s'; ALTER TABLE platform.outbox ADD CONSTRAINT `+pgx.Identifier{check}.Sanitize()+` `+def)
+	})
+	if _, err := admin.Exec(ctx, `INSERT INTO platform.outbox (tenant_id, id, aggregate_type, aggregate_id, event_type, payload, actor_id)
+		VALUES ($1, $2, 'platform.operation', $3, 'com.example.erp.platform.operation_completed', '{}', $4)`, ten.ID, id, uuid.New(), ten.Human.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("the relay panicked: %v", r)
+			}
+		}()
+		if _, err := (&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}).RunOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	msgs := rec.forTenant(ten.ID)
+	if len(msgs) != 1 {
+		t.Fatalf("published: got %d messages, want 1", len(msgs))
+	}
+	if want := "erp.eu1.platform." + ten.ID.String() + ".operation_completed"; msgs[0].Subject != want {
+		t.Errorf("subject: got %q, want %q", msgs[0].Subject, want)
+	}
+	if got := msgs[0].Header["ce-type"]; got != "com.example.erp.platform.operation_completed" {
+		t.Errorf("ce-type: got %q, want the stored type", got)
 	}
 }

@@ -10,9 +10,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Proposer builds the proposals that payment-runs:propose queues (ADR-0012
@@ -31,14 +32,11 @@ type Proposer struct {
 	Now        func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests replace it to
 	// inject database failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (w *Proposer) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if w.Begin != nil {
-		return w.Begin(ctx, s)
-	}
-	return w.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, w.Pool, w.Begin, s)
 }
 
 // tenants returns the tenants with jobs.
@@ -51,7 +49,11 @@ func (w *Proposer) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT o.tenant_id FROM platform.operation o
 		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
 		WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing'`, ProposeKind)
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return tenants, fmt.Errorf("payments: list the tenants with proposal jobs: %w", err)
+	}
+	return tenants, nil
 }
 
 // one does the tenant's next job and reports whether there was one.
@@ -67,28 +69,22 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 	}
 	// A proposal over 100,000 items outlasts a request's statement timeout.
 	if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
-		return false, err
+		return false, fmt.Errorf("payments: set the proposal statement timeout: %w", err)
 	}
-	job, ok, err := Next(ctx, tx)
+	job, ok, err := w.Endpoints.NextJob(ctx, tx)
 	if err != nil || !ok {
 		return false, err
 	}
-	if err := database.SetActor(ctx, tx, job.ProposedBy); err != nil {
-		return false, err
-	}
 	p := reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: tenant}
-	ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), p))
-	if err := w.Endpoints.Process(ctx, job); err != nil {
+	if err := uow.Act(ctx, tx, p, w.Now, func(ctx context.Context) error {
+		return w.Endpoints.Process(ctx, job)
+	}); err != nil {
 		return false, err
 	}
-	now := time.Now
-	if w.Now != nil {
-		now = w.Now
+	if err := tx.Commit(ctx); err != nil {
+		return true, fmt.Errorf("payments: commit the proposal of run %s: %w", job.RunID, err)
 	}
-	if err := buf.Flush(ctx, tx, p, "", now()); err != nil {
-		return false, err
-	}
-	return true, tx.Commit(ctx)
+	return true, nil
 }
 
 // RunOnce does every job there is and returns how many it did. A tenant
@@ -119,18 +115,8 @@ func (w *Proposer) RunOnce(ctx context.Context) (int, error) {
 // Run does jobs until ctx ends; errors are logged and retried after the
 // interval.
 func (w *Proposer) Run(ctx context.Context) {
-	interval := w.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
-		if _, err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			w.Log.ErrorContext(ctx, "payment proposal failed", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+	worker.Loop(ctx, w.Interval, time.Second, func(ctx context.Context) (bool, error) {
+		_, err := w.RunOnce(ctx)
+		return false, err
+	}, w.Log, "payment proposal failed")
 }

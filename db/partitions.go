@@ -77,13 +77,13 @@ func create(ctx context.Context, tx pgx.Tx, created *[]string, schema, name, ddl
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2)`,
 		schema, name).Scan(&exists); err != nil {
-		return err
+		return fmt.Errorf("check partition %s.%s: %w", schema, name, err)
 	}
 	if exists {
 		return nil
 	}
 	if _, err := tx.Exec(ctx, ddl); err != nil {
-		return err
+		return fmt.Errorf("create partition %s.%s: %w", schema, name, err)
 	}
 	*created = append(*created, schema+"."+name)
 	return nil

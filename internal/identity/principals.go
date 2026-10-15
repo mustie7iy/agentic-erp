@@ -3,12 +3,16 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -30,7 +34,7 @@ type AgentProfile struct {
 	AutonomyLevel  int16
 	Model          string
 	Description    string
-	MonthlyBudget  *int64 // minor units of BudgetCurrency; nil: unlimited
+	MonthlyBudget  *money.Minor // in BudgetCurrency; nil: unlimited
 	BudgetCurrency *string
 }
 
@@ -71,13 +75,16 @@ func scanPrincipal(row pgx.Row) (Principal, error) {
 	err := row.Scan(&p.ID, &p.Kind, &p.ExternalSubject, &p.DisplayName, &p.Email, &p.AllCompanies, &p.Status, &p.Version,
 		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy,
 		&hasProfile, &ap.AutonomyLevel, &ap.Model, &ap.Description, &ap.MonthlyBudget, &ap.BudgetCurrency, &exponent)
+	if err != nil {
+		return p, errs.Wrapf(err, "scan principal")
+	}
 	if hasProfile {
 		p.Profile = &ap
 		if ap.MonthlyBudget != nil {
-			p.BudgetDecimal = &Budget{Amount: money.Minor(*ap.MonthlyBudget).Plain(int(exponent)), Currency: *ap.BudgetCurrency}
+			p.BudgetDecimal = &Budget{Amount: ap.MonthlyBudget.Plain(int(exponent)), Currency: *ap.BudgetCurrency}
 		}
 	}
-	return p, err
+	return p, nil
 }
 
 func getPrincipal(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Principal, error) {
@@ -87,9 +94,12 @@ func getPrincipal(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Prin
 	}
 	p, err := scanPrincipal(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p, notFound("principal")
+		return p, problem.NotFoundOf("principal")
 	}
-	return p, err
+	if err != nil {
+		return p, fmt.Errorf("identity: read principal %s: %w", id, err)
+	}
+	return p, nil
 }
 
 // ProfileInput is an agent profile as the API sends it.
@@ -100,29 +110,25 @@ type ProfileInput struct {
 	Budget        *Budget
 }
 
-// profile converts the input, parsing the budget with the currency's
-// minor-unit digits.
+// profile converts the input, parsing the budget as an API amount: exactly
+// the currency's minor-unit digits (ADR-0005).
 func profile(ctx context.Context, tx pgx.Tx, in ProfileInput) (AgentProfile, error) {
 	ap := AgentProfile{AutonomyLevel: in.AutonomyLevel, Model: in.Model, Description: in.Description}
 	if in.Budget == nil {
 		return ap, nil
 	}
-	var exponent int16
-	err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, in.Budget.Currency).Scan(&exponent)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ap, problem.Unprocessable("identity.unknown_currency", "The budget currency is not known.",
-			problem.FieldError{Field: "agent_profile.monthly_budget.currency", Code: "unknown", Message: "not an ISO 4217 currency in the reference data"})
-	}
+	exponent, err := currency.Exponent(ctx, tx, in.Budget.Currency,
+		problem.Unprocessable("identity.unknown_currency", "The budget currency is not known.",
+			problem.FieldError{Field: "agent_profile.monthly_budget.currency", Code: "unknown", Message: "not an ISO 4217 currency in the reference data"}))
 	if err != nil {
-		return ap, err
+		return ap, fmt.Errorf("identity: agent budget: %w", err)
 	}
-	amount, err := money.ParseDecimal(in.Budget.Amount, int(exponent))
+	amount, err := money.ParseAmount(in.Budget.Amount, exponent)
 	if err != nil || amount < 0 {
 		return ap, problem.Unprocessable("request.invalid_amount", "The budget amount is not a valid non-negative amount in this currency.",
 			problem.FieldError{Field: "agent_profile.monthly_budget.amount", Code: "invalid", Message: "decimal string with the currency's minor-unit digits"})
 	}
-	v := int64(amount)
-	ap.MonthlyBudget, ap.BudgetCurrency = &v, &in.Budget.Currency
+	ap.MonthlyBudget, ap.BudgetCurrency = &amount, &in.Budget.Currency
 	return ap, nil
 }
 
@@ -158,10 +164,23 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 			problem.FieldError{Field: "agent_profile", Code: "agents_only", Message: "required for agents, not allowed otherwise"})
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, email, all_companies, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $8)`,
-		actor.TenantID, id, in.Kind, in.ExternalSubject, in.DisplayName, in.Email, in.AllCompanies, actor.ID); err != nil {
-		return Principal{}, err
+	// A subject is bound to its issuer (ADR-0010): the contract names no
+	// issuer, so the new principal is a subject of the identity provider the
+	// actor creating it is bound to, the tenant's. An actor bound to none (an
+	// agent, a job acting through uow.Act, a principal the previous release
+	// created during the issuer rollout) inserts nothing: the principal would
+	// match no token, so it is refused rather than locked out silently.
+	tag, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, email, all_companies, status, created_by, updated_by)
+		SELECT $1, $2, $3, i.issuer, $4, $5, $6, $7, 'active', $8, $8
+		FROM (SELECT CASE WHEN $4::text IS NOT NULL THEN (SELECT a.external_issuer FROM identity.principal a WHERE a.tenant_id = $1 AND a.id = $8) END AS issuer) i
+		WHERE $4::text IS NULL OR i.issuer IS NOT NULL`,
+		actor.TenantID, id, in.Kind, in.ExternalSubject, in.DisplayName, in.Email, in.AllCompanies, actor.ID)
+	if err != nil {
+		return Principal{}, fmt.Errorf("identity: insert principal %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return Principal{}, problem.Unprocessable("identity.creator_without_issuer",
+			"A person or service is bound to the identity provider of whoever creates it, and you are bound to none; an administrator who signs in through the tenant's identity provider must create it.")
 	}
 	var events []outbox.Event
 	if in.Profile != nil {
@@ -172,7 +191,7 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 		if _, err := tx.Exec(ctx, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, model, monthly_budget, budget_currency,
 			description, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
 			actor.TenantID, id, ap.AutonomyLevel, ap.Model, ap.MonthlyBudget, ap.BudgetCurrency, ap.Description, actor.ID); err != nil {
-			return Principal{}, err
+			return Principal{}, fmt.Errorf("identity: insert agent profile of principal %s: %w", id, err)
 		}
 		events = append(events, profileEvent(id, "created", []string{"autonomy_level", "model", "description", "monthly_budget"}, in.Profile))
 	}
@@ -183,7 +202,7 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 	events = append([]outbox.Event{{Context: "identity", Name: "principal_created", AggregateType: "identity.principal", AggregateID: id,
 		Payload: map[string]any{"principal_id": id, "kind": p.Kind, "display_name": p.DisplayName, "all_companies": p.AllCompanies, "status": p.Status}}},
 		events...)
-	return p, record(ctx, "identity.principal.create", "identity.principal", id, map[string]any{"kind": p.Kind}, events...)
+	return p, audit.Record(ctx, "identity.principal.create", "identity.principal", id, map[string]any{"kind": p.Kind}, events...)
 }
 
 func profileEvent(id uuid.UUID, change string, fields []string, in *ProfileInput) outbox.Event {
@@ -233,9 +252,9 @@ func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 	}
 	if _, err := tx.Exec(ctx, `UPDATE identity.principal SET display_name = $2, email = $3, all_companies = $4, version = version + 1, updated_by = $5
 		WHERE id = $1`, id, name, email, all, actor.ID); err != nil {
-		return Principal{}, err
+		return Principal{}, fmt.Errorf("identity: update principal %s: %w", id, err)
 	}
-	fields := changedFields(p.DisplayName != name, "display_name", !sameString(p.Email, email), "email", p.AllCompanies != all, "all_companies")
+	fields := changedFields(p.DisplayName != name, "display_name", !same(p.Email, email), "email", p.AllCompanies != all, "all_companies")
 	var events []outbox.Event
 	if ch.Profile != nil {
 		ap, err := profile(ctx, tx, *ch.Profile)
@@ -245,12 +264,12 @@ func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 		old := *p.Profile
 		profileFields := changedFields(old.AutonomyLevel != ap.AutonomyLevel, "autonomy_level", old.Model != ap.Model, "model",
 			old.Description != ap.Description, "description",
-			!sameInt(old.MonthlyBudget, ap.MonthlyBudget) || !sameString(old.BudgetCurrency, ap.BudgetCurrency), "monthly_budget")
+			!same(old.MonthlyBudget, ap.MonthlyBudget) || !same(old.BudgetCurrency, ap.BudgetCurrency), "monthly_budget")
 		if len(profileFields) > 0 {
 			if _, err := tx.Exec(ctx, `UPDATE identity.agent_profile SET autonomy_level = $2, model = $3, description = $4, monthly_budget = $5,
 				budget_currency = $6, version = version + 1, updated_by = $7 WHERE principal_id = $1`,
 				id, ap.AutonomyLevel, ap.Model, ap.Description, ap.MonthlyBudget, ap.BudgetCurrency, actor.ID); err != nil {
-				return Principal{}, err
+				return Principal{}, fmt.Errorf("identity: update agent profile of principal %s: %w", id, err)
 			}
 			events = append(events, profileEvent(id, "updated", profileFields, ch.Profile))
 			fields = append(fields, "agent_profile")
@@ -260,7 +279,7 @@ func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 	if err != nil {
 		return Principal{}, err
 	}
-	return updated, record(ctx, "identity.principal.update", "identity.principal", id, map[string]any{"changed_fields": fields}, events...)
+	return updated, audit.Record(ctx, "identity.principal.update", "identity.principal", id, map[string]any{"changed_fields": fields}, events...)
 }
 
 // BlockPrincipal blocks an active principal; the pipeline refuses its
@@ -285,13 +304,13 @@ func BlockPrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 		return Principal{}, problem.Conflict("identity.cannot_block_self", "You cannot block yourself.")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE identity.principal SET status = 'blocked', version = version + 1, updated_by = $2 WHERE id = $1`, id, actor.ID); err != nil {
-		return Principal{}, err
+		return Principal{}, fmt.Errorf("identity: block principal %s: %w", id, err)
 	}
 	updated, err := getPrincipal(ctx, tx, id, false)
 	if err != nil {
 		return Principal{}, err
 	}
-	return updated, record(ctx, "identity.principal.block", "identity.principal", id, map[string]any{"reason": reason},
+	return updated, audit.Record(ctx, "identity.principal.block", "identity.principal", id, map[string]any{"reason": reason},
 		outbox.Event{Context: "identity", Name: "principal_blocked", AggregateType: "identity.principal", AggregateID: id,
 			Payload: map[string]any{"principal_id": id, "kind": p.Kind, "previous_status": p.Status, "status": Blocked}})
 }
@@ -306,5 +325,5 @@ func changedFields(pairs ...any) []string {
 	return fields
 }
 
-func sameString(a, b *string) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
-func sameInt(a, b *int64) bool     { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+// same reports whether two optional values are both absent or equal.
+func same[T comparable](a, b *T) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }

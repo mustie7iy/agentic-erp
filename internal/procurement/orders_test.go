@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
@@ -55,10 +55,23 @@ func TestPurchaseOrders(t *testing.T) {
 		fmt.Sprintf(`, "purchasing_org_id": %q, "requisition_id": %q, "extensions": {"cost_center": "MKT"}`, org, id(r)))
 	path := "/v1/purchase-orders/" + id(o)
 	it := o["items"].([]any)
-	if o["document_number"] != "PO100000" || o["payment_term_code"] != "NT30" || o["total_amount"].(map[string]any)["amount"] != "60.00" ||
-		it[0].(map[string]any)["over_delivery_pct"] != "0" || it[1].(map[string]any)["over_delivery_pct"] != "10" ||
-		it[0].(map[string]any)["received_quantity"].(map[string]any)["value"] != "0" {
-		t.Fatalf("created: %v", o)
+	if o["document_number"] != "PO100000" {
+		t.Errorf("created document number: got %v, want PO100000", o["document_number"])
+	}
+	if o["payment_term_code"] != "NT30" {
+		t.Errorf("created payment terms: got %v, want NT30", o["payment_term_code"])
+	}
+	if got := o["total_amount"].(map[string]any)["amount"]; got != "60.00" {
+		t.Errorf("created total: got %v, want 60.00", got)
+	}
+	if got := it[0].(map[string]any)["over_delivery_pct"]; got != "0" {
+		t.Errorf("item 1 over-delivery tolerance: got %v, want 0", got)
+	}
+	if got := it[1].(map[string]any)["over_delivery_pct"]; got != "10" {
+		t.Errorf("item 2 over-delivery tolerance: got %v, want 10", got)
+	}
+	if got := it[0].(map[string]any)["received_quantity"].(map[string]any)["value"]; got != "0" {
+		t.Errorf("item 1 received: got %v, want 0", got)
 	}
 	if got, _ := e.Must(200, "GET", rpath, "", ""); got["status"] != "ordered" {
 		t.Fatalf("requisition: %v", got)
@@ -77,12 +90,24 @@ func TestPurchaseOrders(t *testing.T) {
 	e.Problem(422, "request.invalid_extension", "PATCH", path, `{"extensions": {"Bad": 1}}`, tag)
 	upd, tag := e.Must(200, "PATCH", path, fmt.Sprintf(`{"payment_term_code": "NT60", "supplier_id": %q, "order_date": "2026-03-11", "purchasing_org_id": null,
 		"extensions": {"project": "X"}}`, e.Vendor), tag)
-	if upd["payment_term_code"] != "NT60" || upd["supplier_id"] != e.Vendor.String() || upd["purchasing_org_id"] != nil || len(upd["items"].([]any)) != 2 {
-		t.Fatalf("updated: %v", upd)
+	if upd["payment_term_code"] != "NT60" {
+		t.Errorf("updated payment terms: got %v, want NT60", upd["payment_term_code"])
+	}
+	if upd["supplier_id"] != e.Vendor.String() {
+		t.Errorf("updated supplier: got %v, want %v", upd["supplier_id"], e.Vendor)
+	}
+	if upd["purchasing_org_id"] != nil {
+		t.Errorf("updated purchasing org: got %v, want none", upd["purchasing_org_id"])
+	}
+	if n := len(upd["items"].([]any)); n != 2 {
+		t.Errorf("updated items: got %d, want 2", n)
 	}
 	upd, tag = e.Must(200, "PATCH", path, fmt.Sprintf(`{"supplier_id": %q, "items": %s}`, e.Supplier, items(item(e.office, "10", "EA", "5.00", "EUR", ""))), tag)
-	if upd["payment_term_code"] != "NT30" || len(upd["items"].([]any)) != 1 {
-		t.Fatalf("supplier terms: %v", upd)
+	if upd["payment_term_code"] != "NT30" {
+		t.Errorf("supplier terms: got %v, want NT30", upd["payment_term_code"])
+	}
+	if n := len(upd["items"].([]any)); n != 1 {
+		t.Errorf("items after the supplier change: got %d, want 1", n)
 	}
 	rel, _ := e.Must(200, "POST", path+":release", "", tag)
 	if rel["status"] != "released" {
@@ -111,8 +136,18 @@ func TestPurchaseOrders(t *testing.T) {
 	}
 	e.Problem(409, "procurement.invalid_status", "POST", otherPath+":close", "", "*")
 	e.Problem(409, "procurement.invalid_status", "POST", otherPath+":cancel", "", "*")
-	if ev := events(t, e, "purchase_order_closed"); len(ev) != 1 || ev[0]["previous_status"] != "released" || ev[0]["status"] != "closed" || ev[0]["purchase_order_id"] != id(other) {
-		t.Fatalf("closed event: %v", ev)
+	ev := events(t, e, "purchase_order_closed")
+	if len(ev) != 1 {
+		t.Fatalf("closed events: got %d, want 1: %v", len(ev), ev)
+	}
+	if ev[0]["previous_status"] != "released" {
+		t.Errorf("closed event previous status: got %v, want released", ev[0]["previous_status"])
+	}
+	if ev[0]["status"] != "closed" {
+		t.Errorf("closed event status: got %v, want closed", ev[0]["status"])
+	}
+	if ev[0]["purchase_order_id"] != id(other) {
+		t.Errorf("closed event order: got %v, want %s", ev[0]["purchase_order_id"], id(other))
 	}
 	// Cancelling gives the requisition back.
 	can := e.act(t, path, "cancel", "")
@@ -163,9 +198,21 @@ func TestOrderRefusals(t *testing.T) {
 		"legal entity":      {strings.Replace(body("", ok), e.DE.String(), uuid.NewString(), 1), 422, "request.reference_not_found"},
 		"extensions":        {body(`, "extensions": {"Bad": 1}`, ok), 422, "request.invalid_extension"},
 	} {
-		if code, m, _ := e.Do("POST", "/v1/purchase-orders", c.body, ""); code != c.status || m["code"] != c.code {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			api := e.Client
+			api.T = t
+			code, m, _ := api.Do("POST", "/v1/purchase-orders", c.body, "")
+			if code != c.status {
+				t.Errorf("status: got %d, want %d: %v", code, c.status, m)
+			}
+			if m["code"] != c.code {
+				t.Errorf("problem code: got %v, want %s", m["code"], c.code)
+			}
+		})
+	}
+	// An unknown requisition is the shared reference refusal: not_found on its field.
+	if _, m, _ := e.Do("POST", "/v1/purchase-orders", body(fmt.Sprintf(`, "requisition_id": %q`, uuid.New()), ok), ""); fmt.Sprint(m["errors"]) != "[map[code:not_found field:requisition_id message:no requisition with this id that you can access]]" {
+		t.Errorf("unknown requisition field errors: got %v, want not_found on requisition_id", m["errors"])
 	}
 	// Contract orders take the contract price and consume the contract.
 	cpath := "/v1/contracts/" + id(contract)
@@ -174,9 +221,11 @@ func TestOrderRefusals(t *testing.T) {
 		"wrong unit":   items(item(e.office, "1", "KG", "9.00", "EUR", `, "contract_item_no": 1`)),
 		"unknown item": items(item(e.office, "1", "EA", "9.00", "EUR", `, "contract_item_no": 7`)),
 	} {
-		if code, m, _ := e.Do("POST", "/v1/purchase-orders", body(fmt.Sprintf(`, "contract_id": %q`, id(contract)), c), ""); code != 422 || m["code"] != "procurement.invalid_contract_item" {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			api := e.Client
+			api.T = t
+			api.Problem(422, "procurement.invalid_contract_item", "POST", "/v1/purchase-orders", body(fmt.Sprintf(`, "contract_id": %q`, id(contract)), c), "")
+		})
 	}
 	if code, m, _ := e.Do("POST", "/v1/purchase-orders", strings.Replace(body(fmt.Sprintf(`, "contract_id": %q`, id(contract)), ok), "2026-03-10", "2027-03-10", 1), ""); code != 422 || m["code"] != "procurement.invalid_contract" {
 		t.Errorf("outside validity: %d %v", code, m)
@@ -223,18 +272,14 @@ func TestOrderRefusals(t *testing.T) {
 		_, err := h.CancelPurchaseOrder(ctx, genCancel(id(free)))
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "procurement.order_invoiced") {
-		t.Fatalf("invoiced: %v", err)
-	}
+	pgtest.WantErr(t, err, "procurement.order_invoiced")
 	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		h := endpoints()
 		h.Invoices = invoiced{err: fmt.Errorf("payables down")}
 		_, err := h.CancelPurchaseOrder(ctx, genCancel(id(free)))
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "payables down") {
-		t.Fatalf("invoices failure: %v", err)
-	}
+	pgtest.WantErr(t, err, "payables down")
 }
 
 type invoiced struct {
@@ -261,16 +306,30 @@ func TestGoodsReceipts(t *testing.T) {
 		"item":          {"9:1:EA"},
 		"quantity":      {"1:0:EA"},
 	} {
-		code, m := e.receipt(t, id(o), c...)
-		want := map[string]string{"over delivery": "procurement.over_delivery", "tolerance": "procurement.over_delivery", "unit": "procurement.unit_mismatch",
-			"item": "procurement.unknown_order_item", "quantity": "procurement.invalid_quantity"}[name]
-		if m["code"] != want || code/100 != 4 {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			code, m := e.receipt(t, id(o), c...)
+			want := map[string]string{"over delivery": "procurement.over_delivery", "tolerance": "procurement.over_delivery", "unit": "procurement.unit_mismatch",
+				"item": "procurement.unknown_order_item", "quantity": "procurement.invalid_quantity"}[name]
+			if m["code"] != want {
+				t.Errorf("problem code: got %v, want %s", m["code"], want)
+			}
+			if code/100 != 4 {
+				t.Errorf("status: got %d, want 4xx", code)
+			}
+		})
 	}
 	code, gr := e.receipt(t, id(o), "1:6:EA", "2:4.4:KG")
-	if code != 201 || gr["movement_type"] != "101" || gr["document_number"] != "GR100000" || len(gr["items"].([]any)) != 2 {
-		t.Fatalf("receipt: %d %v", code, gr)
+	if code != 201 {
+		t.Fatalf("receipt status: got %d, want 201: %v", code, gr)
+	}
+	if gr["movement_type"] != "101" {
+		t.Errorf("receipt movement type: got %v, want 101", gr["movement_type"])
+	}
+	if gr["document_number"] != "GR100000" {
+		t.Errorf("receipt document number: got %v, want GR100000", gr["document_number"])
+	}
+	if n := len(gr["items"].([]any)); n != 2 {
+		t.Errorf("receipt items: got %d, want 2", n)
 	}
 	// Plants are org units of the legal entity.
 	if code, m, _ := e.Do("POST", "/v1/goods-receipts", fmt.Sprintf(`{"legal_entity_id": %q, "plant_id": %q, "document_date": "2026-03-15",
@@ -290,13 +349,22 @@ func TestGoodsReceipts(t *testing.T) {
 	e.Problem(409, "procurement.order_received", "POST", "/v1/purchase-orders/"+id(o)+":cancel", "", "*")
 	path := "/v1/goods-receipts/" + id(gr)
 	got, tag := e.Must(200, "GET", path, "", "")
-	if got["reference"] != "DN-1" || len(tag) < 10 {
-		t.Fatalf("get: %v", got)
+	if got["reference"] != "DN-1" {
+		t.Errorf("get reference: got %v, want DN-1", got["reference"])
+	}
+	if len(tag) < 10 {
+		t.Fatalf("get etag: got %q, want at least 10 characters", tag)
 	}
 	e.Problem(412, "request.version_mismatch", "POST", path+":reverse", "", `"stale"`)
 	rev, _ := e.Must(200, "POST", path+":reverse", `{"posting_date": "2026-03-20"}`, tag)
-	if rev["movement_type"] != "102" || rev["reversal_of_id"] != id(gr) || rev["items"].([]any)[0].(map[string]any)["quantity"].(map[string]any)["value"] != "-6" {
-		t.Fatalf("reversal: %v", rev)
+	if rev["movement_type"] != "102" {
+		t.Errorf("reversal movement type: got %v, want 102", rev["movement_type"])
+	}
+	if rev["reversal_of_id"] != id(gr) {
+		t.Errorf("reversal of: got %v, want %s", rev["reversal_of_id"], id(gr))
+	}
+	if got := rev["items"].([]any)[0].(map[string]any)["quantity"].(map[string]any)["value"]; got != "-6" {
+		t.Errorf("reversal quantity: got %v, want -6", got)
 	}
 	e.Problem(409, "procurement.already_reversed", "POST", path+":reverse", "", "*")
 	e.Problem(409, "procurement.cannot_reverse_reversal", "POST", "/v1/goods-receipts/"+id(rev)+":reverse", "", "*")
@@ -310,12 +378,17 @@ func TestGoodsReceipts(t *testing.T) {
 	// A reversal never makes the received quantity negative.
 	page, _ := e.Must(200, "GET", "/v1/goods-receipts?purchase_order_id="+id(o)+"&order_by=document_number%20desc&page_size=1", "", "")
 	latest := page["items"].([]any)[0].(map[string]any)
-	if page["next_page_token"] == nil || latest["movement_type"] != "102" {
-		t.Fatalf("latest: %v", page)
+	if page["next_page_token"] == nil {
+		t.Errorf("latest page token: got none, want one")
+	}
+	if latest["movement_type"] != "102" {
+		t.Errorf("latest movement type: got %v, want 102", latest["movement_type"])
 	}
 	var second2 string
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT id::text FROM procurement.goods_movement WHERE tenant_id = $1 AND movement_type = '101'
-		AND posting_date = '2026-03-16'`, e.Tenant.ID).Scan(&second2)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id::text FROM procurement.goods_movement WHERE tenant_id = $1 AND movement_type = '101'
+		AND posting_date = '2026-03-16'`, e.Tenant.ID).Scan(&second2); err != nil {
+		t.Fatalf("read the second goods receipt: %v", err)
+	}
 	extra := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, movement_type, document_date, posting_date,
 		reversal_of_id, posted_by) VALUES ($1, $2, 'X1', $3, '102', '2026-03-17', '2026-03-17', $4, $5)`, e.Tenant.ID, extra, e.DE, uuid.MustParse(id(gr)), e.Tenant.Human.ID)
@@ -336,8 +409,11 @@ func TestGoodsReceipts(t *testing.T) {
 		t.Fatalf("by number: %d", n)
 	}
 	n, tok := list("page_size=2")
-	if n != 2 || tok == "" {
-		t.Fatalf("page 1: %d", n)
+	if n != 2 {
+		t.Errorf("page 1: got %d receipts, want 2", n)
+	}
+	if tok == "" {
+		t.Fatal("page 1: got no next page token, want one")
 	}
 	if n, _ := list("page_size=2&page_token=" + tok); n != 2 {
 		t.Fatalf("page 2: %d", n)
@@ -350,11 +426,21 @@ func TestOrderByNumber(t *testing.T) {
 	o := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		got, ok, err := procurement.Orders{}.OrderByNumber(ctx, e.DE, o["document_number"].(string))
-		if err != nil || !ok || got.String() != id(o) {
-			t.Errorf("by number: %v %v %v", got, ok, err)
+		if err != nil {
+			t.Errorf("by number: %v", err)
 		}
-		if _, ok, err := (procurement.Orders{}).OrderByNumber(ctx, e.US, o["document_number"].(string)); ok || err != nil {
-			t.Errorf("other legal entity: %v %v", ok, err)
+		if !ok {
+			t.Errorf("by number: got not found, want the order")
+		}
+		if got.String() != id(o) {
+			t.Errorf("by number: got %v, want %s", got, id(o))
+		}
+		_, ok, err = (procurement.Orders{}).OrderByNumber(ctx, e.US, o["document_number"].(string))
+		if err != nil {
+			t.Errorf("other legal entity: %v", err)
+		}
+		if ok {
+			t.Errorf("other legal entity: got the order, want not found")
 		}
 		return nil
 	})

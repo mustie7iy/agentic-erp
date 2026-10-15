@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
@@ -53,10 +54,7 @@ func (s S3) client() *http.Client {
 }
 
 func (s S3) now() time.Time {
-	if s.Now != nil {
-		return s.Now()
-	}
-	return time.Now()
+	return clock.Now(s.Now)
 }
 
 func (s S3) url(key string) string {
@@ -90,7 +88,7 @@ func (s S3) do(ctx context.Context, method, key string, body []byte, headers map
 }
 
 func (s S3) failure(resp *http.Response, method, key string) error {
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10)) // the status is the failure; a body cut short only explains less
 	var e s3Error
 	_ = xml.Unmarshal(raw, &e) // a body that is not the S3 error document leaves the fields empty
 	if e.Code == "" {
@@ -113,7 +111,7 @@ func (s S3) Put(ctx context.Context, key string, content []byte, opts PutOptions
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	switch {
 	case resp.StatusCode == http.StatusPreconditionFailed:
 		return ErrExists
@@ -132,7 +130,7 @@ func (s S3) Get(ctx context.Context, key string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, "", ErrNotFound
@@ -187,7 +185,7 @@ func (s S3) List(ctx context.Context, prefix string) ([]string, error) {
 		} else if derr := xml.NewDecoder(resp.Body).Decode(&page); derr != nil {
 			err = fmt.Errorf("blobstore: LIST %s: %w", prefix, derr)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close() // the page has been decoded; closing frees the connection and cannot change it
 		if err != nil {
 			return nil, err
 		}
@@ -211,10 +209,10 @@ func (s S3) Delete(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	switch {
 	case resp.StatusCode == http.StatusForbidden:
-		return fmt.Errorf("%w: %v", ErrLocked, s.failure(resp, http.MethodDelete, key))
+		return fmt.Errorf("%w: %w", ErrLocked, s.failure(resp, http.MethodDelete, key))
 	case resp.StatusCode >= 300 && resp.StatusCode != http.StatusNotFound:
 		return s.failure(resp, http.MethodDelete, key)
 	}
@@ -230,7 +228,7 @@ func (s S3) Stat(ctx context.Context, key string) (int64, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return 0, "", ErrNotFound
@@ -246,7 +244,7 @@ func (s S3) PresignPut(ctx context.Context, key, contentType string, expires tim
 	if err := checkKey(key); err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPut, s.url(key), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, s.url(key), nil)
 	if err != nil {
 		return "", fmt.Errorf("blobstore: %w", err)
 	}

@@ -91,7 +91,8 @@ func (d asyncDoc) deref(t *testing.T, m map[string]any) map[string]any {
 
 // headerTypeConsts returns every `type` const declared in a message's
 // headers schema, looking through allOf.
-func headerTypeConsts(d asyncDoc, t *testing.T, headers map[string]any) []string {
+func headerTypeConsts(t *testing.T, d asyncDoc, headers map[string]any) []string {
+	t.Helper()
 	var out []string
 	var walk func(map[string]any)
 	walk = func(s map[string]any) {
@@ -199,7 +200,7 @@ func TestAsyncAPIMessages(t *testing.T) {
 			t.Errorf("message %s payload is not an object schema", key)
 		}
 
-		consts := headerTypeConsts(d, t, asMap(msg["headers"]))
+		consts := headerTypeConsts(t, d, asMap(msg["headers"]))
 		if len(consts) != 1 {
 			t.Errorf("message %s: want exactly one CloudEvents type const in headers, got %v", key, consts)
 			continue
@@ -277,8 +278,18 @@ func TestAsyncAPIChannels(t *testing.T) {
 		ch := asMap(raw)
 		addr := asString(ch["address"])
 		segs := strings.Split(addr, ".")
-		if len(segs) != 5 || segs[0] != "erp" || segs[1] != "{cell}" || segs[3] != "{tenant}" || segs[4] != "{event}" {
-			t.Errorf("channel %s: address %q, want erp.{cell}.<context>.{tenant}.{event}", chName, addr)
+		if len(segs) != 5 {
+			t.Errorf("channel %s: address %q has %d segments, want erp.{cell}.<context>.{tenant}.{event}", chName, addr, len(segs))
+			continue
+		}
+		wellFormed := true
+		for i, want := range map[int]string{0: "erp", 1: "{cell}", 3: "{tenant}", 4: "{event}"} {
+			if segs[i] != want {
+				t.Errorf("channel %s: address %q segment %d: got %q, want %q", chName, addr, i, segs[i], want)
+				wellFormed = false
+			}
+		}
+		if !wellFormed {
 			continue
 		}
 		ctx := segs[2]
@@ -296,7 +307,7 @@ func TestAsyncAPIChannels(t *testing.T) {
 				t.Errorf("message %s is on channels %s and %s", ref, prev, chName)
 			}
 			onChannel[ref] = chName
-			for _, ceType := range headerTypeConsts(d, t, asMap(msg["headers"])) {
+			for _, ceType := range headerTypeConsts(t, d, asMap(msg["headers"])) {
 				if parts := strings.Split(ceType, "."); len(parts) < 4 || parts[3] != ctx {
 					t.Errorf("channel %s carries %s whose type %q is not in context %q", chName, ref, ceType, ctx)
 				}

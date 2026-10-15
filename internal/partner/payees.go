@@ -2,6 +2,7 @@ package partner
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,7 +64,10 @@ func (Payees) Payees(ctx context.Context, legalEntity uuid.UUID, partners []uuid
 		out[id] = p
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return out, fmt.Errorf("partner: read the payees of legal entity %s: %w", legalEntity, err)
+	}
+	return out, nil
 }
 
 // BankDetail is a bank account opened for a payment instruction.
@@ -92,5 +96,8 @@ func (y Payees) BankDetails(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID
 		out[id] = d
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return out, fmt.Errorf("partner: open %d bank accounts: %w", len(ids), err)
+	}
+	return out, nil
 }

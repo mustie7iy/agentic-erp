@@ -2,17 +2,18 @@ package tenancy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 
-	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -21,37 +22,11 @@ type Endpoints struct {
 	Pages *pagination.Codec
 }
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
-func fromExtensions(x gen.Extensions) map[string]any {
-	if x == nil {
-		return nil
-	}
-	out := make(map[string]any, len(x))
-	for k, raw := range x {
-		var v any
-		_ = json.Unmarshal(raw, &v) // the generated decoder only passes valid JSON
-		out[k] = v
-	}
-	return out
-}
-
-func toExtensions(m map[string]any) gen.Extensions {
-	out := make(gen.Extensions, len(m))
-	for k, v := range m {
-		b, _ := json.Marshal(v) // values decoded from JSON always encode
-		out[k] = jx.Raw(b)
-	}
-	return out
-}
-
 func leToAPI(e LegalEntity) gen.LegalEntity {
 	return gen.LegalEntity{
 		ID: e.ID, Version: e.Version, CreatedAt: e.CreatedAt, CreatedBy: e.CreatedBy, UpdatedAt: e.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(e.UpdatedBy), Code: e.Code, Name: e.Name, CountryCode: e.CountryCode,
-		LocalCurrency: e.LocalCurrency, FiscalCalendarID: e.FiscalCalendarID, Status: e.Status, Extensions: toExtensions(e.Extensions),
+		LocalCurrency: e.LocalCurrency, FiscalCalendarID: e.FiscalCalendarID, Status: e.Status, Extensions: apitypes.EncodeObject(e.Extensions),
 	}
 }
 
@@ -78,7 +53,7 @@ func ouOK(u OrgUnit) *gen.UpdateOrgUnitOKHeaders {
 func (e *Endpoints) CreateLegalEntity(ctx context.Context, req *gen.LegalEntityCreate, _ gen.CreateLegalEntityParams) (gen.CreateLegalEntityRes, error) {
 	le, err := CreateLegalEntity(ctx, NewLegalEntity{
 		Code: req.Code, Name: req.Name, CountryCode: req.CountryCode, LocalCurrency: req.LocalCurrency,
-		FiscalCalendarID: req.FiscalCalendarID, Extensions: fromExtensions(req.Extensions.Value),
+		FiscalCalendarID: req.FiscalCalendarID, Extensions: apitypes.DecodeObject(req.Extensions.Value),
 	})
 	if err != nil {
 		return nil, err
@@ -110,10 +85,7 @@ func (e *Endpoints) ListLegalEntities(ctx context.Context, params gen.ListLegalE
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(leSort, "listLegalEntities|"+params.Status.Value, pagination.Request{
-		OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
-		PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(leSort, "listLegalEntities|"+params.Status.Value, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -126,31 +98,24 @@ func (e *Endpoints) ListLegalEntities(ctx context.Context, params gen.ListLegalE
 	rows, _ := tx.Query(ctx, q, args...)
 	les, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (LegalEntity, error) { return scanLE(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tenancy: list legal entities: %w", err)
 	}
-	les, next := pagination.Page(ks, les, func(l LegalEntity) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, les, func(l LegalEntity) (string, uuid.UUID) {
 		if ks.Field() == "name" {
 			return l.Name, l.ID
 		}
 		return l.Code, l.ID
-	})
-	page := gen.LegalEntityPage{Items: make([]gen.LegalEntity, 0, len(les))}
-	for _, l := range les {
-		page.Items = append(page.Items, leToAPI(l))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.LegalEntityPageHeaders{Response: page}, nil
+	}, leToAPI)
+	return &gen.LegalEntityPageHeaders{Response: gen.LegalEntityPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateLegalEntity implements PATCH /v1/legal-entities/{id}.
 func (e *Endpoints) UpdateLegalEntity(ctx context.Context, req *gen.LegalEntityUpdate, params gen.UpdateLegalEntityParams) (gen.UpdateLegalEntityRes, error) {
-	ch := LegalEntityChange{Extensions: fromExtensions(req.Extensions.Value)}
+	ch := LegalEntityChange{Extensions: apitypes.DecodeObject(req.Extensions.Value)}
 	if req.Name.Set {
 		ch.Name = &req.Name.Value
 	}
-	le, err := UpdateLegalEntity(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	le, err := UpdateLegalEntity(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +124,7 @@ func (e *Endpoints) UpdateLegalEntity(ctx context.Context, req *gen.LegalEntityU
 
 // ActivateLegalEntity implements POST /v1/legal-entities/{id}:activate.
 func (e *Endpoints) ActivateLegalEntity(ctx context.Context, params gen.ActivateLegalEntityParams) (gen.ActivateLegalEntityRes, error) {
-	le, err := changeLegalEntityStatus(ctx, params.ID, ifMatch(params.IfMatch), activateLE, "")
+	le, err := changeLegalEntityStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), activateLE, "")
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +133,7 @@ func (e *Endpoints) ActivateLegalEntity(ctx context.Context, params gen.Activate
 
 // BlockLegalEntity implements POST /v1/legal-entities/{id}:block.
 func (e *Endpoints) BlockLegalEntity(ctx context.Context, req *gen.ReasonInput, params gen.BlockLegalEntityParams) (gen.BlockLegalEntityRes, error) {
-	le, err := changeLegalEntityStatus(ctx, params.ID, ifMatch(params.IfMatch), blockLE, req.Reason)
+	le, err := changeLegalEntityStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), blockLE, req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +142,7 @@ func (e *Endpoints) BlockLegalEntity(ctx context.Context, req *gen.ReasonInput, 
 
 // UnblockLegalEntity implements POST /v1/legal-entities/{id}:unblock.
 func (e *Endpoints) UnblockLegalEntity(ctx context.Context, params gen.UnblockLegalEntityParams) (gen.UnblockLegalEntityRes, error) {
-	le, err := changeLegalEntityStatus(ctx, params.ID, ifMatch(params.IfMatch), unblockLE, "")
+	le, err := changeLegalEntityStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), unblockLE, "")
 	if err != nil {
 		return nil, err
 	}
@@ -226,10 +191,7 @@ func (e *Endpoints) ListOrgUnits(ctx context.Context, params gen.ListOrgUnitsPar
 		le = &params.LegalEntityID.Value
 	}
 	scope := "listOrgUnits|" + params.LegalEntityID.Value.String() + "|" + params.Kind.Value + "|" + params.Status.Value
-	ks, err := e.Pages.Keyset(ouSort, scope, pagination.Request{
-		OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
-		PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(ouSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -243,22 +205,15 @@ func (e *Endpoints) ListOrgUnits(ctx context.Context, params gen.ListOrgUnitsPar
 	rows, _ := tx.Query(ctx, q, args...)
 	units, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OrgUnit, error) { return scanOU(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tenancy: list org units: %w", err)
 	}
-	units, next := pagination.Page(ks, units, func(u OrgUnit) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, units, func(u OrgUnit) (string, uuid.UUID) {
 		if ks.Field() == "name" {
 			return u.Name, u.ID
 		}
 		return u.Code, u.ID
-	})
-	page := gen.OrgUnitPage{Items: make([]gen.OrgUnit, 0, len(units))}
-	for _, u := range units {
-		page.Items = append(page.Items, ouToAPI(u))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.OrgUnitPageHeaders{Response: page}, nil
+	}, ouToAPI)
+	return &gen.OrgUnitPageHeaders{Response: gen.OrgUnitPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateOrgUnit implements PATCH /v1/org-units/{id}.
@@ -273,7 +228,7 @@ func (e *Endpoints) UpdateOrgUnit(ctx context.Context, req *gen.OrgUnitUpdate, p
 			ch.ParentID = &req.ParentID.Value
 		}
 	}
-	u, err := UpdateOrgUnit(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	u, err := UpdateOrgUnit(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +237,7 @@ func (e *Endpoints) UpdateOrgUnit(ctx context.Context, req *gen.OrgUnitUpdate, p
 
 // ActivateOrgUnit implements POST /v1/org-units/{id}:activate.
 func (e *Endpoints) ActivateOrgUnit(ctx context.Context, params gen.ActivateOrgUnitParams) (gen.ActivateOrgUnitRes, error) {
-	u, err := changeOrgUnitStatus(ctx, params.ID, ifMatch(params.IfMatch), activateOU, "")
+	u, err := changeOrgUnitStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), activateOU, "")
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +246,7 @@ func (e *Endpoints) ActivateOrgUnit(ctx context.Context, params gen.ActivateOrgU
 
 // BlockOrgUnit implements POST /v1/org-units/{id}:block.
 func (e *Endpoints) BlockOrgUnit(ctx context.Context, req *gen.ReasonInput, params gen.BlockOrgUnitParams) (gen.BlockOrgUnitRes, error) {
-	u, err := changeOrgUnitStatus(ctx, params.ID, ifMatch(params.IfMatch), blockOU, req.Reason)
+	u, err := changeOrgUnitStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), blockOU, req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +255,7 @@ func (e *Endpoints) BlockOrgUnit(ctx context.Context, req *gen.ReasonInput, para
 
 // UnblockOrgUnit implements POST /v1/org-units/{id}:unblock.
 func (e *Endpoints) UnblockOrgUnit(ctx context.Context, params gen.UnblockOrgUnitParams) (gen.UnblockOrgUnitRes, error) {
-	u, err := changeOrgUnitStatus(ctx, params.ID, ifMatch(params.IfMatch), unblockOU, "")
+	u, err := changeOrgUnitStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), unblockOU, "")
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +277,10 @@ func (Directory) LegalEntityByCode(ctx context.Context, code string) (id uuid.UU
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, "", false, nil
 	}
-	return id, status, err == nil, err
+	if err != nil {
+		return id, status, false, fmt.Errorf("tenancy: read legal entity %s: %w", code, err)
+	}
+	return id, status, true, nil
 }
 
 // LegalEntityStatus returns the status of the legal entity, or ok = false
@@ -337,7 +295,10 @@ func (Directory) LegalEntityStatus(ctx context.Context, id uuid.UUID) (status st
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
-	return status, err == nil, err
+	if err != nil {
+		return status, false, fmt.Errorf("tenancy: read status of legal entity %s: %w", id, err)
+	}
+	return status, true, nil
 }
 
 // Entity is what other contexts read about a legal entity.
@@ -356,6 +317,28 @@ func (Directory) Entity(ctx context.Context, id uuid.UUID) (Entity, bool, error)
 	return entity(ctx, `id = $1`, id)
 }
 
+// EntityReader is the part of a context's legal-entity port that
+// Accessible reads through; Directory implements it.
+type EntityReader interface {
+	Entity(ctx context.Context, id uuid.UUID) (Entity, bool, error)
+}
+
+// Accessible returns the legal entity with the id that a request refers to
+// in field, when it exists and access allows it. Otherwise it refuses with
+// 422 request.reference_not_found: a legal entity the caller may not act in
+// is answered as missing, as every tenancy read does, so its existence does
+// not leak. Whether it must also be active is each caller's own rule.
+func Accessible(ctx context.Context, r EntityReader, access authz.Access, id uuid.UUID, field string) (Entity, error) {
+	le, ok, err := r.Entity(ctx, id)
+	if err != nil {
+		return Entity{}, fmt.Errorf("tenancy: read legal entity %s: %w", id, err)
+	}
+	if !ok || !access.Allows(id) {
+		return Entity{}, problem.ReferenceNotFound(field, "legal entity", "no legal entity with this id that you can access")
+	}
+	return le, nil
+}
+
 // EntityByCode returns the legal entity with the company code, or ok = false.
 func (Directory) EntityByCode(ctx context.Context, code string) (Entity, bool, error) {
 	return entity(ctx, `code = $1`, code)
@@ -372,7 +355,10 @@ func entity(ctx context.Context, where string, arg any) (Entity, bool, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Entity{}, false, nil
 	}
-	return e, err == nil, err
+	if err != nil {
+		return e, false, fmt.Errorf("tenancy: read legal entity %v: %w", arg, err)
+	}
+	return e, true, nil
 }
 
 // GroupCurrency is the tenant's group currency, the third currency of every
@@ -383,8 +369,10 @@ func (Directory) GroupCurrency(ctx context.Context) (string, error) {
 		return "", err
 	}
 	var c string
-	err = tx.QueryRow(ctx, `SELECT group_currency FROM tenancy.tenant WHERE id = $1`, p.TenantID).Scan(&c)
-	return c, err
+	if err := tx.QueryRow(ctx, `SELECT group_currency FROM tenancy.tenant WHERE id = $1`, p.TenantID).Scan(&c); err != nil {
+		return c, fmt.Errorf("tenancy: read group currency: %w", err)
+	}
+	return c, nil
 }
 
 // Unit is what other contexts read about an org unit.
@@ -406,5 +394,8 @@ func (Directory) OrgUnit(ctx context.Context, id uuid.UUID) (Unit, bool, error) 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Unit{}, false, nil
 	}
-	return u, err == nil, err
+	if err != nil {
+		return u, false, fmt.Errorf("tenancy: read org unit %s: %w", id, err)
+	}
+	return u, true, nil
 }

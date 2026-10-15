@@ -1,7 +1,6 @@
 package ledger_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -14,17 +13,18 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/nfr"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // project runs the projector until nothing is pending in any tenant.
-func project(t testing.TB) {
-	t.Helper()
-	p := &ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector"}
+func project(tb testing.TB) {
+	tb.Helper()
+	p := &ledger.Projector{Pool: pgtest.Pool(tb), Role: "erp_projector"}
 	for {
 		n, err := p.RunOnce(context.Background())
 		if err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 		if n == 0 {
 			return
@@ -33,8 +33,8 @@ func project(t testing.TB) {
 }
 
 // trialBalance lists the balances of a query as "account period debit/credit lc".
-func (e env) trialBalance(t testing.TB, q string) []string {
-	t.Helper()
+func (e env) trialBalance(tb testing.TB, q string) []string {
+	tb.Helper()
 	page, _ := e.Must(200, "GET", "/v1/balances?"+q, "", "")
 	var out []string
 	for _, it := range page["items"].([]any) {
@@ -62,7 +62,9 @@ func TestBalancesAndProjector(t *testing.T) {
 		t.Fatalf("balances before projection: %v", before)
 	}
 	var pending int
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending); err != nil {
+		t.Fatalf("count pending projections: %v", err)
+	}
 	if pending != 3 {
 		t.Fatalf("pending: %d", pending)
 	}
@@ -74,28 +76,48 @@ func TestBalancesAndProjector(t *testing.T) {
 	// Projected and pending amounts add up in one row.
 	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-20", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	mixed := e.trialBalance(t, q+"&fiscal_period=3&account_id="+bank)
-	if len(mixed) != 1 || !strings.HasSuffix(mixed[0], "101.00/30.00 EUR") {
-		t.Fatalf("bank in March: %v", mixed)
+	if len(mixed) != 1 {
+		t.Fatalf("bank in March: got %d rows %v, want 1", len(mixed), mixed)
+	}
+	if !strings.HasSuffix(mixed[0], "101.00/30.00 EUR") {
+		t.Errorf("bank in March: got %q, want suffix %q", mixed[0], "101.00/30.00 EUR")
 	}
 	var debit, credit int64
-	pgtest.Admin(t).QueryRow(context.Background(), `SELECT debit_lc, credit_lc FROM ledger.period_balance WHERE account_id = $1 AND fiscal_period = 3`, bank).Scan(&debit, &credit)
-	if debit != 10000 || credit != 3000 {
-		t.Fatalf("projected row: %d/%d", debit, credit)
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT debit_lc, credit_lc FROM ledger.period_balance WHERE account_id = $1 AND fiscal_period = 3`, bank).Scan(&debit, &credit); err != nil {
+		t.Fatalf("read projected period balance: %v", err)
+	}
+	if debit != 10000 {
+		t.Errorf("projected debit: got %d, want 10000", debit)
+	}
+	if credit != 3000 {
+		t.Errorf("projected credit: got %d, want 3000", credit)
 	}
 	usd := e.trialBalance(t, q+"&fiscal_period=4&account_id="+bank)
-	if len(usd) != 1 || !strings.HasSuffix(usd[0], "0.00/5.00 USD") {
-		t.Fatalf("converted balance: %v", usd)
+	if len(usd) != 1 {
+		t.Fatalf("converted balance: got %d rows %v, want 1", len(usd), usd)
+	}
+	if !strings.HasSuffix(usd[0], "0.00/5.00 USD") {
+		t.Errorf("converted balance: got %q, want suffix %q", usd[0], "0.00/5.00 USD")
 	}
 	byAccount := e.trialBalance(t, q+"&page_size=4")
-	if len(byAccount) != 5 || !strings.HasPrefix(byAccount[4], "next:") {
-		t.Fatalf("by account: %v", byAccount)
+	if len(byAccount) != 5 {
+		t.Fatalf("by account: got %d rows %v, want 5", len(byAccount), byAccount)
+	}
+	if !strings.HasPrefix(byAccount[4], "next:") {
+		t.Fatalf("by account: got last %q, want a next page token", byAccount[4])
 	}
 	if rest := e.trialBalance(t, q+"&page_size=4&page_token="+strings.TrimPrefix(byAccount[4], "next:")); len(rest) != 1 {
 		t.Fatalf("by account, page 2: %v", rest)
 	}
 	byPeriod := e.trialBalance(t, q+"&order_by=fiscal_period%20desc&page_size=2")
-	if len(byPeriod) != 3 || !strings.Contains(byPeriod[0], "/4 ") || !strings.HasPrefix(byPeriod[2], "next:") {
-		t.Fatalf("by period: %v", byPeriod)
+	if len(byPeriod) != 3 {
+		t.Fatalf("by period: got %d rows %v, want 3", len(byPeriod), byPeriod)
+	}
+	if !strings.Contains(byPeriod[0], "/4 ") {
+		t.Errorf("by period: got first %q, want period 4", byPeriod[0])
+	}
+	if !strings.HasPrefix(byPeriod[2], "next:") {
+		t.Fatalf("by period: got last %q, want a next page token", byPeriod[2])
 	}
 	if rest := e.trialBalance(t, q+"&order_by=fiscal_period%20desc&page_size=2&page_token="+strings.TrimPrefix(byPeriod[2], "next:")); len(rest) != 3 {
 		t.Fatalf("page 2: %v", rest)
@@ -105,9 +127,11 @@ func TestBalancesAndProjector(t *testing.T) {
 		"unknown entity": "legal_entity_id=" + uuid.NewString() + "&fiscal_year=2026",
 		"other year":     "legal_entity_id=" + e.de.String() + "&fiscal_year=2025",
 	} {
-		if got := e.trialBalance(t, query); len(got) != 0 {
-			t.Errorf("%s: %v", name, got)
-		}
+		t.Run(name, func(t *testing.T) {
+			if got := e.in(t).trialBalance(t, query); len(got) != 0 {
+				t.Errorf("got %v, want no balances", got)
+			}
+		})
 	}
 	agent := e.Client
 	agent.As = e.ten.Agent
@@ -123,51 +147,40 @@ func TestProjectorRuns(t *testing.T) {
 	for range 3 {
 		e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	}
-	logs := &lockedBuffer{}
+	logs := &pgtest.SyncBuffer{}
 	log := slog.New(slog.NewTextHandler(logs, nil))
 	if _, err := (&ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role"}).RunOnce(context.Background()); err == nil {
 		t.Fatal("projected with an unknown role")
 	}
+	stop := runProjector(t, &ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role", Interval: time.Millisecond, Log: log})
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "balance projection failed") },
+		"logs: %s", logs)
+	stop()
+	// Batches of one: full batches follow each other at once.
+	stop = runProjector(t, &ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector", Batch: 1, Log: log})
+	admin := pgtest.Admin(t) // one connection for every check: Admin opens a new one per call
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var pending int
+		if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending); err != nil {
+			t.Fatalf("count pending projections: %v", err)
+		}
+		return pending == 0
+	}, "projector did not catch up")
+	stop()
+	(&ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector"}).Run(canceled())
+}
+
+// runProjector runs p until the returned stop is called, which waits for it
+// to return. The test's cleanup stops it too, so a failing wait does not
+// leave it running.
+func runProjector(t *testing.T, p *ledger.Projector) (stop func()) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
-		(&ledger.Projector{Pool: pgtest.Pool(t), Role: "no_such_role", Interval: time.Millisecond, Log: log}).Run(ctx)
-		close(done)
-	}()
-	// The failure is logged within an interval or two; under a loaded
-	// race-detector run that can take longer than a fixed sleep.
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logs.String(), "balance projection failed"); {
-		if time.Now().After(deadline) {
-			cancel()
-			<-done
-			t.Fatalf("logs: %s", logs.String())
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	cancel()
-	<-done
-	// Batches of one: full batches follow each other at once.
-	ctx, cancel = context.WithCancel(context.Background())
-	done = make(chan struct{})
-	go func() {
-		(&ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector", Batch: 1, Log: log}).Run(ctx)
-		close(done)
-	}()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		var pending int
-		pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.balance_projection WHERE tenant_id = $1 AND projected_at IS NULL`, e.ten.ID).Scan(&pending)
-		if pending == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("projector did not catch up")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	cancel()
-	<-done
-	(&ledger.Projector{Pool: pgtest.Pool(t), Role: "erp_projector"}).Run(canceled())
+	go func() { p.Run(ctx); close(done) }()
+	stop = sync.OnceFunc(func() { cancel(); <-done })
+	t.Cleanup(stop)
+	return stop
 }
 
 func canceled() context.Context {
@@ -188,7 +201,9 @@ func TestTrialBalanceBudget(t *testing.T) {
 	project(t)
 	var chart uuid.UUID
 	admin := pgtest.Admin(t)
-	admin.QueryRow(context.Background(), `SELECT id FROM ledger.chart_of_accounts WHERE tenant_id = $1 AND code = '2000'`, e.ten.ID).Scan(&chart)
+	if err := admin.QueryRow(context.Background(), `SELECT id FROM ledger.chart_of_accounts WHERE tenant_id = $1 AND code = '2000'`, e.ten.ID).Scan(&chart); err != nil {
+		t.Fatalf("read chart 2000: %v", err)
+	}
 	pgtest.Exec(t, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, status, created_by, updated_by)
 		SELECT $1, gen_random_uuid(), $2, 'P' || n, 'Account ' || n, 'expense', 'active', $3, $3 FROM generate_series(1, 5000) n`, e.ten.ID, chart, e.ten.Human.ID)
 	pgtest.Exec(t, `INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by)
@@ -202,7 +217,9 @@ func TestTrialBalanceBudget(t *testing.T) {
 	rows, _ := admin.Query(context.Background(), `SELECT id::text FROM ledger.gl_account WHERE chart_id = $1 AND number LIKE 'P%' LIMIT 20`, chart)
 	for rows.Next() {
 		var id string
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan account: %v", err)
+		}
 		accounts = append(accounts, id)
 	}
 	pgtest.Exec(t, `ANALYZE ledger.period_balance`)
@@ -244,25 +261,9 @@ func TestTrialBalanceBudget(t *testing.T) {
 	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
 	p95 := times[len(times)*95/100]
 	t.Logf("trial balance of 10,000 rows: median %v, p95 %v", times[len(times)/2], p95)
-	if p95 > time.Second {
-		t.Fatalf("trial balance p95 %v exceeds the 1 s budget", p95)
+	// Scaled by ERP_BUDGET_SCALE like the other latency budgets, so a slower
+	// CI runner still catches a regression.
+	if budget := nfr.Budget(time.Second); p95 > budget {
+		t.Fatalf("trial balance p95 %v exceeds the %v budget (1 s scaled by ERP_BUDGET_SCALE)", p95, budget)
 	}
-}
-
-// lockedBuffer is a log sink the test may read while the projector writes.
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
 }

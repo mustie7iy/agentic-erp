@@ -1,6 +1,7 @@
 // Package vaulttest is a test double of HashiCorp Vault: a KV version 2
 // engine over HTTP with token authentication and the Kubernetes login
-// method, so the vault resolver can be tested without a server.
+// method, so the vault resolver of ADR-0017 can be tested without a server
+// (06-engineering-process §6.6).
 package vaulttest
 
 import (
@@ -36,11 +37,11 @@ type Server struct {
 }
 
 // New starts a server that stops when the test ends.
-func New(t testing.TB) *Server {
-	t.Helper()
+func New(tb testing.TB) *Server {
+	tb.Helper()
 	s := &Server{Secrets: map[string]map[string]any{}, revoked: map[string]bool{}}
 	srv := httptest.NewServer(http.HandlerFunc(s.serve))
-	t.Cleanup(srv.Close)
+	tb.Cleanup(srv.Close)
 	s.URL = srv.URL
 	return s
 }
@@ -71,14 +72,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/v1/")
 	if path == "auth/kubernetes/login" && r.Method == http.MethodPost {
 		var in map[string]string
-		json.NewDecoder(r.Body).Decode(&in)
+		_ = json.NewDecoder(r.Body).Decode(&in) // the role and JWT check below decides; a body that is not JSON has neither
 		if in["role"] != K8sRole || in["jwt"] != K8sJWT {
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte(`{"errors": ["permission denied"]}`))
 			return
 		}
 		s.Logins++
-		json.NewEncoder(w).Encode(map[string]any{"auth": map[string]any{"client_token": s.loginToken(s.Logins)}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"auth": map[string]any{"client_token": s.loginToken(s.Logins)}}) // a failed response write means the client is gone: no one is left to tell
 		return
 	}
 	token := r.Header.Get("X-Vault-Token")
@@ -99,5 +100,5 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"errors": []}`))
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": fields, "metadata": map[string]any{"version": 1}}})
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": fields, "metadata": map[string]any{"version": 1}}}) // a failed response write means the client is gone: no one is left to tell
 }

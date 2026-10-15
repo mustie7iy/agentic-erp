@@ -3,6 +3,7 @@ package partner
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,7 +36,7 @@ func (Postings) PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UU
 	case errors.Is(err, pgx.ErrNoRows):
 		return "there is no business partner with this id", nil
 	case err != nil:
-		return "", err
+		return "", fmt.Errorf("partner: read the posting status of business partner %s in legal entity %s: %w", partnerID, legalEntity, err)
 	case status != Active:
 		return "the business partner is " + status, nil
 	case !hasRole:
@@ -85,7 +86,7 @@ func (PaymentTerms) Apply(ctx context.Context, doc *config.Config) error {
 				version = t.version + 1, updated_by = EXCLUDED.updated_by
 			WHERE (t.description, t.net_days) IS DISTINCT FROM (EXCLUDED.description, EXCLUDED.net_days)`,
 			p.TenantID, t.Key, t.Description, t.NetDays, p.ID); err != nil {
-			return err
+			return fmt.Errorf("partner: apply payment term %s: %w", t.Key, err)
 		}
 	}
 	return nil
@@ -147,7 +148,7 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 		return Supplier{}, false, nil
 	}
 	if err != nil {
-		return Supplier{}, false, err
+		return Supplier{}, false, fmt.Errorf("partner: read supplier %s of legal entity %s: %w", partnerID, legalEntity, err)
 	}
 	if term != nil {
 		s.SetUp, s.ReconciliationID, s.PaymentTermCode, s.IsPostingBlocked, s.IsPaymentBlocked = true, *recon, *term, *posting, *payment
@@ -163,5 +164,8 @@ func (Suppliers) PaymentTermExists(ctx context.Context, code string) (bool, erro
 	}
 	var ok bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM partner.payment_term WHERE code = $1)`, code).Scan(&ok)
-	return ok, err
+	if err != nil {
+		return ok, fmt.Errorf("partner: find payment term %s: %w", code, err)
+	}
+	return ok, nil
 }

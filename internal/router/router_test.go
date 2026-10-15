@@ -18,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/router"
 )
 
@@ -49,57 +50,81 @@ func (l lookup) Upsert(_ context.Context, e directory.Entry) error {
 }
 
 func TestLoadConfig(t *testing.T) {
-	valid := map[string]string{"ERP_DIRECTORY_URL": "postgres://x", "ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}
+	valid := map[string]string{"ERP_DIRECTORY_URL": "postgres://x", "ERP_ENV": "development", "ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	c, err := router.LoadConfig(env(valid))
-	if err != nil || c.Addr != ":8081" || c.CacheTTL != 30*time.Second || c.ShutdownTimeout != 20*time.Second || len(c.Issuers) != 1 || c.LogLevel != slog.LevelInfo {
-		t.Fatalf("%+v %v", c, err)
+	check := func(what string, got, want any) {
+		t.Helper()
+		if got != want {
+			t.Errorf("%s: got %v, want %v", what, got, want)
+		}
 	}
+	c, err := router.LoadConfig(env(valid))
+	if err != nil {
+		t.Fatalf("defaults: %v", err)
+	}
+	check("Addr", c.Addr, ":8081")
+	check("CacheTTL", c.CacheTTL, 30*time.Second)
+	check("ShutdownTimeout", c.ShutdownTimeout, 20*time.Second)
+	check("len(Issuers)", len(c.Issuers), 1)
+	check("LogLevel", c.LogLevel, slog.LevelInfo)
+	check("Environment", c.Environment, "development")
 	for name, bad := range map[string]map[string]string{
-		"no directory": {"ERP_DIRECTORY_URL": ""},
-		"no issuers":   {"ERP_OIDC_ISSUERS": ""},
-		"bad issuers":  {"ERP_OIDC_ISSUERS": "[]"},
-		"bad cache":    {"ERP_DIRECTORY_CACHE": "0"},
-		"bad shutdown": {"ERP_SHUTDOWN_TIMEOUT": "soon"},
-		"bad level":    {"ERP_LOG_LEVEL": "loud"},
+		"no environment":      {"ERP_ENV": ""},
+		"unknown environment": {"ERP_ENV": "staging"},
+		"no directory":        {"ERP_DIRECTORY_URL": ""},
+		"no issuers":          {"ERP_OIDC_ISSUERS": ""},
+		"bad issuers":         {"ERP_OIDC_ISSUERS": "[]"},
+		"bad cache":           {"ERP_DIRECTORY_CACHE": "0"},
+		"bad shutdown":        {"ERP_SHUTDOWN_TIMEOUT": "soon"},
+		"bad level":           {"ERP_LOG_LEVEL": "loud"},
 	} {
-		m := map[string]string{}
-		for k, v := range valid {
-			m[k] = v
-		}
-		for k, v := range bad {
-			m[k] = v
-		}
-		if _, err := router.LoadConfig(env(m)); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			m := map[string]string{}
+			for k, v := range valid {
+				m[k] = v
+			}
+			for k, v := range bad {
+				m[k] = v
+			}
+			if _, err := router.LoadConfig(env(m)); err == nil {
+				t.Errorf("got no error for %v, want one", bad)
+			}
+		})
 	}
 	m := map[string]string{}
 	for k, v := range valid {
 		m[k] = v
 	}
 	m["ERP_ROUTER_ADDR"], m["ERP_DIRECTORY_CACHE"], m["ERP_LOG_LEVEL"] = "127.0.0.1:0", "5s", "debug"
-	if c, err := router.LoadConfig(env(m)); err != nil || c.Addr != "127.0.0.1:0" || c.AdminAddr != ":9091" || c.CacheTTL != 5*time.Second || c.LogLevel != slog.LevelDebug || c.OperatorIssuers != nil {
-		t.Fatalf("%+v %v", c, err)
+	if c, err = router.LoadConfig(env(m)); err != nil {
+		t.Fatalf("overrides: %v", err)
+	}
+	check("overridden Addr", c.Addr, "127.0.0.1:0")
+	check("AdminAddr", c.AdminAddr, ":9091")
+	check("overridden CacheTTL", c.CacheTTL, 5*time.Second)
+	check("overridden LogLevel", c.LogLevel, slog.LevelDebug)
+	if c.OperatorIssuers != nil {
+		t.Errorf("OperatorIssuers: got %v, want nil", c.OperatorIssuers)
 	}
 	// The global control plane needs operator issuers and a page-token key.
 	m["ERP_OPERATOR_ISSUERS"], m["ERP_ROUTER_ADMIN_ADDR"] = `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "127.0.0.1:0"
-	if _, err := router.LoadConfig(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_PAGE_TOKEN_KEY") {
-		t.Fatalf("operators without a page key: %v", err)
-	}
+	_, err = router.LoadConfig(env(m))
+	pgtest.WantErr(t, err, "ERP_PAGE_TOKEN_KEY")
 	m["ERP_PAGE_TOKEN_KEY"] = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	if c, err := router.LoadConfig(env(m)); err != nil || len(c.OperatorIssuers) != 1 || len(c.PageTokenKey) != 32 || c.AdminAddr != "127.0.0.1:0" {
-		t.Fatalf("%+v %v", c, err)
+	if c, err = router.LoadConfig(env(m)); err != nil {
+		t.Fatalf("operators: %v", err)
 	}
+	check("len(OperatorIssuers)", len(c.OperatorIssuers), 1)
+	check("len(PageTokenKey)", len(c.PageTokenKey), 32)
+	check("operator AdminAddr", c.AdminAddr, "127.0.0.1:0")
 	m["ERP_OPERATOR_ISSUERS"] = "[]"
-	if _, err := router.LoadConfig(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OPERATOR_ISSUERS") {
-		t.Fatalf("empty operators: %v", err)
-	}
+	_, err = router.LoadConfig(env(m))
+	pgtest.WantErr(t, err, "ERP_OPERATOR_ISSUERS")
 }
 
 func TestRouting(t *testing.T) {
 	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +132,8 @@ func TestRouting(t *testing.T) {
 	cell := func(name string) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
-			json.NewEncoder(w).Encode(map[string]any{"cell": name, "method": r.Method, "path": r.URL.RequestURI(), "host": r.Host,
+			// A failed write reaches the router as a broken answer, which the client asserts on.
+			_ = json.NewEncoder(w).Encode(map[string]any{"cell": name, "method": r.Method, "path": r.URL.RequestURI(), "host": r.Host,
 				"forwarded": r.Header.Get("X-Forwarded-Host"), "proto": r.Header.Get("X-Forwarded-Proto"), "auth": r.Header.Get("Authorization"), "body": string(body)})
 		}))
 	}
@@ -130,7 +156,7 @@ func TestRouting(t *testing.T) {
 	srv := httptest.NewServer(rt)
 	defer srv.Close()
 	do := func(method, path, token, body string) (int, map[string]any, http.Header) {
-		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req, _ := http.NewRequestWithContext(t.Context(), method, srv.URL+path, strings.NewReader(body))
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -138,39 +164,62 @@ func TestRouting(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }() // a read body has nothing left to lose on close
 		var out map[string]any
-		json.NewDecoder(resp.Body).Decode(&out)
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("%s %s: %d, not JSON: %v", method, path, resp.StatusCode, err)
+		}
 		return resp.StatusCode, out, resp.Header
+	}
+	check := func(what string, got, want any) {
+		t.Helper()
+		if got != want {
+			t.Errorf("%s: got %v, want %v", what, got, want)
+		}
 	}
 	// Each tenant reaches its own cell, request intact; the answer names the cell.
 	code, out, h := do("POST", "/v1/journal-entries?dry_run=true", is.Token(t, a, "ada", nil), `{"x":1}`)
-	if code != 200 || out["cell"] != "eu-1" || out["method"] != "POST" || out["path"] != "/v1/journal-entries?dry_run=true" || out["body"] != `{"x":1}` ||
-		out["auth"] == "" || out["forwarded"] == "" || out["proto"] != "http" || !strings.Contains(out["host"].(string), "127.0.0.1") || h.Get("X-Erp-Cell") != "eu-1" {
-		t.Fatalf("%d %v %v", code, out, h)
+	if code != 200 {
+		t.Fatalf("status: got %d, want 200 (%v)", code, out)
 	}
-	if code, out, _ := do("GET", "/v1/balances", is.Token(t, b, "bob", nil), ""); code != 200 || out["cell"] != "eu-2" {
-		t.Fatalf("%d %v", code, out)
+	check("cell", out["cell"], "eu-1")
+	check("method", out["method"], "POST")
+	check("path", out["path"], "/v1/journal-entries?dry_run=true")
+	check("body", out["body"], `{"x":1}`)
+	if out["auth"] == "" {
+		t.Error("auth: got empty, want the bearer token passed on")
 	}
+	if out["forwarded"] == "" {
+		t.Error("X-Forwarded-Host: got empty, want the client's host")
+	}
+	check("proto", out["proto"], "http")
+	if host, _ := out["host"].(string); !strings.Contains(host, "127.0.0.1") {
+		t.Errorf("host: got %q, want the cell's 127.0.0.1 address", host)
+	}
+	check("X-Erp-Cell", h.Get("X-Erp-Cell"), "eu-1")
+	code, out, _ = do("GET", "/v1/balances", is.Token(t, b, "bob", nil), "")
+	check("other tenant status", code, 200)
+	check("other tenant cell", out["cell"], "eu-2")
 	// A moving tenant reads but does not write; other statuses are refused; unknown tenants have no cell.
-	if code, out, _ := do("GET", "/v1/balances", is.Token(t, moving, "m", nil), ""); code != 200 || out["cell"] != "eu-2" {
-		t.Fatalf("moving read: %d %v", code, out)
-	}
-	if code, out, h := do("POST", "/v1/journal-entries", is.Token(t, moving, "m", nil), "{}"); code != 503 || h.Get("Retry-After") != "60" || out["status"] != float64(503) {
-		t.Fatalf("moving write: %d %v %v", code, out, h)
-	}
-	if code, out, _ := do("GET", "/v1/balances", is.Token(t, suspended, "s", nil), ""); code != 403 || out["code"] != "tenancy.tenant_suspended" {
-		t.Fatalf("suspended: %d %v", code, out)
-	}
+	code, out, _ = do("GET", "/v1/balances", is.Token(t, moving, "m", nil), "")
+	check("moving read status", code, 200)
+	check("moving read cell", out["cell"], "eu-2")
+	code, out, h = do("POST", "/v1/journal-entries", is.Token(t, moving, "m", nil), "{}")
+	check("moving write status", code, 503)
+	check("moving write Retry-After", h.Get("Retry-After"), "60")
+	check("moving write problem status", out["status"], float64(503))
+	code, out, _ = do("GET", "/v1/balances", is.Token(t, suspended, "s", nil), "")
+	check("suspended status", code, 403)
+	check("suspended code", out["code"], "tenancy.tenant_suspended")
 	if code, out, _ := do("GET", "/v1/balances", is.Token(t, uuid.New(), "n", nil), ""); code != 404 {
 		t.Fatalf("unknown: %d %v", code, out)
 	}
 	if code, out, _ := do("GET", "/v1/balances", is.Token(t, broken, "x", nil), ""); code != 503 {
 		t.Fatalf("broken entry: %d %v", code, out)
 	}
-	if code, out, _ := do("GET", "/v1/balances", is.Token(t, down, "x", nil), ""); code != 502 || out["code"] != "platform.cell_unreachable" {
-		t.Fatalf("cell down: %d %v", code, out)
-	}
+	code, out, _ = do("GET", "/v1/balances", is.Token(t, down, "x", nil), "")
+	check("cell down status", code, 502)
+	check("cell down code", out["code"], "platform.cell_unreachable")
 	// Tokens: none, invalid, an operator's (no tenant).
 	if code, _, _ := do("GET", "/v1/balances", "", ""); code != 401 {
 		t.Fatalf("no token: %d", code)
@@ -183,11 +232,12 @@ func TestRouting(t *testing.T) {
 	}
 	// The directory failing is a 503 with retry; liveness needs no token.
 	m.err = errors.New("directory down")
-	if code, out, h := do("GET", "/v1/balances", is.Token(t, a, "ada", nil), ""); code != 503 || h.Get("Retry-After") != "5" || out["status"] != float64(503) {
-		t.Fatalf("directory down: %d %v %v", code, out, h)
-	}
+	code, out, h = do("GET", "/v1/balances", is.Token(t, a, "ada", nil), "")
+	check("directory down status", code, 503)
+	check("directory down Retry-After", h.Get("Retry-After"), "5")
+	check("directory down problem status", out["status"], float64(503))
 	m.err = nil
-	if code, out, _ := do("GET", "/livez", "", ""); code != 200 || out["status"] != "ok" {
-		t.Fatalf("livez: %d %v", code, out)
-	}
+	code, out, _ = do("GET", "/livez", "", "")
+	check("livez status", code, 200)
+	check("livez body status", out["status"], "ok")
 }

@@ -1,5 +1,7 @@
 // Package llm holds what every Claude agent in the platform shares: client
-// setup, request defaults, tool result helpers and stop-reason handling.
+// setup, request defaults, tool result helpers and stop-reason handling. The
+// agents are API clients whose tools are the API's operations (04-api-design
+// §4.13).
 package llm
 
 import (
@@ -50,7 +52,7 @@ func (r *Runner) RunTools(ctx context.Context, tools []anthropic.BetaTool, param
 	runner := r.Client.Beta.Messages.NewToolRunner(tools, anthropic.BetaToolRunnerParams{BetaMessageNewParams: params, MaxIterations: maxIterations})
 	msg, err := runner.RunToCompletion(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("llm: run tools: %w", err)
 	}
 	return msg, Check(msg)
 }
@@ -80,7 +82,7 @@ func Result(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 	if !ok {
 		b, err := json.Marshal(v)
 		if err != nil {
-			return anthropic.BetaToolResultBlockParamContentUnion{}, err
+			return anthropic.BetaToolResultBlockParamContentUnion{}, fmt.Errorf("llm: encode tool result: %w", err)
 		}
 		text = string(b)
 	}
@@ -90,14 +92,4 @@ func Result(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 // Error reports a tool failure back to the model so it can correct course.
 func Error(err error) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 	return Result("error: " + err.Error())
-}
-
-// Must unwraps a value whose error can only come from a programming mistake,
-// such as building a tool schema from a fixed Go struct. It panics instead
-// of returning an error no caller could handle.
-func Must[T any](v T, err error) T {
-	if err != nil {
-		panic(fmt.Sprintf("llm: %v", err))
-	}
-	return v
 }

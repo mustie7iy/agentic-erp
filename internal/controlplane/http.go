@@ -18,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -32,7 +33,7 @@ const Base = "/control/v1"
 // accepts (VerifyOperator). Errors are RFC 9457 problems like the public
 // API's; failures of the platform are logged.
 func Handler(s *Service, v *authn.Verifier, log *slog.Logger) http.Handler {
-	h := &handler{s: s, log: log}
+	h := &handler{s: s, op: httpapi.Operator{Roles: Roles, Log: log, Name: "control"}}
 	mux := http.NewServeMux()
 	mux.HandleFunc(Base+"/tenants", h.collection)
 	mux.HandleFunc(Base+"/tenants/{rest}", h.item)
@@ -44,52 +45,22 @@ func Handler(s *Service, v *authn.Verifier, log *slog.Logger) http.Handler {
 }
 
 type handler struct {
-	s   *Service
-	log *slog.Logger
+	s  *Service
+	op httpapi.Operator
 }
 
-// endpoint is one operation of the contract: its body answers or fails.
-type endpoint func(w http.ResponseWriter, r *http.Request) error
-
-// Roles maps each operation to the operator role it needs (ADR-0027).
+// Roles maps each operation to the operator role it needs (ADR-0027); any
+// other needs authn.RoleOperate.
 var Roles = map[string]string{"listTenants": authn.RoleRead, "getTenant": authn.RoleRead, "getTenantFingerprint": authn.RoleRead, "createTenant": authn.RoleProvision}
-
-// required is the role an operation needs: RoleOperate unless Roles says otherwise.
-func required(operation string) string {
-	if role, ok := Roles[operation]; ok {
-		return role
-	}
-	return authn.RoleOperate
-}
-
-func (h *handler) serve(w http.ResponseWriter, r *http.Request, operation string, e endpoint) {
-	reqctx.InfoFrom(r.Context()).Operation = operation
-	if claims, _ := reqctx.ClaimsFrom(r.Context()); !authn.OperatorAllowed(claims, required(operation)) {
-		problem.Write(w, r, problem.Forbidden("authz.operator_role", "This operation needs the operator role "+required(operation)+"."))
-		return
-	}
-	if err := e(w, r); err != nil {
-		p := problem.From(err)
-		if p.Status >= 500 {
-			h.log.ErrorContext(r.Context(), "control request failed", "operation", operation, "error", err, "trace_id", reqctx.TraceID(r.Context()))
-		}
-		problem.Write(w, r, p)
-	}
-}
-
-func notAllowed(w http.ResponseWriter, r *http.Request, allowed string) {
-	w.Header().Set("Allow", allowed)
-	problem.Write(w, r, problem.New(http.StatusMethodNotAllowed, "request.method_not_allowed", "Method not allowed", "Allowed: "+allowed+"."))
-}
 
 func (h *handler) collection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		h.serve(w, r, "listTenants", h.list)
+		h.op.Serve(w, r, "listTenants", h.list)
 	case http.MethodPost:
-		h.serve(w, r, "createTenant", h.create)
+		h.op.Serve(w, r, "createTenant", h.create)
 	default:
-		notAllowed(w, r, "GET, POST")
+		httpapi.NotAllowed(w, r, "GET, POST")
 	}
 }
 
@@ -103,29 +74,23 @@ func (h *handler) item(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.Method == http.MethodGet && !custom:
-		h.serve(w, r, "getTenant", func(w http.ResponseWriter, r *http.Request) error { return h.get(w, r, id) })
+		h.op.Serve(w, r, "getTenant", func(w http.ResponseWriter, r *http.Request) error { return h.get(w, r, id) })
 	case r.Method == http.MethodPost && custom && verb == "rotateKey":
-		h.serve(w, r, "rotateTenantKey", func(w http.ResponseWriter, r *http.Request) error { return h.rotateKey(w, r, id) })
+		h.op.Serve(w, r, "rotateTenantKey", func(w http.ResponseWriter, r *http.Request) error { return h.rotateKey(w, r, id) })
 	case r.Method == http.MethodPost && custom && verb == "erase":
-		h.serve(w, r, "eraseTenant", func(w http.ResponseWriter, r *http.Request) error { return h.erase(w, r, id) })
+		h.op.Serve(w, r, "eraseTenant", func(w http.ResponseWriter, r *http.Request) error { return h.erase(w, r, id) })
 	case r.Method == http.MethodPost && custom:
-		h.serve(w, r, verb+"Tenant", func(w http.ResponseWriter, r *http.Request) error { return h.transition(w, r, id, verb) })
+		h.op.Serve(w, r, verb+"Tenant", func(w http.ResponseWriter, r *http.Request) error { return h.transition(w, r, id, verb) })
 	case custom:
-		notAllowed(w, r, "POST")
+		httpapi.NotAllowed(w, r, "POST")
 	default:
-		notAllowed(w, r, "GET")
+		httpapi.NotAllowed(w, r, "GET")
 	}
 }
 
 func operator(ctx context.Context) Operator {
 	claims, _ := reqctx.ClaimsFrom(ctx) // the middleware put them there
 	return OperatorFrom(claims)
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v) // the status is sent; a failed write cannot be reported
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
@@ -147,7 +112,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	if next != "" {
 		out["next_page_token"] = next
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpapi.WriteJSON(w, http.StatusOK, out)
 	return nil
 }
 
@@ -157,7 +122,7 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request, id uuid.UUID) erro
 		return err
 	}
 	w.Header().Set("ETag", etag.Format(t.Version))
-	writeJSON(w, http.StatusOK, t)
+	httpapi.WriteJSON(w, http.StatusOK, t)
 	return nil
 }
 
@@ -169,9 +134,9 @@ func (h *handler) fingerprintItem(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, r, problem.BadRequest("request.invalid_parameter", "Parameter id is invalid.",
 			problem.FieldError{Field: "id", Code: "invalid", Message: "a UUID"}))
 	case r.Method != http.MethodGet:
-		notAllowed(w, r, "GET")
+		httpapi.NotAllowed(w, r, "GET")
 	default:
-		h.serve(w, r, "getTenantFingerprint", func(w http.ResponseWriter, r *http.Request) error { return h.fingerprint(w, r, id) })
+		h.op.Serve(w, r, "getTenantFingerprint", func(w http.ResponseWriter, r *http.Request) error { return h.fingerprint(w, r, id) })
 	}
 }
 
@@ -187,7 +152,7 @@ func (h *handler) fingerprint(w http.ResponseWriter, r *http.Request, id uuid.UU
 		return err
 	}
 	w.Header().Set("ETag", etag.Format(t.Version))
-	writeJSON(w, http.StatusOK, fingerprinted{Tenant: t, Fingerprint: fp})
+	httpapi.WriteJSON(w, http.StatusOK, fingerprinted{Tenant: t, Fingerprint: fp})
 	return nil
 }
 
@@ -256,7 +221,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.Header().Set("ETag", etag.Format(created.Version))
 	w.Header().Set("Location", Base+"/tenants/"+created.ID.String())
-	writeJSON(w, http.StatusCreated, created)
+	httpapi.WriteJSON(w, http.StatusCreated, created)
 	return nil
 }
 
@@ -266,7 +231,7 @@ func (h *handler) transition(w http.ResponseWriter, r *http.Request, id uuid.UUI
 		return err
 	}
 	w.Header().Set("ETag", etag.Format(t.Version))
-	writeJSON(w, http.StatusOK, t)
+	httpapi.WriteJSON(w, http.StatusOK, t)
 	return nil
 }
 
@@ -282,7 +247,7 @@ func (h *handler) rotateKey(w http.ResponseWriter, r *http.Request, id uuid.UUID
 		return err
 	}
 	w.Header().Set("ETag", etag.Format(t.Version))
-	writeJSON(w, http.StatusOK, rotated{Tenant: t, Rotation: rot})
+	httpapi.WriteJSON(w, http.StatusOK, rotated{Tenant: t, Rotation: rot})
 	return nil
 }
 
@@ -298,6 +263,6 @@ func (h *handler) erase(w http.ResponseWriter, r *http.Request, id uuid.UUID) er
 		return err
 	}
 	w.Header().Set("ETag", etag.Format(t.Version))
-	writeJSON(w, http.StatusOK, erased{Tenant: t, Erasure: er})
+	httpapi.WriteJSON(w, http.StatusOK, erased{Tenant: t, Erasure: er})
 	return nil
 }

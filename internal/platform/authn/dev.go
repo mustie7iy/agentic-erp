@@ -12,6 +12,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -53,10 +54,7 @@ func (d *DevIssuer) Static() Static {
 }
 
 func (d *DevIssuer) now() time.Time {
-	if d.Now != nil {
-		return d.Now()
-	}
-	return time.Now()
+	return clock.Now(d.Now)
 }
 
 // Token mints a token for the subject in the tenant; with no tenant
@@ -67,10 +65,10 @@ func (d *DevIssuer) Token(tenant uuid.UUID, subject string) string {
 	if tenant != uuid.Nil {
 		claims[DefaultTenantClaim] = tenant.String()
 	}
-	payload, _ := json.Marshal(claims)
+	payload, _ := json.Marshal(claims) // strings and numbers always encode
 	// Signing a JSON payload with a valid RSA key cannot fail.
 	sig, _ := d.signer.Sign(payload)
-	tok, _ := sig.CompactSerialize()
+	tok, _ := sig.CompactSerialize() // a signature just made always serializes
 	return tok
 }
 
@@ -97,6 +95,6 @@ func (d *DevIssuer) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"token": d.Token(tenant, in.Subject), "expires_in": int(DevTokenTTL.Seconds())})
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": d.Token(tenant, in.Subject), "expires_in": int(DevTokenTTL.Seconds())}) // a failed response write means the client is gone: no one is left to tell
 	})
 }

@@ -13,7 +13,9 @@ import (
 
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // rewrapCmd moves every tenant's field-encryption keys onto the ring's
@@ -42,7 +44,7 @@ func rewrapCmd(ctx context.Context, args []string, cfg platformconfig.Config, st
 		fmt.Fprintln(stderr, "erp-server rewrap:", err)
 		return 1
 	}
-	out, _ := json.MarshalIndent(res, "", "  ")
+	out, _ := json.MarshalIndent(res, "", "  ") // counts and ids always encode
 	fmt.Fprintln(stdout, string(out))
 	return 0
 }
@@ -60,17 +62,23 @@ func rewrap(ctx context.Context, cfg platformconfig.Config) (rewrapResult, error
 		return rewrapResult{}, err
 	}
 	defer pool.Close()
-	keys, _ := keyring(cfg, pool) // the keys were validated with the configuration, which requires a master
+	keys, err := keyring(cfg, pool)
+	if err != nil {
+		return rewrapResult{}, fmt.Errorf("rewrap: field keys: %w", err)
+	}
+	// The configuration requires a master; checked here too, because this
+	// function is also called with configurations that skipped validation.
+	if len(keys.Masters) == 0 {
+		return rewrapResult{}, errors.New("rewrap: no master key is configured to move the tenant keys onto")
+	}
 	res := rewrapResult{Master: keys.Masters[0].ID()}
 	var tenants []uuid.UUID
 	err = pool.InTx(ctx, database.Scope{Role: cfg.ControlRole, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
-		rows, _ := tx.Query(ctx, `SELECT id FROM tenancy.tenant ORDER BY id`)
-		var id uuid.UUID
-		_, err := pgx.ForEachRow(rows, []any{&id}, func() error {
-			tenants = append(tenants, id)
-			return nil
-		})
-		return err
+		all, err := tenancy.AllTenants(ctx, tx)
+		for _, t := range all {
+			tenants = append(tenants, t.ID)
+		}
+		return errs.Wrapf(err, "read tenants")
 	})
 	if err != nil {
 		return rewrapResult{}, fmt.Errorf("listing tenants: %w", err)

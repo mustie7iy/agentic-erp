@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Message is one event in CloudEvents binary mode, ready for the bus.
@@ -79,7 +80,7 @@ func (r *Relay) relay(ctx context.Context, schema string) (int, error) {
 		var x row
 		if _, err := pgx.ForEachRow(rows, []any{&x.tenant, &x.id, &x.aggregate, &x.actor, &x.eventType, &x.traceID, &x.payload, &x.occurred},
 			func() error { rs = append(rs, x); return nil }); err != nil {
-			return err
+			return fmt.Errorf("read outbox: %w", err)
 		}
 		if len(rs) == 0 {
 			return nil
@@ -93,7 +94,7 @@ func (r *Relay) relay(ctx context.Context, schema string) (int, error) {
 		}
 		if _, err := tx.Exec(ctx, `UPDATE `+table+` SET published_at = now()
 			WHERE (tenant_id, id) IN (SELECT * FROM unnest($1::uuid[], $2::uuid[]))`, tenants, ids); err != nil {
-			return err
+			return fmt.Errorf("mark %d events published: %w", len(rs), err)
 		}
 		published = len(rs)
 		return nil
@@ -108,7 +109,13 @@ func (r *Relay) message(schema string, e row) Message {
 	ctxName := PublicContext(schema)
 	// com.example.erp.<context>.<event>.v<n> → <event>
 	name := strings.TrimPrefix(e.eventType, "com.example.erp."+ctxName+".")
-	name = name[:strings.LastIndex(name, ".")]
+	// The outbox's CHECK refuses a type without the version suffix. Should
+	// one get past it, it is published under the name it has: refusing it
+	// would leave the row at the head of the context's ordered queue and
+	// stop every event behind it, and ADR-0007 promises delivery.
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		name = name[:i]
+	}
 	h := map[string]string{
 		"ce-specversion":     "1.0",
 		"ce-id":              e.id.String(),
@@ -136,22 +143,8 @@ func (r *Relay) message(schema string, e row) Message {
 // followed immediately by the next; errors are logged and retried after the
 // interval.
 func (r *Relay) Run(ctx context.Context) {
-	interval := r.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
+	worker.Loop(ctx, r.Interval, time.Second, func(ctx context.Context) (bool, error) {
 		n, err := r.RunOnce(ctx)
-		if err != nil && ctx.Err() == nil {
-			r.Log.ErrorContext(ctx, "outbox relay failed", "error", err)
-		}
-		if err == nil && n >= r.batch() {
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return n >= r.batch(), err
+	}, r.Log, "outbox relay failed")
 }

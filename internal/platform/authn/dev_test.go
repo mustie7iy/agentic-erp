@@ -16,14 +16,23 @@ import (
 
 func TestDevelopmentIssuer(t *testing.T) {
 	dev := authn.NewDevIssuer()
-	v, err := authn.New(context.Background(), nil, dev.Static())
+	v, err := authn.New(context.Background(), authn.Development, nil, dev.Static())
 	if err != nil {
 		t.Fatal(err)
 	}
 	ten := uuid.New()
 	claims, err := v.Verify(context.Background(), dev.Token(ten, "alice"))
-	if err != nil || claims.TenantID != ten || claims.Subject != "alice" || claims.Issuer != authn.DevIssuerURL {
-		t.Fatalf("%+v %v", claims, err)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if claims.TenantID != ten {
+		t.Errorf("tenant: got %v, want %v", claims.TenantID, ten)
+	}
+	if claims.Subject != "alice" {
+		t.Errorf("subject: got %s, want alice", claims.Subject)
+	}
+	if claims.Issuer != authn.DevIssuerURL {
+		t.Errorf("issuer: got %s, want %s", claims.Issuer, authn.DevIssuerURL)
 	}
 	// Another dev issuer's key is not trusted; an expired token is refused.
 	other := authn.NewDevIssuer()
@@ -48,21 +57,32 @@ func TestDevelopmentIssuer(t *testing.T) {
 		Token     string
 		ExpiresIn int `json:"expires_in"`
 	}
-	json.Unmarshal(rec.Body.Bytes(), &answer)
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("decode %s: %v", rec.Body, err)
+	}
 	if rec.Code != 200 || answer.ExpiresIn != 3600 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 	if claims, err := v.Verify(context.Background(), answer.Token); err != nil || claims.Subject != "bob" {
 		t.Fatalf("%+v %v", claims, err)
 	}
-	for _, body := range []string{`{`, `{"tenant_id": "x", "subject": "bob"}`, `{"tenant_id": "` + ten.String() + `"}`, `{"subject": ""}`} {
-		if rec := post(body); rec.Code != http.StatusBadRequest {
-			t.Errorf("%s: %d", body, rec.Code)
-		}
+	for name, body := range map[string]string{
+		"not json":        `{`,
+		"tenant not uuid": `{"tenant_id": "x", "subject": "bob"}`,
+		"no subject":      `{"tenant_id": "` + ten.String() + `"}`,
+		"empty subject":   `{"subject": ""}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if rec := post(body); rec.Code != http.StatusBadRequest {
+				t.Errorf("%s: got %d, want %d", body, rec.Code, http.StatusBadRequest)
+			}
+		})
 	}
 	// Without a tenant the token is an operator's.
 	rec = post(`{"subject": "ops"}`)
-	json.Unmarshal(rec.Body.Bytes(), &answer)
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("decode %s: %v", rec.Body, err)
+	}
 	if rec.Code != 200 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}

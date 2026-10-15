@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 )
 
@@ -46,6 +46,7 @@ func provisionCmd(ctx context.Context, args []string, cfg platformconfig.Config,
 		fmt.Fprintln(stderr, "erp-server provision:", err)
 		return 1
 	}
+	// Ids, names and counts always encode.
 	out, _ := json.MarshalIndent(map[string]any{"tenant_id": res.TenantID, "administrator_id": res.AdministratorID,
 		"administrator_role": provisioning.AdministratorRole, "roles": res.Roles, "legal_entities": res.LegalEntities,
 		"configuration_version": res.ConfigurationVersion}, "", "  ")
@@ -75,7 +76,10 @@ func provision(ctx context.Context, cfg platformconfig.Config, req provisioning.
 		return provisioning.Result{}, err
 	}
 	defer pool.Close()
-	keys, _ := keyring(cfg, pool) // the keys were validated with the configuration
-	deps := httpapi.Configuration(httpapi.Config{FieldKeys: keys})
-	return (&provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Configuration: deps}).Provision(ctx, req)
+	keys, err := keyring(cfg, pool)
+	if err != nil {
+		return provisioning.Result{}, fmt.Errorf("provision: field keys: %w", err)
+	}
+	deps := app.Configuration(app.Config{FieldKeys: keys})
+	return (&provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Issuers: cfg.TenantIssuers(), Configuration: deps}).Provision(ctx, req)
 }

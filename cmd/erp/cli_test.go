@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // reply is a canned API answer; status 0 aborts the connection instead.
@@ -64,6 +69,42 @@ func fakeAPI(t *testing.T, r routes, vars ...string) {
 	t.Cleanup(func() { getenv = os.Getenv })
 }
 
+// writeFile writes a fixture file the command under test reads; a failed write
+// fails the test here rather than as a confusing command error later.
+func writeFile(t *testing.T, name string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(name, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// decodeRequest decodes a fake server's JSON request body into v. It runs on the
+// server's goroutine, so a body the CLI got wrong is reported with t.Errorf and
+// answered 400, and the caller returns.
+func decodeRequest(t *testing.T, w http.ResponseWriter, r *http.Request, v any) bool {
+	t.Helper()
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		t.Errorf("%s %s: decode the request body: %v", r.Method, r.URL.Path, err)
+		w.WriteHeader(http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+// printFails runs a command that succeeds when its output can be written,
+// with output that cannot: the lost output must fail it, exiting non-zero
+// with the write's error.
+func printFails(t *testing.T, args ...string) {
+	t.Helper()
+	var errBuf bytes.Buffer
+	out, errOut = failing{}, &errBuf
+	t.Cleanup(func() { out, errOut = os.Stdout, os.Stderr })
+	if code := run(context.Background(), args); code == 0 || !strings.Contains(errBuf.String(), "device full") {
+		t.Errorf("erp %s with lost output: exit %d, want failure with \"device full\":\n%s", strings.Join(args, " "), code, errBuf.String())
+	}
+	out, errOut = os.Stdout, os.Stderr
+}
+
 // fails runs a command that must fail with output containing want.
 func fails(t *testing.T, want string, args ...string) {
 	t.Helper()
@@ -109,14 +150,22 @@ func TestCallErrors(t *testing.T) {
 	fails(t, "missing path parameter", "call", "getMigrationRun")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN is not set", "call", "listMigrationRuns")
+	// An answer over the tool's size limit comes back truncated, no longer
+	// JSON: the command fails rather than print status 0 and null.
+	fakeAPI(t, routes{"GET /v1/migration-runs": {ok(`{"items": ["` + strings.Repeat("x", 50000) + `"]}`)}})
+	fails(t, "cannot be read", "call", "listMigrationRuns")
+	fakeAPI(t, routes{"GET /v1/migration-runs": {ok(`{"items": []}`)}})
+	printFails(t, "call", "listMigrationRuns")
 }
 
 func TestLocalPreparationErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
-	os.WriteFile("file", nil, 0o644)
+	writeFile(t, "file", nil)
 	fails(t, "flag provided", "gen-mock-sap", "-x")
 	fails(t, "not a directory", "gen-mock-sap", "-out", "file/extract.json")
 	must(t, "gen-mock-sap", "-out", "extract.json", "-seed", "7")
+	printFails(t, "gen-mock-sap", "-out", "extract.json", "-seed", "7")
+	printFails(t, "config", "generate", "-source", "file:extract.json", "-out", "draft.yaml")
 
 	fails(t, "config generate | validate", "config")
 	fails(t, "unknown config command", "config", "bogus")
@@ -128,15 +177,22 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "missing.yaml", "config", "validate", "-file", "missing.yaml")
 
 	doc := fixture.Document(t)
-	doc.Companies[0].TaxCodes = nil
 	b, _ := doc.Marshal()
-	os.WriteFile("warn.yaml", b, 0o644)
+	writeFile(t, "clean.yaml", b)
+	if got := must(t, "config", "validate", "-file", "clean.yaml"); !strings.Contains(got, "no findings") {
+		t.Fatalf("clean: got %s, want no findings", got)
+	}
+	printFails(t, "config", "validate", "-file", "clean.yaml")
+	doc.Companies[0].TaxCodes = nil
+	b, _ = doc.Marshal()
+	writeFile(t, "warn.yaml", b)
 	if got := must(t, "config", "validate", "-file", "warn.yaml"); !strings.Contains(got, "[warning]") {
 		t.Fatalf("warnings: %s", got)
 	}
+	printFails(t, "config", "validate", "-file", "warn.yaml")
 	doc.Companies[0].InvoiceTolerance.PricePercent = 200
 	b, _ = doc.Marshal()
-	os.WriteFile("bad.yaml", b, 0o644)
+	writeFile(t, "bad.yaml", b)
 	fails(t, "validation errors", "config", "validate", "-file", "bad.yaml")
 }
 
@@ -195,9 +251,21 @@ func TestMigrateErrors(t *testing.T) {
 	_, got := cli(t, "migrate")
 	for _, want := range []string{"FAIL", "difference 1000 211000", "1 SAP documents are not on the platform"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("report lacks %q:\n%s", want, got)
+			t.Errorf("report: got\n%s\nwant it to contain %q", got, want)
 		}
 	}
+	// A reconciled run whose checks table cannot be printed fails the command.
+	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), ok(`{"id": "r1", "status": "reconciled", "report": {"checks": [{"company_code": "1000", "name": "balance", "pass": true}]}}`)}}))
+	out = failing{}
+	err := migrate(context.Background(), []string{"-connector", "c", "-legal-entities", "le"})
+	out = os.Stdout
+	pgtest.CheckErr(t, err, "device full")
+	// So does one without checks: every line of the report counts, not only the table.
+	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), ok(`{"id": "r1", "status": "reconciled"}`)}}))
+	out = failing{}
+	err = migrate(context.Background(), []string{"-connector", "c", "-legal-entities", "le"})
+	out = os.Stdout
+	pgtest.CheckErr(t, err, "device full")
 	fails(t, "flag provided", "migrate", "-x")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN", "migrate")
@@ -207,12 +275,10 @@ const invoicePath = "/v1/supplier-invoices/i1"
 
 func parked(r routes) routes {
 	base := routes{
-		"GET /v1/config-versions": {ok(`{"items": [{"document": {"companies": [{"code": "1000", "auto_post_limit": "100.00"}]}}]}`)},
-		"GET /v1/legal-entities":  {ok(`{"items": [{"id": "le", "code": "1000"}]}`)},
 		"GET /v1/supplier-invoices": {ok(`{"items": [{"id": "i0", "document_number": "5100", "legal_entity_id": "le"},
 			{"id": "i1", "document_number": "5101", "legal_entity_id": "le", "purchase_order_id": "po", "gross_amount": {"amount": "10.00"}}]}`)},
 		"GET " + invoicePath:             {ok(`{}`)},
-		"POST " + invoicePath + ":match": {ok(`{"is_clean": true}`)},
+		"POST " + invoicePath + ":match": {ok(`{"is_clean": true, "decision": {"outcome": "auto_post", "reason": "within"}}`)},
 		"POST " + invoicePath + ":post":  {ok(`{}`)},
 		"GET /v1/recommendations":        {ok(`{"items": []}`)},
 	}
@@ -228,17 +294,13 @@ func TestInvoicesErrors(t *testing.T) {
 		r    routes
 		want string
 	}{
-		"config aborted":     {routes{"GET /v1/config-versions": {aborted}}, "EOF"},
-		"config garbled":     {routes{"GET /v1/config-versions": {ok(`{`)}}, "unexpected end"},
-		"no configuration":   {routes{"GET /v1/config-versions": {ok(`{"items": []}`)}}, "no active configuration"},
-		"entities aborted":   {routes{"GET /v1/legal-entities": {aborted}}, "EOF"},
-		"entities garbled":   {routes{"GET /v1/legal-entities": {ok(`{`)}}, "unexpected end"},
-		"invoices aborted":   {routes{"GET /v1/supplier-invoices": {aborted}}, "EOF"},
-		"invoices garbled":   {routes{"GET /v1/supplier-invoices": {ok(`{`)}}, "unexpected end"},
+		"invoices aborted": {routes{"GET /v1/supplier-invoices": {aborted}}, "EOF"},
+		"invoices garbled": {routes{"GET /v1/supplier-invoices": {ok(`{`)}}, "unexpected end"},
+		"page token repeated": {routes{"GET /v1/supplier-invoices": {ok(`{"items": [], "next_page_token": "p"}`)}},
+			`page token "p" repeated`},
 		"invoice aborted":    {routes{"GET " + invoicePath: {aborted}}, "EOF"},
 		"match aborted":      {routes{"POST " + invoicePath + ":match": {aborted}}, "EOF"},
-		"match refused":      {routes{"POST " + invoicePath + ":match": {{422, `{"code": "payables.no_order"}`}}}, "invoice 5101: API 422"},
-		"reread aborted":     {routes{"GET " + invoicePath: {ok(`{}`), aborted}}, "EOF"},
+		"match failed":       {routes{"POST " + invoicePath + ":match": {{500, `{"code": "internal"}`}}}, "invoice 5101: API 500"},
 		"post aborted":       {routes{"POST " + invoicePath + ":post": {aborted}}, "EOF"},
 		"post refused":       {routes{"POST " + invoicePath + ":post": {{409, `{"code": "payables.period_closed"}`}}}, "period_closed"},
 		"agent cannot start": {routes{"GET /v1/supplier-invoices": {ok(`{"items": []}`), aborted}}, "EOF"},
@@ -250,14 +312,68 @@ func TestInvoicesErrors(t *testing.T) {
 	}
 	// The agent reports the invoices it could not investigate.
 	fakeAPI(t, parked(nil))
-	if got := must(t, "invoices", "-agent"); !strings.Contains(got, "Posted 1: 5101") || !strings.Contains(got, "5100: apitools: start session") {
-		t.Fatalf("agent errors: %s", got)
+	got := must(t, "invoices", "-agent")
+	for _, want := range []string{"Posted 1: 5101", "5100: apitools: start session"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("agent errors: got %s, want it to contain %q", got, want)
+		}
 	}
+	printFails(t, "invoices")
+	printFails(t, "agent", "invoices")
 	fails(t, "flag provided", "invoices", "-x")
 	fakeAPI(t, parked(nil), "ERP_AGENT_TOKEN", "")
 	fails(t, "ERP_AGENT_TOKEN is not set", "invoices", "-agent")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN is not set", "invoices")
+}
+
+// TestInvoicesDecision: the rule acts on the decision the server's match
+// answers, never on its own comparison of the gross amount with the limit
+// (F12b). The invoice of 10.00 is below the configured 100.00 as numbers,
+// but the server, converting it into the company's currency, may review
+// it. A server that answers no decision leaves the invoice parked.
+func TestInvoicesDecision(t *testing.T) {
+	const posted, held = "POST " + invoicePath + ":post", "POST " + invoicePath + ":hold"
+	for name, c := range map[string]struct {
+		match string
+		want  []string
+	}{
+		"auto_post": {`{"is_clean": true, "decision": {"outcome": "auto_post", "reason": "gross 6.20 EUR is within the auto-post limit 100.00 EUR"}}`,
+			[]string{"5101: auto_post (gross 6.20 EUR is within the auto-post limit 100.00 EUR)", "Posted 1: 5101", "Held 0:"}},
+		"review": {`{"is_clean": true, "decision": {"outcome": "review", "reason": "gross 240.00 EUR is above the auto-post limit 100.00 EUR"}}`,
+			[]string{"5101: review (gross 240.00 EUR is above the auto-post limit 100.00 EUR)", "Posted 0:", "Held 1: 5101 (review)"}},
+		"not_evaluable": {`{"is_clean": true, "decision": {"outcome": "not_evaluable", "reason": "no_exchange_rate"}}`,
+			[]string{"5101: not_evaluable (no_exchange_rate)", "Posted 0:", "Held 1: 5101 (not_evaluable: no_exchange_rate)"}},
+		"missing": {`{"is_clean": true}`,
+			[]string{"5101: decision unavailable (the server does not return it)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
+		"unknown": {`{"is_clean": true, "decision": {"outcome": "escalate", "reason": "new rule"}}`,
+			[]string{"5101: escalate (new rule)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
+		"refused": {`422 {"code": "ledger.no_exchange_rate", "detail": "No average exchange rate from USD to EUR is valid on 2026-03-10."}`,
+			[]string{"5101: refused: ledger.no_exchange_rate: No average exchange rate from USD to EUR is valid on 2026-03-10.",
+				"Posted 0:", "Held 0:", "Left parked 1: 5101 (refused: ledger.no_exchange_rate)"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// A call the decision does not call for is refused, failing the command.
+			match := ok(c.match)
+			if body, refused := strings.CutPrefix(c.match, "422 "); refused {
+				match = reply{422, body}
+			}
+			r := routes{"POST " + invoicePath + ":match": {match}, posted: {{409, `{"code": "unexpected"}`}}, held: {{409, `{"code": "unexpected"}`}}}
+			switch name {
+			case "auto_post":
+				r[posted] = []reply{ok(`{}`)}
+			case "review", "not_evaluable":
+				r[held] = []reply{ok(`{}`)}
+			}
+			fakeAPI(t, parked(r))
+			got := must(t, "invoices")
+			for _, want := range c.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+				}
+			}
+		})
+	}
 }
 
 func TestAgentErrors(t *testing.T) {
@@ -276,7 +392,9 @@ func TestAgentErrors(t *testing.T) {
 	fails(t, "404", "agent", "test", "-change-request", "cr")
 	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
 	for _, a := range []string{"config", "migration", "test"} {
-		fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")
+		t.Run(a+" without a token", func(t *testing.T) {
+			fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")
+		})
 	}
 }
 
@@ -303,7 +421,7 @@ func facts() routes {
 
 func TestAnalyticsErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
-	os.WriteFile("file", nil, 0o644)
+	writeFile(t, "file", nil)
 	fakeAPI(t, facts())
 	fails(t, "flag provided", "metrics", "-x")
 	fails(t, "missing.yaml", "metrics", "-semantic", "missing.yaml")
@@ -330,17 +448,25 @@ func TestAnalyticsErrors(t *testing.T) {
 		}),
 		llmtest.Final("Done."))
 	fails(t, "not a directory", "ask", "-out", "file/reports", "how", "many")
+	ask = llmtest.New(t,
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}),
+		llmtest.ToolFn("build_dashboard", func(b string) any {
+			return map[string]any{"spec": analytics.Spec{Title: "Invoices", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
+		}),
+		llmtest.Final("Done."))
+	printFails(t, "ask", "-out", "reports", "how", "many")
 
 	fails(t, "flag provided", "report", "-x")
 	fails(t, "-id or -file is required", "report")
 	fails(t, "no such file", "report", "-id", "missing")
 	rep := func(name, measure string) string {
 		b, _ := json.Marshal(analytics.Report{ID: "r1", Spec: analytics.Spec{Title: "t", Tables: []analytics.Table{{Title: "t", QueryID: "q"}}}, Queries: map[string]analytics.Query{"q": {Measures: []string{measure}}}})
-		os.WriteFile(name, b, 0o644)
+		writeFile(t, name, b)
 		return name
 	}
 	fails(t, "query q", "report", "-file", rep("bad.json", "nope"))
 	fails(t, "not a directory", "report", "-file", rep("good.json", "invoice_count"), "-out", "file/reports")
+	printFails(t, "report", "-file", "good.json", "-out", "reports")
 
 	fakeAPI(t, routes{})
 	fails(t, "/v1/legal-entities", "query", "-measures", "revenue")
@@ -357,7 +483,9 @@ func TestTokenCommand(t *testing.T) {
 			return
 		}
 		var in map[string]string
-		json.NewDecoder(r.Body).Decode(&in)
+		if !decodeRequest(t, w, r, &in) {
+			return
+		}
 		if in["subject"] == "nobody" {
 			w.WriteHeader(404)
 			w.Write([]byte(`{"code": "not_found"}`))
@@ -377,6 +505,8 @@ func TestTokenCommand(t *testing.T) {
 	if got := must(t, "token", "-subject", "ops"); !strings.Contains(got, "t-ops") {
 		t.Fatalf("operator token: %s", got)
 	}
+	// A script capturing the token must not get nothing and see success.
+	printFails(t, "token", "-subject", "ops")
 	fails(t, "ERP_DEV_ISSUER", "token", "-tenant", "x", "-subject", "nobody")
 	env["ERP_ADMIN_URL"] = "http://127.0.0.1:1"
 	fails(t, "connection refused", "token", "-tenant", "x", "-subject", "ada")
@@ -384,6 +514,69 @@ func TestTokenCommand(t *testing.T) {
 	fails(t, "missing protocol scheme", "token", "-tenant", "x", "-subject", "ada")
 	delete(env, "ERP_ADMIN_URL") // the default admin listener is not running here
 	fails(t, "connection refused", "token", "-tenant", "x", "-subject", "ada")
+}
+
+// TestTokenReportsAMalformedAnswer: an answer that is not JSON is reported
+// with the decode error, not only its status.
+func TestTokenReportsAMalformedAnswer(t *testing.T) {
+	minted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"token": `))
+	}))
+	defer minted.Close()
+	getenv = func(k string) string { return map[string]string{"ERP_ADMIN_URL": minted.URL}[k] }
+	t.Cleanup(func() { getenv = os.Getenv })
+	fails(t, "unexpected EOF", "token", "-subject", "ada")
+}
+
+// failing is a writer whose writes and close fail.
+type failing struct{}
+
+func (failing) Write([]byte) (int, error) { return 0, errors.New("device full") }
+func (failing) Close() error              { return errors.New("close failed") }
+
+// summaryFails prints the table and fails on the summary line after it.
+type summaryFails struct{}
+
+func (summaryFails) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "data through") {
+		return 0, errors.New("device full")
+	}
+	return len(p), nil
+}
+
+// closeFails writes and fails only on close, as a file whose last buffered
+// data could not be stored.
+type closeFails struct{ bytes.Buffer }
+
+func (*closeFails) Close() error { return errors.New("close failed") }
+
+// TestQueryReportsLostOutput: a table that cannot be printed and a CSV file
+// that cannot be closed (so it may be truncated) fail the command.
+func TestQueryReportsLostOutput(t *testing.T) {
+	t.Chdir(t.TempDir())
+	fakeAPI(t, facts())
+	t.Cleanup(func() {
+		out, createFile = os.Stdout, func(name string) (io.WriteCloser, error) { return os.Create(name) }
+	})
+	t.Run("print", func(t *testing.T) {
+		out = failing{}
+		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count"}), "device full")
+	})
+	t.Run("summary", func(t *testing.T) {
+		out = summaryFails{}
+		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count"}), "device full")
+	})
+	t.Run("close", func(t *testing.T) {
+		out = io.Discard
+		createFile = func(string) (io.WriteCloser, error) { return &closeFails{}, nil }
+		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}), "close failed")
+	})
+	t.Run("write and close", func(t *testing.T) {
+		out = io.Discard
+		createFile = func(string) (io.WriteCloser, error) { return failing{}, nil }
+		// The write failure is the one reported, not the close that follows it.
+		pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "invoice_count", "-csv", "q.csv"}), "device full")
+	})
 }
 
 func TestTenantsCommand(t *testing.T) {
@@ -404,7 +597,9 @@ func TestTenantsCommand(t *testing.T) {
 			w.Write([]byte(`{"items": [{"id": "t1", "status": "active"}], "next_page_token": "n"}`))
 		case r.URL.Path == "/control/v1/tenants" && r.Method == "POST":
 			var in map[string]any
-			json.NewDecoder(r.Body).Decode(&in)
+			if !decodeRequest(t, w, r, &in) {
+				return
+			}
 			if r.Header.Get("Idempotency-Key") == "replayed-key" {
 				w.Header().Set("Idempotent-Replayed", "true")
 			}
@@ -432,6 +627,9 @@ func TestTenantsCommand(t *testing.T) {
 			w.Write([]byte(`{"code": "tenancy.invalid_transition", "detail": "The tenant is offboarded; offboard applies to active or suspended tenants."}`))
 		case r.URL.Path == "/control/v1/tenants/plain":
 			w.Write([]byte(`not json`))
+		case r.URL.Path == "/control/v1/tenants/cut": // an answer cut off: shorter than its declared length
+			w.Header().Set("Content-Length", "100")
+			w.Write([]byte(`{"id"`))
 		default:
 			w.WriteHeader(404)
 			w.Write([]byte(`{"code": "request.not_found", "detail": "No tenant with this id."}`))
@@ -450,7 +648,7 @@ func TestTenantsCommand(t *testing.T) {
 	}
 	doc, _ := fixture.Document(t).Marshal()
 	file := t.TempDir() + "/config.yaml"
-	os.WriteFile(file, doc, 0o644)
+	writeFile(t, file, doc)
 	if got := must(t, "tenants", "create", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada", "-admin-email", "ada@example.com", "-config", file); !strings.Contains(got, `"name": "Acme"`) {
 		t.Fatalf("create: %s", got)
 	}
@@ -471,14 +669,27 @@ func TestTenantsCommand(t *testing.T) {
 	}
 	fails(t, "tenancy.invalid_transition", "tenants", "offboard", "-id", "t1")
 	fails(t, "tenancy.invalid_tenant", "tenants", "create", "-config", file)
-	if got := must(t, "tenants", "fingerprint", "-id", "t1"); !strings.Contains(got, `"rows": 12`) || !strings.Contains(got, `"seq": 7`) || !strings.Contains(got, `"etag": "\"3\""`) {
-		t.Fatalf("fingerprint: %s", got)
+	got := must(t, "tenants", "fingerprint", "-id", "t1")
+	for _, want := range []string{`"rows": 12`, `"seq": 7`, `"etag": "\"3\""`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("fingerprint: got %s, want it to contain %s", got, want)
+		}
+	}
+	for name, args := range map[string][]string{
+		"list":        {"list"},
+		"get":         {"get", "-id", "t1"},
+		"fingerprint": {"fingerprint", "-id", "t1"},
+		"create":      {"create", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada", "-config", file},
+		"suspend":     {"suspend", "-id", "t1"},
+	} {
+		t.Run(name+" with lost output", func(t *testing.T) { printFails(t, append([]string{"tenants"}, args...)...) })
 	}
 	fails(t, "request.not_found", "tenants", "get", "-id", "nope")
 	fails(t, "request.not_found", "tenants", "fingerprint", "-id", "nope")
 	fails(t, "-id is required", "tenants", "fingerprint")
 	fails(t, "request.not_found", "tenants", "suspend", "-id", "nope")
 	fails(t, "not JSON", "tenants", "get", "-id", "plain")
+	fails(t, "control plane GET /control/v1/tenants/cut: read the answer (200)", "tenants", "get", "-id", "cut")
 	fails(t, "usage", "tenants")
 	fails(t, "unknown command", "tenants", "destroy")
 	fails(t, "-id is required", "tenants", "get")
@@ -486,7 +697,9 @@ func TestTenantsCommand(t *testing.T) {
 	fails(t, "-config is required", "tenants", "create", "-name", "x")
 	fails(t, "no such file", "tenants", "create", "-config", "/no/such.yaml")
 	for _, sub := range []string{"list", "get", "fingerprint", "create", "suspend"} {
-		fails(t, "flag provided", "tenants", sub, "-x")
+		t.Run(sub+" unknown flag", func(t *testing.T) {
+			fails(t, "flag provided", "tenants", sub, "-x")
+		})
 	}
 	env["ERP_OPERATOR_TOKEN"] = "wrong"
 	fails(t, "authn.invalid_token", "tenants", "list")
@@ -500,8 +713,10 @@ func TestTenantsCommand(t *testing.T) {
 	fails(t, "connection refused", "tenants", "list")
 	mu.Lock()
 	defer mu.Unlock()
-	if !strings.Contains(strings.Join(seen, "\n"), "GET /control/v1/tenants?order_by=name+asc&page_size=2&page_token=p&status=active") ||
-		!strings.Contains(strings.Join(seen, "\n"), `POST /control/v1/tenants/t1:suspend key= if-match="3"`) {
-		t.Fatalf("calls:\n%s", strings.Join(seen, "\n"))
+	calls := strings.Join(seen, "\n")
+	for _, want := range []string{"GET /control/v1/tenants?order_by=name+asc&page_size=2&page_token=p&status=active", `POST /control/v1/tenants/t1:suspend key= if-match="3"`} {
+		if !strings.Contains(calls, want) {
+			t.Fatalf("calls: got\n%s\nwant them to contain %s", calls, want)
+		}
 	}
 }

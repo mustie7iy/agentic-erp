@@ -67,7 +67,7 @@ func (h HouseBanks) Check(ctx context.Context, _, proposed *config.Config) ([]co
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("payments: read house bank %s of legal entity %s: %w", hb.Name, co.Code, err)
 		}
 		iban, err := h.Keys.Open(ctx, p.TenantID, sealed)
 		if err != nil {
@@ -117,11 +117,11 @@ func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 			WHERE (h.gl_account_id, h.status) IS DISTINCT FROM (EXCLUDED.gl_account_id, 'active')`,
 			p.TenantID, uuid.Must(uuid.NewV7()), le.ID, hb.Name, sealed, fieldcrypt.Last4(hb.IBAN), hb.BIC,
 			co.Currency, account, p.ID); err != nil {
-			return err
+			return fmt.Errorf("payments: apply house bank %s of legal entity %s: %w", hb.Name, co.Code, err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE payments.house_bank SET status = 'inactive', version = version + 1, updated_by = $3
 			WHERE legal_entity_id = $1 AND code <> $2 AND status = 'active'`, le.ID, hb.Name, p.ID); err != nil {
-			return err
+			return fmt.Errorf("payments: deactivate the other house banks of legal entity %s: %w", co.Code, err)
 		}
 	}
 	return nil

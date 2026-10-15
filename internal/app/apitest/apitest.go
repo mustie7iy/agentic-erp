@@ -1,6 +1,7 @@
-// Package apitest builds the real public API on the test database with a
-// test identity provider, for end-to-end tests of contexts. It is test
-// support and is excluded from the coverage figure.
+// Package apitest builds the real public API (ADR-0014) on the test database
+// with a test identity provider, for end-to-end tests of contexts
+// (06-engineering-process §6.6). It is test support and is excluded from the
+// coverage figure.
 package apitest
 
 import (
@@ -8,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,21 +18,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // API is a running public API.
@@ -50,28 +52,32 @@ type syncBuffer struct {
 func (s *syncBuffer) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.b.Write(p)
+	s.b.Write(p) // a bytes.Buffer write cannot fail
+	return len(p), nil
 }
 
 // New builds the API; it is skipped without DATABASE_URL.
-func New(t testing.TB) *API {
-	t.Helper()
-	return NewWith(t, nil)
+func New(tb testing.TB) *API {
+	tb.Helper()
+	return NewWith(tb, nil)
 }
 
 // NewWith builds the API after configure, when not nil, adjusts its
 // configuration (for example to plug in a bank connector).
-func NewWith(t testing.TB, configure func(*httpapi.Config)) *API {
-	t.Helper()
-	pool := pgtest.Pool(t)
-	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+func NewWith(tb testing.TB, configure func(*app.Config)) *API {
+	tb.Helper()
+	pool := pgtest.Pool(tb)
+	is := authntest.New(tb)
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	a := &API{t: t, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &syncBuffer{}}
-	cfg := httpapi.Config{
+	pages, err := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	a := &API{t: tb, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &syncBuffer{}}
+	cfg := app.Config{
 		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(), UploadKey: []byte(strings.Repeat("u", 32)),
 		Log: telemetry.NewLogger(a.logs, -4), Metrics: a.Metrics,
 		Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now,
@@ -79,9 +85,9 @@ func NewWith(t testing.TB, configure func(*httpapi.Config)) *API {
 	if configure != nil {
 		configure(&cfg)
 	}
-	h, err := httpapi.New(cfg)
+	h, err := app.New(cfg)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	a.Handler = h
 	return a
@@ -89,21 +95,21 @@ func NewWith(t testing.TB, configure func(*httpapi.Config)) *API {
 
 // Seal seals a value for a tenant with the test ring, outside a request
 // (the legacy key for tenants made by pgtest).
-func Seal(t testing.TB, tenant uuid.UUID, value string) []byte {
-	t.Helper()
+func Seal(tb testing.TB, tenant uuid.UUID, value string) []byte {
+	tb.Helper()
 	sealed, err := FieldKeys().Seal(context.Background(), tenant, value)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return sealed
 }
 
 // Fingerprint is the test ring's fingerprint of a value for a tenant.
-func Fingerprint(t testing.TB, tenant uuid.UUID, value string) string {
-	t.Helper()
+func Fingerprint(tb testing.TB, tenant uuid.UUID, value string) string {
+	tb.Helper()
 	print, err := FieldKeys().Fingerprint(context.Background(), tenant, value)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return print
 }
@@ -114,6 +120,8 @@ func Fingerprint(t testing.TB, tenant uuid.UUID, value string) string {
 // one. Lookups use the request's transaction, so outside a request the ring
 // seals with the legacy key.
 func FieldKeys() *fieldcrypt.Keyring {
+	// Both constructors fail only for a secret under 32 bytes or an empty
+	// master id; these are constants that meet both, so the errors are nil.
 	legacy, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
 	master, _ := fieldcrypt.NewLocalMaster("test", []byte(strings.Repeat("f", 32)))
 	return &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{master}, Legacy: legacy, AppRole: "erp_app"}
@@ -161,11 +169,11 @@ func (a *API) Do(r Req) *httptest.ResponseRecorder {
 }
 
 // JSON decodes a response body.
-func JSON(t testing.TB, rec *httptest.ResponseRecorder) map[string]any {
-	t.Helper()
+func JSON(tb testing.TB, rec *httptest.ResponseRecorder) map[string]any {
+	tb.Helper()
 	var m map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
-		t.Fatalf("not JSON (%d): %s", rec.Code, rec.Body)
+		tb.Fatalf("not JSON (%d): %s", rec.Code, rec.Body)
 	}
 	return m
 }
@@ -176,9 +184,9 @@ func NewKey() string { return uuid.NewString() }
 // InRequest runs fn as actor inside a transaction set up the way the unit of
 // work sets it up (tenant, actor, principal, audit buffer), for calling
 // handlers and context functions directly. The transaction is rolled back.
-func InRequest(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, fn func(ctx context.Context) error) error {
-	t.Helper()
-	return inRequest(t, ten, a, 0, fn)
+func InRequest(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, fn func(ctx context.Context) error) error {
+	tb.Helper()
+	return inRequest(tb, ten, a, 0, fn)
 }
 
 var (
@@ -187,35 +195,36 @@ var (
 )
 
 // pool is one pool per test, so repeated calls do not exhaust connections.
-func pool(t testing.TB) *database.Pool {
+func pool(tb testing.TB) *database.Pool {
+	tb.Helper()
 	poolsMu.Lock()
 	defer poolsMu.Unlock()
-	if p, ok := pools[t]; ok {
+	if p, ok := pools[tb]; ok {
 		return p
 	}
-	p := pgtest.Pool(t)
-	pools[t] = p
-	t.Cleanup(func() {
+	p := pgtest.Pool(tb)
+	pools[tb] = p
+	tb.Cleanup(func() {
 		poolsMu.Lock()
-		delete(pools, t)
+		delete(pools, tb)
 		poolsMu.Unlock()
 	})
 	return p
 }
 
-func inRequest(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, failAt int, fn func(ctx context.Context) error) error {
-	t.Helper()
-	pool := pool(t)
+func inRequest(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, failAt int, fn func(ctx context.Context) error) error {
+	tb.Helper()
+	pool := pool(tb)
 	ctx := context.Background()
 	tx, err := pool.Begin(ctx, database.Scope{Role: "erp_app", TenantID: ten.ID})
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
 	if err := database.SetActor(ctx, tx, a.ID); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	var used pgx.Tx = tx
+	used := tx
 	if failAt > 0 {
 		used = &pgtest.FailingTx{Tx: tx, FailAt: failAt}
 	}
@@ -227,24 +236,24 @@ func inRequest(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, failAt int, fn f
 // EveryFailure calls fn repeatedly as actor, failing its first, second, ...
 // database statement, and fails the test if fn ever hides the failure. It
 // stops when fn succeeds with no statement left to fail.
-func EveryFailure(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, name string, fn func(ctx context.Context) error) {
-	t.Helper()
+func EveryFailure(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, name string, fn func(ctx context.Context) error) {
+	tb.Helper()
 	for n := 1; n < 1000; n++ {
-		err := inRequest(t, ten, a, n, fn)
+		err := inRequest(tb, ten, a, n, fn)
 		if err == nil {
 			if n == 1 {
-				t.Errorf("%s: succeeded without any database statement to fail", name)
+				tb.Errorf("%s: succeeded without any database statement to fail", name)
 			}
 			return
 		}
 		if !errors.Is(err, pgtest.ErrInjected) {
 			if p := problem.From(err); p.Status < 500 || !errors.Is(problem.Cause(p), pgtest.ErrInjected) {
-				t.Errorf("%s: statement %d failed, but the error was %v", name, n, err)
+				tb.Errorf("%s: statement %d failed, but the error was %v", name, n, err)
 				return
 			}
 		}
 	}
-	t.Errorf("%s: still failing after 1000 statements", name)
+	tb.Errorf("%s: still failing after 1000 statements", name)
 }
 
 // Client calls the API as one actor of one tenant. Unsafe calls get a fresh
@@ -254,6 +263,14 @@ type Client struct {
 	API    *API
 	Tenant pgtest.Tenant
 	As     pgtest.Actor
+}
+
+// In returns c reporting to tb, so a subtest's failed call stops that
+// subtest rather than its parent.
+func (c Client) In(tb testing.TB) Client {
+	tb.Helper()
+	c.T = tb
+	return c
 }
 
 // Do performs a call and returns the status, the decoded body and the ETag.
@@ -294,25 +311,20 @@ func (c Client) Problem(status int, code, method, path, body, ifMatch string) ma
 // Committed runs fn like InRequest but commits, flushing the audit entries
 // as the unit of work does: for fixtures that go through context functions
 // without an API operation (tenant bootstrap).
-func Committed(t testing.TB, ten pgtest.Tenant, a pgtest.Actor, fn func(ctx context.Context) error) error {
-	t.Helper()
+func Committed(tb testing.TB, ten pgtest.Tenant, a pgtest.Actor, fn func(ctx context.Context) error) error {
+	tb.Helper()
 	ctx := context.Background()
-	tx, err := pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: ten.ID})
+	tx, err := pool(tb).Begin(ctx, database.Scope{Role: "erp_app", TenantID: ten.ID})
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if err := database.SetActor(ctx, tx, a.ID); err != nil {
-		t.Fatal(err)
-	}
 	p := reqctx.Principal{ID: a.ID, Kind: a.Kind, TenantID: ten.ID}
-	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), p)
-	ctx, buf := audit.WithBuffer(ctx)
-	if err := fn(ctx); err != nil {
+	if err := uow.Act(ctx, tx, p, nil, fn); err != nil {
 		return err
 	}
-	if err := buf.Flush(ctx, tx, p, "", time.Now()); err != nil {
-		return err
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("apitest: commit fixture for tenant %s: %w", ten.ID, err)
 	}
-	return tx.Commit(ctx)
+	return nil
 }

@@ -21,7 +21,10 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -51,7 +54,7 @@ type Session struct {
 	Status       string
 	InputTokens  int64
 	OutputTokens int64
-	Cost         int64
+	Cost         money.Minor
 	Currency     string
 	Exponent     int
 	StartedAt    time.Time
@@ -68,7 +71,7 @@ func scanSession(row pgx.Row) (Session, error) {
 	var s Session
 	err := row.Scan(&s.ID, &s.AgentID, &s.Purpose, &s.Model, &s.Status, &s.InputTokens, &s.OutputTokens, &s.Cost, &s.Currency, &s.Exponent,
 		&s.StartedAt, &s.EndedAt, &s.Version, &s.UpdatedAt)
-	return s, err
+	return s, errs.Wrapf(err, "scan agent session")
 }
 
 func getSession(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Session, error) {
@@ -78,9 +81,12 @@ func getSession(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Sessio
 	}
 	s, err := scanSession(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return s, problem.NotFound("No agent session with this id.")
+		return s, problem.NotFoundOf("agent session")
 	}
-	return s, err
+	if err != nil {
+		return s, fmt.Errorf("agents: read session %s: %w", id, err)
+	}
+	return s, nil
 }
 
 // ownRunning loads a session the caller may write to: its own, running.
@@ -112,7 +118,7 @@ func StartSession(ctx context.Context, purpose, model string) (Session, error) {
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO agents.session (tenant_id, id, agent_id, purpose, model, status, cost_currency)
 		VALUES ($1, $2, $3, $4, $5, 'running', 'USD')`, p.TenantID, id, p.ID, purpose, model); err != nil {
-		return Session{}, err
+		return Session{}, fmt.Errorf("agents: insert session %s: %w", id, err)
 	}
 	s, err := getSession(ctx, tx, id, false)
 	if err != nil {
@@ -136,7 +142,7 @@ func EndSession(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, u 
 	if err != nil {
 		return Session{}, err
 	}
-	s, err := ownRunning(ctx, tx, p, id, func() error { return problem.NotFound("No agent session with this id.") })
+	s, err := ownRunning(ctx, tx, p, id, func() error { return problem.NotFoundOf("agent session") })
 	if err != nil {
 		return Session{}, err
 	}
@@ -147,23 +153,23 @@ func EndSession(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, u 
 		return Session{}, problem.Unprocessable("agents.invalid_status", "A session ends completed, failed or refused.",
 			problem.FieldError{Field: "status", Code: "invalid", Message: "completed, failed or refused"})
 	}
-	cost, currency := int64(0), s.Currency
+	cost, costCurrency := money.Minor(0), s.Currency
 	if u.Currency != "" {
-		var exp int
-		if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, u.Currency).Scan(&exp); err != nil {
-			return Session{}, problem.Unprocessable("agents.unknown_currency", "The cost's currency is not known.",
-				problem.FieldError{Field: "cost.currency", Code: "unknown", Message: "an ISO 4217 currency"}).WithCause(err)
+		exp, err := currency.Exponent(ctx, tx, u.Currency, problem.Unprocessable("agents.unknown_currency", "The cost's currency is not known.",
+			problem.FieldError{Field: "cost.currency", Code: "unknown", Message: "an ISO 4217 currency"}))
+		if err != nil {
+			return Session{}, fmt.Errorf("agents: session cost: %w", err)
 		}
 		m, err := money.ParseAmount(u.Cost, exp)
 		if err != nil || m < 0 {
 			return Session{}, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Costs in %s are positive with exactly %d decimals.", u.Currency, exp),
 				problem.FieldError{Field: "cost.amount", Code: "invalid", Message: "a positive amount"})
 		}
-		cost, currency = int64(m), u.Currency
+		cost, costCurrency = m, u.Currency
 	}
 	if _, err := tx.Exec(ctx, `UPDATE agents.session SET status = $2, input_tokens = $3, output_tokens = $4, cost = $5, cost_currency = $6,
-		ended_at = now(), version = version + 1 WHERE id = $1`, id, u.Status, u.InputTokens, u.OutputTokens, cost, currency); err != nil {
-		return Session{}, err
+		ended_at = now(), version = version + 1 WHERE id = $1`, id, u.Status, u.InputTokens, u.OutputTokens, cost, costCurrency); err != nil {
+		return Session{}, fmt.Errorf("agents: end session %s: %w", id, err)
 	}
 	ended, err := getSession(ctx, tx, id, false)
 	if err != nil {
@@ -189,7 +195,7 @@ const toolCallColumns = `session_id, seq, tool, input, result_summary, is_error,
 func scanToolCall(row pgx.Row) (ToolCall, error) {
 	var c ToolCall
 	err := row.Scan(&c.SessionID, &c.Seq, &c.Tool, &c.Input, &c.ResultSummary, &c.IsError, &c.CalledAt)
-	return c, err
+	return c, errs.Wrapf(err, "scan tool call")
 }
 
 // RecordToolCall appends a tool call to the caller's running session. Tool
@@ -199,12 +205,16 @@ func RecordToolCall(ctx context.Context, session uuid.UUID, tool string, input m
 	if err != nil {
 		return ToolCall{}, err
 	}
-	if _, err := ownRunning(ctx, tx, p, session, func() error { return problem.NotFound("No agent session with this id.") }); err != nil {
+	if _, err := ownRunning(ctx, tx, p, session, func() error { return problem.NotFoundOf("agent session") }); err != nil {
 		return ToolCall{}, err
 	}
-	return scanToolCall(tx.QueryRow(ctx, `INSERT INTO agents.tool_call (tenant_id, session_id, seq, tool, input, result_summary, is_error)
+	c, err := scanToolCall(tx.QueryRow(ctx, `INSERT INTO agents.tool_call (tenant_id, session_id, seq, tool, input, result_summary, is_error)
 		SELECT $1, $2, coalesce(max(seq), 0) + 1, $3, $4, $5, $6 FROM agents.tool_call WHERE session_id = $2
 		RETURNING `+toolCallColumns, p.TenantID, session, tool, input, summary, isError))
+	if err != nil {
+		return c, fmt.Errorf("agents: record tool call on session %s: %w", session, err)
+	}
+	return c, nil
 }
 
 // Recommendation is a row of agents.recommendation with its session's agent.
@@ -231,7 +241,7 @@ func scanRecommendation(row pgx.Row) (Recommendation, error) {
 	var r Recommendation
 	err := row.Scan(&r.ID, &r.SessionID, &r.AgentID, &r.ObjectType, &r.ObjectID, &r.Kind, &r.Content, &r.Outcome, &r.DecidedBy, &r.Version,
 		&r.CreatedAt, &r.UpdatedAt)
-	return r, err
+	return r, errs.Wrapf(err, "scan recommendation")
 }
 
 func getRecommendation(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Recommendation, error) {
@@ -241,9 +251,12 @@ func getRecommendation(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) 
 	}
 	r, err := scanRecommendation(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r, problem.NotFound("No recommendation with this id.")
+		return r, problem.NotFoundOf("recommendation")
 	}
-	return r, err
+	if err != nil {
+		return r, fmt.Errorf("agents: read recommendation %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // NewRecommendation is a recommendation as an agent makes it.
@@ -261,15 +274,14 @@ func Recommend(ctx context.Context, in NewRecommendation) (Recommendation, error
 		return Recommendation{}, err
 	}
 	if _, err := ownRunning(ctx, tx, p, in.SessionID, func() error {
-		return problem.Unprocessable("request.reference_not_found", "No agent session with this id.",
-			problem.FieldError{Field: "session_id", Code: "not_found", Message: "a running session of yours"})
+		return problem.ReferenceNotFound("session_id", "agent session", "a running session of yours")
 	}); err != nil {
 		return Recommendation{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO agents.recommendation (tenant_id, id, session_id, object_type, object_id, kind, content)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, p.TenantID, id, in.SessionID, in.ObjectType, in.ObjectID, in.Kind, in.Content); err != nil {
-		return Recommendation{}, err
+		return Recommendation{}, fmt.Errorf("agents: insert recommendation %s: %w", id, err)
 	}
 	r, err := getRecommendation(ctx, tx, id, false)
 	if err != nil {
@@ -304,7 +316,7 @@ func Decide(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, outcom
 	}
 	if _, err := tx.Exec(ctx, `UPDATE agents.recommendation SET outcome = $2, decided_by = $3, version = version + 1 WHERE id = $1`,
 		id, outcome, p.ID); err != nil {
-		return Recommendation{}, err
+		return Recommendation{}, fmt.Errorf("agents: decide recommendation %s: %w", id, err)
 	}
 	decided, err := getRecommendation(ctx, tx, id, false)
 	if err != nil {
@@ -321,10 +333,7 @@ func event(r Recommendation, name string, payload map[string]any) outbox.Event {
 }
 
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, ev outbox.Event) error {
-	if _, err := outbox.Add(ctx, ev); err != nil {
-		return err
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: "agents.recommendation", ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, "agents.recommendation", id, detail, ev)
 }
 
 func sessionToAPI(s Session) gen.AgentSession {
@@ -332,7 +341,7 @@ func sessionToAPI(s Session) gen.AgentSession {
 		InputTokens: s.InputTokens, OutputTokens: s.OutputTokens, StartedAt: s.StartedAt, UpdatedAt: s.UpdatedAt}
 	if s.EndedAt != nil {
 		out.EndedAt.SetTo(*s.EndedAt)
-		out.Cost.SetTo(gen.Money{Amount: money.Minor(s.Cost).Plain(s.Exponent), Currency: s.Currency})
+		out.Cost.SetTo(apitypes.Money(s.Cost, s.Currency, s.Exponent))
 	}
 	return out
 }
@@ -356,17 +365,6 @@ func recommendationToAPI(r Recommendation) gen.Recommendation {
 		out.DecidedBy.SetTo(*r.DecidedBy)
 	}
 	return out
-}
-
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
-func optUUID(o gen.OptUUID) *uuid.UUID {
-	if v, ok := o.Get(); ok {
-		return &v
-	}
-	return nil
 }
 
 // StartAgentSession implements POST /v1/agent-sessions.
@@ -402,9 +400,8 @@ func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentS
 	if err != nil {
 		return nil, err
 	}
-	agent := optUUID(params.AgentID)
-	ks, err := e.Pages.Keyset(sessionSort, fmt.Sprintf("listAgentSessions|%s|%s", agent, params.Status.Value), pagination.Request{OrderBy: params.OrderBy.Value,
-		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	agent := apitypes.Ptr[uuid.UUID](params.AgentID)
+	ks, err := e.Pages.Keyset(sessionSort, fmt.Sprintf("listAgentSessions|%s|%s", agent, params.Status.Value), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -413,17 +410,10 @@ func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentS
 	rows, _ := tx.Query(ctx, q, args...)
 	sessions, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Session, error) { return scanSession(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("agents: list sessions: %w", err)
 	}
-	sessions, next := pagination.Page(ks, sessions, func(s Session) (string, uuid.UUID) { return instant(s.StartedAt), s.ID })
-	page := gen.AgentSessionPage{Items: make([]gen.AgentSession, len(sessions))}
-	for i, s := range sessions {
-		page.Items[i] = sessionToAPI(s)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.AgentSessionPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, sessions, func(s Session) (string, uuid.UUID) { return instant(s.StartedAt), s.ID }, sessionToAPI)
+	return &gen.AgentSessionPageHeaders{Response: gen.AgentSessionPage{Items: items, NextPageToken: next}}, nil
 }
 
 // EndAgentSession implements POST /v1/agent-sessions/{id}:end.
@@ -432,7 +422,7 @@ func (e *Endpoints) EndAgentSession(ctx context.Context, req *gen.AgentSessionEn
 	if c, ok := req.Cost.Get(); ok {
 		u.Cost, u.Currency = c.Amount, c.Currency
 	}
-	s, err := EndSession(ctx, params.ID, ifMatch(params.IfMatch), u)
+	s, err := EndSession(ctx, params.ID, etag.IfMatch(params.IfMatch), u)
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +459,7 @@ func (e *Endpoints) ListAgentToolCalls(ctx context.Context, params gen.ListAgent
 		params.ID, after, size+1)
 	calls, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ToolCall, error) { return scanToolCall(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("agents: list tool calls of session %s: %w", params.ID, err)
 	}
 	page := gen.AgentToolCallPage{Items: []gen.AgentToolCall{}}
 	if len(calls) > size {
@@ -531,10 +521,9 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 	if err != nil {
 		return nil, err
 	}
-	session, object := optUUID(params.SessionID), optUUID(params.ObjectID)
+	session, object := apitypes.Ptr[uuid.UUID](params.SessionID), apitypes.Ptr[uuid.UUID](params.ObjectID)
 	scope := fmt.Sprintf("listRecommendations|%s|%s|%s|%s", session, params.ObjectType.Value, object, params.Outcome.Value)
-	ks, err := e.Pages.Keyset(recommendationSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
-		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(recommendationSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -544,22 +533,15 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 	rows, _ := tx.Query(ctx, q, args...)
 	recs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Recommendation, error) { return scanRecommendation(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("agents: list recommendations: %w", err)
 	}
-	recs, next := pagination.Page(ks, recs, func(r Recommendation) (string, uuid.UUID) { return instant(r.CreatedAt), r.ID })
-	page := gen.RecommendationPage{Items: make([]gen.Recommendation, len(recs))}
-	for i, r := range recs {
-		page.Items[i] = recommendationToAPI(r)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.RecommendationPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, recs, func(r Recommendation) (string, uuid.UUID) { return instant(r.CreatedAt), r.ID }, recommendationToAPI)
+	return &gen.RecommendationPageHeaders{Response: gen.RecommendationPage{Items: items, NextPageToken: next}}, nil
 }
 
 // DecideRecommendation implements POST /v1/recommendations/{id}:decide.
 func (e *Endpoints) DecideRecommendation(ctx context.Context, req *gen.RecommendationDecide, params gen.DecideRecommendationParams) (gen.DecideRecommendationRes, error) {
-	r, err := Decide(ctx, params.ID, ifMatch(params.IfMatch), req.Outcome, req.Comment.Value)
+	r, err := Decide(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Outcome, req.Comment.Value)
 	if err != nil {
 		return nil, err
 	}

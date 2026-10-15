@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,15 +22,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
-	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
-	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
-	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 )
-
-func TestMain(m *testing.M) { pgtest.Main(m) }
 
 func TestAdmin(t *testing.T) {
 	m := telemetry.NewMetrics()
@@ -42,15 +37,17 @@ func TestAdmin(t *testing.T) {
 		code int
 	}{{healthy, "/livez", 200}, {healthy, "/readyz", 200}, {sick, "/readyz", 503}, {sick, "/livez", 200}, {healthy, "/metrics", 200},
 		{healthy, "/dev/token", 404}, {sick, "/dev/token", 201}, {healthy, "/control/v1/tenants", 404}, {sick, "/control/v1/tenants", 201}} {
-		rec := httptest.NewRecorder()
-		method := "GET"
-		if c.path == "/dev/token" {
-			method = "POST"
-		}
-		c.h.ServeHTTP(rec, httptest.NewRequest(method, c.path, nil))
-		if rec.Code != c.code {
-			t.Errorf("%s: %d", c.path, rec.Code)
-		}
+		t.Run(fmt.Sprintf("%s=%d", c.path, c.code), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			method := "GET"
+			if c.path == "/dev/token" {
+				method = "POST"
+			}
+			c.h.ServeHTTP(rec, httptest.NewRequest(method, c.path, nil))
+			if rec.Code != c.code {
+				t.Errorf("%s %s: got %d, want %d", method, c.path, rec.Code, c.code)
+			}
+		})
 	}
 }
 
@@ -70,15 +67,20 @@ func TestErrorMapping(t *testing.T) {
 	cases[&ogenerrors.DecodeParamError{Name: "If-Match", In: "header", Err: other}] = "request.invalid_parameter"
 	cases[&ogenerrors.DecodeParamError{Name: "id", In: "path", Err: validate.ErrFieldRequired}] = "request.invalid_parameter"
 	for err, code := range cases {
-		if p := toProblem(err); p.Code != code {
-			t.Errorf("%T: %s, want %s", err, p.Code, code)
-		}
+		t.Run(fmt.Sprintf("%T=%s", err, code), func(t *testing.T) {
+			if p := toProblem(err); p.Code != code {
+				t.Errorf("%T %v: got %s, want %s", err, err, p.Code, code)
+			}
+		})
 	}
 	var logs strings.Builder
 	rec := httptest.NewRecorder()
 	errorHandler(slog.New(slog.NewTextHandler(&logs, nil)))(context.Background(), rec, httptest.NewRequest("GET", "/x", nil), errors.New("boom"))
-	if rec.Code != 500 || !strings.Contains(logs.String(), "boom") {
-		t.Fatalf("%d %s", rec.Code, logs.String())
+	if rec.Code != 500 {
+		t.Errorf("error handler status: got %d, want 500", rec.Code)
+	}
+	if !strings.Contains(logs.String(), "boom") {
+		t.Errorf("error handler log: got %s, want it to mention boom", logs.String())
 	}
 	if _, err := (security{}).HandleOidc(context.Background(), "", gen.Oidc{}); err == nil {
 		t.Fatal("request without a principal accepted")
@@ -97,58 +99,43 @@ type failingProvider struct{ noop.MeterProvider }
 func (failingProvider) Meter(string, ...metric.MeterOption) metric.Meter { return failingMeter{} }
 
 func TestNewReportsServerErrors(t *testing.T) {
-	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = New(Config{Verifier: v, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Metrics: telemetry.NewMetrics(),
-		Tracer: tracenoop.NewTracerProvider(), Meter: failingProvider{}, Now: time.Now})
+	_, err := New(gen.UnimplementedHandler{}, Pipeline{Verifier: verifier(t), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: failingProvider{}, Now: time.Now})
 	if err == nil {
 		t.Fatal("server construction failure not reported")
 	}
 }
 
-// TestQuotasAndDeadlines checks the hardening in the request chain: the
-// rate limiter answers before the unit of work, and a request past its
-// deadline is a 503 the client can retry.
-func TestQuotasAndDeadlines(t *testing.T) {
-	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+// TestNewServesRoutesBesideTheContract: a route outside the generated
+// server answers without a bearer token; the contract's operations need one.
+func TestNewServesRoutesBesideTheContract(t *testing.T) {
+	route := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusCreated) })
+	h, err := New(gen.UnimplementedHandler{}, Pipeline{Verifier: verifier(t), Routes: map[string]http.Handler{"PUT /v1/uploads/{id}/content": route},
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(),
+		Meter: noop.NewMeterProvider(), Now: time.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ten := pgtest.NewTenant(t, "platform.operation.read")
-	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	legacy, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
-	keys := &fieldcrypt.Keyring{Legacy: legacy}
-	base := Config{Pool: pgtest.Pool(t), AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: keys, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now}
-	get := func(h http.Handler) *httptest.ResponseRecorder {
-		req := httptest.NewRequest("GET", "/v1/operations", nil)
-		req.Header.Set("Authorization", "Bearer "+is.Token(t, ten.ID, ten.Human.Subject, nil))
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec
+	for _, c := range []struct {
+		method, path string
+		code         int
+	}{{"PUT", "/v1/uploads/x/content", http.StatusCreated}, {"GET", "/v1/operations", http.StatusUnauthorized}} {
+		t.Run(c.method+" "+c.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(c.method, c.path, nil))
+			if rec.Code != c.code {
+				t.Errorf("%s %s: got %d, want %d", c.method, c.path, rec.Code, c.code)
+			}
+		})
 	}
-	limited := base
-	limited.Limits = &ratelimit.Limiter{Principal: ratelimit.Quota{Rate: 0.001, Burst: 1}}
-	h, err := New(limited)
+}
+
+// verifier accepts tokens of a test issuer.
+func verifier(t *testing.T) *authn.Verifier {
+	t.Helper()
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{authntest.New(t).Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec := get(h); rec.Code != 200 || rec.Header().Get("RateLimit-Remaining") != "0" {
-		t.Fatalf("first: %d %v", rec.Code, rec.Header())
-	}
-	if rec := get(h); rec.Code != 429 || rec.Header().Get("Retry-After") == "" || !strings.Contains(rec.Body.String(), "request.rate_limited") {
-		t.Fatalf("second: %d %v %s", rec.Code, rec.Header(), rec.Body)
-	}
-	expiring := base
-	expiring.RequestTimeout = time.Nanosecond
-	if h, err = New(expiring); err != nil {
-		t.Fatal(err)
-	}
-	if rec := get(h); rec.Code != 503 || rec.Header().Get("Retry-After") != "1" || !strings.Contains(rec.Body.String(), "platform.unavailable") {
-		t.Fatalf("expired: %d %v %s", rec.Code, rec.Header(), rec.Body)
-	}
+	return v
 }

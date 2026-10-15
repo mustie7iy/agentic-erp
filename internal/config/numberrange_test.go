@@ -3,13 +3,15 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 func TestNumberRanges(t *testing.T) {
 	c := fixture(t)
 	good := NumberRange{Company: "1000", DocumentType: "supplier_invoice", FiscalYear: 2026, Prefix: "SI-", First: 1, Last: 999999, Gapless: true}
 	c.NumberRanges = []NumberRange{good}
-	if fs := Validate(c); HasErrors(fs) {
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("valid range refused: %v", fs)
 	}
 	bad := []NumberRange{
@@ -18,7 +20,7 @@ func TestNumberRanges(t *testing.T) {
 	}
 	c.NumberRanges = append(c.NumberRanges, bad...)
 	var paths []string
-	for _, f := range Validate(c) {
+	for _, f := range Validate(c, currency.Seeded()) {
 		if strings.HasPrefix(f.Path, "number_ranges") {
 			paths = append(paths, f.Path)
 		}
@@ -39,9 +41,20 @@ func TestNumberRanges(t *testing.T) {
 	raised.Last = 1999999
 	next.NumberRanges = []NumberRange{{Company: "1000", DocumentType: "payment", FiscalYear: 2026, First: 1, Last: 99}, raised}
 	changes, _ := Diff(base, next)
-	if len(changes) != 2 || changes[0].Path != "number_ranges[1000/payment/2026]" || changes[0].New != "(added)" ||
-		changes[1].Path != "number_ranges[1000/supplier_invoice/2026].last" || MaxTier(changes) != TierCosmetic {
-		t.Fatalf("diff: %v", changes)
+	if len(changes) != 2 {
+		t.Fatalf("diff: got %v, want 2 changes", changes)
+	}
+	if got := changes[0].Path; got != "number_ranges[1000/payment/2026]" {
+		t.Errorf("added path: got %s, want number_ranges[1000/payment/2026]", got)
+	}
+	if got := changes[0].New; got != "(added)" {
+		t.Errorf("added new: got %s, want (added)", got)
+	}
+	if got := changes[1].Path; got != "number_ranges[1000/supplier_invoice/2026].last" {
+		t.Errorf("raised path: got %s, want number_ranges[1000/supplier_invoice/2026].last", got)
+	}
+	if got := MaxTier(changes); got != TierCosmetic {
+		t.Errorf("MaxTier: got %v, want %v", got, TierCosmetic)
 	}
 	if got := good.Key(); got != "1000/supplier_invoice/2026" {
 		t.Fatal(got)

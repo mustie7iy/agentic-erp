@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -18,11 +17,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -35,6 +34,7 @@ func (f failingStore) Get(context.Context, string) ([]byte, string, error)      
 func (f failingStore) Stat(context.Context, string) (int64, string, error)             { return 0, "", f.err }
 
 func anchorer(t *testing.T, store blobstore.Store) *audit.Anchorer {
+	t.Helper()
 	return &audit.Anchorer{Pool: pgtest.Pool(t), Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Retention: 10 * 365 * 24 * time.Hour,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC) }}
 }
@@ -102,8 +102,23 @@ func TestAnchoring(t *testing.T) {
 	key := blobstore.Key(c.Tenant.ID, blobstore.KindAnchors, audit.ObjectName(3))
 	content, ct, err := store.Get(ctx, key)
 	var obj audit.Anchor
-	if err != nil || ct != "application/json" || json.Unmarshal(content, &obj) != nil || obj.Seq != 3 || obj.TenantID != c.Tenant.ID || len(obj.Hash) != 64 {
-		t.Fatalf("object: %s %s %v", content, ct, err)
+	if err != nil {
+		t.Fatalf("object: %v", err)
+	}
+	if ct != "application/json" {
+		t.Fatalf("object content type: got %s, want application/json", ct)
+	}
+	if err := json.Unmarshal(content, &obj); err != nil {
+		t.Fatalf("object %s: %v", content, err)
+	}
+	if obj.Seq != 3 {
+		t.Fatalf("object seq: got %d, want 3", obj.Seq)
+	}
+	if obj.TenantID != c.Tenant.ID {
+		t.Fatalf("object tenant: got %v, want %v", obj.TenantID, c.Tenant.ID)
+	}
+	if len(obj.Hash) != 64 {
+		t.Fatalf("object hash: got %d characters, want 64", len(obj.Hash))
 	}
 	want := obj.AnchoredAt.Add(w.Retention).UTC().Format(time.RFC3339)
 	if meta, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(key)) + ".meta"); !strings.Contains(string(meta), want) {
@@ -122,8 +137,10 @@ func TestAnchoring(t *testing.T) {
 	}
 	// Verification starts from the last anchor by default and checks the anchors in range.
 	res := verify(t, c, store, nil, nil)
-	if res["verified"] != true || res["anchors_checked"] != float64(1) || res["checked"] != float64(1) {
-		t.Fatalf("default range: %v", res)
+	for field, want := range map[string]any{"verified": true, "anchors_checked": float64(1), "checked": float64(1)} {
+		if res[field] != want {
+			t.Fatalf("default range %s: got %v, want %v", field, res[field], want)
+		}
 	}
 	one := int64(1)
 	res = verify(t, c, store, &one, nil)
@@ -136,11 +153,15 @@ func TestAnchoring(t *testing.T) {
 	}
 	// An anchor object that no longer says what the row says breaks the chain at its sequence.
 	path := filepath.Join(root, filepath.FromSlash(key))
-	os.WriteFile(path, []byte(`{"seq": 3, "hash": "00"}`), 0o600)
+	if err := os.WriteFile(path, []byte(`{"seq": 3, "hash": "00"}`), 0o600); err != nil {
+		t.Fatalf("tamper with the anchor object: %v", err)
+	}
 	if res := verify(t, c, store, &one, nil); res["verified"] != false || res["first_broken_seq"] != float64(3) {
 		t.Fatalf("tampered object: %v", res)
 	}
-	os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove the anchor object: %v", err)
+	}
 	if res := verify(t, c, store, &one, nil); res["verified"] != false || res["first_broken_seq"] != float64(3) { // a removed anchor object is a finding, not an outage
 		t.Fatalf("missing object: %v", res)
 	}
@@ -152,7 +173,9 @@ func TestAnchoring(t *testing.T) {
 	}); err == nil || problem.From(err).Status < 500 {
 		t.Fatalf("store down: %v", err)
 	}
-	os.WriteFile(path, content, 0o600)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("restore the anchor object: %v", err)
+	}
 	// A rewritten event hash disagrees with its anchor (the chain check sees it too, later or at the same place).
 	pgtest.Exec(t, `DO $$ BEGIN SET LOCAL session_replication_role = replica;
 		UPDATE audit.audit_event SET hash = '\x`+strings.Repeat("ab", 32)+`' WHERE tenant_id = '`+c.Tenant.ID.String()+`' AND seq = 3; END $$`)
@@ -174,7 +197,9 @@ func TestAnchoring(t *testing.T) {
 		t.Fatal(err)
 	}
 	var at time.Time
-	pgtest.Admin(t).QueryRow(ctx, `SELECT anchored_at FROM audit.anchor WHERE tenant_id = $1 AND seq = $2`, other.Tenant.ID, head.Seq).Scan(&at)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT anchored_at FROM audit.anchor WHERE tenant_id = $1 AND seq = $2`, other.Tenant.ID, head.Seq).Scan(&at); err != nil {
+		t.Fatalf("read the recorded anchor: %v", err)
+	}
 	if !at.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("recorded the earlier anchor at %v", at)
 	}
@@ -182,10 +207,11 @@ func TestAnchoring(t *testing.T) {
 	third := setup(t)
 	head = headOf(t, third.Tenant.ID)
 	wrong, _ := json.Marshal(audit.Anchor{TenantID: third.Tenant.ID, Seq: head.Seq, Hash: strings.Repeat("00", 32)})
-	store.Put(ctx, blobstore.Key(third.Tenant.ID, blobstore.KindAnchors, audit.ObjectName(head.Seq)), wrong, blobstore.PutOptions{})
-	if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "tampered") {
-		t.Fatalf("disagreeing object: %v", err)
+	if err := store.Put(ctx, blobstore.Key(third.Tenant.ID, blobstore.KindAnchors, audit.ObjectName(head.Seq)), wrong, blobstore.PutOptions{}); err != nil {
+		t.Fatalf("store a disagreeing anchor: %v", err)
 	}
+	_, err = w.RunOnce(ctx)
+	pgtest.WantErr(t, err, "tampered")
 	if got := anchors(t, third.Tenant.ID); len(got) != 0 {
 		t.Fatalf("anchored anyway: %v", got)
 	}
@@ -212,23 +238,23 @@ func TestAnchoringFailures(t *testing.T) {
 	ctx := context.Background()
 	// A store that refuses writes anchors nothing and says so; reads failing during a check are reported.
 	w := anchorer(t, failingStore{err: errors.New("store down")})
-	if n, err := w.RunOnce(ctx); err == nil || n != 0 || !strings.Contains(err.Error(), "store down") {
-		t.Fatalf("%d %v", n, err)
+	if n, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "store down") {
+		t.Fatalf("got %v, want the store's failure", err)
+	} else if n != 0 {
+		t.Fatalf("got %d anchored, want 0", n)
 	}
 	if got := anchors(t, c.Tenant.ID); len(got) != 0 {
 		t.Fatalf("anchored with a failing store: %v", got)
 	}
 	// An object that exists but cannot be read back is reported.
-	if _, err := anchorer(t, existsThenFails{}).RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "store down") {
-		t.Fatalf("exists then fails: %v", err)
-	}
+	_, err := anchorer(t, existsThenFails{}).RunOnce(ctx)
+	pgtest.WantErr(t, err, "store down")
 	// Database failures: the transaction failing to start, and each statement in turn.
 	store := blobstore.Dir{Root: t.TempDir()}
 	w = anchorer(t, store)
 	w.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("begin: %v", err)
-	}
+	_, err = w.RunOnce(ctx)
+	pgtest.WantErr(t, err, "database down")
 	pool := pgtest.Pool(t)
 	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		if s.TenantID != uuid.Nil {
@@ -236,8 +262,30 @@ func TestAnchoringFailures(t *testing.T) {
 		}
 		return pool.Begin(ctx, s)
 	}
-	if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "tenant database down") {
-		t.Fatalf("tenant begin: %v", err)
+	_, err = w.RunOnce(ctx)
+	pgtest.WantErr(t, err, "tenant database down")
+	// The listing of the tenants to anchor failing.
+	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil || s.TenantID != uuid.Nil {
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
+	}
+	if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "list tenants to anchor") {
+		t.Fatalf("tenant listing: got %v, want the injected failure", err)
+	}
+	// The anchoring transaction failing to commit; the stored object is
+	// found again, with the same hash, by the next round.
+	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := pool.Begin(ctx, s)
+		if err != nil || s.TenantID == uuid.Nil {
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
+	}
+	if _, err := w.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "commit anchor") {
+		t.Fatalf("failed commit: got %v, want the injected failure", err)
 	}
 	// Each statement of the anchoring transaction failing in turn.
 	for n := 1; n < 20; n++ {
@@ -284,26 +332,23 @@ func TestAnchoringFailures(t *testing.T) {
 		t.Fatalf("raced anchors: %v", got)
 	}
 	// Run loops, logs failures and stops with its context.
-	logs := &lockedWriter{}
+	logs := &pgtest.SyncBuffer{}
 	broken := anchorer(t, failingStore{err: errors.New("store down")})
 	broken.Log = slog.New(slog.NewTextHandler(logs, nil)) // the default interval: the first round runs at once
 	setup(t)                                              // a tenant to fail on
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { broken.Run(runCtx); close(done) }()
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logs.String(), "audit anchoring failed"); {
-		if time.Now().After(deadline) {
-			cancel()
-			<-done
-			t.Fatalf("logs: %s", logs.String())
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	t.Cleanup(func() { cancel(); <-done }) // stops the worker should the wait fail
+	pgtest.Eventually(t, 10*time.Second, func() bool { return strings.Contains(logs.String(), "audit anchoring failed") },
+		"logs: %s", logs)
 	cancel()
 	<-done
 	// Verification against a store that cannot read is an error of the platform.
 	w = anchorer(t, store)
-	w.RunOnce(ctx)
+	if _, err := w.RunOnce(ctx); err != nil {
+		t.Fatalf("anchor before verifying: %v", err)
+	}
 	if err := apitest.InRequest(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) error {
 		h := endpoints()
 		h.Anchors = failingStore{err: errors.New("store down")}
@@ -327,22 +372,4 @@ func TestAnchoringFailures(t *testing.T) {
 		t.Fatalf("deleted event: %v", res)
 	}
 	_ = trail.Entry{}
-}
-
-// lockedWriter is a log sink the test may read while the worker writes.
-type lockedWriter struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (l *lockedWriter) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.Write(p)
-}
-
-func (l *lockedWriter) String() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.String()
 }

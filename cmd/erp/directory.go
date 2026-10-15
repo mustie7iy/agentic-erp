@@ -61,7 +61,7 @@ func directory(ctx context.Context, method, path string, body []byte, headers ma
 func directoryCells(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("directory cells", flag.ContinueOnError)
 	region := fs.String("region", "", "only cells of this region")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	path := "/cells"
@@ -72,8 +72,7 @@ func directoryCells(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(cells)
-	return nil
+	return printJSON(cells)
 }
 
 func directoryTenants(ctx context.Context, args []string) error {
@@ -84,7 +83,7 @@ func directoryTenants(ctx context.Context, args []string) error {
 	orderBy := fs.String("order-by", "", `sort order: "updated_at desc" (default) or "cell asc"`)
 	size := fs.Int("page-size", 0, "entries per page (default 50, max 500)")
 	token := fs.String("page-token", "", "next_page_token of the previous page")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	q := url.Values{}
@@ -104,14 +103,13 @@ func directoryTenants(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(page)
-	return nil
+	return printJSON(page)
 }
 
 func directoryLocate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("directory locate", flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" {
@@ -122,8 +120,7 @@ func directoryLocate(ctx context.Context, args []string) error {
 		return err
 	}
 	e["etag"] = h.Get("ETag")
-	printJSON(e)
-	return nil
+	return printJSON(e)
 }
 
 func directoryCreate(ctx context.Context, args []string) error {
@@ -137,7 +134,7 @@ func directoryCreate(ctx context.Context, args []string) error {
 	email := fs.String("admin-email", "", "the administrator's email (optional)")
 	file := fs.String("config", "", "the first configuration (YAML; erp config generate writes one)")
 	key := fs.String("idempotency-key", "", "Idempotency-Key of the request (default: a new UUID; reuse it to retry safely)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *file == "" {
@@ -155,7 +152,7 @@ func directoryCreate(ctx context.Context, args []string) error {
 	if *cell != "" {
 		in["cell"] = *cell
 	}
-	body, _ := json.Marshal(in)
+	body, _ := json.Marshal(in) // strings and a parsed configuration (JSON-safe types only) always encode
 	if *key == "" {
 		*key = uuid.NewString()
 	}
@@ -166,15 +163,14 @@ func directoryCreate(ctx context.Context, args []string) error {
 	if h.Get("Idempotent-Replayed") == "true" {
 		fmt.Fprintln(errOut, "replayed: this Idempotency-Key already provisioned the tenant")
 	}
-	printJSON(created)
-	return nil
+	return printJSON(created)
 }
 
 func directoryTransition(ctx context.Context, verb string, args []string) error {
 	fs := flag.NewFlagSet("directory "+verb, flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
 	ifMatch := fs.String("if-match", "", "the entry's ETag (default: read it first)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" {
@@ -191,8 +187,7 @@ func directoryTransition(ctx context.Context, verb string, args []string) error 
 	if err != nil {
 		return err
 	}
-	printJSON(e)
-	return nil
+	return printJSON(e)
 }
 
 // directoryVerify compares the tenant's data in its cell and in another
@@ -202,18 +197,20 @@ func directoryVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("directory verify", flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
 	cell := fs.String("cell", "", "the cell the tenant is being copied to")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" || *cell == "" {
 		return errors.New("-id and -cell are required")
 	}
-	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)})
+	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)}) // strings always encode
 	v, _, err := directory(ctx, http.MethodPost, "/tenants/"+*id+":verify", body, nil)
 	if err != nil {
 		return err
 	}
-	printJSON(v)
+	if err := printJSON(v); err != nil {
+		return err
+	}
 	if v["equal"] != true {
 		return errors.New("the cells differ")
 	}
@@ -225,7 +222,7 @@ func directoryMove(ctx context.Context, args []string) error {
 	id := fs.String("id", "", "tenant id")
 	cell := fs.String("cell", "", "the destination cell (registered, in the tenant's region)")
 	ifMatch := fs.String("if-match", "", "the entry's ETag (default: read it first)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" || *cell == "" {
@@ -238,11 +235,10 @@ func directoryMove(ctx context.Context, args []string) error {
 		}
 		*ifMatch = h.Get("ETag")
 	}
-	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)})
+	body, _ := json.Marshal(map[string]string{"cell": strings.TrimSpace(*cell)}) // strings always encode
 	e, _, err := directory(ctx, http.MethodPost, "/tenants/"+*id+":move", body, map[string]string{"If-Match": *ifMatch})
 	if err != nil {
 		return err
 	}
-	printJSON(e)
-	return nil
+	return printJSON(e)
 }

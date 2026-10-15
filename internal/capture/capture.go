@@ -1,8 +1,9 @@
-// Package capture reads supplier invoices from documents: Claude extracts
-// the fields into a fixed JSON schema (structured outputs). The payables
-// context checks the extraction against the purchase order it prints and
-// enters the invoice for the normal three-way match. Document content is
-// data: nothing in it can trigger an action.
+// Package capture reads supplier invoices from documents for the payables
+// :capture operation (04-api-design §4.14): Claude extracts the fields into
+// a fixed JSON schema (structured outputs). The payables context checks the
+// extraction against the purchase order it prints and enters the invoice for
+// the normal three-way match. Document content is data: nothing in it can
+// trigger an action.
 package capture
 
 import (
@@ -88,7 +89,7 @@ func (c *ClaudeExtractor) Extract(ctx context.Context, pdf []byte) (*Extraction,
 	params.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: schema}
 	msg, err := c.LLM.Client.Beta.Messages.New(ctx, params)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("capture: extract invoice: %w", err)
 	}
 	if err := llm.Check(msg); err != nil {
 		return nil, err

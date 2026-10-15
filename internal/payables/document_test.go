@@ -11,11 +11,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -34,7 +34,7 @@ func TestCapturedDocumentsAreKept(t *testing.T) {
 	e.order(t, e.Supplier, "PO-1")
 	root := t.TempDir()
 	store := blobstore.Dir{Root: root}
-	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects = store })
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Objects = store })
 	with := func(x capture.Extractor, objects blobstore.Store) *payables.Endpoints {
 		h := endpoints(x)
 		h.Objects = objects
@@ -58,16 +58,28 @@ func TestCapturedDocumentsAreKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := e.API.Do(apitest.Req{Method: "GET", Path: "/v1/supplier-invoices/" + inv["id"].(string) + "/document", Tenant: e.Tenant.ID, As: e.Tenant.Human})
-	if r.Code != 200 || r.Body.String() != pdf || r.Header().Get("Content-Type") != "application/octet-stream" {
-		t.Fatalf("document: %d %q %s", r.Code, r.Body.String(), r.Header().Get("Content-Type"))
+	if r.Code != 200 {
+		t.Fatalf("document status: got %d, want 200: %s", r.Code, r.Body)
+	}
+	if got := r.Body.String(); got != pdf {
+		t.Errorf("document body: got %q, want %q", got, pdf)
+	}
+	if got := r.Header().Get("Content-Type"); got != "application/octet-stream" {
+		t.Errorf("document content type: got %q, want application/octet-stream", got)
 	}
 	keys, _ := filepath.Glob(filepath.Join(root, "tenants", e.Tenant.ID.String(), "documents", "*"))
 	if len(keys) != 2 { // the object and its sidecar
 		t.Fatalf("stored: %v", keys)
 	}
 	content, ct, err := store.Get(context.Background(), strings.TrimPrefix(filepath.ToSlash(strings.TrimSuffix(keys[0], ".meta")), filepath.ToSlash(root)+"/"))
-	if err != nil || string(content) != pdf || ct != "application/pdf" {
-		t.Fatalf("in the store: %s %s %v", content, ct, err)
+	if err != nil {
+		t.Fatalf("read the stored document: %v", err)
+	}
+	if string(content) != pdf {
+		t.Errorf("stored content: got %q, want %q", content, pdf)
+	}
+	if ct != "application/pdf" {
+		t.Errorf("stored content type: got %q, want application/pdf", ct)
 	}
 	// Agents with access to the company may read documents.
 	e.Tenant.AllCompanies(t, e.Tenant.Agent)
@@ -91,17 +103,23 @@ func TestCapturedDocumentsAreKept(t *testing.T) {
 	e.API = before
 	// A document whose stored bytes differ from the hash is not handed out; a missing object is 404.
 	path := strings.TrimSuffix(keys[0], ".meta")
-	os.Chmod(path, 0o600)
-	os.WriteFile(path, []byte("tampered"), 0o600)
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("make the document writable: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("tampered"), 0o600); err != nil {
+		t.Fatalf("tamper with the document: %v", err)
+	}
 	e.Problem(409, "payables.document_changed", "GET", "/v1/supplier-invoices/"+inv["id"].(string)+"/document", "", "")
-	os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove the document: %v", err)
+	}
 	e.Problem(404, "request.not_found", "GET", "/v1/supplier-invoices/"+inv["id"].(string)+"/document", "", "")
 	// A store that does not answer: 503 on capture and on download.
 	broken := failingStore{err: errors.New("store down")}
 	if _, err := capture(with(extractor{e: changed("CAP-B")}, broken), "%PDF broken"); problem.From(err).Status != 503 {
 		t.Fatalf("capture with a broken store: %v", err)
 	}
-	e.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Objects = broken })
+	e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Objects = broken })
 	e.Problem(503, "platform.unavailable", "GET", "/v1/supplier-invoices/"+inv["id"].(string)+"/document", "", "")
 	e.API = before
 	// A document stored by a capture that then failed is found there on the next capture.

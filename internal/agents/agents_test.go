@@ -3,18 +3,22 @@ package agents_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -35,25 +39,57 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	person.Problem(403, "agents.not_an_agent", "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
 	s, tag := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "Investigate held invoices", "model": "claude-opus-5-5"}`, "")
 	path := "/v1/agent-sessions/" + s["id"].(string)
-	if s["status"] != "running" || s["agent_id"] != agent.As.ID.String() || s["cost"] != nil || tag != `"1"` {
-		t.Fatalf("started: %v", s)
+	if s["status"] != "running" {
+		t.Errorf("started status: got %v, want running", s["status"])
 	}
+	if want := agent.As.ID.String(); s["agent_id"] != want {
+		t.Errorf("started agent_id: got %v, want %s", s["agent_id"], want)
+	}
+	if s["cost"] != nil {
+		t.Errorf("started cost: got %v, want nil", s["cost"])
+	}
+	if tag != `"1"` {
+		t.Errorf("started ETag: got %s, want \"1\"", tag)
+	}
+	// The calls are numbered in order, so a failed one stops the rest.
 	for i, tool := range []string{"getSupplierInvoice", "holdSupplierInvoice"} {
-		c, _ := agent.Must(201, "POST", path+"/tool-calls", `{"tool": "`+tool+`", "input": {"id": "x"}, "result_summary": "200", "is_error": false}`, "")
-		if c["seq"] != float64(i+1) || c["input"].(map[string]any)["id"] != "x" || c["result_summary"] != "200" {
-			t.Fatalf("tool call: %v", c)
+		if !t.Run(tool, func(t *testing.T) {
+			agent := agent
+			agent.T = t
+			c, _ := agent.Must(201, "POST", path+"/tool-calls", `{"tool": "`+tool+`", "input": {"id": "x"}, "result_summary": "200", "is_error": false}`, "")
+			if c["seq"] != float64(i+1) {
+				t.Errorf("seq: got %v, want %d", c["seq"], i+1)
+			}
+			if input, _ := c["input"].(map[string]any); input["id"] != "x" {
+				t.Errorf("input: got %v, want id x", c["input"])
+			}
+			if c["result_summary"] != "200" {
+				t.Errorf("result_summary: got %v, want 200", c["result_summary"])
+			}
+		}) {
+			t.FailNow()
 		}
 	}
 	agent.Must(201, "POST", path+"/tool-calls", `{"tool": "listOpenItems", "input": {}}`, "")
 	person.Problem(403, "agents.not_your_session", "POST", path+"/tool-calls", `{"tool": "x", "input": {}}`, "")
 	agent.Problem(404, "request.not_found", "POST", "/v1/agent-sessions/"+uuid.NewString()+"/tool-calls", `{"tool": "x", "input": {}}`, "")
 	calls, _ := person.Must(200, "GET", path+"/tool-calls?page_size=2", "", "")
-	if len(calls["items"].([]any)) != 2 || calls["next_page_token"] == nil {
-		t.Fatalf("calls: %v", calls)
+	if got := len(calls["items"].([]any)); got != 2 {
+		t.Fatalf("calls page: got %d items, want 2 (%v)", got, calls)
+	}
+	if calls["next_page_token"] == nil {
+		t.Fatalf("calls page: got no next_page_token, want one (%v)", calls)
 	}
 	rest, _ := person.Must(200, "GET", path+"/tool-calls?page_size=2&page_token="+url.QueryEscape(calls["next_page_token"].(string)), "", "")
-	if items := rest["items"].([]any); len(items) != 1 || items[0].(map[string]any)["seq"] != float64(3) || rest["next_page_token"] != nil {
-		t.Fatalf("rest: %v", rest)
+	items := rest["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("rest: got %d items, want 1 (%v)", len(items), rest)
+	}
+	if got := items[0].(map[string]any)["seq"]; got != float64(3) {
+		t.Errorf("rest seq: got %v, want 3", got)
+	}
+	if rest["next_page_token"] != nil {
+		t.Errorf("rest next_page_token: got %v, want nil", rest["next_page_token"])
 	}
 	person.Problem(404, "request.not_found", "GET", "/v1/agent-sessions/"+uuid.NewString()+"/tool-calls", "", "")
 	person.Problem(400, "request.invalid_page_token", "GET", path+"/tool-calls?page_token=x", "", "")
@@ -61,8 +97,14 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	object := uuid.NewString()
 	body := `{"session_id": "` + s["id"].(string) + `", "object_type": "supplier_invoice", "object_id": "` + object + `", "kind": "release_hold", "content": "Release it."}`
 	rec, rtag := agent.Must(201, "POST", "/v1/recommendations", body, "")
-	if rec["outcome"] != nil || rec["agent_id"] != agent.As.ID.String() || rtag != `"1"` {
-		t.Fatalf("recommendation: %v", rec)
+	if rec["outcome"] != nil {
+		t.Errorf("recommendation outcome: got %v, want nil", rec["outcome"])
+	}
+	if want := agent.As.ID.String(); rec["agent_id"] != want {
+		t.Errorf("recommendation agent_id: got %v, want %s", rec["agent_id"], want)
+	}
+	if rtag != `"1"` {
+		t.Errorf("recommendation ETag: got %s, want \"1\"", rtag)
 	}
 	agent.Problem(422, "request.reference_not_found", "POST", "/v1/recommendations", strings.Replace(body, s["id"].(string), uuid.NewString(), 1), "")
 	made := apitest.Published(t, person.Tenant, outbox.Event{Context: "agents", Name: "recommendation_made"})
@@ -73,8 +115,11 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	agent.Problem(403, "identity.agent_not_allowed", "POST", recPath+":decide", `{"outcome": "accepted"}`, rtag)
 	person.Problem(422, "agents.invalid_outcome", "POST", recPath+":decide", `{"outcome": "maybe"}`, rtag)
 	decided, rtag := person.Must(200, "POST", recPath+":decide", `{"outcome": "accepted", "comment": "Done"}`, rtag)
-	if decided["outcome"] != "accepted" || decided["decided_by"] != person.As.ID.String() {
-		t.Fatalf("decided: %v", decided)
+	if decided["outcome"] != "accepted" {
+		t.Errorf("decided outcome: got %v, want accepted", decided["outcome"])
+	}
+	if want := person.As.ID.String(); decided["decided_by"] != want {
+		t.Errorf("decided_by: got %v, want %s", decided["decided_by"], want)
 	}
 	person.Problem(409, "agents.already_decided", "POST", recPath+":decide", `{"outcome": "ignored"}`, rtag)
 	if ev := apitest.Published(t, person.Tenant, outbox.Event{Context: "agents", Name: "recommendation_decided"}); len(ev) != 1 || ev[0]["outcome"] != "accepted" {
@@ -82,9 +127,13 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	}
 	agent.Must(201, "POST", "/v1/recommendations", body, "")
 	for query, n := range map[string]int{"?outcome=open": 1, "?outcome=accepted": 1, "?object_type=supplier_invoice&object_id=" + object + "&session_id=" + s["id"].(string): 2} {
-		if page, _ := person.Must(200, "GET", "/v1/recommendations"+query, "", ""); len(page["items"].([]any)) != n {
-			t.Errorf("%s: %v", query, page)
-		}
+		t.Run(query, func(t *testing.T) {
+			person := person
+			person.T = t
+			if page, _ := person.Must(200, "GET", "/v1/recommendations"+query, "", ""); len(page["items"].([]any)) != n {
+				t.Errorf("got %d items, want %d (%v)", len(page["items"].([]any)), n, page)
+			}
+		})
 	}
 	page, _ := person.Must(200, "GET", "/v1/recommendations?page_size=1", "", "")
 	if page["next_page_token"] == nil {
@@ -101,8 +150,14 @@ func TestSessionsAndRecommendations(t *testing.T) {
 		"cost": {"amount": "1.0", "currency": "USD"}}`, tag)
 	ended, _ := agent.Must(200, "POST", path+":end", `{"status": "completed", "input_tokens": 18200, "output_tokens": 2100,
 		"cost": {"amount": "0.42", "currency": "USD"}}`, tag)
-	if ended["status"] != "completed" || ended["cost"].(map[string]any)["amount"] != "0.42" || ended["ended_at"] == nil {
-		t.Fatalf("ended: %v", ended)
+	if ended["status"] != "completed" {
+		t.Errorf("ended status: got %v, want completed", ended["status"])
+	}
+	if cost, _ := ended["cost"].(map[string]any); cost["amount"] != "0.42" {
+		t.Errorf("ended cost: got %v, want 0.42", ended["cost"])
+	}
+	if ended["ended_at"] == nil {
+		t.Errorf("ended_at: got nil, want a time (%v)", ended)
 	}
 	agent.Problem(409, "agents.session_ended", "POST", path+"/tool-calls", `{"tool": "x", "input": {}}`, "")
 	other, otag := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "Quick", "model": "m"}`, "")
@@ -188,10 +243,12 @@ func TestDatabaseFailures(t *testing.T) {
 			actor = agent.As
 		}
 		for name, call := range calls {
-			if call(context.Background()) == nil {
-				t.Errorf("%s outside a unit of work", name)
-			}
-			apitest.EveryFailure(t, person.Tenant, actor, name, call)
+			t.Run(as+"/"+name, func(t *testing.T) {
+				if call(context.Background()) == nil {
+					t.Errorf("outside a unit of work: got no error, want one")
+				}
+				apitest.EveryFailure(t, person.Tenant, actor, name, call)
+			})
 		}
 	}
 	no := func(int32) error { return json.Unmarshal([]byte("x"), new(any)) }
@@ -222,8 +279,44 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, person.Tenant, agent.As, call); err == nil {
-			t.Errorf("%s: accepted", name)
+		t.Run(name, func(t *testing.T) {
+			if err := apitest.InRequest(t, person.Tenant, agent.As, call); err == nil {
+				t.Error("got no error, want one")
+			}
+		})
+	}
+}
+
+// failCurrency fails only the currency exponent read, so the test reaches it
+// whatever number of statements precede it.
+type failCurrency struct{ pgx.Tx }
+
+func (f failCurrency) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "FROM ref.currency WHERE") {
+		return (&pgtest.FailingTx{Tx: f.Tx, FailAt: 1}).QueryRow(ctx, sql, args...)
+	}
+	return f.Tx.QueryRow(ctx, sql, args...)
+}
+
+// A failed read of the cost's currency is a server error, not a 422 that
+// blames the client's currency.
+func TestEndSessionCurrencyReadFailure(t *testing.T) {
+	person, agent := setup(t)
+	s, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
+	session := uuid.MustParse(s["id"].(string))
+	err := apitest.InRequest(t, person.Tenant, agent.As, func(ctx context.Context) error {
+		tx, _, err := reqctx.Request(ctx)
+		if err != nil {
+			return err
 		}
+		_, err = agents.EndSession(reqctx.WithTx(ctx, failCurrency{tx}), session, func(int32) error { return nil },
+			agents.Usage{Status: agents.Completed, Cost: "1.00", Currency: "EUR"})
+		return err
+	})
+	if !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("got %v, want the injected failure", err)
+	}
+	if got := problem.From(err).Status; got != 500 {
+		t.Errorf("status: got %d, want 500", got)
 	}
 }

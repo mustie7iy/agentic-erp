@@ -2,17 +2,21 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -26,7 +30,7 @@ func (engine) Cancel(context.Context, string) error                { return nil 
 
 func withEngine(e env) *integration.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return httpapi.Integration(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: e.dir, Workflows: engine{}})
+	return app.Integration(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), ExtractDir: e.dir, Workflows: engine{}})
 }
 
 // TestRunsWithAnEngine: with a workflow engine, :start and :reconcile hand
@@ -116,10 +120,7 @@ func TestRunsWithAnEngine(t *testing.T) {
 	disabled := newRun(disabledConn)
 	_, tag := e.Must(200, "GET", "/v1/connectors/"+disabledConn, "", "")
 	e.Must(200, "POST", "/v1/connectors/"+disabledConn+":disable", `{"reason": "test"}`, tag)
-	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { _, err := h.StartRun(ctx, disabled, yes); return err }); err == nil ||
-		!strings.Contains(err.Error(), "connector_disabled") {
-		t.Fatalf("disabled connector: %v", err)
-	}
+	pgtest.WantErr(t, apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { _, err := h.StartRun(ctx, disabled, yes); return err }), "connector_disabled")
 	// Every database statement failing in turn.
 	for name, call := range map[string]func(ctx context.Context) error{
 		"start":              func(ctx context.Context) error { _, err := h.StartRun(ctx, queued, yes); return err },
@@ -128,9 +129,25 @@ func TestRunsWithAnEngine(t *testing.T) {
 		"execute reconcile":  func(ctx context.Context) error { _, err := h.Execute(ctx, reconciling); return err },
 		"execute unreadable": func(ctx context.Context) error { _, err := h.Execute(ctx, stillUnreadable); return err },
 	} {
-		if err := call(ctx); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(ctx); err == nil {
+				t.Errorf("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		})
+	}
+	// Putting an unreadable run back reports a missing audit buffer (a call
+	// outside the unit of work's setup).
+	tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: e.Tenant.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if err := database.SetActor(ctx, tx, e.Tenant.Human.ID); err != nil {
+		t.Fatal(err)
+	}
+	bare := reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: e.Tenant.Human.ID, Kind: e.Tenant.Human.Kind, TenantID: e.Tenant.ID})
+	if _, err := h.Execute(bare, stillUnreadable); !errors.Is(err, audit.ErrNoBuffer) {
+		t.Fatalf("execute without an audit buffer: got %v, want %v", err, audit.ErrNoBuffer)
 	}
 }

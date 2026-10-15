@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -64,7 +65,7 @@ func (m *LocalMaster) ID() string { return m.id }
 // Wrap implements Master.
 func (m *LocalMaster) Wrap(tenant uuid.UUID, key []byte) ([]byte, error) {
 	nonce := make([]byte, m.aead.NonceSize())
-	rand.Read(nonce) // never fails (crypto/rand)
+	_, _ = rand.Read(nonce) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 	return m.aead.Seal(nonce, nonce, key, tenant[:]), nil
 }
 
@@ -86,11 +87,31 @@ func (m *LocalMaster) Unwrap(tenant uuid.UUID, wrapped []byte) ([]byte, error) {
 // fingerprint column of the same value, when there is one; Versioned tables
 // bump version on update (platform.touch).
 type Column struct {
-	Table       string
+	Table       string   // schema-qualified: "partner.bank_account"
 	Keys        []string // columns identifying a row within the tenant
 	Cipher      string
 	Fingerprint string
 	Versioned   bool
+}
+
+// quotedColumn is a Column's identifiers sanitized for SQL text.
+type quotedColumn struct {
+	table, cipher, fingerprint string
+	keys                       []string
+}
+
+// quoted sanitizes the column's identifiers (CLAUDE.md: identifiers go
+// through pgx.Identifier); the table splits into schema and name.
+func (c Column) quoted() quotedColumn {
+	q := quotedColumn{table: pgx.Identifier(strings.Split(c.Table, ".")).Sanitize(), cipher: pgx.Identifier{c.Cipher}.Sanitize(),
+		keys: make([]string, len(c.Keys))}
+	if c.Fingerprint != "" {
+		q.fingerprint = pgx.Identifier{c.Fingerprint}.Sanitize()
+	}
+	for i, k := range c.Keys {
+		q.keys[i] = pgx.Identifier{k}.Sanitize()
+	}
+	return q
 }
 
 var (
@@ -136,6 +157,9 @@ type Keyring struct {
 	// inside one, the request's transaction is used.
 	Pool    *database.Pool
 	AppRole string
+	// Now is the clock rotations are dated with; nil reads the wall clock
+	// (clock.Now).
+	Now func() time.Time
 
 	mu     sync.Mutex
 	active map[uuid.UUID]*tenantKey // by tenant
@@ -169,8 +193,8 @@ func (r *Keyring) unwrap(tenant, id uuid.UUID, masterID string, data, mac []byte
 	if err := errors.Join(err1, err2); err != nil {
 		return nil, err
 	}
-	block, _ := aes.NewCipher(dk) // 32 bytes, generated here
-	aead, _ := cipher.NewGCM(block)
+	block, _ := aes.NewCipher(dk)   // 32 bytes, generated here
+	aead, _ := cipher.NewGCM(block) // GCM over an AES block never fails
 	return &tenantKey{id: id, aead: aead, mac: mk, active: status == "active"}, nil
 }
 
@@ -197,9 +221,11 @@ func (r *Keyring) load(ctx context.Context, tenant uuid.UUID) (*tenantKey, error
 		var id uuid.UUID
 		var masterID, status string
 		var data, mac []byte
+		var unwrapErr error
 		_, err := pgx.ForEachRow(rows, []any{&id, &masterID, &data, &mac, &status}, func() error {
 			k, err := r.unwrap(tenant, id, masterID, data, mac, status)
 			if err != nil {
+				unwrapErr = fmt.Errorf("fieldcrypt: key %s of tenant %s: %w", id, tenant, err)
 				return err
 			}
 			r.remember(tenant, k)
@@ -208,7 +234,13 @@ func (r *Keyring) load(ctx context.Context, tenant uuid.UUID) (*tenantKey, error
 			}
 			return nil
 		})
-		return err
+		if unwrapErr != nil {
+			return unwrapErr
+		}
+		if err != nil {
+			return fmt.Errorf("fieldcrypt: read keys of tenant %s: %w", tenant, err)
+		}
+		return nil
 	})
 	if errors.Is(err, ErrNoKey) {
 		return nil, nil // no way to look: a legacy-only ring
@@ -276,7 +308,7 @@ func (r *Keyring) Seal(ctx context.Context, tenant uuid.UUID, value string) ([]b
 
 func seal(k *tenantKey, tenant uuid.UUID, value string) []byte {
 	nonce := make([]byte, k.aead.NonceSize())
-	rand.Read(nonce) // never fails (crypto/rand)
+	_, _ = rand.Read(nonce) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 	out := append([]byte{versionTenantKey}, k.id[:]...)
 	out = append(out, nonce...)
 	return k.aead.Seal(out, nonce, []byte(Normalize(value)), tenant[:])
@@ -342,8 +374,8 @@ func (r *Keyring) generate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*t
 		return nil, errors.New("fieldcrypt: no master key to wrap tenant keys with (ERP_FIELD_KEYS)")
 	}
 	data, mac := make([]byte, 32), make([]byte, 32)
-	rand.Read(data) // never fails (crypto/rand)
-	rand.Read(mac)
+	_, _ = rand.Read(data) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
+	_, _ = rand.Read(mac)  // as above
 	primary := r.Masters[0]
 	wrappedData, err := primary.Wrap(tenant, data)
 	if err != nil {
@@ -354,15 +386,15 @@ func (r *Keyring) generate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*t
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE tenancy.tenant_key SET status = 'retired', retired_at = now(), version = version + 1 WHERE tenant_id = $1 AND status = 'active'`, tenant); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fieldcrypt: retire active key of tenant %s: %w", tenant, err)
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO tenancy.tenant_key (tenant_id, id, master_key_id, wrapped_data_key, wrapped_mac_key, status) VALUES ($1, $2, $3, $4, $5, 'active')`,
 		tenant, id, primary.ID(), wrappedData, wrappedMac); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fieldcrypt: insert key %s of tenant %s: %w", id, tenant, err)
 	}
-	block, _ := aes.NewCipher(data)
-	aead, _ := cipher.NewGCM(block)
+	block, _ := aes.NewCipher(data) // 32 bytes, generated above
+	aead, _ := cipher.NewGCM(block) // GCM over an AES block never fails
 	return &tenantKey{id: id, aead: aead, mac: mac, active: true}, nil
 }
 
@@ -399,7 +431,7 @@ func (r *Keyring) Rotate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rota
 	if err != nil {
 		return Rotation{}, err
 	}
-	rot := Rotation{KeyID: k.id, Master: r.Masters[0].ID(), At: time.Now().UTC()}
+	rot := Rotation{KeyID: k.id, Master: r.Masters[0].ID(), At: clock.Now(r.Now).UTC()}
 	if previous != nil {
 		rot.Previous = previous.id
 	}
@@ -416,8 +448,8 @@ func (r *Keyring) Rotate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rota
 
 // reseal rewrites one column's rows under k.
 func (r *Keyring) reseal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c Column, k *tenantKey) (int, error) {
-	keys := strings.Join(c.Keys, ", ")
-	rows, _ := tx.Query(ctx, `SELECT `+keys+`, `+c.Cipher+` FROM `+c.Table+` WHERE tenant_id = $1`, tenant)
+	q := c.quoted()
+	rows, _ := tx.Query(ctx, `SELECT `+strings.Join(q.keys, ", ")+`, `+q.cipher+` FROM `+q.table+` WHERE tenant_id = $1`, tenant)
 	type row struct {
 		keys   []any
 		sealed []byte
@@ -437,30 +469,30 @@ func (r *Keyring) reseal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c Col
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("read rows: %w", err)
 	}
 	for _, rw := range all {
 		plain, err := r.Open(ctx, tenant, rw.sealed)
 		if err != nil {
 			return 0, err
 		}
-		set := []string{c.Cipher + " = $1"}
+		set := []string{q.cipher + " = $1"}
 		args := []any{seal(k, tenant, plain)}
 		if c.Fingerprint != "" {
-			set = append(set, fmt.Sprintf("%s = $%d", c.Fingerprint, len(args)+1))
+			set = append(set, fmt.Sprintf("%s = $%d", q.fingerprint, len(args)+1))
 			args = append(args, fingerprint(k.mac, tenant, plain))
 		}
 		if c.Versioned {
 			set = append(set, "version = version + 1")
 		}
 		var where []string
-		for i, name := range c.Keys {
+		for i, name := range q.keys {
 			where = append(where, fmt.Sprintf("%s = $%d", name, len(args)+1))
 			args = append(args, rw.keys[i])
 		}
-		if _, err := tx.Exec(ctx, `UPDATE `+c.Table+` SET `+strings.Join(set, ", ")+` WHERE tenant_id = $`+fmt.Sprint(len(args)+1)+` AND `+strings.Join(where, " AND "),
+		if _, err := tx.Exec(ctx, `UPDATE `+q.table+` SET `+strings.Join(set, ", ")+` WHERE tenant_id = $`+fmt.Sprint(len(args)+1)+` AND `+strings.Join(where, " AND "),
 			append(args, tenant)...); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("update row %v: %w", rw.keys, err)
 		}
 	}
 	return len(all), nil
@@ -495,7 +527,7 @@ func (r *Keyring) Rewrap(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rewr
 		all = append(all, wrapped{w.id, w.master, append([]byte(nil), w.data...), append([]byte(nil), w.mac...)})
 		return nil
 	}); err != nil {
-		return Rewrapped{}, err
+		return Rewrapped{}, fmt.Errorf("fieldcrypt: read keys of tenant %s to rewrap: %w", tenant, err)
 	}
 	for _, w := range all {
 		m, ok := r.master(w.master)
@@ -517,7 +549,7 @@ func (r *Keyring) Rewrap(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rewr
 		}
 		if _, err := tx.Exec(ctx, `UPDATE tenancy.tenant_key SET master_key_id = $1, wrapped_data_key = $2, wrapped_mac_key = $3, version = version + 1 WHERE tenant_id = $4 AND id = $5`,
 			primary.ID(), data, mac, tenant, w.id); err != nil {
-			return Rewrapped{}, err
+			return Rewrapped{}, fmt.Errorf("fieldcrypt: rewrap key %s of tenant %s: %w", w.id, tenant, err)
 		}
 		out.Keys++
 	}

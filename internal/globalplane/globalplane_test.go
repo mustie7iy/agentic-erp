@@ -47,7 +47,7 @@ func newPlane(t *testing.T) *plane {
 	}
 	t.Cleanup(dir.Close)
 	is := authntest.New(t)
-	v, err := authn.New(ctx, []authn.Issuer{is.Config()})
+	v, err := authn.New(ctx, authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,13 +58,21 @@ func newPlane(t *testing.T) *plane {
 	return &plane{t: t, dir: dir, is: is, srv: srv, s: s}
 }
 
+// in is the plane for a subtest: its failures stop the subtest.
+func (p *plane) in(t *testing.T) *plane {
+	t.Helper()
+	c := *p
+	c.t = t
+	return &c
+}
+
 func (p *plane) operator(subject string) string {
 	return p.is.Token(p.t, uuid.Nil, subject, map[string]any{"tenant_id": nil})
 }
 
 func (p *plane) do(method, path, body string, headers map[string]string) (int, map[string]any, http.Header) {
 	p.t.Helper()
-	req, _ := http.NewRequest(method, p.srv.URL+path, strings.NewReader(body))
+	req, _ := http.NewRequestWithContext(p.t.Context(), method, p.srv.URL+path, strings.NewReader(body))
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -72,7 +80,7 @@ func (p *plane) do(method, path, body string, headers map[string]string) (int, m
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read to the end below; closing a read body loses nothing
 	var m map[string]any
 	raw, _ := io.ReadAll(resp.Body)
 	if len(raw) > 0 {
@@ -130,12 +138,16 @@ func (c *fakeCell) handler(name string) http.Handler {
 			return
 		}
 		var in map[string]any
-		json.Unmarshal(body, &in)
+		if err := json.Unmarshal(body, &in); err != nil { // the plane sent something that is not a tenant request
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("ETag", `"1"`)
 		w.Header().Set("Location", "/control/v1/tenants/"+uuid.NewString())
 		w.WriteHeader(http.StatusCreated)
 		id := uuid.Must(uuid.NewV7())
-		json.NewEncoder(w).Encode(map[string]any{"id": id, "name": in["name"], "region": in["region"], "status": "active", "version": 1, "provisioned": map[string]any{"configuration_version": 1}})
+		// A failed write reaches the plane as a broken answer, which the test sees there.
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "name": in["name"], "region": in["region"], "status": "active", "version": 1, "provisioned": map[string]any{"configuration_version": 1}})
 	})
 }
 
@@ -156,7 +168,60 @@ func TestGlobalControlPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Cells, with and without a region.
+	s := &globalScenario{p: p, eu1: eu1, eu2: eu2, region: region}
+	// Each step builds on the ones before it, so the first failure stops the rest.
+	if !t.Run("cells", s.cells) {
+		t.FailNow()
+	}
+	if !t.Run("provisioning", s.provision) {
+		t.FailNow()
+	}
+	if !t.Run("placement", s.placement) {
+		t.FailNow()
+	}
+	if !t.Run("unreachable cells", s.unreachable) {
+		t.FailNow()
+	}
+	if !t.Run("request rules", s.requestRules) {
+		t.FailNow()
+	}
+	if !t.Run("a move", s.move) {
+		t.FailNow()
+	}
+	if !t.Run("listing", s.listing) {
+		t.FailNow()
+	}
+	if !t.Run("operator roles", s.operatorRoles) {
+		t.FailNow()
+	}
+	if !t.Run("contract served", s.contractServed) {
+		t.FailNow()
+	}
+	if !t.Run("directory down", s.directoryDown) {
+		t.FailNow()
+	}
+}
+
+// globalScenario is the state the steps of TestGlobalControlPlane share.
+type globalScenario struct {
+	p        *plane
+	eu1, eu2 *fakeCell
+	region   string    // the test's own region
+	body     string    // a provisioning request in that region
+	id       uuid.UUID // the first tenant
+}
+
+func (s *globalScenario) upsertCell(tb testing.TB, c directory.Cell) {
+	tb.Helper()
+	if err := s.p.dir.UpsertCell(context.Background(), c); err != nil {
+		tb.Fatalf("upsert cell %s: %v", c.Name, err)
+	}
+}
+
+// cells: with and without a region.
+func (s *globalScenario) cells(t *testing.T) {
+	p := s.p.in(t)
+	region := s.region
 	cells, _ := p.must(200, "ops|alice", "GET", "/directory/v1/cells?region="+region, "")
 	if items := cells["items"].([]any); len(items) != 3 || items[0].(map[string]any)["tenants"] != float64(0) {
 		t.Fatalf("cells: %v", cells)
@@ -164,23 +229,58 @@ func TestGlobalControlPlane(t *testing.T) {
 	if all, _ := p.must(200, "ops|alice", "GET", "/directory/v1/cells", ""); len(all["items"].([]any)) < 3 {
 		t.Fatalf("all cells: %v", all)
 	}
-	// Provisioning: placed in the emptiest cell, forwarded with the key and the token, entered in the directory at once.
+}
+
+// provision: placed in the emptiest cell, forwarded with the key and the token, entered in the directory at once.
+func (s *globalScenario) provision(t *testing.T) {
+	p := s.p.in(t)
+	region, eu1 := s.region, s.eu1
 	body := `{"name":"Acme","region":"` + region + `","group_currency":"EUR","administrator":{"subject":"idp|ada","display_name":"Ada"},"configuration":{"group_currency":"EUR","companies":[]}}`
 	created, h := p.must(201, "ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString())
-	if created["cell"] != region+"-1" || h.Get("X-Erp-Cell") != region+"-1" || h.Get("ETag") != `"1"` || h.Get("Location") == "" || created["name"] != "Acme" {
-		t.Fatalf("created: %v %v", created, h)
+	for field, c := range map[string]struct{ got, want any }{
+		"cell":         {created["cell"], region + "-1"},
+		"name":         {created["name"], "Acme"},
+		"X-Erp-Cell":   {h.Get("X-Erp-Cell"), region + "-1"},
+		"ETag":         {h.Get("ETag"), `"1"`},
+		"has Location": {h.Get("Location") != "", true},
+	} {
+		if c.got != c.want {
+			t.Errorf("created %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	id := uuid.MustParse(created["id"].(string))
 	entry, h := p.must(200, "ops|alice", "GET", "/directory/v1/tenants/"+id.String(), "")
-	if entry["cell"] != region+"-1" || entry["status"] != "active" || entry["api_url"] != "https://1.api.example.com" || h.Get("ETag") != `"1"` {
-		t.Fatalf("entry: %v", entry)
+	for field, c := range map[string]struct{ got, want any }{
+		"cell":    {entry["cell"], region + "-1"},
+		"status":  {entry["status"], "active"},
+		"api_url": {entry["api_url"], "https://1.api.example.com"},
+		"ETag":    {h.Get("ETag"), `"1"`},
+	} {
+		if c.got != c.want {
+			t.Errorf("entry %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	eu1.mu.Lock()
-	if len(eu1.seen) != 1 || !strings.Contains(eu1.seen[0], "POST /control/v1/tenants key=key-") || !strings.Contains(eu1.seen[0], "auth=true") || strings.Contains(eu1.seen[0], `"cell"`) {
-		t.Fatalf("cell saw: %v", eu1.seen)
-	}
+	seen := append([]string(nil), eu1.seen...)
 	eu1.mu.Unlock()
-	// The second tenant goes to the other cell; a named cell wins; the full cell is refused; a retry keeps its cell.
+	if len(seen) != 1 {
+		t.Fatalf("cell saw %d requests, want 1: %v", len(seen), seen)
+	}
+	for _, want := range []string{"POST /control/v1/tenants key=key-", "auth=true"} {
+		if !strings.Contains(seen[0], want) {
+			t.Fatalf("cell saw %s, want %q in it", seen[0], want)
+		}
+	}
+	if strings.Contains(seen[0], `"cell"`) {
+		t.Fatalf("cell saw %s, want no cell field forwarded", seen[0])
+	}
+	s.body, s.id = body, id
+}
+
+// placement: the second tenant goes to the other cell; a named cell wins; the full cell is refused; a retry keeps its cell.
+func (s *globalScenario) placement(t *testing.T) {
+	p := s.p.in(t)
+	region, body, eu2 := s.region, s.body, s.eu2
 	second, _ := p.must(201, "ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString())
 	if second["cell"] != region+"-2" {
 		t.Fatalf("second: %v", second)
@@ -207,15 +307,20 @@ func TestGlobalControlPlane(t *testing.T) {
 	if retried["cell"] != region+"-2" {
 		t.Fatalf("retry: %v", retried)
 	}
-	// A cell that does not answer is a 502; the placement is kept for the retry.
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: true})
+}
+
+// unreachable: a cell that does not answer is a 502, the placement kept for the retry; one whose answer breaks off is unreachable too.
+func (s *globalScenario) unreachable(t *testing.T) {
+	p := s.p.in(t)
+	region, body := s.region, s.body
+	s.upsertCell(t, directory.Cell{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: true})
 	p.problem(502, "platform.cell_unreachable", "ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString())
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-bad", Region: region, APIURL: "https://b.api.example.com", ControlURL: "::", Accepting: true})
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: false})
+	s.upsertCell(t, directory.Cell{Name: region + "-bad", Region: region, APIURL: "https://b.api.example.com", ControlURL: "::", Accepting: true})
+	s.upsertCell(t, directory.Cell{Name: region + "-down", Region: region, APIURL: "https://d.api.example.com", ControlURL: "http://127.0.0.1:1", Accepting: false})
 	if status, _, _ := p.as("ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "key-"+uuid.NewString()); status != 503 {
 		t.Fatalf("cell with a bad control URL: %d", status)
 	}
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-bad", Region: region, APIURL: "https://b.api.example.com", ControlURL: "::", Accepting: false})
+	s.upsertCell(t, directory.Cell{Name: region + "-bad", Region: region, APIURL: "https://b.api.example.com", ControlURL: "::", Accepting: false})
 	// A cell whose answer breaks off is unreachable too.
 	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "1000")
@@ -223,10 +328,15 @@ func TestGlobalControlPlane(t *testing.T) {
 		w.Write([]byte(`{"id":`))
 	}))
 	defer truncated.Close()
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-cut", Region: region, APIURL: "https://c.api.example.com", ControlURL: truncated.URL, Accepting: true})
+	s.upsertCell(t, directory.Cell{Name: region + "-cut", Region: region, APIURL: "https://c.api.example.com", ControlURL: truncated.URL, Accepting: true})
 	p.problem(502, "platform.cell_unreachable", "ops|alice", "POST", "/directory/v1/tenants", strings.Replace(body, `"name":"Acme"`, `"name":"Cut","cell":"`+region+`-cut"`, 1), "Idempotency-Key", "key-"+uuid.NewString())
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-cut", Region: region, APIURL: "https://c.api.example.com", ControlURL: truncated.URL, Accepting: false})
-	// Request rules: key, body, region, size.
+	s.upsertCell(t, directory.Cell{Name: region + "-cut", Region: region, APIURL: "https://c.api.example.com", ControlURL: truncated.URL, Accepting: false})
+}
+
+// requestRules: key, body, region, size.
+func (s *globalScenario) requestRules(t *testing.T) {
+	p := s.p.in(t)
+	region, body := s.region, s.body
 	if status, _, _ := p.as("ops|alice", "POST", "/directory/v1/tenants", `{"region":"`+region+`","name":"`+strings.Repeat("x", 5<<20)+`"}`, "Idempotency-Key", "key-"+uuid.NewString()); status != 413 {
 		t.Fatalf("oversized: %d", status)
 	}
@@ -234,7 +344,12 @@ func TestGlobalControlPlane(t *testing.T) {
 	p.problem(400, "request.invalid_idempotency_key", "ops|alice", "POST", "/directory/v1/tenants", body, "Idempotency-Key", "short")
 	p.problem(400, "request.invalid_body", "ops|alice", "POST", "/directory/v1/tenants", `{"name":"x"}`, "Idempotency-Key", "key-"+uuid.NewString())
 	p.problem(400, "request.invalid_body", "ops|alice", "POST", "/directory/v1/tenants", `not json`, "Idempotency-Key", "key-"+uuid.NewString())
-	// A move: freeze, move, unfreeze, each under If-Match; the wrong state and region refused.
+}
+
+// move: freeze, move, unfreeze, each under If-Match; the wrong state and region refused.
+func (s *globalScenario) move(t *testing.T) {
+	p := s.p.in(t)
+	region, id := s.region, s.id
 	p.problem(428, "request.precondition_required", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":freeze", "")
 	p.problem(412, "request.version_mismatch", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":freeze", "", "If-Match", `"9"`)
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":unfreeze", "", "If-Match", `"1"`)
@@ -246,17 +361,29 @@ func TestGlobalControlPlane(t *testing.T) {
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":freeze", "", "If-Match", `"2"`)
 	p.problem(400, "request.invalid_body", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{}`, "If-Match", `"2"`)
 	p.problem(422, "tenancy.unknown_cell", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"nowhere"}`, "If-Match", `"2"`)
-	p.dir.UpsertCell(ctx, directory.Cell{Name: region + "-us", Region: "us-east", APIURL: "https://us.api.example.com", ControlURL: "http://us:9090", Accepting: true})
+	s.upsertCell(t, directory.Cell{Name: region + "-us", Region: "us-east", APIURL: "https://us.api.example.com", ControlURL: "http://us:9090", Accepting: true})
 	p.problem(422, "tenancy.region_mismatch", "ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"`+region+`-us"}`, "If-Match", `"2"`)
 	moved, h := p.must(200, "ops|bob", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"`+region+`-2"}`, "If-Match", `"2"`)
-	if moved["cell"] != region+"-2" || moved["api_url"] != "https://2.api.example.com" || moved["status"] != "read_only" || h.Get("ETag") != `"3"` {
-		t.Fatalf("moved: %v", moved)
+	for field, c := range map[string]struct{ got, want any }{
+		"cell":    {moved["cell"], region + "-2"},
+		"api_url": {moved["api_url"], "https://2.api.example.com"},
+		"status":  {moved["status"], "read_only"},
+		"ETag":    {h.Get("ETag"), `"3"`},
+	} {
+		if c.got != c.want {
+			t.Errorf("moved %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	active, _ := p.must(200, "ops|bob", "POST", "/directory/v1/tenants/"+id.String()+":unfreeze", "", "If-Match", `"3"`)
 	if active["status"] != "active" || active["cell"] != region+"-2" {
 		t.Fatalf("unfrozen: %v", active)
 	}
-	// Listing: filters, pages, order; unknown tenants and methods; tokens.
+}
+
+// listing: filters, pages, order; unknown tenants and methods; tokens.
+func (s *globalScenario) listing(t *testing.T) {
+	p := s.p.in(t)
+	region, id := s.region, s.id
 	page, _ := p.must(200, "ops|alice", "GET", "/directory/v1/tenants?region="+region+"&page_size=2", "")
 	if len(page["items"].([]any)) != 2 || page["next_page_token"] == nil {
 		t.Fatalf("page: %v", page)
@@ -272,6 +399,8 @@ func TestGlobalControlPlane(t *testing.T) {
 		t.Fatalf("none: %v", none)
 	}
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", "/directory/v1/tenants?status=bogus", "")
+	// Two statuses are not one: the value is matched whole, not found inside the list of statuses.
+	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", "/directory/v1/tenants?status=active%20suspended", "")
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", "/directory/v1/tenants?page_size=many", "")
 	p.problem(400, "request.invalid_order_by", "ops|alice", "GET", "/directory/v1/tenants?order_by=name", "")
 	p.problem(404, "request.not_found", "ops|alice", "GET", "/directory/v1/tenants/"+uuid.NewString(), "")
@@ -280,14 +409,16 @@ func TestGlobalControlPlane(t *testing.T) {
 	p.problem(404, "request.not_found", "ops|alice", "GET", "/directory/v1/nothing", "")
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", "/directory/v1/tenants/not-a-uuid", "")
 	for path, allow := range map[string]string{"/directory/v1/tenants": "GET, POST", "/directory/v1/cells": "GET", "/directory/v1/tenants/" + id.String(): "GET", "/directory/v1/tenants/" + id.String() + ":freeze": "POST"} {
-		method := "DELETE"
-		if allow == "POST" {
-			method = "GET"
-		}
-		status, _, h := p.as("ops|alice", method, path, "")
-		if status != 405 || h.Get("Allow") != allow {
-			t.Errorf("%s %s: %d allow %q", method, path, status, h.Get("Allow"))
-		}
+		t.Run("method not allowed on "+path, func(t *testing.T) {
+			method := "DELETE"
+			if allow == "POST" {
+				method = "GET"
+			}
+			status, _, h := p.in(t).as("ops|alice", method, path, "")
+			if status != 405 || h.Get("Allow") != allow {
+				t.Errorf("%s: got %d allow %q, want 405 allow %q", method, status, h.Get("Allow"), allow)
+			}
+		})
 	}
 	if status, _, _ := p.do("GET", "/directory/v1/cells", "", nil); status != 401 {
 		t.Fatalf("no token: %d", status)
@@ -295,7 +426,12 @@ func TestGlobalControlPlane(t *testing.T) {
 	if status, _, _ := p.do("GET", "/directory/v1/cells", "", map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.New(), "ada", nil)}); status != 401 {
 		t.Fatalf("tenant token: %d", status)
 	}
-	// Operator roles: readers read, provisioners provision, operators move.
+}
+
+// operatorRoles: readers read, provisioners provision, operators move.
+func (s *globalScenario) operatorRoles(t *testing.T) {
+	p := s.p.in(t)
+	region, id := s.region, s.id
 	withRoles := func(roles any) map[string]string {
 		return map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": roles}), "Content-Type": "application/json", "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()}
 	}
@@ -314,29 +450,47 @@ func TestGlobalControlPlane(t *testing.T) {
 		{"operator freezes", "erp:operate", "POST", "/directory/v1/tenants/" + id.String() + ":freeze", 200},
 		{"admin unfreezes", []any{"erp:admin"}, "POST", "/directory/v1/tenants/" + id.String() + ":unfreeze", 200},
 	} {
-		status, m, _ := p.do(c.method, c.path, "", withRoles(c.roles))
-		if status != c.code || (status == 403 && m["code"] != "authz.operator_role") {
-			t.Errorf("%s: %d %v", c.name, status, m)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			status, m, _ := p.in(t).do(c.method, c.path, "", withRoles(c.roles))
+			if status != c.code {
+				t.Errorf("got status %d, want %d: %v", status, c.code, m)
+			}
+			if status == 403 && m["code"] != "authz.operator_role" {
+				t.Errorf("got problem %v, want authz.operator_role", m["code"])
+			}
+		})
 	}
-	// Every operation of the contract is served.
+}
+
+// contractServed: every operation of the contract is served.
+func (s *globalScenario) contractServed(t *testing.T) {
+	p := s.p.in(t)
 	ops, err := api.DirectoryOperations()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for id, op := range ops {
-		path := strings.NewReplacer("{id}", uuid.NewString()).Replace(op.Path)
-		status, _, _ := p.as("ops|alice", op.Method, path, `{"cell":"x","name":"x","region":"eu-west"}`, "If-Match", "*", "Idempotency-Key", "key-"+uuid.NewString())
-		if status == 405 || status == 404 && !strings.Contains(op.Path, "{id}") {
-			t.Errorf("%s: %d", id, status)
-		}
+		t.Run("served "+id, func(t *testing.T) {
+			path := strings.NewReplacer("{id}", uuid.NewString()).Replace(op.Path)
+			status, _, _ := p.in(t).as("ops|alice", op.Method, path, `{"cell":"x","name":"x","region":"eu-west"}`, "If-Match", "*", "Idempotency-Key", "key-"+uuid.NewString())
+			if status == 405 || status == 404 && !strings.Contains(op.Path, "{id}") {
+				t.Errorf("%s %s: got %d, want the operation served", op.Method, op.Path, status)
+			}
+		})
 	}
-	// The directory failing.
+}
+
+// directoryDown: the directory failing.
+func (s *globalScenario) directoryDown(t *testing.T) {
+	p := s.p.in(t)
+	id, body := s.id, s.body
 	p.dir.Close()
 	for _, path := range []string{"/directory/v1/tenants", "/directory/v1/cells", "/directory/v1/tenants/" + id.String()} {
-		if status, _, _ := p.as("ops|alice", "GET", path, ""); status != 500 {
-			t.Errorf("%s with the directory down: %d", path, status)
-		}
+		t.Run("directory down GET "+path, func(t *testing.T) {
+			if status, _, _ := p.in(t).as("ops|alice", "GET", path, ""); status != 500 {
+				t.Errorf("got %d, want 500", status)
+			}
+		})
 	}
 	if status, _, _ := p.as("ops|alice", "POST", "/directory/v1/tenants/"+id.String()+":move", `{"cell":"x"}`, "If-Match", "*"); status != 500 {
 		t.Errorf("move with the directory down: %d", status)
@@ -422,14 +576,25 @@ func TestVerifyTenant(t *testing.T) {
 	// Equal.
 	a.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120}, "5:"+h1))
 	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3, "ledger.journal_line": 120}, "5:"+h1))
-	v, _ := p.must(200, "ops|alice", "POST", path, to("b"))
-	if v["equal"] != true || len(v["differences"].([]any)) != 0 || v["source"].(map[string]any)["cell"] != region+"-a" || v["destination"].(map[string]any)["fingerprint"] == nil {
-		t.Fatalf("equal: %v", v)
+	// One token for the request and the check: two minted a second apart differ in iat and exp.
+	token := p.operator("ops|alice")
+	v, _ := p.must(200, "ops|alice", "POST", path, to("b"), "Authorization", "Bearer "+token)
+	if v["equal"] != true {
+		t.Errorf("equal: got %v, want true", v["equal"])
+	}
+	if diffs, ok := v["differences"].([]any); !ok || len(diffs) != 0 {
+		t.Errorf("equal differences: got %v, want an empty list", v["differences"])
+	}
+	if source, _ := v["source"].(map[string]any); source["cell"] != region+"-a" {
+		t.Errorf("equal source cell: got %v, want %s-a", source["cell"], region)
+	}
+	if dest, _ := v["destination"].(map[string]any); dest["fingerprint"] == nil {
+		t.Errorf("equal destination fingerprint: got nil, want one")
 	}
 	b.mu.Lock()
 	seen := strings.Join(b.auth, "\n")
 	b.mu.Unlock()
-	if !strings.Contains(seen, "GET /control/v1/tenants/"+id.String()+"/fingerprint Bearer "+p.operator("ops|alice")) {
+	if !strings.Contains(seen, "GET /control/v1/tenants/"+id.String()+"/fingerprint Bearer "+token) {
 		t.Fatalf("the destination did not see the operator's token: %s", seen)
 	}
 	// Differences of every kind.
@@ -498,10 +663,12 @@ func TestVerifyTenant(t *testing.T) {
 	// Roles: a reader verifies, a provisioner does not.
 	b.set(200, fingerprintJSON(id, map[string]int{"identity.principal": 3}, "2:"+h2))
 	for roles, want := range map[string]int{"erp:read": 200, "erp:provision": 403} {
-		headers := map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": roles}), "Content-Type": "application/json"}
-		if status, m, _ := p.do("POST", path, to("b"), headers); status != want {
-			t.Errorf("%s verifies: %d %v", roles, status, m)
-		}
+		t.Run(roles+" verifies", func(t *testing.T) {
+			headers := map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": roles}), "Content-Type": "application/json"}
+			if status, m, _ := p.in(t).do("POST", path, to("b"), headers); status != want {
+				t.Errorf("got %d %v, want %d", status, m, want)
+			}
+		})
 	}
 	// The directory failing after the entry was read, and down.
 	calls := 0

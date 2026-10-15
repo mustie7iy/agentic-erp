@@ -3,11 +3,13 @@ package offboarding
 import (
 	"context"
 	"encoding/hex"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 )
 
 // Cross-cell verification (T25, ADR-0030): a tenant's fingerprint is what a
@@ -41,20 +43,20 @@ type Fingerprint struct {
 // TakeFingerprint reads the tenant's fingerprint in tx, which runs in the
 // tenant's scope (the counts stay within row-level security either way).
 func TakeFingerprint(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, now time.Time) (Fingerprint, error) {
-	names, err := tables(ctx, tx)
+	list, err := tenantTables(ctx, tx)
 	if err != nil {
 		return Fingerprint{}, err
 	}
 	fp := Fingerprint{TenantID: tenant, ComputedAt: now.UTC(), Tables: []TableCount{}}
-	for _, name := range names {
-		if skipped(name) {
+	for _, t := range list {
+		if skipped(t.Name) {
 			continue
 		}
 		var n int64
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+name+` WHERE tenant_id = $1`, tenant).Scan(&n); err != nil {
-			return Fingerprint{}, err
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+t.ident()+` WHERE tenant_id = $1`, tenant).Scan(&n); err != nil {
+			return Fingerprint{}, fmt.Errorf("offboarding: count rows of %s: %w", t.Name, err)
 		}
-		fp.Tables = append(fp.Tables, TableCount{Name: name, Rows: n})
+		fp.Tables = append(fp.Tables, TableCount{Name: t.Name, Rows: n})
 	}
 	if fp.ChainHead, err = readHead(ctx, tx, tenant); err != nil {
 		return Fingerprint{}, err
@@ -64,14 +66,9 @@ func TakeFingerprint(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, now time.
 
 // readHead reads the tenant's audit chain head; nil when it has none.
 func readHead(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*ChainHead, error) {
-	var head ChainHead
-	var hash []byte
-	switch err := tx.QueryRow(ctx, `SELECT seq, hash FROM audit.chain_head WHERE tenant_id = $1`, tenant).Scan(&head.Seq, &hash); {
-	case errors.Is(err, pgx.ErrNoRows):
-		return nil, nil
-	case err != nil:
+	head, ok, err := audit.ReadHead(ctx, tx, tenant)
+	if err != nil || !ok {
 		return nil, err
 	}
-	head.Hash = hex.EncodeToString(hash)
-	return &head, nil
+	return &ChainHead{Seq: head.Seq, Hash: hex.EncodeToString(head.Hash)}, nil
 }

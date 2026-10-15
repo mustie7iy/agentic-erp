@@ -3,10 +3,12 @@ package procurement
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -17,14 +19,14 @@ type Orders struct{}
 // OrderItem is a live item of a purchase order with its received quantity.
 // Quantities are decimal strings with up to six decimals.
 type OrderItem struct {
-	ItemNo    int32     `json:"item_no"`
-	Quantity  string    `json:"quantity"`
-	Unit      string    `json:"unit"`
-	UnitPrice int64     `json:"unit_price"` // minor units of the order currency per PriceUnit
-	PriceUnit int32     `json:"price_unit"`
-	AccountID uuid.UUID `json:"account_id"`
-	TaxCode   *string   `json:"tax_code"`
-	Received  string    `json:"received"` // 101 receipts minus 102 reversals
+	ItemNo    int32       `json:"item_no"`
+	Quantity  string      `json:"quantity"`
+	Unit      string      `json:"unit"`
+	UnitPrice money.Minor `json:"unit_price"` // minor units of the order currency per PriceUnit
+	PriceUnit int32       `json:"price_unit"`
+	AccountID uuid.UUID   `json:"account_id"`
+	TaxCode   *string     `json:"tax_code"`
+	Received  string      `json:"received"` // 101 receipts minus 102 reversals
 }
 
 // Order is a purchase order as payables sees it.
@@ -57,7 +59,10 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, false, nil
 	}
-	return o, err == nil, err
+	if err != nil {
+		return Order{}, false, fmt.Errorf("procurement: read purchase order %s: %w", id, err)
+	}
+	return o, true, nil
 }
 
 // OrderByNumber returns the id of the legal entity's purchase order with
@@ -72,7 +77,10 @@ func (Orders) OrderByNumber(ctx context.Context, legalEntity uuid.UUID, number s
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, false, nil
 	}
-	return id, err == nil, err
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("procurement: find purchase order %s: %w", number, err)
+	}
+	return id, true, nil
 }
 
 // CreateOrder creates a draft purchase order, as POST /v1/purchase-orders
@@ -93,15 +101,18 @@ func (e *Endpoints) PostReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 
 // Value is the number of the purchase orders and the total of their live
 // items, in minor units of their currencies.
-func (Orders) Value(ctx context.Context, ids []uuid.UUID) (int, int64, error) {
+func (Orders) Value(ctx context.Context, ids []uuid.UUID) (int, money.Minor, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
 	var n int
-	var value int64
+	var value money.Minor
 	err = tx.QueryRow(ctx, `SELECT count(*), coalesce(sum((SELECT coalesce(sum(round(i.quantity * i.unit_price / i.price_unit)), 0)
 			FROM procurement.purchase_order_item i WHERE i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND NOT i.is_removed)), 0)::bigint
 		FROM procurement.purchase_order o WHERE o.id = ANY($1)`, ids).Scan(&n, &value)
-	return n, value, err
+	if err != nil {
+		return 0, 0, fmt.Errorf("procurement: value %d purchase orders: %w", len(ids), err)
+	}
+	return n, value, nil
 }

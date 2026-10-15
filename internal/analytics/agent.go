@@ -72,7 +72,7 @@ func toolText(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 	if !ok {
 		b, err := json.Marshal(v)
 		if err != nil {
-			return anthropic.BetaToolResultBlockParamContentUnion{}, err
+			return anthropic.BetaToolResultBlockParamContentUnion{}, fmt.Errorf("analytics: encode tool result: %w", err)
 		}
 		text = string(b)
 	}
@@ -96,7 +96,7 @@ func (m *Model) catalog() map[string]any {
 	return map[string]any{
 		"metrics": metrics, "dimensions": m.Dimensions, "defaults": m.Defaults,
 		"calendar": map[string]int{"fiscal_year_start_month": m.Calendar.FiscalYearStartMonth},
-		"units":    "money in major units of the column currency; ratio as a fraction (0.25 = 25%); count as whole numbers",
+		"units":    "money in major units with exactly its currency's digits (1234.567 for BHD, 5000 for JPY); ratio as a fraction to 4 digits (0.25 = 25%); count as whole numbers",
 	}
 }
 
@@ -170,7 +170,7 @@ func (a *Agent) Ask(ctx context.Context, s *Session, question string) (*Answer, 
 	})
 	msg, err := runner.RunToCompletion(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("analytics: run agent: %w", err)
 	}
 	if msg.StopReason == anthropic.BetaStopReasonRefusal {
 		return nil, fmt.Errorf("model declined: %s", msg.StopDetails.Explanation)

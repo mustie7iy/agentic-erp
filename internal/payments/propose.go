@@ -10,12 +10,14 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Exclusion reasons.
@@ -26,6 +28,10 @@ const (
 	BankChangePending = "bank_change_pending"
 	BankChangeHold    = "bank_change_hold"
 	DebitBalance      = "debit_balance"
+	// A release drops a payment whose item was reversed, or is no longer
+	// open, since the proposal (dropPayment).
+	ItemReversed = "item_reversed"
+	ItemNotOpen  = "item_not_open"
 )
 
 // Proposal is what a client asks to pay.
@@ -34,11 +40,6 @@ type Proposal struct {
 	HouseBankID   uuid.UUID
 	RunDate       time.Time
 	DueBy         time.Time
-}
-
-func referenceNotFound(field, what string) error {
-	return problem.Unprocessable("request.reference_not_found", "No "+what+" with this id.",
-		problem.FieldError{Field: field, Code: "not_found", Message: "no " + what + " with this id that you can access"})
 }
 
 // ProposeRun creates a run in status proposing, numbered from the
@@ -54,13 +55,11 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	le, ok, err := e.LegalEntities.Entity(ctx, in.LegalEntityID)
-	switch {
-	case err != nil:
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, in.LegalEntityID, "legal_entity_id")
+	if err != nil {
 		return operations.Operation{}, err
-	case !ok || !access.Allows(le.ID):
-		return operations.Operation{}, referenceNotFound("legal_entity_id", "legal entity")
-	case le.Status != "active":
+	}
+	if le.Status != "active" {
 		return operations.Operation{}, problem.Unprocessable("payments.legal_entity_not_active", "The legal entity is "+le.Status+"; payment runs need it active.")
 	}
 	hb, ok, err := loadHouseBank(ctx, tx, in.HouseBankID)
@@ -68,7 +67,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 	case err != nil:
 		return operations.Operation{}, err
 	case !ok || hb.LegalEntityID != le.ID:
-		return operations.Operation{}, referenceNotFound("house_bank_id", "house bank of the legal entity")
+		return operations.Operation{}, problem.ReferenceNotFound("house_bank_id", "house bank of the legal entity", "no house bank of the legal entity with this id that you can access")
 	case hb.Status != "active":
 		return operations.Operation{}, problem.Unprocessable("payments.house_bank_inactive", "House bank "+hb.Code+" is inactive.",
 			problem.FieldError{Field: "house_bank_id", Code: "inactive", Message: "an active house bank"})
@@ -91,7 +90,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 			currency, total_amount, status, proposed_by, operation_id, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 'proposing', $9, $10, $9, $9)`,
 		p.TenantID, id, number, le.ID, hb.ID, in.RunDate, in.DueBy, hb.Currency, p.ID, op.ID); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("payments: insert run %s: %w", id, err)
 	}
 	return op, audit.Add(ctx, audit.Entry{Action: "payments.payment_run.propose", ObjectType: "payments.payment_run", ObjectID: id, Outcome: "succeeded",
 		Detail: map[string]any{"document_number": number, "operation_id": op.ID, "run_date": in.RunDate.Format(time.DateOnly),
@@ -102,7 +101,24 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 type candidate struct {
 	supplier uuid.UUID
 	items    []Item
-	total    int64 // what is owed: positive when the supplier is to be paid
+}
+
+// errTooLarge fails a proposal whose amounts add up to more than an
+// amount holds (money.ErrOverflow): a wrapped total would pay the wrong
+// amount, and the exclusion reasons are a closed set in the database, so
+// the run fails rather than leaving the supplier out. The problem replaces
+// money.ErrOverflow by design: it is what the operation records.
+func errTooLarge(what string) error {
+	return problem.Unprocessable("payments.amount_too_large", "The open items of "+what+" add up to more than an amount can hold.")
+}
+
+// total is what is owed the supplier: positive when it is to be paid.
+func (c candidate) total() (money.Minor, error) {
+	amounts := make([]money.Minor, len(c.items))
+	for i, it := range c.items {
+		amounts[i] = it.Amount
+	}
+	return money.Sum(amounts...)
 }
 
 // exclusion is why a supplier cannot be paid on the run date, or "".
@@ -136,7 +152,7 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 	reserved := map[ledger.ItemRef]bool{}
 	var ref ledger.ItemRef
 	if _, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo}, func() error { reserved[ref] = true; return nil }); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("payments: read the reserved items of legal entity %s: %w", r.LegalEntityID, err)
 	}
 	var suppliers []uuid.UUID
 	for i, it := range open {
@@ -160,7 +176,6 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 		c := &out[len(out)-1]
 		c.items = append(c.items, Item{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo, Amount: -it.Amount,
 			DueDate: partner.Date{Time: due}, Active: true})
-		c.total -= it.Amount
 	}
 	return out, payees, nil
 }
@@ -168,12 +183,17 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 // build computes a proposing run's payments and exclusions, reserves the
 // paid items and moves the run to proposed. Proposals of one legal entity
 // are serialized, so two runs never reserve the same item.
-func (e *Endpoints) build(ctx context.Context, r Run) (Run, error) {
-	tx, p, _ := reqctx.Request(ctx) // Process runs in a request
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "payments.propose."+r.LegalEntityID.String()); err != nil {
+func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) (Run, error) {
+	if err := lockProposals(ctx, tx, r.LegalEntityID); err != nil {
 		return Run{}, err
 	}
-	le, _, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
+	// errNoEntity becomes a problem, which fails this run (Process): left an
+	// error, the job would be retried first in its tenant's queue forever,
+	// holding back every later proposal.
+	le, err := e.entityOf(ctx, r)
+	if errors.Is(err, errNoEntity) {
+		return Run{}, noEntity(r)
+	}
 	if err != nil {
 		return Run{}, err
 	}
@@ -185,83 +205,144 @@ func (e *Endpoints) build(ctx context.Context, r Run) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	var payIDs, suppliers, banks, exSuppliers []uuid.UUID
-	var amounts, exAmounts []int64
-	var e2e, exReasons []string
-	var itemPays, itemEntries []uuid.UUID
-	var itemYears []int16
-	var itemLines []int32
-	var itemAmounts []int64
-	var itemDue []time.Time
-	var total int64
-	for _, c := range cands {
-		payee, found := payees[c.supplier]
-		reason := exclusion(payee, found, r.RunDate, doc.Payments.BankChangeHoldDays)
-		if reason == "" && c.total <= 0 {
-			reason = DebitBalance
-		}
-		if reason != "" {
-			exSuppliers, exReasons, exAmounts = append(exSuppliers, c.supplier), append(exReasons, reason), append(exAmounts, c.total)
-			continue
-		}
-		id := uuid.Must(uuid.NewV7())
-		payIDs, suppliers, banks, amounts = append(payIDs, id), append(suppliers, c.supplier), append(banks, *payee.BankAccountID), append(amounts, c.total)
-		e2e = append(e2e, fmt.Sprintf("%s-%s-%06d", le.Code, r.DocumentNumber, len(payIDs)))
-		total += c.total
-		for _, it := range c.items {
-			itemPays, itemYears, itemEntries, itemLines = append(itemPays, id), append(itemYears, it.FiscalYear), append(itemEntries, it.EntryID), append(itemLines, it.LineNo)
-			itemAmounts, itemDue = append(itemAmounts, it.Amount), append(itemDue, it.DueDate.Time)
-		}
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, currency, end_to_end_id, created_by)
-		SELECT $1, i, $2, s, b, a, $3, x, $4 FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::text[]) AS t(i, s, b, a, x)`,
-		p.TenantID, r.ID, r.Currency, p.ID, payIDs, suppliers, banks, amounts, e2e); err != nil {
+	pr, err := propose(cands, payees, r, le.Code, doc.Payments.BankChangeHoldDays)
+	if err != nil {
 		return Run{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
-		SELECT $1, p, y, je, n, a, d FROM unnest($2::uuid[], $3::smallint[], $4::uuid[], $5::int[], $6::bigint[], $7::date[]) AS t(p, y, je, n, a, d)`,
-		p.TenantID, itemPays, itemYears, itemEntries, itemLines, itemAmounts, itemDue); err != nil {
+	if err := pr.insert(ctx, tx, p, r); err != nil {
 		return Run{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
-		SELECT $1, $2, s, c, a FROM unnest($3::uuid[], $4::text[], $5::bigint[]) AS t(s, c, a)`,
-		p.TenantID, r.ID, exSuppliers, exReasons, exAmounts); err != nil {
+	if err := e.Postings.Reserve(ctx, owner(r), pr.items()); err != nil {
 		return Run{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'proposed', total_amount = $2, version = version + 1, updated_by = $3 WHERE id = $1`,
-		r.ID, total, p.ID); err != nil {
-		return Run{}, err
+		r.ID, pr.total, p.ID); err != nil {
+		return Run{}, fmt.Errorf("payments: propose run %s: %w", r.ID, err)
 	}
-	n := int64(len(itemPays))
+	n := int64(len(pr.itemPays))
 	if err := operations.Report(ctx, *r.OperationID, n, n); err != nil {
 		return Run{}, err
 	}
 	if _, err := operations.Succeed(ctx, *r.OperationID, "/v1/payment-runs/"+r.ID.String(), map[string]any{"payment_run_id": r.ID, "status": Proposed,
-		"payment_count": len(payIDs), "exclusion_count": len(exSuppliers), "item_count": n, "total_amount": amount(total, r.Currency, r.Exponent)}); err != nil {
+		"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "item_count": n, "total_amount": money.EventAmount(pr.total, r.Currency, r.Exponent)}); err != nil {
 		return Run{}, err
 	}
 	proposed, err := load(ctx, tx, r.ID, false)
 	if err != nil {
 		return Run{}, err
 	}
-	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(payIDs), "exclusions": len(exSuppliers), "items": n},
+	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(pr.payIDs), "exclusions": len(pr.exSuppliers), "items": n},
 		runEvent(proposed, "payment_run_proposed", map[string]any{"house_bank_id": proposed.HouseBankID, "run_date": proposed.RunDate.Format(time.DateOnly),
-			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": amount(total, proposed.Currency, proposed.Exponent),
-			"payment_count": len(payIDs), "exclusion_count": len(exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
+			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": money.EventAmount(pr.total, proposed.Currency, proposed.Exponent),
+			"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
+}
+
+// lockProposals takes the legal entity's proposals lock until the
+// transaction ends. Proposals take it so two runs never reserve the same
+// item; whoever would change what a proposal pays (an invoice reversal,
+// through RunOf) takes it too, so it waits for a proposal under way and then
+// sees the items it reserved, and a proposal that starts later waits for it
+// and then no longer finds the item open.
+func lockProposals(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "payments.propose."+legalEntity.String()); err != nil {
+		return fmt.Errorf("payments: lock the proposals of legal entity %s: %w", legalEntity, err)
+	}
+	return nil
+}
+
+// proposal is a run's payments, their items and its exclusions, as the
+// columns they are inserted from.
+type proposal struct {
+	payIDs, suppliers, banks, exSuppliers []uuid.UUID
+	amounts, exAmounts                    []money.Minor
+	e2e, exReasons                        []string
+	itemPays, itemEntries                 []uuid.UUID
+	itemYears                             []int16
+	itemLines                             []int32
+	itemAmounts                           []money.Minor
+	itemDue                               []time.Time
+	total                                 money.Minor
+}
+
+// propose pays each candidate supplier its open items in one payment, or
+// excludes it with the reason. Totals out of range fail the proposal
+// (errTooLarge).
+func propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) (proposal, error) {
+	var pr proposal
+	for _, c := range cands {
+		total, err := c.total()
+		if err != nil {
+			return proposal{}, errTooLarge("supplier " + c.supplier.String())
+		}
+		payee, found := payees[c.supplier]
+		reason := exclusion(payee, found, r.RunDate, holdDays)
+		if reason == "" && total <= 0 {
+			reason = DebitBalance
+		}
+		if reason != "" {
+			pr.exSuppliers, pr.exReasons, pr.exAmounts = append(pr.exSuppliers, c.supplier), append(pr.exReasons, reason), append(pr.exAmounts, total)
+			continue
+		}
+		if pr.total, err = money.Sum(pr.total, total); err != nil {
+			return proposal{}, errTooLarge("the run")
+		}
+		id := uuid.Must(uuid.NewV7())
+		pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, c.supplier), append(pr.banks, *payee.BankAccountID), append(pr.amounts, total)
+		pr.e2e = append(pr.e2e, fmt.Sprintf("%s-%s-%06d", entityCode, r.DocumentNumber, len(pr.payIDs)))
+		for _, it := range c.items {
+			pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines = append(pr.itemPays, id), append(pr.itemYears, it.FiscalYear), append(pr.itemEntries, it.EntryID), append(pr.itemLines, it.LineNo)
+			pr.itemAmounts, pr.itemDue = append(pr.itemAmounts, it.Amount), append(pr.itemDue, it.DueDate.Time)
+		}
+	}
+	return pr, nil
+}
+
+// items are the open items the proposal pays.
+func (pr *proposal) items() []ledger.ItemRef {
+	refs := make([]ledger.ItemRef, len(pr.itemEntries))
+	for i := range refs {
+		refs[i] = ledger.ItemRef{FiscalYear: pr.itemYears[i], EntryID: pr.itemEntries[i], LineNo: pr.itemLines[i]}
+	}
+	return refs
+}
+
+// owner is the run as the holder of the open items it reserves in the
+// ledger.
+func owner(r Run) ledger.Owner {
+	return ledger.Owner{Context: "payments", ID: r.ID, Reference: r.DocumentNumber}
+}
+
+// insert stores the proposal's payments, items and exclusions.
+func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, currency, end_to_end_id, created_by)
+		SELECT $1, i, $2, s, b, a, $3, x, $4 FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::text[]) AS t(i, s, b, a, x)`,
+		p.TenantID, r.ID, r.Currency, p.ID, pr.payIDs, pr.suppliers, pr.banks, pr.amounts, pr.e2e); err != nil {
+		return fmt.Errorf("payments: insert the payments of run %s: %w", r.ID, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, due_date)
+		SELECT $1, p, y, je, n, a, d FROM unnest($2::uuid[], $3::smallint[], $4::uuid[], $5::int[], $6::bigint[], $7::date[]) AS t(p, y, je, n, a, d)`,
+		p.TenantID, pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines, pr.itemAmounts, pr.itemDue); err != nil {
+		return fmt.Errorf("payments: insert the payment items of run %s: %w", r.ID, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
+		SELECT $1, $2, s, c, a FROM unnest($3::uuid[], $4::text[], $5::bigint[]) AS t(s, c, a)`,
+		p.TenantID, r.ID, pr.exSuppliers, pr.exReasons, pr.exAmounts); err != nil {
+		return fmt.Errorf("payments: insert the exclusions of run %s: %w", r.ID, err)
+	}
+	return nil
 }
 
 // fail moves a run that could not be proposed, or whose operation was
 // cancelled, to failed; the operation records the problem unless it is
 // already cancelled.
-func fail(ctx context.Context, r Run, why *problem.Problem) error {
-	tx, p, _ := reqctx.Request(ctx) // Process runs in a request
+func fail(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, why *problem.Problem) error {
 	if why != nil {
 		if _, err := operations.Fail(ctx, *r.OperationID, why); err != nil {
 			return err
 		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'failed', version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
-		return err
+		return fmt.Errorf("payments: fail run %s: %w", r.ID, err)
 	}
 	failed, err := load(ctx, tx, r.ID, false)
 	if err != nil {
@@ -284,45 +365,59 @@ type Job struct {
 	ProposerKind string
 }
 
-// Next finds and locks the tenant's oldest job, skipping jobs another
+// NextJob finds and locks the tenant's oldest job, skipping jobs another
 // worker holds.
-func Next(ctx context.Context, tx pgx.Tx) (Job, bool, error) {
+func (e *Endpoints) NextJob(ctx context.Context, tx pgx.Tx) (Job, bool, error) {
 	var j Job
 	var status string
-	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by, pr.kind FROM platform.operation o
+	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by FROM platform.operation o
 		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
-		JOIN identity.principal pr ON pr.tenant_id = r.tenant_id AND pr.id = r.proposed_by
 		WHERE o.kind = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled')
-		ORDER BY o.id LIMIT 1 FOR UPDATE OF o, r SKIP LOCKED`, ProposeKind).Scan(&j.RunID, &status, &j.ProposedBy, &j.ProposerKind)
+		ORDER BY o.id LIMIT 1 FOR UPDATE OF o, r SKIP LOCKED`, ProposeKind).Scan(&j.RunID, &status, &j.ProposedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, false, nil
 	}
-	j.Cancelled = status == operations.Cancelled
-	return j, err == nil, err
+	if err != nil {
+		return Job{}, false, fmt.Errorf("payments: find the next proposal job: %w", err)
+	}
+	return e.proposer(ctx, tx, j, status)
 }
 
 // JobFor finds and locks one run's job: the run still proposing with its
 // operation queued or cancelled. ok is false when there is nothing left to
 // do for the run, so a retried worker does nothing twice.
-func JobFor(ctx context.Context, tx pgx.Tx, run uuid.UUID) (Job, bool, error) {
+func (e *Endpoints) JobFor(ctx context.Context, tx pgx.Tx, run uuid.UUID) (Job, bool, error) {
 	var j Job
 	var status string
-	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by, pr.kind FROM payments.payment_run r
+	err := tx.QueryRow(ctx, `SELECT r.id, o.status, r.proposed_by FROM payments.payment_run r
 		JOIN platform.operation o ON o.tenant_id = r.tenant_id AND o.id = r.operation_id
-		JOIN identity.principal pr ON pr.tenant_id = r.tenant_id AND pr.id = r.proposed_by
-		WHERE r.id = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled') FOR UPDATE OF o, r`, run).Scan(&j.RunID, &status, &j.ProposedBy, &j.ProposerKind)
+		WHERE r.id = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled') FOR UPDATE OF o, r`, run).Scan(&j.RunID, &status, &j.ProposedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, false, nil
 	}
+	if err != nil {
+		return Job{}, false, fmt.Errorf("payments: find the proposal job of run %s: %w", run, err)
+	}
+	return e.proposer(ctx, tx, j, status)
+}
+
+// proposer completes a locked job with whether its operation was
+// cancelled and the kind of principal its proposer is.
+func (e *Endpoints) proposer(ctx context.Context, tx pgx.Tx, j Job, status string) (Job, bool, error) {
 	j.Cancelled = status == operations.Cancelled
-	return j, err == nil, err
+	p, err := e.Actors.Actor(ctx, tx, j.ProposedBy)
+	if err != nil {
+		return Job{}, false, fmt.Errorf("payments: read the proposer of run %s: %w", j.RunID, err)
+	}
+	j.ProposerKind = p.Kind
+	return j, true, nil
 }
 
 // Process does a job as its proposer: it builds the run, or fails it when
 // its operation was cancelled. A problem while building fails the run and
 // its operation; other errors leave both for another attempt.
 func (e *Endpoints) Process(ctx context.Context, j Job) error {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
@@ -331,19 +426,19 @@ func (e *Endpoints) Process(ctx context.Context, j Job) error {
 		return err
 	}
 	if j.Cancelled {
-		return fail(ctx, r, nil)
+		return fail(ctx, tx, p, r, nil)
 	}
 	if _, err := tx.Exec(ctx, `SAVEPOINT propose`); err != nil {
-		return err
+		return fmt.Errorf("payments: savepoint before building run %s: %w", r.ID, err)
 	}
-	_, err = e.build(ctx, r)
+	_, err = e.build(ctx, tx, p, r)
 	var why *problem.Problem
 	if !errors.As(err, &why) || why.Status >= 500 {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT propose`); err != nil {
-		return err
+		return fmt.Errorf("payments: roll back the build of run %s: %w", r.ID, err)
 	}
 	audit.Discard(ctx)
-	return fail(ctx, r, why)
+	return fail(ctx, tx, p, r, why)
 }

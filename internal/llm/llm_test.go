@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 func TestNewUsesEnvironmentModel(t *testing.T) {
@@ -51,7 +52,7 @@ func TestRunToolsTextAndRefusal(t *testing.T) {
 	req := srv.Requests[0]
 	for _, frag := range []string{`"effort":"medium"`, `"fallbacks":"default"`, `"cache_control"`, `"model":"claude-opus-5-5"`} {
 		if !strings.Contains(req, frag) {
-			t.Errorf("request lacks %s", frag)
+			t.Errorf("request: got %s, want it to contain %s", req, frag)
 		}
 	}
 	if !strings.Contains(srv.Headers[0].Get("anthropic-beta"), "server-side-fallback-2026-07-01") {
@@ -59,16 +60,18 @@ func TestRunToolsTextAndRefusal(t *testing.T) {
 	}
 	refuse := llmtest.New(t, llmtest.Step{StopReason: "refusal"})
 	r2 := refuse.Runner()
-	if _, err := r2.RunTools(context.Background(), nil, r2.Params("s", anthropic.NewBetaTextBlock("x")), 2); err == nil || !strings.Contains(err.Error(), "declined in test") {
-		t.Fatalf("refusal: %v", err)
-	}
+	_, err = r2.RunTools(context.Background(), nil, r2.Params("s", anthropic.NewBetaTextBlock("x")), 2)
+	pgtest.WantErr(t, err, "declined in test")
 	down := llmtest.New(t)
 	r3 := down.Runner()
 	if _, err := r3.RunTools(context.Background(), nil, r3.Params("s", anthropic.NewBetaTextBlock("x")), 2); err == nil {
 		t.Fatal("server errors propagate")
 	}
-	if down.Calls() != 1 || len(down.ToolNames()) != 0 {
-		t.Fatal("fake server bookkeeping")
+	if got := down.Calls(); got != 1 {
+		t.Errorf("fake server calls: got %d, want 1", got)
+	}
+	if got := down.ToolNames(); len(got) != 0 {
+		t.Errorf("fake server tool names: got %v, want none", got)
 	}
 }
 
@@ -84,16 +87,4 @@ func TestLastToolResult(t *testing.T) {
 	if llmtest.LastToolResult(`{"messages":[]}`) != "" {
 		t.Fatal("no tool result")
 	}
-}
-
-func TestMust(t *testing.T) {
-	if llm.Must(5, nil) != 5 {
-		t.Fatal("value passes through")
-	}
-	defer func() {
-		if r := recover(); r == nil || !strings.Contains(r.(string), "boom") {
-			t.Fatalf("must panic with the error: %v", r)
-		}
-	}()
-	llm.Must(0, errors.New("boom"))
 }

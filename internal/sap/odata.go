@@ -1,10 +1,12 @@
 package sap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -96,7 +98,7 @@ func (o *ODataSource) Extract(ctx context.Context, scope Scope) (*Extract, error
 		for _, cc := range companyFilter(em, scope) {
 			rows, err := o.fetch(ctx, em, cc, scope.FiscalYear)
 			if err != nil {
-				return nil, fmt.Errorf("%s (%s/%s): %w", em.Table, em.Service, em.Entity, err)
+				return nil, fmt.Errorf("sap: extract %s (%s/%s): %w", em.Table, em.Service, em.Entity, err)
 			}
 			tables[em.Table] = append(tables[em.Table], rows...)
 		}
@@ -129,10 +131,10 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 	}
 	var filters []string
 	if companyCode != "" {
-		filters = append(filters, fmt.Sprintf("%s eq '%s'", em.CompanyField, companyCode))
+		filters = append(filters, em.CompanyField+" eq "+odataString(companyCode))
 	}
 	if em.YearField != "" && year != "" {
-		filters = append(filters, fmt.Sprintf("%s eq '%s'", em.YearField, year))
+		filters = append(filters, em.YearField+" eq "+odataString(year))
 	}
 	selectFields := make([]string, 0, len(em.Fields))
 	for _, prop := range em.Fields {
@@ -153,46 +155,74 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 			q.Set("sap-client", o.Client)
 		}
 		u := fmt.Sprintf("%s/sap/opu/odata/sap/%s/%s?%s", strings.TrimRight(o.BaseURL, "/"), em.Service, em.Entity, q.Encode())
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		results, err := o.page(ctx, httpc, u, skip)
 		if err != nil {
 			return nil, err
 		}
-		req.SetBasicAuth(o.User, o.Password)
-		req.Header.Set("Accept", "application/json")
-		resp, err := httpc.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("HTTP %d: %.300s", resp.StatusCode, body)
-		}
-		var page struct {
-			D struct {
-				Results []map[string]any `json:"results"`
-			} `json:"d"`
-		}
-		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("decode page: %w", err)
-		}
-		for _, rec := range page.D.Results {
-			row := map[string]string{}
-			for k, v := range em.Static {
-				row[k] = v
-			}
-			for sapField, prop := range em.Fields {
-				row[sapField] = odataValue(rec[prop])
-			}
-			out = append(out, row)
-		}
-		if len(page.D.Results) < pageSize {
+		out = append(out, odataRows(em, results)...)
+		if len(results) < pageSize {
 			return out, nil
 		}
 	}
+}
+
+// odataString is s as an OData string literal: quoted, with each single
+// quote doubled (OData v2 and v4), so a value cannot end the literal early
+// and change the filter it sits in.
+func odataString(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// page reads one page of an entity set.
+func (o *ODataSource) page(ctx context.Context, httpc *http.Client, u string, skip int) ([]map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request for page at offset %d: %w", skip, err)
+	}
+	req.SetBasicAuth(o.User, o.Password)
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request page at offset %d: %w", skip, err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close() // the body has been read; a close error cannot change what it held
+	if err != nil {
+		return nil, fmt.Errorf("read page at offset %d: %w", skip, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d: %.300s", resp.StatusCode, body)
+	}
+	var page struct {
+		D struct {
+			Results []map[string]any `json:"results"`
+		} `json:"d"`
+	}
+	// Numbers stay as their text (json.Number): decoded as float64, an
+	// amount past 15-17 significant digits would be rounded (ADR-0005).
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	if err := dec.Decode(&page); err != nil {
+		return nil, fmt.Errorf("decode page: %w", err)
+	}
+	return page.D.Results, nil
+}
+
+// odataRows maps a page's records to SAP table rows: the mapping's static
+// fields, then each SAP field from its OData property.
+func odataRows(em EntityMapping, results []map[string]any) []map[string]string {
+	var out []map[string]string
+	for _, rec := range results {
+		row := map[string]string{}
+		for k, v := range em.Static {
+			row[k] = v
+		}
+		for sapField, prop := range em.Fields {
+			row[sapField] = odataValue(rec[prop])
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // odataValue normalizes OData V2 JSON values to SAP table conventions:
@@ -206,8 +236,8 @@ func odataValue(v any) string {
 			return "X"
 		}
 		return ""
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
+	case json.Number:
+		return decimalText(t)
 	case string:
 		if strings.HasPrefix(t, "/Date(") && strings.HasSuffix(t, ")/") {
 			msStr := strings.TrimSuffix(strings.TrimPrefix(t, "/Date("), ")/")
@@ -222,4 +252,37 @@ func odataValue(v any) string {
 	default:
 		return fmt.Sprint(t)
 	}
+}
+
+// maxSpelledExp bounds the binary exponent decimalText spells out (about
+// 1,200 decimal digits), so an absurd number cannot become a huge string.
+const maxSpelledExp = 4096
+
+// maxNumberLen bounds the literal decimalText spells out. Spelling costs time
+// growing with the square of the precision, which grows with the length, and
+// the page comes from another system; no amount comes near 64 characters.
+const maxNumberLen = 64
+
+// decimalText is a JSON number as a plain decimal ("1.5e3" is "1500") with
+// every digit kept: the precision grows with the literal's length, so the
+// shortest decimal that reads back the same is the number itself. A number
+// too long, too large or too small to spell out keeps its literal; that
+// includes one big.Float reads as infinite, or as zero when it is not.
+func decimalText(n json.Number) string {
+	s := n.String()
+	if len(s) > maxNumberLen {
+		return s
+	}
+	f, _, err := big.ParseFloat(s, 10, 64+4*uint(len(s)), big.ToNearestEven)
+	if err != nil || f.IsInf() || (f.Sign() == 0 && !zeroLiteral(s)) || f.MantExp(nil) > maxSpelledExp || f.MantExp(nil) < -maxSpelledExp {
+		return s
+	}
+	return f.Text('f', -1)
+}
+
+// zeroLiteral reports whether a JSON number's digits before its exponent
+// are all zeros ("0", "-0.00", "0e5").
+func zeroLiteral(s string) bool {
+	mantissa, _, _ := strings.Cut(strings.ToLower(s), "e")
+	return strings.Trim(mantissa, "-+0.") == ""
 }

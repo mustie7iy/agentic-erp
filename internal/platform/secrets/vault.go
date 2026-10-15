@@ -60,7 +60,7 @@ func (v *Vault) call(ctx context.Context, method, path, token string, body any) 
 	if err != nil {
 		return 0, nil, fmt.Errorf("secrets: vault: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return 0, nil, fmt.Errorf("secrets: vault: %w", err)

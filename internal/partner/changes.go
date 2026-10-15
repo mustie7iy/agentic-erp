@@ -13,11 +13,16 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 var (
@@ -94,10 +99,16 @@ type nullable struct {
 
 func (n *nullable) UnmarshalJSON(b []byte) error {
 	n.Set = true
-	return json.Unmarshal(b, &n.Value)
+	if err := json.Unmarshal(b, &n.Value); err != nil {
+		return fmt.Errorf("partner: decode a nullable string: %w", err)
+	}
+	return nil
 }
 
-func (n nullable) MarshalJSON() ([]byte, error) { return json.Marshal(n.Value) }
+func (n nullable) MarshalJSON() ([]byte, error) {
+	b, _ := json.Marshal(n.Value) // a *string always encodes
+	return b, nil
+}
 
 type createPayload struct {
 	Kind              string                 `json:"kind"`
@@ -146,7 +157,7 @@ func invalid(code, field, message string) error {
 func checkCountries(ctx context.Context, tx pgx.Tx, fields, codes []string) error {
 	var known []string
 	if err := tx.QueryRow(ctx, `SELECT coalesce(array_agg(code::text), '{}') FROM ref.country WHERE code = ANY($1)`, codes).Scan(&known); err != nil {
-		return err
+		return fmt.Errorf("partner: look up countries %v: %w", codes, err)
 	}
 	for i, c := range codes {
 		if !slices.Contains(known, c) {
@@ -175,13 +186,8 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, 
 			return invalid("partner.duplicate_company", f+".legal_entity_id", "one entry per legal entity")
 		}
 		seen[s.LegalEntityID] = true
-		_, ok, err := ports.LegalEntities.Entity(ctx, s.LegalEntityID)
-		if err != nil {
+		if _, err := tenancy.Accessible(ctx, ports.LegalEntities, access, s.LegalEntityID, f+".legal_entity_id"); err != nil {
 			return err
-		}
-		if !ok || !access.Allows(s.LegalEntityID) {
-			return problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-				problem.FieldError{Field: f + ".legal_entity_id", Code: "not_found", Message: "no legal entity with this id that you can access"})
 		}
 		recon, err := ports.Accounts.IsReconciliationAccount(ctx, s.LegalEntityID, s.ReconciliationAccountID, "supplier")
 		if err != nil {
@@ -193,7 +199,7 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, 
 		}
 		var term bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM partner.payment_term WHERE code = $1)`, s.PaymentTermCode).Scan(&term); err != nil {
-			return err
+			return fmt.Errorf("partner: find payment term %s: %w", s.PaymentTermCode, err)
 		}
 		if !term {
 			return invalid("partner.unknown_payment_term", f+".payment_term_code", "payment terms from the configuration")
@@ -293,7 +299,7 @@ func warnings(ctx context.Context, tx pgx.Tx, partnerID uuid.UUID, taxes []seale
 			coalesce((SELECT array_agg(DISTINCT value_fingerprint) FROM partner.tax_identifier WHERE value_fingerprint = ANY($1) AND partner_id <> $3), '{}'),
 			coalesce((SELECT array_agg(DISTINCT account_fingerprint) FROM partner.bank_account WHERE account_fingerprint = ANY($2) AND partner_id <> $3), '{}')`,
 		taxPrints, bankPrints, partnerID).Scan(&dupTax, &dupBank); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: find duplicates of business partner %s: %w", partnerID, err)
 	}
 	out := []Warning{}
 	for _, t := range taxes {
@@ -325,10 +331,14 @@ func insertChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, kind strin
 	if warns == nil {
 		warns = []Warning{}
 	}
-	return scanChange(tx.QueryRow(ctx, `INSERT INTO partner.partner_change (tenant_id, id, number, kind, partner_id, payload, reason, warnings, status,
+	c, err := scanChange(tx.QueryRow(ctx, `INSERT INTO partner.partner_change (tenant_id, id, number, kind, partner_id, payload, reason, warnings, status,
 			requested_by, applied_at, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $11 THEN now() END, $10, $10) RETURNING `+changeColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), number, kind, partnerID, toJSON(payload), reason, warns, status, p.ID, applied))
+	if err != nil {
+		return c, fmt.Errorf("partner: insert %s change %s of business partner %s: %w", kind, number, partnerID, err)
+	}
+	return c, nil
 }
 
 // The insert helpers write partner data from payloads, for creation and
@@ -337,7 +347,10 @@ func insertChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, kind strin
 func addRoles(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid.UUID, rs []string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by)
 		SELECT $1, $2, r, $3 FROM unnest($4::text[]) AS r ON CONFLICT DO NOTHING`, p.TenantID, partnerID, p.ID, rs)
-	return err
+	if err != nil {
+		return fmt.Errorf("partner: add roles of business partner %s: %w", partnerID, err)
+	}
+	return nil
 }
 
 func putCompanies(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid.UUID, in []SupplierCompanyInput) error {
@@ -352,7 +365,10 @@ func putCompanies(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID 
 		ON CONFLICT (tenant_id, partner_id, legal_entity_id) DO UPDATE SET reconciliation_account_id = EXCLUDED.reconciliation_account_id,
 			payment_term_code = EXCLUDED.payment_term_code, version = s.version + 1, updated_by = $3`,
 		p.TenantID, partnerID, p.ID, les, accounts, terms)
-	return err
+	if err != nil {
+		return fmt.Errorf("partner: put supplier companies of business partner %s: %w", partnerID, err)
+	}
+	return nil
 }
 
 // addAddresses inserts addresses; with replace, each ends the current
@@ -363,7 +379,7 @@ func addAddresses(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID 
 			if _, err := tx.Exec(ctx, `UPDATE partner.address SET valid_to = $3, ended_by = $4
 				WHERE partner_id = $1 AND purpose = $2 AND valid_from < $3 AND (valid_to IS NULL OR valid_to > $3)`,
 				partnerID, a.Purpose, a.ValidFrom.Time, p.ID); err != nil {
-				return err
+				return fmt.Errorf("partner: end the %s address of business partner %s: %w", a.Purpose, partnerID, err)
 			}
 		}
 		var to *time.Time
@@ -375,7 +391,7 @@ func addAddresses(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID 
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 			p.TenantID, uuid.Must(uuid.NewV7()), partnerID, a.Purpose, a.Line1, a.Line2, a.City, a.PostalCode, a.Region, a.CountryCode,
 			a.ValidFrom.Time, to, p.ID); err != nil {
-			return err
+			return fmt.Errorf("partner: insert the %s address of business partner %s: %w", a.Purpose, partnerID, err)
 		}
 	}
 	return nil
@@ -393,7 +409,10 @@ func putTaxes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid
 		ON CONFLICT (tenant_id, partner_id, scheme) DO UPDATE SET value_cipher = EXCLUDED.value_cipher,
 			value_fingerprint = EXCLUDED.value_fingerprint, value_last4 = EXCLUDED.value_last4, version = t.version + 1, updated_by = $3`,
 		p.TenantID, partnerID, p.ID, schemes, ciphers, prints, last4)
-	return err
+	if err != nil {
+		return fmt.Errorf("partner: put tax identifiers of business partner %s: %w", partnerID, err)
+	}
+	return nil
 }
 
 // NewPartner is the input of CreatePartner.
@@ -419,31 +438,14 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	if !slices.Contains(kinds, in.Kind) {
-		return Partner{}, Change{}, invalid("partner.unknown_kind", "kind", "organization or person")
-	}
-	for i, r := range in.Roles {
-		if !slices.Contains(roles, r) {
-			return Partner{}, Change{}, invalid("partner.unknown_role", fmt.Sprintf("roles[%d]", i), "supplier or customer")
-		}
-	}
-	if in.Extensions == nil {
-		in.Extensions = map[string]any{}
-	}
-	if err := checkExtensions(in.Extensions); err != nil {
+	if err := checkNewPartner(&in); err != nil {
 		return Partner{}, Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	fields, codes := []string{"country_code"}, []string{in.CountryCode}
-	for i, a := range in.Addresses {
-		fields, codes = append(fields, fmt.Sprintf("addresses[%d].country_code", i)), append(codes, a.CountryCode)
-	}
-	for i, b := range in.BankAccounts {
-		fields, codes = append(fields, fmt.Sprintf("bank_accounts[%d].bank_country_code", i)), append(codes, b.BankCountryCode)
-	}
+	fields, codes := newPartnerCountries(in)
 	if err := checkCountries(ctx, tx, fields, codes); err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -466,22 +468,7 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 		return Partner{}, Change{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, legal_name, country_code, language,
-			status, extensions, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $10)`,
-		p.TenantID, id, number, in.Kind, in.Name, in.LegalName, in.CountryCode, in.Language, in.Extensions, p.ID); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := addRoles(ctx, tx, p, id, in.Roles); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := putCompanies(ctx, tx, p, id, in.SupplierCompanies); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := addAddresses(ctx, tx, p, id, in.Addresses, false); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := putTaxes(ctx, tx, p, id, taxes); err != nil {
+	if err := insertPartner(ctx, tx, p, id, number, in, taxes); err != nil {
 		return Partner{}, Change{}, err
 	}
 	warns, err := warnings(ctx, tx, id, taxes, banks)
@@ -498,11 +485,62 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	return bp, c, record(ctx, "partner.business_partner.create", "partner.business_partner", id,
+	return bp, c, audit.Record(ctx, "partner.business_partner.create", "partner.business_partner", id,
 		map[string]any{"number": number, "partner_change_id": c.ID, "warnings": len(warns)},
 		event("business_partner_created", id, "partner.business_partner", map[string]any{
 			"partner_id": id, "number": number, "kind": in.Kind, "name": in.Name, "country_code": in.CountryCode, "roles": bp.Roles,
 			"status": Pending, "partner_change_id": c.ID}))
+}
+
+// checkNewPartner requires a known partner kind, known roles and valid
+// extensions, which default to none.
+func checkNewPartner(in *NewPartner) error {
+	if !slices.Contains(kinds, in.Kind) {
+		return invalid("partner.unknown_kind", "kind", "organization or person")
+	}
+	for i, r := range in.Roles {
+		if !slices.Contains(roles, r) {
+			return invalid("partner.unknown_role", fmt.Sprintf("roles[%d]", i), "supplier or customer")
+		}
+	}
+	if in.Extensions == nil {
+		in.Extensions = map[string]any{}
+	}
+	return extensions.Check(in.Extensions)
+}
+
+// newPartnerCountries lists the country codes of a new partner with the
+// fields they come from: its own, its addresses' and its banks'.
+func newPartnerCountries(in NewPartner) (fields, codes []string) {
+	fields, codes = []string{"country_code"}, []string{in.CountryCode}
+	for i, a := range in.Addresses {
+		fields, codes = append(fields, fmt.Sprintf("addresses[%d].country_code", i)), append(codes, a.CountryCode)
+	}
+	for i, b := range in.BankAccounts {
+		fields, codes = append(fields, fmt.Sprintf("bank_accounts[%d].bank_country_code", i)), append(codes, b.BankCountryCode)
+	}
+	return fields, codes
+}
+
+// insertPartner writes a pending partner with its roles, company data,
+// addresses and sealed tax identifiers.
+func insertPartner(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, number string, in NewPartner, taxes []sealedTax) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, legal_name, country_code, language,
+			status, extensions, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $10)`,
+		p.TenantID, id, number, in.Kind, in.Name, in.LegalName, in.CountryCode, in.Language, in.Extensions, p.ID); err != nil {
+		return fmt.Errorf("partner: insert business partner %s: %w", number, err)
+	}
+	if err := addRoles(ctx, tx, p, id, in.Roles); err != nil {
+		return err
+	}
+	if err := putCompanies(ctx, tx, p, id, in.SupplierCompanies); err != nil {
+		return err
+	}
+	if err := addAddresses(ctx, tx, p, id, in.Addresses, false); err != nil {
+		return err
+	}
+	return putTaxes(ctx, tx, p, id, taxes)
 }
 
 // Block blocks an active partner at once and records the applied change.
@@ -523,13 +561,13 @@ func Block(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason 
 	}
 	if _, err := tx.Exec(ctx, `UPDATE partner.business_partner SET status = 'blocked', version = version + 1, updated_by = $2 WHERE id = $1`,
 		id, p.ID); err != nil {
-		return Change{}, err
+		return Change{}, fmt.Errorf("partner: block business partner %s: %w", id, err)
 	}
 	c, err := insertChange(ctx, tx, p, KindBlock, id, map[string]any{"scope": "all"}, reason, nil, true)
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.business_partner.block", "partner.business_partner", id, map[string]any{"partner_change_id": c.ID, "reason": reason},
+	return c, audit.Record(ctx, "partner.business_partner.block", "partner.business_partner", id, map[string]any{"partner_change_id": c.ID, "reason": reason},
 		event("partner_blocked", id, "partner.business_partner", map[string]any{
 			"partner_id": id, "scope": "all", "legal_entity_id": nil, "partner_change_id": c.ID, "reason": reason}))
 }
@@ -554,7 +592,7 @@ func Unblock(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reaso
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": id})
+	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": id})
 }
 
 // Changes is the input of RequestUpdate (merge-patch semantics).
@@ -585,34 +623,20 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	}
 	bp, err := getPartner(ctx, tx, partnerID, false)
 	if err != nil {
-		if problem.From(err).Status == 404 {
-			return Change{}, problem.Unprocessable("request.reference_not_found", "No business partner with this id.",
-				problem.FieldError{Field: "partner_id", Code: "not_found", Message: "no business partner with this id"})
-		}
-		return Change{}, err
+		return Change{}, problem.Reference(err, "partner_id", "business partner", "no business partner with this id")
 	}
 	if ch.Name == nil && ch.LegalName == nil && ch.Language == nil && ch.Roles == nil && len(ch.SupplierCompanies) == 0 &&
 		len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 {
 		return Change{}, problem.Unprocessable("partner.no_changes", "The change requests no changes.")
 	}
-	all := bp.Roles
-	if ch.Roles != nil {
-		for i, r := range ch.Roles {
-			if !slices.Contains(roles, r) {
-				return Change{}, invalid("partner.unknown_role", fmt.Sprintf("payload.roles[%d]", i), "supplier or customer")
-			}
-		}
-		for _, r := range bp.Roles {
-			if !slices.Contains(ch.Roles, r) {
-				return Change{}, invalid("partner.role_removal", "payload.roles", "roles can be added but not removed; "+r+" is missing")
-			}
-		}
-		all = ch.Roles
-	}
-	if err := checkExtensions(ch.Extensions); err != nil {
+	all, err := updatedRoles(bp.Roles, ch.Roles)
+	if err != nil {
 		return Change{}, err
 	}
-	day, err := today(ctx, tx)
+	if err := extensions.Check(ch.Extensions); err != nil {
+		return Change{}, err
+	}
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -643,7 +667,26 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID})
+	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID})
+}
+
+// updatedRoles is the partner's set of roles after a change, which may
+// add known roles but not remove any; nil keeps the current ones.
+func updatedRoles(current, changed []string) ([]string, error) {
+	if changed == nil {
+		return current, nil
+	}
+	for i, r := range changed {
+		if !slices.Contains(roles, r) {
+			return nil, invalid("partner.unknown_role", fmt.Sprintf("payload.roles[%d]", i), "supplier or customer")
+		}
+	}
+	for _, r := range current {
+		if !slices.Contains(changed, r) {
+			return nil, invalid("partner.role_removal", "payload.roles", "roles can be added but not removed; "+r+" is missing")
+		}
+	}
+	return changed, nil
 }
 
 // RequestBankAccount opens a bank change that adds an account on approval.
@@ -655,7 +698,7 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if _, err := getPartner(ctx, tx, partnerID, false); err != nil {
 		return Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -674,7 +717,7 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID, "action": "add"})
+	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID, "action": "add"})
 }
 
 // RequestBankAccountEnd opens a bank change that ends an account on
@@ -691,7 +734,7 @@ func RequestBankAccountEnd(ctx context.Context, partnerID, bankID uuid.UUID, ifM
 	if err := ifMatch(b); err != nil {
 		return Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -708,7 +751,7 @@ func RequestBankAccountEnd(ctx context.Context, partnerID, bankID uuid.UUID, ifM
 	if err != nil {
 		return Change{}, err
 	}
-	return c, record(ctx, "partner.change.request", "partner.partner_change", c.ID,
+	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID,
 		map[string]any{"kind": c.Kind, "partner_id": partnerID, "action": "end", "bank_account_id": bankID})
 }
 
@@ -739,7 +782,7 @@ func ApplyChange(ctx context.Context, id uuid.UUID) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -760,9 +803,9 @@ func ApplyChange(ctx context.Context, id uuid.UUID) (Change, error) {
 	applied, err := scanChange(tx.QueryRow(ctx, `UPDATE partner.partner_change SET status = 'applied', applied_at = now(), version = version + 1,
 		updated_by = $2 WHERE id = $1 RETURNING `+changeColumns, id, p.ID))
 	if err != nil {
-		return Change{}, err
+		return Change{}, fmt.Errorf("partner: mark partner change %s applied: %w", id, err)
 	}
-	return applied, record(ctx, "partner.change.apply", "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID}, events...)
+	return applied, audit.Record(ctx, "partner.change.apply", "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID}, events...)
 }
 
 func later(a, b time.Time) time.Time {
@@ -782,7 +825,7 @@ func insertBank(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b 
 		WHERE partner_id = $1 AND purpose = $2 AND valid_from < $3 AND (valid_to IS NULL OR valid_to > $3) RETURNING id, valid_to`,
 		c.PartnerID, b.Purpose, from, p.ID).Scan(&ended, &endedTo)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return outbox.Event{}, err
+		return outbox.Event{}, fmt.Errorf("partner: end the current %s bank account of business partner %s: %w", b.Purpose, c.PartnerID, err)
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO partner.bank_account (tenant_id, id, partner_id, purpose, account_cipher, account_fingerprint,
@@ -790,7 +833,7 @@ func insertBank(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b 
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		p.TenantID, id, c.PartnerID, b.Purpose, b.AccountCipher, b.AccountFingerprint, b.AccountLast4, b.AccountScheme, b.BIC,
 		b.BankCountryCode, b.HolderName, from, c.ID, p.ID); err != nil {
-		return outbox.Event{}, err
+		return outbox.Event{}, fmt.Errorf("partner: insert the %s bank account of business partner %s: %w", b.Purpose, c.PartnerID, err)
 	}
 	return event("bank_account_changed", c.PartnerID, "partner.business_partner", map[string]any{
 		"partner_id": c.PartnerID, "bank_account_id": id, "ended_bank_account_id": ended, "ended_valid_to": dateOrNil(endedTo),
@@ -810,7 +853,7 @@ func applyCreate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 	decode(c.Payload, &pl)
 	if _, err := tx.Exec(ctx, `UPDATE partner.business_partner SET status = 'active', version = version + 1, updated_by = $2 WHERE id = $1`,
 		bp.ID, p.ID); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: activate business partner %s: %w", bp.ID, err)
 	}
 	var events []outbox.Event
 	if slices.Contains(bp.Roles, "supplier") {
@@ -851,12 +894,12 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 		fields = append(fields, "language")
 	}
 	if pl.Extensions != nil {
-		ext = mergePatch(ext, pl.Extensions)
+		ext = mergepatch.Apply(ext, pl.Extensions)
 		fields = append(fields, "extensions")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE partner.business_partner SET name = $2, legal_name = $3, language = $4, extensions = $5,
 		version = version + 1, updated_by = $6 WHERE id = $1`, bp.ID, name, legal, lang, ext, p.ID); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: update business partner %s: %w", bp.ID, err)
 	}
 	if pl.Roles != nil {
 		if err := addRoles(ctx, tx, p, bp.ID, pl.Roles); err != nil {
@@ -904,7 +947,7 @@ func applyBankChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Chang
 		return nil, problem.Conflict("partner.invalid_end", "The bank account already ends on "+b.ValidTo.Format(time.DateOnly)+".")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE partner.bank_account SET valid_to = $2, ended_by = $3 WHERE id = $1`, b.ID, to, p.ID); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: end bank account %s of business partner %s: %w", b.ID, c.PartnerID, err)
 	}
 	return []outbox.Event{event("bank_account_changed", c.PartnerID, "partner.business_partner", map[string]any{
 		"partner_id": c.PartnerID, "bank_account_id": nil, "ended_bank_account_id": b.ID, "ended_valid_to": to.Format(time.DateOnly), // no new account: the change only ends one
@@ -919,7 +962,7 @@ func applyUnblock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, 
 	}
 	if _, err := tx.Exec(ctx, `UPDATE partner.business_partner SET status = 'active', version = version + 1, updated_by = $2 WHERE id = $1`,
 		bp.ID, p.ID); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: unblock business partner %s: %w", bp.ID, err)
 	}
 	return []outbox.Event{event("partner_unblocked", bp.ID, "partner.business_partner", map[string]any{
 		"partner_id": bp.ID, "scope": "all", "legal_entity_id": nil, "partner_change_id": c.ID, "reason": c.Reason})}, nil
@@ -949,9 +992,9 @@ func closeChange(ctx context.Context, id uuid.UUID, status, action, name string)
 	closed, err := scanChange(tx.QueryRow(ctx, `UPDATE partner.partner_change SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+changeColumns, id, status, p.ID))
 	if err != nil {
-		return Change{}, err
+		return Change{}, fmt.Errorf("partner: %s partner change %s: %w", action, id, err)
 	}
-	return closed, record(ctx, "partner.change."+action, "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID},
+	return closed, audit.Record(ctx, "partner.change."+action, "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID},
 		event(name, id, "partner.partner_change", map[string]any{"partner_change_id": id, "number": c.Number, "kind": c.Kind,
 			"partner_id": c.PartnerID, "workflow_request_id": c.WorkflowRequestID, "previous_status": ChangePending, "status": status}))
 }

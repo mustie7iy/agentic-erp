@@ -17,11 +17,14 @@ var ErrInjected = errors.New("pgtest: injected failure")
 // N = 1, 2, ... until it succeeds exercises every database error path. With
 // Count set, the statements of every FailingTx sharing it are counted
 // together, so a handler spanning several transactions is covered too.
+// With FailCommit, Commit fails with ErrInjected and commits nothing, for the
+// paths that handle a failed commit.
 type FailingTx struct {
 	pgx.Tx
-	FailAt int
-	Count  *int
-	calls  int
+	FailAt     int
+	Count      *int
+	FailCommit bool
+	calls      int
 }
 
 // Calls is the number of statements issued so far.
@@ -41,18 +44,25 @@ func (f *FailingTx) fail() bool {
 	return f.calls == f.FailAt
 }
 
+func (f *FailingTx) Commit(ctx context.Context) error {
+	if f.FailCommit {
+		return ErrInjected // the caller's deferred Rollback ends the transaction
+	}
+	return f.Tx.Commit(ctx) //nolint:wrapcheck // test double: returns exactly what the real Tx returns, so the code under test behaves as in production
+}
+
 func (f *FailingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	if f.fail() {
 		return pgconn.CommandTag{}, ErrInjected
 	}
-	return f.Tx.Exec(ctx, sql, args...)
+	return f.Tx.Exec(ctx, sql, args...) //nolint:wrapcheck // test double: returns exactly what the real Tx returns, so the code under test behaves as in production
 }
 
 func (f *FailingTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	if f.fail() {
 		return errRows{}, ErrInjected
 	}
-	return f.Tx.Query(ctx, sql, args...)
+	return f.Tx.Query(ctx, sql, args...) //nolint:wrapcheck // test double: returns exactly what the real Tx returns, so the code under test behaves as in production
 }
 
 func (f *FailingTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {

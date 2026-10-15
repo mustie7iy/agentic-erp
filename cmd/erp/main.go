@@ -1,9 +1,10 @@
 // Command erp is the platform's command line, a thin client of the public
-// API: everything it reads or changes goes through erp-server with the
-// caller's token, under the same permissions, company access and audit as
-// any other client. The only local work is preparing input (a mock SAP
-// extract, a configuration draft from SAP customizing) and running agents
-// and analytics, which themselves call the API.
+// API (01-requirements §1.1; agents as in 04-api-design §4.13): everything
+// it reads or changes goes through erp-server with the caller's token, under
+// the same permissions, company access and audit as any other client. The
+// only local work is preparing input (a mock SAP extract, a configuration
+// draft from SAP customizing) and running agents and analytics, which
+// themselves call the API.
 //
 //	erp call OPERATION [-p name=value]... [-body JSON] [-if-match ETAG]
 //	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]
@@ -21,6 +22,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -40,6 +42,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/sapconfig"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
@@ -50,6 +54,20 @@ var (
 	out    io.Writer = os.Stdout
 	errOut io.Writer = os.Stderr
 )
+
+// printf writes a command's output and returns a failed write, so a full
+// disk or a closed pipe fails the command rather than losing the output (a
+// token a script captures) behind exit 0. Output of several writes goes
+// through printer instead.
+func printf(what, format string, args ...any) error {
+	_, err := fmt.Fprintf(out, format, args...)
+	return errs.Wrapf(err, "%s: print", what)
+}
+
+// printer buffers a command's output of several writes: a bufio.Writer
+// keeps the first failed write and refuses the rest, so the error of its
+// one Flush, which the command returns, reports any of them.
+func printer() *bufio.Writer { return bufio.NewWriter(out) }
 
 // exit ends the process, getenv reads the environment and newRunner makes
 // the agents' model client; tests replace them.
@@ -152,10 +170,54 @@ func client(tokenVar string) (*apitools.Client, error) {
 	return &apitools.Client{BaseURL: base, Token: token}, nil
 }
 
+// parseFlags parses a command's flags, naming the command in the error. The
+// flag package has already printed the problem and the usage; a -h request
+// stays flag.ErrHelp underneath, which run treats as success.
+func parseFlags(fs *flag.FlagSet, args []string) error {
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("%s: %w", fs.Name(), err)
+	}
+	return nil
+}
+
 type multiFlag []string
 
 func (m *multiFlag) String() string     { return strings.Join(*m, "; ") }
 func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
+
+// callInput is the operation's input: the parameters (a comma makes a
+// list), the ETag and the body, read from a file when it starts with @.
+func callInput(operation string, params multiFlag, ifMatch, body string) (map[string]any, error) {
+	var err error
+	input := map[string]any{}
+	for _, p := range params {
+		name, value, ok := strings.Cut(p, "=")
+		if !ok {
+			return nil, fmt.Errorf("parameter %q: want name=value", p)
+		}
+		input[name] = value
+		if strings.Contains(value, ",") {
+			input[name] = strings.Split(value, ",")
+		}
+	}
+	if ifMatch != "" {
+		input["if_match"] = ifMatch
+	}
+	if body != "" {
+		raw := []byte(body)
+		if path, ok := strings.CutPrefix(body, "@"); ok {
+			if raw, err = os.ReadFile(path); err != nil { // #nosec G703 -- a file the user names on the command line
+				return nil, fmt.Errorf("call %s: read body: %w", operation, err)
+			}
+		}
+		var b any
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return nil, fmt.Errorf("body: %w", err)
+		}
+		input["body"] = b
+	}
+	return input, nil
+}
 
 // call performs one API operation, named by its operationId, and prints the
 // answer. Parameters are name=value; a body is JSON, or @file.
@@ -168,7 +230,7 @@ func call(ctx context.Context, args []string) error {
 	fs.Var(&params, "p", "parameter name=value, repeatable (lists are comma-separated)")
 	body := fs.String("body", "", "request body: JSON, or @file")
 	ifMatch := fs.String("if-match", "", "ETag of the resource as last read")
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := parseFlags(fs, args[1:]); err != nil {
 		return err
 	}
 	c, err := client("ERP_TOKEN")
@@ -179,32 +241,9 @@ func call(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	input := map[string]any{}
-	for _, p := range params {
-		name, value, ok := strings.Cut(p, "=")
-		if !ok {
-			return fmt.Errorf("parameter %q: want name=value", p)
-		}
-		input[name] = value
-		if strings.Contains(value, ",") {
-			input[name] = strings.Split(value, ",")
-		}
-	}
-	if *ifMatch != "" {
-		input["if_match"] = *ifMatch
-	}
-	if *body != "" {
-		raw := []byte(*body)
-		if path, ok := strings.CutPrefix(*body, "@"); ok {
-			if raw, err = os.ReadFile(path); err != nil { // #nosec G703 -- a file the user names on the command line
-				return err
-			}
-		}
-		var b any
-		if err := json.Unmarshal(raw, &b); err != nil {
-			return fmt.Errorf("body: %w", err)
-		}
-		input["body"] = b
+	input, err := callInput(args[0], params, *ifMatch, *body)
+	if err != nil {
+		return err
 	}
 	raw, _ := json.Marshal(input) // strings and decoded JSON
 	res, err := op.Execute(ctx, raw)
@@ -216,9 +255,15 @@ func call(ctx context.Context, args []string) error {
 		ETag   string
 		Body   json.RawMessage
 	}
-	json.Unmarshal([]byte(res[0].OfText.Text), &r) // the tool's own encoding
-	pretty, _ := json.MarshalIndent(r.Body, "", "  ")
-	fmt.Fprintf(out, "%d %s\n%s\n", r.Status, r.ETag, pretty)
+	// The tool's own encoding, unless the answer was over its size limit and
+	// came back truncated.
+	if err := json.Unmarshal([]byte(res[0].OfText.Text), &r); err != nil {
+		return fmt.Errorf("call %s: the answer cannot be read (it may be over the size limit; ask for a smaller page): %w", args[0], err)
+	}
+	pretty, _ := json.MarshalIndent(r.Body, "", "  ") // decoded above, so valid JSON
+	if err := printf("call", "%d %s\n%s\n", r.Status, r.ETag, pretty); err != nil {
+		return err
+	}
 	if r.Status >= 400 {
 		return fmt.Errorf("the API answered %d", r.Status)
 	}
@@ -231,7 +276,7 @@ func token(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("token", flag.ContinueOnError)
 	tenant := fs.String("tenant", "", "tenant id; without it the token is an operator's")
 	subject := fs.String("subject", "", "the principal's (or operator's) subject at the identity provider")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *subject == "" {
@@ -241,25 +286,27 @@ func token(ctx context.Context, args []string) error {
 	if admin == "" {
 		admin = "http://localhost:9090"
 	}
-	body, _ := json.Marshal(map[string]string{"tenant_id": *tenant, "subject": *subject})
+	body, _ := json.Marshal(map[string]string{"tenant_id": *tenant, "subject": *subject}) // strings always encode
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(admin, "/")+"/dev/token", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("token: ERP_ADMIN_URL %q: %w", admin, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("token: ask the admin listener: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	var answer struct {
 		Token string
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil || resp.StatusCode != http.StatusOK || answer.Token == "" {
+	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+		return fmt.Errorf("the admin listener answered %d with no readable token (is the server running with ERP_DEV_ISSUER=true?): %w", resp.StatusCode, err)
+	}
+	if resp.StatusCode != http.StatusOK || answer.Token == "" {
 		return fmt.Errorf("the admin listener answered %d: is the server running with ERP_DEV_ISSUER=true?", resp.StatusCode)
 	}
-	fmt.Fprintln(out, answer.Token)
-	return nil
+	return printf("token", "%s\n", answer.Token)
 }
 
 func genMock(_ context.Context, args []string) error {
@@ -268,7 +315,7 @@ func genMock(_ context.Context, args []string) error {
 	seed := fs.Uint64("seed", 42, "random seed")
 	year := fs.String("year", "2026", "fiscal year")
 	through := fs.Int("through", 12, "last month with revenue postings, for a year in progress")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	// Without an explicit seed, vary the random stream by year so that two
@@ -284,18 +331,20 @@ func genMock(_ context.Context, args []string) error {
 	if err := sap.WriteExtract(*outFile, e); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "wrote %s\n", *outFile)
+	w := printer()
+	fmt.Fprintf(w, "wrote %s\n", *outFile)
 	counts := e.Counts()
 	tables := make([]string, 0, len(counts))
 	for t := range counts {
 		tables = append(tables, t)
 	}
 	sort.Strings(tables)
-	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', 0)
+	tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
 	for _, t := range tables {
 		fmt.Fprintf(tw, "  %s\t%d\n", t, counts[t])
 	}
-	return tw.Flush()
+	_ = tw.Flush() // its only error is a failed write, which w keeps
+	return errs.Wrapf(w.Flush(), "gen-mock-sap: print counts")
 }
 
 func configCmd(ctx context.Context, args []string) error {
@@ -330,7 +379,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	companies := fs.String("company", "1000", "comma-separated company codes")
 	year := fs.String("year", "2026", "fiscal year (for the extract)")
 	outPath := fs.String("out", "data/config-draft.yaml", "where to write the draft")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	src, err := parseSource(*source)
@@ -344,36 +393,43 @@ func configGenerate(ctx context.Context, args []string) error {
 	cfg, notes := sapconfig.Generate(e, sapconfig.DefaultOptions())
 	doc, _ := cfg.Marshal() // Config.Marshal cannot fail
 	if err := os.WriteFile(*outPath, doc, 0o600); err != nil {
-		return err
+		return fmt.Errorf("config generate: write draft %s: %w", *outPath, err)
 	}
-	fmt.Fprintf(out, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)
+	w := printer()
+	fmt.Fprintf(w, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)
 	for _, n := range notes {
-		fmt.Fprintln(out, "  "+n.String())
+		fmt.Fprintln(w, "  "+n.String())
 	}
-	return printFindings(config.Validate(cfg))
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("config generate: print notes: %w", err)
+	}
+	return printFindings(config.Validate(cfg, currency.Seeded()))
 }
 
 func configValidate(args []string) error {
 	fs := flag.NewFlagSet("config validate", flag.ContinueOnError)
 	file := fs.String("file", "", "configuration YAML")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := config.Load(*file)
 	if err != nil {
 		return err
 	}
-	return printFindings(config.Validate(c))
+	return printFindings(config.Validate(c, currency.Seeded())) // offline: the exponents the migrations seed
 }
 
 func printFindings(fs []config.Finding) error {
 	if len(fs) == 0 {
-		fmt.Fprintln(out, "\nValidation: no findings")
-		return nil
+		return printf("config", "\nValidation: no findings\n")
 	}
-	fmt.Fprintln(out, "\nValidation:")
+	w := printer()
+	fmt.Fprintln(w, "\nValidation:")
 	for _, f := range fs {
-		fmt.Fprintln(out, "  "+f.String())
+		fmt.Fprintln(w, "  "+f.String())
+	}
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("config: print findings: %w", err)
 	}
 	if config.HasErrors(fs) {
 		return errors.New("the configuration has validation errors")

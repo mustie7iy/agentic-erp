@@ -2,13 +2,16 @@ package payables
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -33,63 +36,24 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireStatus(v, "post", Parked); err != nil {
 		return Invoice{}, err
 	}
-	if v.PurchaseOrderID != nil && v.WorkflowRequestID == nil {
-		var clean *bool
-		err := tx.QueryRow(ctx, `SELECT is_clean FROM payables.match_result WHERE supplier_invoice_id = $1 ORDER BY evaluated_at DESC LIMIT 1`, id).Scan(&clean)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return Invoice{}, err
-		}
-		if clean == nil || !*clean {
-			return Invoice{}, problem.Conflict("payables.match_required",
-				"An invoice on a purchase order is posted after a clean match or an approved exception; match it first.")
-		}
+	if err := requireCleanMatch(ctx, tx, v); err != nil {
+		return Invoice{}, err
 	}
-	var net int64
-	for _, it := range v.Items {
-		net += it.Amount
-	}
-	if net+v.Tax != v.Gross {
+	if totalMismatch(v, money.Minor.String) != "" {
 		return Invoice{}, problem.Unprocessable("payables.amounts_mismatch", "The gross amount must equal the items plus tax.")
 	}
-	sup, _, err := e.Suppliers.Supplier(ctx, v.SupplierID, v.LegalEntityID)
+	sup, err := e.postableSupplier(ctx, v)
 	if err != nil {
 		return Invoice{}, err
 	}
-	if why := sup.Usable(); why != "" {
-		return Invoice{}, problem.Unprocessable("payables.supplier_not_usable", "The supplier cannot be posted: "+why+".")
+	date, err := invoicePostingDate(ctx, tx, v, postingDate)
+	if err != nil {
+		return Invoice{}, err
 	}
-	date := postingDate
-	if date == nil {
-		date = v.PostingDate
+	lines, err := e.invoiceLines(ctx, v, sup, *date)
+	if err != nil {
+		return Invoice{}, err
 	}
-	if date == nil {
-		d, err := today(ctx, tx)
-		if err != nil {
-			return Invoice{}, err
-		}
-		date = &d
-	}
-	var lines []ledger.PostingLine
-	var taxCode *string
-	for _, it := range v.Items {
-		if it.TaxCode != nil && taxCode == nil {
-			taxCode = it.TaxCode
-		}
-		if it.Amount != 0 {
-			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: it.Amount, TaxCode: it.TaxCode, Text: it.Description})
-		}
-	}
-	if v.Tax != 0 {
-		account, ok, err := e.taxAccount(ctx, v.LegalEntityID, taxCode, *date)
-		if err != nil {
-			return Invoice{}, err
-		}
-		if !ok {
-			return Invoice{}, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
-		}
-		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: v.Tax, TaxCode: taxCode})
-	}
-	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -v.Gross, PartnerID: &v.SupplierID})
 	text := "Supplier invoice " + v.DocumentNumber
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: DocumentType, DocumentDate: v.InvoiceDate,
 		PostingDate: *date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
@@ -99,7 +63,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'posted', posting_date = $2, journal_entry_year = $3, journal_entry_id = $4,
 		version = version + 1, updated_by = $5 WHERE id = $1`, id, *date, entry.FiscalYear, entry.ID, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: mark invoice %s posted: %w", id, err)
 	}
 	posted, err := load(ctx, tx, id, false)
 	if err != nil {
@@ -108,8 +72,123 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	return posted, record(ctx, "payables.supplier_invoice.post", id, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
 		event(posted, "supplier_invoice_posted", map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
 			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": date.Format(time.DateOnly),
-			"gross_amount": amount(posted.Gross, posted.Currency, posted.Exponent), "tax_amount": amount(posted.Tax, posted.Currency, posted.Exponent),
+			"gross_amount": money.EventAmount(posted.Gross, posted.Currency, posted.Exponent), "tax_amount": money.EventAmount(posted.Tax, posted.Currency, posted.Exponent),
 			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
+}
+
+// postableSupplier is the invoice's supplier when it can be posted to. A
+// supplier the partner context no longer finds is refused as unusable with
+// that reason, as invoiceParties refuses it, never read as a supplier with
+// an empty status.
+func (e *Endpoints) postableSupplier(ctx context.Context, v Invoice) (partner.Supplier, error) {
+	sup, ok, err := e.Suppliers.Supplier(ctx, v.SupplierID, v.LegalEntityID)
+	if err != nil {
+		return partner.Supplier{}, err
+	}
+	why := sup.Usable()
+	if !ok {
+		why = "no business partner with this id"
+	}
+	if why != "" {
+		return partner.Supplier{}, problem.Unprocessable("payables.supplier_not_usable", "The supplier cannot be posted: "+why+".")
+	}
+	return sup, nil
+}
+
+// requireCleanMatch lets an invoice on a purchase order post only after a
+// clean latest match of its current version (F13), or with an approved
+// exception request linked that was approved at its current version (F16).
+// v is read FOR UPDATE, and a match and an approval lock the invoice too,
+// so none lands between this check and the posting. Any change of the
+// invoice since the match or the approval (an edit, a hold or release by
+// hand) needs a new match or approval, even when the change kept the
+// request linked, as the previous release's edit does. A match or approval
+// recorded without a version (before migration 000040 or 000041, or by the
+// previous release) counts for none.
+func requireCleanMatch(ctx context.Context, tx pgx.Tx, v Invoice) error {
+	if v.PurchaseOrderID == nil {
+		return nil
+	}
+	var approved, matched *int32
+	var clean bool
+	// The invoice row always exists (v was just read under lock); the
+	// lateral match is NULL when there is none.
+	if err := tx.QueryRow(ctx, `SELECT i.exception_version, coalesce(m.is_clean, false), m.invoice_version FROM payables.supplier_invoice i
+		LEFT JOIN LATERAL (SELECT is_clean, invoice_version FROM payables.match_result WHERE tenant_id = i.tenant_id AND supplier_invoice_id = i.id
+			ORDER BY evaluated_at DESC LIMIT 1) m ON true
+		WHERE i.id = $1`, v.ID).Scan(&approved, &clean, &matched); err != nil {
+		return fmt.Errorf("payables: read the approval and latest match of invoice %s: %w", v.ID, err)
+	}
+	switch {
+	case approvedAsIs(v, approved):
+		return nil
+	case clean && matched != nil && *matched == v.Version:
+		return nil
+	case v.WorkflowRequestID != nil:
+		return problem.Conflict("payables.match_required",
+			"The approved exception does not cover the invoice as it now stands (it changed since, or was approved by an earlier release); match it again, and have a new exception approved if it has issues.")
+	case !clean:
+		return problem.Conflict("payables.match_required",
+			"An invoice on a purchase order is posted after a clean match or an approved exception; match it first.")
+	default:
+		return problem.Conflict("payables.match_required",
+			"The invoice changed after its last clean match; match it again before it is posted.")
+	}
+}
+
+// approvedAsIs says whether the invoice has an approved exception request
+// linked that was approved at its current version (approved is its
+// exception_version): the approval covers the invoice as it stands (F16).
+func approvedAsIs(v Invoice, approved *int32) bool {
+	return v.WorkflowRequestID != nil && approved != nil && *approved == v.Version
+}
+
+// invoicePostingDate is the requested posting date, else the invoice's,
+// else today.
+func invoicePostingDate(ctx context.Context, tx pgx.Tx, v Invoice, postingDate *time.Time) (*time.Time, error) {
+	date := postingDate
+	if date == nil {
+		date = v.PostingDate
+	}
+	if date == nil {
+		d, err := database.Today(ctx, tx)
+		if err != nil {
+			return nil, err
+		}
+		date = &d
+	}
+	return date, nil
+}
+
+// invoiceLines builds the entry's lines: Dr expense per non-zero item, Dr
+// input tax on the first item tax code's account, Cr the supplier's
+// reconciliation account.
+func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Supplier, date time.Time) ([]ledger.PostingLine, error) {
+	var lines []ledger.PostingLine
+	var taxCode *string
+	for _, it := range v.Items {
+		if it.TaxCode != nil && taxCode == nil {
+			taxCode = it.TaxCode
+		}
+		if it.Amount != 0 {
+			// Every item has an account: validation requires one on an item
+			// without an order item and fills it from the order item
+			// otherwise (orderItem).
+			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: it.Amount, TaxCode: it.TaxCode, Text: it.Description})
+		}
+	}
+	if v.Tax != 0 {
+		account, ok, err := e.taxAccount(ctx, v.LegalEntityID, taxCode, date)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
+		}
+		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: v.Tax, TaxCode: taxCode})
+	}
+	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -v.Gross, PartnerID: &v.SupplierID})
+	return lines, nil
 }
 
 // taxAccount is the account of the tax code valid on the date, else the
@@ -141,6 +220,9 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := requireStatus(v, "reverse", Posted); err != nil {
 		return Invoice{}, err
 	}
+	// A posted invoice always has its entry: the table's CHECK
+	// ((status IN ('posted', 'reversed')) = (journal_entry_id IS NOT NULL))
+	// and the pairing of id and year, migration 000007.
 	cleared, err := e.Postings.IsCleared(ctx, *v.JournalEntryYear, *v.JournalEntryID)
 	if err != nil {
 		return Invoice{}, err
@@ -148,15 +230,18 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if cleared {
 		return Invoice{}, problem.Conflict("payables.invoice_cleared", "The invoice's open item is cleared; reverse the payment first.")
 	}
-	run, inRun, err := e.Payments.RunOf(ctx, *v.JournalEntryYear, *v.JournalEntryID)
+	// RunOf takes the proposals lock after this read; the read is only for
+	// the clearer refusal: the ledger's reversal checks clearing again under
+	// its exclusive lock on the entry.
+	run, inRun, err := e.Payments.RunOf(ctx, v.LegalEntityID, *v.JournalEntryYear, *v.JournalEntryID)
 	if err != nil {
 		return Invoice{}, err
 	}
 	if inRun {
-		return Invoice{}, problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+"; reject the run first.")
+		return Invoice{}, problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+". Reject the run once it is proposed; a releasing run pays the invoice (resume a stopped release with :release), then reverse the payment first.")
 	}
 	if postingDate == nil {
-		d, err := today(ctx, tx)
+		d, err := database.Today(ctx, tx)
 		if err != nil {
 			return Invoice{}, err
 		}
@@ -169,7 +254,7 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'reversed', reversal_entry_year = $2, reversal_entry_id = $3,
 		version = version + 1, updated_by = $4 WHERE id = $1`, id, rev.FiscalYear, rev.ID, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: mark invoice %s reversed: %w", id, err)
 	}
 	reversed, err := load(ctx, tx, id, false)
 	if err != nil {
@@ -177,7 +262,7 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	}
 	return reversed, record(ctx, "payables.supplier_invoice.reverse", id, map[string]any{"reason": reason, "reversal_entry_id": rev.ID},
 		event(reversed, "supplier_invoice_reversed", map[string]any{"document_number": v.DocumentNumber,
-			"gross_amount": amount(v.Gross, v.Currency, v.Exponent), "journal_entry_id": *v.JournalEntryID, "journal_entry_year": *v.JournalEntryYear,
+			"gross_amount": money.EventAmount(v.Gross, v.Currency, v.Exponent), "journal_entry_id": *v.JournalEntryID, "journal_entry_year": *v.JournalEntryYear,
 			"reversal_entry_id": rev.ID, "reversal_entry_year": rev.FiscalYear, "reversal_posting_date": rev.PostingDate.Format(time.DateOnly),
 			"status": Reversed}))
 }

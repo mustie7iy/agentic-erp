@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
@@ -38,7 +38,7 @@ func setup(t *testing.T) env {
 	f := fixture.New(t, perms...)
 	dir := t.TempDir()
 	write(t, dir, "extract.json", sap.GenerateMock(42, "2026"))
-	f.API = apitest.NewWith(t, func(c *httpapi.Config) { c.ExtractDir = dir })
+	f.API = apitest.NewWith(t, func(c *app.Config) { c.ExtractDir = dir })
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2025-01-01', 0.9, 'ECB', $2)`, f.Tenant.ID, f.Tenant.Human.ID)
 	return env{Env: f, dir: dir}
@@ -115,6 +115,7 @@ func count(t *testing.T, sql string, args ...any) int {
 }
 
 func (e env) entries(t *testing.T) int {
+	t.Helper()
 	return count(t, `SELECT count(*) FROM ledger.journal_entry WHERE tenant_id = $1`, e.Tenant.ID)
 }
 
@@ -134,25 +135,55 @@ func TestMigrateAndReconcile(t *testing.T) {
 	// A rehearsal loads, reconciles and leaves nothing behind but its report.
 	rehearsal := e.run(t, c, "documents", true, e.US.String())
 	op, got := e.act(t, rehearsal, "start")
-	if got["status"] != "reconciled" || op["status"] != "succeeded" || got["report"].(map[string]any)["passed"] != true || e.entries(t) != 0 ||
-		got["finished_at"] == nil || got["operation_id"] != op["id"] {
-		t.Fatalf("rehearsal: %v %v", op, got)
+	if got["status"] != "reconciled" {
+		t.Fatalf("rehearsal status: got %v, want reconciled: %v", got["status"], got)
+	}
+	if op["status"] != "succeeded" {
+		t.Errorf("rehearsal operation status: got %v, want succeeded", op["status"])
+	}
+	if passed := got["report"].(map[string]any)["passed"]; passed != true {
+		t.Errorf("rehearsal report passed: got %v, want true", passed)
+	}
+	if n := e.entries(t); n != 0 {
+		t.Errorf("rehearsal journal entries: got %d, want 0", n)
+	}
+	if got["finished_at"] == nil {
+		t.Errorf("rehearsal finished_at: got nil, want a time")
+	}
+	if got["operation_id"] != op["id"] {
+		t.Errorf("rehearsal operation_id: got %v, want %v", got["operation_id"], op["id"])
 	}
 
 	run := e.run(t, c, "documents", false, e.US.String())
 	op, got = e.act(t, run, "start")
 	report := got["report"].(map[string]any)
 	loaded := report["loaded"].(map[string]any)
-	if got["status"] != "loaded" || op["kind"] != "integration.migrate" || loaded["journal_entries"] != float64(43) || loaded["suppliers"] != float64(18) ||
-		loaded["clearings"] != float64(6) || loaded["suppliers_blocked"] != float64(1) || got["finished_at"] != nil {
-		t.Fatalf("start: %v %v", op, got)
+	if got["status"] != "loaded" {
+		t.Fatalf("start status: got %v, want loaded: %v", got["status"], got)
+	}
+	if op["kind"] != "integration.migrate" {
+		t.Errorf("start operation kind: got %v, want integration.migrate", op["kind"])
+	}
+	for k, want := range map[string]float64{"journal_entries": 43, "suppliers": 18, "clearings": 6, "suppliers_blocked": 1} {
+		if loaded[k] != want {
+			t.Errorf("start loaded %s: got %v, want %v", k, loaded[k], want)
+		}
+	}
+	if got["finished_at"] != nil {
+		t.Errorf("start finished_at: got %v, want nil", got["finished_at"])
 	}
 	if q := report["quality"].([]any); len(q) != 4 || q[0].(map[string]any)["severity"] != "warning" {
 		t.Fatalf("quality: %v", q)
 	}
 	op, got = e.act(t, run, "reconcile")
-	if got["status"] != "reconciled" || op["kind"] != "integration.reconcile" || !strings.Contains(checks(got["report"].(map[string]any)), "1000 Vendors true") {
-		t.Fatalf("reconcile: %v", got["report"])
+	if got["status"] != "reconciled" {
+		t.Fatalf("reconcile status: got %v, want reconciled: %v", got["status"], got["report"])
+	}
+	if op["kind"] != "integration.reconcile" {
+		t.Errorf("reconcile operation kind: got %v, want integration.reconcile", op["kind"])
+	}
+	if c := checks(got["report"].(map[string]any)); !strings.Contains(c, "1000 Vendors true") {
+		t.Errorf("reconcile checks: got %s, want 1000 Vendors true among them", c)
 	}
 	e.Problem(409, "integration.invalid_status", "POST", "/v1/migration-runs/"+run["id"].(string)+":reconcile", "", `"3"`)
 	e.Problem(409, "integration.invalid_status", "POST", "/v1/migration-runs/"+run["id"].(string)+":start", "", `"3"`)
@@ -161,8 +192,13 @@ func TestMigrateAndReconcile(t *testing.T) {
 	second := e.run(t, c, "documents", false, e.DE.String(), e.US.String())
 	_, got = e.act(t, second, "start")
 	loaded = got["report"].(map[string]any)["loaded"].(map[string]any)
-	if got["status"] != "loaded" || loaded["suppliers_extended"] != float64(4) || loaded["suppliers"] != float64(6) {
-		t.Fatalf("second scope: %v", got["report"])
+	if got["status"] != "loaded" {
+		t.Fatalf("second scope status: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	for k, want := range map[string]float64{"suppliers_extended": 4, "suppliers": 6} {
+		if loaded[k] != want {
+			t.Errorf("second scope loaded %s: got %v, want %v", k, loaded[k], want)
+		}
 	}
 	if _, got = e.act(t, second, "reconcile"); got["status"] != "reconciled" {
 		t.Fatalf("second reconcile: %v", checks(got["report"].(map[string]any)))
@@ -173,8 +209,14 @@ func TestMigrateAndReconcile(t *testing.T) {
 		t.Fatalf("again: %v", got["report"])
 	}
 	completed := apitest.Published(t, e.Tenant, outbox.Event{Context: "integration", Name: "migration_run_completed"})
-	if len(completed) != 3 || completed[0]["is_rehearsal"] != true || completed[1]["summary"] == nil {
-		t.Fatalf("events: %v", completed)
+	if len(completed) != 3 {
+		t.Fatalf("completed events: got %d, want 3: %v", len(completed), completed)
+	}
+	if completed[0]["is_rehearsal"] != true {
+		t.Errorf("first completed event is_rehearsal: got %v, want true", completed[0]["is_rehearsal"])
+	}
+	if completed[1]["summary"] == nil {
+		t.Errorf("second completed event summary: got nil, want a summary")
 	}
 
 	page, _ := e.Must(200, "GET", "/v1/migration-runs?status=reconciled&page_size=1", "", "")
@@ -210,9 +252,13 @@ func TestBalancesMode(t *testing.T) {
 	fresh.API = e.API
 	other := env{Env: fresh, dir: e.dir}
 	_, got = other.act(t, other.run(t, other.connector(t, "uneven.json"), "balances", false, fresh.DE.String()), "start")
-	if load := got["report"].(map[string]any)["load"].([]any); got["status"] != "failed" || len(load) != 1 ||
-		!strings.Contains(load[0].(map[string]any)["message"].(string), "clearing data") {
-		t.Fatalf("uneven clearing: %v", got["report"])
+	if got["status"] != "failed" {
+		t.Fatalf("uneven clearing status: got %v, want failed: %v", got["status"], got["report"])
+	}
+	if load := got["report"].(map[string]any)["load"].([]any); len(load) != 1 {
+		t.Fatalf("uneven clearing load messages: got %d, want 1: %v", len(load), load)
+	} else if msg := load[0].(map[string]any)["message"].(string); !strings.Contains(msg, "clearing data") {
+		t.Fatalf("uneven clearing message: got %q, want it to mention clearing data", msg)
 	}
 	empty := tiny()
 	empty.ACDOCA = nil
@@ -266,15 +312,24 @@ func TestQualityGateAndRefusedLoads(t *testing.T) {
 	quality := fmt.Sprint(got["report"].(map[string]any)["quality"])
 	for _, want := range []string{"not the legal entity's local currency", "not in the legal entity's chart", "reconciliation account on one side",
 		"vendor has no name", "possible duplicate vendors", "without vendor master", "not a vendor reconciliation account of company", `payment terms "ZZ99"`,
-		"vendor 0000000077 not in extract", "invalid SAP date", "G/L account 888888", "not a positive number", "price unit",
+		"vendor 0000000077 not in extract", "invalid SAP date", "G/L account 888888", `quantity "-1" is not a plain decimal`, "price unit",
 		"movement type 102", "missing from chart of accounts", "without vendor", "vendor 0000000066 not in extract", "journal_xx number range",
 		"does not balance", "posting-blocked but has open payables", "repeats invoice", "unparseable amounts", "status \"B\"", "currency \"XXX\""} {
 		if !strings.Contains(quality, want) {
-			t.Errorf("quality gate misses %q", want)
+			t.Errorf("quality gate: got %s, want it to report %q", quality, want)
 		}
 	}
-	if got["status"] != "failed" || op["status"] != "failed" || op["error"].(map[string]any)["code"] != "integration.migration_failed" || e.entries(t) != 0 {
-		t.Fatalf("failed: %v %v", op, got)
+	if got["status"] != "failed" {
+		t.Fatalf("run status: got %v, want failed", got["status"])
+	}
+	if op["status"] != "failed" {
+		t.Fatalf("operation status: got %v, want failed", op["status"])
+	}
+	if code := op["error"].(map[string]any)["code"]; code != "integration.migration_failed" {
+		t.Fatalf("operation error: got %v, want integration.migration_failed", code)
+	}
+	if n := e.entries(t); n != 0 {
+		t.Fatalf("journal entries: got %d, want 0", n)
 	}
 
 	// Records the services refuse fail the load as a whole; nothing stays.
@@ -284,9 +339,16 @@ func TestQualityGateAndRefusedLoads(t *testing.T) {
 	write(t, e.dir, "refused.json", refused)
 	_, got = e.act(t, e.run(t, e.connector(t, "refused.json"), "documents", false, e.DE.String()), "start")
 	load := fmt.Sprint(got["report"].(map[string]any)["load"])
-	if got["status"] != "failed" || !strings.Contains(load, "invalid SAP date") || !strings.Contains(load, "LFA1") ||
-		count(t, `SELECT count(*) FROM integration.external_ref WHERE tenant_id = $1`, e.Tenant.ID) != 0 {
-		t.Fatalf("refused: %v", got["report"])
+	if got["status"] != "failed" {
+		t.Fatalf("refused status: got %v, want failed", got["status"])
+	}
+	for _, want := range []string{"invalid SAP date", "LFA1"} {
+		if !strings.Contains(load, want) {
+			t.Fatalf("refused load: got %s, want it to mention %q", load, want)
+		}
+	}
+	if n := count(t, `SELECT count(*) FROM integration.external_ref WHERE tenant_id = $1`, e.Tenant.ID); n != 0 {
+		t.Fatalf("refused external refs: got %d, want 0", n)
 	}
 	// A rehearsal whose controls fail reports the differences and missing documents.
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2 AND period = 3`,
@@ -309,8 +371,14 @@ func TestQualityGateAndRefusedLoads(t *testing.T) {
 		{"account_id": %q, "amount": {"amount": "9.00", "currency": "EUR"}}]}`, e.DE, e.Account(t, "2000", "211000"), stranger, e.Account(t, "2000", "520000")), "")
 	_, got = e.act(t, run, "reconcile")
 	report := got["report"].(map[string]any)
-	if got["status"] != "failed" || len(report["missing_documents"].([]any)) != 1 || !strings.Contains(fmt.Sprint(report["diffs"]), "partner "+stranger.String()) {
-		t.Fatalf("failed controls: %v", report)
+	if got["status"] != "failed" {
+		t.Errorf("failed controls status: got %v, want failed", got["status"])
+	}
+	if missing, ok := report["missing_documents"].([]any); !ok || len(missing) != 1 {
+		t.Errorf("failed controls missing documents: got %v, want a list of 1", report["missing_documents"])
+	}
+	if diffs := fmt.Sprint(report["diffs"]); !strings.Contains(diffs, "partner "+stranger.String()) {
+		t.Errorf("failed controls diffs: got %s, want partner %s among them", diffs, stranger)
 	}
 }
 
@@ -319,21 +387,39 @@ func TestConnectorsAndRunRules(t *testing.T) {
 	c, tag := e.Must(201, "POST", "/v1/connectors", `{"kind": "sap_odata", "name": "S4", "settings": {"base_url": "https://s4.example.com", "client": "100",
 		"page_size": 500, "system": "S4_PRD"}, "secret_ref": "env:ERP_TEST_SAP"}`, "")
 	path := "/v1/connectors/" + c["id"].(string)
-	if c["status"] != "active" || c["secret_ref"] != "env:ERP_TEST_SAP" || tag != `"1"` {
-		t.Fatalf("created: %v", c)
+	if c["status"] != "active" {
+		t.Fatalf("created status: got %v, want active", c["status"])
 	}
-	for _, body := range []string{`{"kind": "fax", "name": "x", "settings": {}}`, `{"kind": "sap_file", "name": "x", "settings": {"path": "../etc"}}`,
-		`{"kind": "sap_odata", "name": "x", "settings": {"base_url": "ftp://x"}}`, `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "https://x", "client": 100}}`,
-		`{"kind": "sap_odata", "name": "x", "settings": {"base_url": "https://x", "page_size": 0}}`,
-		`{"kind": "sap_file", "name": "x", "settings": {"path": "a.json", "system": "sap"}}`} {
-		if got, _, _ := e.Do("POST", "/v1/connectors", body, ""); got != 422 {
-			t.Errorf("%s: %d", body, got)
-		}
+	if c["secret_ref"] != "env:ERP_TEST_SAP" {
+		t.Fatalf("created secret_ref: got %v, want env:ERP_TEST_SAP", c["secret_ref"])
+	}
+	if tag != `"1"` {
+		t.Fatalf("created ETag: got %s, want %s", tag, `"1"`)
+	}
+	for name, body := range map[string]string{
+		"unknown kind":        `{"kind": "fax", "name": "x", "settings": {}}`,
+		"path escapes":        `{"kind": "sap_file", "name": "x", "settings": {"path": "../etc"}}`,
+		"not http":            `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "ftp://x"}}`,
+		"client not a string": `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "https://x", "client": 100}}`,
+		"page size 0":         `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "https://x", "page_size": 0}}`,
+		"lower-case system":   `{"kind": "sap_file", "name": "x", "settings": {"path": "a.json", "system": "sap"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got, _, _ := e.Client.In(t).Do("POST", "/v1/connectors", body, ""); got != 422 {
+				t.Errorf("%s: got %d, want 422", body, got)
+			}
+		})
 	}
 	e.Problem(409, "integration.duplicate_name", "POST", "/v1/connectors", `{"kind": "email", "name": "S4", "settings": {}}`, "")
 	upd, tag := e.Must(200, "PATCH", path, `{"name": "S4 PRD", "settings": {"base_url": "https://s4.example.com"}, "secret_ref": null}`, tag)
-	if upd["name"] != "S4 PRD" || upd["secret_ref"] != nil || upd["settings"].(map[string]any)["client"] != nil {
-		t.Fatalf("updated: %v", upd)
+	if upd["name"] != "S4 PRD" {
+		t.Fatalf("updated name: got %v, want S4 PRD", upd["name"])
+	}
+	if upd["secret_ref"] != nil {
+		t.Fatalf("updated secret_ref: got %v, want nil", upd["secret_ref"])
+	}
+	if client := upd["settings"].(map[string]any)["client"]; client != nil {
+		t.Fatalf("updated settings.client: got %v, want nil", client)
 	}
 	e.Problem(422, "integration.invalid_settings", "PATCH", path, `{"settings": {}}`, tag)
 	_, tag = e.Must(200, "PATCH", path, `{"secret_ref": "env:ERP_TEST_SAP"}`, tag)
@@ -346,8 +432,14 @@ func TestConnectorsAndRunRules(t *testing.T) {
 	e.Problem(409, "integration.connector_disabled", "POST", "/v1/migration-runs/"+run["id"].(string)+":start", "", `"1"`)
 	e.Must(200, "POST", path+":enable", "", tag)
 	evs := apitest.Published(t, e.Tenant, outbox.Event{Context: "integration", Name: "connector_enabled"})
-	if len(evs) != 2 || evs[0]["previous_status"] != nil || evs[1]["previous_status"] != "disabled" {
-		t.Fatalf("events: %v", evs)
+	if len(evs) != 2 {
+		t.Fatalf("connector_enabled events: got %d, want 2: %v", len(evs), evs)
+	}
+	if evs[0]["previous_status"] != nil {
+		t.Errorf("first event previous_status: got %v, want nil", evs[0]["previous_status"])
+	}
+	if evs[1]["previous_status"] != "disabled" {
+		t.Errorf("second event previous_status: got %v, want disabled", evs[1]["previous_status"])
 	}
 	got, _ := e.Must(200, "GET", path, "", "")
 	if got["name"] != "S4 PRD" {
@@ -378,7 +470,7 @@ func TestConnectorsAndRunRules(t *testing.T) {
 	vault := vaulttest.New(t)
 	vault.Secrets["secret/erp/sap"] = map[string]any{"credentials": "user:secret"}
 	local := secrets.Local{}
-	withVault := apitest.NewWith(t, func(cfg *httpapi.Config) {
+	withVault := apitest.NewWith(t, func(cfg *app.Config) {
 		cfg.Secrets = secrets.Multi{secrets.SchemeEnv: local, secrets.SchemeVault: &secrets.Vault{Address: vault.URL, Token: vaulttest.Token}}
 	})
 	vaulted := apitest.Client{T: t, API: withVault, Tenant: e.Tenant, As: e.Tenant.Human}
@@ -397,16 +489,18 @@ func TestConnectorsAndRunRules(t *testing.T) {
 	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 		VALUES ($1, $2, '3000', 'Dormant', 'DE', 'EUR', gen_random_uuid(), 'inactive', $3, $3)`, e.Tenant.ID, inactive, e.Tenant.Human.ID)
 	for _, c := range []struct {
-		connector, mode, scope, code string
+		name, connector, mode, scope, code string
 	}{
-		{c["id"].(string), "full", scope(e.DE.String()), "integration.unknown_mode"},
-		{"01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d98", "documents", scope(e.DE.String()), "request.reference_not_found"},
-		{mail, "documents", scope(e.DE.String()), "integration.not_a_source"},
-		{c["id"].(string), "documents", scope("01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d97"), "request.reference_not_found"},
-		{c["id"].(string), "documents", scope(inactive), "integration.legal_entity_not_active"},
+		{"unknown mode", c["id"].(string), "full", scope(e.DE.String()), "integration.unknown_mode"},
+		{"unknown connector", "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d98", "documents", scope(e.DE.String()), "request.reference_not_found"},
+		{"not a source", mail, "documents", scope(e.DE.String()), "integration.not_a_source"},
+		{"unknown legal entity", c["id"].(string), "documents", scope("01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d97"), "request.reference_not_found"},
+		{"inactive legal entity", c["id"].(string), "documents", scope(inactive), "integration.legal_entity_not_active"},
 	} {
-		e.Problem(422, c.code, "POST", "/v1/migration-runs", fmt.Sprintf(`{"connector_id": %q, "scope": %s, "mode": %q, "is_rehearsal": false}`,
-			c.connector, c.scope, c.mode), "")
+		t.Run(c.name, func(t *testing.T) {
+			e.Client.In(t).Problem(422, c.code, "POST", "/v1/migration-runs", fmt.Sprintf(`{"connector_id": %q, "scope": %s, "mode": %q, "is_rehearsal": false}`,
+				c.connector, c.scope, c.mode), "")
+		})
 	}
 	// Without an extract directory, sap_file connectors cannot be read; a missing file is an extraction failure.
 	plain := env{Env: e.Env}
@@ -433,9 +527,14 @@ func TestClearingOutsideScope(t *testing.T) {
 	c, _ := e.Must(201, "POST", "/v1/connectors", `{"kind": "sap_file", "name": "S4", "settings": {"path": "tiny.json", "system": "S4_PRD"}}`, "")
 	run := e.run(t, c["id"].(string), "documents", false, e.DE.String())
 	_, got := e.act(t, run, "start")
-	if got["status"] != "loaded" || got["report"].(map[string]any)["loaded"].(map[string]any)["clearings"] != float64(1) ||
-		count(t, `SELECT count(*) FROM integration.external_ref WHERE tenant_id = $1 AND system = 'S4_PRD'`, e.Tenant.ID) == 0 {
-		t.Fatalf("start: %v", got["report"])
+	if got["status"] != "loaded" {
+		t.Fatalf("start status: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	if clearings := got["report"].(map[string]any)["loaded"].(map[string]any)["clearings"]; clearings != float64(1) {
+		t.Fatalf("start loaded clearings: got %v, want 1", clearings)
+	}
+	if n := count(t, `SELECT count(*) FROM integration.external_ref WHERE tenant_id = $1 AND system = 'S4_PRD'`, e.Tenant.ID); n == 0 {
+		t.Fatalf("external refs of S4_PRD: got 0, want some")
 	}
 	if _, got = e.act(t, run, "reconcile"); got["status"] != "reconciled" {
 		t.Fatalf("reconcile: %v", got["report"])

@@ -66,13 +66,13 @@ access and audit as any other client. Point it at a server with
 A tenant is provisioned once by an operator, with its first administrator and
 its first configuration; from then on the administrator manages it through
 the API. Locally, the server can mint tokens for any subject
-(`ERP_DEV_ISSUER=true`; never in production):
+(`ERP_DEV_ISSUER=true`; a server started with `ERP_ENV=production` refuses it):
 
 ```sh
 make db-up
 export DATABASE_URL=postgres://postgres:dev@localhost:55432/postgres?sslmode=disable
 export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64) ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
-export ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true ERP_EXTRACT_DIR=$PWD/data ERP_OBJECT_DIR=$PWD/data/objects
+export ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true ERP_EXTRACT_DIR=$PWD/data ERP_OBJECT_DIR=$PWD/data/objects
 go build -o bin/erp ./cmd/erp && go build -o bin/erp-server ./cmd/erp-server && go build -o bin/erp-router ./cmd/erp-router
 mkdir -p data/objects && ./bin/erp gen-mock-sap -out data/extract.json
 ./bin/erp config generate -source file:data/extract.json -company 1000,2000 -out data/config.yaml
@@ -176,7 +176,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 
 ## Guardrails built in
 
-- **Money is never a float.** Amounts are integer minor units; quantities are integer milli-units.
+- **Money is never a float.** Amounts are integer minor units; quantities are exact decimals of up to six places.
 - **The ledger validates everything**, including migrated SAP documents: balanced, known accounts, vendor on AP lines.
 - **Agents cannot post exceptions.** Only a clean three-way match can be posted by a non-human, and only within the auto-post limit (default 50,000.00).
 - **The exception agent has read-only and escalate tools only.** It cannot post, pay or change master data. Bank details are masked in what it sees, and vendor-supplied text is treated as untrusted data.
@@ -192,7 +192,8 @@ export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"e
 export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
 export ERP_NATS_URL=nats://localhost:4222   # optional; without it events wait in the outbox
 export ERP_TEMPORAL_ADDRESS=localhost:7233   # optional; the workflow engine (ADR-0012): `temporal server start-dev` locally; without it in-process workers run the long-running work
-export ERP_TEMPORAL_CODEC_KEY=$(head -c 32 /dev/urandom | base64)   # seals workflow payloads before they reach the engine
+export ERP_TEMPORAL_CODEC_KEY=$(head -c 32 /dev/urandom | base64)   # seals workflow payloads before they reach the engine; required with an engine in production
+export ERP_ENV=development                   # required, no default (make run-server sets it); production refuses ERP_DEV_ISSUER, an engine without ERP_TEMPORAL_CODEC_KEY, no object storage and ERP_AUDIT_VERIFY_INTERVAL=0
 export ERP_OBJECT_DIR=$PWD/data/objects      # or ERP_OBJECT_S3_ENDPOINT, _BUCKET, _ACCESS_KEY, _SECRET_KEY for an S3-compatible store
 make run-server                 # migrates, then serves :8080 (API) and :9090 (admin)
 ```
@@ -223,7 +224,7 @@ instance metadata service; [ADR-0024](docs/design/adr/0024-ambient-aws-credentia
 `ERP_OPERATOR_ISSUERS` set, the operators' control plane under
 `/control/v1` ([ADR-0015](docs/design/adr/0015-control-plane.md)). With
 `ERP_DIRECTORY_URL` and `ERP_CELL_API_URL` set, the cell records its tenants
-in the global directory, and `erp-router` (same `ERP_OIDC_ISSUERS`,
+in the global directory, and `erp-router` (same `ERP_ENV`, `ERP_OIDC_ISSUERS`,
 `ERP_DIRECTORY_URL`, `ERP_ROUTER_ADDR`) forwards each request to its
 tenant's cell ([ADR-0022](docs/design/adr/0022-tenant-directory-and-router.md));
 with `ERP_OPERATOR_ISSUERS` and `ERP_PAGE_TOKEN_KEY` its admin listener
@@ -235,11 +236,14 @@ verified by comparing the two cells' fingerprints with `erp directory verify`,
 `erp directory`, [ADR-0023](docs/design/adr/0023-global-control-plane.md)).
 Each cell registers itself with `ERP_CELL_REGION`, `ERP_CELL_CONTROL_URL`
 and `ERP_CELL_ACCEPTING`. Tokens must
-carry the tenant id in the `tenant_id` claim, and the subject must be a
-provisioned principal of that tenant; operator tokens name no tenant and
-work only on the control plane; a `roles` claim on them narrows what an
+carry the tenant id in the `tenant_id` claim, and their issuer and subject
+must be those of a provisioned principal of that tenant (a principal is
+bound to one issuer: at provisioning the cell's only tenant issuer, through
+the API the creating administrator's); operator tokens name no tenant and
+work only on the control plane; a `roles` claim on them says what an
 operator may do (`erp:read`, `erp:provision`, `erp:operate`, `erp:admin`,
-[ADR-0027](docs/design/adr/0027-operator-roles.md)). `ERP_KEY_ROTATION_AGE`
+[ADR-0027](docs/design/adr/0027-operator-roles.md)), and with
+`ERP_ENV=production` a token without it may do nothing. `ERP_KEY_ROTATION_AGE`
 rotates tenant keys older than that age without an operator
 ([ADR-0028](docs/design/adr/0028-key-rotation-policy.md)). Every operation in the contract is
 served: implemented ones run, the rest answer `501` until their context moves

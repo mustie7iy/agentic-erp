@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // Session holds the results of one conversation with the analytics agent,
@@ -18,6 +20,9 @@ type Session struct {
 	Facts     *Facts
 	Principal Principal
 	Results   map[string]*Result
+	// Now is the clock reports are built and rendered with; nil reads the
+	// wall clock (clock.Now).
+	Now func() time.Time
 }
 
 func NewSession(m *Model, f *Facts, p Principal) *Session {
@@ -45,6 +50,9 @@ type Report struct {
 	Queries   map[string]Query `json:"queries"`
 	CreatedAt time.Time        `json:"created_at"`
 	CreatedBy string           `json:"created_by"`
+	// Now is the clock the page is rendered with; nil reads the wall
+	// clock (clock.Now). It is not saved with the report.
+	Now func() time.Time `json:"-"`
 }
 
 // Build validates a spec against the session's results and turns it into a
@@ -56,12 +64,12 @@ func (s *Session) Build(spec Spec, createdBy string) (*Report, []string) {
 	}
 	rep := &Report{
 		Question: spec.Question, Principal: s.Principal, Spec: spec, Queries: map[string]Query{},
-		CreatedAt: time.Now().UTC(), CreatedBy: createdBy,
+		CreatedAt: clock.Now(s.Now).UTC(), CreatedBy: createdBy, Now: s.Now,
 	}
 	for id, r := range used {
 		rep.Queries[id] = r.Query
 	}
-	b, _ := json.Marshal(rep)
+	b, _ := json.Marshal(rep) // plain data, as at save below: it always encodes
 	sum := sha256.Sum256(b)
 	rep.ID = "rpt_" + hex.EncodeToString(sum[:5])
 	return rep, nil
@@ -180,26 +188,32 @@ func (s *Session) Rerun(rep *Report) (*Report, map[string]*Result, error) {
 
 // Save writes the report definition (JSON) and its rendered page (HTML).
 func (rep *Report) Save(dir string, results map[string]*Result) (htmlPath string, err error) {
+	// Rendered first, so a spec that does not validate against the results
+	// leaves nothing behind.
+	var page bytes.Buffer
+	if err := Render(&page, &rep.Spec, results, rep.Principal, rep.Now); err != nil {
+		return "", fmt.Errorf("analytics: save report %s: %w", rep.ID, err)
+	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return "", err
+		return "", fmt.Errorf("analytics: save report %s: %w", rep.ID, err)
 	}
 	// A Report holds only strings, numbers and nested structs, so marshaling
-	// cannot fail; rendering into memory with the fixed page template cannot
-	// fail either (Render only reports errors from its writer).
+	// cannot fail.
 	b, _ := json.MarshalIndent(rep, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, rep.ID+".json"), b, 0o600); err != nil {
-		return "", err
+		return "", fmt.Errorf("analytics: save report %s definition: %w", rep.ID, err)
 	}
-	var page bytes.Buffer
-	Render(&page, &rep.Spec, results, rep.Principal)
 	htmlPath = filepath.Join(dir, rep.ID+".html")
-	return htmlPath, os.WriteFile(htmlPath, page.Bytes(), 0o600)
+	if err := os.WriteFile(htmlPath, page.Bytes(), 0o600); err != nil {
+		return htmlPath, fmt.Errorf("analytics: save report %s page: %w", rep.ID, err)
+	}
+	return htmlPath, nil
 }
 
 func LoadReport(path string) (*Report, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("analytics: load report: %w", err)
 	}
 	var rep Report
 	if err := json.Unmarshal(b, &rep); err != nil {

@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -54,7 +57,7 @@ const connectorColumns = `id, kind, name, settings, secret_ref, status, version,
 func scanConnector(row pgx.Row) (Connector, error) {
 	var c Connector
 	err := row.Scan(&c.ID, &c.Kind, &c.Name, &c.Settings, &c.SecretRef, &c.Status, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
-	return c, err
+	return c, errs.Wrapf(err, "scan connector")
 }
 
 func getConnector(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Connector, error) {
@@ -64,9 +67,12 @@ func getConnector(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Conn
 	}
 	c, err := scanConnector(tx.QueryRow(ctx, q, id))
 	if noRows(err) {
-		return c, notFound("connector")
+		return c, problem.NotFoundOf("connector")
 	}
-	return c, err
+	if err != nil {
+		return c, fmt.Errorf("integration: read connector %s: %w", id, err)
+	}
+	return c, nil
 }
 
 // checkSettings validates the settings of the source kinds: sap_file needs
@@ -89,20 +95,27 @@ func checkSettings(kind string, settings map[string]any) error {
 			return invalid("integration.invalid_settings", "settings.path", "An extract file path relative to the server's extract directory.")
 		}
 	case SAPOData:
-		b, ok := str("base_url")
-		u, err := url.Parse(b)
-		if !ok || err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return invalid("integration.invalid_settings", "settings.base_url", "The SAP system's base URL, for example https://sap.example.com.")
+		return checkODataSettings(settings)
+	}
+	return nil
+}
+
+// checkODataSettings validates the settings of a sap_odata source.
+func checkODataSettings(settings map[string]any) error {
+	b, ok := settings["base_url"].(string)
+	u, err := url.Parse(b)
+	if !ok || err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return invalid("integration.invalid_settings", "settings.base_url", "The SAP system's base URL, for example https://sap.example.com.")
+	}
+	if c, ok := settings["client"]; ok {
+		if _, isString := c.(string); !isString {
+			return invalid("integration.invalid_settings", "settings.client", "The SAP client as a string, for example \"100\".")
 		}
-		if c, ok := settings["client"]; ok {
-			if _, isString := c.(string); !isString {
-				return invalid("integration.invalid_settings", "settings.client", "The SAP client as a string, for example \"100\".")
-			}
-		}
-		if n, ok := settings["page_size"]; ok {
-			if f, isNumber := n.(float64); !isNumber || f < 1 || f > 5000 || f != float64(int(f)) {
-				return invalid("integration.invalid_settings", "settings.page_size", "A page size from 1 to 5000.")
-			}
+	}
+	if n, ok := settings["page_size"]; ok {
+		//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a page size is not an amount
+		if f, isNumber := n.(float64); !isNumber || f < 1 || f > 5000 || f != float64(int(f)) {
+			return invalid("integration.invalid_settings", "settings.page_size", "A page size from 1 to 5000.")
 		}
 	}
 	return nil
@@ -136,7 +149,7 @@ func CreateConnector(ctx context.Context, in NewConnector) (Connector, error) {
 		VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7) RETURNING `+connectorColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), in.Kind, in.Name, in.Settings, in.SecretRef, p.ID))
 	if err != nil {
-		return Connector{}, err
+		return Connector{}, fmt.Errorf("integration: create connector %q: %w", in.Name, err)
 	}
 	return c, record(ctx, "integration.connector.create", c.ID, map[string]any{"kind": c.Kind, "name": c.Name}, statusEvent(c, "connector_enabled", nil))
 }
@@ -176,7 +189,7 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET name = $2, settings = $3, secret_ref = $4, version = version + 1,
 		updated_by = $5 WHERE id = $1 RETURNING `+connectorColumns, id, c.Name, c.Settings, c.SecretRef, p.ID))
 	if err != nil {
-		return Connector{}, err
+		return Connector{}, fmt.Errorf("integration: update connector %s: %w", id, err)
 	}
 	return updated, record(ctx, "integration.connector.update", id, map[string]any{"name": updated.Name, "secret_ref_set": updated.SecretRef != nil})
 }
@@ -200,7 +213,7 @@ func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+connectorColumns, id, status, p.ID))
 	if err != nil {
-		return Connector{}, err
+		return Connector{}, fmt.Errorf("integration: set connector %s to %s: %w", id, status, err)
 	}
 	name, action := "connector_enabled", "integration.connector.enable"
 	if status == "disabled" {
@@ -221,11 +234,7 @@ func fromSettings(raw map[string]jx.Raw) map[string]any {
 
 func connectorToAPI(c Connector) gen.Connector {
 	out := gen.Connector{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
-		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), Kind: c.Kind, Name: c.Name, Settings: gen.ConnectorSettings{}, Status: c.Status}
-	for k, v := range c.Settings {
-		b, _ := json.Marshal(v) // values decoded from JSON always encode
-		out.Settings[k] = jx.Raw(b)
-	}
+		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), Kind: c.Kind, Name: c.Name, Settings: apitypes.EncodeObject(c.Settings), Status: c.Status}
 	if c.SecretRef != nil {
 		out.SecretRef.SetTo(*c.SecretRef)
 	}
@@ -234,10 +243,6 @@ func connectorToAPI(c Connector) gen.Connector {
 
 func connectorOK(c Connector) *gen.UpdateConnectorOKHeaders {
 	return &gen.UpdateConnectorOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: connectorToAPI(c)}
-}
-
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
 }
 
 // CreateConnector implements POST /v1/connectors.
@@ -275,8 +280,7 @@ func (e *Endpoints) ListConnectors(ctx context.Context, params gen.ListConnector
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(connectorSort, "listConnectors|"+params.Kind.Value, pagination.Request{OrderBy: params.OrderBy.Value,
-		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(connectorSort, "listConnectors|"+params.Kind.Value, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -284,17 +288,10 @@ func (e *Endpoints) ListConnectors(ctx context.Context, params gen.ListConnector
 	rows, _ := tx.Query(ctx, q, args...)
 	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Connector, error) { return scanConnector(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("integration: list connectors: %w", err)
 	}
-	cs, next := pagination.Page(ks, cs, func(c Connector) (string, uuid.UUID) { return c.Name, c.ID })
-	page := gen.ConnectorPage{Items: make([]gen.Connector, len(cs))}
-	for i, c := range cs {
-		page.Items[i] = connectorToAPI(c)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ConnectorPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, cs, func(c Connector) (string, uuid.UUID) { return c.Name, c.ID }, connectorToAPI)
+	return &gen.ConnectorPageHeaders{Response: gen.ConnectorPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateConnector implements PATCH /v1/connectors/{id}.
@@ -313,7 +310,7 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 		}
 		ch.SecretRef = &ref
 	}
-	c, err := UpdateConnector(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	c, err := UpdateConnector(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +319,7 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 
 // EnableConnector implements POST /v1/connectors/{id}:enable.
 func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnectorParams) (gen.EnableConnectorRes, error) {
-	c, err := SetConnectorStatus(ctx, params.ID, ifMatch(params.IfMatch), "active", "")
+	c, err := SetConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", "")
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +328,7 @@ func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnec
 
 // DisableConnector implements POST /v1/connectors/{id}:disable.
 func (e *Endpoints) DisableConnector(ctx context.Context, req *gen.ReasonInput, params gen.DisableConnectorParams) (gen.DisableConnectorRes, error) {
-	c, err := SetConnectorStatus(ctx, params.ID, ifMatch(params.IfMatch), "disabled", req.Reason)
+	c, err := SetConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "disabled", req.Reason)
 	if err != nil {
 		return nil, err
 	}

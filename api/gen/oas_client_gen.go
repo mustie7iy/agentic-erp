@@ -162,7 +162,9 @@ type Invoker interface {
 	CreateChangeRequest(ctx context.Context, request *ChangeRequestCreate, params CreateChangeRequestParams) (CreateChangeRequestRes, error)
 	// CreateClearing invokes createClearing operation.
 	//
-	// Clears open items against each other and posts the clearing entry. A line already cleared is 409.
+	// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
+	// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
+	// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
 	//
 	// POST /v1/clearings
 	CreateClearing(ctx context.Context, request *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error)
@@ -218,7 +220,12 @@ type Invoker interface {
 	CreatePartnerChange(ctx context.Context, request *PartnerChangeCreate, params CreatePartnerChangeParams) (CreatePartnerChangeRes, error)
 	// CreatePrincipal invokes createPrincipal operation.
 	//
-	// Creates a person, agent or service principal. Identity administration is human-only.
+	// Creates a person, agent or service principal. Identity administration is human-only. The request can
+	// name a subject but no issuer: a principal created with a subject is bound to the creating
+	// administrator's identity provider (the issuer the administrator's own principal is bound to) with
+	// that subject, and only that provider's tokens act as it. An administrator whose own principal is
+	// bound to no issuer cannot create a person or service with a subject (422
+	// `identity.creator_without_issuer`); it can still create an agent.
 	//
 	// POST /v1/principals
 	CreatePrincipal(ctx context.Context, request *PrincipalCreate, params CreatePrincipalParams) (CreatePrincipalRes, error)
@@ -759,7 +766,9 @@ type Invoker interface {
 	ListPaymentRuns(ctx context.Context, params ListPaymentRunsParams) (ListPaymentRunsRes, error)
 	// ListPayments invokes listPayments operation.
 	//
-	// Payments in the run.
+	// Payments in the run. A payment the release dropped (its item reversed or no longer open since the
+	// proposal) is not listed: its supplier is in the run's exclusions, with reason `item_reversed` or
+	// `item_not_open`.
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
@@ -853,8 +862,10 @@ type Invoker interface {
 	// PostSupplierInvoice invokes postSupplierInvoice operation.
 	//
 	// Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
-	// status `parked`, a clean latest match for PO-based invoices (or an approved exception), an open
-	// period and an unblocked supplier.
+	// status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
+	// exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an
+	// invoice changed after its match, including a hold and release by hand, is matched again, and an edit
+	// unlinks an approved exception), an open period and an unblocked supplier.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
@@ -910,11 +921,16 @@ type Invoker interface {
 	// The F110 release step, a direct human transition (not an approval request), as an operation
 	// (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its
 	// items (one transaction per payment, progress on the operation), and the bank file is produced; the
-	// run is `released` when the operation succeeds. Every supplier is checked again before anything is
-	// posted (409 `payments.proposal_outdated`). Human-only. Segregation of duties: the proposer can never
-	// release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs
-	// from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing`
-	// after a failed release operation, which resumes it.
+	// run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is
+	// checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet
+	// whose item was reversed, or is no longer open, since the proposal can never post: the release drops
+	// it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's
+	// total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release
+	// that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to
+	// be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
+	// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
+	// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
+	// operation, which resumes it.
 	//
 	// POST /v1/payment-runs/{id}:release
 	ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error)
@@ -966,8 +982,14 @@ type Invoker interface {
 	ReverseGoodsReceipt(ctx context.Context, request OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)
 	// ReverseJournalEntry invokes reverseJournalEntry operation.
 	//
-	// Posts a reversal entry with every amount negated and links both entries. An entry can be reversed at
-	// most once (409). Returns the new reversal entry.
+	// Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
+	// original are cleared against the reversal's lines in the same transaction (the reversal entry is the
+	// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
+	// Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
+	// payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
+	// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`.
+	// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
+	// them yet. Returns the new reversal entry.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
@@ -1115,7 +1137,9 @@ type Invoker interface {
 	// UpdateSupplierInvoice invokes updateSupplierInvoice operation.
 	//
 	// Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are
-	// unchanged, `null` clears an optional field, arrays are replaced as a whole.
+	// unchanged, `null` clears an optional field, arrays are replaced as a whole. An invoice on a purchase
+	// order is matched again after a change before it posts, and the change unlinks an approved exception
+	// request (`workflow_request_id`), decided on the invoice as it was.
 	//
 	// PATCH /v1/supplier-invoices/{id}
 	UpdateSupplierInvoice(ctx context.Context, request *SupplierInvoiceUpdate, params UpdateSupplierInvoiceParams) (UpdateSupplierInvoiceRes, error)
@@ -4118,7 +4142,9 @@ func (c *Client) sendCreateChangeRequest(ctx context.Context, request *ChangeReq
 
 // CreateClearing invokes createClearing operation.
 //
-// Clears open items against each other and posts the clearing entry. A line already cleared is 409.
+// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
+// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
+// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
 //
 // POST /v1/clearings
 func (c *Client) CreateClearing(ctx context.Context, request *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error) {
@@ -5290,7 +5316,12 @@ func (c *Client) sendCreatePartnerChange(ctx context.Context, request *PartnerCh
 
 // CreatePrincipal invokes createPrincipal operation.
 //
-// Creates a person, agent or service principal. Identity administration is human-only.
+// Creates a person, agent or service principal. Identity administration is human-only. The request can
+// name a subject but no issuer: a principal created with a subject is bound to the creating
+// administrator's identity provider (the issuer the administrator's own principal is bound to) with
+// that subject, and only that provider's tokens act as it. An administrator whose own principal is
+// bound to no issuer cannot create a person or service with a subject (422
+// `identity.creator_without_issuer`); it can still create an agent.
 //
 // POST /v1/principals
 func (c *Client) CreatePrincipal(ctx context.Context, request *PrincipalCreate, params CreatePrincipalParams) (CreatePrincipalRes, error) {
@@ -19822,7 +19853,9 @@ func (c *Client) sendListPaymentRuns(ctx context.Context, params ListPaymentRuns
 
 // ListPayments invokes listPayments operation.
 //
-// Payments in the run.
+// Payments in the run. A payment the release dropped (its item reversed or no longer open since the
+// proposal) is not listed: its supplier is in the run's exclusions, with reason `item_reversed` or
+// `item_not_open`.
 //
 // GET /v1/payment-runs/{id}/payments
 func (c *Client) ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error) {
@@ -23010,8 +23043,10 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 // PostSupplierInvoice invokes postSupplierInvoice operation.
 //
 // Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
-// status `parked`, a clean latest match for PO-based invoices (or an approved exception), an open
-// period and an unblocked supplier.
+// status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
+// exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an
+// invoice changed after its match, including a hold and release by hand, is matched again, and an edit
+// unlinks an approved exception), an open period and an unblocked supplier.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (c *Client) PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error) {
@@ -24098,11 +24133,16 @@ func (c *Client) sendReleaseContract(ctx context.Context, params ReleaseContract
 // The F110 release step, a direct human transition (not an approval request), as an operation
 // (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its
 // items (one transaction per payment, progress on the operation), and the bank file is produced; the
-// run is `released` when the operation succeeds. Every supplier is checked again before anything is
-// posted (409 `payments.proposal_outdated`). Human-only. Segregation of duties: the proposer can never
-// release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs
-// from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing`
-// after a failed release operation, which resumes it.
+// run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is
+// checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet
+// whose item was reversed, or is no longer open, since the proposal can never post: the release drops
+// it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's
+// total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release
+// that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to
+// be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
+// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
+// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
+// operation, which resumes it.
 //
 // POST /v1/payment-runs/{id}:release
 func (c *Client) ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error) {
@@ -25237,8 +25277,14 @@ func (c *Client) sendReverseGoodsReceipt(ctx context.Context, request OptGoodsRe
 
 // ReverseJournalEntry invokes reverseJournalEntry operation.
 //
-// Posts a reversal entry with every amount negated and links both entries. An entry can be reversed at
-// most once (409). Returns the new reversal entry.
+// Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
+// original are cleared against the reversal's lines in the same transaction (the reversal entry is the
+// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
+// Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
+// payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
+// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`.
+// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
+// them yet. Returns the new reversal entry.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (c *Client) ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error) {
@@ -28560,7 +28606,9 @@ func (c *Client) sendUpdateRole(ctx context.Context, request *RoleUpdate, params
 // UpdateSupplierInvoice invokes updateSupplierInvoice operation.
 //
 // Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are
-// unchanged, `null` clears an optional field, arrays are replaced as a whole.
+// unchanged, `null` clears an optional field, arrays are replaced as a whole. An invoice on a purchase
+// order is matched again after a change before it posts, and the change unlinks an approved exception
+// request (`workflow_request_id`), decided on the invoice as it was.
 //
 // PATCH /v1/supplier-invoices/{id}
 func (c *Client) UpdateSupplierInvoice(ctx context.Context, request *SupplierInvoiceUpdate, params UpdateSupplierInvoiceParams) (UpdateSupplierInvoiceRes, error) {

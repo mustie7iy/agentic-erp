@@ -1,12 +1,14 @@
-// Package sapconfig generates a draft configuration document from a
-// client's SAP customizing tables, so years of setup are migrated instead
-// of re-keyed. The draft is a proposal for a change request: anything
-// without an SAP equivalent gets a documented default and a note for the
-// reviewers. Roles and users are not part of the document (the identity
-// context owns them); the notes list the SAP roles to provision there.
+// Package sapconfig generates a draft configuration document (03-data-model
+// §3.5) from a client's SAP customizing tables (mapped as in §3.17), so
+// years of setup are migrated instead of re-keyed. The draft is a proposal
+// for a change request: anything without an SAP equivalent gets a documented
+// default and a note for the reviewers. Roles and users are not part of the
+// document (the identity context owns them); the notes list the SAP roles to
+// provision there.
 package sapconfig
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -85,15 +87,7 @@ func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {
 	for _, t := range e.T001 {
 		c.Companies = append(c.Companies, g.company(t))
 	}
-	for _, t := range e.T052 {
-		days := 0
-		fmt.Sscanf(t.ZTAG1, "%d", &days)
-		c.PaymentTerms = append(c.PaymentTerms, config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: days})
-	}
-	if len(c.PaymentTerms) == 0 {
-		c.PaymentTerms = []config.PaymentTerm{{Key: "NT30", Description: "Net 30 days", NetDays: 30}}
-		g.note("payment_terms", "T052 not in extract; added NT30 as a placeholder")
-	}
+	c.PaymentTerms = g.paymentTerms()
 	approver := opts.RequisitionApprover
 	g.note("purchasing.requisition_approval", "SAP release strategies are not in the extract; generated two tiers (up to 10,000: "+approver+
 		"; above: "+approver+" then process_owner)")
@@ -116,7 +110,60 @@ type gen struct {
 
 func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}) }
 
-func alpha(s string) string { return strings.TrimLeft(s, "0") }
+// unknownDays marks a payment term whose SAP days could not be read. Any
+// guess would be wrong in a way that pays early or late (0 days would
+// propose every invoice under the term on its document date), so the
+// draft carries a value config.Validate refuses ("must be 0-365" on
+// payment_terms[KEY].net_days) until a reviewer sets the real one.
+const unknownDays = -1
+
+// paymentTerms is SAP's payment terms (T052), or a net-30 placeholder with
+// a note when the extract has none. Days are whole numbers in SAP; a term
+// whose days do not parse gets unknownDays and a note.
+func (g *gen) paymentTerms() []config.PaymentTerm {
+	var out []config.PaymentTerm
+	for _, t := range g.e.T052 {
+		days, err := strconv.Atoi(strings.TrimSpace(t.ZTAG1))
+		if err != nil {
+			days = unknownDays
+			g.note("payment_terms["+t.ZTERM+"].net_days", fmt.Sprintf("T052 days %q are not a whole number; set the term's days (left at %d, which fails validation)", t.ZTAG1, unknownDays))
+		}
+		out = append(out, config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: days})
+	}
+	if len(out) == 0 {
+		out = []config.PaymentTerm{{Key: "NT30", Description: "Net 30 days", NetDays: 30}}
+		g.note("payment_terms", "T052 not in extract; added NT30 as a placeholder")
+	}
+	return out
+}
+
+// wholePercent parses an SAP percentage ("2", "2.0", "2.5", ".5", or
+// "0,50" with the decimal comma of locale-formatted file extracts) to the
+// whole percent the configuration holds, dropping any fraction (a lower
+// price tolerance sends more invoices to a person, never fewer). exact is
+// false when a fraction was dropped; problem says why s is not a usable
+// percentage ("is not a number", "is out of range") and is "" when it is.
+func wholePercent(s string) (pct int, exact bool, problem string) {
+	s = strings.TrimSpace(s)
+	if !strings.Contains(s, ".") {
+		s = strings.Replace(s, ",", ".", 1) // a lone comma is the decimal separator
+	}
+	whole, frac, _ := strings.Cut(s, ".")
+	if strings.Trim(frac, "0123456789") != "" || whole == "" && frac == "" {
+		return 0, false, "is not a number"
+	}
+	if whole == "" {
+		whole = "0" // ".5" is how some systems write 0.5
+	}
+	pct, err := strconv.Atoi(whole)
+	switch {
+	case errors.Is(err, strconv.ErrRange):
+		return 0, false, "is out of range"
+	case err != nil:
+		return 0, false, "is not a number"
+	}
+	return pct, strings.Trim(frac, "0") == "", ""
+}
 
 func (g *gen) company(t sap.T001) config.Company {
 	p := fmt.Sprintf("companies[%s]", t.BUKRS)
@@ -126,34 +173,62 @@ func (g *gen) company(t sap.T001) config.Company {
 	}
 	g.note(p+".fiscal_year_start_month", "fiscal year variant not in extract; assumed calendar year (K4)")
 	g.note(p+".auto_post_limit", "no SAP equivalent; invoices above "+g.opts.AutoPostLimit+" always go to a person")
-	for _, a := range g.e.SKB1 {
-		if a.BUKRS != t.BUKRS {
-			continue
-		}
-		num := alpha(a.SAKNR)
-		typ, err := g.opts.accountType(num)
-		if err != nil {
-			g.note(p+".chart_of_accounts["+num+"]", err.Error())
-			continue
-		}
-		co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: num, Name: a.TXT50, Type: typ, VendorReconciliation: a.MITKZ == "K"})
-	}
+	co.ChartOfAccounts = g.chartOfAccounts(p, t.BUKRS)
 	for _, r := range g.e.T030 {
 		if r.BUKRS != t.BUKRS {
 			continue
 		}
 		switch r.KTOSL {
 		case "VST":
-			co.AccountDetermination.InputTax = alpha(r.KONTS)
+			co.AccountDetermination.InputTax = sap.Alpha(r.KONTS)
 		case "BNK":
-			co.AccountDetermination.Bank = alpha(r.KONTS)
+			co.AccountDetermination.Bank = sap.Alpha(r.KONTS)
 		}
 	}
-	// AP reconciliation: the account most vendors in this company post to.
+	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)
+	for _, tx := range g.e.T007A {
+		if tx.BUKRS == t.BUKRS {
+			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: sap.Alpha(tx.KONTS)})
+		}
+	}
+	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS)
+	for _, b := range g.e.T012K {
+		if b.BUKRS == t.BUKRS {
+			co.HouseBank = config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT}
+			if co.AccountDetermination.Bank == "" {
+				co.AccountDetermination.Bank = sap.Alpha(b.HKONT)
+			}
+			break
+		}
+	}
+	return co
+}
+
+// chartOfAccounts is the company's G/L accounts; an account whose type the
+// options cannot tell is left out with a note.
+func (g *gen) chartOfAccounts(p, company string) []config.Account {
+	var out []config.Account
+	for _, a := range g.e.SKB1 {
+		if a.BUKRS != company {
+			continue
+		}
+		num := sap.Alpha(a.SAKNR)
+		typ, err := g.opts.accountType(num)
+		if err != nil {
+			g.note(p+".chart_of_accounts["+num+"]", err.Error())
+			continue
+		}
+		out = append(out, config.Account{Number: num, Name: a.TXT50, Type: typ, VendorReconciliation: a.MITKZ == "K"})
+	}
+	return out
+}
+
+// apReconciliation is the account most vendors in this company post to.
+func (g *gen) apReconciliation(p, company string) string {
 	counts := map[string]int{}
 	for _, v := range g.e.LFB1 {
-		if v.BUKRS == t.BUKRS {
-			counts[alpha(v.AKONT)]++
+		if v.BUKRS == company {
+			counts[sap.Alpha(v.AKONT)]++
 		}
 	}
 	best := ""
@@ -162,38 +237,38 @@ func (g *gen) company(t sap.T001) config.Company {
 			best = acct
 		}
 	}
-	co.AccountDetermination.APReconciliation = best
 	if len(counts) > 1 {
 		g.note(p+".account_determination.ap_reconciliation", fmt.Sprintf("vendors use %d reconciliation accounts; %s is the most common", len(counts), best))
 	}
-	for _, tx := range g.e.T007A {
-		if tx.BUKRS == t.BUKRS {
-			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: alpha(tx.KONTS)})
-		}
-	}
-	co.InvoiceTolerance = config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}
+	return best
+}
+
+// invoiceTolerance is the company's price tolerance (T169G key PP), or 2%
+// and 5.00 with a note when SAP has none. A percentage that does not parse
+// keeps the 2% default and one with a fraction is cut to whole percent,
+// each with a note.
+func (g *gen) invoiceTolerance(p, company string) config.Tolerance {
+	tolerance := config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}
 	found := false
 	for _, tol := range g.e.T169G {
-		if tol.BUKRS == t.BUKRS && tol.TOLSL == "PP" {
-			pct := 0
-			fmt.Sscanf(tol.PROZ, "%d", &pct)
-			co.InvoiceTolerance = config.Tolerance{PricePercent: pct, PriceAbsolute: tol.WERTO}
-			found = true
+		if tol.BUKRS != company || tol.TOLSL != "PP" {
+			continue
 		}
+		tolerance, found = config.Tolerance{PricePercent: 2, PriceAbsolute: tol.WERTO}, true
+		pct, exact, problem := wholePercent(tol.PROZ)
+		switch {
+		case problem != "":
+			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q %s; used 2%%", tol.PROZ, problem))
+			continue
+		case !exact:
+			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q is not a whole percent; used %d%%", tol.PROZ, pct))
+		}
+		tolerance.PricePercent = pct
 	}
 	if !found {
 		g.note(p+".invoice_tolerance", "T169G key PP not found; used 2% / 5.00")
 	}
-	for _, b := range g.e.T012K {
-		if b.BUKRS == t.BUKRS {
-			co.HouseBank = config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT}
-			if co.AccountDetermination.Bank == "" {
-				co.AccountDetermination.Bank = alpha(b.HKONT)
-			}
-			break
-		}
-	}
-	return co
+	return tolerance
 }
 
 // numberRanges gives every company a range per document type in each
@@ -214,7 +289,7 @@ func (g *gen) numberRanges() []config.NumberRange {
 	var out []config.NumberRange
 	for _, t := range g.e.T001 {
 		for _, y := range sortedKeys(years) {
-			year, _ := strconv.Atoi(y)
+			year, _ := strconv.Atoi(y) // not a number: year 0, which validation of the draft refuses
 			for _, dt := range sortedKeys(types) {
 				out = append(out, config.NumberRange{Company: t.BUKRS, DocumentType: dt, FiscalYear: year, Prefix: types[dt], First: 100000, Last: 999999})
 			}

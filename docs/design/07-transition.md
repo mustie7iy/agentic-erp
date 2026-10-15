@@ -176,8 +176,15 @@ Decisions taken while building it:
   422 `config.no_number_range`, an exhausted one 409
   `config.number_range_exhausted`.
 - **Conversion.** Local and group amounts use the latest average rate valid
-  on the posting date in either direction (an inverse rate is rounded to 12
-  decimals and stored); amounts round half away from zero and the rounding
+  on the posting date in either direction. When only the reverse pair is
+  recorded, amounts are divided by it exactly and rounded once; the entry
+  records its reciprocal rounded to 12 decimals, and a reciprocal that
+  rounds to zero (a recorded rate above 2e12) is refused with 422
+  `ledger.rate_not_recordable` (F19). Before F19 amounts were multiplied by
+  that rounded reciprocal, so an amount converted at a reciprocal with no
+  12-decimal form (1/3, 1/0.96) may now differ by a minor unit or more on
+  large amounts; at a reciprocal with one (1/160) it is unchanged. Amounts
+  round half away from zero and the rounding
   difference goes to the largest line, per currency. Reversals copy the
   original rates and negate every amount; they post on the original date
   unless another is given, and refuse reversals of reversals and entries
@@ -236,7 +243,7 @@ What T4 built: `internal/approvals` (the workflow context, 5 operations),
 approval requests for partner changes and tier 2 configuration changes;
 tax codes applied from the configuration; ledger posting and reversal for
 other contexts (`ledger.Postings`); migration 000015. The exit criterion is
-`TestProcureToPay` (internal/platform/httpapi): requisition, two-step
+`TestProcureToPay` (internal/app): requisition, two-step
 approval, order, receipt, invoice, clean match and posting, then an
 over-invoiced item held, decided as an exception and posted.
 
@@ -252,8 +259,10 @@ Decisions taken while building it:
   the deciding transaction, so the decision and its effect commit together.
   The events are still published.
 - **Approval policy is the active configuration document**: requisitions by
-  amount tier (`purchasing.requisition_approval`, compared in the
-  requisition's currency), partner changes by
+  amount tier (`purchasing.requisition_approval`, in the company's
+  currency: the requisition's amount is converted at the ledger's average
+  rate of the day it was raised, and a missing rate refuses the submission
+  with 422 `ledger.no_exchange_rate`), partner changes by
   `payments.vendor_approver_role`, configuration changes by tier
   (`config.ApprovalSteps`), invoice exceptions by `process_owner`. Roles are
   identity roles whose code is the document's role name; a missing role
@@ -539,7 +548,9 @@ Decisions taken while building it:
 - **Rate limits are token buckets per replica** (`internal/platform/ratelimit`):
   a bucket per tenant (default 2,000/s, burst 10,000) and per principal
   (default 50/s, burst 100; `ERP_RATE_LIMIT_TENANT`,
-  `ERP_RATE_LIMIT_PRINCIPAL`, `off` to disable). The principal's bucket is
+  `ERP_RATE_LIMIT_PRINCIPAL`, `off` to disable). A principal's bucket is
+  keyed by tenant, issuer and subject (F7), so another trusted issuer
+  minting the same subject cannot spend its quota. The principal's bucket is
   checked first, so a hot principal's refusals do not count against its
   tenant. Every response carries `RateLimit-Limit`, `RateLimit-Remaining`
   and `RateLimit-Reset` for the tighter quota; a refusal is 429
@@ -639,7 +650,13 @@ Decisions taken while building it:
   trusts its own fresh RSA key under issuer `erp-dev`, audience `erp-api`,
   and serves `POST /dev/token` on the admin listener only. With
   `ERP_DEV_ISSUER=true`, `ERP_OIDC_ISSUERS` becomes optional; the server
-  logs a warning at start. Tokens live an hour.
+  logs a warning at start, and refuses to start with `ERP_ENV=production`
+  (as it does with a workflow engine but no `ERP_TEMPORAL_CODEC_KEY`,
+  without object storage, or with `ERP_AUDIT_VERIFY_INTERVAL=0`).
+  Tokens live an hour. `ERP_ENV` has no default (F7): the server and the
+  router refuse to start without `development` or `production`, so a
+  production replica whose setting went missing never runs with
+  development's allowances; local runs and tests set `development`.
 
 Open points for the contract and design review:
 
@@ -1325,7 +1342,8 @@ and a clean `gosec` run.
 Decisions taken while building it:
 
 - **No claim, every role.** Existing issuers keep working; a deployment
-  opts into roles by emitting the claim.
+  opts into roles by emitting the claim. (Development only since F7: with
+  `ERP_ENV=production` an absent claim holds no role, ADR-0027 amendment.)
 - **The rotation policy reuses the keyring.** The worker does what
   `:rotateKey` does, with a system actor and the policy in the audit detail.
 - **Exclusions over annotations where a rule is noise by design.** Four
@@ -1483,7 +1501,22 @@ Decisions taken while building it:
   distinction is the problem's status: below 500 the business refused,
   otherwise the machinery did.
 - **Resume by the same call.** No separate `:resume`: a release of a
-  `releasing` run whose operation failed is the resume.
+  `releasing` run whose operation failed or was cancelled is the resume.
+- **Cancelling keeps what was paid.** A cancelled release operation stays
+  `cancelled`: postings already made stand, no bank file is written, the
+  run stays `releasing` for `:release` to resume (the in-process releaser
+  keeps posting the release it is on). A finished operation is never
+  finished again (409 `platform.operation_finished`) nor put back to
+  `running` by late progress.
+- **Steps of a superseded release do nothing.** Every release step reads
+  the run `FOR UPDATE`, so the steps of one run, even of overlapping
+  workflows, run one at a time; a step whose operation is no longer the
+  run's `release_operation_id` succeeds without acting. A unique index on
+  `bank_file (tenant_id, payment_run_id)` (migration 000033) backs the
+  single bank file.
+- **A reversed invoice is never paid by a resume.** The items of a
+  releasing run's unposted payments stay reserved (`RunOf`), so their
+  invoices cannot be reversed while the run waits to be resumed.
 
 Open points for the contract and design review:
 
@@ -1547,11 +1580,18 @@ migration 000032). The workflow sleeps the escalation period
 (`ERP_APPROVAL_ESCALATE_AFTER`, default 48h) and runs `Approvals.Escalate`:
 a request still pending counts an escalation (`escalations`,
 `escalated_at` on the request), publishes `ApprovalEscalated` and writes
-the audit entry as a system actor; it stops after
+the audit entry as a system actor. The update is guarded by the number of
+escalations the workflow has made, so an activity retried after a commit
+whose completion was lost escalates once (ADR-0008); it stops after
 `ERP_APPROVAL_ESCALATIONS` (default 3) or at the first check that finds
 the request decided. Decisions stay synchronous human transitions on the
 API: the workflow owns only the clock. The workflow's loop is versioned
-with `workflow.GetVersion`, the rule every later change follows.
+with `workflow.GetVersion`, the rule every later change follows: version 2
+passes the escalation guard's count, histories recorded under version 1
+replay without it (`TestApprovalDeadlineReplay` replays a recorded one).
+Version 1 stays unguarded on purpose: a retried activity may already have
+escalated such a workflow twice, so its count can exceed the loop's and the
+guard would fail it.
 `workflow.Codec` seals every payload with AES-256-GCM
 (`ERP_TEMPORAL_CODEC_KEY`) before it reaches the engine; payloads written
 without a key are read as they are, so a key can be introduced on a running

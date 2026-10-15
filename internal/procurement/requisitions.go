@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -10,7 +9,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
+	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -19,26 +23,25 @@ import (
 // Quantities are decimal strings; prices are minor units of the document
 // currency per PriceUnit.
 type Item struct {
-	No             int32      `json:"item_no"`
-	MaterialID     *uuid.UUID `json:"material_id"`
-	MaterialKey    string     `json:"material_key"`
-	Description    string     `json:"description"`
-	Quantity       string     `json:"quantity"`
-	Unit           string     `json:"unit"`
-	UnitPrice      int64      `json:"unit_price"`
-	PriceUnit      int32      `json:"price_unit"`
-	AccountID      uuid.UUID  `json:"account_id"`
-	OverDelivery   string     `json:"over_delivery_pct"`
-	TaxCode        *string    `json:"tax_code"`
-	ContractItemNo *int32     `json:"contract_item_no"`
-	Received       string     `json:"received"`
+	No             int32       `json:"item_no"`
+	MaterialID     *uuid.UUID  `json:"material_id"`
+	MaterialKey    string      `json:"material_key"`
+	Description    string      `json:"description"`
+	Quantity       string      `json:"quantity"`
+	Unit           string      `json:"unit"`
+	UnitPrice      money.Minor `json:"unit_price"`
+	PriceUnit      int32       `json:"price_unit"`
+	AccountID      uuid.UUID   `json:"account_id"`
+	OverDelivery   string      `json:"over_delivery_pct"`
+	TaxCode        *string     `json:"tax_code"`
+	ContractItemNo *int32      `json:"contract_item_no"`
+	Received       string      `json:"received"`
 }
 
-func total(items []Item) int64 {
-	var sum int64
-	for _, it := range items {
-		sum += extend(it.Quantity, it.UnitPrice, it.PriceUnit)
-	}
+// total is the items' total for display. Decisions use documentTotal,
+// which fails closed.
+func total(items []Item) money.Minor {
+	sum, _ := itemsTotal(items) // display only: 0 for items stored out of range before checkTotal; decisions use documentTotal
 	return sum
 }
 
@@ -81,7 +84,7 @@ type Requisition struct {
 }
 
 // Total is the estimated value of the live items.
-func (r Requisition) Total() int64 { return total(r.Items) }
+func (r Requisition) Total() money.Minor { return total(r.Items) }
 
 const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.requester_id, r.supplier_id, r.contract_id, r.currency, c.exponent,
 		r.needed_by, r.status, r.workflow_request_id, r.extensions, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by,
@@ -93,9 +96,11 @@ const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.
 
 func scanRequisition(row pgx.Row) (Requisition, error) {
 	var r Requisition
-	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.RequesterID, &r.SupplierID, &r.ContractID, &r.Currency, &r.Exponent,
-		&r.NeededBy, &r.Status, &r.WorkflowRequestID, &r.Extensions, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy, &r.Items)
-	return r, err
+	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.RequesterID, &r.SupplierID, &r.ContractID, &r.Currency, &r.Exponent,
+		&r.NeededBy, &r.Status, &r.WorkflowRequestID, &r.Extensions, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy, &r.Items); err != nil {
+		return Requisition{}, fmt.Errorf("scan requisition: %w", err)
+	}
+	return r, nil
 }
 
 // getRequisition loads a requisition of a legal entity the caller may act
@@ -110,10 +115,10 @@ func getRequisition(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Re
 		q += ` FOR UPDATE OF r`
 	}
 	r, err := scanRequisition(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(r.LegalEntityID)) {
-		return Requisition{}, notFound("requisition")
+	if err = authz.Visible(err, access, r.LegalEntityID, problem.NotFoundOf("requisition"), "procurement: get requisition %s", id); err != nil {
+		return Requisition{}, err
 	}
-	return r, err
+	return r, nil
 }
 
 // GetRequisition returns a requisition.
@@ -133,7 +138,7 @@ func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency
 		if err := checkItemNo(it.No, i, field); err != nil {
 			return nil, err
 		}
-		if _, err := quantity(it.Quantity, field+".quantity"); err != nil {
+		if err := quantity(it.Quantity, field+".quantity"); err != nil {
 			return nil, err
 		}
 		price, err := amount(it.Price, it.Currency, currency, exp, field+".unit_price", false)
@@ -146,14 +151,14 @@ func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency
 		items[i] = Item{No: int32(i + 1), MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 			UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID}
 	}
-	return items, nil
+	return items, checkTotal(items)
 }
 
 // writeRequisitionItems stores the items as items 1..n and marks the rest removed.
 func writeRequisitionItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item) error {
 	n := len(items)
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
-	prices, priceUnits, accounts := make([]int64, n), make([]int32, n), make([]uuid.UUID, n)
+	prices, priceUnits, accounts := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n)
 	for i, it := range items {
 		nos[i], materials[i], descriptions[i], quantities[i], units[i] = it.No, it.MaterialID, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], accounts[i] = it.UnitPrice, it.PriceUnit, it.AccountID
@@ -166,9 +171,9 @@ func writeRequisitionItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID,
 			quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit,
 			account_id = EXCLUDED.account_id, is_removed = false`,
 		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts); err != nil {
-		return err
+		return fmt.Errorf("procurement: write items of requisition %s: %w", id, err)
 	}
-	return removeItems(ctx, tx, "procurement.requisition_item", "requisition_id", id, n)
+	return removeItems(ctx, tx, "requisition_item", "requisition_id", id, n)
 }
 
 // checkRequisitionContract requires a contract the requisition can refer
@@ -178,9 +183,9 @@ func checkRequisitionContract(ctx context.Context, tx pgx.Tx, contract *uuid.UUI
 	if contract == nil {
 		return supplier, nil
 	}
-	c, err := getContract(ctx, tx, *contract, false)
+	c, err := referencedContract(ctx, tx, *contract)
 	if err != nil {
-		return nil, reference(err, "procurement.invalid_contract", "contract_id", "no contract with this id that you can access")
+		return nil, err
 	}
 	switch {
 	case c.Status != Active:
@@ -217,7 +222,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	if err := checkExtensions(in.Extensions); err != nil {
+	if err := extensions.Check(in.Extensions); err != nil {
 		return Requisition{}, err
 	}
 	exp, err := exponent(ctx, tx, in.Currency, "currency")
@@ -237,7 +242,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	if err != nil {
 		return Requisition{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Requisition{}, err
 	}
@@ -250,7 +255,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 			currency, needed_by, status, extensions, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $5, $5)`,
 		p.TenantID, id, number, le.ID, p.ID, supplier, in.ContractID, in.Currency, in.NeededBy, in.Extensions); err != nil {
-		return Requisition{}, err
+		return Requisition{}, fmt.Errorf("procurement: create requisition %s: %w", number, err)
 	}
 	if err := writeRequisitionItems(ctx, tx, p.TenantID, id, items); err != nil {
 		return Requisition{}, err
@@ -259,7 +264,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	if err != nil {
 		return Requisition{}, err
 	}
-	return r, record(ctx, "procurement.requisition.create", "procurement.requisition", id, map[string]any{"document_number": number, "items": len(items)})
+	return r, audit.Record(ctx, "procurement.requisition.create", "procurement.requisition", id, map[string]any{"document_number": number, "items": len(items)})
 }
 
 // RequisitionChange is a merge patch of a draft requisition.
@@ -301,28 +306,11 @@ func (e *Endpoints) updateRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	supplier, contract, neededBy, currency, ext := r.SupplierID, r.ContractID, r.NeededBy, r.Currency, r.Extensions
-	if ch.Supplier {
-		supplier = ch.SupplierID
+	f, err := changedRequisitionHeader(r, ch)
+	if err != nil {
+		return Requisition{}, err
 	}
-	if ch.Contract {
-		contract = ch.ContractID
-	}
-	if ch.NeededBy {
-		neededBy = ch.NeededByDate
-	}
-	if ch.Currency != nil {
-		currency = *ch.Currency
-	}
-	if currency != r.Currency && ch.Items == nil {
-		return Requisition{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
-	}
-	if ch.Extensions != nil {
-		ext = mergePatch(ext, ch.Extensions)
-		if err := checkExtensions(ext); err != nil {
-			return Requisition{}, err
-		}
-	}
+	supplier, contract, neededBy, currency, ext := f.supplier, f.contract, f.neededBy, f.currency, f.ext
 	exp, err := exponent(ctx, tx, currency, "currency")
 	if err != nil {
 		return Requisition{}, err
@@ -346,13 +334,51 @@ func (e *Endpoints) updateRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.requisition SET supplier_id = $2, contract_id = $3, needed_by = $4, currency = $5, extensions = $6,
 		version = version + 1, updated_by = $7 WHERE id = $1`, id, supplier, contract, neededBy, currency, ext, p.ID); err != nil {
-		return Requisition{}, err
+		return Requisition{}, fmt.Errorf("procurement: update requisition %s: %w", id, err)
 	}
 	updated, err := getRequisition(ctx, tx, id, false)
 	if err != nil {
 		return Requisition{}, err
 	}
-	return updated, record(ctx, "procurement.requisition.update", "procurement.requisition", id, map[string]any{"items": len(updated.Items)})
+	return updated, audit.Record(ctx, "procurement.requisition.update", "procurement.requisition", id, map[string]any{"items": len(updated.Items)})
+}
+
+// requisitionHeaderFields are the header fields of a requisition after a
+// change.
+type requisitionHeaderFields struct {
+	supplier, contract *uuid.UUID
+	neededBy           *time.Time
+	currency           string
+	ext                map[string]any
+}
+
+// changedRequisitionHeader applies a change to the requisition's header
+// fields; a new currency needs new items, and the merged extensions must
+// be valid.
+func changedRequisitionHeader(r Requisition, ch RequisitionChange) (requisitionHeaderFields, error) {
+	f := requisitionHeaderFields{supplier: r.SupplierID, contract: r.ContractID, neededBy: r.NeededBy, currency: r.Currency, ext: r.Extensions}
+	if ch.Supplier {
+		f.supplier = ch.SupplierID
+	}
+	if ch.Contract {
+		f.contract = ch.ContractID
+	}
+	if ch.NeededBy {
+		f.neededBy = ch.NeededByDate
+	}
+	if ch.Currency != nil {
+		f.currency = *ch.Currency
+	}
+	if f.currency != r.Currency && ch.Items == nil {
+		return requisitionHeaderFields{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
+	}
+	if ch.Extensions != nil {
+		f.ext = mergepatch.Apply(f.ext, ch.Extensions)
+		if err := extensions.Check(f.ext); err != nil {
+			return requisitionHeaderFields{}, err
+		}
+	}
+	return f, nil
 }
 
 func requisitionEvent(name string, r Requisition, extra map[string]any) map[string]any {
@@ -364,11 +390,10 @@ func requisitionEvent(name string, r Requisition, extra map[string]any) map[stri
 }
 
 // setStatus moves a requisition on and publishes the event of the move.
-func setStatus(ctx context.Context, tx pgx.Tx, r Requisition, status string, request *uuid.UUID, name string, extra map[string]any) (Requisition, error) {
-	p, _ := reqctx.PrincipalFrom(ctx) // callers run in a request
+func setStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Requisition, status string, request *uuid.UUID, name string, extra map[string]any) (Requisition, error) {
 	if _, err := tx.Exec(ctx, `UPDATE procurement.requisition SET status = $2, workflow_request_id = $3, version = version + 1, updated_by = $4 WHERE id = $1`,
 		r.ID, status, request, p.ID); err != nil {
-		return Requisition{}, err
+		return Requisition{}, fmt.Errorf("procurement: set requisition %s status %s: %w", r.ID, status, err)
 	}
 	updated, err := getRequisition(ctx, tx, r.ID, false)
 	if err != nil {
@@ -376,13 +401,13 @@ func setStatus(ctx context.Context, tx pgx.Tx, r Requisition, status string, req
 	}
 	detail := map[string]any{"from_status": r.Status, "status": status}
 	if name == "" {
-		return updated, record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail)
+		return updated, audit.Record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail)
 	}
 	extra["status"] = status
 	if name != "requisition_submitted" { // submission has no previous status in the event contract
 		extra["previous_status"] = r.Status
 	}
-	return updated, record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail,
+	return updated, audit.Record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail,
 		event(name, "requisition", r.ID, requisitionEvent(name, r, extra)))
 }
 
@@ -398,9 +423,17 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	sum := r.Total()
+	sum, err := documentTotal(r.Items)
+	if err != nil {
+		return Requisition{}, err
+	}
+	// The thresholds are in the company's currency: the amount is converted
+	// at the rate of the day the requisition was raised (UTC), its document
+	// date, so a resubmission is routed at the same rate.
+	raised := r.CreatedAt.UTC()
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: id,
-		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency})
+		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency, LegalEntityID: r.LegalEntityID,
+		Date: time.Date(raised.Year(), raised.Month(), raised.Day(), 0, 0, 0, 0, time.UTC)})
 	if err != nil {
 		return Requisition{}, err
 	}
@@ -408,13 +441,13 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if needed {
 		link = &request
 	}
-	submitted, err := setStatus(ctx, tx, r, PendingApproval, link, "requisition_submitted", map[string]any{"requester_id": r.RequesterID,
-		"supplier_id": r.SupplierID, "contract_id": r.ContractID, "needed_by": date(r.NeededBy), "estimated_total": moneyOf(sum, r.Currency, r.Exponent),
+	submitted, err := setStatus(ctx, tx, p, r, PendingApproval, link, "requisition_submitted", map[string]any{"requester_id": r.RequesterID,
+		"supplier_id": r.SupplierID, "contract_id": r.ContractID, "needed_by": date(r.NeededBy), "estimated_total": money.EventAmount(sum, r.Currency, r.Exponent),
 		"item_count": len(r.Items)})
 	if err != nil || needed {
 		return submitted, err
 	}
-	return setStatus(ctx, tx, submitted, Approved, nil, "requisition_approved", map[string]any{"workflow_request_id": nil})
+	return setStatus(ctx, tx, p, submitted, Approved, nil, "requisition_approved", map[string]any{"workflow_request_id": nil})
 }
 
 func date(d *time.Time) any {
@@ -440,13 +473,13 @@ func (e *Endpoints) cancelRequisition(ctx context.Context, id uuid.UUID, ifMatch
 			return Requisition{}, err
 		}
 	}
-	return setStatus(ctx, tx, r, Cancelled, r.WorkflowRequestID, "requisition_cancelled", map[string]any{"requester_id": r.RequesterID,
+	return setStatus(ctx, tx, p, r, Cancelled, r.WorkflowRequestID, "requisition_cancelled", map[string]any{"requester_id": r.RequesterID,
 		"workflow_request_id": r.WorkflowRequestID})
 }
 
 // decide applies the outcome of a requisition's approval request.
 func decide(ctx context.Context, id uuid.UUID, status, name string) error {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
@@ -464,6 +497,6 @@ func decide(ctx context.Context, id uuid.UUID, status, name string) error {
 	} else {
 		request = nil
 	}
-	_, err = setStatus(ctx, tx, r, status, request, name, extra)
+	_, err = setStatus(ctx, tx, p, r, status, request, name, extra)
 	return err
 }

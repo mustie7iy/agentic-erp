@@ -66,7 +66,11 @@ func (l Local) readFile(path string) ([]byte, error) {
 	if l.ReadFile != nil {
 		return l.ReadFile(path)
 	}
-	return os.ReadFile(path)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	return b, nil
 }
 
 // Resolve implements Resolver.

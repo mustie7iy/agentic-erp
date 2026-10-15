@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -44,7 +44,7 @@ func setup(t *testing.T) env {
 	if err := sap.WriteExtract(filepath.Join(dir, "extract.json"), sap.GenerateMock(42, "2026")); err != nil {
 		t.Fatal(err)
 	}
-	f.API = apitest.NewWith(t, func(c *httpapi.Config) { c.ExtractDir = dir })
+	f.API = apitest.NewWith(t, func(c *app.Config) { c.ExtractDir = dir })
 	srv := httptest.NewServer(f.API.Handler)
 	t.Cleanup(srv.Close)
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
@@ -117,13 +117,17 @@ func TestEndToEnd(t *testing.T) {
 	conn := body(t, must(t, "call", "createConnector", "-body", `{"kind": "sap_file", "name": "SAP PRD", "settings": {"path": "extract.json"}}`))
 	id := conn["id"].(string)
 	got := must(t, "migrate", "-connector", id, "-legal-entities", e.US.String(), "-year", "2026")
-	if !strings.Contains(got, "reconciled") || !strings.Contains(got, "Vendors") {
-		t.Fatalf("migrate: %s", got)
+	for _, want := range []string{"reconciled", "Vendors"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("migrate: got %s, want it to contain %q", got, want)
+		}
 	}
 	// The rule matches parked invoices: clean ones post, others stay held for the agent.
 	got = must(t, "invoices")
-	if !strings.Contains(got, "Posted") || !strings.Contains(got, "(match)") {
-		t.Fatalf("invoices: %s", got)
+	for _, want := range []string{"Posted", "(match)"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("invoices: got %s, want it to contain %q", got, want)
+		}
 	}
 	steps := []llmtest.Step{}
 	for range 6 {
@@ -145,14 +149,18 @@ func TestEndToEnd(t *testing.T) {
 	if got := must(t, "agent", "migration", "-connector", id, "-legal-entities", e.US.String()); !strings.Contains(got, "ready") {
 		t.Fatalf("agent migration: %s", got)
 	}
+	model(t, llmtest.Final("Company 1000 is ready."))
+	printFails(t, "agent", "migration", "-connector", id, "-legal-entities", e.US.String())
 	model(t, llmtest.Final("Nothing to change."))
 	if got := must(t, "agent", "config", "-draft", "draft.yaml", "raise", "the", "tolerance"); !strings.Contains(got, "Nothing to change.") {
 		t.Fatalf("agent config: %s", got)
 	}
+	model(t, llmtest.Final("Nothing to change."))
+	printFails(t, "agent", "config", "-draft", "draft.yaml", "raise", "the", "tolerance")
 	doc := fixture.Document(t)
 	doc.Companies[1].InvoiceTolerance.PricePercent = 3
 	b, _ := json.Marshal(map[string]any{"title": "Tolerance", "rationale": "r", "base_version": 1, "proposed": doc})
-	os.WriteFile("cr.json", b, 0o644)
+	writeFile(t, "cr.json", b)
 	cr := body(t, must(t, "call", "createChangeRequest", "-body", "@cr.json"))
 	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
 	if got := must(t, "agent", "test", "-change-request", cr["id"].(string), "-out", "uat.md"); !strings.Contains(got, "UAT") {
@@ -160,14 +168,20 @@ func TestEndToEnd(t *testing.T) {
 	}
 	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
 	must(t, "agent", "test", "-change-request", cr["id"].(string))
+	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
+	printFails(t, "agent", "test", "-change-request", cr["id"].(string))
+	model(t, llmtest.Final("## UAT\n1. Post an invoice."))
+	fails(t, "agent test: write scripts", "agent", "test", "-change-request", cr["id"].(string), "-out", filepath.Join(t.TempDir(), "missing", "uat.md"))
 
 	// Analytics reads what the person may see through the API.
 	if got := must(t, "metrics"); !strings.Contains(got, "revenue") {
 		t.Fatalf("metrics: %s", got)
 	}
 	got = must(t, "query", "-measures", "revenue,invoice_count", "-by", "fiscal_year", "-where", "fiscal_month <= 9", "-companies", "1000", "-csv", "q.csv")
-	if !strings.Contains(got, "2026") || !strings.Contains(got, "data through") {
-		t.Fatalf("query: %s", got)
+	for _, want := range []string{"2026", "data through"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("query: got %s, want it to contain %q", got, want)
+		}
 	}
 	ask := llmtest.New(t,
 		llmtest.Tool("run_query", map[string]any{"measures": []string{"revenue"}, "by": []string{"fiscal_year"}}),

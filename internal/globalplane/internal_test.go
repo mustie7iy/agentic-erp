@@ -20,8 +20,11 @@ func TestUpdatedAndClient(t *testing.T) {
 		t.Fatalf("%+v %v", e, err)
 	}
 	other := errors.New("other")
-	if _, err := s.updated(directory.Entry{}, other); err != other {
-		t.Fatalf("other: %v", err)
+	// Any other error is passed on as it is: not mapped to a problem.
+	_, err := s.updated(directory.Entry{}, other)
+	var p *problem.Problem
+	if !errors.Is(err, other) || errors.As(err, &p) {
+		t.Fatalf("other: got %v, want it passed on unmapped", err)
 	}
 	if s.client().Timeout == 0 {
 		t.Fatal("default client without a timeout")

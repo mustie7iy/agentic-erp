@@ -19,7 +19,9 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -85,10 +87,7 @@ func (u *Uploads) inTx(ctx context.Context, scope database.Scope, fn func(contex
 }
 
 func (u *Uploads) now() time.Time {
-	if u.Now != nil {
-		return u.Now()
-	}
-	return time.Now()
+	return clock.Now(u.Now)
 }
 
 const uploadColumns = `id, purpose, content_type, max_bytes, object_ref, status, size, sha256, used_by, expires_at, created_at, created_by, updated_at, version`
@@ -97,10 +96,23 @@ func scanUpload(row pgx.Row) (Upload, error) {
 	var up Upload
 	err := row.Scan(&up.ID, &up.Purpose, &up.ContentType, &up.MaxBytes, &up.ObjectRef, &up.Status, &up.Size, &up.SHA256, &up.UsedBy, &up.ExpiresAt,
 		&up.CreatedAt, &up.CreatedBy, &up.UpdatedAt, &up.Version)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Upload{}, problem.NotFound("No such upload.")
+	return up, errs.Wrapf(err, "scan upload")
+}
+
+// readUpload reads an upload; lock takes the row lock for a change.
+func readUpload(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Upload, error) {
+	q := `SELECT ` + uploadColumns + ` FROM payables.upload WHERE id = $1`
+	if lock {
+		q += ` FOR UPDATE`
 	}
-	return up, err
+	up, err := scanUpload(tx.QueryRow(ctx, q, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Upload{}, problem.NotFoundOf("upload")
+	}
+	if err != nil {
+		return Upload{}, fmt.Errorf("payables: read upload %s: %w", id, err)
+	}
+	return up, nil
 }
 
 // Create starts an upload in the request's transaction.
@@ -121,8 +133,12 @@ func (u *Uploads) Create(ctx context.Context, purpose, contentType string) (Uplo
 	id := uuid.Must(uuid.NewV7())
 	up := Upload{ID: id, Purpose: purpose, ContentType: contentType, MaxBytes: MaxUpload, ObjectRef: blobstore.Key(p.TenantID, blobstore.KindUploads, id.String()),
 		Status: "open", ExpiresAt: u.now().Add(UploadTTL).UTC(), CreatedBy: p.ID}
-	return scanUpload(tx.QueryRow(ctx, `INSERT INTO payables.upload (tenant_id, id, purpose, content_type, max_bytes, object_ref, status, expires_at, created_by)
+	created, err := scanUpload(tx.QueryRow(ctx, `INSERT INTO payables.upload (tenant_id, id, purpose, content_type, max_bytes, object_ref, status, expires_at, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8) RETURNING `+uploadColumns, p.TenantID, id, purpose, contentType, MaxUpload, up.ObjectRef, up.ExpiresAt, p.ID))
+	if err != nil {
+		return Upload{}, fmt.Errorf("payables: create upload %s: %w", id, err)
+	}
+	return created, nil
 }
 
 // Get reads an upload in the request's transaction.
@@ -131,7 +147,7 @@ func (u *Uploads) Get(ctx context.Context, id uuid.UUID) (Upload, error) {
 	if err != nil {
 		return Upload{}, err
 	}
-	return scanUpload(tx.QueryRow(ctx, `SELECT `+uploadColumns+` FROM payables.upload WHERE id = $1`, id))
+	return readUpload(ctx, tx, id, false)
 }
 
 // Target is where an upload's bytes go.
@@ -174,21 +190,15 @@ func (u *Uploads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
-	q := r.URL.Query()
-	id, err := uuid.Parse(r.PathValue("id"))
-	tenant, terr := uuid.Parse(q.Get("tenant"))
-	expires, eerr := strconv.ParseInt(q.Get("expires"), 10, 64)
-	if err != nil || terr != nil || eerr != nil || !hmac.Equal([]byte(q.Get("signature")), []byte(u.sign(tenant, id, q.Get("expires")))) {
-		return problem.Forbidden("payables.invalid_upload_url", "The upload URL is not valid.")
-	}
-	if u.now().Unix() > expires {
-		return problem.Forbidden("payables.upload_url_expired", "The upload URL has expired; start a new upload.")
+	id, tenant, err := u.checkURL(r)
+	if err != nil {
+		return err
 	}
 	if u.Objects == nil {
 		return problem.Unavailable("This server has no object storage.", 0)
 	}
 	return u.inTx(r.Context(), database.Scope{Role: u.AppRole, TenantID: tenant}, func(ctx context.Context, tx pgx.Tx) error {
-		up, err := scanUpload(tx.QueryRow(ctx, `SELECT `+uploadColumns+` FROM payables.upload WHERE id = $1 FOR UPDATE`, id))
+		up, err := readUpload(ctx, tx, id, true)
 		if err != nil {
 			return err
 		}
@@ -203,40 +213,63 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 			return problem.New(http.StatusRequestEntityTooLarge, "payables.document_too_large", "Document too large",
 				fmt.Sprintf("Uploads are at most %d MB.", up.MaxBytes>>20)).WithCause(err)
 		}
-		err = u.Objects.Put(ctx, up.ObjectRef, body, blobstore.PutOptions{ContentType: up.ContentType})
-		if errors.Is(err, blobstore.ErrExists) {
-			// A PUT that stored the object but did not get to record it (a
-			// failed statement, a lost answer) is sent again: the same bytes
-			// are fine, others are not, since the store keeps the first.
-			stored, _, gerr := u.Objects.Get(ctx, up.ObjectRef)
-			if gerr != nil || !bytes.Equal(stored, body) {
-				return problem.Conflict("payables.upload_conflict", "This upload already holds a different document; start a new upload.")
-			}
-			err = nil
-		}
-		if err != nil {
-			return problem.Unavailable("The object store did not take the document; send it again.", 30).WithCause(err)
+		if err := u.store(ctx, up, body); err != nil {
+			return err
 		}
 		sum := sha256.Sum256(body)
 		if _, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'received', size = $2, sha256 = $3, version = version + 1 WHERE id = $1`, id, len(body), sum[:]); err != nil {
-			return err
+			return fmt.Errorf("payables: mark upload %s received: %w", id, err)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	})
 }
 
+// checkURL verifies the signature and expiry of an upload URL and returns
+// the upload and tenant it names.
+func (u *Uploads) checkURL(r *http.Request) (id, tenant uuid.UUID, err error) {
+	q := r.URL.Query()
+	id, err = uuid.Parse(r.PathValue("id"))
+	tenant, terr := uuid.Parse(q.Get("tenant"))
+	expires, eerr := strconv.ParseInt(q.Get("expires"), 10, 64)
+	if err != nil || terr != nil || eerr != nil || !hmac.Equal([]byte(q.Get("signature")), []byte(u.sign(tenant, id, q.Get("expires")))) {
+		return uuid.Nil, uuid.Nil, problem.Forbidden("payables.invalid_upload_url", "The upload URL is not valid.")
+	}
+	if u.now().Unix() > expires {
+		return uuid.Nil, uuid.Nil, problem.Forbidden("payables.upload_url_expired", "The upload URL has expired; start a new upload.")
+	}
+	return id, tenant, nil
+}
+
+// store puts an upload's document where the upload says.
+func (u *Uploads) store(ctx context.Context, up Upload, body []byte) error {
+	err := u.Objects.Put(ctx, up.ObjectRef, body, blobstore.PutOptions{ContentType: up.ContentType})
+	if errors.Is(err, blobstore.ErrExists) {
+		// A PUT that stored the object but did not get to record it (a
+		// failed statement, a lost answer) is sent again: the same bytes
+		// are fine, others are not, since the store keeps the first.
+		stored, _, gerr := u.Objects.Get(ctx, up.ObjectRef)
+		if gerr != nil || !bytes.Equal(stored, body) {
+			return problem.Conflict("payables.upload_conflict", "This upload already holds a different document; start a new upload.")
+		}
+		err = nil
+	}
+	if err != nil {
+		return problem.Unavailable("The object store did not take the document; send it again.", 30).WithCause(err)
+	}
+	return nil
+}
+
 // take reads the document of an upload for the operation consuming it, in
-// the request's transaction, locking the upload; mark then closes it.
-func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID, purpose string) ([]byte, Upload, error) {
-	up, err := scanUpload(tx.QueryRow(ctx, `SELECT `+uploadColumns+` FROM payables.upload WHERE id = $1 FOR UPDATE`, id))
+// the request's transaction, locking the upload; mark then closes it. Only
+// supplier_invoice uploads exist (UploadPurposes), so an upload always suits
+// the one operation that consumes them; a second purpose adds a purpose
+// parameter and its check here.
+func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([]byte, Upload, error) {
+	up, err := readUpload(ctx, tx, id, true)
 	if err != nil {
 		return nil, Upload{}, err
 	}
-	// Only supplier_invoice uploads exist, so an upload always matches the
-	// purpose of the one operation that consumes them; a second purpose
-	// adds the check here.
-	_ = purpose
 	switch {
 	case up.Status == "used":
 		return nil, Upload{}, problem.Unprocessable("payables.upload_used", "This upload has already been captured.")
@@ -266,12 +299,14 @@ func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID, purpose str
 // mark closes an upload as used by a resource.
 func (u *Uploads) mark(ctx context.Context, tx pgx.Tx, up Upload, content []byte, usedBy uuid.UUID) error {
 	sum := sha256.Sum256(content)
-	_, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'used', size = $2, sha256 = $3, used_by = $4, version = version + 1 WHERE id = $1`, up.ID, len(content), sum[:], usedBy)
-	return err
+	if _, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'used', size = $2, sha256 = $3, used_by = $4, version = version + 1 WHERE id = $1`,
+		up.ID, len(content), sum[:], usedBy); err != nil {
+		return fmt.Errorf("payables: mark upload %s used: %w", up.ID, err)
+	}
+	return nil
 }
 
-func (e *Endpoints) uploadToAPI(ctx context.Context, up Upload) (*gen.Upload, error) {
-	_, p, _ := reqctx.Request(ctx) // callers run in a request
+func (e *Endpoints) uploadToAPI(ctx context.Context, tenant uuid.UUID, up Upload) (*gen.Upload, error) {
 	out := &gen.Upload{ID: up.ID, Version: up.Version, CreatedAt: up.CreatedAt, CreatedBy: up.CreatedBy, UpdatedAt: up.UpdatedAt,
 		Purpose: up.Purpose, ContentType: up.ContentType, MaxBytes: up.MaxBytes, Status: up.Status, Method: http.MethodPut, ExpiresAt: up.ExpiresAt}
 	if up.Size != nil {
@@ -280,7 +315,7 @@ func (e *Endpoints) uploadToAPI(ctx context.Context, up Upload) (*gen.Upload, er
 	if up.UsedBy != nil {
 		out.UsedBy = gen.NewOptUUID(*up.UsedBy)
 	}
-	t, err := e.Uploads.Target(ctx, p.TenantID, up)
+	t, err := e.Uploads.Target(ctx, tenant, up)
 	if err != nil {
 		return nil, err
 	}
@@ -290,11 +325,15 @@ func (e *Endpoints) uploadToAPI(ctx context.Context, up Upload) (*gen.Upload, er
 
 // CreateUpload implements POST /v1/uploads.
 func (e *Endpoints) CreateUpload(ctx context.Context, req *gen.UploadCreate, _ gen.CreateUploadParams) (gen.CreateUploadRes, error) {
+	_, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
 	up, err := e.Uploads.Create(ctx, req.Purpose, req.ContentType)
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.uploadToAPI(ctx, up)
+	out, err := e.uploadToAPI(ctx, p.TenantID, up)
 	if err != nil {
 		return nil, err
 	}
@@ -306,11 +345,15 @@ func (e *Endpoints) GetUpload(ctx context.Context, params gen.GetUploadParams) (
 	if e.Uploads == nil {
 		return nil, problem.Unavailable("This server has no object storage.", 0)
 	}
+	_, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
 	up, err := e.Uploads.Get(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.uploadToAPI(ctx, up)
+	out, err := e.uploadToAPI(ctx, p.TenantID, up)
 	if err != nil {
 		return nil, err
 	}

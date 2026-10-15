@@ -3,8 +3,10 @@ package fieldcrypt_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -85,8 +87,14 @@ func TestKeyringSealsWithTenantKeys(t *testing.T) {
 	// Provisioned a key, the tenant seals with it: format version 2 naming the key.
 	inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error { return r.Provision(ctx, tx, ten.ID) })
 	sealed2, err := r.Seal(ctx, ten.ID, "DE893704")
-	if err != nil || sealed2[0] != 2 || len(sealed2) < 17+12 {
-		t.Fatalf("%v %v", sealed2, err)
+	if err != nil {
+		t.Fatalf("seal with the tenant key: %v", err)
+	}
+	if sealed2[0] != 2 {
+		t.Fatalf("format version: got %d, want 2", sealed2[0])
+	}
+	if len(sealed2) < 17+12 {
+		t.Fatalf("sealed length: got %d, want at least %d (version, key id, nonce)", len(sealed2), 17+12)
 	}
 	if v, err := r.Open(ctx, ten.ID, sealed2); err != nil || v != "DE893704" {
 		t.Fatalf("%q %v", v, err)
@@ -95,8 +103,11 @@ func TestKeyringSealsWithTenantKeys(t *testing.T) {
 		t.Fatalf("legacy value after the key: %q %v", v, err)
 	}
 	p2, _ := r.Fingerprint(ctx, ten.ID, "DE893704")
-	if p2 == r.Legacy.Fingerprint(ten.ID, "DE893704") || len(p2) != 64 {
-		t.Fatal("fingerprint still legacy")
+	if p2 == r.Legacy.Fingerprint(ten.ID, "DE893704") {
+		t.Errorf("fingerprint: got the legacy one %q, want the tenant key's", p2)
+	}
+	if len(p2) != 64 {
+		t.Errorf("fingerprint length: got %d, want 64", len(p2))
 	}
 	// Another ring with the same master opens it (another replica); one without the master cannot.
 	if v, err := ring(t, master(t, "k1", "a")).Open(ctx, ten.ID, sealed2); err != nil || v != "DE893704" {
@@ -108,9 +119,11 @@ func TestKeyringSealsWithTenantKeys(t *testing.T) {
 	// Corrupt and foreign values.
 	for name, bad := range map[string][]byte{"empty": nil, "unknown version": {9, 1, 2}, "short": sealed2[:10], "short for nonce": sealed2[:20],
 		"unknown key": append(append([]byte{2}, uuid.New().NodeID()...), sealed2[1:]...), "tampered": append([]byte(nil), sealed2[:len(sealed2)-1]...)} {
-		if _, err := r.Open(ctx, ten.ID, bad); err == nil {
-			t.Errorf("%s: opened", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if v, err := r.Open(ctx, ten.ID, bad); err == nil {
+				t.Errorf("Open: got %q, want an error", v)
+			}
+		})
 	}
 	if _, err := r.Open(ctx, uuid.New(), sealed2); err == nil {
 		t.Fatal("another tenant opened the value")
@@ -162,12 +175,12 @@ func TestKeyringSealsWithTenantKeys(t *testing.T) {
 	}
 	// A master that cannot wrap stops provisioning, whichever of the two keys fails.
 	for fail := 1; fail <= 2; fail++ {
-		inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
-			bad := &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{&failingMaster{failAt: fail}}}
-			if err := bad.Provision(ctx, tx, uuid.New()); err == nil || !strings.Contains(err.Error(), "hsm down") {
-				t.Fatalf("wrap %d: %v", fail, err)
-			}
-			return nil
+		t.Run(fmt.Sprintf("wrap %d fails", fail), func(t *testing.T) {
+			inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+				bad := &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{&failingMaster{failAt: fail}}}
+				pgtest.CheckErr(t, bad.Provision(ctx, tx, uuid.New()), "hsm down")
+				return nil
+			})
 		})
 	}
 	// Provisioning a key needs a master.
@@ -210,34 +223,60 @@ func TestRotationResealsEveryColumn(t *testing.T) {
 		t.Fatalf("rotation without the legacy key: %v", err)
 	}
 	var before []byte
-	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, e.Tenant.ID).Scan(&before)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, e.Tenant.ID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
 	if before[0] != 1 {
 		t.Fatalf("house bank not on the legacy key: %v", before[0])
 	}
 	var rot fieldcrypt.Rotation
+	rotated := time.Date(2026, 10, 2, 8, 30, 0, 0, time.UTC)
+	r.Now = func() time.Time { return rotated }
 	inTenant(t, r, e.Tenant.ID, func(ctx context.Context, tx pgx.Tx) (err error) {
 		rot, err = r.Rotate(ctx, tx, e.Tenant.ID)
 		return err
 	})
-	if rot.Previous != uuid.Nil || rot.Master != "k1" || rot.Resealed != 3 {
-		t.Fatalf("%+v", rot)
+	if !rot.At.Equal(rotated) {
+		t.Errorf("first rotation time: got %v, want %v", rot.At, rotated)
+	}
+	if rot.Previous != uuid.Nil {
+		t.Errorf("first rotation previous key: got %v, want none", rot.Previous)
+	}
+	if rot.Master != "k1" {
+		t.Errorf("first rotation master: got %q, want k1", rot.Master)
+	}
+	if rot.Resealed != 3 {
+		t.Errorf("first rotation resealed: got %d, want 3", rot.Resealed)
 	}
 	// The tax identifier moved to the tenant's fingerprint key, so lookups by fingerprint keep working.
 	var cipher []byte
 	var print string
 	var taxVersion int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT value_cipher, value_fingerprint, version FROM partner.tax_identifier WHERE tenant_id = $1`, e.Tenant.ID).Scan(&cipher, &print, &taxVersion)
-	if want, _ := r.Fingerprint(ctx, e.Tenant.ID, "DE123456789"); print != want || print == legacyPrint || taxVersion != 2 {
-		t.Fatalf("tax identifier after rotation: %s (legacy %s), version %d", print, legacyPrint, taxVersion)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT value_cipher, value_fingerprint, version FROM partner.tax_identifier WHERE tenant_id = $1`, e.Tenant.ID).Scan(&cipher, &print, &taxVersion); err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := r.Fingerprint(ctx, e.Tenant.ID, "DE123456789"); print != want {
+		t.Errorf("tax identifier fingerprint after rotation: got %s, want %s", print, want)
+	}
+	if print == legacyPrint {
+		t.Errorf("tax identifier fingerprint after rotation: got the legacy %s, want the tenant key's", print)
+	}
+	if taxVersion != 2 {
+		t.Errorf("tax identifier version after rotation: got %d, want 2", taxVersion)
 	}
 	if v, err := r.Open(ctx, e.Tenant.ID, cipher); err != nil || v != "DE123456789" {
 		t.Fatalf("%q %v", v, err)
 	}
 	var after []byte
 	var version int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher, version FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, e.Tenant.ID).Scan(&after, &version)
-	if after[0] != 2 || version != 2 {
-		t.Fatalf("after: version byte %d, row version %d", after[0], version)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher, version FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, e.Tenant.ID).Scan(&after, &version); err != nil {
+		t.Fatal(err)
+	}
+	if after[0] != 2 {
+		t.Errorf("house bank format version after rotation: got %d, want 2", after[0])
+	}
+	if version != 2 {
+		t.Errorf("house bank row version after rotation: got %d, want 2", version)
 	}
 	iban, err := r.Open(ctx, e.Tenant.ID, after)
 	legacy, _ := r.Legacy.Open(e.Tenant.ID, before)
@@ -250,8 +289,11 @@ func TestRotationResealsEveryColumn(t *testing.T) {
 		rot, err = r.Rotate(ctx, tx, e.Tenant.ID)
 		return err
 	})
-	if rot.Previous != first || rot.KeyID == first {
-		t.Fatalf("%+v", rot)
+	if rot.Previous != first {
+		t.Errorf("second rotation previous key: got %v, want %v", rot.Previous, first)
+	}
+	if rot.KeyID == first {
+		t.Errorf("second rotation key: got the first key %v again, want a new one", rot.KeyID)
 	}
 	if v, err := ring(t, master(t, "k1", "a")).Open(ctx, e.Tenant.ID, after); err != nil || v != iban {
 		t.Fatalf("retired key: %q %v", v, err)
@@ -306,7 +348,9 @@ func TestKMSMasterWrapsTenantKeys(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	inTenant(t, r, ten.ID, func(ctx context.Context, tx pgx.Tx) error { return r.Provision(ctx, tx, ten.ID) })
 	var masterID string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT master_key_id FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&masterID)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT master_key_id FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&masterID); err != nil {
+		t.Fatal(err)
+	}
 	if masterID != "kms" {
 		t.Fatalf("wrapped by %q", masterID)
 	}
@@ -314,8 +358,12 @@ func TestKMSMasterWrapsTenantKeys(t *testing.T) {
 	if err != nil || sealed[0] != 2 {
 		t.Fatalf("%v %v", sealed, err)
 	}
-	if e, d := kms.Calls(); e != 2 || d != 0 {
-		t.Fatalf("provisioning: %d encrypts, %d decrypts", e, d)
+	e, d := kms.Calls()
+	if e != 2 {
+		t.Errorf("provisioning encrypts: got %d, want 2", e)
+	}
+	if d != 0 {
+		t.Errorf("provisioning decrypts: got %d, want 0", d)
 	}
 	// Another replica unwraps the two keys once, then works from memory.
 	other := ring(t, kms.Master(""))
@@ -327,14 +375,17 @@ func TestKMSMasterWrapsTenantKeys(t *testing.T) {
 	if _, err := other.Fingerprint(ctx, ten.ID, "DE893704"); err != nil {
 		t.Fatal(err)
 	}
-	if e, d := kms.Calls(); e != 2 || d != 2 {
-		t.Fatalf("after reads: %d encrypts, %d decrypts", e, d)
+	e, d = kms.Calls()
+	if e != 2 {
+		t.Errorf("encrypts after reads: got %d, want 2", e)
+	}
+	if d != 2 {
+		t.Errorf("decrypts after reads: got %d, want 2 (each key unwrapped once)", d)
 	}
 	// A ring whose KMS refuses cannot load the tenant's keys.
 	kms.Fail = 503
-	if _, err := ring(t, kms.Master("")).Open(ctx, ten.ID, sealed); err == nil || !strings.Contains(err.Error(), "503 KMSInternalException") {
-		t.Fatalf("kms down: %v", err)
-	}
+	_, err = ring(t, kms.Master("")).Open(ctx, ten.ID, sealed)
+	pgtest.WantErr(t, err, "503 KMSInternalException")
 	kms.Fail = 0
 }
 
@@ -357,20 +408,30 @@ func TestRewrap(t *testing.T) {
 		done, err = moved.Rewrap(ctx, tx, ten.ID)
 		return err
 	})
-	if done.Keys != 2 || done.Master != "kms" {
-		t.Fatalf("%+v", done)
+	if done.Keys != 2 {
+		t.Errorf("re-wrapped keys: got %d, want 2", done.Keys)
+	}
+	if done.Master != "kms" {
+		t.Errorf("re-wrap master: got %q, want kms", done.Master)
 	}
 	var n, bumped int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FILTER (WHERE master_key_id = 'kms'), count(*) FILTER (WHERE version > 1) FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&n, &bumped)
-	if n != 2 || bumped != 2 {
-		t.Fatalf("%d keys on kms, %d versions bumped", n, bumped)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FILTER (WHERE master_key_id = 'kms'), count(*) FILTER (WHERE version > 1) FROM tenancy.tenant_key WHERE tenant_id = $1`, ten.ID).Scan(&n, &bumped); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("keys on kms: got %d, want 2", n)
+	}
+	if bumped != 2 {
+		t.Errorf("key versions bumped: got %d, want 2", bumped)
 	}
 	// A ring with the KMS alone opens both the retired key's value and the active one's.
 	alone := ring(t, kms.Master(""))
-	for _, s := range [][]byte{old, sealed} {
-		if v, err := alone.Open(ctx, ten.ID, s); err != nil || v != "DE893704" {
-			t.Fatalf("%q %v", v, err)
-		}
+	for name, s := range map[string][]byte{"retired key": old, "active key": sealed} {
+		t.Run(name, func(t *testing.T) {
+			if v, err := alone.Open(ctx, ten.ID, s); err != nil || v != "DE893704" {
+				t.Errorf("Open: got %q, %v; want %q, nil", v, err, "DE893704")
+			}
+		})
 	}
 	// Nothing left to move; without the master that wrapped the keys nothing can move.
 	inTenant(t, alone, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
@@ -385,10 +446,11 @@ func TestRewrap(t *testing.T) {
 		}
 		// A master that cannot wrap, whichever of the two keys fails.
 		for fail := 1; fail <= 2; fail++ {
-			bad := &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{&failingMaster{failAt: fail}, kms.Master("")}}
-			if _, err := bad.Rewrap(ctx, tx, ten.ID); err == nil || !strings.Contains(err.Error(), "hsm down") {
-				t.Fatalf("wrap %d: %v", fail, err)
-			}
+			t.Run(fmt.Sprintf("wrap %d fails", fail), func(t *testing.T) {
+				bad := &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{&failingMaster{failAt: fail}, kms.Master("")}}
+				_, err := bad.Rewrap(ctx, tx, ten.ID)
+				pgtest.CheckErr(t, err, "hsm down")
+			})
 		}
 		return nil
 	})
@@ -417,7 +479,5 @@ func TestRewrap(t *testing.T) {
 		_, err := stuck.Rewrap(ctx, tx, ten.ID)
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "hsm down") {
-		t.Fatalf("unwrap: %v", err)
-	}
+	pgtest.WantErr(t, err, "hsm down")
 }

@@ -11,11 +11,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -25,7 +25,7 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"payments.run.read", "payments.run.propose", "payments.run.release", "payments.file.transmit",
-	"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "ledger.entry.read", "ledger.entry.post",
+	"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "ledger.entry.read", "ledger.entry.post", "ledger.clearing.post",
 	"platform.operation.read", "platform.operation.cancel"}
 
 // connector records the files it transmits, or fails with err.
@@ -57,7 +57,7 @@ func setup(t *testing.T) env {
 	t.Helper()
 	f := fixture.New(t, perms...)
 	c := &connector{}
-	f.API = apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Connector = c })
+	f.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Connector = c })
 	e := env{Env: f, expense: f.Account(t, "2000", "520000"), connector: c}
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id FROM payments.house_bank WHERE legal_entity_id = $1`, f.DE).Scan(&e.bank); err != nil {
 		t.Fatal(err)
@@ -65,14 +65,23 @@ func setup(t *testing.T) env {
 	return e
 }
 
+// in returns e reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (e env) in(t *testing.T) env {
+	t.Helper()
+	e.T = t
+	return e
+}
+
 // endpoints is the payments context as the API wires it.
 func endpoints(c payments.Connector) *payments.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return httpapi.Payments(httpapi.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), Connector: c})
+	return app.Payments(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), Connector: c})
 }
 
 // proposer is the worker on the package database.
 func proposer(t *testing.T) *payments.Proposer {
+	t.Helper()
 	return &payments.Proposer{Endpoints: endpoints(nil), Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker"}
 }
 
@@ -90,16 +99,28 @@ func (e env) releaser(t *testing.T) *workflows.Releaser {
 func (e env) release(t *testing.T, run map[string]any, body string) map[string]any {
 	t.Helper()
 	op := e.decide(t, 202, run, "release", body)
-	if op["kind"] != "payments.release" || op["status"] != "queued" || op["resource"] != "/v1/payment-runs/"+id(run) {
-		t.Fatalf("release operation: %v", op)
+	if op["kind"] != "payments.release" {
+		t.Fatalf("release operation kind: got %v, want payments.release", op["kind"])
+	}
+	if op["status"] != "queued" {
+		t.Fatalf("release operation status: got %v, want queued", op["status"])
+	}
+	if want := "/v1/payment-runs/" + id(run); op["resource"] != want {
+		t.Fatalf("release operation resource: got %v, want %s", op["resource"], want)
 	}
 	if _, err := e.releaser(t).RunOnce(context.Background()); err != nil {
 		t.Fatalf("release worker: %v", err)
 	}
 	got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
 	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if got["status"] != "released" || done["status"] != "succeeded" || got["release_operation_id"] != id(op) {
-		t.Fatalf("released: %v\noperation: %v", got, done)
+	if got["status"] != "released" {
+		t.Fatalf("released run status: got %v, want released", got["status"])
+	}
+	if done["status"] != "succeeded" {
+		t.Fatalf("release operation status: got %v, want succeeded: %v", done["status"], done)
+	}
+	if got["release_operation_id"] != id(op) {
+		t.Fatalf("released run operation: got %v, want %s", got["release_operation_id"], id(op))
 	}
 	return got
 }
@@ -113,8 +134,11 @@ func (e env) releaseFails(t *testing.T, run map[string]any, code string) (op, af
 		t.Fatalf("release worker: %v", err)
 	}
 	op, _ = e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
-	if op["status"] != "failed" || op["error"].(map[string]any)["code"] != code {
-		t.Fatalf("release operation after the failure: %v", op)
+	if op["status"] != "failed" {
+		t.Fatalf("release operation after the failure, status: got %v, want failed: %v", op["status"], op)
+	}
+	if got := op["error"].(map[string]any)["code"]; got != code {
+		t.Fatalf("release operation after the failure, error: got %v, want %s", got, code)
 	}
 	after, _ = e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
 	return op, after

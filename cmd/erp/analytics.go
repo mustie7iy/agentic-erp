@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 const defaultReports = "data/reports"
@@ -59,7 +61,7 @@ func (f analyticsFlags) session(ctx context.Context) (*analytics.Session, error)
 func metricsCmd(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("metrics", flag.ContinueOnError)
 	semantic := fs.String("semantic", "", "semantic model YAML (default: built-in governed model)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	m, err := loadModel(*semantic)
@@ -71,7 +73,7 @@ func metricsCmd(_ context.Context, args []string) error {
 	for _, met := range m.Metrics {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", met.Name, met.Type, met.Description, strings.Join(m.AllowedDimensions(met.Name), ", "))
 	}
-	return tw.Flush()
+	return errs.Wrapf(tw.Flush(), "metrics: print")
 }
 
 // queryCmd runs a semantic query directly, without the agent.
@@ -85,7 +87,7 @@ func queryCmd(ctx context.Context, args []string) error {
 	var where multiFlag
 	fs.Var(&where, "where", `filter, repeatable: "dim in a,b", "dim not_in a", "dim <= v", "dim >= v", "dim between a,b"`)
 	csvOut := fs.String("csv", "", "also write the result as CSV to this file")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	q := analytics.Query{Measures: splitList(*measures), By: splitList(*by)}
@@ -105,39 +107,36 @@ func queryCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', tabwriter.AlignRight)
-	for _, c := range r.Columns {
-		h := c.Name
-		if c.Currency != "" {
-			h += " (" + c.Currency + ")"
-		}
-		fmt.Fprintf(tw, "%s\t", h)
+	printResult(tw, r)
+	if err := tw.Flush(); err != nil {
+		return fmt.Errorf("query: print: %w", err)
 	}
-	fmt.Fprintln(tw)
-	for _, row := range r.Rows {
-		for _, v := range row {
-			switch x := v.(type) {
-			case string:
-				fmt.Fprintf(tw, "%s\t", x)
-			case float64:
-				fmt.Fprintf(tw, "%.2f\t", x)
-			default:
-				fmt.Fprint(tw, "—\t")
-			}
-		}
-		fmt.Fprintln(tw)
+	if _, err := fmt.Fprintf(out, "\n%s · %d rows · data through %s\n", r.ID, len(r.Rows), r.DataThrough); err != nil {
+		return fmt.Errorf("query: print summary: %w", err)
 	}
-	tw.Flush()
-	fmt.Fprintf(out, "\n%s · %d rows · data through %s\n", r.ID, len(r.Rows), r.DataThrough)
 	if *csvOut != "" {
-		f, err := os.Create(*csvOut)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		return analytics.WriteCSV(f, r)
+		return writeCSV(*csvOut, r)
 	}
 	return nil
 }
+
+// writeCSV writes r to the file name. A failed close can mean the file was
+// truncated, so it is reported when the write itself succeeded.
+func writeCSV(name string, r *analytics.Result) (err error) {
+	f, err := createFile(name)
+	if err != nil {
+		return fmt.Errorf("query: create CSV: %w", err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("query: close CSV %s: %w", name, cerr)
+		}
+	}()
+	return analytics.WriteCSV(f, r)
+}
+
+// createFile creates a file the command writes; tests replace it.
+var createFile = func(name string) (io.WriteCloser, error) { return os.Create(name) }
 
 // newAgent makes the analytics agent; tests replace it.
 var newAgent = analytics.NewAgent
@@ -147,7 +146,7 @@ func askCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	af := addAnalyticsFlags(fs)
 	outDir := fs.String("out", defaultReports, "directory for generated reports")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	question := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -167,9 +166,7 @@ func askCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out, ans.Summary)
-	fmt.Fprintf(out, "\nDashboard: %s\nRerun later with: erp report -id %s\n", path, ans.Report.ID)
-	return nil
+	return printf("ask", "%s\n\nDashboard: %s\nRerun later with: erp report -id %s\n", ans.Summary, path, ans.Report.ID)
 }
 
 // reportCmd reruns a saved report (or a hand-written report file) on current data.
@@ -179,7 +176,7 @@ func reportCmd(ctx context.Context, args []string) error {
 	id := fs.String("id", "", "saved report id (from erp ask)")
 	file := fs.String("file", "", "report definition JSON (instead of -id)")
 	outDir := fs.String("out", defaultReports, "directory for generated reports")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	path := *file
@@ -205,8 +202,7 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.Facts.DataThrough, html)
-	return nil
+	return printf("report", "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.Facts.DataThrough, html)
 }
 
 func splitList(s string) []string {
@@ -225,4 +221,28 @@ func parseFilter(s string) (analytics.Filter, error) {
 		return analytics.Filter{}, fmt.Errorf("filter %q: want \"dim op values\"", s)
 	}
 	return analytics.Filter{Dim: parts[0], Op: parts[1], Values: splitList(strings.Join(parts[2:], ""))}, nil
+}
+
+// printResult writes a query result as a table: a header with each
+// column's currency, then the rows.
+func printResult(tw *tabwriter.Writer, r *analytics.Result) {
+	for _, c := range r.Columns {
+		h := c.Name
+		if c.Currency != "" {
+			h += " (" + c.Currency + ")"
+		}
+		fmt.Fprintf(tw, "%s\t", h)
+	}
+	fmt.Fprintln(tw)
+	for _, row := range r.Rows {
+		for _, v := range row {
+			switch v.(type) {
+			case string, analytics.Value: // a Value prints exactly, with its own digits
+				fmt.Fprintf(tw, "%s\t", v)
+			default:
+				fmt.Fprint(tw, "—\t")
+			}
+		}
+		fmt.Fprintln(tw)
+	}
 }

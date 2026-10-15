@@ -7,10 +7,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -24,15 +24,24 @@ func TestApprovalDecisions(t *testing.T) {
 		b, _ := json.Marshal(doc)
 		cr, _ := f.Must(201, "POST", "/v1/change-requests", `{"title": "Terms", "base_version": 1, "proposed": `+string(b)+`}`, "")
 		got, _ := f.Must(200, "POST", "/v1/change-requests/"+cr["id"].(string)+":submit", "", `"1"`)
-		if got["status"] != "pending_approval" || got["workflow_request_id"] == nil {
-			t.Fatalf("submitted: %v", got)
+		if got["status"] != "pending_approval" {
+			t.Fatalf("submitted: got status %v, want pending_approval", got["status"])
+		}
+		if got["workflow_request_id"] == nil {
+			t.Fatalf("submitted: got no workflow_request_id, want one: %v", got)
 		}
 		return got
 	}
 	approved := propose(1)
 	r := f.Pending(t, approved["id"].(string))
-	if r["object_type"] != "config_change" || r["id"] != approved["workflow_request_id"] || len(r["steps"].([]any)) != 1 {
-		t.Fatalf("approval request: %v", r)
+	if r["object_type"] != "config_change" {
+		t.Errorf("approval request object_type: got %v, want config_change", r["object_type"])
+	}
+	if r["id"] != approved["workflow_request_id"] {
+		t.Errorf("approval request id: got %v, want %v", r["id"], approved["workflow_request_id"])
+	}
+	if n := len(r["steps"].([]any)); n != 1 {
+		t.Errorf("approval request steps: got %d, want 1", n)
 	}
 	f.Approve(t, approved["id"].(string))
 	got, tag := f.Must(200, "GET", "/v1/change-requests/"+approved["id"].(string), "", "")
@@ -57,9 +66,11 @@ func TestApprovalDecisions(t *testing.T) {
 		t.Fatalf("after cancellation: %v", got)
 	}
 	for _, name := range []string{"change_request_approved", "change_request_rejected", "change_request_withdrawn"} {
-		if len(events(t, f.Tenant, name)) == 0 {
-			t.Errorf("no %s event", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if len(events(t, f.Tenant, name)) == 0 {
+				t.Error("got no event, want one")
+			}
+		})
 	}
 
 	// A decision for a change request that is no longer pending is refused.
@@ -80,9 +91,11 @@ func TestApprovalDecisions(t *testing.T) {
 			return configuration.Approvals{}.Cancelled(ctx, uuid.New(), uuid.New(), "c")
 		},
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+		})
 	}
 	pendingCR := propose(4)
 	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "approved", func(ctx context.Context) error {
@@ -107,10 +120,16 @@ func TestChangeWithoutApprovalSteps(t *testing.T) {
 	deps.Approvals = noApproval{}
 	err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
 		got, err := configuration.SubmitChangeRequest(ctx, deps, uuid.MustParse(cr["id"].(string)), func(int32) error { return nil })
-		if err == nil && (got.Status != configuration.Approved || got.WorkflowRequestID != nil) {
-			t.Errorf("submitted: %+v", got)
+		if err != nil {
+			return err
 		}
-		return err
+		if got.Status != configuration.Approved {
+			t.Errorf("submitted status: got %s, want %s", got.Status, configuration.Approved)
+		}
+		if got.WorkflowRequestID != nil {
+			t.Errorf("submitted workflow request: got %v, want none", got.WorkflowRequestID)
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,10 +140,16 @@ func TestSettings(t *testing.T) {
 	f := fixture.New(t, perms...)
 	err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
 		doc, n, err := configuration.Settings{}.Document(ctx)
-		if err == nil && (n != 1 || len(doc.Companies) != 2) {
-			t.Errorf("document: %d %v", n, doc)
+		if err != nil {
+			return err
 		}
-		return err
+		if n != 1 {
+			t.Errorf("document version: got %d, want 1", n)
+		}
+		if len(doc.Companies) != 2 {
+			t.Errorf("document companies: got %d, want 2", len(doc.Companies))
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -141,6 +166,16 @@ func TestSettings(t *testing.T) {
 	}
 	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "settings", func(ctx context.Context) error {
 		_, _, err := configuration.Settings{}.Document(ctx)
+		return err
+	})
+	ranges, _ := f.Must(200, "GET", "/v1/number-ranges", "", "")
+	items, _ := ranges["items"].([]any)
+	if len(items) == 0 {
+		t.Fatal("the fixture has no number ranges")
+	}
+	r := items[0].(map[string]any)
+	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "next number", func(ctx context.Context) error {
+		_, err := configuration.Numbers{}.Next(ctx, uuid.MustParse(r["legal_entity_id"].(string)), r["document_type"].(string), int16(r["fiscal_year"].(float64)))
 		return err
 	})
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -75,7 +76,7 @@ func scanSuite(row pgx.Row) (RegressionSuite, error) {
 	var s RegressionSuite
 	err := row.Scan(&s.ID, &s.Number, &s.Name, &s.ConfigVersion, &s.WindowDays, &s.CaseCount, &s.Strata, &s.CapturedAt, &s.Version,
 		&s.CreatedAt, &s.CreatedBy, &s.UpdatedAt, &s.UpdatedBy, &s.Cases)
-	return s, err
+	return s, errs.Wrapf(err, "scan regression suite")
 }
 
 // NewRegressionSuite is what a capture asks for.
@@ -104,7 +105,7 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	}
 	var raw []byte
 	if err := tx.QueryRow(ctx, `SELECT document FROM config.config_version WHERE number = $1`, number).Scan(&raw); err != nil {
-		return RegressionSuite{}, err
+		return RegressionSuite{}, fmt.Errorf("configuration: read version %d: %w", number, err)
 	}
 	doc, _ := config.Parse(raw) // activated documents always parse
 	cases, err := deps.Regressor.Capture(ctx, doc, time.Duration(in.WindowDays)*24*time.Hour, in.MaxCases)
@@ -116,20 +117,20 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	}
 	var n int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM config.regression_suite`).Scan(&n); err != nil {
-		return RegressionSuite{}, err
+		return RegressionSuite{}, fmt.Errorf("configuration: count regression suites: %w", err)
 	}
 	id := uuid.Must(uuid.NewV7())
-	strata, _ := json.Marshal(strataOf(cases))
+	strata, _ := json.Marshal(strataOf(cases)) // a string slice always encodes
 	if _, err := tx.Exec(ctx, `INSERT INTO config.regression_suite (tenant_id, id, number, name, config_version, window_days, case_count, strata, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`, actor.TenantID, id, fmt.Sprintf("RS-%04d", n+1), in.Name, number, in.WindowDays, len(cases), strata, actor.ID); err != nil {
-		return RegressionSuite{}, err
+		return RegressionSuite{}, fmt.Errorf("configuration: insert regression suite %s: %w", id, err)
 	}
 	for _, c := range cases {
-		issues, _ := json.Marshal(c.ExpectedIssues)
+		issues, _ := json.Marshal(c.ExpectedIssues) // a string slice always encodes
 		if _, err := tx.Exec(ctx, `INSERT INTO config.regression_case (tenant_id, suite_id, case_no, supplier_invoice_id, document_number, legal_entity_id, company,
 			why, expected_decision, expected_issues) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 			actor.TenantID, id, c.CaseNo, c.InvoiceID, c.DocumentNumber, c.LegalEntityID, c.Company, c.Why, c.ExpectedDecision, issues); err != nil {
-			return RegressionSuite{}, err
+			return RegressionSuite{}, fmt.Errorf("configuration: insert case %d of regression suite %s: %w", c.CaseNo, id, err)
 		}
 	}
 	s, err := getSuite(ctx, tx, id)
@@ -168,9 +169,12 @@ func splitWhy(why string) []string {
 func getSuite(ctx context.Context, tx pgx.Tx, id uuid.UUID) (RegressionSuite, error) {
 	s, err := scanSuite(tx.QueryRow(ctx, suiteSelect+` WHERE s.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return RegressionSuite{}, problem.NotFound("No regression suite with this id.")
+		return RegressionSuite{}, problem.NotFoundOf("regression suite")
 	}
-	return s, err
+	if err != nil {
+		return s, fmt.Errorf("configuration: read regression suite %s: %w", id, err)
+	}
+	return s, nil
 }
 
 // GetRegressionSuite returns a suite with its cases.
@@ -189,7 +193,10 @@ func latestSuite(ctx context.Context, tx pgx.Tx, version int32) (RegressionSuite
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RegressionSuite{}, false, nil
 	}
-	return s, err == nil, err
+	if err != nil {
+		return s, false, fmt.Errorf("configuration: read the latest regression suite of version %d: %w", version, err)
+	}
+	return s, true, nil
 }
 
 var companyPath = regexp.MustCompile(`^companies\[([^\]]+)\]`)

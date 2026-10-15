@@ -4,13 +4,16 @@
 // unblocked; nothing is deleted. Every read and write is limited to the
 // legal entities the caller may act in, and anything outside them is
 // answered as not found.
+//
+// It also owns the tenant row itself (tenant.go): the control plane,
+// provisioning, offboarding and the directory read and change it through
+// this package (ADR-0003, ADR-0015, ADR-0021, 06 §6.7).
 package tenancy
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"regexp"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +21,9 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
+	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -71,7 +77,7 @@ func scanLE(row pgx.Row) (LegalEntity, error) {
 	var e LegalEntity
 	err := row.Scan(&e.ID, &e.Code, &e.Name, &e.CountryCode, &e.LocalCurrency, &e.FiscalCalendarID, &e.Status, &e.Extensions,
 		&e.Version, &e.CreatedAt, &e.CreatedBy, &e.UpdatedAt, &e.UpdatedBy)
-	return e, err
+	return e, errs.Wrapf(err, "scan legal entity")
 }
 
 // OrgUnit is a row of tenancy.org_unit.
@@ -96,49 +102,11 @@ func scanOU(row pgx.Row) (OrgUnit, error) {
 	var u OrgUnit
 	err := row.Scan(&u.ID, &u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.ParentID, &u.Status, &u.Version,
 		&u.CreatedAt, &u.CreatedBy, &u.UpdatedAt, &u.UpdatedBy)
-	return u, err
+	return u, errs.Wrapf(err, "scan org unit")
 }
 
 // OrgUnitKinds are the kinds the database accepts.
 var OrgUnitKinds = map[string]bool{"purchasing_org": true, "plant": true, "storage_location": true, "sales_org": true}
-
-var extensionKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// checkExtensions enforces snake_case keys (ADR-0009). Validation against
-// the tenant's published custom field schema comes with the configuration
-// context's custom field schemas.
-func checkExtensions(ext map[string]any) error {
-	for k := range ext {
-		if !extensionKey.MatchString(k) {
-			return problem.Unprocessable("request.invalid_extension", "Custom field keys are snake_case.",
-				problem.FieldError{Field: "extensions." + k, Code: "invalid_key", Message: "snake_case, starting with a letter"})
-		}
-	}
-	return nil
-}
-
-// mergePatch applies an RFC 7396 merge patch to a JSON object: null removes
-// a member, objects merge recursively, anything else replaces.
-func mergePatch(target, patch map[string]any) map[string]any {
-	out := make(map[string]any, len(target))
-	for k, v := range target {
-		out[k] = v
-	}
-	for k, v := range patch {
-		switch pv := v.(type) {
-		case nil:
-			delete(out, k)
-		case map[string]any:
-			tv, _ := out[k].(map[string]any)
-			out[k] = mergePatch(tv, pv)
-		default:
-			out[k] = v
-		}
-	}
-	return out
-}
-
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
 
 // getLE loads a legal entity the caller may act in; lock takes the row lock
 // for a change.
@@ -152,10 +120,10 @@ func getLE(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (LegalEntity
 		q += ` FOR UPDATE`
 	}
 	e, err := scanLE(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(e.ID)) {
-		return LegalEntity{}, notFound("legal entity")
+	if err = authz.Visible(err, access, e.ID, problem.NotFoundOf("legal entity"), "tenancy: read legal entity %s", id); err != nil {
+		return LegalEntity{}, err
 	}
-	return e, err
+	return e, nil
 }
 
 func getOU(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (OrgUnit, error) {
@@ -168,10 +136,10 @@ func getOU(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (OrgUnit, er
 		q += ` FOR UPDATE`
 	}
 	u, err := scanOU(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(u.LegalEntityID)) {
-		return OrgUnit{}, notFound("org unit")
+	if err = authz.Visible(err, access, u.LegalEntityID, problem.NotFoundOf("org unit"), "tenancy: read org unit %s", id); err != nil {
+		return OrgUnit{}, err
 	}
-	return u, err
+	return u, nil
 }
 
 // NewLegalEntity is the input of CreateLegalEntity.
@@ -191,7 +159,7 @@ func CreateLegalEntity(ctx context.Context, in NewLegalEntity) (LegalEntity, err
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	if err := checkExtensions(in.Extensions); err != nil {
+	if err := extensions.Check(in.Extensions); err != nil {
 		return LegalEntity{}, err
 	}
 	e, err := scanLE(tx.QueryRow(ctx, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency,
@@ -199,9 +167,9 @@ func CreateLegalEntity(ctx context.Context, in NewLegalEntity) (LegalEntity, err
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'inactive', $8, $9, $9) RETURNING `+leColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), in.Code, in.Name, in.CountryCode, in.LocalCurrency, in.FiscalCalendarID, in.Extensions, p.ID))
 	if err != nil {
-		return LegalEntity{}, err
+		return LegalEntity{}, fmt.Errorf("tenancy: insert legal entity %s: %w", in.Code, err)
 	}
-	return e, record(ctx, "tenancy.legal_entity.create", "tenancy.legal_entity", e.ID, map[string]any{"code": e.Code},
+	return e, audit.Record(ctx, "tenancy.legal_entity.create", "tenancy.legal_entity", e.ID, map[string]any{"code": e.Code},
 		outbox.Event{Context: "tenancy", Name: "legal_entity_created", AggregateType: "tenancy.legal_entity", AggregateID: e.ID,
 			Payload: map[string]any{
 				"legal_entity_id": e.ID, "code": e.Code, "name": e.Name, "country_code": e.CountryCode,
@@ -233,17 +201,17 @@ func UpdateLegalEntity(ctx context.Context, id uuid.UUID, ifMatch func(int32) er
 		name = *ch.Name
 	}
 	if ch.Extensions != nil {
-		ext = mergePatch(ext, ch.Extensions)
-		if err := checkExtensions(ext); err != nil {
+		ext = mergepatch.Apply(ext, ch.Extensions)
+		if err := extensions.Check(ext); err != nil {
 			return LegalEntity{}, err
 		}
 	}
 	updated, err := scanLE(tx.QueryRow(ctx, `UPDATE tenancy.legal_entity SET name = $2, extensions = $3, version = version + 1, updated_by = $4
 		WHERE id = $1 RETURNING `+leColumns, id, name, ext, p.ID))
 	if err != nil {
-		return LegalEntity{}, err
+		return LegalEntity{}, fmt.Errorf("tenancy: update legal entity %s: %w", id, err)
 	}
-	return updated, record(ctx, "tenancy.legal_entity.update", "tenancy.legal_entity", id, changed(e.Name != name, "name", jsonDiffers(e.Extensions, ext), "extensions"))
+	return updated, audit.Record(ctx, "tenancy.legal_entity.update", "tenancy.legal_entity", id, changed(e.Name != name, "name", jsonDiffers(e.Extensions, ext), "extensions"))
 }
 
 // transition is a status change: allowed from one status, to another, with
@@ -297,14 +265,14 @@ func changeLegalEntityStatus(ctx context.Context, id uuid.UUID, ifMatch func(int
 	updated, err := scanLE(tx.QueryRow(ctx, `UPDATE tenancy.legal_entity SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+leColumns, id, t.to, p.ID))
 	if err != nil {
-		return LegalEntity{}, err
+		return LegalEntity{}, fmt.Errorf("tenancy: %s legal entity %s: %w", t.action, id, err)
 	}
 	var events []outbox.Event
 	if t.event != "" {
 		events = append(events, outbox.Event{Context: "tenancy", Name: t.event, AggregateType: "tenancy.legal_entity", AggregateID: id,
 			Payload: map[string]any{"legal_entity_id": id, "code": e.Code, "previous_status": e.Status, "status": t.to}})
 	}
-	return updated, record(ctx, "tenancy.legal_entity."+t.action, "tenancy.legal_entity", id,
+	return updated, audit.Record(ctx, "tenancy.legal_entity."+t.action, "tenancy.legal_entity", id,
 		withReason(map[string]any{"from_status": e.Status}, reason), events...)
 }
 
@@ -328,7 +296,7 @@ func CreateOrgUnit(ctx context.Context, in NewOrgUnit) (OrgUnit, error) {
 			problem.FieldError{Field: "kind", Code: "unknown", Message: "purchasing_org, plant, storage_location or sales_org"})
 	}
 	if _, err := getLE(ctx, tx, in.LegalEntityID, false); err != nil {
-		return OrgUnit{}, referenceError(err, "legal_entity_id", "legal entity")
+		return OrgUnit{}, problem.Reference(err, "legal_entity_id", "legal entity", "no legal entity with this id that you can access")
 	}
 	if err := checkParent(ctx, tx, in.LegalEntityID, uuid.Nil, in.ParentID); err != nil {
 		return OrgUnit{}, err
@@ -337,24 +305,14 @@ func CreateOrgUnit(ctx context.Context, in NewOrgUnit) (OrgUnit, error) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'inactive', $8, $8) RETURNING `+ouColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), in.LegalEntityID, in.Kind, in.Code, in.Name, in.ParentID, p.ID))
 	if err != nil {
-		return OrgUnit{}, err
+		return OrgUnit{}, fmt.Errorf("tenancy: insert org unit %s: %w", in.Code, err)
 	}
-	return u, record(ctx, "tenancy.org_unit.create", "tenancy.org_unit", u.ID, map[string]any{"code": u.Code, "kind": u.Kind},
+	return u, audit.Record(ctx, "tenancy.org_unit.create", "tenancy.org_unit", u.ID, map[string]any{"code": u.Code, "kind": u.Kind},
 		outbox.Event{Context: "tenancy", Name: "org_unit_created", AggregateType: "tenancy.org_unit", AggregateID: u.ID,
 			Payload: map[string]any{
 				"org_unit_id": u.ID, "legal_entity_id": u.LegalEntityID, "kind": u.Kind, "code": u.Code, "name": u.Name,
 				"parent_id": u.ParentID, "status": u.Status,
 			}})
-}
-
-// referenceError turns "not found" for a referenced resource into 422 on
-// the referencing field.
-func referenceError(err error, field, what string) error {
-	if problem.From(err).Status == 404 {
-		return problem.Unprocessable("request.reference_not_found", "No "+what+" with this id.",
-			problem.FieldError{Field: field, Code: "not_found", Message: "no " + what + " with this id that you can access"})
-	}
-	return err
 }
 
 // checkParent requires a parent in the same legal entity and no cycle: the
@@ -373,7 +331,7 @@ func checkParent(ctx context.Context, tx pgx.Tx, legalEntity, self uuid.UUID, pa
 		SELECT coalesce(bool_or(id = $1 AND legal_entity_id = $2), false), coalesce(bool_or(id = $3), false) FROM up`, *parent, legalEntity, self).Scan(&sameEntity, &cycle)
 	switch {
 	case err != nil:
-		return err
+		return fmt.Errorf("tenancy: check parent %s of org unit %s: %w", *parent, self, err)
 	case !sameEntity:
 		return problem.Unprocessable("tenancy.invalid_parent", "The parent must be an org unit of the same legal entity.",
 			problem.FieldError{Field: "parent_id", Code: "invalid", Message: "no org unit with this id in the legal entity"})
@@ -417,9 +375,9 @@ func UpdateOrgUnit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error,
 	updated, err := scanOU(tx.QueryRow(ctx, `UPDATE tenancy.org_unit SET name = $2, parent_id = $3, version = version + 1, updated_by = $4
 		WHERE id = $1 RETURNING `+ouColumns, id, name, parent, p.ID))
 	if err != nil {
-		return OrgUnit{}, err
+		return OrgUnit{}, fmt.Errorf("tenancy: update org unit %s: %w", id, err)
 	}
-	return updated, record(ctx, "tenancy.org_unit.update", "tenancy.org_unit", id,
+	return updated, audit.Record(ctx, "tenancy.org_unit.update", "tenancy.org_unit", id,
 		changed(u.Name != name, "name", !sameParent(u.ParentID, parent), "parent_id"))
 }
 
@@ -446,7 +404,7 @@ func changeOrgUnitStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 	updated, err := scanOU(tx.QueryRow(ctx, `UPDATE tenancy.org_unit SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+ouColumns, id, t.to, p.ID))
 	if err != nil {
-		return OrgUnit{}, err
+		return OrgUnit{}, fmt.Errorf("tenancy: %s org unit %s: %w", t.action, id, err)
 	}
 	var events []outbox.Event
 	if t.event != "" {
@@ -454,18 +412,8 @@ func changeOrgUnitStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 			Payload: map[string]any{"org_unit_id": id, "legal_entity_id": u.LegalEntityID, "kind": u.Kind, "code": u.Code,
 				"previous_status": u.Status, "status": t.to}})
 	}
-	return updated, record(ctx, "tenancy.org_unit."+t.action, "tenancy.org_unit", id,
+	return updated, audit.Record(ctx, "tenancy.org_unit."+t.action, "tenancy.org_unit", id,
 		withReason(map[string]any{"from_status": u.Status}, reason), events...)
-}
-
-// record publishes the events and adds the audit entry of a change.
-func record(ctx context.Context, action, objectType string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
 }
 
 func withReason(detail map[string]any, reason string) map[string]any {
@@ -488,6 +436,6 @@ func changed(pairs ...any) map[string]any {
 
 func jsonDiffers(a, b map[string]any) bool {
 	x, _ := json.Marshal(a) // decoded JSON always encodes
-	y, _ := json.Marshal(b)
+	y, _ := json.Marshal(b) // as above
 	return string(x) != string(y)
 }

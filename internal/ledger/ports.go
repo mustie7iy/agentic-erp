@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,7 +32,7 @@ func (p Postings) endpoints() *Endpoints {
 // debit positive.
 type PostingLine struct {
 	AccountID      uuid.UUID
-	Amount         int64
+	Amount         money.Minor
 	PartnerID      *uuid.UUID
 	TaxCode        *string
 	Quantity, Unit *string
@@ -66,7 +67,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 		Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
 		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines))}
 	for i, l := range in.Lines {
-		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: money.Minor(l.Amount).Plain(exps[in.Currency]), Currency: in.Currency,
+		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
 	}
 	return p.endpoints().postJournalEntry(ctx, entry)
@@ -78,7 +79,8 @@ func (p Postings) Reverse(ctx context.Context, entryID uuid.UUID, postingDate *t
 	return p.endpoints().reverseJournalEntry(ctx, entryID, func(Entry) error { return nil }, postingDate, headerText)
 }
 
-// IsCleared reports whether any line of the entry is cleared.
+// IsCleared reports whether any line of the entry is cleared. Cleared is
+// not paid: a reversal clears the reversed entry's open items too.
 func (Postings) IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -86,7 +88,10 @@ func (Postings) IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UU
 	}
 	var cleared bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2)`, fiscalYear, entryID).Scan(&cleared)
-	return cleared, err
+	if err != nil {
+		return cleared, fmt.Errorf("ledger: is entry %s cleared: %w", entryID, err)
+	}
+	return cleared, nil
 }
 
 // Determination returns the account automatic postings use for the key
@@ -101,7 +106,10 @@ func (Accounts) Determination(ctx context.Context, legalEntity uuid.UUID, key st
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, false, nil
 	}
-	return id, err == nil, err
+	if err != nil {
+		return id, false, fmt.Errorf("ledger: account determination %s in %s: %w", key, legalEntity, err)
+	}
+	return id, true, nil
 }
 
 // IsPostable reports whether the account is active, set up and not blocked
@@ -116,7 +124,10 @@ func (Accounts) IsPostable(ctx context.Context, legalEntity, account uuid.UUID) 
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
 		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none')`, legalEntity, account).Scan(&ok)
-	return ok, err
+	if err != nil {
+		return ok, fmt.Errorf("ledger: is account %s postable in %s: %w", account, legalEntity, err)
+	}
+	return ok, nil
 }
 
 // TaxCode is a tax code valid on a date.
@@ -140,7 +151,10 @@ func (Accounts) TaxCode(ctx context.Context, legalEntity uuid.UUID, code string,
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TaxCode{}, false, nil
 	}
-	return t, err == nil, err
+	if err != nil {
+		return t, false, fmt.Errorf("ledger: tax code %s in %s: %w", code, legalEntity, err)
+	}
+	return t, true, nil
 }
 
 // Calendar answers questions about legal entities' fiscal calendars.
@@ -168,5 +182,8 @@ func (c Calendar) FiscalYear(ctx context.Context, legalEntity uuid.UUID, date ti
 		return 0, problem.Unprocessable("ledger.no_fiscal_period", "No fiscal year of the legal entity covers "+date.Format(time.DateOnly)+
 			"; a fiscal year is set up by a number range for it in the configuration.")
 	}
-	return year, err
+	if err != nil {
+		return year, fmt.Errorf("ledger: fiscal year of %s on %s: %w", legalEntity, date.Format(time.DateOnly), err)
+	}
+	return year, nil
 }

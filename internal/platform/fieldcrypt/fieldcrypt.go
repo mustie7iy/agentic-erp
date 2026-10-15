@@ -55,7 +55,7 @@ func Normalize(value string) string {
 // Seal encrypts the normalized value for the tenant.
 func (k *Keys) Seal(tenant uuid.UUID, value string) []byte {
 	nonce := make([]byte, k.aead.NonceSize())
-	rand.Read(nonce) // never fails (crypto/rand)
+	_, _ = rand.Read(nonce) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 	out := append([]byte{version}, nonce...)
 	return k.aead.Seal(out, nonce, []byte(Normalize(value)), tenant[:])
 }

@@ -3,7 +3,6 @@ package audit_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -43,16 +43,24 @@ func verify(t *testing.T, pool *database.Pool, tenant uuid.UUID) audit.Result {
 func TestBufferedEntriesExtendTheChain(t *testing.T) {
 	pool := pgtest.Pool(t)
 	ten := pgtest.NewTenant(t)
-	if res := verify(t, pool, ten.ID); res.Checked != 0 || res.BrokenAt != 0 {
-		t.Fatalf("empty chain: %+v", res)
+	res := verify(t, pool, ten.ID)
+	if res.Checked != 0 {
+		t.Errorf("empty chain: Checked = %d, want 0", res.Checked)
+	}
+	if res.BrokenAt != 0 {
+		t.Errorf("empty chain: BrokenAt = %d, want 0", res.BrokenAt)
 	}
 	obj := uuid.New()
 	for i := 0; i < 3; i++ {
 		err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
 			ctx, buf := audit.WithBuffer(ctx)
-			audit.Add(ctx, audit.Entry{Action: "platform.operation.cancel", ObjectType: "platform.operation", ObjectID: obj, Outcome: "succeeded",
-				Detail: map[string]any{"from": "running", "n": 1.5, "big": 1e21, "nested": map[string]any{"b": 2, "a": []any{true, nil}}}})
-			audit.Add(ctx, audit.Entry{Action: "platform.request.summary", ObjectType: "platform.request", Outcome: "succeeded"})
+			if err := audit.Add(ctx, audit.Entry{Action: "platform.operation.cancel", ObjectType: "platform.operation", ObjectID: obj, Outcome: "succeeded",
+				Detail: map[string]any{"from": "running", "n": 1.5, "big": 1e21, "nested": map[string]any{"b": 2, "a": []any{true, nil}}}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := audit.Add(ctx, audit.Entry{Action: "platform.request.summary", ObjectType: "platform.request", Outcome: "succeeded"}); err != nil {
+				t.Fatal(err)
+			}
 			if buf.Len() != 2 {
 				t.Fatal("buffer")
 			}
@@ -68,8 +76,12 @@ func TestBufferedEntriesExtendTheChain(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if res := verify(t, pool, ten.ID); res.Checked != 6 || res.BrokenAt != 0 {
-		t.Fatalf("chain: %+v", res)
+	res = verify(t, pool, ten.ID)
+	if res.Checked != 6 {
+		t.Errorf("chain: Checked = %d, want 6", res.Checked)
+	}
+	if res.BrokenAt != 0 {
+		t.Errorf("chain: BrokenAt = %d, want 0", res.BrokenAt)
 	}
 }
 
@@ -88,7 +100,9 @@ func TestTamperingIsDetected(t *testing.T) {
 	tamper := func(sql string, args ...any) {
 		c := pgtest.Admin(t)
 		ctx := context.Background()
-		c.Exec(ctx, "SET session_replication_role = replica")
+		if _, err := c.Exec(ctx, "SET session_replication_role = replica"); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := c.Exec(ctx, sql, args...); err != nil {
 			t.Fatal(err)
 		}
@@ -113,8 +127,15 @@ func TestTamperingIsDetected(t *testing.T) {
 		return res
 	}
 	// A range starts from its first event's stored predecessor.
-	if res := ranged(edited.ID, 3, 0); res.BrokenAt != 0 || res.Checked != 2 || res.LastSeq != 4 {
-		t.Fatalf("range after the edit: %+v", res)
+	res := ranged(edited.ID, 3, 0)
+	if res.BrokenAt != 0 {
+		t.Errorf("range after the edit: BrokenAt = %d, want 0", res.BrokenAt)
+	}
+	if res.Checked != 2 {
+		t.Errorf("range after the edit: Checked = %d, want 2", res.Checked)
+	}
+	if res.LastSeq != 4 {
+		t.Errorf("range after the edit: LastSeq = %d, want 4", res.LastSeq)
 	}
 	if res := ranged(edited.ID, 1, 2); res.BrokenAt != 2 {
 		t.Fatalf("range with the edit: %+v", res)
@@ -123,11 +144,19 @@ func TestTamperingIsDetected(t *testing.T) {
 	truncated := pgtest.NewTenant(t)
 	write(truncated, 3)
 	tamper(`DELETE FROM audit.audit_event WHERE tenant_id = $1 AND seq = 3`, truncated.ID)
-	if res := verify(t, pool, truncated.ID); res.BrokenAt != 3 || res.Checked != 2 {
-		t.Fatalf("deleted last event: %+v", res)
+	res = verify(t, pool, truncated.ID)
+	if res.BrokenAt != 3 {
+		t.Errorf("deleted last event: BrokenAt = %d, want 3", res.BrokenAt)
 	}
-	if res := ranged(truncated.ID, 1, 2); res.BrokenAt != 0 || res.LastSeq != 2 {
-		t.Fatalf("range before the deletion: %+v", res)
+	if res.Checked != 2 {
+		t.Errorf("deleted last event: Checked = %d, want 2", res.Checked)
+	}
+	res = ranged(truncated.ID, 1, 2)
+	if res.BrokenAt != 0 {
+		t.Errorf("range before the deletion: BrokenAt = %d, want 0", res.BrokenAt)
+	}
+	if res.LastSeq != 2 {
+		t.Errorf("range before the deletion: LastSeq = %d, want 2", res.LastSeq)
 	}
 	if res := ranged(truncated.ID, 2, 3); res.BrokenAt != 3 {
 		t.Fatalf("range over the deletion: %+v", res)
@@ -171,8 +200,12 @@ func TestConcurrentWritersKeepOneChain(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if res := verify(t, pool, ten.ID); res.Checked != 8 || res.BrokenAt != 0 {
-		t.Fatalf("%+v", res)
+	res := verify(t, pool, ten.ID)
+	if res.Checked != 8 {
+		t.Errorf("Checked = %d, want 8", res.Checked)
+	}
+	if res.BrokenAt != 0 {
+		t.Errorf("BrokenAt = %d, want 0", res.BrokenAt)
 	}
 }
 
@@ -198,14 +231,14 @@ func TestErrors(t *testing.T) {
 		"in a list":     {"items": []any{map[string]any{"ok": 1}, map[string]any{"email": "x"}}},
 		"value in list": {"refs": []any{"GB29NWBK60161331926819"}},
 	} {
-		if field, found := audit.Personal(detail); !found || field == "" {
-			t.Errorf("%s: not found in %v", name, detail)
-		}
-		if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
-			return audit.Write(ctx, tx, actor(ten), "", time.Now(), audit.Entry{Action: "x.y", ObjectType: "x", Outcome: "ok", Detail: detail})
-		}); err == nil || !strings.Contains(err.Error(), "personal data") {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			if field, found := audit.Personal(detail); !found || field == "" {
+				t.Errorf("Personal(%v) = %q, %v; want a field, true", detail, field, found)
+			}
+			pgtest.CheckErr(t, asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+				return audit.Write(ctx, tx, actor(ten), "", time.Now(), audit.Entry{Action: "x.y", ObjectType: "x", Outcome: "ok", Detail: detail})
+			}), "personal data")
+		})
 	}
 	if field, found := audit.Personal(map[string]any{"supplier_id": "0192a000-0000-7000-8000-000000000301", "amount": "12.00", "status": "parked", "number": "BP90000003", "note": "paid @ once"}); found {
 		t.Errorf("identifiers flagged: %s", field)
@@ -227,7 +260,10 @@ func TestErrors(t *testing.T) {
 	pgtest.Exec(t, `CREATE TRIGGER fail_head BEFORE UPDATE ON audit.chain_head FOR EACH ROW EXECUTE FUNCTION public.fail_head()`)
 	t.Cleanup(func() { pgtest.Exec(t, `DROP TRIGGER fail_head ON audit.chain_head`) })
 	if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
-		tx.Exec(ctx, "SELECT set_config('test.fail_tenant', $1, true)", ten.ID.String())
+		// Checked so the injected trigger, not a failed set_config, is what fails the write.
+		if _, err := tx.Exec(ctx, "SELECT set_config('test.fail_tenant', $1, true)", ten.ID.String()); err != nil {
+			t.Fatal(err)
+		}
 		return audit.Write(ctx, tx, actor(ten), "", time.Now(), entry)
 	}); err == nil {
 		t.Fatal("head failure not reported")
@@ -237,5 +273,60 @@ func TestErrors(t *testing.T) {
 	tx.Rollback(context.Background())
 	if _, err := audit.Verify(context.Background(), tx, ten.ID); err == nil {
 		t.Fatal("closed transaction accepted")
+	}
+}
+
+// TestRecord: the events go to the outbox and the entry to the buffer, in
+// the request's transaction; an event outside a request is refused before
+// anything is audited.
+func TestRecord(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	id := uuid.New()
+	t.Run("in a request", func(t *testing.T) {
+		err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+			ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor(ten)))
+			err := audit.Record(ctx, "platform.operation.cancel", "platform.operation", id, map[string]any{"n": 1},
+				outbox.Event{Context: "platform", Name: "operation_completed", AggregateType: "platform.operation", AggregateID: id, Payload: map[string]any{}})
+			if err != nil {
+				return err
+			}
+			if buf.Len() != 1 {
+				t.Errorf("buffered entries: got %d, want 1", buf.Len())
+			}
+			var events int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM platform.outbox WHERE aggregate_id = $1`, id).Scan(&events); err != nil {
+				return err
+			}
+			if events != 1 {
+				t.Errorf("outbox rows: got %d, want 1", events)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("outside a request", func(t *testing.T) {
+		ctx, buf := audit.WithBuffer(context.Background())
+		err := audit.Record(ctx, "platform.operation.cancel", "platform.operation", id, nil, outbox.Event{Context: "platform", Name: "operation_completed"})
+		if !errors.Is(err, outbox.ErrOutsideRequest) {
+			t.Errorf("got %v, want outbox.ErrOutsideRequest", err)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("buffered entries: got %d, want none", buf.Len())
+		}
+	})
+}
+
+// TestObjectTypeOf: the action without its verb; an action without one is
+// its own type.
+func TestObjectTypeOf(t *testing.T) {
+	for action, want := range map[string]string{"payments.payment_run.release": "payments.payment_run", "summary": "summary"} {
+		t.Run(action, func(t *testing.T) {
+			if got := audit.ObjectTypeOf(action); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 }

@@ -53,7 +53,7 @@ func tenantsCmd(ctx context.Context, args []string) error {
 func tenantsFingerprint(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("tenants fingerprint", flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" {
@@ -64,8 +64,7 @@ func tenantsFingerprint(ctx context.Context, args []string) error {
 		return err
 	}
 	t["etag"] = h.Get("ETag")
-	printJSON(t)
-	return nil
+	return printJSON(t)
 }
 
 // control performs one call of the control plane and returns the body and
@@ -87,7 +86,7 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+path, bytes.NewReader(body)) // #nosec G704 -- the operator's own control plane, from settings
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("control plane URL %q: %w", base, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
@@ -96,10 +95,13 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	}
 	resp, err := http.DefaultClient.Do(req) // #nosec G704 -- see above
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("control plane %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil { // an answer cut off is not one that is not JSON
+		return nil, nil, fmt.Errorf("control plane %s %s: read the answer (%d): %w", method, path, resp.StatusCode, err)
+	}
 	var m map[string]any
 	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {
 		return nil, nil, fmt.Errorf("the control plane answered %d with a body that is not JSON: is the URL its admin listener?", resp.StatusCode)
@@ -110,9 +112,10 @@ func operatorCall(ctx context.Context, base, path, method string, body []byte, h
 	return m, resp.Header, nil
 }
 
-func printJSON(v any) {
+// printJSON prints an answer as indented JSON; the error is a failed write.
+func printJSON(v any) error {
 	b, _ := json.MarshalIndent(v, "", "  ") // decoded JSON always encodes
-	fmt.Fprintln(out, string(b))
+	return printf("answer", "%s\n", b)
 }
 
 func tenantsList(ctx context.Context, args []string) error {
@@ -121,7 +124,7 @@ func tenantsList(ctx context.Context, args []string) error {
 	orderBy := fs.String("order-by", "", `sort order: "created_at desc" (default) or "name asc"`)
 	size := fs.Int("page-size", 0, "tenants per page (default 50, max 500)")
 	token := fs.String("page-token", "", "next_page_token of the previous page")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	q := url.Values{}
@@ -141,14 +144,13 @@ func tenantsList(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(page)
-	return nil
+	return printJSON(page)
 }
 
 func tenantsGet(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("tenants get", flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" {
@@ -159,8 +161,7 @@ func tenantsGet(ctx context.Context, args []string) error {
 		return err
 	}
 	t["etag"] = h.Get("ETag")
-	printJSON(t)
-	return nil
+	return printJSON(t)
 }
 
 func tenantsCreate(ctx context.Context, args []string) error {
@@ -173,7 +174,7 @@ func tenantsCreate(ctx context.Context, args []string) error {
 	email := fs.String("admin-email", "", "the administrator's email (optional)")
 	file := fs.String("config", "", "the first configuration (YAML; erp config generate writes one)")
 	key := fs.String("idempotency-key", "", "Idempotency-Key of the request (default: a new UUID; reuse it to retry safely)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *file == "" {
@@ -187,6 +188,7 @@ func tenantsCreate(ctx context.Context, args []string) error {
 	if *email != "" {
 		admin["email"] = *email
 	}
+	// Strings and a parsed configuration (JSON-safe types only) always encode.
 	body, _ := json.Marshal(map[string]any{"name": *name, "region": *region, "group_currency": *currency, "administrator": admin, "configuration": doc})
 	if *key == "" {
 		*key = uuid.NewString()
@@ -198,15 +200,14 @@ func tenantsCreate(ctx context.Context, args []string) error {
 	if h.Get("Idempotent-Replayed") == "true" {
 		fmt.Fprintln(errOut, "replayed: this Idempotency-Key already provisioned the tenant")
 	}
-	printJSON(created)
-	return nil
+	return printJSON(created)
 }
 
 func tenantsTransition(ctx context.Context, verb string, args []string) error {
 	fs := flag.NewFlagSet("tenants "+verb, flag.ContinueOnError)
 	id := fs.String("id", "", "tenant id")
 	ifMatch := fs.String("if-match", "", "the tenant's ETag (default: read it first)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *id == "" {
@@ -227,6 +228,5 @@ func tenantsTransition(ctx context.Context, verb string, args []string) error {
 	if err != nil {
 		return err
 	}
-	printJSON(t)
-	return nil
+	return printJSON(t)
 }

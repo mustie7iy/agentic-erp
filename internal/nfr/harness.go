@@ -3,6 +3,7 @@ package nfr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,11 +19,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -57,7 +58,7 @@ type Options struct {
 type Stack struct {
 	T       testing.TB
 	Env     fixture.Env
-	Config  httpapi.Config
+	Config  app.Config
 	Server  *httptest.Server
 	Pool    *database.Pool
 	Metrics *telemetry.Metrics
@@ -90,29 +91,47 @@ type Posted struct {
 }
 
 // Start builds and starts a stack.
-func Start(t testing.TB, o Options) *Stack {
-	t.Helper()
+func Start(tb testing.TB, o Options) *Stack {
+	tb.Helper()
 	if o.Users <= 0 {
 		o.Users = 8
 	}
-	s := &Stack{T: t, Metrics: telemetry.NewMetrics()}
-	s.Env = fixture.New(t, Permissions...)
-	s.Env.API = apitest.NewWith(t, func(c *httpapi.Config) {
+	s := &Stack{T: tb, Metrics: telemetry.NewMetrics()}
+	s.Env = fixture.New(tb, Permissions...)
+	s.Env.API = apitest.NewWith(tb, func(c *app.Config) {
 		c.Limits, c.RequestTimeout, c.Metrics = o.Limits, o.Timeout, s.Metrics
 		s.Config = *c
 	})
-	s.Env.Client.API = s.Env.API
-	s.Pool = pgtest.Pool(t)
-	s.admin = pgtest.Admin(t)
-	s.Expense, s.Bank, s.Office = s.Env.Account(t, "2000", "520000"), s.Env.Account(t, "2000", "100000"), s.Env.Account(t, "2000", "510000")
+	s.Pool = pgtest.Pool(tb)
+	s.admin = pgtest.Admin(tb)
+	s.Expense, s.Bank, s.Office = s.Env.Account(tb, "2000", "520000"), s.Env.Account(tb, "2000", "100000"), s.Env.Account(tb, "2000", "510000")
 	for i := range o.Users {
-		s.Users = append(s.Users, &User{s: s, Actor: s.Env.Person(t, fmt.Sprintf("user%03d", i)), n: i})
+		s.Users = append(s.Users, &User{s: s, Actor: s.Env.Person(tb, fmt.Sprintf("user%03d", i)), n: i})
+	}
+	if o.Events && o.Publisher == nil {
+		// Before Stop is registered, so its cleanup (stopping the NATS server)
+		// runs after Stop has stopped the relay, as cleanups run last first;
+		// and before the API server is made (it listens from then on), which
+		// only Stop closes, so a NATS server that fails to start leaves
+		// nothing listening.
+		s.NATS = newRestartable(tb)
 	}
 	s.Server = httptest.NewUnstartedServer(s.Env.API.Handler)
 	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
 	s.Server.Start()
 	s.Client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 4 * o.Users, MaxIdleConnsPerHost: 4 * o.Users}}
+	// Before the workers start: a start that fails half way (tb.Fatal) still
+	// stops the server and whatever workers did start.
+	tb.Cleanup(s.Stop)
+	s.startWorkers(tb, o)
+	return s
+}
 
+// startWorkers starts the stack's projector and, with Events, its outbox
+// relay to NATS (a restartable test server unless the options bring a
+// publisher); Stop stops them.
+func (s *Stack) startWorkers(tb testing.TB, o Options) {
+	tb.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	log := telemetry.NewLogger(io.Discard, 0)
@@ -124,25 +143,33 @@ func Start(t testing.TB, o Options) *Stack {
 	if o.Events {
 		publisher := o.Publisher
 		if publisher == nil {
-			s.NATS = natstest.NewRestartable(t)
 			bus, err := natsbus.Connect(s.NATS.URL)
 			if err != nil {
-				t.Fatal(err)
+				tb.Fatal(err)
 			}
-			if err := bus.EnsureStreams(ctx, Cell); err != nil {
-				t.Fatal(err)
+			s.Bus, publisher = bus, bus // set before the streams, so Stop closes it if they fail
+			if err := ensureStreams(bus, ctx, Cell); err != nil {
+				tb.Fatal(err)
 			}
-			s.Bus, publisher = bus, bus
 		}
 		s.Relay = &outbox.Relay{Pool: s.Pool, Role: "erp_relay", Publisher: publisher, Cell: Cell, Interval: 100 * time.Millisecond, Log: log}
 		s.workers.Add(1)
 		go func() { defer s.workers.Done(); s.Relay.Run(ctx) }()
 	}
-	t.Cleanup(s.Stop)
-	return s
 }
 
-// Stop stops the server, then the workers.
+// newRestartable starts the stack's NATS server; tests replace it to fail
+// the start.
+var newRestartable = natstest.NewRestartable
+
+// ensureStreams makes the stack's streams on its bus; tests replace it to
+// fail the start.
+var ensureStreams = (*natsbus.Bus).EnsureStreams
+
+// Stop stops the server, then the workers; it also ends a stack whose start
+// failed before every worker was running (the workers' context is made
+// before anything in startWorkers can fail, and the bus is closed when it
+// was connected).
 func (s *Stack) Stop() {
 	s.Server.Close()
 	s.cancel()
@@ -151,7 +178,7 @@ func (s *Stack) Stop() {
 		s.Bus.Close()
 		s.Bus = nil
 	}
-	s.admin.Close(context.Background())
+	_ = s.admin.Close(context.Background()) // teardown of a fixture connection: the suite is over and closing loses nothing
 }
 
 // Token is a bearer token of the actor, refreshed every 30 minutes (the
@@ -186,10 +213,14 @@ type Result struct {
 // OK reports a 2xx answer.
 func (r Result) OK() bool { return r.Err == nil && r.Status >= 200 && r.Status < 300 }
 
+// String is the answer for a failure message. A message formats a pointer to
+// a Result when the call fails, so it shows the answer last seen.
+func (r Result) String() string { return fmt.Sprintf("%d %v %s", r.Status, r.Err, r.Body) }
+
 // JSON decodes the body; it is nil when the body is not an object.
 func (r Result) JSON() map[string]any {
 	var m map[string]any
-	_ = json.Unmarshal(r.Body, &m)
+	_ = json.Unmarshal(r.Body, &m) // a body that is not an object leaves m nil, as documented
 	return m
 }
 
@@ -217,14 +248,18 @@ func (s *Stack) Call(ctx context.Context, r Req) Result {
 	if err != nil {
 		return Result{Took: time.Since(start), Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	body, err := io.ReadAll(resp.Body)
 	res := Result{Status: resp.StatusCode, Body: body, ETag: resp.Header.Get("ETag"), Took: time.Since(start), Err: err}
 	if err == nil && len(body) > 0 && !json.Valid(body) {
-		res.Err = fmt.Errorf("%s %s: %d with a body that is not JSON (%d bytes)", r.Method, r.Path, resp.StatusCode, len(body))
+		res.Err = fmt.Errorf("%s %s: %d with a %w (%d bytes)", r.Method, r.Path, resp.StatusCode, errNotJSON, len(body))
 	}
 	return res
 }
+
+// errNotJSON marks a complete answer whose body is not JSON, as opposed to
+// one whose body could not be read.
+var errNotJSON = errors.New("body that is not JSON")
 
 // Must performs a request that has to succeed.
 func (s *Stack) Must(ctx context.Context, r Req) Result {
@@ -319,6 +354,43 @@ func (s *Stack) Drain(timeout time.Duration) error {
 	}
 }
 
+// created sorts the posts answered 201: the ids of those whose answer was
+// read, the keys of those whose body was cut off (the run ended while it was
+// read, so the id is unknown but the key is the entry's reference), and a
+// problem for each complete answer that carries no id.
+func (s *Stack) created() (ids []uuid.UUID, keys, problems []string) {
+	for _, p := range s.Posted() {
+		if p.Status != http.StatusCreated {
+			continue
+		}
+		if p.Err != nil && !errors.Is(p.Err, errNotJSON) {
+			keys = append(keys, p.Key)
+			continue
+		}
+		id, err := uuid.Parse(p.ID)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("an entry answered 201 without a readable id (%q)", p.ID))
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, keys, problems
+}
+
+// missing checks the database alone that every post answered 201 is in the
+// journal: by id when the answer was read, by its key (the reference) when
+// the body was cut off. It returns the problems found.
+func (s *Stack) missing() []string {
+	ten := s.Env.Tenant.ID
+	ids, keys, problems := s.created()
+	if n := s.Count(`SELECT count(*) FROM unnest($2::uuid[]) AS c(id) WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.id = c.id)`,
+		ten, ids) + s.Count(`SELECT count(*) FROM unnest($2::text[]) AS c(reference)
+			WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.reference = c.reference)`, ten, keys); n > 0 {
+		problems = append(problems, fmt.Sprintf("%d entries answered 201 are not in the journal", n))
+	}
+	return problems
+}
+
 // Consistent checks the ledger after a run: every reference posted exactly
 // once, every entry the users were told about present, the projected
 // balances equal to the journal, and the audit chain intact.
@@ -329,22 +401,7 @@ func (s *Stack) Consistent(ctx context.Context) error {
 		GROUP BY reference HAVING count(*) > 1) d`, ten); n > 0 {
 		errs = append(errs, fmt.Sprintf("%d references posted more than once", n))
 	}
-	var created []uuid.UUID
-	for _, p := range s.Posted() {
-		if p.Status != http.StatusCreated {
-			continue
-		}
-		id, err := uuid.Parse(p.ID)
-		if err != nil { // a 201 whose body was lost with the connection: counted, not fatal to the check
-			errs = append(errs, fmt.Sprintf("an entry answered 201 without a readable id (%q)", p.ID))
-			continue
-		}
-		created = append(created, id)
-	}
-	if missing := s.Count(`SELECT count(*) FROM unnest($2::uuid[]) AS c(id) WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.id = c.id)`,
-		ten, created); missing > 0 {
-		errs = append(errs, fmt.Sprintf("%d entries answered 201 are not in the journal", missing))
-	}
+	errs = append(errs, s.missing()...)
 	if s.Projector != nil {
 		if n := s.Count(`SELECT count(*) FROM (
 			SELECT legal_entity_id, account_id, fiscal_period, sum(greatest(amount_lc, 0)) AS debit, sum(greatest(-amount_lc, 0)) AS credit
@@ -477,7 +534,7 @@ func (u *User) approve(ctx context.Context, st *Stats) {
 		return
 	}
 	req := items[0].(map[string]any)
-	version, _ := json.Marshal(req["version"])
+	version, _ := json.Marshal(req["version"]) // a value decoded from JSON always encodes
 	st.Add("approve", s.Call(ctx, Req{Method: "POST", Path: "/v1/approval-requests/" + req["id"].(string) + ":approve", Body: `{"comment": "ok"}`,
 		As: approver, IfMatch: `"` + string(version) + `"`}))
 }
@@ -614,6 +671,12 @@ func (st *Stats) Failures() map[string]int {
 	return out
 }
 
+// String sums the run up for a failure message: a message formats it when
+// the check fails, so it shows the run as it was then.
+func (st *Stats) String() string {
+	return fmt.Sprintf("%d posts answered, failures %v %v", st.Count("post"), st.Failures(), st.Errors())
+}
+
 // Errors are the first failures seen.
 func (st *Stats) Errors() []string {
 	st.mu.Lock()
@@ -622,8 +685,8 @@ func (st *Stats) Errors() []string {
 }
 
 // Report logs a table of the run.
-func (st *Stats) Report(t testing.TB, title string) {
-	t.Helper()
+func (st *Stats) Report(tb testing.TB, title string) {
+	tb.Helper()
 	elapsed := time.Since(st.started)
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %d requests in %v (%.0f/s)\n", title, st.Total(), elapsed.Round(time.Millisecond), float64(st.Total())/elapsed.Seconds())
@@ -645,24 +708,24 @@ func (st *Stats) Report(t testing.TB, title string) {
 			fmt.Fprintf(&b, "    %s\n", e)
 		}
 	}
-	t.Log(b.String())
+	tb.Log(b.String())
 }
 
 // CheckBudgets fails the test for every operation over its p95 or p99
 // budget, and for any failed request.
-func (st *Stats) CheckBudgets(t testing.TB) {
-	t.Helper()
+func (st *Stats) CheckBudgets(tb testing.TB) {
+	tb.Helper()
 	for op, b := range Budgets {
 		if st.Count(op) == 0 {
-			t.Errorf("%s: no samples", op)
+			tb.Errorf("%s: no samples", op)
 			continue
 		}
 		if p95, p99 := st.Percentile(op, 95), st.Percentile(op, 99); p95 > Budget(b[0]) || p99 > Budget(b[1]) {
-			t.Errorf("%s: p95 %v (budget %v), p99 %v (budget %v)", op, p95.Round(time.Millisecond), Budget(b[0]), p99.Round(time.Millisecond), Budget(b[1]))
+			tb.Errorf("%s: p95 %v (budget %v), p99 %v (budget %v)", op, p95.Round(time.Millisecond), Budget(b[0]), p99.Round(time.Millisecond), Budget(b[1]))
 		}
 	}
 	if f := st.Failures(); len(f) > 0 {
-		t.Errorf("failed requests: %v\n%s", f, strings.Join(st.Errors(), "\n"))
+		tb.Errorf("failed requests: %v\n%s", f, strings.Join(st.Errors(), "\n"))
 	}
 }
 
@@ -678,6 +741,7 @@ func Setting(name string, def time.Duration) time.Duration {
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
+		//nolint:forbidigo // test support read in a suite's setup: a malformed knob is the operator's mistake and stops the run before it measures anything
 		panic(fmt.Sprintf("%s=%q: want a duration such as 30s or a number", name, v))
 	}
 	return time.Duration(n)
@@ -695,6 +759,7 @@ func BudgetScale() float64 {
 	}
 	f, err := strconv.ParseFloat(v, 64)
 	if err != nil || f <= 0 {
+		//nolint:forbidigo // test support read by the suites' budgets: a malformed scale is the operator's mistake and stops the run rather than judge latencies by it
 		panic(fmt.Sprintf("ERP_BUDGET_SCALE=%q: want a positive number such as 4", v))
 	}
 	return f
@@ -709,4 +774,7 @@ func Budget(d time.Duration) time.Duration {
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
 // natstestServer starts an embedded JetStream server for a test.
-func natstestServer(t testing.TB) string { return natstest.Server(t) }
+func natstestServer(tb testing.TB) string {
+	tb.Helper()
+	return natstest.Server(tb)
+}

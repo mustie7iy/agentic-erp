@@ -15,6 +15,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -65,16 +67,16 @@ type Entry struct {
 
 // Line is one journal line.
 type Line struct {
-	LineNo    int32      `json:"line_no"`
-	AccountID uuid.UUID  `json:"account_id"`
-	TC        int64      `json:"tc"`
-	LC        int64      `json:"lc"`
-	GC        int64      `json:"gc"`
-	PartnerID *uuid.UUID `json:"partner_id"`
-	TaxCode   *string    `json:"tax_code"`
-	Quantity  *string    `json:"quantity"`
-	Unit      *string    `json:"unit"`
-	Text      *string    `json:"text"`
+	LineNo    int32       `json:"line_no"`
+	AccountID uuid.UUID   `json:"account_id"`
+	TC        money.Minor `json:"tc"`
+	LC        money.Minor `json:"lc"`
+	GC        money.Minor `json:"gc"`
+	PartnerID *uuid.UUID  `json:"partner_id"`
+	TaxCode   *string     `json:"tax_code"`
+	Quantity  *string     `json:"quantity"`
+	Unit      *string     `json:"unit"`
+	Text      *string     `json:"text"`
 }
 
 const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
@@ -93,10 +95,10 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year,
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
-	err := row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
+	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
 		&e.DocumentDate, &e.PostingDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
 		&e.Reference, &e.HeaderText, &e.SourceContext, &e.SourceDocumentID, &e.ReversalOfID, &e.ReversalOfYear, &e.ReversedByID,
-		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines)
+		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines), "scan journal entry")
 	return e, err
 }
 
@@ -107,10 +109,10 @@ func getEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Entry, error) {
 		return Entry{}, err
 	}
 	e, err := scanEntry(tx.QueryRow(ctx, entrySelect+` WHERE e.id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(e.LegalEntityID)) {
-		return Entry{}, problem.NotFound("No journal entry with this id.")
+	if err = authz.Visible(err, access, e.LegalEntityID, problem.NotFoundOf("journal entry"), "ledger: read journal entry %s", id); err != nil {
+		return Entry{}, err
 	}
-	return e, err
+	return e, nil
 }
 
 // GetEntry returns a journal entry.
@@ -142,33 +144,42 @@ type draft struct {
 	lines            []Line
 }
 
-// postingPeriod finds the open posting period of the posting date.
+// postingPeriod finds the open posting period of the posting date and
+// holds its status row FOR SHARE until the transaction ends. A close locks
+// the row FOR UPDATE (changePeriod), so a posting waits for a close under
+// way and then reads the committed status, and a close waits for the
+// postings under way: no entry lands in a period whose close committed
+// first. The lock comes after the entry buckets and before the number range
+// (03-data-model, entry locks); a close takes nothing else, so no cycle.
 func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgerID uuid.UUID, date time.Time) (int16, int16, error) {
 	var year, number int16
-	var status *string
-	err := tx.QueryRow(ctx, `SELECT f.fiscal_year, f.period, s.status FROM ledger.fiscal_period f
-		LEFT JOIN ledger.period_status s ON s.tenant_id = f.tenant_id AND s.legal_entity_id = $2 AND s.ledger_id = $3
-			AND s.fiscal_year = f.fiscal_year AND s.period = f.period
-		WHERE f.calendar_id = $1 AND NOT f.is_special AND $4 BETWEEN f.start_date AND f.end_date`,
-		e.FiscalCalendarID, e.ID, ledgerID, date).Scan(&year, &number, &status)
+	var status string
 	day := date.Format(time.DateOnly)
+	err := tx.QueryRow(ctx, `SELECT fiscal_year, period FROM ledger.fiscal_period
+		WHERE calendar_id = $1 AND NOT is_special AND $2 BETWEEN start_date AND end_date`,
+		e.FiscalCalendarID, date).Scan(&year, &number)
+	if err == nil {
+		// A query of its own: FOR SHARE cannot lock the nullable side of an outer join.
+		err = tx.QueryRow(ctx, `SELECT status FROM ledger.period_status
+			WHERE legal_entity_id = $1 AND ledger_id = $2 AND fiscal_year = $3 AND period = $4 FOR SHARE`,
+			e.ID, ledgerID, year, number).Scan(&status)
+	}
 	switch {
-	case errors.Is(err, pgx.ErrNoRows) || (err == nil && status == nil):
+	case errors.Is(err, pgx.ErrNoRows):
 		return 0, 0, problem.Unprocessable("ledger.no_fiscal_period", "No fiscal period of the legal entity covers "+day+
 			"; a fiscal year is set up by a number range for it in the configuration.",
 			problem.FieldError{Field: "posting_date", Code: "no_fiscal_period", Message: "a date in a fiscal year that is set up"})
 	case err != nil:
-		return 0, 0, err
-	case *status != Open:
-		return 0, 0, problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; postings dated %s need it open.", year, number, *status, day))
+		return 0, 0, fmt.Errorf("ledger: posting period of %s on %s: %w", e.ID, day, err)
+	case status != Open:
+		return 0, 0, problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; postings dated %s need it open.", year, number, status, day))
 	}
 	return year, number, nil
 }
 
 // post inserts a balanced entry with its lines, publishes JournalEntryPosted
 // and queues the entry for the balance projector.
-func (e *Endpoints) post(ctx context.Context, d draft) (Entry, error) {
-	tx, p, _ := reqctx.Request(ctx) // callers run in a request
+func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft) (Entry, error) {
 	year, number, err := postingPeriod(ctx, tx, d.entity, d.ledgerID, d.postingDate)
 	if err != nil {
 		return Entry{}, err
@@ -190,11 +201,11 @@ func (e *Endpoints) post(ctx context.Context, d draft) (Entry, error) {
 		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.documentType, docNumber, d.documentDate, d.postingDate,
 		d.currencyTC, d.currencyLC, d.currencyGC, d.rateTCLC, d.rateLCGC, d.reference, d.headerText, d.sourceContext, d.sourceDocumentID,
 		reversalOf, reversalYear, p.ID); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: post entry %s: %w", id, err)
 	}
 	n := len(d.lines)
 	nos, accounts, partners := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n)
-	tcs, lcs, gcs := make([]int64, n), make([]int64, n), make([]int64, n)
+	tcs, lcs, gcs := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
 	for i, l := range d.lines {
 		nos[i], accounts[i], partners[i] = int32(i+1), l.AccountID, l.PartnerID
@@ -208,7 +219,7 @@ func (e *Endpoints) post(ctx context.Context, d draft) (Entry, error) {
 			AS x(n, a, tc, lc, gc, pa, tx, q, u, t)`,
 		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.postingDate, nos, accounts, tcs, lcs, gcs, partners,
 		taxes, quantities, units, texts); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", id, err)
 	}
 	posted, err := getEntry(ctx, tx, id)
 	if err != nil {
@@ -220,7 +231,7 @@ func (e *Endpoints) post(ctx context.Context, d draft) (Entry, error) {
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.balance_projection (tenant_id, event_id, fiscal_year, journal_entry_id) VALUES ($1, $2, $3, $4)`,
 		p.TenantID, event, year, id); err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: post entry %s: queue projection: %w", id, err)
 	}
 	return posted, nil
 }
@@ -229,8 +240,8 @@ func postedEvent(e Entry) outbox.Event {
 	lines := make([]map[string]any, len(e.Lines))
 	for i, l := range e.Lines {
 		line := map[string]any{"line_no": l.LineNo, "account_id": l.AccountID, "partner_id": l.PartnerID, "tax_code": l.TaxCode,
-			"amount_tc": amount(l.TC, e.CurrencyTC, e.ExpTC), "amount_lc": amount(l.LC, e.CurrencyLC, e.ExpLC),
-			"amount_gc": amount(l.GC, e.CurrencyGC, e.ExpGC)}
+			"amount_tc": money.EventAmount(l.TC, e.CurrencyTC, e.ExpTC), "amount_lc": money.EventAmount(l.LC, e.CurrencyLC, e.ExpLC),
+			"amount_gc": money.EventAmount(l.GC, e.CurrencyGC, e.ExpGC)}
 		if l.Quantity != nil {
 			line["quantity"] = map[string]any{"value": *l.Quantity, "unit": *l.Unit}
 		}
@@ -245,10 +256,6 @@ func postedEvent(e Entry) outbox.Event {
 			"source_context": e.SourceContext, "source_document_id": e.SourceDocumentID, "reversal_of_id": e.ReversalOfID,
 			"reversal_of_year": e.ReversalOfYear, "lines": lines,
 		}}
-}
-
-func amount(minor int64, currency string, exp int) map[string]string {
-	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
 }
 
 // NewLine is a line of a manual entry, in transaction currency.
@@ -286,14 +293,11 @@ func (e *Endpoints) legalEntity(ctx context.Context, id uuid.UUID, field string)
 	if err != nil {
 		return tenancy.Entity{}, err
 	}
-	le, ok, err := e.LegalEntities.Entity(ctx, id)
-	switch {
-	case err != nil:
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, id, field)
+	if err != nil {
 		return tenancy.Entity{}, err
-	case !ok || !access.Allows(id):
-		return tenancy.Entity{}, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-			problem.FieldError{Field: field, Code: "not_found", Message: "no legal entity with this id that you can access"})
-	case le.Status != "active":
+	}
+	if le.Status != "active" {
 		return tenancy.Entity{}, problem.Unprocessable("ledger.legal_entity_not_active", "The legal entity is "+le.Status+"; postings need it active.",
 			problem.FieldError{Field: field, Code: "not_active", Message: "an active legal entity"})
 	}
@@ -313,17 +317,19 @@ func ledgerID(ctx context.Context, tx pgx.Tx, requested *uuid.UUID) (uuid.UUID, 
 		return id, problem.Unprocessable("ledger.unknown_ledger", "No such ledger; the leading ledger is created with the tenant's first configuration.",
 			problem.FieldError{Field: "ledger_id", Code: "not_found", Message: "a ledger of the tenant"})
 	}
-	return id, err
+	if err != nil {
+		return id, fmt.Errorf("ledger: resolve ledger: %w", err)
+	}
+	return id, nil
 }
 
 // exponents returns the minor-unit digits of the currencies.
-func exponents(ctx context.Context, tx pgx.Tx, codes ...string) (map[string]int, error) {
-	rows, _ := tx.Query(ctx, `SELECT code, exponent FROM ref.currency WHERE code = ANY($1)`, codes)
-	out := map[string]int{}
-	var code string
-	var exp int
-	_, err := pgx.ForEachRow(rows, []any{&code, &exp}, func() error { out[code] = exp; return nil })
-	return out, err
+func exponents(ctx context.Context, tx pgx.Tx, codes ...string) (currency.Exponents, error) {
+	out, err := currency.LoadCodes(ctx, tx, codes...)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: currency exponents %v: %w", codes, err)
+	}
+	return out, nil
 }
 
 // account is what a posting needs to know about an account in a legal entity.
@@ -337,17 +343,8 @@ type account struct {
 // entity, and partners exactly on reconciliation accounts. withPartners
 // asks the partner context whether each partner may be posted to.
 func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line, withPartners bool) error {
-	ids := make([]uuid.UUID, len(lines))
-	for i, l := range lines {
-		ids[i] = l.AccountID
-	}
-	rows, _ := tx.Query(ctx, `SELECT a.id, a.reconciliation_kind, a.status, ca.account_id IS NOT NULL, coalesce(ca.is_posting_blocked, false)
-		FROM ledger.gl_account a LEFT JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $2
-		WHERE a.id = ANY($1)`, ids, le)
-	accounts := map[uuid.UUID]account{}
-	var id uuid.UUID
-	var a account
-	if _, err := pgx.ForEachRow(rows, []any{&id, &a.kind, &a.status, &a.set, &a.blocked}, func() error { accounts[id] = a; return nil }); err != nil {
+	accounts, err := lineAccounts(ctx, tx, le, lines)
+	if err != nil {
 		return err
 	}
 	type partnerKey struct {
@@ -358,20 +355,8 @@ func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, 
 	for i, l := range lines {
 		field := fmt.Sprintf("lines[%d]", i)
 		a, ok := accounts[l.AccountID]
-		reason := ""
-		switch {
-		case !ok:
-			reason = "there is no account with this id"
-		case !a.set:
-			reason = "the account is not set up in this legal entity"
-		case a.status != "active":
-			reason = "the account is " + a.status
-		case a.blocked:
-			reason = "the account is blocked for posting in this legal entity"
-		}
-		if reason != "" {
-			return problem.Unprocessable("ledger.account_not_postable", "Line "+fmt.Sprint(i+1)+": "+reason+".",
-				problem.FieldError{Field: field + ".account_id", Code: "not_postable", Message: reason})
+		if err := requirePostable(i, field, a, ok); err != nil {
+			return err
 		}
 		recon := a.kind == "supplier" || a.kind == "customer"
 		switch {
@@ -397,6 +382,46 @@ func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, 
 	return nil
 }
 
+// lineAccounts reads the accounts the lines post to, with their settings
+// in the legal entity.
+func lineAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line) (map[uuid.UUID]account, error) {
+	ids := make([]uuid.UUID, len(lines))
+	for i, l := range lines {
+		ids[i] = l.AccountID
+	}
+	rows, _ := tx.Query(ctx, `SELECT a.id, a.reconciliation_kind, a.status, ca.account_id IS NOT NULL, coalesce(ca.is_posting_blocked, false)
+		FROM ledger.gl_account a LEFT JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $2
+		WHERE a.id = ANY($1)`, ids, le)
+	accounts := map[uuid.UUID]account{}
+	var id uuid.UUID
+	var a account
+	if _, err := pgx.ForEachRow(rows, []any{&id, &a.kind, &a.status, &a.set, &a.blocked}, func() error { accounts[id] = a; return nil }); err != nil {
+		return nil, fmt.Errorf("ledger: check accounts in %s: %w", le, err)
+	}
+	return accounts, nil
+}
+
+// requirePostable rejects line i when its account does not exist, is not
+// set up in the legal entity, is inactive or is blocked for posting.
+func requirePostable(i int, field string, a account, ok bool) error {
+	reason := ""
+	switch {
+	case !ok:
+		reason = "there is no account with this id"
+	case !a.set:
+		reason = "the account is not set up in this legal entity"
+	case a.status != "active":
+		reason = "the account is " + a.status
+	case a.blocked:
+		reason = "the account is blocked for posting in this legal entity"
+	}
+	if reason != "" {
+		return problem.Unprocessable("ledger.account_not_postable", "Line "+fmt.Sprint(i+1)+": "+reason+".",
+			problem.FieldError{Field: field + ".account_id", Code: "not_postable", Message: reason})
+	}
+	return nil
+}
+
 // checkTaxCodes requires every tax code to be valid in the legal entity on
 // the posting date.
 func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line) error {
@@ -412,7 +437,7 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 	var missing *string
 	if err := tx.QueryRow(ctx, `SELECT min(c) FROM unnest($1::text[]) AS c WHERE NOT EXISTS (SELECT FROM ledger.tax_code t
 		WHERE t.legal_entity_id = $2 AND t.code = c AND t.valid_from <= $3 AND (t.valid_to IS NULL OR t.valid_to > $3))`, codes, le, date).Scan(&missing); err != nil {
-		return err
+		return fmt.Errorf("ledger: check tax codes in %s: %w", le, err)
 	}
 	if missing != nil {
 		return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+*missing+" is not valid in this legal entity on the posting date.",
@@ -421,85 +446,119 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 	return nil
 }
 
+// exchange is a rate from one currency to another. exact is what amounts
+// are converted at: the recorded rate, or the exact reciprocal of the
+// reverse pair's. shown is the same rate rounded to the 12 decimals of
+// numeric(28,12), what a journal entry records and people read. Converting
+// at shown instead, as before F19, moved amounts by a minor unit or more
+// (3,000,000,000,000.02 at 1/3) and, for a recorded rate above 2e12 whose
+// rounded reciprocal is 0, converted every amount to 0.
+type exchange struct {
+	exact *big.Rat
+	shown string
+}
+
 // rate is the average rate from one currency to another valid on the date:
-// the latest rate of the pair in either direction, inverted when only the
-// reverse pair is maintained.
-func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (string, error) {
+// the latest rate of the pair in either direction, its reciprocal when
+// only the reverse pair is maintained.
+func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (exchange, error) {
 	if from == to {
-		return "1", nil
+		return exchange{exact: big.NewRat(1, 1), shown: "1"}, nil
 	}
-	var r string
-	err := tx.QueryRow(ctx, `SELECT CASE WHEN from_currency = $1 THEN rate ELSE round(1 / rate, 12) END::text
+	var recorded, shown string
+	var forward bool
+	err := tx.QueryRow(ctx, `SELECT rate::text, from_currency = $1, CASE WHEN from_currency = $1 THEN rate ELSE round(1 / rate, 12) END::text
 		FROM ledger.exchange_rate WHERE rate_type = 'average' AND valid_from <= $3
 			AND ((from_currency = $1 AND to_currency = $2) OR (from_currency = $2 AND to_currency = $1))
-		ORDER BY valid_from DESC, from_currency = $1 DESC LIMIT 1`, from, to, date).Scan(&r)
+		ORDER BY valid_from DESC, from_currency = $1 DESC LIMIT 1`, from, to, date).Scan(&recorded, &forward, &shown)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", problem.Unprocessable("ledger.no_exchange_rate",
+		return exchange{}, problem.Unprocessable("ledger.no_exchange_rate",
 			fmt.Sprintf("No average exchange rate from %s to %s is valid on %s.", from, to, date.Format(time.DateOnly)),
 			problem.FieldError{Field: "posting_date", Code: "no_exchange_rate", Message: "record the rate first"})
 	}
-	return r, err
+	if err != nil {
+		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: %w", from, to, date.Format(time.DateOnly), err)
+	}
+	// Read in money's plain grammar: the column's rate > 0 check lets 'NaN'
+	// through, which CreateRate never stores but a direct write could.
+	exact, err := money.ParsePlain(recorded)
+	if err != nil || exact.Sign() <= 0 {
+		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: stored rate %q is not a positive decimal", from, to, date.Format(time.DateOnly), recorded)
+	}
+	x := exchange{exact: exact, shown: shown}
+	if !forward {
+		x.exact.Inv(x.exact) // never zero: checked above
+	}
+	return x, nil
+}
+
+// postingRates are the rates a posting converts at, from its transaction
+// currency to the local one and from that to the group's. A rate whose
+// 12-decimal form is zero, the reciprocal of a recorded rate above 2e12,
+// cannot be recorded on the entry, so the posting is refused (F19).
+func postingRates(ctx context.Context, tx pgx.Tx, tc, lc, gc string, date time.Time) (toLC, toGC exchange, err error) {
+	if toLC, err = rate(ctx, tx, tc, lc, date); err != nil {
+		return exchange{}, exchange{}, err
+	}
+	if toGC, err = rate(ctx, tx, lc, gc, date); err != nil {
+		return exchange{}, exchange{}, err
+	}
+	for _, r := range []struct {
+		x        exchange
+		from, to string
+	}{{toLC, tc, lc}, {toGC, lc, gc}} {
+		if money.ParseRat(r.x.shown).Sign() == 0 {
+			return exchange{}, exchange{}, problem.Unprocessable("ledger.rate_not_recordable",
+				fmt.Sprintf("The average rate from %s to %s, the reciprocal of the recorded %s/%s rate, is zero to the 12 decimals a journal entry records.",
+					r.from, r.to, r.to, r.from),
+				problem.FieldError{Field: "currency", Code: "rate_not_recordable", Message: "record a " + r.from + "/" + r.to + " rate"})
+		}
+	}
+	return toLC, toGC, nil
 }
 
 var errTooLarge = problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")
 
-// convert translates minor units at the rate, rounding half away from zero.
-func convert(minor int64, r string, fromExp, toExp int) (int64, error) {
-	rat, _ := new(big.Rat).SetString(r) // rates come from numeric columns
-	v := new(big.Rat).Mul(new(big.Rat).SetInt64(minor), rat)
-	scale := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(abs(toExp-fromExp))), nil))
-	if toExp > fromExp {
-		v.Mul(v, scale)
-	} else {
-		v.Quo(v, scale)
-	}
-	num, den := new(big.Int).Abs(v.Num()), v.Denom()
-	q, m := new(big.Int).QuoRem(num, den, new(big.Int))
-	if m.Mul(m, big.NewInt(2)).Cmp(den) >= 0 {
-		q.Add(q, big.NewInt(1))
-	}
-	if v.Sign() < 0 {
-		q.Neg(q)
-	}
-	if !q.IsInt64() {
-		return 0, errTooLarge
-	}
-	return q.Int64(), nil
+// errTotalTooLarge refuses amounts whose total is out of the range of a
+// posted amount (money.ErrOverflow): checked here, it is a refusal of the
+// request rather than a failure of the balance trigger at commit.
+func errTotalTooLarge(field string) error {
+	return problem.Unprocessable("ledger.amount_too_large", "The amounts add up to more than can be posted.",
+		problem.FieldError{Field: field, Code: "too_large", Message: "amounts whose total is in range"})
 }
 
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
+// netsToZero reports whether amounts add up to exactly zero; a total out
+// of range does not.
+func netsToZero(amounts ...money.Minor) bool {
+	sum, err := money.Sum(amounts...)
+	return err == nil && sum == 0
 }
 
-// balance puts the rounding difference of converted amounts on the line
-// with the largest amount, so the entry balances in that currency too.
-func balance(amounts []int64) {
-	var sum int64
-	largest := 0
-	for i, a := range amounts {
-		sum += a
-		if abs64(a) > abs64(amounts[largest]) {
-			largest = i
-		}
-	}
-	amounts[largest] -= sum
+// convert translates minor units at the exact rate (money.ConvertAt); an
+// amount out of range is too large to post.
+func convert(minor money.Minor, r exchange, fromExp, toExp int) (money.Minor, error) {
+	v, err := money.ConvertAt(minor, r.exact, fromExp, toExp)
+	return v, convertErr(err)
 }
 
-func abs64(n int64) int64 {
-	if n < 0 {
-		return -n
+// convertErr maps a failed conversion: out of range is the caller's
+// amount, anything else (a rate or exponent the database never stores) is
+// an internal error.
+func convertErr(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, money.ErrOverflow):
+		return errTooLarge
 	}
-	return n
+	return fmt.Errorf("ledger: convert: %w", err)
 }
 
 // postJournalEntry validates and posts a manual journal entry. Local and
 // group amounts are converted at the average rates valid on the posting
 // date, and rounding differences go to the largest line.
 func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -524,29 +583,9 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 		return Entry{}, problem.Unprocessable("ledger.unknown_currency", "The currency is not known.",
 			problem.FieldError{Field: "currency", Code: "unknown", Message: "an ISO 4217 currency in the reference data"})
 	}
-	lines := make([]Line, len(in.Lines))
-	var sum int64
-	for i, l := range in.Lines {
-		field := fmt.Sprintf("lines[%d].amount", i)
-		if l.Currency != in.Currency {
-			return Entry{}, problem.Unprocessable("ledger.currency_mismatch", "Every line amount must be in the entry's currency "+in.Currency+".",
-				problem.FieldError{Field: field + ".currency", Code: "mismatch", Message: in.Currency})
-		}
-		tc, err := money.ParseAmount(l.Amount, expTC)
-		if err != nil {
-			return Entry{}, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", in.Currency, expTC),
-				problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
-		}
-		if tc == 0 {
-			return Entry{}, problem.Unprocessable("ledger.zero_amount", "Line amounts are never zero.",
-				problem.FieldError{Field: field + ".amount", Code: "zero", Message: "debit positive, credit negative"})
-		}
-		sum += int64(tc)
-		lines[i] = Line{AccountID: l.AccountID, TC: int64(tc), PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
-	}
-	if sum != 0 {
-		return Entry{}, problem.Unprocessable("ledger.unbalanced", "Debits and credits differ by "+money.Minor(sum).Plain(expTC)+" "+in.Currency+".",
-			problem.FieldError{Field: "lines", Code: "unbalanced", Message: "the line amounts must add up to zero"})
+	lines, err := entryLines(in, expTC)
+	if err != nil {
+		return Entry{}, err
 	}
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, true); err != nil {
 		return Entry{}, err
@@ -554,33 +593,16 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 	if err := checkTaxCodes(ctx, tx, le.ID, in.PostingDate, lines); err != nil {
 		return Entry{}, err
 	}
-	rateLC, err := rate(ctx, tx, in.Currency, le.LocalCurrency, in.PostingDate)
+	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, le.LocalCurrency, group, in.PostingDate)
 	if err != nil {
 		return Entry{}, err
 	}
-	rateGC, err := rate(ctx, tx, le.LocalCurrency, group, in.PostingDate)
-	if err != nil {
+	if err := convertLines(lines, rateLC, rateGC, expTC, exps[le.LocalCurrency], exps[group]); err != nil {
 		return Entry{}, err
 	}
-	lcs, gcs := make([]int64, len(lines)), make([]int64, len(lines))
-	for i, l := range lines {
-		if lcs[i], err = convert(l.TC, rateLC, expTC, exps[le.LocalCurrency]); err != nil {
-			return Entry{}, err
-		}
-	}
-	balance(lcs)
-	for i := range lines {
-		if gcs[i], err = convert(lcs[i], rateGC, exps[le.LocalCurrency], exps[group]); err != nil {
-			return Entry{}, err
-		}
-	}
-	balance(gcs)
-	for i := range lines {
-		lines[i].LC, lines[i].GC = lcs[i], gcs[i]
-	}
-	posted, err := e.post(ctx, draft{entity: le, ledgerID: ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: group, rateTCLC: rateLC,
-		rateLCGC: rateGC, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
+	posted, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
+		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: group, rateTCLC: rateLC.shown,
+		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
 		sourceDocumentID: in.SourceDocumentID, lines: lines})
 	if err != nil {
 		return Entry{}, err
@@ -590,13 +612,93 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 			"source_context": posted.SourceContext}})
 }
 
+// entryLines parses the lines of a manual entry: amounts in the entry's
+// currency with its minor-unit digits, never zero, adding up to zero.
+func entryLines(in NewEntry, expTC int) ([]Line, error) {
+	lines := make([]Line, len(in.Lines))
+	amounts := make([]money.Minor, len(in.Lines))
+	for i, l := range in.Lines {
+		field := fmt.Sprintf("lines[%d].amount", i)
+		if l.Currency != in.Currency {
+			return nil, problem.Unprocessable("ledger.currency_mismatch", "Every line amount must be in the entry's currency "+in.Currency+".",
+				problem.FieldError{Field: field + ".currency", Code: "mismatch", Message: in.Currency})
+		}
+		tc, err := money.ParseAmount(l.Amount, expTC)
+		if err != nil {
+			return nil, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", in.Currency, expTC),
+				problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
+		}
+		if tc == 0 {
+			return nil, problem.Unprocessable("ledger.zero_amount", "Line amounts are never zero.",
+				problem.FieldError{Field: field + ".amount", Code: "zero", Message: "debit positive, credit negative"})
+		}
+		amounts[i] = tc
+		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
+	}
+	sum, err := money.Sum(amounts...)
+	if err != nil {
+		return nil, errTotalTooLarge("lines")
+	}
+	if sum != 0 {
+		return nil, problem.Unprocessable("ledger.unbalanced", "Debits and credits differ by "+sum.Plain(expTC)+" "+in.Currency+".",
+			problem.FieldError{Field: "lines", Code: "unbalanced", Message: "the line amounts must add up to zero"})
+	}
+	return lines, nil
+}
+
+// convertLines sets the local amounts, converted from the transaction
+// amounts, and the group amounts, converted from the local ones; each
+// currency's rounding difference goes to its largest line.
+func convertLines(lines []Line, rateLC, rateGC exchange, expTC, expLC, expGC int) error {
+	tcs := make([]money.Minor, len(lines))
+	for i, l := range lines {
+		tcs[i] = l.TC
+	}
+	lcs, err := money.ConvertAllAt(tcs, rateLC.exact, expTC, expLC)
+	if err != nil {
+		return convertErr(err)
+	}
+	gcs, err := money.ConvertAllAt(lcs, rateGC.exact, expLC, expGC)
+	if err != nil {
+		return convertErr(err)
+	}
+	for i := range lines {
+		lines[i].LC, lines[i].GC = lcs[i], gcs[i]
+	}
+	return nil
+}
+
 // reverseJournalEntry posts the reversal of an entry: every amount negated
 // in all three currencies at the original rates, on the original posting
 // date unless another is given. Reversals and entries with cleared lines
-// cannot be reversed.
+// cannot be reversed. The reversal clears the entry's open items against
+// its own (clearReversal).
 func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMatch func(Entry) error, postingDate *time.Time, headerText *string) (Entry, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
+		return Entry{}, err
+	}
+	orig, err := reversibleEntry(ctx, tx, id, ifMatch)
+	if err != nil {
+		return Entry{}, err
+	}
+	rev, err := e.postReversal(ctx, tx, p, orig, postingDate, headerText)
+	if err != nil {
+		return Entry{}, err
+	}
+	if err := recordReversal(ctx, tx, p, orig, rev); err != nil {
+		return Entry{}, err
+	}
+	return rev, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,
+		Outcome: "succeeded", Detail: map[string]any{"reversal_entry_id": rev.ID, "reversal_document_number": rev.DocumentNumber}})
+}
+
+// reversibleEntry locks the entry's bucket and reads the entry, refusing
+// it when ifMatch does, when it cannot be reversed, or when a run holds
+// one of its items. Locked before reading, so requireReversible sees any
+// clearing of the entry that committed while this waited.
+func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(Entry) error) (Entry, error) {
+	if err := lockEntries(ctx, tx, false, []uuid.UUID{id}); err != nil {
 		return Entry{}, err
 	}
 	orig, err := getEntry(ctx, tx, id)
@@ -606,20 +708,19 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if err := ifMatch(orig); err != nil {
 		return Entry{}, err
 	}
-	switch {
-	case orig.ReversedByID != nil:
-		return Entry{}, problem.Conflict("ledger.already_reversed", "The journal entry has already been reversed.")
-	case orig.ReversalOfID != nil:
-		return Entry{}, problem.Conflict("ledger.cannot_reverse_reversal", "The journal entry is itself a reversal; post a new entry instead.")
-	}
-	var cleared bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2)`,
-		orig.FiscalYear, orig.ID).Scan(&cleared); err != nil {
+	if err := requireReversible(ctx, tx, orig); err != nil {
 		return Entry{}, err
 	}
-	if cleared {
-		return Entry{}, problem.Conflict("ledger.entry_cleared", "Lines of the journal entry are cleared; an entry with cleared lines cannot be reversed.")
+	if err := requireUnreserved(ctx, tx, orig); err != nil {
+		return Entry{}, err
 	}
+	return orig, nil
+}
+
+// postReversal posts the reversing entry of orig, on postingDate or the
+// original posting date, with headerText or "Reversal of" the original's
+// number.
+func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Entry, postingDate *time.Time, headerText *string) (Entry, error) {
 	le, err := e.legalEntity(ctx, orig.LegalEntityID, "legal_entity_id")
 	if err != nil {
 		return Entry{}, err
@@ -628,11 +729,7 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if postingDate != nil {
 		date = *postingDate
 	}
-	lines := make([]Line, len(orig.Lines))
-	for i, l := range orig.Lines {
-		lines[i] = Line{AccountID: l.AccountID, TC: -l.TC, LC: -l.LC, GC: -l.GC, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
-			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text}
-	}
+	lines := reversalLines(orig)
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}
@@ -640,26 +737,83 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 		text := "Reversal of " + orig.DocumentNumber
 		headerText = &text
 	}
-	rev, err := e.post(ctx, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
+	return e.post(ctx, tx, p, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
 		postingDate: date, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
 		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, lines: lines})
-	if err != nil {
-		return Entry{}, err
-	}
-	p, _ := reqctx.PrincipalFrom(ctx)
+}
+
+// recordReversal links the reversal to its original, publishes
+// JournalEntryReversed and clears the original's open items against the
+// reversal's.
+func recordReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig, rev Entry) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.reversal (tenant_id, original_year, original_entry_id, reversal_year, reversal_entry_id)
 		VALUES ($1, $2, $3, $4, $5)`, p.TenantID, orig.FiscalYear, orig.ID, rev.FiscalYear, rev.ID); err != nil {
-		return Entry{}, err
+		return fmt.Errorf("ledger: reverse entry %s: record reversal %s: %w", orig.ID, rev.ID, err)
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "journal_entry_reversed", AggregateType: "ledger.journal_entry", AggregateID: orig.ID,
 		Payload: map[string]any{"journal_entry_id": orig.ID, "fiscal_year": orig.FiscalYear, "legal_entity_id": orig.LegalEntityID,
 			"document_number": orig.DocumentNumber, "reversal_entry_id": rev.ID, "reversal_fiscal_year": rev.FiscalYear,
 			"reversal_document_number": rev.DocumentNumber, "reversal_posting_date": rev.PostingDate.Format(time.DateOnly)}}); err != nil {
-		return Entry{}, err
+		return err
 	}
-	return rev, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,
-		Outcome: "succeeded", Detail: map[string]any{"reversal_entry_id": rev.ID, "reversal_document_number": rev.DocumentNumber}})
+	// After the reversal's event, so consumers learn of the cause first.
+	return clearReversal(ctx, tx, p, orig, rev)
+}
+
+// requireReversible refuses to reverse a reversed entry, a reversal, or an
+// entry with cleared lines.
+func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
+	switch {
+	case orig.ReversedByID != nil:
+		return problem.Conflict("ledger.already_reversed", "The journal entry has already been reversed.")
+	case orig.ReversalOfID != nil:
+		return problem.Conflict("ledger.cannot_reverse_reversal", "The journal entry is itself a reversal; post a new entry instead.")
+	}
+	var cleared bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2)`,
+		orig.FiscalYear, orig.ID).Scan(&cleared); err != nil {
+		return fmt.Errorf("ledger: reverse entry %s: %w", orig.ID, err)
+	}
+	if cleared {
+		return problem.Conflict("ledger.entry_cleared", "Lines of the journal entry are cleared; an entry with cleared lines cannot be reversed.")
+	}
+	return nil
+}
+
+// requireOwnEntry refuses to reverse, through the ledger's :reverse, an
+// entry a context posted for a document that has a reversal of its own:
+// only the owner knows what else the reversal must change (a supplier
+// invoice's status, its permission, the payment runs holding its item), so
+// it reverses the entry through Postings.Reverse. Today that is payables
+// (supplier-invoices/{id}:reverse). Entries of contexts without such a
+// reversal stay the ledger's to reverse: manual ones, those a migration run
+// loaded (their source document is the load run), and payments (whose
+// entries clear their items, so requireReversible refuses them anyway).
+//
+// The contexts reversible here are listed, so a context that starts
+// posting is refused until it is decided whether it owns its reversals.
+func requireOwnEntry(orig Entry) error {
+	switch {
+	case orig.SourceContext == "ledger" || orig.SourceContext == "integration" || orig.SourceContext == "payments":
+		return nil
+	case orig.SourceContext == "payables" && orig.SourceDocumentID != nil:
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for supplier invoice "+orig.SourceDocumentID.String()+
+			"; reverse it with POST /v1/supplier-invoices/"+orig.SourceDocumentID.String()+":reverse.")
+	}
+	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
+		" context, and no reversal path exists yet for that context's entries, so it cannot be reversed.")
+}
+
+// reversalLines are the entry's lines with every amount and quantity
+// negated.
+func reversalLines(orig Entry) []Line {
+	lines := make([]Line, len(orig.Lines))
+	for i, l := range orig.Lines {
+		lines[i] = Line{AccountID: l.AccountID, TC: -l.TC, LC: -l.LC, GC: -l.GC, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
+			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text}
+	}
+	return lines
 }
 
 // negate flips the sign of a decimal quantity.

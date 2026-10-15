@@ -2,7 +2,9 @@
 // event extends its tenant's SHA-256 hash chain, in the same transaction as
 // the change it records. Handlers add entries during the request; the unit of
 // work flushes them last, so the tenant's chain-head lock is held only for
-// the end of the transaction (ADR-0014).
+// the end of the transaction (ADR-0014). Record pairs a change's outbox
+// events (ADR-0007) with its entry, so audit depends on outbox; outbox must
+// never import audit.
 package audit
 
 import (
@@ -19,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -53,6 +56,28 @@ func Add(ctx context.Context, e Entry) error {
 	}
 	b.entries = append(b.entries, e)
 	return nil
+}
+
+// Record publishes a change's events through the outbox (ADR-0007) and adds
+// its succeeded audit entry, both in the request's transaction: the record
+// every context's application services write for a state change.
+func Record(ctx context.Context, action, objectType string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
+	for _, e := range events {
+		if _, err := outbox.Add(ctx, e); err != nil {
+			return fmt.Errorf("audit: record %s: %w", action, err)
+		}
+	}
+	return Add(ctx, Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
+}
+
+// ObjectTypeOf is the object type an action names, the action without its
+// verb: payments.payment_run.release is about payments.payment_run. An
+// action without a verb names its own type.
+func ObjectTypeOf(action string) string {
+	if i := strings.LastIndex(action, "."); i >= 0 {
+		return action[:i]
+	}
+	return action
 }
 
 // Discard drops the entries buffered so far, for work rolled back to a
@@ -109,7 +134,7 @@ func normalize(detail map[string]any) (json.RawMessage, error) {
 	}
 	b, err := json.Marshal(detail)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode: %w", err)
 	}
 	return canonical(b), nil
 }
@@ -118,8 +143,8 @@ func normalize(detail map[string]any) (json.RawMessage, error) {
 // values, so numbers and key order always come out the same way.
 func canonical(valid []byte) json.RawMessage {
 	var v any
-	_ = json.Unmarshal(valid, &v)
-	out, _ := json.Marshal(v)
+	_ = json.Unmarshal(valid, &v) // callers pass valid JSON: json.Marshal output or jsonb
+	out, _ := json.Marshal(v)     // values decoded from JSON always encode
 	return out
 }
 
@@ -145,18 +170,7 @@ func Personal(detail map[string]any) (string, bool) {
 func personal(path string, v any) (string, bool) {
 	switch x := v.(type) {
 	case map[string]any:
-		for k, child := range x {
-			p := k
-			if path != "" {
-				p = path + "." + k
-			}
-			if personalKeys[strings.ToLower(k)] {
-				return p, true
-			}
-			if found, ok := personal(p, child); ok {
-				return found, true
-			}
-		}
+		return personalField(path, x)
 	case []any:
 		for i, child := range x {
 			if found, ok := personal(fmt.Sprintf("%s[%d]", path, i), child); ok {
@@ -167,6 +181,24 @@ func personal(path string, v any) (string, bool) {
 		s := strings.ReplaceAll(x, " ", "")
 		if ibanLike.MatchString(s) || emailLike.MatchString(x) {
 			return path, true
+		}
+	}
+	return "", false
+}
+
+// personalField is personal for an object: a key that names personal
+// data, or a value that carries it.
+func personalField(path string, x map[string]any) (string, bool) {
+	for k, child := range x {
+		p := k
+		if path != "" {
+			p = path + "." + k
+		}
+		if personalKeys[strings.ToLower(k)] {
+			return p, true
+		}
+		if found, ok := personal(p, child); ok {
+			return found, true
 		}
 	}
 	return "", false
@@ -290,4 +322,23 @@ func VerifyRange(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, from, to int6
 		res.BrokenAt = res.LastSeq + 1
 	}
 	return res, nil
+}
+
+// Head is the head of a tenant's chain: its last sequence number and hash.
+type Head struct {
+	Seq  int64
+	Hash []byte
+}
+
+// ReadHead reads the tenant's chain head; ok is false when the tenant has
+// no chain yet.
+func ReadHead(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Head, bool, error) {
+	var h Head
+	switch err := tx.QueryRow(ctx, `SELECT seq, hash FROM audit.chain_head WHERE tenant_id = $1`, tenant).Scan(&h.Seq, &h.Hash); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return Head{}, false, nil
+	case err != nil:
+		return Head{}, false, fmt.Errorf("audit: read the chain head of tenant %s: %w", tenant, err)
+	}
+	return h, true, nil
 }

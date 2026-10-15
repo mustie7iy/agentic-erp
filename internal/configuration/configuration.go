@@ -26,6 +26,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -81,13 +83,25 @@ type Dependencies struct {
 	Approvals     Opener
 	Simulator     Simulator // replays transactions for simulation evidence (the worker)
 	Regressor     Regressor // captures and replays regression suites
+	Actors        Actors    // who a queued simulation acts as (the worker)
+}
+
+// Actors reads who deferred work acts as: the person who queued it
+// (identity context).
+type Actors interface {
+	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
 }
 
 // check validates a document for activation on top of base (nil for the
 // first version): the document's own rules, its number ranges and every
-// section, all findings reported together as one 422.
-func (d Dependencies) check(ctx context.Context, base, proposed *config.Config) error {
-	findings := config.Validate(proposed)
+// section, all findings reported together as one 422. Amounts are checked
+// with the exponents of ref.currency (ADR-0005).
+func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *config.Config) error {
+	exponents, err := currency.Load(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("configuration: check: %w", err)
+	}
+	findings := config.Validate(proposed, exponents)
 	if base != nil {
 		findings = append(findings, rangeTransitions(base, proposed)...)
 	}
@@ -160,7 +174,7 @@ func scanCR(row pgx.Row) (ChangeRequest, error) {
 	var c ChangeRequest
 	err := row.Scan(&c.ID, &c.Number, &c.Title, &c.Rationale, &c.AuthorID, &c.BaseVersion, &c.Proposed, &c.Tier, &c.Status,
 		&c.WorkflowRequestID, &c.ActivatedVersion, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items, &c.Evidence)
-	return c, err
+	return c, errs.Wrapf(err, "scan change request")
 }
 
 func getCR(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (ChangeRequest, error) {
@@ -170,9 +184,12 @@ func getCR(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (ChangeReque
 	}
 	c, err := scanCR(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return c, problem.NotFound("No change request with this id.")
+		return c, problem.NotFoundOf("change request")
 	}
-	return c, err
+	if err != nil {
+		return c, fmt.Errorf("configuration: read change request %s: %w", id, err)
+	}
+	return c, nil
 }
 
 func requireStatus(c ChangeRequest, action string, allowed ...string) error {
@@ -199,7 +216,10 @@ func activeVersion(ctx context.Context, tx pgx.Tx) (int32, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, problem.Conflict("config.not_bootstrapped", "The tenant has no configuration yet.")
 	}
-	return n, err
+	if err != nil {
+		return n, fmt.Errorf("configuration: lock the active version: %w", err)
+	}
+	return n, nil
 }
 
 // NewChangeRequest is the input of CreateChangeRequest.
@@ -223,7 +243,7 @@ func CreateChangeRequest(ctx context.Context, in NewChangeRequest) (ChangeReques
 	if _, err := tx.Exec(ctx, `INSERT INTO config.change_request (tenant_id, id, number, title, rationale, author_id, base_version, proposed, tier, status, created_by, updated_by)
 		SELECT $1, $2, 'CR-' || lpad((count(*) + 1)::text, 6, '0'), $3, $4, $5, $6, $7, 1, 'draft', $5, $5 FROM config.change_request`,
 		actor.TenantID, id, in.Title, in.Rationale, actor.ID, in.BaseVersion, in.Proposed); err != nil {
-		return ChangeRequest{}, err
+		return ChangeRequest{}, fmt.Errorf("configuration: insert change request %s: %w", id, err)
 	}
 	c, err := getCR(ctx, tx, id, false)
 	if err != nil {
@@ -274,7 +294,7 @@ func UpdateChangeRequest(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 	}
 	if _, err := tx.Exec(ctx, `UPDATE config.change_request SET title = $2, rationale = $3, base_version = $4, proposed = $5, status = 'draft',
 		version = version + 1, updated_by = $6 WHERE id = $1`, id, title, rationale, base, proposed, actor.ID); err != nil {
-		return ChangeRequest{}, err
+		return ChangeRequest{}, fmt.Errorf("configuration: update change request %s: %w", id, err)
 	}
 	updated, err := getCR(ctx, tx, id, false)
 	if err != nil {
@@ -304,7 +324,7 @@ const versionSelect = `SELECT v.id, v.number, v.document, v.hash, v.source, v.ch
 func scanVersion(row pgx.Row) (version, error) {
 	var v version
 	err := row.Scan(&v.ID, &v.Number, &v.Document, &v.Hash, &v.Source, &v.ChangeRequestID, &v.RestoredFrom, &v.ActivatedAt, &v.ActivatedBy, &v.IsActive)
-	return v, err
+	return v, errs.Wrapf(err, "scan configuration version")
 }
 
 // parse reads a configuration document strictly.
@@ -319,16 +339,16 @@ func parse(doc json.RawMessage, field string) (*config.Config, error) {
 
 // failed reports the findings with error severity as a 422.
 func failed(findings []config.Finding) error {
-	var errs []problem.FieldError
+	var fields []problem.FieldError
 	for _, f := range findings {
 		if f.Severity == config.SevError {
-			errs = append(errs, problem.FieldError{Field: "proposed." + f.Path, Code: "invalid", Message: f.Message})
+			fields = append(fields, problem.FieldError{Field: "proposed." + f.Path, Code: "invalid", Message: f.Message})
 		}
 	}
-	if len(errs) == 0 {
+	if len(fields) == 0 {
 		return nil
 	}
-	return problem.Unprocessable("config.validation_failed", fmt.Sprintf("The proposed configuration has %d error(s).", len(errs)), errs...)
+	return problem.Unprocessable("config.validation_failed", fmt.Sprintf("The proposed configuration has %d error(s).", len(fields)), fields...)
 }
 
 // rangeTransitions checks number ranges against the base document: a range
@@ -393,14 +413,14 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 	}
 	var baseDoc json.RawMessage
 	if err := tx.QueryRow(ctx, `SELECT document FROM config.config_version WHERE number = $1`, c.BaseVersion).Scan(&baseDoc); err != nil {
-		return ChangeRequest{}, err
+		return ChangeRequest{}, fmt.Errorf("configuration: read base version %d of change request %s: %w", c.BaseVersion, id, err)
 	}
 	base, _ := config.Parse(baseDoc) // activated documents always parse
 	proposed, err := parse(c.Proposed, "proposed")
 	if err != nil {
 		return ChangeRequest{}, err
 	}
-	if err := deps.check(ctx, base, proposed); err != nil {
+	if err := deps.check(ctx, tx, base, proposed); err != nil {
 		return ChangeRequest{}, err
 	}
 	changes, _ := config.Diff(base, proposed) // never fails
@@ -408,11 +428,8 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 		return ChangeRequest{}, problem.Unprocessable("config.no_changes", "The proposed configuration does not change the base version.")
 	}
 	tier := config.MaxTier(changes)
-	for i, ch := range changes {
-		if _, err := tx.Exec(ctx, `INSERT INTO config.change_item (tenant_id, change_request_id, item_no, path, old_value, new_value, tier)
-			VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), $7)`, actor.TenantID, id, i+1, ch.Path, ch.Old, ch.New, int(ch.Tier)); err != nil {
-			return ChangeRequest{}, err
-		}
+	if err := insertItems(ctx, tx, actor.TenantID, id, changes); err != nil {
+		return ChangeRequest{}, err
 	}
 	status := AwaitingEvidence
 	var request *uuid.UUID
@@ -423,7 +440,7 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 	}
 	if _, err := tx.Exec(ctx, `UPDATE config.change_request SET tier = $2, status = $3, workflow_request_id = $5, version = version + 1, updated_by = $4
 		WHERE id = $1`, id, int(tier), status, actor.ID, request); err != nil {
-		return ChangeRequest{}, err
+		return ChangeRequest{}, fmt.Errorf("configuration: submit change request %s: %w", id, err)
 	}
 	updated, err := getCR(ctx, tx, id, false)
 	if err != nil {
@@ -439,6 +456,17 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 		events = append(events, crEvent(id, "change_request_approved", common, map[string]any{"base_version": c.BaseVersion, "status": Approved}))
 	}
 	return updated, record(ctx, "config.change_request.submit", id, map[string]any{"tier": int(tier), "items": len(changes), "status": status}, events...)
+}
+
+// insertItems stores the change request's items, numbered from 1.
+func insertItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, changes []config.Change) error {
+	for i, ch := range changes {
+		if _, err := tx.Exec(ctx, `INSERT INTO config.change_item (tenant_id, change_request_id, item_no, path, old_value, new_value, tier)
+			VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), $7)`, tenant, id, i+1, ch.Path, ch.Old, ch.New, int(ch.Tier)); err != nil {
+			return fmt.Errorf("configuration: insert item %d of change request %s: %w", i+1, id, err)
+		}
+	}
+	return nil
 }
 
 func crEvent(id uuid.UUID, name string, parts ...map[string]any) outbox.Event {
@@ -478,7 +506,7 @@ func WithdrawChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 	}
 	if _, err := tx.Exec(ctx, `UPDATE config.change_request SET status = 'withdrawn', version = version + 1, updated_by = $2 WHERE id = $1`,
 		id, actor.ID); err != nil {
-		return ChangeRequest{}, err
+		return ChangeRequest{}, fmt.Errorf("configuration: withdraw change request %s: %w", id, err)
 	}
 	updated, err := getCR(ctx, tx, id, false)
 	if err != nil {
@@ -521,7 +549,7 @@ func ActivateChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 	}
 	if _, err := tx.Exec(ctx, `UPDATE config.change_request SET status = 'active', activated_version = $2, version = version + 1, updated_by = $3
 		WHERE id = $1`, id, v.Number, actor.ID); err != nil {
-		return ChangeRequest{}, err
+		return ChangeRequest{}, fmt.Errorf("configuration: activate change request %s: %w", id, err)
 	}
 	updated, err := getCR(ctx, tx, id, false)
 	if err != nil {
@@ -541,7 +569,7 @@ func Bootstrap(ctx context.Context, deps Dependencies, doc json.RawMessage) (int
 	}
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM config.active_version)`).Scan(&exists); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("configuration: check for an active version: %w", err)
 	}
 	if exists {
 		return 0, problem.Conflict("config.already_bootstrapped", "The tenant already has a configuration; change it with a change request.")
@@ -550,7 +578,7 @@ func Bootstrap(ctx context.Context, deps Dependencies, doc json.RawMessage) (int
 	if err != nil {
 		return 0, err
 	}
-	if err := deps.check(ctx, nil, c); err != nil {
+	if err := deps.check(ctx, tx, nil, c); err != nil {
 		return 0, err
 	}
 	v, err := activate(ctx, tx, deps, actor, c, nil, "bootstrap", nil)
@@ -574,11 +602,11 @@ func activate(ctx context.Context, tx pgx.Tx, deps Dependencies, actor reqctx.Pr
 		) SELECT id, number, document, hash, source, change_request_id, restored_from, activated_at, activated_by, true FROM v`,
 		actor.TenantID, uuid.Must(uuid.NewV7()), number, canonical, sum[:], source, changeRequest, actor.ID))
 	if err != nil {
-		return version{}, err
+		return version{}, fmt.Errorf("configuration: insert version %d: %w", number, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO config.active_version AS a (tenant_id, number) VALUES ($1, $2)
 		ON CONFLICT (tenant_id) DO UPDATE SET number = EXCLUDED.number, version = a.version + 1`, actor.TenantID, number); err != nil {
-		return version{}, err
+		return version{}, fmt.Errorf("configuration: activate version %d: %w", number, err)
 	}
 	if err := applyRanges(ctx, tx, deps.LegalEntities, actor, doc); err != nil {
 		return version{}, err
@@ -612,7 +640,7 @@ func applyRanges(ctx context.Context, tx pgx.Tx, les LegalEntities, actor reqctx
 			ON CONFLICT (tenant_id, legal_entity_id, document_type, fiscal_year)
 			DO UPDATE SET last_value = EXCLUDED.last_value, version = r.version + 1 WHERE r.last_value <> EXCLUDED.last_value`,
 			actor.TenantID, uuid.Must(uuid.NewV7()), le, n.DocumentType, n.FiscalYear, n.Prefix, n.First, n.Last, n.Gapless, actor.ID); err != nil {
-			return err
+			return fmt.Errorf("configuration: apply number range %s: %w", n.Key(), err)
 		}
 	}
 	return nil
@@ -620,16 +648,11 @@ func applyRanges(ctx context.Context, tx pgx.Tx, les LegalEntities, actor reqctx
 
 // record publishes the events and adds the audit entry of a change.
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
 	objectType := "config.change_request"
 	if action == "config.version.activate" {
 		objectType = "config.config_version"
 	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, objectType, id, detail, events...)
 }
 
 // Approvals moves change requests on when their approval requests
@@ -665,7 +688,7 @@ func decided(ctx context.Context, id uuid.UUID, status, comment string) error {
 	}
 	if _, err := tx.Exec(ctx, `UPDATE config.change_request SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`,
 		id, status, actor.ID); err != nil {
-		return err
+		return fmt.Errorf("configuration: decide change request %s: %w", id, err)
 	}
 	common := map[string]any{"change_request_id": id, "number": c.Number}
 	var e outbox.Event

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -12,13 +13,17 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // --- model -------------------------------------------------------------------
 
 func TestLoadModel(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "m.yaml")
-	os.WriteFile(path, defaultModelYAML, 0o644)
+	if err := os.WriteFile(path, defaultModelYAML, 0o644); err != nil {
+		t.Fatalf("write the model: %v", err)
+	}
 	m, err := LoadModel(path)
 	if err != nil || m.Metric("revenue") == nil {
 		t.Fatalf("load: %v", err)
@@ -42,19 +47,42 @@ func TestModelValidationMessages(t *testing.T) {
 		"derives from unknown":     src("  - {name: b, type: money, derived: {op: subtract, left: a, right: zz}}\n"),
 		"unknown op":               src("  - {name: b, type: money, derived: {op: multiply, left: a, right: a}}\n"),
 		"unknown aggregate":        src("  - {name: b, type: money, source: t, aggregate: avg}\n"),
+		"want 1 or -1":             src("  - {name: b, type: money, source: t, aggregate: sum, sign: 2}\n"),
 		"undeclared dimension":     src("  - {name: b, type: money, source: t, aggregate: sum, dimensions: [zz]}\n"),
 		"needs a source":           src("  - {name: b, type: money}\n"),
 		"points to unknown metric": src("defaults: {sales: zz}\n"),
 	}
 	for want, doc := range cases {
-		_, err := ParseModel([]byte(doc))
-		if err == nil || (want != "semantic model: yaml" && !strings.Contains(err.Error(), want)) {
-			t.Errorf("%s: got %v", want, err)
-		}
+		t.Run(want, func(t *testing.T) {
+			_, err := ParseModel([]byte(doc))
+			if err == nil || (want != "semantic model: yaml" && !strings.Contains(err.Error(), want)) {
+				t.Errorf("got %v, want an error containing %q", err, want)
+			}
+		})
 	}
 	m, err := ParseModel([]byte(src("")))
-	if err != nil || m.Calendar.FiscalYearStartMonth != 1 || m.Metric("a").Sign != 1 {
-		t.Fatalf("defaults applied: %v %+v", err, m)
+	if err != nil {
+		t.Fatalf("parse a valid model: %v", err)
+	}
+	if m.Calendar.FiscalYearStartMonth != 1 {
+		t.Errorf("default fiscal year start month: got %d, want 1", m.Calendar.FiscalYearStartMonth)
+	}
+	if m.Metric("a").Sign != 1 {
+		t.Errorf("default sign: got %d, want 1", m.Metric("a").Sign)
+	}
+}
+
+// With several invalid defaults the error names the first word in sorted
+// order, every time; a map range would report a different one per run.
+func TestModelDefaultErrorIsDeterministic(t *testing.T) {
+	doc := "dimensions: [{name: d}]\nmetrics:\n  - {name: a, type: money, source: t, aggregate: sum, dimensions: [d]}\n" +
+		"defaults: {zeta: z1, alpha: z2, mid: z3, beta: z4, omega: z5, kappa: z6, delta: z7, gamma: z8}\n"
+	want := `semantic model: default "alpha" points to unknown metric z2`
+	for i := range 50 {
+		_, err := ParseModel([]byte(doc))
+		if err == nil || err.Error() != want {
+			t.Fatalf("run %d: got %v, want %s", i, err, want)
+		}
 	}
 }
 
@@ -62,15 +90,23 @@ func TestModelValidationMessages(t *testing.T) {
 
 func TestNewAgentAndToolText(t *testing.T) {
 	t.Setenv("ERP_AGENT_MODEL", "claude-haiku-5-5")
-	if a := NewAgent(); a.Model != "claude-haiku-5-5" || a.Today == nil {
-		t.Fatalf("env model: %+v", a)
+	a := NewAgent()
+	if a.Model != "claude-haiku-5-5" {
+		t.Errorf("env model: got %s, want claude-haiku-5-5", a.Model)
+	}
+	if a.Today == nil {
+		t.Error("clock: got nil, want one")
 	}
 	t.Setenv("ERP_AGENT_MODEL", "")
 	if a := NewAgent(); a.Model != defaultModel {
-		t.Fatal("default model")
+		t.Fatalf("default model: got %s, want %s", a.Model, defaultModel)
 	}
-	if r, err := toolText("plain"); err != nil || r.OfText.Text != "plain" {
-		t.Fatal("string result")
+	r, err := toolText("plain")
+	if err != nil {
+		t.Fatalf("string result: %v", err)
+	}
+	if r.OfText.Text != "plain" {
+		t.Errorf("string result: got %q, want plain", r.OfText.Text)
 	}
 	if _, err := toolText(math.Inf(1)); err == nil {
 		t.Fatal("unmarshalable value must error")
@@ -89,9 +125,9 @@ func TestAgentToolSurface(t *testing.T) {
 	if len(tools) != 3 {
 		t.Fatal("three tools")
 	}
-	for _, tl := range tools {
+	for i, tl := range tools {
 		if tl == nil {
-			t.Fatal("tool construction failed")
+			t.Fatalf("tool %d: got nil, want a tool", i)
 		}
 	}
 }
@@ -104,9 +140,8 @@ func TestAskPaths(t *testing.T) {
 	}
 	// The model declines.
 	refuse := llmtest.New(t, llmtest.Step{StopReason: "refusal"})
-	if _, err := llmAgent(refuse).Ask(context.Background(), session(t, us), "q"); err == nil || !strings.Contains(err.Error(), "declined") {
-		t.Fatalf("refusal: %v", err)
-	}
+	_, err := llmAgent(refuse).Ask(context.Background(), session(t, us), "q")
+	pgtest.WantErr(t, err, "declined")
 	// The model answers without building a dashboard; a failing query and a
 	// bad filter go back to the model as tool errors.
 	none := llmtest.New(t,
@@ -114,9 +149,8 @@ func TestAskPaths(t *testing.T) {
 		llmtest.Step{Tool: "run_query", Input: func(string) any { return map[string]any{"measures": []string{"nope"}} }, Expect: "defaults"},
 		llmtest.Step{Text: "I could not answer.", Expect: "error: unknown metric"},
 	)
-	if _, err := llmAgent(none).Ask(context.Background(), session(t, us), "q"); err == nil || !strings.Contains(err.Error(), "did not produce") {
-		t.Fatalf("no dashboard: %v", err)
-	}
+	_, err = llmAgent(none).Ask(context.Background(), session(t, us), "q")
+	pgtest.WantErr(t, err, "did not produce")
 	// A spec without a question takes the user's question; a filtered query is accepted.
 	s := session(t, us)
 	ok := llmtest.New(t,
@@ -131,8 +165,17 @@ func TestAskPaths(t *testing.T) {
 	a := llmAgent(ok)
 	a.Today = func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }
 	ans, err := a.Ask(context.Background(), s, "What was revenue in 2026?")
-	if err != nil || ans.Report.Question != "What was revenue in 2026?" || ans.Report.Spec.Question != ans.Report.Question || ans.Summary != "Done." {
-		t.Fatalf("answer: %v %+v", err, ans)
+	if err != nil {
+		t.Fatalf("answer: %v", err)
+	}
+	if ans.Report.Question != "What was revenue in 2026?" {
+		t.Errorf("report question: got %q, want the user's question", ans.Report.Question)
+	}
+	if ans.Report.Spec.Question != ans.Report.Question {
+		t.Errorf("spec question: got %q, want %q", ans.Report.Spec.Question, ans.Report.Question)
+	}
+	if ans.Summary != "Done." {
+		t.Errorf("summary: got %q, want Done.", ans.Summary)
 	}
 }
 
@@ -149,11 +192,11 @@ func fixtureResult() *Result {
 			{Name: "orders", Label: "Orders", Kind: "measure", Type: Count},
 		},
 		Rows: []Row{
-			{"2025", "1", 1000.0, 0.20, 3.0},
-			{"2025", "2", 2000.0, 0.25, 4.0},
-			{"2026", "1", 1500.0, 0.30, 5.0},
-			{"2026", "2", -500.0, nil, 1.0},
-			{"2026", "3", nil, 0.10, 2.0},
+			{"2025", "1", usd("1000.00"), ratio("0.20"), count(3)},
+			{"2025", "2", usd("2000.00"), ratio("0.25"), count(4)},
+			{"2026", "1", usd("1500.00"), ratio("0.30"), count(5)},
+			{"2026", "2", usd("-500.00"), nil, count(1)},
+			{"2026", "3", nil, ratio("0.10"), count(2)},
 		},
 	}
 }
@@ -190,8 +233,38 @@ func TestValidateEveryProblem(t *testing.T) {
 		}
 	}
 	empty := Spec{Title: "x"}
-	if p := empty.Validate(results); len(p) != 1 || !strings.Contains(p[0], "at least one") {
-		t.Fatalf("empty spec: %v", p)
+	p := empty.Validate(results)
+	if len(p) != 1 {
+		t.Fatalf("empty spec: got %d problems %v, want 1", len(p), p)
+	}
+	if !strings.Contains(p[0], "at least one") {
+		t.Errorf("empty spec: got %q, want it to ask for at least one element", p[0])
+	}
+}
+
+// The commentary is checked against every result in a map; the problems
+// it reports must not depend on the order the map is ranged in.
+func TestValidateCommentaryIsDeterministic(t *testing.T) {
+	results := map[string]*Result{}
+	for i, id := range []string{"q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8"} {
+		r := fixtureResult()
+		r.ID = id
+		for _, row := range r.Rows {
+			if v, ok := row[2].(Value); ok {
+				v.Units += money.Minor(i) * 1_000_000
+				row[2] = v
+			}
+		}
+		results[id] = r
+	}
+	spec := Spec{Title: "t", Tables: []Table{{QueryID: "q1"}},
+		Commentary: "Revenue was 41,000.00 and 1,000.00, not 777.77, 888.88 or 999.99."}
+	want := "commentary cites figures not found in any query result: 777.77, 888.88, 999.99."
+	for i := range 50 {
+		got := spec.Validate(results)
+		if len(got) != 1 || !strings.HasPrefix(got[0], want) {
+			t.Fatalf("run %d: got %q, want one problem starting %q", i, got, want)
+		}
 	}
 }
 
@@ -200,67 +273,39 @@ func TestSum(t *testing.T) {
 	if _, _, err := r.sum("nope", nil); err == nil {
 		t.Fatal("unknown measure")
 	}
-	if v, n, err := r.sum("revenue", map[string]string{"fiscal_year": "2026"}); err != nil || n != 2 || v != 1000 {
-		t.Fatalf("money sum skips nil values: %v %d %v", v, n, err)
+	v, n, err := r.sum("revenue", map[string]string{"fiscal_year": "2026"})
+	if err != nil {
+		t.Fatalf("money sum: %v", err)
 	}
-	if v, n, err := r.sum("margin", map[string]string{"fiscal_year": "2025", "fiscal_month": "2"}); err != nil || n != 1 || v != 0.25 {
-		t.Fatalf("single-row ratio: %v %d %v", v, n, err)
+	if n != 2 {
+		t.Errorf("money sum skips nil values: got %d rows, want 2", n)
 	}
-	if _, n, err := r.sum("margin", map[string]string{"fiscal_year": "2025"}); err == nil || n != 2 {
-		t.Fatal("a ratio over several rows must be refused")
+	if v != usd("1000.00") {
+		t.Errorf("money sum: got %v, want 1000", v)
 	}
-	if _, n, err := r.sum("margin", map[string]string{"fiscal_year": "2026", "fiscal_month": "2"}); err != nil || n != 0 {
-		t.Fatal("a nil ratio counts as no row")
+	v, n, err = r.sum("margin", map[string]string{"fiscal_year": "2025", "fiscal_month": "2"})
+	if err != nil {
+		t.Fatalf("single-row ratio: %v", err)
 	}
-}
-
-func TestFormatting(t *testing.T) {
-	money := Column{Type: Money, Currency: "USD"}
-	cases := []struct {
-		got, want string
-	}{
-		{formatValue(0.256, Column{Type: Ratio}), "25.6%"},
-		{formatValue(12345, Column{Type: Count}), "12,345"},
-		{formatValue(2.5e9, money), "$2.50B"},
-		{formatValue(-3.25e6, money), "−$3.25M"},
-		{formatValue(45_600, money), "$45.6K"},
-		{formatValue(-1234.5, money), "−$1,234.50"},
-		{formatValue(10, Column{Type: Money, Currency: "EUR"}), "€10.00"},
-		{formatValue(10, Column{Type: Money, Currency: "GBP"}), "£10.00"},
-		{formatValue(10, Column{Type: Money}), "10.00"},
-		{formatValue(10, Column{Type: Money, Currency: "CHF"}), "CHF 10.00"},
-		{formatFull(0.5, Column{Type: Ratio}), "50.0%"},
-		{formatFull(1234, Column{Type: Count}), "1,234"},
-		{formatFull(-1234567.891, money), "−1,234,567.89"},
-		{formatFull(12, money), "12.00"},
-		{groupThousands("-1234567"), "-1,234,567"},
-		{groupThousands("12"), "12"},
+	if n != 1 {
+		t.Errorf("single-row ratio: got %d rows, want 1", n)
 	}
-	for _, c := range cases {
-		if c.got != c.want {
-			t.Errorf("got %q, want %q", c.got, c.want)
-		}
+	if v != ratio("0.25") {
+		t.Errorf("single-row ratio: got %v, want 0.25", v)
 	}
-	if d, p, up := change(110, 100, money); d != "+$10.00" || p != "+10.0%" || !up {
-		t.Errorf("change up: %s %s %v", d, p, up)
+	_, n, err = r.sum("margin", map[string]string{"fiscal_year": "2025"})
+	if err == nil {
+		t.Error("a ratio over several rows: got no error, want it refused")
 	}
-	if d, p, up := change(90, 100, money); d != "−$10.00" || p != "−10.0%" || up {
-		t.Errorf("change down: %s %s %v", d, p, up)
+	if n != 2 {
+		t.Errorf("a ratio over several rows: got %d rows, want 2", n)
 	}
-	if d, p, _ := change(5, 0, money); d != "+$5.00" || p != "" {
-		t.Errorf("no percent from zero: %s %q", d, p)
+	_, n, err = r.sum("margin", map[string]string{"fiscal_year": "2026", "fiscal_month": "2"})
+	if err != nil {
+		t.Errorf("a nil ratio: %v", err)
 	}
-	if d, p, up := change(0.3, 0.25, Column{Type: Ratio}); d != "+5.0 pts" || p != "" || !up {
-		t.Errorf("ratio change: %s %q", d, p)
-	}
-	if d, _, up := changeFull(90_000, 100_000, money); d != "−10,000.00" || up {
-		t.Errorf("full change down: %s", d)
-	}
-	if d, _, _ := changeFull(100_500, 100_000, money); d != "+500.00" {
-		t.Errorf("full change up: %s", d)
-	}
-	if d, _, _ := changeFull(0.2, 0.3, Column{Type: Ratio}); d != "-10.0 pts" {
-		t.Errorf("full ratio change: %s", d)
+	if n != 0 {
+		t.Errorf("a nil ratio counts as no row: got %d rows, want 0", n)
 	}
 }
 
@@ -304,12 +349,12 @@ func TestQueryOperatorsAndBranches(t *testing.T) {
 	}
 	// Ascending order.
 	asc := run(Query{Measures: []string{"revenue"}, By: []string{"fiscal_month"}, Where: []Filter{{"fiscal_year", "in", []string{"2025"}}}, OrderBy: "revenue"})
-	if asc.Rows[0][1].(float64) > asc.Rows[1][1].(float64) {
+	if asc.Rows[0][1].(Value).compare(asc.Rows[1][1].(Value)) > 0 {
 		t.Fatal("ascending order")
 	}
 	// Distinct counts and derived metrics with missing inputs.
 	cnt := run(Query{Measures: []string{"invoice_count", "purchase_order_count"}, By: []string{"fiscal_year"}})
-	if cnt.Rows[0][1].(float64) == 0 {
+	if cnt.Rows[0][1].(Value).Units == 0 {
 		t.Fatal("count_distinct")
 	}
 	margin := run(Query{Measures: []string{"operating_margin", "operating_profit"}, By: []string{"fiscal_year", "fiscal_month", "document_type"}})
@@ -334,40 +379,59 @@ func TestQueryOperatorsAndBranches(t *testing.T) {
 		{Measures: []string{"revenue"}, By: []string{"company"}, Where: []Filter{{"fiscal_month", "between", []string{"1"}}}},
 	}
 	for i, q := range errs {
-		if _, err := s.Run(q); err == nil {
-			t.Errorf("query %d should be refused", i)
-		}
+		t.Run(fmt.Sprintf("query %d", i), func(t *testing.T) {
+			if _, err := s.Run(q); err == nil {
+				t.Errorf("got no error for %+v, want it refused", q)
+			}
+		})
 	}
 }
 
 func TestComparisonHelpers(t *testing.T) {
-	if compareValues("2", "10") != -1 || compareValues("10", "2") != 1 || compareValues("1", "1.0") != 0 || compareValues("a", "b") != -1 {
-		t.Fatal("compareValues")
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{{"2", "10", -1}, {"10", "2", 1}, {"1", "1.0", 0}, {"a", "b", -1},
+		// Past a float's 15 to 17 digits: two codes that differ only in the last digit.
+		{"10000000000000000", "10000000000000001", -1}, {"-10000000000000000", "-10000000000000001", 1},
+		{"+7", "-8", 1}, {"0.10000000000000001", "0.1", 1}, {"1e3", "999", -1},
+		// Codes stay strings where SAP extracts would read a number (plainDecimal).
+		{"5-", "-3", 1}, {" 12", "3", -1}, {".5", "0.4", -1}} {
+		t.Run(fmt.Sprintf("compareValues(%s,%s)", c.a, c.b), func(t *testing.T) {
+			if got := compareValues(c.a, c.b); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
 	}
 	cases := []struct {
 		a, b any
 		want int
 	}{
-		{1.0, 2.0, -1}, {2.0, 1.0, 1}, {1.0, 1.0, 0}, {1.0, nil, 1}, {1.0, "x", 1},
+		{usd("1.00"), usd("2.00"), -1}, {usd("2.00"), usd("1.00"), 1}, {usd("1.00"), usd("1.00"), 0}, {usd("1.00"), nil, 1}, {usd("1.00"), "x", 1},
+		{amt("BHD", "1.000"), usd("1.00"), 0}, {usd("0.99"), amt("BHD", "0.995"), -1}, {amt("JPY", "1"), usd("0.99"), 1},
 		{"2", "10", -1}, {"b", nil, 1},
-		{nil, nil, 0}, {nil, 1.0, -1},
+		{nil, nil, 0}, {nil, usd("1.00"), -1},
 	}
 	for _, c := range cases {
-		if got := compareCells(c.a, c.b); got != c.want {
-			t.Errorf("compareCells(%v,%v)=%d want %d", c.a, c.b, got, c.want)
-		}
+		t.Run(fmt.Sprintf("compareCells(%v,%v)", c.a, c.b), func(t *testing.T) {
+			if got := compareCells(c.a, c.b); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
 	}
 	m, _ := DefaultModel()
-	if m.dimLabel("nope") != "nope" || m.dimLabel("company") != "Company code" {
-		t.Fatal("dimLabel")
-	}
-	for cur, want := range map[string]int{"JPY": 0, "KWD": 3, "USD": 2} {
-		if currencyDecimals(cur) != want {
-			t.Errorf("currencyDecimals(%s)", cur)
+	for dim, want := range map[string]string{"nope": "nope", "company": "Company code"} {
+		if got := m.dimLabel(dim); got != want {
+			t.Errorf("dimLabel(%s): got %q, want %q", dim, got, want)
 		}
 	}
-	if differInOne(nil, nil) || differInOne([]string{"a"}, []string{"a", "b"}) || !differInOne([]string{"a", "b"}, []string{"a", "c"}) {
-		t.Fatal("differInOne")
+	for _, c := range []struct {
+		a, b []string
+		want bool
+	}{{nil, nil, false}, {[]string{"a"}, []string{"a", "b"}, false}, {[]string{"a", "b"}, []string{"a", "c"}, true}} {
+		if got := differInOne(c.a, c.b); got != c.want {
+			t.Errorf("differInOne(%v, %v): got %v, want %v", c.a, c.b, got, c.want)
+		}
 	}
 }
 
@@ -376,13 +440,105 @@ func TestZeroDecimalCurrency(t *testing.T) {
 	dims := func(typ string) map[string]string {
 		return map[string]string{"company": "3000", "account_type": typ, "fiscal_year": "2026", "fiscal_month": "1", "posting_date": "2026-01-05"}
 	}
-	f := &Facts{Companies: map[string]string{"3000": "JPY"}, Tables: map[string][]Fact{"gl_lines": {
+	f := &Facts{Companies: map[string]string{"3000": "JPY"}, Exponents: map[string]int{"JPY": 0}, Tables: map[string][]Fact{"gl_lines": {
 		{ID: "J1", Dims: dims("asset"), Amount: 5000, Currency: "JPY"}, {ID: "J1", Dims: dims("revenue"), Amount: -5000, Currency: "JPY"}}}}
 	m, _ := DefaultModel()
 	r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"revenue"}})
-	if err != nil || r.Rows[0][0].(float64) != 5000 || r.Columns[0].Currency != "JPY" {
-		t.Fatalf("JPY revenue: %v %+v", err, r)
+	if err != nil {
+		t.Fatalf("JPY revenue: %v", err)
 	}
+	if got := r.Rows[0][0]; got != amt("JPY", "5000") {
+		t.Errorf("JPY revenue: got %v, want 5000", got)
+	}
+	if r.Columns[0].Currency != "JPY" {
+		t.Errorf("JPY revenue currency: got %s, want JPY", r.Columns[0].Currency)
+	}
+}
+
+// A count metric that sums fact amounts sums minor units of each fact's
+// currency, so facts in JPY (exponent 0) and USD (exponent 2) cannot be
+// added; the refusal must not depend on map order, so it is repeated.
+func TestCountSumRefusesMixedCurrencies(t *testing.T) {
+	m, err := ParseModel([]byte("dimensions: [{name: company}]\nmetrics:\n" +
+		"  - {name: units, type: count, source: t, aggregate: sum, dimensions: [company]}\n" +
+		"  - {name: docs, type: count, source: t, aggregate: count_distinct, dimensions: [company]}\n" +
+		"  - {name: docs_share, type: ratio, derived: {op: divide, left: docs, right: docs}}\n" +
+		"  - {name: units_share, type: ratio, derived: {op: divide, left: units, right: units}}\n" +
+		"  - {name: usd_units, type: money, source: t, aggregate: sum, filter: {company: [\"1000\"]}, dimensions: [company]}\n" +
+		"  - {name: jpy_units, type: money, source: t, aggregate: sum, filter: {company: [\"3000\"]}, dimensions: [company]}\n" +
+		"  - {name: units_gap, type: money, derived: {op: subtract, left: usd_units, right: jpy_units}}\n" +
+		"  - {name: units_rate, type: ratio, derived: {op: divide, left: usd_units, right: jpy_units}}\n" +
+		"  - {name: usd_per_doc, type: money, derived: {op: divide, left: usd_units, right: docs}}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fact := func(id, company, cur string) Fact {
+		return Fact{ID: id, Dims: map[string]string{"company": company}, Amount: 500, Currency: cur}
+	}
+	f := &Facts{Exponents: map[string]int{"JPY": 0, "USD": 2}, Tables: map[string][]Fact{"t": {fact("A", "3000", "JPY"), fact("B", "1000", "USD")}}}
+	for i := range 50 {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"units"}})
+		if err == nil {
+			t.Fatalf("run %d: got rows %v, want a mixed-currency refusal", i, r.Rows)
+		}
+		if want := "units would add amounts in JPY and USD together"; !strings.Contains(err.Error(), want) {
+			t.Fatalf("run %d: got %v, want %q", i, err, want)
+		}
+	}
+	t.Run("a distinct count spans currencies", func(t *testing.T) {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"docs"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Rows[0][0], count(2); got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+	// A ratio of distinct counts adds no amounts, so its cell may span
+	// currencies.
+	t.Run("a count ratio spans currencies", func(t *testing.T) {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"docs_share"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Rows[0][0], ratio("1"); got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+	// A derived metric is refused when its sums together read several
+	// currencies: one sum spanning them, or each operand in its own.
+	for _, name := range []string{"units_share", "units_gap", "units_rate"} {
+		t.Run(name+" over currencies is refused", func(t *testing.T) {
+			_, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{name}})
+			pgtest.CheckErr(t, err, name+" would add amounts in JPY and USD together")
+		})
+	}
+	// The column's currency is that of the amounts it adds, not of the
+	// documents a distinct count spans.
+	t.Run("a money column keeps the currency of its sums", func(t *testing.T) {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"usd_per_doc"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Columns[0].Currency, "USD"; got != want {
+			t.Errorf("currency: got %q, want %q", got, want)
+		}
+		if got, want := r.Rows[0][0], usd("2.50"); got != want { // USD 5.00 over 2 documents
+			t.Errorf("value: got %v, want %v", got, want)
+		}
+	})
+	t.Run("one currency per group", func(t *testing.T) {
+		r, err := Execute(m, f, Principal{ID: "u"}, Query{Measures: []string{"units"}, By: []string{"company"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := r.Rows[0][1], usd("5.00"); got != want { // USD 500 minor units
+			t.Errorf("company 1000: got %v, want %v", got, want)
+		}
+		if got, want := r.Rows[1][1], amt("JPY", "500"); got != want { // JPY has no minor unit
+			t.Errorf("company 3000: got %v, want %v", got, want)
+		}
+	})
 }
 
 // --- narrative ------------------------------------------------------------------
@@ -403,8 +559,14 @@ func TestNarrativeEdgeCases(t *testing.T) {
 func TestRenderingBranches(t *testing.T) {
 	r := fixtureResult()
 	plain := tableView(Table{Title: "all"}, r)
-	if plain.Header[2] != "Revenue (USD)" || plain.Rows[4][2].Text != "—" || plain.Rows[0][1].Text != "Jan" {
-		t.Fatalf("plain table: %+v", plain.Rows[4])
+	if plain.Header[2] != "Revenue (USD)" {
+		t.Errorf("plain table header: got %q, want Revenue (USD)", plain.Header[2])
+	}
+	if got := plain.Rows[4][2].Text; got != "—" {
+		t.Errorf("plain table missing value: got %q, want —", got)
+	}
+	if got := plain.Rows[0][1].Text; got != "Jan" {
+		t.Errorf("plain table month: got %q, want Jan", got)
 	}
 	cmp := tableView(Table{Title: "cmp", Compare: &Compare{Dim: "fiscal_year", Baseline: "2025", Current: "2026", Measure: "revenue"}}, r)
 	var neg, missing bool
@@ -414,29 +576,45 @@ func TestRenderingBranches(t *testing.T) {
 		}
 		missing = missing || row[1].Text == "—"
 	}
-	if !neg || !missing {
-		t.Fatalf("compare table must show a decrease and a missing baseline: %+v", cmp.Rows)
+	if !neg {
+		t.Errorf("compare table: got no decrease in %+v, want one", cmp.Rows)
+	}
+	if !missing {
+		t.Errorf("compare table: got no missing baseline in %+v, want one", cmp.Rows)
 	}
 	// Totals turn negative when the current year is lower overall; two key columns.
 	down := &Result{Columns: []Column{{Name: "company", Kind: "dimension"}, {Name: "region", Kind: "dimension"}, {Name: "fiscal_year", Kind: "dimension"},
 		{Name: "v", Kind: "measure", Type: Money}},
-		Rows: []Row{{"1000", "a", "2025", 100.0}, {"1000", "a", "2026", 50.0}, {"1000", "b", "2025", 100.0}, {"1000", "b", "2026", 60.0},
-			{"1000", "01", "2025", 1.0}, {"1000", "1", "2025", 1.0}}}
+		Rows: []Row{{"1000", "a", "2025", usd("100.00")}, {"1000", "a", "2026", usd("50.00")}, {"1000", "b", "2025", usd("100.00")}, {"1000", "b", "2026", usd("60.00")},
+			{"1000", "01", "2025", usd("1.00")}, {"1000", "1", "2025", usd("1.00")}}}
 	tot := tableView(Table{Compare: &Compare{Dim: "fiscal_year", Baseline: "2025", Current: "2026", Measure: "v"}}, down)
 	last := tot.Rows[len(tot.Rows)-1]
-	if last[0].Text != "Total" || len(last) != 6 || !strings.Contains(last[4].Class, "neg") {
-		t.Fatalf("total row: %+v", last)
+	if len(last) != 6 {
+		t.Fatalf("total row: got %d cells %+v, want 6", len(last), last)
 	}
-	if numCell(0, false, Column{}).Text != "—" || cellText(nil, Column{}) != "—" || cellText(true, Column{}) != "—" {
-		t.Fatal("empty cells")
+	if last[0].Text != "Total" {
+		t.Errorf("total row label: got %q, want Total", last[0].Text)
 	}
-	if dimText("2", "fiscal_quarter") != "Q2" || dimText("13", "fiscal_month") != "13" || dimText("", "vendor") != "(none)" {
-		t.Fatal("dimText")
+	if !strings.Contains(last[4].Class, "neg") {
+		t.Errorf("total row change class: got %q, want neg", last[4].Class)
+	}
+	for name, got := range map[string]string{"numCell(0, false)": numCell(Value{}, false, Column{}, "").Text, "cellText(nil)": cellText(nil, Column{}),
+		"cellText(true)": cellText(true, Column{})} {
+		if got != "—" {
+			t.Errorf("%s: got %q, want —", name, got)
+		}
+	}
+	for _, c := range []struct{ v, dim, want string }{{"2", "fiscal_quarter", "Q2"}, {"13", "fiscal_month", "13"}, {"", "vendor", "(none)"}} {
+		if got := dimText(c.v, c.dim); got != c.want {
+			t.Errorf("dimText(%q, %s): got %q, want %q", c.v, c.dim, got, c.want)
+		}
 	}
 
 	line := chartSVG(Chart{Title: "t", Type: "line", X: "fiscal_month", Series: "fiscal_year", Measure: "revenue"}, r)
-	if !strings.Contains(line, "<polyline") || !strings.Contains(line, `class="zero"`) {
-		t.Fatal("line chart with negative values")
+	for _, want := range []string{"<polyline", `class="zero"`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line chart with negative values: got %s, want it to contain %s", line, want)
+		}
 	}
 	bar := chartSVG(Chart{Title: "t", Type: "bar", X: "fiscal_month", Series: "fiscal_year", Measure: "revenue"}, r)
 	if !strings.Contains(bar, "<rect") {
@@ -445,21 +623,27 @@ func TestRenderingBranches(t *testing.T) {
 	if !strings.Contains(chartSVG(Chart{X: "fiscal_month", Measure: "revenue"}, &Result{Columns: r.Columns}), "No data") {
 		t.Fatal("empty chart")
 	}
-	zero := &Result{Columns: []Column{{Name: "x", Kind: "dimension"}, {Name: "v", Kind: "measure", Type: Ratio}}, Rows: []Row{{"a", 0.0}}}
+	zero := &Result{Columns: []Column{{Name: "x", Kind: "dimension"}, {Name: "v", Kind: "measure", Type: Ratio}}, Rows: []Row{{"a", ratio("0")}}}
 	if !strings.Contains(chartSVG(Chart{Type: "bar", X: "x", Measure: "v"}, zero), "<svg") {
 		t.Fatal("all-zero chart")
 	}
-	if niceStep(0) != 0 || niceStep(3) != 5 || niceStep(7) != 10 || niceStep(0.15) != 0.2 {
-		t.Fatalf("niceStep %v %v %v", niceStep(3), niceStep(7), niceStep(0.15))
+	for _, c := range []struct{ in, want float64 }{{0, 0}, {3, 5}, {7, 10}, {0.15, 0.2}} {
+		t.Run(fmt.Sprintf("niceStep(%v)", c.in), func(t *testing.T) {
+			if got := niceStep(c.in); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
 	}
 	for _, c := range []struct {
 		v    float64
 		col  Column
 		want string
 	}{{0.25, Column{Type: Ratio}, "25%"}, {2.5e6, Column{}, "2.5M"}, {-1500, Column{}, "−1.5K"}, {40, Column{}, "40"}} {
-		if got := axisLabel(c.v, c.col); got != c.want {
-			t.Errorf("axisLabel(%v) = %q want %q", c.v, got, c.want)
-		}
+		t.Run(fmt.Sprintf("axisLabel(%v)", c.v), func(t *testing.T) {
+			if got := axisLabel(c.v, c.col); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
@@ -474,8 +658,14 @@ func TestWriteCSV(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if lines[0] != "fiscal_year,fiscal_month,revenue,margin,orders" || lines[4] != "2026,2,-500,,1" || len(lines) != 6 {
-		t.Fatalf("csv:\n%s", buf.String())
+	if len(lines) != 6 {
+		t.Fatalf("csv: got %d lines, want 6:\n%s", len(lines), buf.String())
+	}
+	if lines[0] != "fiscal_year,fiscal_month,revenue,margin,orders" {
+		t.Errorf("csv header: got %q, want fiscal_year,fiscal_month,revenue,margin,orders", lines[0])
+	}
+	if lines[4] != "2026,2,-500.00,,1" {
+		t.Errorf("csv line 5: got %q, want 2026,2,-500.00,,1", lines[4])
 	}
 	if err := WriteCSV(failWriter{}, r); err == nil {
 		t.Fatal("flush error must be returned")
@@ -498,7 +688,9 @@ func TestSessionErrorPaths(t *testing.T) {
 	if _, err := LoadReport(filepath.Join(dir, "missing.json")); err == nil {
 		t.Fatal("missing report")
 	}
-	os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{"), 0o644); err != nil {
+		t.Fatalf("write a corrupt report: %v", err)
+	}
 	if _, err := LoadReport(filepath.Join(dir, "bad.json")); err == nil {
 		t.Fatal("corrupt report")
 	}
@@ -507,15 +699,25 @@ func TestSessionErrorPaths(t *testing.T) {
 	r, _ := ok.Run(salesQuery())
 	rep, _ := ok.Build(salesSpec(r.ID), "x")
 	blocked := filepath.Join(dir, "file")
-	os.WriteFile(blocked, nil, 0o644)
+	if err := os.WriteFile(blocked, nil, 0o644); err != nil {
+		t.Fatalf("write the blocking file: %v", err)
+	}
 	if _, err := rep.Save(filepath.Join(blocked, "sub"), ok.Results); err == nil {
 		t.Fatal("unwritable directory")
 	}
 	jsonDir := t.TempDir()
-	os.Mkdir(filepath.Join(jsonDir, rep.ID+".json"), 0o755)
-	if _, err := rep.Save(jsonDir, ok.Results); err == nil {
-		t.Fatal("unwritable report file")
+	if err := os.Mkdir(filepath.Join(jsonDir, rep.ID+".json"), 0o755); err != nil {
+		t.Fatalf("block the report file: %v", err)
 	}
+	_, err := rep.Save(jsonDir, ok.Results)
+	pgtest.WantErr(t, err, "analytics: save report "+rep.ID+" definition")
+	htmlDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(htmlDir, rep.ID+".html"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err = rep.Save(htmlDir, ok.Results)
+	pgtest.WantErr(t, err, "analytics: save report "+rep.ID+" page")
+	pgtest.WantErr(t, Render(failWriter{}, &rep.Spec, ok.Results, rep.Principal, nil), "analytics: render page")
 
 	// Rerun: a query that no longer runs, and a spec that no longer validates.
 	broken := &Report{Spec: salesSpec("monthly"), Queries: map[string]Query{"monthly": {Measures: []string{"gone"}}}}
@@ -523,22 +725,55 @@ func TestSessionErrorPaths(t *testing.T) {
 		t.Fatal("rerun with a failing query")
 	}
 	stale := &Report{Spec: salesSpec("other"), Queries: map[string]Query{"monthly": salesQuery()}}
-	if _, _, err := ok.Rerun(stale); err == nil || !strings.Contains(err.Error(), "no longer valid") {
-		t.Fatalf("rerun with an unknown query id: %v", err)
-	}
+	_, _, err = ok.Rerun(stale)
+	pgtest.WantErr(t, err, "no longer valid")
 }
 
 // A series without a value for some x leaves a gap in both chart types.
 func TestChartGaps(t *testing.T) {
 	r := &Result{Columns: []Column{{Name: "m", Kind: "dimension"}, {Name: "y", Kind: "dimension"}, {Name: "v", Kind: "measure", Type: Money}},
-		Rows: []Row{{"1", "2025", 10.0}, {"2", "2025", 12.0}, {"1", "2026", 11.0}}}
+		Rows: []Row{{"1", "2025", usd("10.00")}, {"2", "2025", usd("12.00")}, {"1", "2026", usd("11.00")}}}
 	for _, typ := range []string{"line", "bar"} {
-		svg := chartSVG(Chart{Type: typ, X: "m", Series: "y", Measure: "v"}, r)
-		if !strings.Contains(svg, "2026") {
-			t.Fatalf("%s chart lacks the second series", typ)
-		}
+		t.Run(typ, func(t *testing.T) {
+			svg := chartSVG(Chart{Type: typ, X: "m", Series: "y", Measure: "v"}, r)
+			if !strings.Contains(svg, "2026") {
+				t.Errorf("got %s, want the second series 2026", svg)
+			}
+		})
 	}
 	if n := strings.Count(chartSVG(Chart{Type: "bar", X: "m", Series: "y", Measure: "v"}, r), "<title>"); n != 3 {
 		t.Fatalf("three bars expected, got %d", n)
 	}
+}
+
+// Render validates the spec itself: a caller that skipped Validate gets
+// the problems as an error, never an index out of range.
+func TestRenderRefusesAnInvalidSpec(t *testing.T) {
+	results := map[string]*Result{"q1": fixtureResult()}
+	for name, spec := range map[string]Spec{
+		"tile measure not in the query":  {Title: "t", Tiles: []Tile{{Label: "gone", QueryID: "q1", Measure: "gone"}}},
+		"chart measure not in the query": {Title: "t", Charts: []Chart{{Title: "c", QueryID: "q1", Type: "bar", X: "fiscal_month", Measure: "gone"}}},
+		"unknown query":                  {Title: "t", Tables: []Table{{Title: "x", QueryID: "q9"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var b strings.Builder
+			pgtest.WantErr(t, Render(&b, &spec, results, Principal{ID: "u"}, nil), "analytics: render: invalid spec")
+			if b.Len() != 0 {
+				t.Errorf("got %d bytes written, want none", b.Len())
+			}
+		})
+	}
+	t.Run("a saved report", func(t *testing.T) {
+		dir := t.TempDir()
+		rep := &Report{ID: "rpt_bad", Spec: Spec{Title: "t", Tiles: []Tile{{Label: "gone", QueryID: "q1", Measure: "gone"}}}}
+		_, err := rep.Save(dir, results)
+		pgtest.WantErr(t, err, "analytics: save report rpt_bad")
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("read the report directory: %v", err)
+		}
+		if len(entries) != 0 {
+			t.Errorf("got %d files written, want none", len(entries))
+		}
+	})
 }

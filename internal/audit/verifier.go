@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -11,8 +12,10 @@ import (
 
 	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
 // Scheduled verification (T21, ADR-0011): a worker recomputes every tenant's
@@ -35,21 +38,15 @@ type Verifier struct {
 	Log        *slog.Logger
 	Now        func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (v *Verifier) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if v.Begin != nil {
-		return v.Begin(ctx, s)
-	}
-	return v.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, v.Pool, v.Begin, s)
 }
 
 func (v *Verifier) now() time.Time {
-	if v.Now != nil {
-		return v.Now().UTC()
-	}
-	return time.Now().UTC()
+	return clock.Now(v.Now).UTC()
 }
 
 // Verification is one round's result for one tenant.
@@ -71,7 +68,11 @@ func (v *Verifier) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT tenant_id FROM audit.chain_head ORDER BY tenant_id`)
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return tenants, fmt.Errorf("audit: list tenants with a chain: %w", err)
+	}
+	return tenants, nil
 }
 
 // Verify recomputes one tenant's whole chain, checks every anchor, records
@@ -96,12 +97,12 @@ func (v *Verifier) Verify(ctx context.Context, tenant uuid.UUID) (Verification, 
 	}
 	ver := Verification{TenantID: tenant, VerifiedAt: v.now(), HeadSeq: res.LastSeq, Checked: res.Checked, AnchorsChecked: anchors, BrokenAt: res.BrokenAt, OK: res.BrokenAt == 0}
 	var previouslyOK *bool
-	if err := tx.QueryRow(ctx, `SELECT ok FROM audit.verification WHERE tenant_id = $1 ORDER BY verified_at DESC LIMIT 1`, tenant).Scan(&previouslyOK); err != nil && err != pgx.ErrNoRows {
-		return Verification{}, err
+	if err := tx.QueryRow(ctx, `SELECT ok FROM audit.verification WHERE tenant_id = $1 ORDER BY verified_at DESC LIMIT 1`, tenant).Scan(&previouslyOK); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return Verification{}, fmt.Errorf("audit: read last verification of tenant %s: %w", tenant, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit.verification (tenant_id, verified_at, head_seq, checked, anchors_checked, broken_at, ok) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		tenant, ver.VerifiedAt, ver.HeadSeq, ver.Checked, ver.AnchorsChecked, nullable(ver.BrokenAt), ver.OK); err != nil {
-		return Verification{}, err
+		return Verification{}, fmt.Errorf("audit: record verification of tenant %s: %w", tenant, err)
 	}
 	if !ver.OK && (previouslyOK == nil || *previouslyOK) {
 		// The alarm: once, when a chain that verified stops doing so.
@@ -112,7 +113,7 @@ func (v *Verifier) Verify(ctx context.Context, tenant uuid.UUID) (Verification, 
 		v.Log.ErrorContext(ctx, "audit chain does not verify", "tenant_id", tenant, "broken_at", ver.BrokenAt, "head_seq", ver.HeadSeq)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Verification{}, err
+		return Verification{}, fmt.Errorf("audit: commit verification of tenant %s: %w", tenant, err)
 	}
 	return ver, nil
 }
@@ -122,6 +123,23 @@ func nullable(n int64) *int64 {
 		return nil
 	}
 	return &n
+}
+
+// LatestVerifications returns the latest scheduled verification of each of
+// the tenants that has one (what the control plane shows of a tenant's
+// chain), in the caller's transaction.
+func LatestVerifications(ctx context.Context, tx pgx.Tx, tenants []uuid.UUID) (map[uuid.UUID]Verification, error) {
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT ON (tenant_id) tenant_id, verified_at, head_seq, checked, anchors_checked, coalesce(broken_at, 0), ok
+		FROM audit.verification WHERE tenant_id = ANY($1) ORDER BY tenant_id, verified_at DESC`, tenants)
+	latest := map[uuid.UUID]Verification{}
+	var v Verification
+	if _, err := pgx.ForEachRow(rows, []any{&v.TenantID, &v.VerifiedAt, &v.HeadSeq, &v.Checked, &v.AnchorsChecked, &v.BrokenAt, &v.OK}, func() error {
+		latest[v.TenantID] = v
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("audit: read the latest verifications of %d tenants: %w", len(tenants), err)
+	}
+	return latest, nil
 }
 
 // RunOnce verifies every tenant and returns how many verified and how many
@@ -147,20 +165,11 @@ func (v *Verifier) RunOnce(ctx context.Context) (ok, broken int, err error) {
 
 // Run rounds until ctx ends, logging failures.
 func (v *Verifier) Run(ctx context.Context) {
-	interval := v.Interval
-	if interval <= 0 {
-		interval = time.Hour
-	}
-	for {
-		if ok, broken, err := v.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			v.Log.ErrorContext(ctx, "audit verification round failed", "error", err)
-		} else if err == nil {
+	worker.Loop(ctx, v.Interval, time.Hour, func(ctx context.Context) (bool, error) {
+		ok, broken, err := v.RunOnce(ctx)
+		if err == nil {
 			v.Log.InfoContext(ctx, "audit verification round", "verified", ok, "broken", broken)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return false, err
+	}, v.Log, "audit verification round failed")
 }

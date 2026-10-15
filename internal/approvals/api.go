@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -20,16 +20,12 @@ type Endpoints struct {
 	Decider
 }
 
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 func toAPI(r Request) gen.ApprovalRequest {
 	out := gen.ApprovalRequest{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		ObjectType: r.ObjectType, ObjectID: r.ObjectID, Title: r.Title, RequesterID: r.RequesterID, Status: r.Status,
 		CurrentStep: int32(r.CurrentStep), Steps: make([]gen.ApprovalStep, len(r.Steps)), Decisions: make([]gen.Decision, len(r.Decisions))}
 	if r.Amount != nil {
-		out.Amount.SetTo(gen.Money{Amount: money.Minor(*r.Amount).Plain(r.Exponent), Currency: *r.Currency})
+		out.Amount.SetTo(apitypes.Money(*r.Amount, *r.Currency, r.Exponent))
 	}
 	if r.CompletedAt != nil {
 		out.CompletedAt.SetTo(*r.CompletedAt)
@@ -79,8 +75,7 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 		object = &params.ObjectID.Value
 	}
 	scope := fmt.Sprintf("listApprovalRequests|%s|%s|%s", params.Status.Value, params.ObjectType.Value, params.ObjectID.Value)
-	ks, err := e.Pages.Keyset(requestSort, scope, pagination.Request{OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value,
-		PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set})
+	ks, err := e.Pages.Keyset(requestSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -89,24 +84,17 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	rows, _ := tx.Query(ctx, q, args...)
 	requests, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Request, error) { return scanRequest(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("approvals: list approval requests: %w", err)
 	}
-	requests, next := pagination.Page(ks, requests, func(r Request) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, requests, func(r Request) (string, uuid.UUID) {
 		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID
-	})
-	page := gen.ApprovalRequestPage{Items: make([]gen.ApprovalRequest, len(requests))}
-	for i, r := range requests {
-		page.Items[i] = toAPI(r)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ApprovalRequestPageHeaders{Response: page}, nil
+	}, toAPI)
+	return &gen.ApprovalRequestPageHeaders{Response: gen.ApprovalRequestPage{Items: items, NextPageToken: next}}, nil
 }
 
 // ApproveApprovalRequest implements POST /v1/approval-requests/{id}:approve.
 func (e *Endpoints) ApproveApprovalRequest(ctx context.Context, req gen.OptDecisionInput, params gen.ApproveApprovalRequestParams) (gen.ApproveApprovalRequestRes, error) {
-	r, err := e.Approve(ctx, params.ID, ifMatch(params.IfMatch), req.Value.Comment.Value)
+	r, err := e.Approve(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Value.Comment.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +103,7 @@ func (e *Endpoints) ApproveApprovalRequest(ctx context.Context, req gen.OptDecis
 
 // RejectApprovalRequest implements POST /v1/approval-requests/{id}:reject.
 func (e *Endpoints) RejectApprovalRequest(ctx context.Context, req *gen.CommentRequiredInput, params gen.RejectApprovalRequestParams) (gen.RejectApprovalRequestRes, error) {
-	r, err := e.Reject(ctx, params.ID, ifMatch(params.IfMatch), req.Comment)
+	r, err := e.Reject(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Comment)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +112,7 @@ func (e *Endpoints) RejectApprovalRequest(ctx context.Context, req *gen.CommentR
 
 // CancelApprovalRequest implements POST /v1/approval-requests/{id}:cancel.
 func (e *Endpoints) CancelApprovalRequest(ctx context.Context, req *gen.CommentRequiredInput, params gen.CancelApprovalRequestParams) (gen.CancelApprovalRequestRes, error) {
-	r, err := e.Cancel(ctx, params.ID, ifMatch(params.IfMatch), req.Comment)
+	r, err := e.Cancel(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Comment)
 	if err != nil {
 		return nil, err
 	}

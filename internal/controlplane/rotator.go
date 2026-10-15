@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,9 +11,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Key rotation policy (T23, ADR-0028): a worker rotates the field
@@ -34,14 +38,14 @@ type KeyRotator struct {
 	Interval   time.Duration // between rounds; default 1 hour
 	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
+	// Now dates the keys' age and the audit entries; nil means the wall
+	// clock. Tests fix it.
+	Now func() time.Time
 }
 
 func (k *KeyRotator) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if k.Begin != nil {
-		return k.Begin(ctx, s)
-	}
-	return k.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, k.Pool, k.Begin, s)
 }
 
 // due lists the active tenants whose active key is older than Age (or
@@ -52,10 +56,21 @@ func (k *KeyRotator) due(ctx context.Context) ([]uuid.UUID, error) {
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT t.id FROM tenancy.tenant t
-		LEFT JOIN tenancy.tenant_key k ON k.tenant_id = t.id AND k.status = 'active'
-		WHERE t.status = 'active' AND (k.created_at IS NULL OR k.created_at < $1) ORDER BY t.id`, time.Now().Add(-k.Age))
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	all, err := tenancy.Lifecycles(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("controlplane: list tenants due for key rotation: %w", err)
+	}
+	fresh, err := fieldcrypt.KeyedSince(ctx, tx, clock.Now(k.Now).Add(-k.Age))
+	if err != nil {
+		return nil, fmt.Errorf("controlplane: list tenants due for key rotation: %w", err)
+	}
+	var tenants []uuid.UUID
+	for _, t := range all {
+		if t.Status == Active && !fresh[t.ID] {
+			tenants = append(tenants, t.ID)
+		}
+	}
+	return tenants, nil
 }
 
 // Rotate gives one tenant a new key and re-seals its fields, recorded in
@@ -66,12 +81,12 @@ func (k *KeyRotator) Rotate(ctx context.Context, tenant uuid.UUID) (fieldcrypt.R
 		return fieldcrypt.Rotation{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	var status string
-	if err := tx.QueryRow(ctx, `SELECT status FROM tenancy.tenant WHERE id = $1 FOR UPDATE`, tenant).Scan(&status); err != nil {
-		return fieldcrypt.Rotation{}, err
+	t, err := tenancy.GetTenant(ctx, tx, tenant, true)
+	if err != nil {
+		return fieldcrypt.Rotation{}, fmt.Errorf("controlplane: lock tenant %s: %w", tenant, err)
 	}
-	if status != Active {
-		return fieldcrypt.Rotation{}, fmt.Errorf("tenant %s is %s", tenant, status)
+	if t.Status != Active {
+		return fieldcrypt.Rotation{}, fmt.Errorf("tenant %s is %s", tenant, t.Status)
 	}
 	if err := database.SetActor(ctx, tx, RotatorActor); err != nil {
 		return fieldcrypt.Rotation{}, err
@@ -81,48 +96,44 @@ func (k *KeyRotator) Rotate(ctx context.Context, tenant uuid.UUID) (fieldcrypt.R
 		return fieldcrypt.Rotation{}, err
 	}
 	actor := reqctx.Principal{ID: RotatorActor, Kind: reqctx.KindSystem, TenantID: tenant}
-	if err := audit.Write(ctx, tx, actor, "", time.Now().UTC(), audit.Entry{Action: "tenancy.tenant.rotate_key", ObjectType: "tenancy.tenant", ObjectID: tenant, Outcome: "succeeded",
+	if err := audit.Write(ctx, tx, actor, "", clock.Now(k.Now).UTC(), audit.Entry{Action: "tenancy.tenant.rotate_key", ObjectType: "tenancy.tenant", ObjectID: tenant, Outcome: "succeeded",
 		Detail: map[string]any{"key_id": rot.KeyID, "previous_key_id": rot.Previous, "master_key_id": rot.Master, "resealed": rot.Resealed, "policy": k.Age.String()}}); err != nil {
 		return fieldcrypt.Rotation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fieldcrypt.Rotation{}, err
+		return fieldcrypt.Rotation{}, fmt.Errorf("controlplane: commit key rotation of tenant %s: %w", tenant, err)
 	}
 	return rot, nil
 }
 
-// RunOnce rotates every tenant due and returns how many.
+// RunOnce rotates every tenant due and returns how many. A tenant whose
+// rotation fails is reported and left for the next round; the tenants after
+// it go on, or one key that cannot be rotated (its master key gone) would
+// stop every later tenant's rotation for good.
 func (k *KeyRotator) RunOnce(ctx context.Context) (int, error) {
 	tenants, err := k.due(ctx)
 	if err != nil {
 		return 0, err
 	}
 	n := 0
+	var failures []error
 	for _, t := range tenants {
 		if _, err := k.Rotate(ctx, t); err != nil {
-			return n, fmt.Errorf("rotating the key of tenant %s: %w", t, err)
+			failures = append(failures, fmt.Errorf("rotating the key of tenant %s: %w", t, err))
+			continue
 		}
 		n++
 	}
-	return n, nil
+	return n, errors.Join(failures...)
 }
 
 // Run rounds until ctx ends, logging failures and work done.
 func (k *KeyRotator) Run(ctx context.Context) {
-	interval := k.Interval
-	if interval <= 0 {
-		interval = time.Hour
-	}
-	for {
-		if n, err := k.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			k.Log.ErrorContext(ctx, "key rotation round failed", "error", err)
-		} else if n > 0 {
+	worker.Loop(ctx, k.Interval, time.Hour, func(ctx context.Context) (bool, error) {
+		n, err := k.RunOnce(ctx)
+		if n > 0 && !worker.Failed(ctx, err) {
 			k.Log.InfoContext(ctx, "key rotation round", "rotated", n, "older_than", k.Age.String())
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return false, err
+	}, k.Log, "key rotation round failed")
 }

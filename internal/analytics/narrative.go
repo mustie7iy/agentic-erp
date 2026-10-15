@@ -30,47 +30,67 @@ var figureRe = regexp.MustCompile(`(?i)([+\-−]?)(\$|€|£|USD\s?|EUR\s?)?(\d{
 func extractFigures(text string) []figure {
 	var out []figure
 	for _, m := range figureRe.FindAllStringSubmatchIndex(text, -1) {
-		start, end := m[0], m[1]
-		if start > 0 {
-			prev := text[start-1]
-			if (prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') || prev == '_' {
-				continue // e.g. Q4, FY2026
-			}
+		if followsLetter(text, m[0]) {
+			continue // e.g. Q4, FY2026
 		}
-		get := func(i int) string {
-			if m[2*i] < 0 {
-				return ""
-			}
-			return text[m[2*i]:m[2*i+1]]
+		if f, ok := parseFigure(text, m); ok {
+			out = append(out, f)
 		}
-		intPart := strings.ReplaceAll(get(3), ",", "")
-		frac := get(4)
-		suffix := strings.ToLower(strings.TrimSpace(get(5)))
-		currency := get(2) != ""
-		v, err := strconv.ParseFloat(intPart+"."+frac+"0", 64)
-		if err != nil {
-			continue
-		}
-		f := figure{value: v, decimals: len(frac), scale: 1, text: text[start:end]}
-		switch {
-		case suffix == "%":
-			f.percent = true
-		case strings.HasPrefix(suffix, "percentage"), strings.HasPrefix(suffix, "pt"), strings.HasPrefix(suffix, "point"):
-			f.points = true
-		case suffix == "k" || suffix == "thousand":
-			f.scale = 1e3
-		case suffix == "m" || suffix == "million":
-			f.scale = 1e6
-		case suffix == "b" || suffix == "bn" || suffix == "billion":
-			f.scale = 1e9
-		}
-		plain := !currency && suffix == "" && frac == ""
-		if plain && (v <= 31 || (v >= 1900 && v <= 2100)) {
-			continue
-		}
-		out = append(out, f)
 	}
 	return out
+}
+
+// followsLetter reports whether the match at start continues a word.
+func followsLetter(text string, start int) bool {
+	if start == 0 {
+		return false
+	}
+	prev := text[start-1]
+	return (prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') || prev == '_'
+}
+
+// parseFigure reads one figureRe match; ok is false for numbers that do not
+// claim a quantity (plain years and small integers).
+func parseFigure(text string, m []int) (figure, bool) {
+	start, end := m[0], m[1]
+	get := func(i int) string {
+		if m[2*i] < 0 {
+			return ""
+		}
+		return text[m[2*i]:m[2*i+1]]
+	}
+	intPart := strings.ReplaceAll(get(3), ",", "")
+	frac := get(4)
+	suffix := strings.ToLower(strings.TrimSpace(get(5)))
+	currency := get(2) != ""
+	v, err := strconv.ParseFloat(intPart+"."+frac+"0", 64)
+	if err != nil {
+		return figure{}, false
+	}
+	f := figure{value: v, decimals: len(frac), scale: 1, text: text[start:end]}
+	f.applySuffix(suffix)
+	plain := !currency && suffix == "" && frac == ""
+	if plain && (v <= 31 || (v >= 1900 && v <= 2100)) {
+		return figure{}, false
+	}
+	return f, true
+}
+
+// applySuffix marks a figure as a percentage or points, or scales it by a
+// K/M/B suffix.
+func (f *figure) applySuffix(suffix string) {
+	switch {
+	case suffix == "%":
+		f.percent = true
+	case strings.HasPrefix(suffix, "percentage"), strings.HasPrefix(suffix, "pt"), strings.HasPrefix(suffix, "point"):
+		f.points = true
+	case suffix == "k" || suffix == "thousand":
+		f.scale = 1e3
+	case suffix == "m" || suffix == "million":
+		f.scale = 1e6
+	case suffix == "b" || suffix == "bn" || suffix == "billion":
+		f.scale = 1e9
+	}
 }
 
 // evidence is the set of numbers the commentary may cite.
@@ -83,59 +103,80 @@ type evidence struct {
 func buildEvidence(results []*Result) *evidence {
 	ev := &evidence{}
 	for _, r := range results {
-		var dimIdx, measIdx []int
-		for i, c := range r.Columns {
-			if c.Kind == "dimension" {
-				dimIdx = append(dimIdx, i)
-			} else {
-				measIdx = append(measIdx, i)
-			}
-		}
+		dimIdx, measIdx := splitColumns(r)
 		for _, mi := range measIdx {
-			ratio := r.Columns[mi].Type == Ratio
-			// Series at every level of aggregation: the rows themselves,
-			// subtotals with any one dimension removed, and the grand total.
-			levels := [][]int{dimIdx}
-			for drop := range dimIdx {
-				keep := append(append([]int{}, dimIdx[:drop]...), dimIdx[drop+1:]...)
-				levels = append(levels, keep)
-			}
-			if len(dimIdx) > 1 {
-				levels = append(levels, nil)
-			}
-			for _, keep := range levels {
-				if ratio && len(keep) != len(dimIdx) {
-					continue // ratios don't add up
-				}
-				points := aggregate(r, keep, mi)
-				for _, p := range points {
-					if ratio {
-						ev.percent = append(ev.percent, p.value*100)
-					} else {
-						ev.amounts = append(ev.amounts, p.value)
-					}
-				}
-				// Changes between points that differ in exactly one dimension.
-				for a := range points {
-					for b := range points {
-						if a == b || !differInOne(points[a].dims, points[b].dims) {
-							continue
-						}
-						x, y := points[a].value, points[b].value
-						if ratio {
-							ev.points = append(ev.points, (y-x)*100)
-							continue
-						}
-						ev.amounts = append(ev.amounts, y-x)
-						if x != 0 {
-							ev.percent = append(ev.percent, (y-x)/math.Abs(x)*100)
-						}
-					}
-				}
-			}
+			ev.addMeasure(r, dimIdx, mi)
 		}
 	}
 	return ev
+}
+
+// splitColumns returns the indexes of the dimension and measure columns.
+func splitColumns(r *Result) (dimIdx, measIdx []int) {
+	for i, c := range r.Columns {
+		if c.Kind == "dimension" {
+			dimIdx = append(dimIdx, i)
+		} else {
+			measIdx = append(measIdx, i)
+		}
+	}
+	return dimIdx, measIdx
+}
+
+// aggregationLevels lists the series at every level of aggregation: the
+// rows themselves, subtotals with any one dimension removed, and the grand
+// total.
+func aggregationLevels(dimIdx []int) [][]int {
+	levels := [][]int{dimIdx}
+	for drop := range dimIdx {
+		keep := append(append([]int{}, dimIdx[:drop]...), dimIdx[drop+1:]...)
+		levels = append(levels, keep)
+	}
+	if len(dimIdx) > 1 {
+		levels = append(levels, nil)
+	}
+	return levels
+}
+
+// addMeasure adds the values of measure column mi at every level of
+// aggregation, and the changes between them.
+func (ev *evidence) addMeasure(r *Result, dimIdx []int, mi int) {
+	ratio := r.Columns[mi].Type == Ratio
+	for _, keep := range aggregationLevels(dimIdx) {
+		if ratio && len(keep) != len(dimIdx) {
+			continue // ratios don't add up
+		}
+		points := aggregate(r, keep, mi)
+		for _, p := range points {
+			if ratio {
+				ev.percent = append(ev.percent, p.value*100)
+			} else {
+				ev.amounts = append(ev.amounts, p.value)
+			}
+		}
+		ev.addChanges(points, ratio)
+	}
+}
+
+// addChanges adds the changes between points that differ in exactly one
+// dimension: percentage points for ratios, amounts and percent otherwise.
+func (ev *evidence) addChanges(points []point, ratio bool) {
+	for a := range points {
+		for b := range points {
+			if a == b || !differInOne(points[a].dims, points[b].dims) {
+				continue
+			}
+			x, y := points[a].value, points[b].value
+			if ratio {
+				ev.points = append(ev.points, (y-x)*100)
+				continue
+			}
+			ev.amounts = append(ev.amounts, y-x)
+			if x != 0 {
+				ev.percent = append(ev.percent, (y-x)/math.Abs(x)*100)
+			}
+		}
+	}
 }
 
 type point struct {
@@ -147,10 +188,11 @@ func aggregate(r *Result, keep []int, mi int) []point {
 	idx := map[string]int{}
 	var out []point
 	for _, row := range r.Rows {
-		v, ok := row[mi].(float64)
+		val, ok := row[mi].(Value)
 		if !ok {
 			continue
 		}
+		v := val.float() // evidence is matched at the precision a figure is written with
 		dims := make([]string, len(keep))
 		for i, k := range keep {
 			dims[i], _ = row[k].(string)

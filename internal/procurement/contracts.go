@@ -2,14 +2,17 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -24,8 +27,8 @@ type Contract struct {
 	Exponent       int
 	ValidFrom      time.Time
 	ValidTo        time.Time
-	TargetValue    int64
-	ConsumedValue  int64
+	TargetValue    money.Minor
+	ConsumedValue  money.Minor
 	Status         string
 	Items          []Item
 	Version        int32
@@ -46,9 +49,11 @@ const contractSelect = `SELECT c.id, c.document_number, c.legal_entity_id, c.sup
 
 func scanContract(row pgx.Row) (Contract, error) {
 	var c Contract
-	err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.SupplierID, &c.Currency, &c.Exponent, &c.ValidFrom, &c.ValidTo,
-		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items)
-	return c, err
+	if err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.SupplierID, &c.Currency, &c.Exponent, &c.ValidFrom, &c.ValidTo,
+		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items); err != nil {
+		return Contract{}, fmt.Errorf("scan contract: %w", err)
+	}
+	return c, nil
 }
 
 func getContract(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Contract, error) {
@@ -61,10 +66,10 @@ func getContract(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Contr
 		q += ` FOR UPDATE OF c`
 	}
 	c, err := scanContract(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(c.LegalEntityID)) {
-		return Contract{}, notFound("contract")
+	if err = authz.Visible(err, access, c.LegalEntityID, problem.NotFoundOf("contract"), "procurement: get contract %s", id); err != nil {
+		return Contract{}, err
 	}
-	return c, err
+	return c, nil
 }
 
 // GetContract returns a contract.
@@ -106,14 +111,14 @@ func (e *Endpoints) contractItems(ctx context.Context, le uuid.UUID, currency st
 func writeContractItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item) error {
 	n := len(items)
 	nos, materials, keys, descriptions, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
-	prices, priceUnits, accounts := make([]int64, n), make([]int32, n), make([]uuid.UUID, n)
+	prices, priceUnits, accounts := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n)
 	for i, it := range items {
 		nos[i], materials[i], keys[i], descriptions[i], units[i] = it.No, it.MaterialID, it.MaterialKey, it.Description, it.Unit
 		prices[i], priceUnits[i], accounts[i] = it.UnitPrice, it.PriceUnit, it.AccountID
 	}
 	// Removed first, so a material key can move to another item number.
 	if _, err := tx.Exec(ctx, `UPDATE procurement.contract_item SET is_removed = true WHERE contract_id = $1 AND NOT is_removed`, id); err != nil {
-		return err
+		return fmt.Errorf("procurement: remove items of contract %s: %w", id, err)
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO procurement.contract_item AS i (tenant_id, contract_id, item_no, material_id, material_key, description,
 			unit_price, price_unit, uom_code, account_id)
@@ -123,7 +128,10 @@ func writeContractItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, it
 			description = EXCLUDED.description, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit, uom_code = EXCLUDED.uom_code,
 			account_id = EXCLUDED.account_id, is_removed = false`,
 		tenant, id, nos, materials, keys, descriptions, prices, priceUnits, units, accounts)
-	return err
+	if err != nil {
+		return fmt.Errorf("procurement: write items of contract %s: %w", id, err)
+	}
+	return nil
 }
 
 func checkValidity(from, to time.Time) error {
@@ -170,7 +178,7 @@ func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contrac
 	if err != nil {
 		return Contract{}, err
 	}
-	day, err := today(ctx, tx)
+	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Contract{}, err
 	}
@@ -183,7 +191,7 @@ func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contrac
 			valid_to, target_value, status, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $10)`,
 		p.TenantID, id, number, le.ID, in.SupplierID, in.Currency, in.ValidFrom, in.ValidTo, target, p.ID); err != nil {
-		return Contract{}, err
+		return Contract{}, fmt.Errorf("procurement: create contract %s: %w", number, err)
 	}
 	if err := writeContractItems(ctx, tx, p.TenantID, id, items); err != nil {
 		return Contract{}, err
@@ -192,7 +200,7 @@ func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contrac
 	if err != nil {
 		return Contract{}, err
 	}
-	return c, record(ctx, "procurement.contract.create", "procurement.contract", id, map[string]any{"document_number": number, "items": len(items)})
+	return c, audit.Record(ctx, "procurement.contract.create", "procurement.contract", id, map[string]any{"document_number": number, "items": len(items)})
 }
 
 // ContractChange is a merge patch of a draft contract.
@@ -252,13 +260,13 @@ func (e *Endpoints) updateContract(ctx context.Context, id uuid.UUID, ifMatch fu
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.contract SET valid_from = $2, valid_to = $3, target_value = $4, version = version + 1, updated_by = $5
 		WHERE id = $1`, id, from, to, target, p.ID); err != nil {
-		return Contract{}, err
+		return Contract{}, fmt.Errorf("procurement: update contract %s: %w", id, err)
 	}
 	updated, err := getContract(ctx, tx, id, false)
 	if err != nil {
 		return Contract{}, err
 	}
-	return updated, record(ctx, "procurement.contract.update", "procurement.contract", id, map[string]any{"items": len(updated.Items)})
+	return updated, audit.Record(ctx, "procurement.contract.update", "procurement.contract", id, map[string]any{"items": len(updated.Items)})
 }
 
 // contractTransition is a status change of a contract and its event.
@@ -284,7 +292,7 @@ func changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 		return Contract{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.contract SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, t.to, p.ID); err != nil {
-		return Contract{}, err
+		return Contract{}, fmt.Errorf("procurement: %s contract %s: %w", t.action, id, err)
 	}
 	updated, err := getContract(ctx, tx, id, false)
 	if err != nil {
@@ -295,13 +303,13 @@ func changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	switch t.to {
 	case Active:
 		payload["valid_from"], payload["valid_to"] = c.ValidFrom.Format(time.DateOnly), c.ValidTo.Format(time.DateOnly)
-		payload["target_value"] = moneyOf(c.TargetValue, c.Currency, c.Exponent)
+		payload["target_value"] = money.EventAmount(c.TargetValue, c.Currency, c.Exponent)
 	case Terminated:
-		payload["consumed_value"] = moneyOf(c.ConsumedValue, c.Currency, c.Exponent)
+		payload["consumed_value"] = money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent)
 	}
 	detail := map[string]any{"from_status": c.Status}
 	if reason != "" {
 		detail["reason"] = reason
 	}
-	return updated, record(ctx, "procurement.contract."+t.action, "procurement.contract", id, detail, event(t.event, "contract", id, payload))
+	return updated, audit.Record(ctx, "procurement.contract."+t.action, "procurement.contract", id, detail, event(t.event, "contract", id, payload))
 }

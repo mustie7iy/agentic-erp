@@ -2,18 +2,16 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math/big"
-	"regexp"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -52,19 +50,20 @@ func unknownUnit() *problem.Problem {
 		problem.FieldError{Field: "items", Code: "unknown_unit", Message: "a unit of measure code from the reference data"})
 }
 
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
-
 func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
 
-// reference turns "not found" for a referenced document into 422 on the
-// referencing field; other errors pass.
-func reference(err error, code, field, message string) error {
-	if problem.From(err).Status == 404 {
-		return invalid(code, field, message)
+// referencedContract reads the contract a requisition or order names. An
+// unknown one is procurement.invalid_contract on contract_id, the code of
+// every other reason the contract cannot be used, rather than the generic
+// problem.Reference; other errors pass.
+func referencedContract(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Contract, error) {
+	c, err := getContract(ctx, tx, id, false)
+	if err != nil && problem.From(err).Status == http.StatusNotFound {
+		return Contract{}, invalid("procurement.invalid_contract", "contract_id", "no contract with this id that you can access")
 	}
-	return err
+	return c, err
 }
 
 // statusConflict refuses a transition from the current status.
@@ -81,75 +80,23 @@ func allows(current string, allowed ...string) bool {
 	return false
 }
 
-// record publishes the events and adds the audit entry of a change.
-func record(ctx context.Context, action, objectType string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
-}
-
 func event(name, aggregate string, id uuid.UUID, payload map[string]any) outbox.Event {
 	return outbox.Event{Context: "procurement", Name: name, AggregateType: "procurement." + aggregate, AggregateID: id, Payload: payload}
 }
 
-var extensionKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// checkExtensions enforces snake_case custom field keys (ADR-0009).
-func checkExtensions(ext map[string]any) error {
-	for k := range ext {
-		if !extensionKey.MatchString(k) {
-			return problem.Unprocessable("request.invalid_extension", "Custom field keys are snake_case.",
-				problem.FieldError{Field: "extensions." + k, Code: "invalid_key", Message: "snake_case, starting with a letter"})
-		}
-	}
-	return nil
-}
-
-// mergePatch applies an RFC 7396 merge patch to custom fields.
-func mergePatch(target, patch map[string]any) map[string]any {
-	out := make(map[string]any, len(target))
-	for k, v := range target {
-		out[k] = v
-	}
-	for k, v := range patch {
-		switch pv := v.(type) {
-		case nil:
-			delete(out, k)
-		case map[string]any:
-			tv, _ := out[k].(map[string]any)
-			out[k] = mergePatch(tv, pv)
-		default:
-			out[k] = v
-		}
-	}
-	return out
-}
-
-// today is the database's current date, the date documents without one
-// are numbered by.
-func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var d time.Time
-	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	return d, err
-}
-
 // exponent returns the currency's minor-unit digits; an unknown currency is
 // 422 on field.
-func exponent(ctx context.Context, tx pgx.Tx, currency, field string) (int, error) {
-	var exp int
-	err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, currency).Scan(&exp)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, problem.Unprocessable("procurement.unknown_currency", "The currency is not known.",
-			problem.FieldError{Field: field, Code: "unknown", Message: "an ISO 4217 currency in the reference data"})
+func exponent(ctx context.Context, tx pgx.Tx, code, field string) (int, error) {
+	exp, err := currency.Exponent(ctx, tx, code, problem.Unprocessable("procurement.unknown_currency", "The currency is not known.",
+		problem.FieldError{Field: field, Code: "unknown", Message: "an ISO 4217 currency in the reference data"}))
+	if err != nil {
+		return 0, fmt.Errorf("procurement: %w", err)
 	}
-	return exp, err
+	return exp, nil
 }
 
 // amount parses a money value in the document currency.
-func amount(value, currency, docCurrency string, exp int, field string, positive bool) (int64, error) {
+func amount(value, currency, docCurrency string, exp int, field string, positive bool) (money.Minor, error) {
 	if currency != docCurrency {
 		return 0, invalid("procurement.currency_mismatch", field+".currency", "amounts are in the document currency "+docCurrency)
 	}
@@ -161,38 +108,52 @@ func amount(value, currency, docCurrency string, exp int, field string, positive
 	if m < 0 || (positive && m == 0) {
 		return 0, invalid("procurement.invalid_amount", field+".amount", "the amount must be positive")
 	}
-	return int64(m), nil
+	return m, nil
 }
 
-// quantity parses a positive decimal quantity.
-func quantity(value, field string) (*big.Rat, error) {
-	q, ok := new(big.Rat).SetString(value)
-	if !ok || q.Sign() <= 0 {
-		return nil, invalid("procurement.invalid_quantity", field+".value", "a positive quantity")
+// quantity checks a document quantity (money.PositiveQuantity): API input
+// is bounded by the contract already, migrated documents are not, and
+// itemsTotal's Scale reads only the plain form.
+func quantity(value, field string) error {
+	if money.PositiveQuantity(value) != nil {
+		return invalid("procurement.invalid_quantity", field+".value", fmt.Sprintf("a positive plain decimal quantity of at most %d integer digits and %d decimals", money.QuantityIntDigits, money.QuantityDecimals))
 	}
-	return q, nil
+	return nil
 }
 
-// rat reads a decimal the database rendered as text.
-func rat(s string) *big.Rat {
-	r, _ := new(big.Rat).SetString(s) // numeric columns render as decimals
-	return r
-}
-
-// extend is quantity × price / price unit in minor units, rounded half up
-// (quantities and prices are never negative).
-func extend(qty string, price int64, priceUnit int32) int64 {
-	v := new(big.Rat).Mul(rat(qty), new(big.Rat).SetInt64(price))
-	v.Quo(v, new(big.Rat).SetInt64(int64(priceUnit)))
-	q, m := new(big.Int).QuoRem(v.Num(), v.Denom(), new(big.Int))
-	if m.Mul(m, big.NewInt(2)).Cmp(v.Denom()) >= 0 {
-		q.Add(q, big.NewInt(1))
+// itemsTotal is the sum of the items' extended amounts, quantity × price /
+// price unit rounded half away from zero, checked for range.
+func itemsTotal(items []Item) (money.Minor, error) {
+	amounts := make([]money.Minor, len(items))
+	for i, it := range items {
+		a, err := money.Scale(it.UnitPrice, it.Quantity, int64(it.PriceUnit))
+		if err != nil {
+			return 0, err
+		}
+		amounts[i] = a
 	}
-	return q.Int64()
+	return money.Sum(amounts...)
 }
 
-func moneyOf(minor int64, currency string, exp int) map[string]string {
-	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
+// checkTotal refuses items whose extended amounts or total are out of
+// range: a wrapped total would select the wrong approval tier and pass a
+// contract's remaining value. quantity admits only plain decimal
+// quantities, from the API and from a migration alike, so what fails is
+// the range.
+func checkTotal(items []Item) error {
+	_, err := documentTotal(items)
+	return err
+}
+
+// documentTotal is the items' total for a decision (approval tier, contract
+// consumption). Unlike Total it fails closed: items stored before
+// checkTotal refused totals out of range are refused here.
+func documentTotal(items []Item) (money.Minor, error) {
+	sum, err := itemsTotal(items)
+	if err != nil {
+		return 0, invalid("procurement.amount_too_large", "items", "extended amounts and their total must be in the range of an amount")
+	}
+	return sum, nil
 }
 
 // legalEntity loads a legal entity the caller may act in that is active.
@@ -201,14 +162,11 @@ func (e *Endpoints) legalEntity(ctx context.Context, id uuid.UUID) (tenancy.Enti
 	if err != nil {
 		return tenancy.Entity{}, err
 	}
-	le, ok, err := e.LegalEntities.Entity(ctx, id)
-	switch {
-	case err != nil:
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, id, "legal_entity_id")
+	if err != nil {
 		return tenancy.Entity{}, err
-	case !ok || !access.Allows(id):
-		return tenancy.Entity{}, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-			problem.FieldError{Field: "legal_entity_id", Code: "not_found", Message: "no legal entity with this id that you can access"})
-	case le.Status != "active":
+	}
+	if le.Status != "active" {
 		return tenancy.Entity{}, invalid("procurement.legal_entity_not_active", "legal_entity_id", "the legal entity is "+le.Status)
 	}
 	return le, nil
@@ -275,8 +233,13 @@ func checkItemNo(given *int32, i int, field string) error {
 	return nil
 }
 
-// removeItems marks the items beyond the first n removed.
+// removeItems marks the items beyond the first n removed; table is an item
+// table of the procurement schema and column its document's id.
 func removeItems(ctx context.Context, tx pgx.Tx, table, column string, doc uuid.UUID, n int) error {
-	_, err := tx.Exec(ctx, `UPDATE `+table+` SET is_removed = true WHERE `+column+` = $1 AND item_no > $2 AND NOT is_removed`, doc, n)
-	return err
+	_, err := tx.Exec(ctx, `UPDATE `+pgx.Identifier{"procurement", table}.Sanitize()+` SET is_removed = true WHERE `+pgx.Identifier{column}.Sanitize()+
+		` = $1 AND item_no > $2 AND NOT is_removed`, doc, n)
+	if err != nil {
+		return fmt.Errorf("procurement: remove items of procurement.%s %s: %w", table, doc, err)
+	}
+	return nil
 }

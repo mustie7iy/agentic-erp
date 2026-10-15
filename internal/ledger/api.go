@@ -10,61 +10,27 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
-
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
-func tag[T any](v T) gen.OptString { return gen.NewOptString(etag.Of(&v)) }
-
-func optUUID(v *uuid.UUID) gen.OptUUID {
-	if v == nil {
-		return gen.OptUUID{}
-	}
-	return gen.NewOptUUID(*v)
-}
-
-func optString(v *string) gen.OptString {
-	if v == nil {
-		return gen.OptString{}
-	}
-	return gen.NewOptString(*v)
-}
-
-func ptr[T any](o interface{ Get() (T, bool) }) *T {
-	if v, ok := o.Get(); ok {
-		return &v
-	}
-	return nil
-}
-
-func money2(minor int64, currency string, exp int) gen.Money {
-	return gen.Money{Amount: money.Minor(minor).Plain(exp), Currency: currency}
-}
-
-func paging(size gen.OptInt32, token gen.OptString, order gen.OptString) pagination.Request {
-	return pagination.Request{OrderBy: order.Value, PageSize: size.Value, PageSizeSet: size.Set, PageToken: token.Value, PageTokenSet: token.Set}
-}
 
 func entryToAPI(e Entry) gen.JournalEntry {
 	out := gen.JournalEntry{
 		ID: e.ID, LegalEntityID: e.LegalEntityID, LedgerID: e.LedgerID, FiscalYear: int32(e.FiscalYear), FiscalPeriod: int32(e.FiscalPeriod),
 		DocumentType: e.DocumentType, DocumentNumber: e.DocumentNumber, DocumentDate: e.DocumentDate, PostingDate: e.PostingDate,
 		Currency: e.CurrencyTC, LocalCurrency: e.CurrencyLC, GroupCurrency: e.CurrencyGC, RateTcLc: gen.Decimal(e.RateTCLC),
-		RateLcGc: gen.Decimal(e.RateLCGC), Reference: optString(e.Reference), HeaderText: optString(e.HeaderText),
-		SourceContext: e.SourceContext, SourceDocumentID: optUUID(e.SourceDocumentID), ReversalOfID: optUUID(e.ReversalOfID),
-		ReversedByID: optUUID(e.ReversedByID), PostedAt: e.PostedAt, PostedBy: e.PostedBy, Lines: make([]gen.JournalLine, len(e.Lines)),
+		RateLcGc: gen.Decimal(e.RateLCGC), Reference: apitypes.OptString(e.Reference), HeaderText: apitypes.OptString(e.HeaderText),
+		SourceContext: e.SourceContext, SourceDocumentID: apitypes.OptUUID(e.SourceDocumentID), ReversalOfID: apitypes.OptUUID(e.ReversalOfID),
+		ReversedByID: apitypes.OptUUID(e.ReversedByID), PostedAt: e.PostedAt, PostedBy: e.PostedBy, Lines: make([]gen.JournalLine, len(e.Lines)),
 	}
 	for i, l := range e.Lines {
-		line := gen.JournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: money2(l.TC, e.CurrencyTC, e.ExpTC),
-			AmountLc: money2(l.LC, e.CurrencyLC, e.ExpLC), AmountGc: money2(l.GC, e.CurrencyGC, e.ExpGC), PartnerID: optUUID(l.PartnerID),
-			TaxCode: optString(l.TaxCode), LineText: optString(l.Text)}
+		line := gen.JournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, e.CurrencyTC, e.ExpTC),
+			AmountLc: apitypes.Money(l.LC, e.CurrencyLC, e.ExpLC), AmountGc: apitypes.Money(l.GC, e.CurrencyGC, e.ExpGC), PartnerID: apitypes.OptUUID(l.PartnerID),
+			TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text)}
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}
@@ -122,8 +88,8 @@ func (e *Endpoints) ListAccounts(ctx context.Context, params gen.ListAccountsPar
 	if err != nil {
 		return nil, err
 	}
-	scope := fmt.Sprintf("listAccounts|%s|%s|%s|%s", ptr[uuid.UUID](params.LegalEntityID), ptr[uuid.UUID](params.ChartID), params.Number.Value, params.Status.Value)
-	ks, err := e.Pages.Keyset(accountSort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	scope := fmt.Sprintf("listAccounts|%s|%s|%s|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.ChartID), params.Number.Value, params.Status.Value)
+	ks, err := e.Pages.Keyset(accountSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -134,11 +100,11 @@ func (e *Endpoints) ListAccounts(ctx context.Context, params gen.ListAccountsPar
 	q, args := ks.SQL(accountSelect+` WHERE ($3::uuid IS NULL OR EXISTS (SELECT FROM ledger.company_account ca WHERE ca.tenant_id = a.tenant_id
 			AND ca.account_id = a.id AND ca.legal_entity_id = $3 AND ($1 OR $3 = ANY($2))))
 		AND ($4::uuid IS NULL OR a.chart_id = $4) AND ($5 = '' OR a.number = $5) AND ($6 = '' OR a.status = $6)`,
-		[]any{access.All, access.IDs, ptr[uuid.UUID](params.LegalEntityID), ptr[uuid.UUID](params.ChartID), params.Number.Value, params.Status.Value})
+		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.ChartID), params.Number.Value, params.Status.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	accounts, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Account, error) { return scanAccount(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list accounts: %w", err)
 	}
 	accounts, next := pagination.Page(ks, accounts, func(a Account) (string, uuid.UUID) { return a.Number, a.ID })
 	page := gen.AccountPage{Items: make([]gen.Account, len(accounts))}
@@ -170,9 +136,9 @@ func (e *Endpoints) ListFiscalPeriods(ctx context.Context, params gen.ListFiscal
 	if err != nil {
 		return nil, err
 	}
-	scope := fmt.Sprintf("listFiscalPeriods|%s|%s|%d|%s", ptr[uuid.UUID](params.LegalEntityID), ptr[uuid.UUID](params.LedgerID),
+	scope := fmt.Sprintf("listFiscalPeriods|%s|%s|%d|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.LedgerID),
 		params.FiscalYear.Value, params.Status.Value)
-	ks, err := e.Pages.Keyset(periodSort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	ks, err := e.Pages.Keyset(periodSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -182,11 +148,11 @@ func (e *Endpoints) ListFiscalPeriods(ctx context.Context, params gen.ListFiscal
 	}
 	q, args := ks.SQL(periodSelect+` WHERE ($1 OR legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR ledger_id = $4) AND ($5::smallint IS NULL OR fiscal_year = $5) AND ($6 = '' OR status = $6)`,
-		[]any{access.All, access.IDs, ptr[uuid.UUID](params.LegalEntityID), ptr[uuid.UUID](params.LedgerID), ptr[int32](params.FiscalYear), params.Status.Value})
+		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.LedgerID), apitypes.Ptr[int32](params.FiscalYear), params.Status.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	periods, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Period, error) { return scanPeriod(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list fiscal periods: %w", err)
 	}
 	periods, next := pagination.Page(ks, periods, func(p Period) (string, uuid.UUID) {
 		if ks.Field() == "period" {
@@ -206,7 +172,7 @@ func (e *Endpoints) ListFiscalPeriods(ctx context.Context, params gen.ListFiscal
 
 // OpenFiscalPeriod implements POST /v1/fiscal-periods/{id}:open.
 func (e *Endpoints) OpenFiscalPeriod(ctx context.Context, params gen.OpenFiscalPeriodParams) (gen.OpenFiscalPeriodRes, error) {
-	p, err := OpenPeriod(ctx, params.ID, ifMatch(params.IfMatch))
+	p, err := OpenPeriod(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +181,7 @@ func (e *Endpoints) OpenFiscalPeriod(ctx context.Context, params gen.OpenFiscalP
 
 // CloseFiscalPeriod implements POST /v1/fiscal-periods/{id}:close.
 func (e *Endpoints) CloseFiscalPeriod(ctx context.Context, params gen.CloseFiscalPeriodParams) (gen.CloseFiscalPeriodRes, error) {
-	p, err := ClosePeriod(ctx, params.ID, ifMatch(params.IfMatch))
+	p, err := ClosePeriod(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -224,12 +190,12 @@ func (e *Endpoints) CloseFiscalPeriod(ctx context.Context, params gen.CloseFisca
 
 // PostJournalEntry implements POST /v1/journal-entries.
 func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryCreate, _ gen.PostJournalEntryParams) (gen.PostJournalEntryRes, error) {
-	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: ptr[uuid.UUID](req.LedgerID), DocumentType: req.DocumentType.Or("SA"),
-		DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, Currency: req.Currency, Reference: ptr[string](req.Reference),
-		HeaderText: ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
+	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), DocumentType: req.DocumentType.Or("SA"),
+		DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
+		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
 	for i, l := range req.Lines {
-		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: ptr[uuid.UUID](l.PartnerID),
-			TaxCode: ptr[string](l.TaxCode), Text: ptr[string](l.LineText)}
+		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
+			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText)}
 		if q, ok := l.Quantity.Get(); ok {
 			line.Quantity, line.Unit = &q.Value, &q.Unit
 		}
@@ -240,7 +206,7 @@ func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryC
 		return nil, err
 	}
 	rep := entryToAPI(je)
-	return &gen.JournalEntryHeaders{ETag: tag(rep), Location: gen.NewOptString("/v1/journal-entries/" + je.ID.String()), Response: rep}, nil
+	return &gen.JournalEntryHeaders{ETag: apitypes.ETagOf(rep), Location: gen.NewOptString("/v1/journal-entries/" + je.ID.String()), Response: rep}, nil
 }
 
 // GetJournalEntry implements GET /v1/journal-entries/{id}.
@@ -250,7 +216,7 @@ func (e *Endpoints) GetJournalEntry(ctx context.Context, params gen.GetJournalEn
 		return nil, err
 	}
 	rep := entryToAPI(je)
-	return &gen.GetJournalEntryOKHeaders{ETag: tag(rep), Response: rep}, nil
+	return &gen.GetJournalEntryOKHeaders{ETag: apitypes.ETagOf(rep), Response: rep}, nil
 }
 
 var entrySort = pagination.Sort{Default: "posting_date", Fields: []pagination.Field{
@@ -263,10 +229,10 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	if err != nil {
 		return nil, err
 	}
-	from, to := ptr[time.Time](params.PostingDateFrom), ptr[time.Time](params.PostingDateTo)
-	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s", ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to,
-		params.FiscalYear.Value, params.SourceContext.Value, ptr[uuid.UUID](params.SourceDocumentID))
-	ks, err := e.Pages.Keyset(entrySort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	from, to := apitypes.Ptr[time.Time](params.PostingDateFrom), apitypes.Ptr[time.Time](params.PostingDateTo)
+	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to,
+		params.FiscalYear.Value, params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID))
+	ks, err := e.Pages.Keyset(entrySort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -277,12 +243,12 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	q, args := ks.SQL(entrySelect+` WHERE ($1 OR e.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR e.legal_entity_id = $3)
 		AND ($4 = '' OR e.document_number = $4) AND ($5::date IS NULL OR e.posting_date >= $5) AND ($6::date IS NULL OR e.posting_date <= $6)
 		AND ($7::smallint IS NULL OR e.fiscal_year = $7) AND ($8 = '' OR e.source_context = $8) AND ($9::uuid IS NULL OR e.source_document_id = $9)`,
-		[]any{access.All, access.IDs, ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to, ptr[int32](params.FiscalYear),
-			params.SourceContext.Value, ptr[uuid.UUID](params.SourceDocumentID)})
+		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to, apitypes.Ptr[int32](params.FiscalYear),
+			params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID)})
 	rows, _ := tx.Query(ctx, q, args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) { return scanEntry(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list journal entries: %w", err)
 	}
 	entries, next := pagination.Page(ks, entries, func(je Entry) (string, uuid.UUID) {
 		if ks.Field() == "document_number" {
@@ -302,16 +268,19 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 
 // ReverseJournalEntry implements POST /v1/journal-entries/{id}:reverse.
 func (e *Endpoints) ReverseJournalEntry(ctx context.Context, req gen.OptJournalEntryReverse, params gen.ReverseJournalEntryParams) (gen.ReverseJournalEntryRes, error) {
-	check := func(orig Entry) error { return etag.Match(params.IfMatch, etag.Of(ptrTo(entryToAPI(orig)))) }
-	rev, err := e.reverseJournalEntry(ctx, params.ID, check, ptr[time.Time](req.Value.PostingDate), ptr[string](req.Value.HeaderText))
+	check := func(orig Entry) error {
+		if err := etag.Match(params.IfMatch, etag.Of(new(entryToAPI(orig)))); err != nil {
+			return err
+		}
+		return requireOwnEntry(orig)
+	}
+	rev, err := e.reverseJournalEntry(ctx, params.ID, check, apitypes.Ptr[time.Time](req.Value.PostingDate), apitypes.Ptr[string](req.Value.HeaderText))
 	if err != nil {
 		return nil, err
 	}
 	rep := entryToAPI(rev)
-	return &gen.ReverseJournalEntryOKHeaders{ETag: tag(rep), Response: rep}, nil
+	return &gen.ReverseJournalEntryOKHeaders{ETag: apitypes.ETagOf(rep), Response: rep}, nil
 }
-
-func ptrTo[T any](v T) *T { return &v }
 
 var openItemSort = pagination.Sort{Default: "posting_date", Fields: []pagination.Field{{Name: "posting_date", Column: "posting_date", Type: "date"}}}
 
@@ -321,10 +290,10 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 	if err != nil {
 		return nil, err
 	}
-	to := ptr[time.Time](params.PostingDateTo)
-	scope := fmt.Sprintf("listOpenItems|%s|%s|%s|%v", ptr[uuid.UUID](params.LegalEntityID), ptr[uuid.UUID](params.PartnerID),
-		ptr[uuid.UUID](params.AccountID), to)
-	ks, err := e.Pages.Keyset(openItemSort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	to := apitypes.Ptr[time.Time](params.PostingDateTo)
+	scope := fmt.Sprintf("listOpenItems|%s|%s|%s|%v", apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.PartnerID),
+		apitypes.Ptr[uuid.UUID](params.AccountID), to)
+	ks, err := e.Pages.Keyset(openItemSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -334,18 +303,18 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 	}
 	q, args := ks.SQL(openItemSelect+` AND ($3::uuid IS NULL OR l.legal_entity_id = $3) AND ($4::uuid IS NULL OR l.partner_id = $4)
 		AND ($5::uuid IS NULL OR l.account_id = $5) AND ($6::date IS NULL OR l.posting_date <= $6)) o WHERE true`,
-		[]any{access.All, access.IDs, ptr[uuid.UUID](params.LegalEntityID), ptr[uuid.UUID](params.PartnerID), ptr[uuid.UUID](params.AccountID), to})
+		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.PartnerID), apitypes.Ptr[uuid.UUID](params.AccountID), to})
 	rows, _ := tx.Query(ctx, q, args...)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OpenItem, error) { return scanOpenItem(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list open items: %w", err)
 	}
 	items, next := pagination.Page(ks, items, func(o OpenItem) (string, uuid.UUID) { return o.PostingDate.Format(time.DateOnly), o.ID })
 	page := gen.OpenItemPage{Items: make([]gen.OpenItem, len(items))}
 	for i, o := range items {
 		page.Items[i] = gen.OpenItem{FiscalYear: int32(o.FiscalYear), JournalEntryID: o.EntryID, LineNo: o.LineNo, LegalEntityID: o.LegalEntityID,
-			AccountID: o.AccountID, PartnerID: optUUID(o.PartnerID), PostingDate: o.PostingDate, Amount: money2(o.TC, o.CurrencyTC, o.ExpTC),
-			AmountLc: money2(o.LC, o.CurrencyLC, o.ExpLC), DocumentNumber: o.DocumentNumber, Reference: optString(o.Reference)}
+			AccountID: o.AccountID, PartnerID: apitypes.OptUUID(o.PartnerID), PostingDate: o.PostingDate, Amount: apitypes.Money(o.TC, o.CurrencyTC, o.ExpTC),
+			AmountLc: apitypes.Money(o.LC, o.CurrencyLC, o.ExpLC), DocumentNumber: o.DocumentNumber, Reference: apitypes.OptString(o.Reference)}
 	}
 	if next != "" {
 		page.NextPageToken.SetTo(next)
@@ -365,9 +334,9 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	if err != nil {
 		return nil, err
 	}
-	period, account := ptr[int32](params.FiscalPeriod), ptr[uuid.UUID](params.AccountID)
-	scope := fmt.Sprintf("listBalances|%s|%s|%d|%v|%s", params.LegalEntityID, ptr[uuid.UUID](params.LedgerID), params.FiscalYear, params.FiscalPeriod, account)
-	ks, err := e.Pages.Keyset(balanceSort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	period, account := apitypes.Ptr[int32](params.FiscalPeriod), apitypes.Ptr[uuid.UUID](params.AccountID)
+	scope := fmt.Sprintf("listBalances|%s|%s|%d|%v|%s", params.LegalEntityID, apitypes.Ptr[uuid.UUID](params.LedgerID), params.FiscalYear, params.FiscalPeriod, account)
+	ks, err := e.Pages.Keyset(balanceSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -384,12 +353,12 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 		return empty, nil
 	}
 	var ledger uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT id FROM ledger.ledger WHERE ($1::uuid IS NULL AND is_leading) OR id = $1`, ptr[uuid.UUID](params.LedgerID)).Scan(&ledger)
+	err = tx.QueryRow(ctx, `SELECT id FROM ledger.ledger WHERE ($1::uuid IS NULL AND is_leading) OR id = $1`, apitypes.Ptr[uuid.UUID](params.LedgerID)).Scan(&ledger)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return empty, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list balances %s: find ledger: %w", le.ID, err)
 	}
 	group, err := e.LegalEntities.GroupCurrency(ctx)
 	if err != nil {
@@ -403,7 +372,7 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	rows, _ := tx.Query(ctx, q, args...)
 	balances, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Balance, error) { return scanBalance(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list balances %s: %w", le.ID, err)
 	}
 	balances, next := pagination.Page(ks, balances, func(b Balance) (string, uuid.UUID) {
 		if ks.Field() == "fiscal_period" {
@@ -411,19 +380,26 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 		}
 		return b.AccountID.String(), b.ID
 	})
-	page := gen.BalancePage{Items: make([]gen.Balance, len(balances))}
-	for i, b := range balances {
-		lc, gc := exps[le.LocalCurrency], exps[group]
-		page.Items[i] = gen.Balance{LedgerID: ledger, LegalEntityID: le.ID, AccountID: b.AccountID, FiscalYear: params.FiscalYear,
-			FiscalPeriod: int32(b.FiscalPeriod), Currency: b.CurrencyTC, Debit: money2(b.DebitTC, b.CurrencyTC, b.ExpTC),
-			Credit: money2(b.CreditTC, b.CurrencyTC, b.ExpTC), DebitLc: money2(b.DebitLC, le.LocalCurrency, lc),
-			CreditLc: money2(b.CreditLC, le.LocalCurrency, lc), DebitGc: money2(b.DebitGC, group, gc), CreditGc: money2(b.CreditGC, group, gc),
-			UpdatedAt: b.UpdatedAt}
-	}
+	page := balancesToAPI(balances, ledger, le, params.FiscalYear, group, exps)
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
 	return &gen.BalancePageHeaders{Response: page}, nil
+}
+
+// balancesToAPI renders balances of a ledger and fiscal year with their
+// amounts in transaction, local and group currency.
+func balancesToAPI(balances []Balance, ledger uuid.UUID, le tenancy.Entity, fiscalYear int32, group string, exps map[string]int) gen.BalancePage {
+	page := gen.BalancePage{Items: make([]gen.Balance, len(balances))}
+	for i, b := range balances {
+		lc, gc := exps[le.LocalCurrency], exps[group]
+		page.Items[i] = gen.Balance{LedgerID: ledger, LegalEntityID: le.ID, AccountID: b.AccountID, FiscalYear: fiscalYear,
+			FiscalPeriod: int32(b.FiscalPeriod), Currency: b.CurrencyTC, Debit: apitypes.Money(b.DebitTC, b.CurrencyTC, b.ExpTC),
+			Credit: apitypes.Money(b.CreditTC, b.CurrencyTC, b.ExpTC), DebitLc: apitypes.Money(b.DebitLC, le.LocalCurrency, lc),
+			CreditLc: apitypes.Money(b.CreditLC, le.LocalCurrency, lc), DebitGc: apitypes.Money(b.DebitGC, group, gc), CreditGc: apitypes.Money(b.CreditGC, group, gc),
+			UpdatedAt: b.UpdatedAt}
+	}
+	return page
 }
 
 // CreateExchangeRate implements POST /v1/exchange-rates.
@@ -434,7 +410,7 @@ func (e *Endpoints) CreateExchangeRate(ctx context.Context, req *gen.ExchangeRat
 		return nil, err
 	}
 	rep := rateToAPI(r)
-	return &gen.ExchangeRateHeaders{ETag: tag(rep), Location: gen.NewOptString("/v1/exchange-rates/" + r.ID.String()), Response: rep}, nil
+	return &gen.ExchangeRateHeaders{ETag: apitypes.ETagOf(rep), Location: gen.NewOptString("/v1/exchange-rates/" + r.ID.String()), Response: rep}, nil
 }
 
 // GetExchangeRate implements GET /v1/exchange-rates/{id}.
@@ -444,7 +420,7 @@ func (e *Endpoints) GetExchangeRate(ctx context.Context, params gen.GetExchangeR
 		return nil, err
 	}
 	rep := rateToAPI(r)
-	return &gen.GetExchangeRateOKHeaders{ETag: tag(rep), Response: rep}, nil
+	return &gen.GetExchangeRateOKHeaders{ETag: apitypes.ETagOf(rep), Response: rep}, nil
 }
 
 var rateSort = pagination.Sort{Default: "valid_from", Fields: []pagination.Field{{Name: "valid_from", Column: "valid_from", Type: "date"}}}
@@ -456,9 +432,9 @@ func (e *Endpoints) ListExchangeRates(ctx context.Context, params gen.ListExchan
 	if err != nil {
 		return nil, err
 	}
-	on := ptr[time.Time](params.ValidOn)
+	on := apitypes.Ptr[time.Time](params.ValidOn)
 	scope := fmt.Sprintf("listExchangeRates|%s|%s|%s|%v", params.RateType.Value, params.FromCurrency.Value, params.ToCurrency.Value, on)
-	ks, err := e.Pages.Keyset(rateSort, scope, paging(params.PageSize, params.PageToken, params.OrderBy))
+	ks, err := e.Pages.Keyset(rateSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -472,7 +448,7 @@ func (e *Endpoints) ListExchangeRates(ctx context.Context, params gen.ListExchan
 	rows, _ := tx.Query(ctx, q, args...)
 	rates, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Rate, error) { return scanRate(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list exchange rates: %w", err)
 	}
 	rates, next := pagination.Page(ks, rates, func(r Rate) (string, uuid.UUID) { return r.ValidFrom.Format(time.DateOnly), r.ID })
 	page := gen.ExchangeRatePage{Items: make([]gen.ExchangeRate, len(rates))}
@@ -496,7 +472,7 @@ func (e *Endpoints) CreateClearing(ctx context.Context, req *gen.ClearingCreate,
 		return nil, err
 	}
 	rep := clearingToAPI(c)
-	return &gen.ClearingHeaders{ETag: tag(rep), Location: gen.NewOptString("/v1/clearings/" + c.ID.String()), Response: rep}, nil
+	return &gen.ClearingHeaders{ETag: apitypes.ETagOf(rep), Location: gen.NewOptString("/v1/clearings/" + c.ID.String()), Response: rep}, nil
 }
 
 // GetClearing implements GET /v1/clearings/{id}.
@@ -506,7 +482,7 @@ func (e *Endpoints) GetClearing(ctx context.Context, params gen.GetClearingParam
 		return nil, err
 	}
 	rep := clearingToAPI(c)
-	return &gen.GetClearingOKHeaders{ETag: tag(rep), Response: rep}, nil
+	return &gen.GetClearingOKHeaders{ETag: apitypes.ETagOf(rep), Response: rep}, nil
 }
 
 var clearingSort = pagination.Sort{Default: "clearing_date", Fields: []pagination.Field{{Name: "clearing_date", Column: "c.clearing_date", Type: "date"}}}
@@ -517,8 +493,8 @@ func (e *Endpoints) ListClearings(ctx context.Context, params gen.ListClearingsP
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(clearingSort, fmt.Sprintf("listClearings|%s", ptr[uuid.UUID](params.LegalEntityID)),
-		paging(params.PageSize, params.PageToken, params.OrderBy))
+	ks, err := e.Pages.Keyset(clearingSort, fmt.Sprintf("listClearings|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID)),
+		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -527,11 +503,11 @@ func (e *Endpoints) ListClearings(ctx context.Context, params gen.ListClearingsP
 		return nil, err
 	}
 	q, args := ks.SQL(clearingSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3)`,
-		[]any{access.All, access.IDs, ptr[uuid.UUID](params.LegalEntityID)})
+		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID)})
 	rows, _ := tx.Query(ctx, q, args...)
 	clearings, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Clearing, error) { return scanClearing(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ledger: list clearings: %w", err)
 	}
 	clearings, next := pagination.Page(ks, clearings, func(c Clearing) (string, uuid.UUID) { return c.ClearingDate.Format(time.DateOnly), c.ID })
 	page := gen.ClearingPage{Items: make([]gen.Clearing, len(clearings))}

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
@@ -77,7 +78,7 @@ func (k KMS) Unwrap(tenant uuid.UUID, wrapped []byte) ([]byte, error) {
 	err := k.call("Decrypt", map[string]any{"KeyId": k.KeyID, "CiphertextBlob": wrapped, "EncryptionContext": k.context(tenant)}, &out)
 	var kmsErr *kmsError
 	if errors.As(err, &kmsErr) && kmsErr.Type == "InvalidCiphertextException" {
-		return nil, fmt.Errorf("%w: %v", ErrCorrupt, err)
+		return nil, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
 	if err != nil {
 		return nil, err
@@ -97,10 +98,7 @@ func (k KMS) client() *http.Client {
 }
 
 func (k KMS) now() time.Time {
-	if k.Now != nil {
-		return k.Now()
-	}
-	return time.Now()
+	return clock.Now(k.Now)
 }
 
 // kmsError is a failed KMS call: the service's exception type and message.
@@ -134,8 +132,8 @@ func (k KMS) call(action string, in map[string]any, out any) error {
 	if err != nil {
 		return fmt.Errorf("fieldcrypt: kms %s: %w", action, err)
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	defer func() { _ = resp.Body.Close() }()               // only read from: closing frees the connection and cannot change the answer
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // a body cut short fails to decode below, or shortens a refusal's message
 	if resp.StatusCode != http.StatusOK {
 		e := &kmsError{Action: action, Status: resp.StatusCode}
 		var body struct {

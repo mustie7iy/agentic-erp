@@ -14,9 +14,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
@@ -25,7 +25,7 @@ const Base = "/directory/v1"
 
 // Handler serves api/directory.yaml for operators the verifier accepts.
 func Handler(s *Service, v *authn.Verifier, log *slog.Logger) http.Handler {
-	h := &handler{s: s, log: log}
+	h := &handler{s: s, op: httpapi.Operator{Roles: Roles, Log: log, Name: "directory"}}
 	mux := http.NewServeMux()
 	mux.HandleFunc(Base+"/tenants", h.tenants)
 	mux.HandleFunc(Base+"/tenants/{rest}", h.tenant)
@@ -37,70 +37,36 @@ func Handler(s *Service, v *authn.Verifier, log *slog.Logger) http.Handler {
 }
 
 type handler struct {
-	s   *Service
-	log *slog.Logger
+	s  *Service
+	op httpapi.Operator
 }
 
-type endpoint func(w http.ResponseWriter, r *http.Request) error
-
-// Roles maps each operation to the operator role it needs (ADR-0027).
+// Roles maps each operation to the operator role it needs (ADR-0027); any
+// other needs authn.RoleOperate.
 var Roles = map[string]string{"listDirectoryTenants": authn.RoleRead, "getDirectoryTenant": authn.RoleRead, "listCells": authn.RoleRead, "verifyTenant": authn.RoleRead, "createDirectoryTenant": authn.RoleProvision}
-
-func required(operation string) string {
-	if role, ok := Roles[operation]; ok {
-		return role
-	}
-	return authn.RoleOperate
-}
-
-func (h *handler) serve(w http.ResponseWriter, r *http.Request, operation string, e endpoint) {
-	reqctx.InfoFrom(r.Context()).Operation = operation
-	if claims, _ := reqctx.ClaimsFrom(r.Context()); !authn.OperatorAllowed(claims, required(operation)) {
-		problem.Write(w, r, problem.Forbidden("authz.operator_role", "This operation needs the operator role "+required(operation)+"."))
-		return
-	}
-	if err := e(w, r); err != nil {
-		p := problem.From(err)
-		if p.Status >= 500 {
-			h.log.ErrorContext(r.Context(), "directory request failed", "operation", operation, "error", err, "trace_id", reqctx.TraceID(r.Context()))
-		}
-		problem.Write(w, r, p)
-	}
-}
-
-func notAllowed(w http.ResponseWriter, r *http.Request, allowed string) {
-	w.Header().Set("Allow", allowed)
-	problem.Write(w, r, problem.New(http.StatusMethodNotAllowed, "request.method_not_allowed", "Method not allowed", "Allowed: "+allowed+"."))
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v) // the status is sent; a failed write cannot be reported
-}
 
 func (h *handler) tenants(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		h.serve(w, r, "listDirectoryTenants", h.list)
+		h.op.Serve(w, r, "listDirectoryTenants", h.list)
 	case http.MethodPost:
-		h.serve(w, r, "createDirectoryTenant", h.create)
+		h.op.Serve(w, r, "createDirectoryTenant", h.create)
 	default:
-		notAllowed(w, r, "GET, POST")
+		httpapi.NotAllowed(w, r, "GET, POST")
 	}
 }
 
 func (h *handler) cells(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		notAllowed(w, r, "GET")
+		httpapi.NotAllowed(w, r, "GET")
 		return
 	}
-	h.serve(w, r, "listCells", func(w http.ResponseWriter, r *http.Request) error {
+	h.op.Serve(w, r, "listCells", func(w http.ResponseWriter, r *http.Request) error {
 		cells, err := h.s.Cells(r.Context(), r.URL.Query().Get("region"))
 		if err != nil {
 			return err
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": cells}) // never nil: pgx collects into an empty slice
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": cells}) // never nil: pgx collects into an empty slice
 		return nil
 	})
 }
@@ -116,48 +82,40 @@ func (h *handler) tenant(w http.ResponseWriter, r *http.Request) {
 	ifMatch := r.Header.Get("If-Match")
 	switch {
 	case r.Method == http.MethodGet && !custom:
-		h.serve(w, r, "getDirectoryTenant", func(w http.ResponseWriter, r *http.Request) error {
+		h.op.Serve(w, r, "getDirectoryTenant", func(w http.ResponseWriter, r *http.Request) error {
 			e, err := h.s.Get(r.Context(), id)
 			return h.entry(w, e, err)
 		})
 	case r.Method == http.MethodPost && custom && verb == "freeze":
-		h.serve(w, r, "freezeTenant", func(w http.ResponseWriter, r *http.Request) error {
+		h.op.Serve(w, r, "freezeTenant", func(w http.ResponseWriter, r *http.Request) error {
 			e, err := h.s.Freeze(r.Context(), id, ifMatch)
 			return h.entry(w, e, err)
 		})
 	case r.Method == http.MethodPost && custom && verb == "unfreeze":
-		h.serve(w, r, "unfreezeTenant", func(w http.ResponseWriter, r *http.Request) error {
+		h.op.Serve(w, r, "unfreezeTenant", func(w http.ResponseWriter, r *http.Request) error {
 			e, err := h.s.Unfreeze(r.Context(), id, ifMatch)
 			return h.entry(w, e, err)
 		})
 	case r.Method == http.MethodPost && custom && verb == "move":
-		h.serve(w, r, "moveTenant", func(w http.ResponseWriter, r *http.Request) error {
-			var in struct {
-				Cell string `json:"cell"`
-			}
-			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&in); err != nil || in.Cell == "" {
-				return problem.BadRequest("request.invalid_body", "The request body does not match the contract: a cell is required.")
-			}
-			e, err := h.s.Move(r.Context(), id, ifMatch, in.Cell)
-			return h.entry(w, e, err)
-		})
-	case r.Method == http.MethodPost && custom && verb == "verify":
-		h.serve(w, r, "verifyTenant", func(w http.ResponseWriter, r *http.Request) error {
-			var in struct {
-				Cell string `json:"cell"`
-			}
-			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&in); err != nil || in.Cell == "" {
-				return problem.BadRequest("request.invalid_body", "The request body does not match the contract: a cell is required.")
-			}
-			v, err := h.s.Verify(r.Context(), id, in.Cell, r.Header.Get("Authorization"))
+		h.op.Serve(w, r, "moveTenant", func(w http.ResponseWriter, r *http.Request) error {
+			cell, err := cellBody(w, r)
 			if err != nil {
 				return err
 			}
-			writeJSON(w, http.StatusOK, v)
+			e, err := h.s.Move(r.Context(), id, ifMatch, cell)
+			return h.entry(w, e, err)
+		})
+	case r.Method == http.MethodPost && custom && verb == "verify":
+		h.op.Serve(w, r, "verifyTenant", func(w http.ResponseWriter, r *http.Request) error {
+			cell, err := cellBody(w, r)
+			if err != nil {
+				return err
+			}
+			v, err := h.s.Verify(r.Context(), id, cell, r.Header.Get("Authorization"))
+			if err != nil {
+				return err
+			}
+			httpapi.WriteJSON(w, http.StatusOK, v)
 			return nil
 		})
 	case custom:
@@ -165,10 +123,23 @@ func (h *handler) tenant(w http.ResponseWriter, r *http.Request) {
 			problem.Write(w, r, problem.NotFound("No such method on tenants: "+verb+"."))
 			return
 		}
-		notAllowed(w, r, "POST")
+		httpapi.NotAllowed(w, r, "POST")
 	default:
-		notAllowed(w, r, "GET")
+		httpapi.NotAllowed(w, r, "GET")
 	}
+}
+
+// cellBody reads the body of move and verify: the cell, required.
+func cellBody(w http.ResponseWriter, r *http.Request) (string, error) {
+	var in struct {
+		Cell string `json:"cell"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil || in.Cell == "" {
+		return "", problem.BadRequest("request.invalid_body", "The request body does not match the contract: a cell is required.")
+	}
+	return in.Cell, nil
 }
 
 func (h *handler) entry(w http.ResponseWriter, e directory.Entry, err error) error {
@@ -176,7 +147,7 @@ func (h *handler) entry(w http.ResponseWriter, e directory.Entry, err error) err
 		return err
 	}
 	w.Header().Set("ETag", etag.Format(e.Version))
-	writeJSON(w, http.StatusOK, e)
+	httpapi.WriteJSON(w, http.StatusOK, e)
 	return nil
 }
 
@@ -199,7 +170,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	if next != "" {
 		out["next_page_token"] = next
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpapi.WriteJSON(w, http.StatusOK, out)
 	return nil
 }
 
@@ -245,11 +216,12 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		var created map[string]any
 		if json.Unmarshal(placed.Body, &created) == nil {
 			created["cell"] = placed.Cell.Name
-			writeJSON(w, placed.Status, created)
+			httpapi.WriteJSON(w, placed.Status, created)
 			return nil
 		}
 	}
 	w.WriteHeader(placed.Status)
+	// The status is sent: a failed write (the client gone) cannot be answered.
 	_, _ = io.Copy(w, bytes.NewReader(placed.Body))
 	return nil
 }

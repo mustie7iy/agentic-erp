@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -115,7 +117,7 @@ type Request struct {
 	ObjectID    uuid.UUID
 	Title       string
 	RequesterID uuid.UUID
-	Amount      *int64
+	Amount      *money.Minor
 	Currency    *string
 	Exponent    int
 	PolicyID    *uuid.UUID
@@ -147,20 +149,23 @@ func scanRequest(row pgx.Row) (Request, error) {
 	var r Request
 	err := row.Scan(&r.ID, &r.ObjectType, &r.ObjectID, &r.Title, &r.RequesterID, &r.Amount, &r.Currency, &r.Exponent, &r.PolicyID,
 		&r.Status, &r.CurrentStep, &r.CompletedAt, &r.Escalations, &r.EscalatedAt, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.Steps, &r.Decisions)
-	return r, err
+	return r, errs.Wrapf(err, "scan approval request")
 }
 
 func getRequest(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Request, error) {
 	if lock {
 		if _, err := tx.Exec(ctx, `SELECT FROM workflow.approval_request WHERE id = $1 FOR UPDATE`, id); err != nil {
-			return Request{}, err
+			return Request{}, fmt.Errorf("approvals: lock request %s: %w", id, err)
 		}
 	}
 	r, err := scanRequest(tx.QueryRow(ctx, requestSelect+` WHERE r.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Request{}, problem.NotFound("No approval request with this id.")
+		return Request{}, problem.NotFoundOf("approval request")
 	}
-	return r, err
+	if err != nil {
+		return r, fmt.Errorf("approvals: read request %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // GetRequest returns an approval request.
@@ -172,11 +177,20 @@ func GetRequest(ctx context.Context, id uuid.UUID) (Request, error) {
 	return getRequest(ctx, tx, id, false)
 }
 
+// Rates converts a requisition's amount into its company's currency
+// (ledger context): the approval thresholds are in that currency (F12). It
+// returns the amount's exact value in major units of the company's
+// currency, unrounded, and refuses when no rate is valid on the date.
+type Rates interface {
+	ExactToCompany(ctx context.Context, legalEntity uuid.UUID, from string, date time.Time, amount money.Minor) (*big.Rat, error)
+}
+
 // Approvals opens and withdraws approval requests for the contexts that
 // own the objects.
 type Approvals struct {
 	Settings Settings
 	Roles    Roles
+	Rates    Rates
 }
 
 // NewRequest is what an owning context asks approval for.
@@ -184,9 +198,14 @@ type NewRequest struct {
 	ObjectType string
 	ObjectID   uuid.UUID
 	Title      string
-	Amount     *int64  // minor units of Currency; selects the requisition tier
-	Currency   *string // with Amount
-	Tier       int     // configuration change tier
+	Amount     *money.Minor // minor units of Currency; selects the requisition tier
+	Currency   *string      // with Amount
+	Tier       int          // configuration change tier
+	// LegalEntityID and Date place a requisition: its amount is converted
+	// into the legal entity's currency at the rate valid on the date
+	// before it is compared with the thresholds.
+	LegalEntityID uuid.UUID
+	Date          time.Time
 }
 
 // policyStep is a step as the configuration names it.
@@ -195,25 +214,43 @@ type policyStep struct {
 	required int
 }
 
+// requisitionSteps are the steps of the first tier whose threshold the
+// requisition's amount, in its company's currency, does not exceed.
+func requisitionSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
+	var out []policyStep
+	// The converted amount is compared exactly, unrounded: rounded to the
+	// company's digits first, 1000.004 would fall under an "up to 1000.00"
+	// tier and need fewer approvals. A threshold is validated with each
+	// company currency's digits, which may be more than this company's, so
+	// it is read exactly too rather than at the company's digits.
+	amount, err := rates.ExactToCompany(ctx, in.LegalEntityID, *in.Currency, in.Date, *in.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("approvals: policy steps: %w", err)
+	}
+	for _, t := range doc.Purchasing.RequisitionApproval {
+		if t.UpTo != "" { // "" is the last tier
+			limit, err := money.ParseDecimalRat(t.UpTo) // the grammar the document was validated with
+			if err != nil {
+				return nil, fmt.Errorf("approvals: policy steps: threshold: %w", err)
+			}
+			if amount.Cmp(limit) > 0 {
+				continue
+			}
+		}
+		for _, s := range t.Steps {
+			out = append(out, policyStep{s.Role, s.Approvals})
+		}
+		break
+	}
+	return out, nil
+}
+
 // steps resolves the steps the active configuration requires.
-func steps(ctx context.Context, tx pgx.Tx, doc *config.Config, in NewRequest) ([]policyStep, error) {
+func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
 	switch in.ObjectType {
 	case Requisition:
-		var exp int
-		if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, *in.Currency).Scan(&exp); err != nil {
-			return nil, err
-		}
-		for _, t := range doc.Purchasing.RequisitionApproval {
-			limit, _ := money.ParseDecimal(t.UpTo, exp) // validated with the document; "" is the last tier
-			if t.UpTo != "" && *in.Amount > int64(limit) {
-				continue
-			}
-			for _, s := range t.Steps {
-				out = append(out, policyStep{s.Role, s.Approvals})
-			}
-			break
-		}
+		return requisitionSteps(ctx, rates, doc, in)
 	case PartnerChange:
 		out = append(out, policyStep{doc.Payments.VendorApproverRole, 1})
 	case ConfigChange:
@@ -240,7 +277,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 	if err != nil {
 		return uuid.Nil, false, err
 	}
-	policy, err := steps(ctx, tx, doc, in)
+	policy, err := steps(ctx, a.Rates, doc, in)
 	if err != nil || len(policy) == 0 {
 		return uuid.Nil, false, err
 	}
@@ -259,7 +296,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 	id = uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO workflow.approval_request (tenant_id, id, object_type, object_id, title, requester_id, amount, currency, status, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $6)`, p.TenantID, id, in.ObjectType, in.ObjectID, in.Title, p.ID, in.Amount, in.Currency); err != nil {
-		return uuid.Nil, false, err
+		return uuid.Nil, false, fmt.Errorf("approvals: insert request %s for %s %s: %w", id, in.ObjectType, in.ObjectID, err)
 	}
 	nos, required := make([]int16, len(policy)), make([]int16, len(policy))
 	for i, s := range policy {
@@ -267,7 +304,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO workflow.approval_step (tenant_id, request_id, step_no, role_id, required)
 		SELECT $1, $2, n, r, q FROM unnest($3::smallint[], $4::uuid[], $5::smallint[]) AS x(n, r, q)`, p.TenantID, id, nos, roles, required); err != nil {
-		return uuid.Nil, false, err
+		return uuid.Nil, false, fmt.Errorf("approvals: insert steps of request %s: %w", id, err)
 	}
 	r, err := getRequest(ctx, tx, id, false)
 	if err != nil {
@@ -287,7 +324,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 // the owning context decided the object otherwise (it was cancelled,
 // released by hand, changed). The owner is not called back.
 func (Approvals) Withdraw(ctx context.Context, objectType string, objectID uuid.UUID, comment string) error {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
@@ -298,25 +335,24 @@ func (Approvals) Withdraw(ctx context.Context, objectType string, objectID uuid.
 		return nil
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("approvals: find pending request of %s %s: %w", objectType, objectID, err)
 	}
-	return complete(ctx, tx, id, Cancelled, comment)
+	return complete(ctx, tx, p, id, Cancelled, comment)
 }
 
 func moneyOf(r Request) any {
 	if r.Amount == nil {
 		return nil
 	}
-	return map[string]any{"amount": money.Minor(*r.Amount).Plain(r.Exponent), "currency": *r.Currency}
+	return map[string]any{"amount": r.Amount.Plain(r.Exponent), "currency": *r.Currency}
 }
 
 // complete ends a pending request with the outcome and publishes
 // ApprovalCompleted.
-func complete(ctx context.Context, tx pgx.Tx, id uuid.UUID, outcome, comment string) error {
-	p, _ := reqctx.PrincipalFrom(ctx) // callers run in a request
+func complete(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, outcome, comment string) error {
 	if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET status = $2, completed_at = now(), version = version + 1 WHERE id = $1`,
 		id, outcome); err != nil {
-		return err
+		return fmt.Errorf("approvals: complete request %s as %s: %w", id, outcome, err)
 	}
 	r, err := getRequest(ctx, tx, id, false)
 	if err != nil {
@@ -333,12 +369,7 @@ func complete(ctx context.Context, tx pgx.Tx, id uuid.UUID, outcome, comment str
 }
 
 func record(ctx context.Context, action string, r Request, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: "workflow.approval_request", ObjectID: r.ID, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, "workflow.approval_request", r.ID, detail, events...)
 }
 
 // Decider records decisions and calls the owning contexts back.
@@ -393,7 +424,10 @@ func (d Decider) insertDecision(ctx context.Context, tx pgx.Tx, p reqctx.Princip
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO workflow.decision (tenant_id, id, request_id, step_no, actor_id, actor_kind, decision, comment)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, p.TenantID, uuid.Must(uuid.NewV7()), r.ID, r.CurrentStep, p.ID, p.Kind, decision, c)
-	return err
+	if err != nil {
+		return fmt.Errorf("approvals: insert %s decision on request %s: %w", decision, r.ID, err)
+	}
+	return nil
 }
 
 // notify calls the owning context of the request's object type.
@@ -426,10 +460,10 @@ func (d Decider) Approve(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 	case step.Approvals+1 < step.Required:
 	case int(r.CurrentStep) < len(r.Steps):
 		if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET current_step = current_step + 1, version = version + 1 WHERE id = $1`, id); err != nil {
-			return Request{}, err
+			return Request{}, fmt.Errorf("approvals: advance request %s: %w", id, err)
 		}
 	default:
-		if err := complete(ctx, tx, id, Approved, comment); err != nil {
+		if err := complete(ctx, tx, p, id, Approved, comment); err != nil {
 			return Request{}, err
 		}
 		if err := d.notify(r, func(h Handler) error { return h.Approved(ctx, r.ObjectID, id) }); err != nil {
@@ -452,7 +486,7 @@ func (d Decider) Reject(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if err := d.insertDecision(ctx, tx, p, r, "reject", comment); err != nil {
 		return Request{}, err
 	}
-	if err := complete(ctx, tx, id, Rejected, comment); err != nil {
+	if err := complete(ctx, tx, p, id, Rejected, comment); err != nil {
 		return Request{}, err
 	}
 	if err := d.notify(r, func(h Handler) error { return h.Rejected(ctx, r.ObjectID, id, comment) }); err != nil {
@@ -484,7 +518,7 @@ func (d Decider) Cancel(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if err := d.insertDecision(ctx, tx, p, r, "cancel", comment); err != nil {
 		return Request{}, err
 	}
-	if err := complete(ctx, tx, id, Cancelled, comment); err != nil {
+	if err := complete(ctx, tx, p, id, Cancelled, comment); err != nil {
 		return Request{}, err
 	}
 	if err := d.notify(r, func(h Handler) error { return h.Cancelled(ctx, r.ObjectID, id, comment) }); err != nil {

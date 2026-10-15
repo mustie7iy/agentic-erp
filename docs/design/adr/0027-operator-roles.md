@@ -32,3 +32,24 @@ deployment decides when to require them by emitting the claim.
 - A lost roles claim on an issuer that emitted it before widens access
   silently; a deployment that requires roles should make the issuer always
   emit the claim, empty when needed.
+
+## Amendment (2026-10-14)
+
+A roles claim that is present but malformed (not a JSON array of strings or a
+space-separated string: a number, an object, a boolean, `null`, or an array
+holding anything but strings) holds no role, so the token is refused every
+control-plane operation (403 `authz.operator_role`). Only an absent claim
+means every role; a claim the issuer meant to send but got wrong must not
+widen access.
+
+(2026-10-14, F7) An absent roles claim means every role only with
+`ERP_ENV=development`. With `ERP_ENV=production` an operator token without
+the claim holds no role, so every control-plane operation, on the cell's and
+on the global control plane, is refused with 403 `authz.operator_role`:
+a production operator identity provider must emit the claim. The verifier
+learns the environment from its constructor (`authn.New`), not from a
+global, and treats any environment other than development as production.
+This supersedes the Decision's "a token without the claim does everything"
+for production, and closes the consequence noted above (a lost claim
+widening access) there. `ERP_ENV` itself is now required, with no default,
+so a production replica cannot fall back to development's rule.

@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // Credentials sign requests. SessionToken and Expires are empty for
@@ -115,8 +117,8 @@ func (w WebIdentity) Credentials(ctx context.Context) (Credentials, error) {
 	if err != nil {
 		return Credentials{}, fmt.Errorf("awscreds: sts: %w", err)
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	defer func() { _ = resp.Body.Close() }()               // only read from: closing frees the connection and cannot change the answer
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // a body cut short fails to decode below, or shortens a refusal's message
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
 			Code    string `xml:"Error>Code"`
@@ -134,8 +136,30 @@ func (w WebIdentity) Credentials(ctx context.Context) (Credentials, error) {
 	if err := xml.Unmarshal(raw, &out); err != nil || out.AccessKey == "" {
 		return Credentials{}, fmt.Errorf("awscreds: sts: answer is not an AssumeRoleWithWebIdentity response")
 	}
-	expires, _ := time.Parse(time.RFC3339, out.Expiration) // zero when absent: treated as long-lived
+	expires, err := expiry(out.SessionToken, out.Expiration)
+	if err != nil {
+		return Credentials{}, fmt.Errorf("awscreds: sts: %w", err)
+	}
 	return Credentials{AccessKey: out.AccessKey, SecretKey: out.SecretKey, SessionToken: out.SessionToken, Expires: expires}, nil
+}
+
+// expiry parses the end of credentials that came with the session token.
+// Absent on keys without a token, it is zero, which Cached treats as
+// long-lived. Absent on temporary credentials (a token), or present but
+// unreadable, it is an error: taking it for "never" would keep using the
+// credentials after they end.
+func expiry(token, s string) (time.Time, error) {
+	if s == "" {
+		if token != "" {
+			return time.Time{}, errors.New("a session token without an expiration")
+		}
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("expiration %q: %w", s, err)
+	}
+	return t, nil
 }
 
 // IMDS reads the instance's role credentials from the EC2 instance metadata
@@ -164,8 +188,8 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 	if err != nil {
 		return Credentials{}, ErrNone // no metadata service here
 	}
-	token, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	token, _ := io.ReadAll(io.LimitReader(resp.Body, 4096)) // a token cut short is refused by the reads that use it
+	_ = resp.Body.Close()                                   // the token has been read; closing frees the connection and cannot change it
 	if resp.StatusCode != http.StatusOK {
 		return Credentials{}, ErrNone
 	}
@@ -176,7 +200,9 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 		if err != nil {
 			return nil, fmt.Errorf("awscreds: imds: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
+		// A body cut short fails at the next step: the role it names is not
+		// found, or the credentials document does not parse.
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("awscreds: imds: %s: %d", path, resp.StatusCode)
@@ -191,6 +217,11 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 	if err != nil {
 		return Credentials{}, err
 	}
+	return imdsDocument(raw)
+}
+
+// imdsDocument reads the credentials document of the instance's role.
+func imdsDocument(raw []byte) (Credentials, error) {
 	var out struct {
 		Code            string
 		AccessKeyID     string `json:"AccessKeyId"`
@@ -201,7 +232,10 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 	if err := json.Unmarshal(raw, &out); err != nil || out.AccessKeyID == "" {
 		return Credentials{}, fmt.Errorf("awscreds: imds: answer is not a credentials document")
 	}
-	expires, _ := time.Parse(time.RFC3339, out.Expiration)
+	expires, err := expiry(out.Token, out.Expiration)
+	if err != nil {
+		return Credentials{}, fmt.Errorf("awscreds: imds: %w", err)
+	}
 	return Credentials{AccessKey: out.AccessKeyID, SecretKey: out.SecretAccessKey, SessionToken: out.Token, Expires: expires}, nil
 }
 
@@ -233,10 +267,7 @@ type Cached struct {
 
 // Credentials implements Provider.
 func (c *Cached) Credentials(ctx context.Context) (Credentials, error) {
-	now := time.Now()
-	if c.Now != nil {
-		now = c.Now()
-	}
+	now := clock.Now(c.Now)
 	early := c.Early
 	if early <= 0 {
 		early = 5 * time.Minute

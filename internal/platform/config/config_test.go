@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 )
@@ -18,9 +20,46 @@ func env(m map[string]string) func(string) string { return func(k string) string
 
 var key = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
 
+// field is one value a test expects Load to produce; got and want must be
+// comparable and of the same type.
+type field struct {
+	name      string
+	got, want any
+}
+
+// checkFields reports every field whose value is not the one expected.
+func checkFields(t *testing.T, fields []field) {
+	t.Helper()
+	for _, f := range fields {
+		if f.got != f.want {
+			t.Errorf("%s: got %v, want %v", f.name, f.got, f.want)
+		}
+	}
+}
+
+// mustLoad loads the configuration of the settings, failing the test on an error.
+func mustLoad(t *testing.T, m map[string]string) Config {
+	t.Helper()
+	c, err := Load(env(m))
+	if err != nil {
+		t.Fatalf("load: got %v, want no error", err)
+	}
+	return c
+}
+
+// copyOf is a copy of the settings, for a case that changes some of them.
+func copyOf(m map[string]string) map[string]string {
+	mm := make(map[string]string, len(m))
+	for k, v := range m {
+		mm[k] = v
+	}
+	return mm
+}
+
 func valid() map[string]string {
 	return map[string]string{
 		"DATABASE_URL":       "postgres://x",
+		"ERP_ENV":            Development,
 		"ERP_OIDC_ISSUERS":   `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`,
 		"ERP_PAGE_TOKEN_KEY": key,
 		"ERP_FIELD_KEY":      key,
@@ -28,15 +67,33 @@ func valid() map[string]string {
 }
 
 func TestDefaults(t *testing.T) {
-	c, err := Load(env(valid()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.HTTPAddr != ":8080" || c.AdminAddr != ":9090" || c.AppRole != "erp_app" || c.RelayRole != "erp_relay" || c.ProjectorRole != "erp_projector" || c.WorkerRole != "erp_worker" || c.ControlRole != "erp_control" || len(c.OperatorIssuers) != 0 || c.BankOutboxDir != "" || len(c.FieldKey) != 32 || c.Cell != "local" ||
-		c.MigrateOnStart || c.LogLevel != slog.LevelInfo || c.ShutdownTimeout != 20*time.Second || len(c.Issuers) != 1 || len(c.PageTokenKey) != 32 ||
-		c.RequestTimeout != 30*time.Second || c.DBMaxConns != 0 || c.DevIssuer || c.Objects.Enabled() || c.Objects.Region != "us-east-1" || c.Objects.Retention != 87600*time.Hour || c.TenantQuota != (ratelimit.Quota{Rate: 2000, Burst: 10000}) || c.PrincipalQuota != (ratelimit.Quota{Rate: 50, Burst: 100}) {
-		t.Fatalf("%+v", c)
-	}
+	c := mustLoad(t, valid())
+	checkFields(t, []field{
+		{"HTTPAddr", c.HTTPAddr, ":8080"},
+		{"AdminAddr", c.AdminAddr, ":9090"},
+		{"AppRole", c.AppRole, "erp_app"},
+		{"RelayRole", c.RelayRole, "erp_relay"},
+		{"ProjectorRole", c.ProjectorRole, "erp_projector"},
+		{"WorkerRole", c.WorkerRole, "erp_worker"},
+		{"ControlRole", c.ControlRole, "erp_control"},
+		{"OperatorIssuers", len(c.OperatorIssuers), 0},
+		{"BankOutboxDir", c.BankOutboxDir, ""},
+		{"FieldKey length", len(c.FieldKey), 32},
+		{"Cell", c.Cell, "local"},
+		{"MigrateOnStart", c.MigrateOnStart, false},
+		{"LogLevel", c.LogLevel, slog.LevelInfo},
+		{"ShutdownTimeout", c.ShutdownTimeout, 20 * time.Second},
+		{"Issuers", len(c.Issuers), 1},
+		{"PageTokenKey length", len(c.PageTokenKey), 32},
+		{"RequestTimeout", c.RequestTimeout, 30 * time.Second},
+		{"DBMaxConns", c.DBMaxConns, int32(0)},
+		{"DevIssuer", c.DevIssuer, false},
+		{"Objects enabled", c.Objects.Enabled(), false},
+		{"Objects region", c.Objects.Region, "us-east-1"},
+		{"Objects retention", c.Objects.Retention, 87600 * time.Hour},
+		{"TenantQuota", c.TenantQuota, ratelimit.Quota{Rate: 2000, Burst: 10000}},
+		{"PrincipalQuota", c.PrincipalQuota, ratelimit.Quota{Rate: 50, Burst: 100}},
+	})
 }
 
 func TestOverrides(t *testing.T) {
@@ -44,65 +101,90 @@ func TestOverrides(t *testing.T) {
 	m["ERP_CELL"], m["ERP_MIGRATE_ON_START"], m["ERP_LOG_LEVEL"], m["ERP_SHUTDOWN_TIMEOUT"], m["ERP_NATS_URL"] = "eu1", "true", "debug", "5s", "nats://n"
 	m["ANTHROPIC_API_KEY"], m["ERP_BANK_OUTBOX_DIR"], m["ERP_EXTRACT_DIR"] = "key", t.TempDir(), t.TempDir()
 	m["ERP_REQUEST_TIMEOUT"], m["ERP_DB_MAX_CONNS"], m["ERP_RATE_LIMIT_TENANT"], m["ERP_RATE_LIMIT_PRINCIPAL"] = "10s", "40", "off", "5"
-	c, err := Load(env(m))
-	if err != nil || !c.LLMEnabled || c.BankOutboxDir != m["ERP_BANK_OUTBOX_DIR"] || c.ExtractDir != m["ERP_EXTRACT_DIR"] || c.Cell != "eu1" || !c.MigrateOnStart || c.LogLevel != slog.LevelDebug || c.ShutdownTimeout != 5*time.Second || c.NATSURL != "nats://n" ||
-		c.RequestTimeout != 10*time.Second || c.DBMaxConns != 40 || c.TenantQuota != (ratelimit.Quota{}) || c.PrincipalQuota != (ratelimit.Quota{Rate: 5, Burst: 5}) {
-		t.Fatal(c, err)
-	}
+	c := mustLoad(t, m)
+	checkFields(t, []field{
+		{"LLMEnabled", c.LLMEnabled, true},
+		{"BankOutboxDir", c.BankOutboxDir, m["ERP_BANK_OUTBOX_DIR"]},
+		{"ExtractDir", c.ExtractDir, m["ERP_EXTRACT_DIR"]},
+		{"Cell", c.Cell, "eu1"},
+		{"MigrateOnStart", c.MigrateOnStart, true},
+		{"LogLevel", c.LogLevel, slog.LevelDebug},
+		{"ShutdownTimeout", c.ShutdownTimeout, 5 * time.Second},
+		{"NATSURL", c.NATSURL, "nats://n"},
+		{"RequestTimeout", c.RequestTimeout, 10 * time.Second},
+		{"DBMaxConns", c.DBMaxConns, int32(40)},
+		{"TenantQuota", c.TenantQuota, ratelimit.Quota{}},
+		{"PrincipalQuota", c.PrincipalQuota, ratelimit.Quota{Rate: 5, Burst: 5}},
+	})
 	// With the development issuer the identity providers are optional, and still validated when given.
 	m = valid()
 	delete(m, "ERP_OIDC_ISSUERS")
 	m["ERP_DEV_ISSUER"] = "true"
-	if c, err := Load(env(m)); err != nil || !c.DevIssuer || len(c.Issuers) != 0 {
-		t.Fatal(c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"DevIssuer", c.DevIssuer, true}, {"Issuers", len(c.Issuers), 0}})
 	m["ERP_OIDC_ISSUERS"] = "[]"
 	if _, err := Load(env(m)); err == nil {
 		t.Fatal("empty issuer list accepted")
 	}
 	// Master keys: a ring from ERP_FIELD_KEYS, or one master from the legacy key.
 	m = valid()
-	if c, err := Load(env(m)); err != nil || len(c.FieldKeys) != 1 || c.FieldKeys[0].ID != "v1" || len(c.FieldKeys[0].Secret) != 32 {
-		t.Fatal(c, err)
+	c = mustLoad(t, m)
+	if len(c.FieldKeys) != 1 {
+		t.Fatalf("legacy key ring: got %d keys, want 1", len(c.FieldKeys))
 	}
+	checkFields(t, []field{{"FieldKeys[0] id", c.FieldKeys[0].ID, "v1"}, {"FieldKeys[0] secret length", len(c.FieldKeys[0].Secret), 32}})
 	m["ERP_FIELD_KEYS"] = "k2=" + key + ", k1=" + key
-	if c, err := Load(env(m)); err != nil || len(c.FieldKeys) != 2 || c.FieldKeys[0].ID != "k2" || c.FieldKeys[1].ID != "k1" {
-		t.Fatal(c, err)
+	c = mustLoad(t, m)
+	if len(c.FieldKeys) != 2 {
+		t.Fatalf("key ring: got %d keys, want 2", len(c.FieldKeys))
 	}
+	checkFields(t, []field{{"FieldKeys[0] id", c.FieldKeys[0].ID, "k2"}, {"FieldKeys[1] id", c.FieldKeys[1].ID, "k1"}})
 	delete(m, "ERP_FIELD_KEY")
-	if c, err := Load(env(m)); err != nil || len(c.FieldKey) != 0 || len(c.FieldKeys) != 2 {
-		t.Fatalf("ring without a legacy key: %+v %v", c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"ring without a legacy key, FieldKey length", len(c.FieldKey), 0}, {"ring without a legacy key, FieldKeys", len(c.FieldKeys), 2}})
 	for _, bad := range []string{"k1", "k1=short", "bad id!=" + key, key} {
-		m["ERP_FIELD_KEYS"] = bad
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KEYS") {
-			t.Fatalf("%s: %v", bad, err)
-		}
+		t.Run("field keys "+bad, func(t *testing.T) {
+			mm := copyOf(m)
+			mm["ERP_FIELD_KEYS"] = bad
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_FIELD_KEYS")
+		})
 	}
 	// Operator issuers are optional and validated when given.
 	m = valid()
 	m["ERP_OPERATOR_ISSUERS"], m["ERP_DB_CONTROL_ROLE"] = `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "ops_role"
-	if c, err := Load(env(m)); err != nil || len(c.OperatorIssuers) != 1 || c.OperatorIssuers[0].Audience != "erp-control" || c.ControlRole != "ops_role" {
-		t.Fatal(c, err)
+	c = mustLoad(t, m)
+	if len(c.OperatorIssuers) != 1 {
+		t.Fatalf("operator issuers: got %d, want 1", len(c.OperatorIssuers))
 	}
+	checkFields(t, []field{{"operator audience", c.OperatorIssuers[0].Audience, "erp-control"}, {"ControlRole", c.ControlRole, "ops_role"}})
 	for _, bad := range []string{"[]", "nope"} {
-		m["ERP_OPERATOR_ISSUERS"] = bad
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OPERATOR_ISSUERS") {
-			t.Fatalf("%s: %v", bad, err)
-		}
+		t.Run("operator issuers "+bad, func(t *testing.T) {
+			mm := copyOf(m)
+			mm["ERP_OPERATOR_ISSUERS"] = bad
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_OPERATOR_ISSUERS")
+		})
 	}
 	// Object storage: a directory or an S3 service, complete, never both.
 	m = valid()
 	m["ERP_OBJECT_DIR"], m["ERP_OBJECT_RETENTION"] = t.TempDir(), "0"
-	if c, err := Load(env(m)); err != nil || !c.Objects.Enabled() || c.Objects.Dir != m["ERP_OBJECT_DIR"] || c.Objects.Retention != 0 {
-		t.Fatal(c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{
+		{"Objects enabled", c.Objects.Enabled(), true},
+		{"Objects dir", c.Objects.Dir, m["ERP_OBJECT_DIR"]},
+		{"Objects retention", c.Objects.Retention, time.Duration(0)},
+	})
 	m = valid()
 	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"], m["ERP_OBJECT_S3_REGION"] = "http://localhost:9000", "erp", "eu-west-1"
 	m["ERP_OBJECT_S3_ACCESS_KEY"], m["ERP_OBJECT_S3_SECRET_KEY"] = "ak", "sk"
-	if c, err := Load(env(m)); err != nil || !c.Objects.Enabled() || c.Objects.Bucket != "erp" || c.Objects.Region != "eu-west-1" || c.Objects.SecretKey != "sk" {
-		t.Fatal(c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{
+		{"Objects enabled", c.Objects.Enabled(), true},
+		{"Objects bucket", c.Objects.Bucket, "erp"},
+		{"Objects region", c.Objects.Region, "eu-west-1"},
+		{"Objects secret key", c.Objects.SecretKey, "sk"},
+	})
 	for name, change := range map[string]func(){
 		"both":         func() { m["ERP_OBJECT_DIR"] = t.TempDir() },
 		"no bucket":    func() { delete(m, "ERP_OBJECT_S3_BUCKET") },
@@ -111,15 +193,13 @@ func TestOverrides(t *testing.T) {
 		"negative":     func() { m["ERP_OBJECT_RETENTION"] = "-1h" },
 		"no directory": func() { delete(m, "ERP_OBJECT_S3_ENDPOINT"); m["ERP_OBJECT_DIR"] = "/no/such/dir" },
 	} {
-		saved := map[string]string{}
-		for k, v := range m {
-			saved[k] = v
-		}
-		change()
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OBJECT") {
-			t.Errorf("%s: %v", name, err)
-		}
-		m = saved
+		t.Run(name, func(t *testing.T) {
+			saved := copyOf(m)
+			defer func() { m = saved }()
+			change()
+			_, err := Load(env(m))
+			pgtest.CheckErr(t, err, "ERP_OBJECT")
+		})
 	}
 }
 
@@ -131,9 +211,7 @@ func TestEveryProblemIsReported(t *testing.T) {
 	}))
 	for _, want := range []string{"DATABASE_URL", "ERP_CELL", "ERP_OIDC_ISSUERS", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_BANK_OUTBOX_DIR", "ERP_EXTRACT_DIR", "ERP_MIGRATE_ON_START", "ERP_LOG_LEVEL", "ERP_SHUTDOWN_TIMEOUT",
 		"ERP_REQUEST_TIMEOUT", "ERP_DB_MAX_CONNS", "ERP_RATE_LIMIT_TENANT", "ERP_RATE_LIMIT_PRINCIPAL", "ERP_DEV_ISSUER"} {
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s not reported: %v", want, err)
-		}
+		pgtest.CheckErr(t, err, want)
 	}
 }
 
@@ -141,8 +219,12 @@ func TestEveryProblemIsReported(t *testing.T) {
 // secret lives (env:, file:, vault:) instead of carrying it.
 func TestSecretReferences(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "field-key"), []byte(key+"\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "jwt"), []byte(vaulttest.K8sJWT), 0o600)
+	if err := os.WriteFile(filepath.Join(dir, "field-key"), []byte(key+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "jwt"), []byte(vaulttest.K8sJWT), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	vault := vaulttest.New(t)
 	vault.Secrets["secret/erp/db"] = map[string]any{"url": "postgres://erp:pw@db/erp"}
 	vault.Secrets["secret/erp/s3"] = map[string]any{"access": "AK", "secret": "SK"}
@@ -155,10 +237,17 @@ func TestSecretReferences(t *testing.T) {
 	m["ERP_OBJECT_S3_ACCESS_KEY"], m["ERP_OBJECT_S3_SECRET_KEY"] = "vault:secret/erp/s3#access", "vault:secret/erp/s3#secret"
 	m["ERP_VAULT_ADDR"], m["ERP_VAULT_TOKEN"] = vault.URL, "env:VAULT_TOKEN"
 	m["VAULT_TOKEN"] = vaulttest.Token
-	c, err := Load(env(m))
-	if err != nil || c.DatabaseURL != "postgres://erp:pw@db/erp" || len(c.FieldKey) != 32 || len(c.PageTokenKey) != 32 || c.Objects.AccessKey != "AK" ||
-		c.Objects.SecretKey != "SK" || c.Vault.Token != vaulttest.Token || c.Secrets == nil {
-		t.Fatalf("%+v %v", c, err)
+	c := mustLoad(t, m)
+	checkFields(t, []field{
+		{"DatabaseURL", c.DatabaseURL, "postgres://erp:pw@db/erp"},
+		{"FieldKey length", len(c.FieldKey), 32},
+		{"PageTokenKey length", len(c.PageTokenKey), 32},
+		{"Objects access key", c.Objects.AccessKey, "AK"},
+		{"Objects secret key", c.Objects.SecretKey, "SK"},
+		{"Vault token", c.Vault.Token, vaulttest.Token},
+	})
+	if c.Secrets == nil {
+		t.Fatal("Secrets: got nil, want a resolver")
 	}
 	// The resolver serves connectors too.
 	if got, err := c.Secrets.Resolve(context.Background(), "vault:secret/erp/s3#access"); err != nil || got != "AK" {
@@ -167,9 +256,8 @@ func TestSecretReferences(t *testing.T) {
 	// Kubernetes login with the service account token from a file.
 	delete(m, "ERP_VAULT_TOKEN")
 	m["ERP_VAULT_K8S_ROLE"], m["ERP_VAULT_K8S_JWT_FILE"] = vaulttest.K8sRole, filepath.Join(dir, "jwt")
-	if c, err := Load(env(m)); err != nil || c.Vault.K8sJWT != vaulttest.K8sJWT || c.DatabaseURL != "postgres://erp:pw@db/erp" {
-		t.Fatalf("kubernetes: %+v %v", c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"kubernetes JWT", c.Vault.K8sJWT, vaulttest.K8sJWT}, {"kubernetes DatabaseURL", c.DatabaseURL, "postgres://erp:pw@db/erp"}})
 	for name, change := range map[string]func(){
 		"missing env":        func() { m["ERP_PAGE_TOKEN_KEY"] = "env:NOPE" },
 		"missing field":      func() { m["DATABASE_URL"] = "vault:secret/erp/db#nope" },
@@ -178,21 +266,27 @@ func TestSecretReferences(t *testing.T) {
 		"bad token ref":      func() { m["ERP_VAULT_TOKEN"] = "env:NOPE" },
 		"vault unreachable":  func() { m["ERP_VAULT_ADDR"] = "http://127.0.0.1:1" },
 	} {
-		saved := map[string]string{}
-		for k, v := range m {
-			saved[k] = v
-		}
-		change()
-		if _, err := Load(env(m)); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
-		m = saved
+		t.Run(name, func(t *testing.T) {
+			saved := copyOf(m)
+			defer func() { m = saved }()
+			change()
+			if _, err := Load(env(m)); err == nil {
+				t.Error("got no error, want the settings refused")
+			}
+		})
 	}
 	// Without a vault, vault: references cannot be resolved and say so.
 	m = valid()
 	m["DATABASE_URL"] = "vault:secret/erp/db#url"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "DATABASE_URL") || !strings.Contains(err.Error(), "no resolver") {
-		t.Fatalf("vault reference without a vault: %v", err)
+	_, err := Load(env(m))
+	if err == nil {
+		t.Fatal("vault reference without a vault: got no error, want one")
+	}
+	if !strings.Contains(err.Error(), "DATABASE_URL") {
+		t.Errorf("vault reference without a vault: got %v, want it to name DATABASE_URL", err)
+	}
+	if !strings.Contains(err.Error(), "no resolver") {
+		t.Errorf("vault reference without a vault: got %v, want it to say no resolver", err)
 	}
 	// The default service account token path is used when none is given.
 	if DefaultK8sJWTFile != "/var/run/secrets/kubernetes.io/serviceaccount/token" {
@@ -200,9 +294,8 @@ func TestSecretReferences(t *testing.T) {
 	}
 	m = valid()
 	m["ERP_VAULT_ADDR"], m["ERP_VAULT_K8S_ROLE"] = vault.URL, vaulttest.K8sRole
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_VAULT_K8S_JWT_FILE") {
-		t.Fatalf("default jwt path on this machine: %v", err)
-	}
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "ERP_VAULT_K8S_JWT_FILE")
 }
 
 func TestKMSSettings(t *testing.T) {
@@ -218,25 +311,27 @@ func TestKMSSettings(t *testing.T) {
 	// A name for the master, a region and an endpoint; the legacy key is optional with a KMS.
 	m["ERP_FIELD_KMS_KEY"], m["ERP_FIELD_KMS_REGION"], m["ERP_FIELD_KMS_ENDPOINT"] = "eu=arn:aws:kms:eu-west-1:111122223333:key/abc", "eu-west-1", "http://localhost:4566"
 	delete(m, "ERP_FIELD_KEY")
-	c, err = Load(env(m))
-	if err != nil || c.KMS.Name != "eu" || c.KMS.Key != "arn:aws:kms:eu-west-1:111122223333:key/abc" || c.KMS.Region != "eu-west-1" || c.KMS.Endpoint != "http://localhost:4566" || len(c.FieldKeys) != 0 {
-		t.Fatalf("%+v %v", c, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{
+		{"KMS name", c.KMS.Name, "eu"},
+		{"KMS key", c.KMS.Key, "arn:aws:kms:eu-west-1:111122223333:key/abc"},
+		{"KMS region", c.KMS.Region, "eu-west-1"},
+		{"KMS endpoint", c.KMS.Endpoint, "http://localhost:4566"},
+		{"FieldKeys", len(c.FieldKeys), 0},
+	})
 	for name, bad := range map[string]map[string]string{
 		"no credentials": {"ERP_FIELD_KMS_ACCESS_KEY": ""},
 		"bad name":       {"ERP_FIELD_KMS_KEY": "no name!=alias/x"},
 		"no key":         {"ERP_FIELD_KMS_KEY": "kms="},
 	} {
-		mm := map[string]string{}
-		for k, v := range m {
-			mm[k] = v
-		}
-		for k, v := range bad {
-			mm[k] = v
-		}
-		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), "ERP_FIELD_KMS_") {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			mm := copyOf(m)
+			for k, v := range bad {
+				mm[k] = v
+			}
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_FIELD_KMS_")
+		})
 	}
 }
 
@@ -250,10 +345,12 @@ func TestOffboardGrace(t *testing.T) {
 		t.Fatal(c.OffboardGrace, err)
 	}
 	for _, bad := range []string{"-1h", "soon"} {
-		m["ERP_OFFBOARD_GRACE"] = bad
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_OFFBOARD_GRACE") {
-			t.Fatalf("%s: %v", bad, err)
-		}
+		t.Run(bad, func(t *testing.T) {
+			mm := copyOf(m)
+			mm["ERP_OFFBOARD_GRACE"] = bad
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_OFFBOARD_GRACE")
+		})
 	}
 }
 
@@ -263,26 +360,34 @@ func TestDirectorySettings(t *testing.T) {
 		t.Fatal(c.DirectoryURL, err)
 	}
 	m["ERP_DIRECTORY_URL"] = "postgres://dir@db/directory"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_API_URL") {
-		t.Fatalf("directory without the cell's URL: %v", err)
-	}
+	_, err := Load(env(m))
+	pgtest.WantErr(t, err, "ERP_CELL_API_URL")
 	m["ERP_CELL_API_URL"] = "eu-1.api.example.com"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_API_URL") {
-		t.Fatalf("cell URL without a scheme: %v", err)
-	}
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "ERP_CELL_API_URL")
 	m["ERP_CELL_API_URL"] = "https://eu-1.api.example.com"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_CONTROL_URL") || !strings.Contains(err.Error(), "ERP_CELL_REGION") {
-		t.Fatalf("directory without the cell's control URL and region: %v", err)
+	_, err = Load(env(m))
+	if err == nil {
+		t.Fatal("directory without the cell's control URL and region: got no error, want one")
+	}
+	if !strings.Contains(err.Error(), "ERP_CELL_CONTROL_URL") {
+		t.Errorf("directory without the cell's control URL: got %v, want it to name ERP_CELL_CONTROL_URL", err)
+	}
+	if !strings.Contains(err.Error(), "ERP_CELL_REGION") {
+		t.Errorf("directory without the cell's region: got %v, want it to name ERP_CELL_REGION", err)
 	}
 	m["ERP_CELL_CONTROL_URL"], m["ERP_CELL_REGION"] = "http://eu-1-admin.internal:9090", "eu-west"
-	c, err := Load(env(m))
-	if err != nil || c.DirectoryURL != "postgres://dir@db/directory" || c.CellAPIURL != "https://eu-1.api.example.com" || c.CellControlURL != "http://eu-1-admin.internal:9090" || c.CellRegion != "eu-west" || !c.CellAccepting {
-		t.Fatalf("%+v %v", c, err)
-	}
+	c := mustLoad(t, m)
+	checkFields(t, []field{
+		{"DirectoryURL", c.DirectoryURL, "postgres://dir@db/directory"},
+		{"CellAPIURL", c.CellAPIURL, "https://eu-1.api.example.com"},
+		{"CellControlURL", c.CellControlURL, "http://eu-1-admin.internal:9090"},
+		{"CellRegion", c.CellRegion, "eu-west"},
+		{"CellAccepting", c.CellAccepting, true},
+	})
 	m["ERP_CELL_ACCEPTING"], m["ERP_CELL_REGION"] = "false", "EU"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_CELL_REGION") {
-		t.Fatalf("bad region: %v", err)
-	}
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "ERP_CELL_REGION")
 	m["ERP_CELL_REGION"] = "eu-west"
 	if c, err := Load(env(m)); err != nil || c.CellAccepting {
 		t.Fatalf("not accepting: %+v %v", c, err)
@@ -293,24 +398,34 @@ func TestAmbientAWSCredentials(t *testing.T) {
 	m := valid()
 	delete(m, "ERP_OBJECT_DIR")
 	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"] = "http://localhost:9000", "erp"
-	c, err := Load(env(m)) // no access keys: the ambient chain
-	if err != nil || c.Objects.AccessKey != "" || c.AWS.STSEndpoint != "https://sts.amazonaws.com" || c.AWS.IMDSEndpoint != "http://169.254.169.254" || c.AWS.Getenv == nil {
-		t.Fatalf("%+v %v", c.AWS, err)
+	c := mustLoad(t, m) // no access keys: the ambient chain
+	checkFields(t, []field{
+		{"Objects access key", c.Objects.AccessKey, ""},
+		{"STS endpoint", c.AWS.STSEndpoint, "https://sts.amazonaws.com"},
+		{"IMDS endpoint", c.AWS.IMDSEndpoint, "http://169.254.169.254"},
+	})
+	if c.AWS.Getenv == nil {
+		t.Error("AWS Getenv: got nil, want the environment")
 	}
 	m["ERP_OBJECT_S3_ACCESS_KEY"] = "AK"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "go together") {
-		t.Fatalf("half the S3 keys: %v", err)
-	}
+	_, err := Load(env(m))
+	pgtest.WantErr(t, err, "go together")
 	delete(m, "ERP_OBJECT_S3_ACCESS_KEY")
 	m["ERP_FIELD_KMS_KEY"], m["ERP_FIELD_KMS_SECRET_KEY"] = "alias/erp", "SK"
-	if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "go together") {
-		t.Fatalf("half the KMS keys: %v", err)
-	}
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "go together")
 	delete(m, "ERP_FIELD_KMS_SECRET_KEY")
 	m["ERP_AWS_STS_ENDPOINT"], m["ERP_AWS_IMDS_ENDPOINT"], m["AWS_ROLE_ARN"] = "http://localhost:4566", "http://localhost:1338", "arn:aws:iam::1:role/erp"
-	if c, err := Load(env(m)); err != nil || c.KMS.AccessKey != "" || c.AWS.STSEndpoint != "http://localhost:4566" || c.AWS.IMDSEndpoint != "http://localhost:1338" || c.AWS.Getenv("AWS_ROLE_ARN") != "arn:aws:iam::1:role/erp" {
-		t.Fatalf("%+v %v", c.AWS, err)
+	c = mustLoad(t, m)
+	if c.AWS.Getenv == nil {
+		t.Fatal("AWS Getenv: got nil, want the environment")
 	}
+	checkFields(t, []field{
+		{"KMS access key", c.KMS.AccessKey, ""},
+		{"STS endpoint", c.AWS.STSEndpoint, "http://localhost:4566"},
+		{"IMDS endpoint", c.AWS.IMDSEndpoint, "http://localhost:1338"},
+		{"AWS_ROLE_ARN", c.AWS.Getenv("AWS_ROLE_ARN"), "arn:aws:iam::1:role/erp"},
+	})
 }
 
 func TestAuditVerifyInterval(t *testing.T) {
@@ -323,55 +438,187 @@ func TestAuditVerifyInterval(t *testing.T) {
 		t.Fatal(c.AuditVerify, err)
 	}
 	for _, bad := range []string{"-1h", "often"} {
-		m["ERP_AUDIT_VERIFY_INTERVAL"] = bad
-		if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), "ERP_AUDIT_VERIFY_INTERVAL") {
-			t.Fatalf("%s: %v", bad, err)
-		}
+		t.Run(bad, func(t *testing.T) {
+			mm := copyOf(m)
+			mm["ERP_AUDIT_VERIFY_INTERVAL"] = bad
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_AUDIT_VERIFY_INTERVAL")
+		})
 	}
 }
 
 func TestRotationPolicyAndPublicURL(t *testing.T) {
 	m := valid()
-	if c, err := Load(env(m)); err != nil || c.KeyRotationAge != 0 || c.PublicURL != "" {
-		t.Fatal(c.KeyRotationAge, c.PublicURL, err)
-	}
+	c := mustLoad(t, m)
+	checkFields(t, []field{{"KeyRotationAge", c.KeyRotationAge, time.Duration(0)}, {"PublicURL", c.PublicURL, ""}})
 	m["ERP_KEY_ROTATION_AGE"], m["ERP_PUBLIC_URL"] = "8760h", "https://api.example.com/"
-	if c, err := Load(env(m)); err != nil || c.KeyRotationAge != 8760*time.Hour || c.PublicURL != "https://api.example.com" {
-		t.Fatal(c.KeyRotationAge, c.PublicURL, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"KeyRotationAge", c.KeyRotationAge, 8760 * time.Hour}, {"PublicURL", c.PublicURL, "https://api.example.com"}})
 	for name, bad := range map[string][2]string{"negative age": {"ERP_KEY_ROTATION_AGE", "-1h"}, "words": {"ERP_KEY_ROTATION_AGE", "yearly"}, "relative url": {"ERP_PUBLIC_URL", "api.example.com"}} {
-		mm := map[string]string{}
-		for k, v := range m {
-			mm[k] = v
-		}
-		mm[bad[0]] = bad[1]
-		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			mm := copyOf(m)
+			mm[bad[0]] = bad[1]
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, bad[0])
+		})
 	}
 }
 
 func TestWorkflowEngineSettings(t *testing.T) {
 	m := valid()
-	c, err := Load(env(m))
-	if err != nil || c.Temporal.Address != "" || c.Temporal.CodecKey != nil || c.Temporal.EscalateAfter != 48*time.Hour || c.Temporal.Escalations != 3 || c.Temporal.TaskQueue != "erp" {
-		t.Fatalf("%+v %v", c.Temporal, err)
-	}
+	c := mustLoad(t, m)
+	checkFields(t, []field{
+		{"Temporal address", c.Temporal.Address, ""},
+		{"Temporal codec key is nil", c.Temporal.CodecKey == nil, true},
+		{"Temporal escalate after", c.Temporal.EscalateAfter, 48 * time.Hour},
+		{"Temporal escalations", c.Temporal.Escalations, 3},
+		{"Temporal task queue", c.Temporal.TaskQueue, "erp"},
+	})
 	key := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
 	m["ERP_TEMPORAL_ADDRESS"], m["ERP_TEMPORAL_CODEC_KEY"], m["ERP_APPROVAL_ESCALATE_AFTER"], m["ERP_APPROVAL_ESCALATIONS"] = "localhost:7233", key, "0", "1"
-	if c, err := Load(env(m)); err != nil || len(c.Temporal.CodecKey) != 32 || c.Temporal.EscalateAfter != 0 || c.Temporal.Escalations != 1 {
-		t.Fatalf("%+v %v", c.Temporal, err)
-	}
+	c = mustLoad(t, m)
+	checkFields(t, []field{
+		{"Temporal codec key length", len(c.Temporal.CodecKey), 32},
+		{"Temporal escalate after", c.Temporal.EscalateAfter, time.Duration(0)},
+		{"Temporal escalations", c.Temporal.Escalations, 1},
+	})
 	for name, bad := range map[string][2]string{"short key": {"ERP_TEMPORAL_CODEC_KEY", base64.StdEncoding.EncodeToString([]byte("short"))},
 		"not base64": {"ERP_TEMPORAL_CODEC_KEY", "%%%"}, "negative period": {"ERP_APPROVAL_ESCALATE_AFTER", "-1h"}, "words": {"ERP_APPROVAL_ESCALATE_AFTER", "soon"},
 		"zero escalations": {"ERP_APPROVAL_ESCALATIONS", "0"}, "not a number": {"ERP_APPROVAL_ESCALATIONS", "many"}} {
-		mm := map[string]string{}
-		for k, v := range m {
-			mm[k] = v
+		t.Run(name, func(t *testing.T) {
+			mm := copyOf(m)
+			mm[bad[0]] = bad[1]
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, bad[0])
+		})
+	}
+}
+
+// TestDirectoryErrorsInFixedOrder: with several directory settings invalid,
+// every Load reports them in the same order, so the message is stable.
+func TestDirectoryErrorsInFixedOrder(t *testing.T) {
+	m := valid()
+	missing := filepath.Join(t.TempDir(), "missing")
+	m["ERP_DIRECTORY_URL"], m["ERP_CELL_REGION"] = "postgres://dir@db/directory", "eu-west"
+	m["ERP_BANK_OUTBOX_DIR"], m["ERP_EXTRACT_DIR"], m["ERP_OBJECT_DIR"] = missing+"-bank", missing+"-extract", missing+"-objects"
+	_, first := Load(env(m))
+	if first == nil {
+		t.Fatal("got no error, want the invalid directory settings reported")
+	}
+	for i := range 50 {
+		if _, err := Load(env(m)); err == nil || err.Error() != first.Error() {
+			t.Fatalf("load %d: got %v, want %v", i, err, first)
 		}
-		mm[bad[0]] = bad[1]
-		if _, err := Load(env(mm)); err == nil || !strings.Contains(err.Error(), bad[0]) {
-			t.Errorf("%s: %v", name, err)
+	}
+}
+
+// TestEscalationsFitTheCount: the deadline workflow counts escalations in an
+// int16 and the column is a smallint, so a value above 32767 is refused at
+// load rather than wrapping later.
+func TestEscalationsFitTheCount(t *testing.T) {
+	m := valid()
+	m["ERP_APPROVAL_ESCALATIONS"] = "32767"
+	c, err := Load(env(m))
+	if err != nil {
+		t.Fatalf("32767: got %v, want no error", err)
+	}
+	if c.Temporal.Escalations != 32767 {
+		t.Errorf("32767: got %d escalations, want 32767", c.Temporal.Escalations)
+	}
+	m["ERP_APPROVAL_ESCALATIONS"] = "32768"
+	_, err = Load(env(m))
+	pgtest.CheckErr(t, err, "ERP_APPROVAL_ESCALATIONS")
+}
+
+// TestProductionFailsClosed: in production (ERP_ENV) the server refuses to
+// start with the development token issuer, with a workflow engine but no
+// codec key, without object storage (no audit anchors, ADR-0011, and no
+// offboarding exports, ADR-0021), or with audit verification switched off;
+// development allows all of them, as before. An unknown environment is
+// refused, and so is none: there is no default, so a production replica
+// whose ERP_ENV went missing does not start with development's allowances.
+func TestProductionFailsClosed(t *testing.T) {
+	codec := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
+	const devRefused, codecRefused = "ERP_DEV_ISSUER must not be set with ERP_ENV=production", "ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production"
+	const envRequired = "ERP_ENV is required: set ERP_ENV=development on a developer's machine or in tests, ERP_ENV=production everywhere else"
+	const storeRefused, verifyRefused = "object storage (ERP_OBJECT_DIR or ERP_OBJECT_S3_*) is required with ERP_ENV=production", "ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production"
+	// prod is a production configuration that starts: object storage and
+	// the default audit verification interval.
+	prod := func(set map[string]string) map[string]string {
+		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp"}
+		for k, v := range set {
+			m[k] = v
 		}
+		return m
+	}
+	cases := []struct {
+		name    string
+		set     map[string]string
+		wantErr []string // the errors reported; none means the configuration loads
+	}{
+		{"no environment", map[string]string{"ERP_ENV": "", "ERP_DEV_ISSUER": "true"}, []string{envRequired}},
+		{"development dev issuer", map[string]string{"ERP_ENV": "development", "ERP_DEV_ISSUER": "true"}, nil},
+		{"development engine without codec", map[string]string{"ERP_ENV": "development", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
+		{"development without verification", map[string]string{"ERP_ENV": "development", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
+		{"production", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_TEMPORAL_CODEC_KEY": codec}), nil},
+		{"production without an engine", prod(nil), nil},
+		{"production with an object directory", map[string]string{"ERP_ENV": "production", "ERP_OBJECT_DIR": t.TempDir()}, nil},
+		{"production dev issuer", prod(map[string]string{"ERP_DEV_ISSUER": "true"}), []string{devRefused}},
+		{"production engine without codec", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{codecRefused}},
+		{"production both", prod(map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{devRefused, codecRefused}},
+		{"production without object storage", map[string]string{"ERP_ENV": "production"}, []string{storeRefused}},
+		{"production without verification", prod(map[string]string{"ERP_AUDIT_VERIFY_INTERVAL": "0"}), []string{verifyRefused}},
+		{"production without either", map[string]string{"ERP_ENV": "production", "ERP_AUDIT_VERIFY_INTERVAL": "0s"}, []string{storeRefused, verifyRefused}},
+		{"unknown environment", map[string]string{"ERP_ENV": "staging"}, []string{"must be development or production"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			for k, v := range c.set {
+				m[k] = v
+			}
+			cfg, err := Load(env(m))
+			if len(c.wantErr) == 0 {
+				if err != nil {
+					t.Fatalf("got %v, want the configuration to load", err)
+				}
+				if want := c.set["ERP_ENV"]; cfg.Environment != want {
+					t.Errorf("environment: got %q, want %q", cfg.Environment, want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("got no error, want %q", c.wantErr)
+			}
+			for _, want := range c.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("got %v, want it to report %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// TestTenantIssuers: the tenant issuers the cell trusts are the development
+// issuer and the configured ones.
+func TestTenantIssuers(t *testing.T) {
+	const one, two = `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`,
+		`[{"issuer":"https://a.example.com","audience":"erp-api"},{"issuer":"https://b.example.com","audience":"erp-api"}]`
+	for _, c := range []struct {
+		name, issuers, dev string
+		want               []string
+	}{
+		{"one issuer", one, "", []string{"https://idp.example.com"}},
+		{"development issuer", "", "true", []string{"erp-dev"}},
+		{"development and one more", one, "true", []string{"erp-dev", "https://idp.example.com"}},
+		{"two issuers", two, "", []string{"https://a.example.com", "https://b.example.com"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			m["ERP_OIDC_ISSUERS"], m["ERP_DEV_ISSUER"] = c.issuers, c.dev
+			if got := mustLoad(t, m).TenantIssuers(); !slices.Equal(got, c.want) {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
 	}
 }

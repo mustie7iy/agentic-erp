@@ -36,9 +36,17 @@ func TestConstructors(t *testing.T) {
 		{Internal(errors.New("boom")), 500, "platform.internal"},
 	}
 	for _, c := range cases {
-		if c.p.Status != c.status || c.p.Code != c.code || !strings.HasPrefix(c.p.Type, TypeBase) {
-			t.Errorf("%+v", c.p)
-		}
+		t.Run(c.code, func(t *testing.T) {
+			if c.p.Status != c.status {
+				t.Errorf("status: got %d, want %d", c.p.Status, c.status)
+			}
+			if c.p.Code != c.code {
+				t.Errorf("code: got %q, want %q", c.p.Code, c.code)
+			}
+			if !strings.HasPrefix(c.p.Type, TypeBase) {
+				t.Errorf("type: got %q, want a prefix of %q", c.p.Type, TypeBase)
+			}
+		})
 	}
 	if p := New(409, "payables.duplicate_invoice", "t", "d"); p.Type != TypeBase+"payables/duplicate-invoice" {
 		t.Fatal(p.Type)
@@ -48,14 +56,77 @@ func TestConstructors(t *testing.T) {
 	}
 }
 
+// TestReference: a referenced resource that is not found is 422 on the
+// referring field; any other error passes through.
+func TestReference(t *testing.T) {
+	var p *Problem
+	if !errors.As(Reference(fmt.Errorf("read: %w", NotFound("x")), "role_id", "role", "no role with this id"), &p) {
+		t.Fatal("not found: got no problem, want one")
+	}
+	if p.Status != 422 || p.Code != "request.reference_not_found" {
+		t.Errorf("not found: got %d %s, want 422 request.reference_not_found", p.Status, p.Code)
+	}
+	if p.Detail != "No role with this id." {
+		t.Errorf("detail: got %q, want %q", p.Detail, "No role with this id.")
+	}
+	if want := (FieldError{Field: "role_id", Code: "not_found", Message: "no role with this id"}); len(p.Errors) != 1 || p.Errors[0] != want {
+		t.Errorf("field errors: got %+v, want [%+v]", p.Errors, want)
+	}
+	other := Conflict("x.y", "No.")
+	if got := Reference(other, "role_id", "role", "no role with this id"); got != other { //nolint:errorlint // the same error must come back, not a wrapper
+		t.Errorf("other error: got %v, want %v unchanged", got, other)
+	}
+}
+
+// TestNotFoundOf: the 404 of a lookup by id names the resource in the
+// wording every context uses.
+func TestNotFoundOf(t *testing.T) {
+	got := NotFoundOf("purchase order")
+	if got.Status != 404 {
+		t.Errorf("status: got %d, want 404", got.Status)
+	}
+	if got.Code != "request.not_found" {
+		t.Errorf("code: got %q, want request.not_found", got.Code)
+	}
+	if want := "No purchase order with this id."; got.Detail != want {
+		t.Errorf("detail: got %q, want %q", got.Detail, want)
+	}
+}
+
+// TestReferenceNotFound: the refusal for a lookup that reports "not found"
+// with a bool is the one Reference makes from a 404.
+func TestReferenceNotFound(t *testing.T) {
+	got := ReferenceNotFound("role_id", "role", "no role with this id")
+	var want *Problem
+	if !errors.As(Reference(NotFound("x"), "role_id", "role", "no role with this id"), &want) {
+		t.Fatal("Reference: got no problem, want one")
+	}
+	if got.Status != want.Status || got.Code != want.Code || got.Detail != want.Detail {
+		t.Errorf("got %d %s %q, want %d %s %q", got.Status, got.Code, got.Detail, want.Status, want.Code, want.Detail)
+	}
+	if len(got.Errors) != 1 || got.Errors[0] != want.Errors[0] {
+		t.Errorf("field errors: got %+v, want %+v", got.Errors, want.Errors)
+	}
+}
+
 func TestErrorAndCause(t *testing.T) {
 	cause := errors.New("disk on fire")
 	p := Internal(cause)
-	if !errors.Is(p, cause) || Cause(p) != cause || !strings.Contains(p.Error(), "disk on fire") {
-		t.Fatal(p.Error())
+	if !errors.Is(p, cause) {
+		t.Errorf("errors.Is(%v, cause) = false, want true", p)
 	}
-	if q := NotFound("missing"); strings.Contains(q.Error(), "<nil>") || Cause(q) != nil {
-		t.Fatal(q.Error())
+	if got := Cause(p); got != cause { //nolint:errorlint // Cause must return the cause itself, not an error that wraps it
+		t.Errorf("Cause: got %v, want %v", got, cause)
+	}
+	if got := p.Error(); !strings.Contains(got, "disk on fire") {
+		t.Errorf("Error() = %q, want it to contain %q", got, "disk on fire")
+	}
+	q := NotFound("missing")
+	if got := q.Error(); strings.Contains(got, "<nil>") {
+		t.Errorf("Error() = %q, want no <nil>", got)
+	}
+	if got := Cause(q); got != nil {
+		t.Errorf("Cause of a problem without one: got %v, want nil", got)
 	}
 }
 
@@ -92,19 +163,34 @@ func TestFromTranslatesDatabaseErrors(t *testing.T) {
 		Conflict("own.code", "kept"): {409, "own.code"},
 	}
 	for err, want := range cases {
-		p := From(err)
-		if p.Status != want.status || p.Code != want.code {
-			t.Errorf("%v → %d %s, want %d %s", err, p.Status, p.Code, want.status, want.code)
+		// The name comes from the SQLSTATE or the type: a bare ConnectError's
+		// Error method dereferences its nil cause.
+		name := fmt.Sprintf("%T", err)
+		if pe := (*pgconn.PgError)(nil); errors.As(err, &pe) {
+			name = pe.Code
 		}
-		if strings.Contains(p.Detail, "secret internals") {
-			t.Errorf("database message leaked: %s", p.Detail)
-		}
+		t.Run(name, func(t *testing.T) {
+			p := From(err)
+			if p.Status != want.status {
+				t.Errorf("status: got %d, want %d", p.Status, want.status)
+			}
+			if p.Code != want.code {
+				t.Errorf("code: got %q, want %q", p.Code, want.code)
+			}
+			if strings.Contains(p.Detail, "secret internals") {
+				t.Errorf("database message leaked: %s", p.Detail)
+			}
+		})
 	}
 	if p := From(pgErr("55P03", "")); p.RetryAfter != 1 {
 		t.Fatal("lock timeouts must ask the client to retry")
 	}
-	if p := From(pgErr("57P01", "")); p.RetryAfter != 1 || !strings.Contains(p.Detail, "connection was lost") {
-		t.Fatal("a lost connection must ask the client to retry")
+	lost := From(pgErr("57P01", ""))
+	if lost.RetryAfter != 1 {
+		t.Errorf("a lost connection must ask the client to retry: RetryAfter got %d, want 1", lost.RetryAfter)
+	}
+	if !strings.Contains(lost.Detail, "connection was lost") {
+		t.Errorf("lost connection detail: got %q, want it to contain %q", lost.Detail, "connection was lost")
 	}
 }
 
@@ -115,21 +201,38 @@ func TestWrite(t *testing.T) {
 	p := Unauthorized("token expired")
 	p.RetryAfter = 3
 	Write(rec, r, p)
-	if rec.Code != 401 || rec.Header().Get("Content-Type") != "application/problem+json" ||
-		rec.Header().Get("Retry-After") != "3" || !strings.Contains(rec.Header().Get("WWW-Authenticate"), "invalid_token") {
-		t.Fatal(rec.Code, rec.Header())
+	if rec.Code != 401 {
+		t.Errorf("status: got %d, want 401", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Errorf("Content-Type: got %q, want %q", got, "application/problem+json")
+	}
+	if got := rec.Header().Get("Retry-After"); got != "3" {
+		t.Errorf("Retry-After: got %q, want %q", got, "3")
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); !strings.Contains(got, "invalid_token") {
+		t.Errorf("WWW-Authenticate: got %q, want it to contain %q", got, "invalid_token")
 	}
 	var got map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &got)
-	if got["instance"] != "/v1/operations/x" || got["trace_id"] != "trace-9" || got["code"] != "authn.invalid_token" || got["status"] != float64(401) {
-		t.Fatal(got)
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %s: %v", rec.Body, err)
+	}
+	for field, want := range map[string]any{
+		"instance": "/v1/operations/x", "trace_id": "trace-9", "code": "authn.invalid_token", "status": float64(401),
+	} {
+		if got[field] != want {
+			t.Errorf("%s: got %v, want %v", field, got[field], want)
+		}
 	}
 	// Without a request the instance is left as set.
 	rec = httptest.NewRecorder()
 	q := NotFound("x")
 	q.Instance = "/given"
 	Write(rec, nil, q)
-	if !strings.Contains(rec.Body.String(), "/given") || rec.Header().Get("Retry-After") != "" {
-		t.Fatal(rec.Body.String())
+	if got := rec.Body.String(); !strings.Contains(got, "/given") {
+		t.Errorf("body: got %s, want the instance /given", got)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "" {
+		t.Errorf("Retry-After: got %q, want none", got)
 	}
 }

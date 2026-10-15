@@ -18,13 +18,16 @@ func TestClaudeExtractor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.InvoiceNumber != "A-1" || len(got.Lines) != 1 {
-		t.Fatalf("extraction: %+v", got)
+	if got.InvoiceNumber != "A-1" {
+		t.Errorf("invoice number: got %q, want %q", got.InvoiceNumber, "A-1")
+	}
+	if len(got.Lines) != 1 {
+		t.Errorf("lines: got %d, want 1 (%+v)", len(got.Lines), got.Lines)
 	}
 	req := srv.Requests[0]
 	for _, frag := range []string{`"type":"document"`, `"media_type":"application/pdf"`, `"json_schema"`, "untrusted data", `"fallbacks":"default"`} {
 		if !strings.Contains(req, frag) {
-			t.Errorf("request lacks %s", frag)
+			t.Errorf("request: got %s, want it to contain %s", req, frag)
 		}
 	}
 
@@ -33,10 +36,12 @@ func TestClaudeExtractor(t *testing.T) {
 		"truncated": {Text: "{", StopReason: "max_tokens"},
 		"refusal":   {StopReason: "refusal"},
 	} {
-		srv := llmtest.New(t, step)
-		if _, err := (&ClaudeExtractor{LLM: srv.Runner()}).Extract(context.Background(), []byte("x")); err == nil {
-			t.Errorf("%s: expected an error", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			srv := llmtest.New(t, step)
+			if _, err := (&ClaudeExtractor{LLM: srv.Runner()}).Extract(context.Background(), []byte("x")); err == nil {
+				t.Errorf("err: got nil, want an error")
+			}
+		})
 	}
 	down := llmtest.New(t) // no steps: the server errors
 	if _, err := (&ClaudeExtractor{LLM: down.Runner()}).Extract(context.Background(), []byte("x")); err == nil {

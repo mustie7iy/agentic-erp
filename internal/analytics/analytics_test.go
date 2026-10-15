@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,8 +32,6 @@ var (
 	ledgerRevenue map[string]int64 // company 1000 revenue per year, from the journal
 )
 
-func alpha(v string) string { return strings.TrimLeft(v, "0") }
-
 // twoYears builds the facts of mock SAP data for 2025 (full year) and 2026
 // (through September) for both company codes, the way loading them onto
 // the platform and reading them back through the API does.
@@ -38,7 +39,7 @@ func twoYears(t *testing.T) *Facts {
 	t.Helper()
 	fixtureOnce.Do(func() {
 		m, _ := DefaultModel()
-		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, AsOf: time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC)}
+		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{"USD": 2, "EUR": 2}, AsOf: time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC)}
 		ledgerRevenue = map[string]int64{}
 		types := func(number string) string {
 			switch number[0] {
@@ -53,7 +54,7 @@ func twoYears(t *testing.T) *Facts {
 			}
 			return "expense"
 		}
-		add := func(table, id, company, date, currency string, amount int64, dims map[string]string) {
+		add := func(table, id, company, date, currency string, amount money.Minor, dims map[string]string) {
 			iso := date[:4] + "-" + date[4:6] + "-" + date[6:]
 			fy, fm, _ := fiscal(iso, m.Calendar.FiscalYearStartMonth)
 			dims["company"], dims["posting_date"] = company, iso
@@ -69,10 +70,10 @@ func twoYears(t *testing.T) *Facts {
 			e := sap.GenerateMockThrough(y.seed, y.year, y.through)
 			names, accounts, recon := map[string]string{}, map[string]string{}, map[string]bool{}
 			for _, v := range e.LFA1 {
-				names[alpha(v.LIFNR)] = v.NAME1
+				names[sap.Alpha(v.LIFNR)] = v.NAME1
 			}
 			for _, a := range e.SKB1 {
-				accounts[alpha(a.SAKNR)], recon[alpha(a.SAKNR)] = a.TXT50, a.MITKZ == "K"
+				accounts[sap.Alpha(a.SAKNR)], recon[sap.Alpha(a.SAKNR)] = a.TXT50, a.MITKZ == "K"
 			}
 			currency := map[string]string{}
 			for _, c := range e.T001 {
@@ -80,10 +81,10 @@ func twoYears(t *testing.T) *Facts {
 			}
 			for _, l := range e.ACDOCA {
 				amt, _ := money.ParseDecimal(l.HSL, 2)
-				acct := alpha(l.RACCT)
-				add("gl_lines", l.RBUKRS+"/"+l.GJAHR+"/"+l.BELNR, l.RBUKRS, l.BUDAT, currency[l.RBUKRS], int64(amt), map[string]string{
+				acct := sap.Alpha(l.RACCT)
+				add("gl_lines", l.RBUKRS+"/"+l.GJAHR+"/"+l.BELNR, l.RBUKRS, l.BUDAT, currency[l.RBUKRS], amt, map[string]string{
 					"account": acct, "account_name": accounts[acct], "account_type": types(acct), "document_type": l.BLART,
-					"vendor": alpha(l.LIFNR), "vendor_name": names[alpha(l.LIFNR)], "vendor_recon": strconv.FormatBool(recon[acct]),
+					"vendor": sap.Alpha(l.LIFNR), "vendor_name": names[sap.Alpha(l.LIFNR)], "vendor_recon": strconv.FormatBool(recon[acct]),
 					"cleared": strconv.FormatBool(recon[acct] && l.AUGBL != "")})
 				if l.RBUKRS == "1000" && acct == "400000" {
 					ledgerRevenue[l.GJAHR] -= int64(amt)
@@ -95,17 +96,17 @@ func twoYears(t *testing.T) *Facts {
 			}
 			for _, it := range e.EKPO {
 				h := heads[it.EBELN]
-				qty, _ := money.ParseQty(it.MENGE)
 				price, _ := money.ParseDecimal(it.NETPR, 2)
 				unit, _ := strconv.ParseInt(it.PEINH, 10, 64)
-				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, int64(money.Extend(qty, price, max(unit, 1))), map[string]string{
-					"vendor": alpha(h.LIFNR), "vendor_name": names[alpha(h.LIFNR)], "account": alpha(it.SAKTO), "account_name": accounts[alpha(it.SAKTO)]})
+				amount, _ := money.Scale(price, it.MENGE, max(unit, 1)) // mock amounts are far from the range
+				add("po_lines", it.EBELN, h.BUKRS, h.BEDAT, h.WAERS, amount, map[string]string{
+					"vendor": sap.Alpha(h.LIFNR), "vendor_name": names[sap.Alpha(h.LIFNR)], "account": sap.Alpha(it.SAKTO), "account_name": accounts[sap.Alpha(it.SAKTO)]})
 			}
 			for _, h := range e.RBKP {
 				status := map[string]string{"A": "parked", "5": "posted"}[h.RBSTAT]
 				gross, _ := money.ParseDecimal(h.RMWWR, 2)
-				add("ap_invoices", h.BELNR+"/"+h.GJAHR, h.BUKRS, h.BLDAT, h.WAERS, int64(gross), map[string]string{
-					"vendor": alpha(h.LIFNR), "vendor_name": names[alpha(h.LIFNR)], "invoice_status": status})
+				add("ap_invoices", h.BELNR+"/"+h.GJAHR, h.BUKRS, h.BLDAT, h.WAERS, gross, map[string]string{
+					"vendor": sap.Alpha(h.LIFNR), "vendor_name": names[sap.Alpha(h.LIFNR)], "invoice_status": status})
 			}
 		}
 		fixtureFacts = f
@@ -132,8 +133,12 @@ func TestModelLoadsAndValidates(t *testing.T) {
 	if m.Metric(m.Defaults["sales"]).Name != "revenue" {
 		t.Fatal(`"sales" should default to revenue`)
 	}
-	if dims := m.AllowedDimensions("operating_margin"); !containsStr(dims, "fiscal_month") || containsStr(dims, "vendor") {
-		t.Fatalf("derived metric dimensions wrong: %v", dims)
+	dims := m.AllowedDimensions("operating_margin")
+	if !containsStr(dims, "fiscal_month") {
+		t.Errorf("derived metric dimensions: got %v, want fiscal_month among them", dims)
+	}
+	if containsStr(dims, "vendor") {
+		t.Errorf("derived metric dimensions: got %v, want no vendor", dims)
 	}
 	if _, err := ParseModel([]byte("metrics:\n  - {name: x, type: money}\n")); err == nil {
 		t.Fatal("metric without source or derivation must be rejected")
@@ -145,10 +150,15 @@ func TestFiscalCalendar(t *testing.T) {
 		date        string
 		start, y, m int
 	}{{"2026-01-15", 1, 2026, 1}, {"2026-12-01", 1, 2026, 12}, {"2026-04-01", 4, 2027, 1}, {"2026-03-31", 4, 2026, 12}} {
-		y, m, err := fiscal(c.date, c.start)
-		if err != nil || y != c.y || m != c.m {
-			t.Errorf("fiscal(%s, %d) = %d/%d, want %d/%d", c.date, c.start, y, m, c.y, c.m)
-		}
+		t.Run(fmt.Sprintf("%s from month %d", c.date, c.start), func(t *testing.T) {
+			y, m, err := fiscal(c.date, c.start)
+			if err != nil {
+				t.Fatalf("fiscal(%s, %d): %v", c.date, c.start, err)
+			}
+			if y != c.y || m != c.m {
+				t.Errorf("fiscal(%s, %d): got %d/%d, want %d/%d", c.date, c.start, y, m, c.y, c.m)
+			}
+		})
 	}
 }
 
@@ -165,13 +175,16 @@ func TestRevenueMatchesLedger(t *testing.T) {
 		t.Fatalf("want 2 years, got %v", r.Rows)
 	}
 	for _, row := range r.Rows {
-		year, got := row[0].(string), row[1].(float64)
-		if want := float64(ledger[year]) / 100; got != want {
+		year, got := row[0].(string), row[1].(Value)
+		if want := (Value{Units: money.Minor(ledger[year]), Scale: 2, Currency: "USD"}); got != want {
 			t.Errorf("%s revenue %v, ledger says %v", year, got, want)
 		}
 	}
-	if r.Columns[1].Currency != "USD" || r.DataThrough != "2026-09-28" {
-		t.Errorf("currency %q, data through %q", r.Columns[1].Currency, r.DataThrough)
+	if r.Columns[1].Currency != "USD" {
+		t.Errorf("currency: got %q, want USD", r.Columns[1].Currency)
+	}
+	if r.DataThrough != "2026-09-28" {
+		t.Errorf("data through: got %q, want 2026-09-28", r.DataThrough)
 	}
 }
 
@@ -185,12 +198,15 @@ func TestFiltersOrderingAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Rows) != 2 || r.Rows[0][2].(float64) < r.Rows[1][2].(float64) {
-		t.Fatalf("expected top 2 by revenue descending: %v", r.Rows)
+	if len(r.Rows) != 2 {
+		t.Fatalf("rows: got %d %v, want the top 2", len(r.Rows), r.Rows)
+	}
+	if first, second := r.Rows[0][2].(Value), r.Rows[1][2].(Value); first.compare(second) < 0 {
+		t.Errorf("order: got %v before %v, want revenue descending", first, second)
 	}
 	for _, row := range r.Rows {
 		if m := row[1].(string); m < "7" || m > "9" {
-			t.Fatalf("filter leaked month %s", m)
+			t.Errorf("row %v: got month %s, want 7 to 9", row, m)
 		}
 	}
 }
@@ -205,9 +221,11 @@ func TestQueryGuardrails(t *testing.T) {
 		"order by not in it": {Measures: []string{"revenue"}, By: []string{"company"}, OrderBy: "fiscal_year"},
 	}
 	for name, q := range cases {
-		if _, err := all.Run(q); err == nil {
-			t.Errorf("%s: expected an error", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if _, err := all.Run(q); err == nil {
+				t.Error("got no error, want the query refused")
+			}
+		})
 	}
 	if _, err := all.Run(Query{Measures: []string{"revenue"}, By: []string{"company"}}); err != nil {
 		t.Errorf("breaking down by company should resolve the currency mix: %v", err)
@@ -220,12 +238,73 @@ func TestRowLevelSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Rows) != 1 || r.Rows[0][0] != "2000" || r.Columns[1].Currency != "EUR" {
-		t.Fatalf("user restricted to 2000 saw %v", r.Rows)
+	if len(r.Rows) != 1 {
+		t.Fatalf("user restricted to 2000: got %d rows %v, want 1", len(r.Rows), r.Rows)
+	}
+	if r.Rows[0][0] != "2000" {
+		t.Errorf("user restricted to 2000: got company %v, want 2000", r.Rows[0][0])
+	}
+	if r.Columns[1].Currency != "EUR" {
+		t.Errorf("user restricted to 2000: got currency %s, want EUR", r.Columns[1].Currency)
 	}
 	if QueryID(r.Query, de.Principal) == QueryID(r.Query, us) {
 		t.Fatal("query ids must differ by access scope")
 	}
+}
+
+// TestAggregateOutOfRange: invoices the API accepts (5·10^18 minor units
+// each) can add up to more than an amount holds. The query is refused with
+// money.ErrOverflow rather than reporting a wrapped, negative total; terms
+// that net back into range still sum exactly, whatever their order.
+func TestAggregateOutOfRange(t *testing.T) {
+	m, err := DefaultModel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const big = money.Minor(5_000_000_000_000_000_000)
+	facts := func(amounts ...money.Minor) *Facts {
+		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{"1000": "EUR"}, Exponents: map[string]int{"EUR": 2}}
+		for i, a := range amounts {
+			f.Tables["ap_invoices"] = append(f.Tables["ap_invoices"], Fact{ID: strconv.Itoa(i), Amount: a, Currency: "EUR",
+				Dims: map[string]string{"company": "1000", "fiscal_year": "2026"}})
+		}
+		return f
+	}
+	q := Query{Measures: []string{"invoice_value"}, By: []string{"company"}}
+	t.Run("out of range", func(t *testing.T) {
+		res, err := Execute(m, facts(big, big), Principal{ID: "user:cfo"}, q)
+		if !errors.Is(err, money.ErrOverflow) {
+			t.Fatalf("got %v (rows %v), want money.ErrOverflow", err, res)
+		}
+		if !strings.Contains(err.Error(), "invoice_value for 1000 adds up") {
+			t.Errorf("got %v, want the group named", err)
+		}
+	})
+	t.Run("out of range in total", func(t *testing.T) {
+		_, err := Execute(m, facts(big, big), Principal{ID: "user:cfo"}, Query{Measures: []string{"invoice_value"}})
+		if err == nil || !strings.Contains(err.Error(), "invoice_value in total adds up") {
+			t.Errorf("got %v, want invoice_value in total out of range", err)
+		}
+	})
+	t.Run("out of range for a blank value", func(t *testing.T) {
+		f := facts(big, big)
+		for i := range f.Tables["ap_invoices"] {
+			delete(f.Tables["ap_invoices"][i].Dims, "fiscal_year")
+		}
+		_, err := Execute(m, f, Principal{ID: "user:cfo"}, Query{Measures: []string{"invoice_value"}, By: []string{"fiscal_year"}})
+		if err == nil || !strings.Contains(err.Error(), "invoice_value for (blank) adds up") {
+			t.Errorf("got %v, want the blank group named, not the total", err)
+		}
+	})
+	t.Run("nets into range", func(t *testing.T) {
+		res, err := Execute(m, facts(big, big, -big), Principal{ID: "user:cfo"}, q)
+		if err != nil {
+			t.Fatalf("got %v, want the total", err)
+		}
+		if got, want := res.Rows[0][1], (Value{Units: big, Scale: 2, Currency: "EUR"}); got != want {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
 }
 
 func TestDerivedMetrics(t *testing.T) {
@@ -235,9 +314,13 @@ func TestDerivedMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, row := range r.Rows {
-		rev, exp, op, margin := row[1].(float64), row[2].(float64), row[3].(float64), row[4].(float64)
-		if round(rev-exp, 2) != op || round(op/rev, 4) != margin {
-			t.Errorf("derived values inconsistent: %v", row)
+		rev, exp, op, margin := row[1].(Value), row[2].(Value), row[3].(Value), row[4].(Value)
+		if want, err := diff(rev, exp); err != nil || op != want {
+			t.Errorf("row %v: got operating profit %v, want %v (%v)", row, op, want, err)
+		}
+		units, err := money.Round(big.NewRat(int64(op.Units), int64(rev.Units)), ratioScale)
+		if want := (Value{Units: units, Scale: ratioScale}); err != nil || margin != want {
+			t.Errorf("row %v: got operating margin %v, want %v (%v)", row, margin, want, err)
 		}
 	}
 }
@@ -247,8 +330,8 @@ func TestNarrativeCheck(t *testing.T) {
 		Columns: []Column{{Name: "fiscal_year", Kind: "dimension"}, {Name: "fiscal_month", Kind: "dimension"},
 			{Name: "revenue", Kind: "measure", Type: Money}, {Name: "margin", Kind: "measure", Type: Ratio}},
 		Rows: []Row{
-			{"2025", "1", 2410000.0, 0.371}, {"2025", "2", 2280000.0, 0.36},
-			{"2026", "1", 2580000.0, 0.384}, {"2026", "2", 2390000.0, 0.39},
+			{"2025", "1", usd("2410000.00"), ratio("0.371")}, {"2025", "2", usd("2280000.00"), ratio("0.36")},
+			{"2026", "1", usd("2580000.00"), ratio("0.384")}, {"2026", "2", usd("2390000.00"), ratio("0.39")},
 		},
 	}
 	ok := []string{
@@ -260,9 +343,11 @@ func TestNarrativeCheck(t *testing.T) {
 		"8 of 9 months grew in Q3 of FY2026.",                  // small ints, words, years
 	}
 	for _, text := range ok {
-		if bad := CheckNarrative(text, []*Result{r}); len(bad) > 0 {
-			t.Errorf("%q: unexpectedly rejected %v", text, bad)
-		}
+		t.Run(text, func(t *testing.T) {
+			if bad := CheckNarrative(text, []*Result{r}); len(bad) > 0 {
+				t.Errorf("got %v rejected, want the text accepted", bad)
+			}
+		})
 	}
 	wrong := []string{
 		"Revenue reached $5.2M.",
@@ -271,9 +356,11 @@ func TestNarrativeCheck(t *testing.T) {
 		"Revenue was 1,234,567.",
 	}
 	for _, text := range wrong {
-		if bad := CheckNarrative(text, []*Result{r}); len(bad) == 0 {
-			t.Errorf("%q: invented figure not caught", text)
-		}
+		t.Run(text, func(t *testing.T) {
+			if bad := CheckNarrative(text, []*Result{r}); len(bad) == 0 {
+				t.Error("got nothing rejected, want the invented figure caught")
+			}
+		})
 	}
 }
 
@@ -308,9 +395,14 @@ func TestBuildRenderAndRerun(t *testing.T) {
 	spec := salesSpec(r.ID)
 	ytd26, _, _ := r.sum("revenue", map[string]string{"fiscal_year": "2026"})
 	spec.Commentary = "Revenue for January to September 2026 was " + formatValue(ytd26, r.Columns[2]) + "."
+	built := time.Date(2026, 10, 2, 8, 30, 0, 0, time.UTC)
+	s.Now = func() time.Time { return built }
 	rep, problems := s.Build(spec, "agent:analytics")
 	if len(problems) > 0 {
 		t.Fatalf("valid spec rejected: %v", problems)
+	}
+	if !rep.CreatedAt.Equal(built) {
+		t.Errorf("created at: got %v, want %v", rep.CreatedAt, built)
 	}
 
 	// Invented numbers are rejected.
@@ -331,7 +423,7 @@ func TestBuildRenderAndRerun(t *testing.T) {
 		t.Fatal(err)
 	}
 	html, _ := os.ReadFile(path)
-	for _, want := range []string{"Revenue: Jan–Sep 2026", "<svg", "Monthly comparison", "How these numbers were computed", formatValue(ytd26, r.Columns[2])} {
+	for _, want := range []string{"Revenue: Jan–Sep 2026", "<svg", "Monthly comparison", "Generated 2026-10-02 08:30 UTC", "How these numbers were computed", formatValue(ytd26, r.Columns[2])} {
 		if !bytes.Contains(html, []byte(want)) {
 			t.Errorf("rendered page missing %q", want)
 		}
@@ -346,8 +438,11 @@ func TestBuildRenderAndRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh.Spec.Commentary == "" || len(results) != 1 {
-		t.Fatalf("rerun lost commentary or results: %+v", fresh.Spec)
+	if fresh.Spec.Commentary == "" {
+		t.Errorf("rerun commentary: got none, want it kept: %+v", fresh.Spec)
+	}
+	if len(results) != 1 {
+		t.Errorf("rerun results: got %d, want 1", len(results))
 	}
 
 	// A stale commentary (figures no longer in the data) is dropped on rerun.
@@ -357,8 +452,11 @@ func TestBuildRenderAndRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh.Spec.Commentary != "" || !strings.Contains(strings.Join(fresh.Spec.Assumptions, " "), "commentary was removed") {
-		t.Fatal("stale commentary should be removed with a note")
+	if fresh.Spec.Commentary != "" {
+		t.Errorf("stale commentary: got %q, want it removed", fresh.Spec.Commentary)
+	}
+	if notes := strings.Join(fresh.Spec.Assumptions, " "); !strings.Contains(notes, "commentary was removed") {
+		t.Errorf("assumptions: got %q, want a note that the commentary was removed", notes)
 	}
 }
 
@@ -369,8 +467,12 @@ func TestHandWrittenReportRemapsQueryIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh.Spec.Charts[0].QueryID == "monthly" || results[fresh.Spec.Charts[0].QueryID] == nil {
-		t.Fatal("readable query ids should be remapped to real ones")
+	qid := fresh.Spec.Charts[0].QueryID
+	if qid == "monthly" {
+		t.Error("chart query id: got monthly, want it remapped to a real one")
+	}
+	if results[qid] == nil {
+		t.Errorf("chart query id: got %s, want one with a result", qid)
 	}
 }
 
@@ -398,7 +500,10 @@ func (f *fakeClaude) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Name string `json:"name"`
 			} `json:"tools"`
 		}
-		json.Unmarshal(body, &req)
+		if err := json.Unmarshal(body, &req); err != nil { // not a Messages request: refuse it, and the test sees the error
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		for _, t := range req.Tools {
 			f.tools = append(f.tools, t.Name)
 		}
@@ -434,7 +539,8 @@ func (f *fakeClaude) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		stop = "end_turn"
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	// A failed write reaches the client as a broken answer, which the test sees there.
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id": "msg_test", "type": "message", "role": "assistant", "model": defaultModel,
 		"content": content, "stop_reason": stop, "stop_sequence": nil,
 		"usage": map[string]any{"input_tokens": 10, "output_tokens": 5},
@@ -461,11 +567,19 @@ func TestAgentAskBuildsValidatedDashboard(t *testing.T) {
 	if !fake.rejected {
 		t.Error("the invented figure should have been rejected before acceptance")
 	}
-	if ans.Report == nil || strings.Contains(ans.Report.Spec.Commentary, "42.0%") || ans.Summary == "" {
-		t.Fatalf("unexpected answer: %+v", ans)
+	if ans.Report == nil {
+		t.Fatalf("answer: got no report, want one: %+v", ans)
 	}
-	if !strings.Contains(fake.bodies[0], "Today is 8 October 2026") || !strings.Contains(fake.bodies[0], `"fallbacks":"default"`) {
-		t.Error("request missing date context or fallback config")
+	if strings.Contains(ans.Report.Spec.Commentary, "42.0%") {
+		t.Errorf("commentary: got %q, want the invented figure gone", ans.Report.Spec.Commentary)
+	}
+	if ans.Summary == "" {
+		t.Error("summary: got none, want one")
+	}
+	for _, want := range []string{"Today is 8 October 2026", `"fallbacks":"default"`} {
+		if !strings.Contains(fake.bodies[0], want) {
+			t.Errorf("first request: got %s, want it to contain %s", fake.bodies[0], want)
+		}
 	}
 	if _, err := ans.Report.Save(t.TempDir(), s.Results); err != nil {
 		t.Fatal(err)

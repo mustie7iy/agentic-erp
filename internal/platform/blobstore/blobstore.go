@@ -17,11 +17,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // Errors a store reports.
@@ -106,30 +109,54 @@ func checkKey(key string) error {
 }
 
 // Dir stores objects as files below Root, with the content type in a
-// sidecar file. Writes are exclusive creates, so a key is written once;
-// RetainUntil is recorded but not enforced (the filesystem cannot).
+// sidecar file. Writes are exclusive links of a whole temporary file, so a
+// key is written once and never holds part of an object. RetainUntil is
+// recorded in the sidecar and enforced by Delete, which refuses while it
+// holds or when the sidecar cannot be read; the filesystem itself does not
+// enforce it, so anything else with write access to Root can still remove
+// a locked object.
 type Dir struct {
 	Root string
 	Now  func() time.Time // for retention checks on Delete; nil: time.Now
 }
 
 func (d Dir) now() time.Time {
-	if d.Now != nil {
-		return d.Now()
-	}
-	return time.Now()
+	return clock.Now(d.Now)
 }
 
 func (d Dir) path(key string) string { return filepath.Join(d.Root, filepath.FromSlash(key)) }
 
-// openFile and writeFile are the filesystem calls Put makes; tests replace
-// them to fail a write.
+// createTemp, writeContent, link and rename are the filesystem calls Put
+// makes; tests replace them to fail a write, so this package's tests do
+// not run in parallel.
 var (
-	openFile  = os.OpenFile
-	writeFile = os.WriteFile
+	createTemp   = os.CreateTemp
+	writeContent = (*os.File).Write
+	link         = os.Link
+	rename       = os.Rename
 )
 
-// Put implements Store.
+// tempMark separates a key from the random suffix of the temporary file its
+// content or sidecar is written to. Keys cannot contain it (keyPattern), so
+// a temporary file never collides with a key; List reports it under its key
+// and Delete removes it with the key.
+const tempMark = "#"
+
+// Put implements Store. The content is written to a temporary file and
+// linked under the key only once it is whole and synced: a failed write, a
+// failed cleanup or a crash leaves the key free, never holding part of an
+// object that a later Put would answer ErrExists for. A link, unlike a
+// rename, fails when the key is taken, which keeps objects write-once.
+//
+// The sidecar (content type and retention) follows the content, so a Put
+// that fails after the link leaves content without one, and its retry is
+// answered ErrExists, which callers take for "already stored" (an audit
+// anchor does). The retry therefore writes a missing sidecar from its own
+// options before answering (repairSidecar): once a Put of the key has
+// returned nil or ErrExists, the sidecar is there and an anchor's retention
+// holds (ADR-0011). A sidecar is written to a temporary file and moved into
+// place whole, so it is either missing or complete, never a content type
+// without the retention that follows it.
 func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions) error {
 	if err := checkKey(key); err != nil {
 		return err
@@ -138,28 +165,69 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return fmt.Errorf("blobstore: %w", err)
 	}
-	f, err := openFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return ErrExists
-	}
+	tmp, err := writeTemp(p, content)
+	// Once linked, or after a failed write, the temporary name is not needed.
+	// A failed remove leaves a file the key's Delete removes; the key stays free.
+	defer func() { _ = os.Remove(tmp) }()
 	if err != nil {
 		return fmt.Errorf("blobstore: %w", err)
 	}
-	_, werr := f.Write(content)
-	if err := errors.Join(werr, f.Close()); err != nil {
-		os.Remove(p)
+	if err := link(tmp, p); errors.Is(err, os.ErrExist) {
+		return repairSidecar(p, opts)
+	} else if err != nil {
 		return fmt.Errorf("blobstore: %w", err)
 	}
+	// This Put created the content, so a sidecar already there is stale (one
+	// a Delete could not remove) and is replaced.
+	if err := writeSidecar(p, opts, rename); err != nil {
+		return fmt.Errorf("blobstore: %w", err)
+	}
+	return nil
+}
+
+// repairSidecar answers a Put whose key is taken: ErrExists once the
+// object's sidecar is there, writing it from opts when an earlier Put failed
+// before writing it. A link never replaces a sidecar that exists: the first
+// Put to place one wins (the one that stored the object renames its own over
+// a repairer's), and a later Put's options never change it. A repair records
+// the retrying Put's options even when its content differs from the stored
+// one; that Put is still told ErrExists.
+func repairSidecar(p string, opts PutOptions) error {
+	if err := writeSidecar(p, opts, link); err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("blobstore: %w", err)
+	}
+	return ErrExists
+}
+
+// writeSidecar writes the sidecar of the object at p to a temporary file and
+// moves it into place with place: rename to replace a sidecar, link to keep
+// one that exists.
+func writeSidecar(p string, opts PutOptions, place func(string, string) error) error {
 	meta := contentType(opts) + "\n"
 	if !opts.RetainUntil.IsZero() {
 		meta += opts.RetainUntil.UTC().Format(time.RFC3339) + "\n"
 	}
-	// The sidecar follows the content: a reader that finds content without
-	// it falls back to the default type.
-	if err := writeFile(p+".meta", []byte(meta), 0o600); err != nil {
-		return fmt.Errorf("blobstore: %w", err)
+	tmp, err := writeTemp(p, []byte(meta))
+	// Placed or not, the temporary name is not needed; see Put.
+	defer func() { _ = os.Remove(tmp) }()
+	if err != nil {
+		return err
 	}
-	return nil
+	return place(tmp, p+".meta")
+}
+
+// writeTemp writes content to a new temporary file next to p, synced so the
+// file a link or rename publishes is never partial after a crash, and returns
+// its name ("" when none was created). The directory is not synced, so a
+// crash just after a Put may still lose the new name (Dir is a development
+// store; S3 makes its writes durable).
+func writeTemp(p string, content []byte) (string, error) {
+	f, err := createTemp(filepath.Dir(p), filepath.Base(p)+tempMark+"*")
+	if err != nil {
+		return "", err
+	}
+	_, werr := writeContent(f, content)
+	return f.Name(), errors.Join(werr, f.Sync(), f.Close())
 }
 
 // Get implements Store.
@@ -174,7 +242,11 @@ func (d Dir) Get(_ context.Context, key string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("blobstore: %w", err)
 	}
-	return content, d.contentTypeOf(key), nil
+	ct, _, err := d.meta(key)
+	if err != nil {
+		return nil, "", err
+	}
+	return content, ct, nil
 }
 
 // Stat implements Store.
@@ -189,28 +261,36 @@ func (d Dir) Stat(_ context.Context, key string) (int64, string, error) {
 	if err != nil {
 		return 0, "", fmt.Errorf("blobstore: %w", err)
 	}
-	return info.Size(), d.contentTypeOf(key), nil
-}
-
-// contentTypeOf reads the sidecar; content without one is binary.
-func (d Dir) contentTypeOf(key string) string {
-	ct, _ := d.meta(key)
-	return ct
+	ct, _, err := d.meta(key)
+	if err != nil {
+		return 0, "", err
+	}
+	return info.Size(), ct, nil
 }
 
 // meta reads the sidecar: content type and retention (zero when unlocked).
-func (d Dir) meta(key string) (string, time.Time) {
+// Only a missing sidecar means binary and unlocked. One that cannot be read
+// or decoded may hold a retention, so it is an error: Delete must not take
+// it for unlocked.
+func (d Dir) meta(key string) (string, time.Time, error) {
 	ct, until := "application/octet-stream", time.Time{}
-	if meta, err := os.ReadFile(d.path(key) + ".meta"); err == nil {
-		lines := strings.Split(string(meta), "\n")
-		if lines[0] != "" {
-			ct = lines[0]
-		}
-		if len(lines) > 1 {
-			until, _ = time.Parse(time.RFC3339, lines[1]) // written by Put; anything else is unlocked
+	meta, err := os.ReadFile(d.path(key) + ".meta")
+	if errors.Is(err, os.ErrNotExist) {
+		return ct, until, nil
+	}
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("blobstore: sidecar of %s: %w", key, err)
+	}
+	lines := strings.Split(string(meta), "\n")
+	if lines[0] != "" {
+		ct = lines[0]
+	}
+	if len(lines) > 1 && lines[1] != "" {
+		if until, err = time.Parse(time.RFC3339, lines[1]); err != nil {
+			return "", time.Time{}, fmt.Errorf("blobstore: sidecar of %s: retention: %w", key, err)
 		}
 	}
-	return ct, until
+	return ct, until, nil
 }
 
 // List implements Eraser.
@@ -228,6 +308,10 @@ func (d Dir) List(_ context.Context, prefix string) ([]string, error) {
 			return err
 		}
 		rel, _ := filepath.Rel(d.Root, p) // p is below Root
+		// A temporary file a failed Put left behind is listed under the key it
+		// was for, so an erasure deletes it with the key (ADR-0021). Only the
+		// part below Root is cut: Root itself may contain the mark.
+		rel, _, _ = strings.Cut(rel, tempMark)
 		if key := filepath.ToSlash(rel); strings.HasPrefix(key, prefix) {
 			keys = append(keys, key)
 		}
@@ -240,7 +324,7 @@ func (d Dir) List(_ context.Context, prefix string) ([]string, error) {
 		return nil, fmt.Errorf("blobstore: %w", err)
 	}
 	sort.Strings(keys)
-	return keys, nil
+	return slices.Compact(keys), nil
 }
 
 // Delete implements Eraser: the retention a Put recorded is honoured.
@@ -248,13 +332,47 @@ func (d Dir) Delete(_ context.Context, key string) error {
 	if err := checkKey(key); err != nil {
 		return err
 	}
-	if _, until := d.meta(key); !until.IsZero() && d.now().Before(until) {
+	// Leftovers of failed Puts are never locked, even under a locked key.
+	if err := d.removeTemporary(key); err != nil {
+		return err
+	}
+	_, until, err := d.meta(key)
+	if err != nil {
+		return err
+	}
+	if !until.IsZero() && d.now().Before(until) {
 		return ErrLocked
 	}
 	if err := os.Remove(d.path(key)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("blobstore: %w", err)
 	}
-	os.Remove(d.path(key) + ".meta")
+	// The content is gone, which is what Delete promises. A sidecar left
+	// behind holds no content, is skipped by List and is rewritten by the
+	// next Put of the key. A Put of the key racing this Delete may lose its
+	// new sidecar here; Dir does not serialize an erasure against writes to
+	// the keys it erases.
+	_ = os.Remove(d.path(key) + ".meta")
+	return nil
+}
+
+// removeTemporary removes what failed Puts of key left behind: part of its
+// content, which an erasure must not leave.
+func (d Dir) removeTemporary(key string) error {
+	p := d.path(key)
+	entries, err := os.ReadDir(filepath.Dir(p))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("blobstore: %w", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), filepath.Base(p)+tempMark) {
+			if err := os.Remove(filepath.Join(filepath.Dir(p), e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("blobstore: %w", err)
+			}
+		}
+	}
 	return nil
 }
 

@@ -1,20 +1,19 @@
-// Package money handles amounts as integer minor units and quantities as
-// integer milli-units. Floats are never used for financial values.
+// Package money handles amounts as integer minor units and document
+// quantities as plain decimal strings of up to six decimals, the
+// numeric(20,6) columns (ADR-0005), extended with Scale. Floats are never
+// used for financial values.
 package money
 
 import (
+	"cmp"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 )
 
 // Minor is an amount in minor currency units (e.g. cents).
 type Minor int64
-
-// Qty is a quantity in thousandths of a unit (SAP MENGE has 3 decimals).
-type Qty int64
-
-const QtyScale = 1000
 
 // ParseDecimal parses a decimal string such as SAP's "1234.56" or "-0.5"
 // into minor units. Extra decimals are accepted only if they are zero.
@@ -23,7 +22,6 @@ func ParseDecimal(s string, decimals int) (Minor, error) {
 	return Minor(v), err
 }
 
-// ParseQty parses a decimal quantity string into milli-units.
 // ParseAmount parses an API amount (ADR-0005): a decimal string with
 // exactly the currency's minor-unit digits, "1080.00" for EUR and "100" for
 // JPY. Fewer or more digits are an error, even if they are zeros.
@@ -35,32 +33,83 @@ func ParseAmount(s string, decimals int) (Minor, error) {
 	return ParseDecimal(s, decimals)
 }
 
-func ParseQty(s string) (Qty, error) {
-	v, err := parseScaled(s, 3)
-	return Qty(v), err
+// QuantityDecimals and QuantityIntDigits bound a document quantity: the
+// quantity columns are numeric(20,6), which round a seventh decimal away
+// and refuse a fifteenth integer digit.
+const (
+	QuantityDecimals  = 6
+	QuantityIntDigits = 14
+)
+
+// PositiveQuantity checks a document quantity (an order, receipt or
+// invoice line): a plain positive decimal (digits, an optional "." with
+// digits) that a quantity column stores exactly and Scale reads when the
+// line is extended. A fraction ("1/3"), an exponent ("1e3"), a sign,
+// surrounding space or a bare "." side, which big.Rat or ParseDecimal
+// would read, is refused, as are significant decimals beyond the sixth and
+// integer digits beyond the fourteenth.
+func PositiveQuantity(s string) error {
+	intPart, frac, ok := plainParts(s)
+	switch {
+	case !ok:
+		return fmt.Errorf("quantity %q is not a plain decimal", s)
+	case len(strings.TrimRight(frac, "0")) > QuantityDecimals:
+		return fmt.Errorf("quantity %q has more than %d significant decimals", s, QuantityDecimals)
+	case len(strings.TrimLeft(intPart, "0")) > QuantityIntDigits:
+		return fmt.Errorf("quantity %q has more than %d integer digits", s, QuantityIntDigits)
+	case strings.Trim(intPart+frac, "0") == "":
+		return fmt.Errorf("quantity %q is not positive", s)
+	}
+	return nil
 }
 
-func parseScaled(raw string, decimals int) (int64, error) {
+// decimalParts splits a decimal in the grammar every amount is read with:
+// optional surrounding space, one sign (a leading "-" or "+", or the
+// trailing "-" of SAP table extracts), digits, and an optional "." with
+// digits. It refuses anything else.
+func decimalParts(raw string) (neg bool, intPart, frac string, err error) {
 	s := strings.TrimSpace(raw)
-	neg := false
 	// SAP table extracts sometimes carry a trailing minus ("123.45-").
 	if strings.HasSuffix(s, "-") {
 		neg, s = true, strings.TrimSuffix(s, "-")
 	}
 	if strings.HasPrefix(s, "-") {
 		if neg {
-			return 0, fmt.Errorf("invalid decimal %q", raw)
+			return false, "", "", fmt.Errorf("invalid decimal %q", raw)
 		}
 		neg, s = true, s[1:]
 	} else if strings.HasPrefix(s, "+") {
 		s = s[1:]
 	}
-	intPart, frac, _ := strings.Cut(s, ".")
+	intPart, frac, _ = strings.Cut(s, ".")
 	if intPart == "" && frac == "" {
-		return 0, fmt.Errorf("invalid decimal %q", raw)
+		return false, "", "", fmt.Errorf("invalid decimal %q", raw)
 	}
 	if !digits(intPart) || !digits(frac) {
-		return 0, fmt.Errorf("invalid decimal %q", raw)
+		return false, "", "", fmt.Errorf("invalid decimal %q", raw)
+	}
+	return neg, intPart, frac, nil
+}
+
+// ParseDecimalRat reads a decimal in the grammar of ParseDecimal exactly,
+// with any number of decimals: for a figure validated with ParseDecimal at
+// one currency's digits and compared with an amount in another.
+func ParseDecimalRat(raw string) (*big.Rat, error) {
+	neg, intPart, frac, err := decimalParts(raw)
+	if err != nil {
+		return nil, err
+	}
+	r, _ := new(big.Rat).SetString(cmp.Or(intPart, "0") + "." + frac + "0") // digits only: always a decimal
+	if neg {
+		r.Neg(r)
+	}
+	return r, nil
+}
+
+func parseScaled(raw string, decimals int) (int64, error) {
+	neg, intPart, frac, err := decimalParts(raw)
+	if err != nil {
+		return 0, err
 	}
 	if len(frac) > decimals {
 		if strings.Trim(frac[decimals:], "0") != "" {
@@ -116,59 +165,27 @@ func (m Minor) Format(decimals int) string {
 	return fmt.Sprintf("%s%s.%0*d", sign, b.String(), decimals, v%scale)
 }
 
-func (m Minor) String() string { return m.Format(2) }
+// String renders the raw minor units, "123456 minor", for logs and %v. A
+// Minor does not know its currency, so String cannot place the decimal
+// point: with two digits assumed, a JPY or BHD amount printed wrong. Use
+// Format or Plain with the currency's exponent for anything a person reads.
+func (m Minor) String() string { return strconv.FormatInt(int64(m), 10) + " minor" }
 
 // Plain renders minor units with the currency's minor-unit digits and no
 // separators, "-1234.56" or "100": the API format (ADR-0005).
 func (m Minor) Plain(decimals int) string { return strings.ReplaceAll(m.Format(decimals), ",", "") }
 
-// Decimal renders minor units as a plain decimal string ("-1234.56"), the
-// format SAP extracts and OData use.
-func (m Minor) Decimal() string {
-	v := int64(m)
-	sign := ""
-	if v < 0 {
-		sign, v = "-", -v
-	}
-	return fmt.Sprintf("%s%d.%02d", sign, v/100, v%100)
+// EventAmount is an amount as event payloads carry it, the same shape as in
+// the API: {"amount": "1234.56", "currency": "EUR"} with the currency's
+// minor-unit digits (ADR-0005, ADR-0007).
+func EventAmount(amount Minor, currency string, decimals int) map[string]string {
+	return map[string]string{"amount": amount.Plain(decimals), "currency": currency}
 }
 
-func (q Qty) String() string {
-	v := int64(q)
-	sign := ""
-	if v < 0 {
-		sign, v = "-", -v
-	}
-	if v%QtyScale == 0 {
-		return fmt.Sprintf("%s%d", sign, v/QtyScale)
-	}
-	return strings.TrimRight(fmt.Sprintf("%s%d.%03d", sign, v/QtyScale, v%QtyScale), "0")
-}
-
-// Extend computes qty * price / priceUnit, rounded half away from zero.
-// priceUnit is SAP's PEINH (price per N units); 0 is treated as 1.
-func Extend(qty Qty, price Minor, priceUnit int64) Minor {
-	if priceUnit <= 0 {
-		priceUnit = 1
-	}
-	num := int64(qty) * int64(price)
-	den := int64(QtyScale) * priceUnit
-	return Minor(divRound(num, den))
-}
-
-// Percent returns amount * pct / 100 rounded half away from zero (pct 8 = 8%).
-func Percent(amount Minor, pct int64) Minor {
-	return Minor(divRound(int64(amount)*pct, 100))
-}
-
-func divRound(num, den int64) int64 {
-	if den < 0 {
-		num, den = -num, -den
-	}
-	if num >= 0 {
-		return (num + den/2) / den
-	}
-	return -((-num + den/2) / den)
+// Percent returns amount * pct / 100 rounded half away from zero (pct 8 =
+// 8%), exactly; a result out of range is ErrOverflow.
+func Percent(amount Minor, pct int64) (Minor, error) {
+	return Scale(amount, strconv.FormatInt(pct, 10), 100)
 }
 
 // Abs returns the absolute value.

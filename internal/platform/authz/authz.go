@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -37,6 +38,7 @@ func Permissions(ctx context.Context) (map[string]bool, error) {
 	if !ok || !ok2 {
 		return nil, errOutsideRequest
 	}
+	// CollectRows below returns the query's error.
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT rp.permission_code
 		FROM identity.principal_role pr
 		JOIN identity.role r ON r.tenant_id = pr.tenant_id AND r.id = pr.role_id AND r.status = 'active'
@@ -76,7 +78,8 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 		return fmt.Errorf("authz: operation %q is not in the contract", operationID)
 	}
 	p, ok := reqctx.PrincipalFrom(ctx)
-	if !ok {
+	tx, ok2 := reqctx.TxFrom(ctx)
+	if !ok || !ok2 {
 		return errOutsideRequest
 	}
 	if !op.AgentAllowed && p.Kind != reqctx.KindHuman {
@@ -89,7 +92,7 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 	if !set[op.Permission] {
 		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+op.Permission+".")
 	}
-	return checkSoD(ctx, op.Permission, set)
+	return checkSoD(ctx, tx, op.Permission, set)
 }
 
 // checkSoD refuses a permission while the principal also holds the other
@@ -97,8 +100,8 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 // that would create such a conflict; this check covers conflicts that exist
 // anyway (rules introduced while grants were already in place, or grants
 // made outside the API).
-func checkSoD(ctx context.Context, permission string, held map[string]bool) error {
-	tx, _ := reqctx.TxFrom(ctx) // Permissions already required it
+func checkSoD(ctx context.Context, tx pgx.Tx, permission string, held map[string]bool) error {
+	// CollectRows below returns the query's error.
 	rows, _ := tx.Query(ctx, `SELECT CASE WHEN permission_a = $1 THEN permission_b ELSE permission_a END
 		FROM identity.sod_rule
 		WHERE (permission_a = $1 OR permission_b = $1)
@@ -133,6 +136,19 @@ func (a Access) Allows(legalEntity uuid.UUID) bool {
 		}
 	}
 	return false
+}
+
+// Visible finishes reading one company-scoped row by id, given the read's
+// error and the row's legal entity. No row, or a row in a legal entity
+// outside access, is notFound: the caller cannot tell the two apart, so ids
+// of other companies cannot be probed (04-api-design §4.9). Any other read
+// error comes back wrapped with the formatted context, as errs.Wrapf does;
+// nil means the row is there and the caller may see it.
+func Visible(err error, access Access, legalEntity uuid.UUID, notFound error, format string, args ...any) error {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(legalEntity)) {
+		return notFound
+	}
+	return errs.Wrapf(err, format, args...)
 }
 
 // Companies returns the principal's legal entity access. Contexts filter

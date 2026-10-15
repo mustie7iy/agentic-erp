@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -30,12 +30,24 @@ func TestCleanMatchPostAndReverse(t *testing.T) {
 	inv := e.clean(t, po, "INV-1")
 	e.Problem(409, "payables.match_required", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", `"1"`)
 	m := e.act(t, 200, id(inv), "match", "")
-	if m["is_clean"] != true || len(m["issues"].([]any)) != 0 || m["config_version"] != float64(1) {
-		t.Fatalf("match: %v", m)
+	if m["is_clean"] != true {
+		t.Errorf("match is_clean: got %v, want true", m["is_clean"])
+	}
+	if got := m["issues"].([]any); len(got) != 0 {
+		t.Errorf("match issues: got %v, want none", got)
+	}
+	if m["config_version"] != float64(1) {
+		t.Errorf("match config version: got %v, want 1", m["config_version"])
 	}
 	posted := e.act(t, 200, id(inv), "post", `{"posting_date": "2026-03-15"}`)
-	if posted["status"] != "posted" || posted["posting_date"] != "2026-03-15" || posted["journal_entry_id"] == nil {
-		t.Fatalf("posted: %v", posted)
+	if posted["status"] != "posted" {
+		t.Errorf("posted status: got %v, want posted", posted["status"])
+	}
+	if posted["posting_date"] != "2026-03-15" {
+		t.Errorf("posted posting date: got %v, want 2026-03-15", posted["posting_date"])
+	}
+	if posted["journal_entry_id"] == nil {
+		t.Fatalf("posted journal entry: got none, want one: %v", posted)
 	}
 	je, _ := e.Must(200, "GET", "/v1/journal-entries/"+posted["journal_entry_id"].(string), "", "")
 	var lines []string
@@ -43,9 +55,20 @@ func TestCleanMatchPostAndReverse(t *testing.T) {
 		line := l.(map[string]any)
 		lines = append(lines, fmt.Sprintf("%s %v %v", line["amount"].(map[string]any)["amount"], line["tax_code"], line["partner_id"] != nil))
 	}
-	if je["document_type"] != "KR" || je["source_context"] != "payables" || je["source_document_id"] != id(inv) || je["reference"] != "INV-1" ||
-		strings.Join(lines, "|") != "120.00 V1 false|15.00 <nil> false|22.80 V1 false|-157.80 <nil> true" {
-		t.Fatalf("entry: %v %v", je, lines)
+	if je["document_type"] != "KR" {
+		t.Errorf("entry document type: got %v, want KR", je["document_type"])
+	}
+	if je["source_context"] != "payables" {
+		t.Errorf("entry source context: got %v, want payables", je["source_context"])
+	}
+	if je["source_document_id"] != id(inv) {
+		t.Errorf("entry source document: got %v, want %v", je["source_document_id"], id(inv))
+	}
+	if je["reference"] != "INV-1" {
+		t.Errorf("entry reference: got %v, want INV-1", je["reference"])
+	}
+	if got, want := strings.Join(lines, "|"), "120.00 V1 false|15.00 <nil> false|22.80 V1 false|-157.80 <nil> true"; got != want {
+		t.Errorf("entry lines: got %s, want %s", got, want)
 	}
 	if ev := events(t, e.Tenant, "supplier_invoice_posted"); len(ev) != 1 || ev[0]["journal_entry_id"] != posted["journal_entry_id"] {
 		t.Fatalf("posted events: %v", ev)
@@ -59,6 +82,11 @@ func TestCleanMatchPostAndReverse(t *testing.T) {
 		t.Fatalf("reversed events: %v", ev)
 	}
 	e.Problem(409, "payables.invalid_status", "POST", "/v1/supplier-invoices/"+id(inv)+":reverse", `{"reason": "again"}`, e.tag(t, id(inv)))
+	// The reversal clears the invoice's open item against its own.
+	open, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+e.Supplier.String(), "", "")
+	if got := open["items"].([]any); len(got) != 0 {
+		t.Errorf("open items of the reversed invoice: got %v, want none", got)
+	}
 	// The reference is free again for the corrected invoice.
 	again := e.clean(t, po, "INV-1")
 	e.act(t, 200, id(again), "match", "")
@@ -110,19 +138,31 @@ func TestExceptionApproved(t *testing.T) {
 	for _, is := range m["issues"].([]any) {
 		codes = append(codes, is.(map[string]any)["code"].(string))
 	}
-	if m["is_clean"] != false || strings.Join(codes, ",") != "tax_or_total_mismatch,price_variance,quantity_exceeds_received" {
-		t.Fatalf("match: %v", m)
+	if m["is_clean"] != false {
+		t.Errorf("match is_clean: got %v, want false", m["is_clean"])
+	}
+	if got, want := strings.Join(codes, ","), "tax_or_total_mismatch,price_variance,quantity_exceeds_received"; got != want {
+		t.Errorf("match issues: got %s, want %s", got, want)
 	}
 	held, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv), "", "")
-	if held["status"] != "on_hold" || !strings.HasPrefix(held["hold_reason"].(string), "Three-way match: 3 issue") || held["workflow_request_id"] == nil {
-		t.Fatalf("held: %v", held)
+	if held["status"] != "on_hold" {
+		t.Errorf("held status: got %v, want on_hold", held["status"])
+	}
+	if got := held["hold_reason"].(string); !strings.HasPrefix(got, "Three-way match: 3 issue") {
+		t.Errorf("hold reason: got %q, want prefix %q", got, "Three-way match: 3 issue")
+	}
+	if held["workflow_request_id"] == nil {
+		t.Fatalf("held workflow request: got none, want one: %v", held)
 	}
 	if ev := events(t, e.Tenant, "invoice_held"); len(ev) != 1 || ev[0]["workflow_request_id"] != held["workflow_request_id"] {
 		t.Fatalf("held events: %v", ev)
 	}
 	r := e.Pending(t, id(inv))
-	if r["object_type"] != "invoice_exception" || r["amount"].(map[string]any)["amount"] != "186.64" {
-		t.Fatalf("request: %v", r)
+	if r["object_type"] != "invoice_exception" {
+		t.Errorf("request object type: got %v, want invoice_exception", r["object_type"])
+	}
+	if got := r["amount"].(map[string]any)["amount"]; got != "186.64" {
+		t.Errorf("request amount: got %v, want 186.64", got)
 	}
 	// Matching again while the exception is pending keeps the request.
 	e.act(t, 200, id(inv), "match", "")
@@ -131,8 +171,14 @@ func TestExceptionApproved(t *testing.T) {
 	}
 	e.Approve(t, id(inv))
 	parked, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv), "", "")
-	if parked["status"] != "parked" || parked["hold_reason"] != nil || parked["workflow_request_id"] != held["workflow_request_id"] {
-		t.Fatalf("approved: %v", parked)
+	if parked["status"] != "parked" {
+		t.Errorf("approved status: got %v, want parked", parked["status"])
+	}
+	if parked["hold_reason"] != nil {
+		t.Errorf("approved hold reason: got %v, want none", parked["hold_reason"])
+	}
+	if parked["workflow_request_id"] != held["workflow_request_id"] {
+		t.Errorf("approved workflow request: got %v, want %v", parked["workflow_request_id"], held["workflow_request_id"])
 	}
 	if ev := events(t, e.Tenant, "invoice_hold_released"); len(ev) != 1 || ev[0]["workflow_request_id"] != held["workflow_request_id"] {
 		t.Fatalf("released events: %v", ev)
@@ -140,7 +186,23 @@ func TestExceptionApproved(t *testing.T) {
 	// The approved exception covers the issues, but not a gross that does not add up.
 	e.Problem(422, "payables.amounts_mismatch", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", e.tag(t, id(inv)))
 	tag := e.tag(t, id(inv))
-	e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), `{"gross_amount": {"amount": "185.64", "currency": "EUR"}}`, tag)
+	// The correction unlinks the approved exception, decided on the invoice
+	// as it was (F13): it is matched, held and approved again.
+	edited, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), `{"gross_amount": {"amount": "185.64", "currency": "EUR"}}`, tag)
+	if edited["workflow_request_id"] != nil {
+		t.Errorf("edited workflow request: got %v, want none", edited["workflow_request_id"])
+	}
+	var unlinked string
+	pgtest.Scan(t, `SELECT coalesce(detail->>'exception_unlinked', '') FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2
+		AND action = 'payables.supplier_invoice.update'`, []any{e.Tenant.ID, id(inv)}, &unlinked)
+	if unlinked != held["workflow_request_id"] {
+		t.Errorf("audited unlinked request: got %q, want %v", unlinked, held["workflow_request_id"])
+	}
+	e.Problem(409, "payables.match_required", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", e.tag(t, id(inv)))
+	if m := e.act(t, 200, id(inv), "match", ""); len(m["issues"].([]any)) != 2 {
+		t.Errorf("issues of the corrected invoice: got %v, want price and quantity", m["issues"])
+	}
+	e.Approve(t, id(inv))
 	if p := e.act(t, 200, id(inv), "post", ""); p["status"] != "posted" {
 		t.Fatalf("posted: %v", p)
 	}
@@ -155,14 +217,17 @@ func TestExceptionApproved(t *testing.T) {
 		t.Fatalf("results page 2: %v", rest)
 	}
 	got, tagM := e.Must(200, "GET", "/v1/match-results/"+first["id"].(string), "", "")
-	if got["supplier_invoice_id"] != id(inv) || len(tagM) < 10 {
-		t.Fatalf("result: %v", got)
+	if got["supplier_invoice_id"] != id(inv) {
+		t.Errorf("result invoice: got %v, want %v", got["supplier_invoice_id"], id(inv))
+	}
+	if len(tagM) < 10 {
+		t.Errorf("result etag: got %q, want at least 10 characters", tagM)
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/match-results/"+uuid.NewString(), "", "")
 	e.Problem(404, "request.not_found", "GET", "/v1/supplier-invoices/"+uuid.NewString()+"/match-results", "", "")
 	svc := e.As(e.Tenant.Service)
 	svc.Problem(404, "request.not_found", "GET", "/v1/match-results/"+first["id"].(string), "", "")
-	if ev := events(t, e.Tenant, "supplier_invoice_matched"); len(ev) != 2 {
+	if ev := events(t, e.Tenant, "supplier_invoice_matched"); len(ev) != 3 {
 		t.Fatalf("matched events: %v", ev)
 	}
 }
@@ -247,9 +312,7 @@ func TestExceptionRejectedWithdrawnReleased(t *testing.T) {
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		return payables.Approvals{}.Approved(ctx, uuid.MustParse(id(held)), uuid.New())
 	})
-	if err == nil || !strings.Contains(err.Error(), "payables.invalid_status") {
-		t.Fatalf("decision on a cancelled invoice: %v", err)
-	}
+	pgtest.WantErr(t, err, "payables.invalid_status")
 
 	// Purchase orders with live invoices.
 	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {

@@ -1,8 +1,10 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"sync"
@@ -32,11 +34,22 @@ func emptyDatabase(t *testing.T) *pgx.Conn {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		conn.Close(ctx)
-		admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
-		admin.Close(ctx)
+		_ = conn.Close(ctx) // the drop below forces any session off; a test may have closed it already
+		if _, err := admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+			t.Errorf("drop %s: %v", name, err)
+		}
+		_ = admin.Close(ctx) // best-effort: the drop's outcome is checked above
 	})
 	return conn
+}
+
+// mustExec runs a statement a test sets its scene with; a failure stops the test
+// rather than surfacing as a misleading assertion later.
+func mustExec(t *testing.T, conn *pgx.Conn, sql string) {
+	t.Helper()
+	if _, err := conn.Exec(context.Background(), sql); err != nil {
+		t.Fatalf("%s: %v", sql, err)
+	}
 }
 
 func TestMigrateAppliesEverythingOnce(t *testing.T) {
@@ -69,7 +82,7 @@ func TestMigrateIsSafeForConcurrentReplicas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer other.Close(ctx)
+	defer func() { _ = other.Close(ctx) }() // best-effort: the database is dropped at cleanup
 	var wg sync.WaitGroup
 	results := make([][]string, 2)
 	errs := make([]error, 2)
@@ -81,11 +94,41 @@ func TestMigrateIsSafeForConcurrentReplicas(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if errs[0] != nil || errs[1] != nil {
-		t.Fatal(errs)
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("migration %d: got %v, want nil", i, err)
+		}
 	}
 	if total := len(results[0]) + len(results[1]); total != len(Migrations()) {
 		t.Fatalf("migrations applied %d times in total, want %d", total, len(Migrations()))
+	}
+}
+
+// TestMigrateWaitsForTheLock: while another session holds the migration
+// lock, Migrate tries again every lockPoll, outside any statement, and
+// gives up when its context ends.
+func TestMigrateWaitsForTheLock(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	holder, err := pgx.Connect(ctx, conn.Config().ConnString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Close(ctx) }() // closing ends the session and its lock
+	mustExec(t, holder, fmt.Sprintf("SELECT pg_advisory_lock(%d)", lockKey))
+	lockPoll = time.Hour // one try, then the wait, which the context ends
+	t.Cleanup(func() { lockPoll = 100 * time.Millisecond })
+	waiting, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if _, err := Migrate(waiting, conn); err == nil || !strings.Contains(err.Error(), "migrate: lock: context deadline exceeded") {
+		t.Fatalf("migrate with the lock held: got %v, want the lock wait to end with the context", err)
+	}
+	var tables int
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM pg_tables WHERE tablename = 'erp_schema_migration'").Scan(&tables); err != nil {
+		t.Fatal(err)
+	}
+	if tables != 0 {
+		t.Fatalf("version tables after waiting: got %d, want 0", tables)
 	}
 }
 
@@ -100,12 +143,14 @@ func TestMigrateRunsNoTransactionMigrationsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n int
-	conn.QueryRow(ctx, "SELECT count(*) FROM pg_indexes WHERE indexname = 't_id'").Scan(&n)
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM pg_indexes WHERE indexname = 't_id'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 1 {
 		t.Fatal("concurrent index not created")
 	}
 	// A newer version applied by a later release is left alone.
-	conn.Exec(ctx, "INSERT INTO public.erp_schema_migration VALUES (99, '000099_future', now())")
+	mustExec(t, conn, "INSERT INTO public.erp_schema_migration VALUES (99, '000099_future', now())")
 	if applied, err := migrate(ctx, conn, ms); err != nil || len(applied) != 0 {
 		t.Fatalf("applied %v, %v", applied, err)
 	}
@@ -143,15 +188,15 @@ func TestMigrateWithoutPrivileges(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
 	// A role that may not create tables cannot create the version table.
-	conn.Exec(ctx, "SET ROLE erp_readonly")
+	mustExec(t, conn, "SET ROLE erp_readonly")
 	if _, err := Migrate(ctx, conn); err == nil || !strings.Contains(err.Error(), "version table") {
 		t.Fatalf("want version table error, got %v", err)
 	}
 	// Nor read it once it exists.
-	conn.Exec(ctx, "RESET ROLE")
-	conn.Exec(ctx, "CREATE TABLE public.erp_schema_migration (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())")
-	conn.Exec(ctx, "GRANT CREATE ON SCHEMA public TO erp_readonly") // this test database only
-	conn.Exec(ctx, "SET ROLE erp_readonly")
+	mustExec(t, conn, "RESET ROLE")
+	mustExec(t, conn, "CREATE TABLE public.erp_schema_migration (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())")
+	mustExec(t, conn, "GRANT CREATE ON SCHEMA public TO erp_readonly") // this test database only
+	mustExec(t, conn, "SET ROLE erp_readonly")
 	if _, err := Migrate(ctx, conn); err == nil || !strings.Contains(err.Error(), "read versions") {
 		t.Fatalf("want read error, got %v", err)
 	}
@@ -159,9 +204,11 @@ func TestMigrateWithoutPrivileges(t *testing.T) {
 
 func TestMigrationVersions(t *testing.T) {
 	for _, name := range []string{"x", "abc_def", "000000_zero"} {
-		if _, err := (Migration{Name: name}).Version(); err == nil {
-			t.Errorf("%q accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if v, err := (Migration{Name: name}).Version(); err == nil {
+				t.Errorf("Version(%q): got %d and no error, want an error", name, v)
+			}
+		})
 	}
 	if v, err := (Migration{Name: "000012_platform_runtime"}).Version(); err != nil || v != 12 {
 		t.Fatal(v, err)
@@ -176,11 +223,67 @@ func TestMigrateReportsDatabaseErrors(t *testing.T) {
 	if _, err := Migrate(cancelled, conn); err == nil {
 		t.Fatal("cancelled context accepted")
 	}
-	conn.Close(ctx)
+	if err := conn.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Migrate(ctx, conn); err == nil {
 		t.Fatal("closed connection accepted")
 	}
 	if _, err := CurrentVersion(ctx, conn); err == nil {
 		t.Fatal("closed connection accepted")
+	}
+}
+
+// deadPeer is a connection to a server that stops answering once the
+// unlock is sent: the unlock's bytes go nowhere and no reply ever comes,
+// as when the peer dies without closing the connection.
+type deadPeer struct {
+	net.Conn
+}
+
+func (c deadPeer) Write(b []byte) (int, error) {
+	if bytes.Contains(b, []byte("pg_advisory_unlock")) {
+		return len(b), nil
+	}
+	return c.Conn.Write(b)
+}
+
+// TestMigrateReturnsWhenTheUnlockGetsNoAnswer: a server that stops
+// answering after the migrations ran does not hold Migrate up; the unlock
+// gives up after unlockTimeout and the connection, whose session holds the
+// lock, is closed.
+func TestMigrateReturnsWhenTheUnlockGetsNoAnswer(t *testing.T) {
+	ctx := context.Background()
+	cfg, err := pgx.ParseConfig(emptyDatabase(t).Config().ConnString())
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	dial := cfg.DialFunc
+	cfg.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := dial(ctx, network, addr)
+		return deadPeer{c}, err
+	}
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close(ctx) }) // already closed when the test passes; the database is dropped either way
+	unlockTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { unlockTimeout = 10 * time.Second })
+	result := make(chan error, 1)
+	go func() {
+		_, err := migrate(ctx, conn, []Migration{{Name: "000001_t", Up: "CREATE TABLE t (id int)"}})
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("got %v, want the migrations' success", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("got Migrate still waiting for the unlock after 30s, want it to give up")
+	}
+	if !conn.IsClosed() {
+		t.Error("got the connection open after the unlock gave up, want it closed so its session's lock ends")
 	}
 }

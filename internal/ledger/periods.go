@@ -2,7 +2,7 @@ package ledger
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -47,8 +48,8 @@ const periodSelect = `SELECT * FROM (SELECT s.id, s.legal_entity_id, s.ledger_id
 
 func scanPeriod(row pgx.Row) (Period, error) {
 	var p Period
-	err := row.Scan(&p.ID, &p.LegalEntityID, &p.LedgerID, &p.CalendarID, &p.FiscalYear, &p.Period, &p.StartDate, &p.EndDate,
-		&p.IsSpecial, &p.Status, &p.Version, &p.UpdatedAt, &p.UpdatedBy)
+	err := errs.Wrapf(row.Scan(&p.ID, &p.LegalEntityID, &p.LedgerID, &p.CalendarID, &p.FiscalYear, &p.Period, &p.StartDate, &p.EndDate,
+		&p.IsSpecial, &p.Status, &p.Version, &p.UpdatedAt, &p.UpdatedBy), "scan fiscal period")
 	return p, err
 }
 
@@ -58,15 +59,18 @@ func getPeriod(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Period,
 		return Period{}, err
 	}
 	if lock {
-		if _, err := tx.Exec(ctx, `SELECT FROM ledger.period_status WHERE id = $1 FOR UPDATE`, id); err != nil {
-			return Period{}, err
+		// Only a period of a company the caller may see: one it may not is
+		// refused below as not found and must not stay locked until rollback.
+		if _, err := tx.Exec(ctx, `SELECT FROM ledger.period_status WHERE id = $1 AND ($2 OR legal_entity_id = ANY($3)) FOR UPDATE`,
+			id, access.All, access.IDs); err != nil {
+			return Period{}, fmt.Errorf("ledger: lock fiscal period %s: %w", id, err)
 		}
 	}
 	p, err := scanPeriod(tx.QueryRow(ctx, periodSelect+` WHERE id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(p.LegalEntityID)) {
-		return Period{}, problem.NotFound("No fiscal period with this id.")
+	if err = authz.Visible(err, access, p.LegalEntityID, problem.NotFoundOf("fiscal period"), "ledger: read fiscal period %s", id); err != nil {
+		return Period{}, err
 	}
-	return p, err
+	return p, nil
 }
 
 // GetPeriod returns a posting period.
@@ -105,7 +109,7 @@ func changePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, 
 		return Period{}, problem.Conflict("ledger.invalid_period_status", "The period is "+p.Status+"; this requires status "+from+".")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.period_status SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, to, actor.ID); err != nil {
-		return Period{}, err
+		return Period{}, fmt.Errorf("ledger: %s fiscal period %s: %w", action, id, err)
 	}
 	updated, err := getPeriod(ctx, tx, id, false)
 	if err != nil {

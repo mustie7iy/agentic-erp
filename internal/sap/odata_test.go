@@ -3,9 +3,11 @@ package sap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -17,12 +19,15 @@ func TestODataValue(t *testing.T) {
 		"/Date(1767225600000)/":      "20260101",
 		"/Date(1767225600000+0000)/": "20260101",
 		"1234.50":                    "1234.50",
-		float64(3):                   "3",
+		json.Number("3"):             "3",
+		json.Number("0.00"):          "0",
 	}
 	for in, want := range cases {
-		if got := odataValue(in); got != want {
-			t.Errorf("odataValue(%v) = %q, want %q", in, got, want)
-		}
+		t.Run(fmt.Sprintf("%T(%v)", in, in), func(t *testing.T) {
+			if got := odataValue(in); got != want {
+				t.Errorf("odataValue(%v): got %q, want %q", in, got, want)
+			}
+		})
 	}
 }
 
@@ -48,7 +53,8 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 				"DocumentCurrency": "USD", "PurchaseOrderDate": "/Date(1767225600000)/",
 			})
 		}
-		json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": results}})
+		// A failed write reaches the source as a broken answer, which the test asserts on.
+		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": results}})
 	}))
 	defer srv.Close()
 
@@ -63,11 +69,79 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 	if len(e.EKKO) != total {
 		t.Fatalf("want %d POs across pages, got %d", total, len(e.EKKO))
 	}
-	if e.EKKO[0].BEDAT != "20260101" || e.EKKO[0].WAERS != "USD" {
-		t.Fatalf("field mapping wrong: %+v", e.EKKO[0])
+	if got := e.EKKO[0].BEDAT; got != "20260101" {
+		t.Errorf("BEDAT: got %q, want %q", got, "20260101")
+	}
+	if got := e.EKKO[0].WAERS; got != "USD" {
+		t.Errorf("WAERS: got %q, want %q", got, "USD")
 	}
 	if len(filters) != 3 || filters[0] != "CompanyCode eq '1000'" {
 		t.Fatalf("unexpected paging/filters: %v", filters)
+	}
+}
+
+// Scope values are OData string literals: a quote inside one is doubled, so
+// it cannot end the literal and change the filter.
+func TestODataFilterEscapesQuotes(t *testing.T) {
+	var filter string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		filter = r.URL.Query().Get("$filter")
+		w.Write([]byte(`{"d":{"results":[]}}`))
+	}))
+	defer srv.Close()
+	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{{
+		Table: "BKPF", Service: "S", Entity: "E", CompanyField: "CompanyCode", YearField: "FiscalYear",
+	}}}
+	cases := map[string]struct{ company, year, want string }{
+		"plain values unchanged": {"1000", "2026", "CompanyCode eq '1000' and FiscalYear eq '2026'"},
+		"quote in company code": {"10' or CompanyCode ne '", "2026",
+			"CompanyCode eq '10'' or CompanyCode ne ''' and FiscalYear eq '2026'"},
+		"quote in fiscal year": {"1000", "'", "CompanyCode eq '1000' and FiscalYear eq ''''"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{tc.company}, FiscalYear: tc.year})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if filter != tc.want {
+				t.Errorf("got $filter %q, want %q", filter, tc.want)
+			}
+		})
+	}
+}
+
+// A number the service sends unquoted keeps every digit: amounts beyond a
+// float64's 15-17 significant digits are not rounded on the way in.
+func TestODataNumbersKeepEveryDigit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"d":{"results":[{"Amount": 12345678901234567.89, "Count": 9007199254740993, "Small": 0.1, "Exp": 1.5e3, "Huge": 1e999999}]}}`))
+	}))
+	defer srv.Close()
+	results, err := (&ODataSource{}).page(context.Background(), srv.Client(), srv.URL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := odataRows(EntityMapping{Fields: map[string]string{"HSL": "Amount", "N": "Count", "S": "Small", "E": "Exp", "H": "Huge"}}, results)
+	for field, want := range map[string]string{"HSL": "12345678901234567.89", "N": "9007199254740993", "S": "0.1", "E": "1500", "H": "1e999999"} {
+		if got := rows[0][field]; got != want {
+			t.Errorf("%s: got %q, want %q", field, got, want)
+		}
+	}
+}
+
+// Numbers that cannot be spelled out cheaply and exactly keep their literal:
+// one past what big.Float holds (it would read as +Inf or 0), and one longer
+// than any amount, whose spelling would cost time growing with the square of
+// its length.
+func TestODataNumbersOutOfRangeKeepTheirLiteral(t *testing.T) {
+	long := strings.Repeat("1", 100) + "e-50"
+	for name, in := range map[string]string{"overflow": "1e646456993", "underflow": "1e-646457000", "too long": long} {
+		t.Run(name, func(t *testing.T) {
+			if got := decimalText(json.Number(in)); got != in {
+				t.Errorf("got %.40q, want the literal %.40q", got, in)
+			}
+		})
 	}
 }
 

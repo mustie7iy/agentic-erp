@@ -15,10 +15,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -28,6 +28,19 @@ import (
 // dependencies under load and checks the recovery targets of
 // 01-requirements §1.3: operations resume, nothing committed is lost (RPO 0
 // for posted financial data) and nothing is done twice.
+
+// loadCap bounds a background load whose test fails before it calls stop.
+// The tests stop their load themselves once the fault has been injected
+// and observed, so on a slow machine the load runs as long as the waits
+// take rather than ending at a guessed time.
+const loadCap = time.Minute
+
+// running waits until the load has posted entries, so a fault injected
+// next meets requests in flight.
+func running(t *testing.T, st *Stats) {
+	t.Helper()
+	pgtest.Eventually(t, 30*time.Second, func() bool { return st.Count("post") >= 20 }, "the load did not get going: %v", st)
+}
 
 // background runs the mix until stop is called and returns its statistics.
 func background(s *Stack, d time.Duration) (*Stats, func()) {
@@ -45,20 +58,29 @@ func background(s *Stack, d time.Duration) (*Stats, func()) {
 func TestResilienceDatabaseConnectionLoss(t *testing.T) {
 	s := Start(t, Options{Users: 8, Events: true})
 	ctx := context.Background()
-	st, stop := background(s, 8*time.Second)
-	time.Sleep(1500 * time.Millisecond)
+	st, stop := background(s, loadCap)
+	running(t, st)
 	killed := time.Now()
 	pgtest.Exec(t, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()`)
 	// Recovery: the time until a request succeeds again.
 	var recovered time.Time
-	for recovered.IsZero() {
-		if res := s.Call(ctx, Req{Method: "GET", Path: "/v1/journal-entries?legal_entity_id=" + s.Env.DE.String() + "&fiscal_year=2026&page_size=1", As: s.Env.Tenant.Human}); res.OK() {
+	var last Result
+	pgtest.Eventually(t, 20*time.Second, func() bool {
+		last = s.Call(ctx, Req{Method: "GET", Path: "/v1/journal-entries?legal_entity_id=" + s.Env.DE.String() + "&fiscal_year=2026&page_size=1", As: s.Env.Tenant.Human})
+		if last.OK() {
 			recovered = time.Now()
-		} else if time.Since(killed) > 20*time.Second {
-			t.Fatalf("not recovered after 20 s: %d %v %s", res.Status, res.Err, res.Body)
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		return last.OK()
+	}, "not recovered: %v", &last)
+	// The load goes on after recovery, so that the check below that no
+	// request fails more than a second after it has requests to judge. This
+	// asserts an absence over a window, so it does wait on the clock: the
+	// window lasts at least 2 s and until the users have posted another 20
+	// entries, however slow the machine.
+	posted := st.Count("post")
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		return st.Count("post") >= posted+20 && time.Since(recovered) > 2*time.Second
+	}, "the load did not resume after recovery: %v", st)
 	stop()
 	st.Report(t, "load across a connection loss")
 	t.Logf("recovered %v after the connections were killed", recovered.Sub(killed).Round(time.Millisecond))
@@ -128,26 +150,37 @@ func ledgerEvents(t *testing.T, url string, s *Stack) int {
 // event is in the stream exactly once.
 func TestResilienceEventBusLoss(t *testing.T) {
 	s := Start(t, Options{Users: 4, Events: true})
-	st, stop := background(s, 9*time.Second)
-	time.Sleep(1500 * time.Millisecond)
+	st, stop := background(s, loadCap)
+	countPublished := func() int {
+		return s.Count(`SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1 AND published_at IS NOT NULL`, s.Env.Tenant.ID)
+	}
+	running(t, st)
+	pgtest.Eventually(t, 30*time.Second, func() bool { return countPublished() > 0 }, "the relay published nothing while the bus was up")
 	s.NATS.Stop()
-	time.Sleep(3 * time.Second)
-	_, unpublished := s.Backlogs()
+	// The outage lasts until the load has posted another 20 entries: their
+	// events cannot reach a stopped bus, so they wait in the outbox, and the
+	// API kept serving meanwhile.
+	before := st.Count("post")
+	var unpublished int
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		_, unpublished = s.Backlogs()
+		return st.Count("post") >= before+20 && unpublished >= 20
+	}, "nothing waited in the outbox while the bus was down, or the API stopped posting (%d posts before the outage): %v", before, st)
 	s.NATS.Start()
 	stop()
 	st.Report(t, "load across an event bus loss")
 	if f := st.Failures(); len(f) > 0 {
 		t.Errorf("the API depends on the bus: %v", f)
 	}
-	if unpublished == 0 {
-		t.Error("nothing waited in the outbox while the bus was down")
-	}
 	if err := s.Drain(60 * time.Second); err != nil {
 		t.Fatal(err)
 	}
-	published := s.Count(`SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1 AND published_at IS NOT NULL`, s.Env.Tenant.ID)
-	if got := ledgerEvents(t, s.NATS.URL, s); got != published || published == 0 {
-		t.Errorf("stream has %d ledger events, outbox published %d", got, published)
+	published := countPublished()
+	if published == 0 {
+		t.Error("outbox published 0 events, want some")
+	}
+	if got := ledgerEvents(t, s.NATS.URL, s); got != published {
+		t.Errorf("stream ledger events: got %d, want %d (the outbox published count)", got, published)
 	}
 	t.Logf("%d events waited for the bus; %d published once", unpublished, published)
 }
@@ -215,8 +248,14 @@ func TestResilienceWorkerRestarts(t *testing.T) {
 		t.Error(err)
 	}
 	published := s.Count(`SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1 AND published_at IS NOT NULL`, s.Env.Tenant.ID)
-	if got := ledgerEvents(t, nats, s); got != published || published == 0 || relay.crashes.Load() >= 0 {
-		t.Errorf("stream has %d ledger events, outbox published %d, relay crashes left %d", got, published, relay.crashes.Load())
+	if published == 0 {
+		t.Error("outbox published 0 events, want some")
+	}
+	if got := ledgerEvents(t, nats, s); got != published {
+		t.Errorf("stream ledger events: got %d, want %d (the outbox published count)", got, published)
+	}
+	if left := relay.crashes.Load(); left >= 0 {
+		t.Errorf("relay crashes left: got %d, want every crash used (below 0)", left)
 	}
 
 	// The proposal worker crashes in the middle of building a run; the next round builds it, once.
@@ -243,7 +282,7 @@ func TestResilienceWorkerRestarts(t *testing.T) {
 	if op["status"] != "queued" {
 		t.Fatalf("proposal: %v", op)
 	}
-	worker := &payments.Proposer{Endpoints: httpapi.Payments(s.Config), Pool: s.Pool, AppRole: "erp_app", WorkerRole: "erp_worker", Log: s.Config.Log}
+	worker := &payments.Proposer{Endpoints: app.Payments(s.Config), Pool: s.Pool, AppRole: "erp_app", WorkerRole: "erp_worker", Log: s.Config.Log}
 	var once sync.Once
 	worker.Begin = func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
 		tx, err := s.Pool.Begin(ctx, sc)
@@ -268,8 +307,11 @@ func TestResilienceWorkerRestarts(t *testing.T) {
 	}
 	run := s.Must(ctx, Req{Method: "GET", Path: op["resource"].(string), As: s.Env.Tenant.Human}).JSON()
 	items := s.Count(`SELECT count(*) FROM payments.payment_item WHERE tenant_id = $1`, s.Env.Tenant.ID)
-	if run["status"] != "proposed" || items != 5 {
-		t.Fatalf("run %v with %d items", run["status"], items)
+	if run["status"] != "proposed" {
+		t.Errorf("run status: got %v, want proposed", run["status"])
+	}
+	if items != 5 {
+		t.Errorf("payment items: got %d, want 5", items)
 	}
 }
 
@@ -278,8 +320,8 @@ func TestResilienceWorkerRestarts(t *testing.T) {
 // never a half-written one, and what was answered is committed.
 func TestResilienceShutdownUnderLoad(t *testing.T) {
 	s := Start(t, Options{Users: 8})
-	st, stop := background(s, 5*time.Second)
-	time.Sleep(time.Second)
+	st, stop := background(s, loadCap)
+	running(t, st)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := s.Server.Config.Shutdown(shutdownCtx); err != nil {
@@ -292,23 +334,19 @@ func TestResilienceShutdownUnderLoad(t *testing.T) {
 			t.Errorf("%s: %d", k, n)
 		}
 	}
-	if st.Total() == 0 || st.Count("post") == 0 {
-		t.Fatal("nothing ran before the shutdown")
+	if st.Total() == 0 {
+		t.Fatal("requests before the shutdown: got 0, want some")
+	}
+	if st.Count("post") == 0 {
+		t.Fatal("posts before the shutdown: got 0, want some")
 	}
 	if err := s.Drain(30 * time.Second); err != nil {
 		t.Error(err)
 	}
 	// The API is gone, so the consistency checks that need it run on the database alone.
 	ten := s.Env.Tenant.ID
-	var created []string
-	for _, p := range s.Posted() {
-		if p.Status == http.StatusCreated {
-			created = append(created, p.ID)
-		}
-	}
-	if n := s.Count(`SELECT count(*) FROM unnest($2::uuid[]) AS c(id) WHERE NOT EXISTS (SELECT 1 FROM ledger.journal_entry e WHERE e.tenant_id = $1 AND e.id = c.id)`,
-		ten, created); n > 0 {
-		t.Errorf("%d entries answered 201 are not in the journal", n)
+	for _, problem := range s.missing() { // a 201 cut off by the shutdown is checked by its key
+		t.Error(problem)
 	}
 	if n := s.Count(`SELECT count(*) FROM (SELECT reference FROM ledger.journal_entry WHERE tenant_id = $1 GROUP BY reference HAVING count(*) > 1) d`, ten); n > 0 {
 		t.Errorf("%d references posted more than once", n)

@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -30,8 +33,7 @@ type newInvoice struct {
 
 // insert numbers and inserts a validated invoice and publishes
 // SupplierInvoiceCaptured.
-func (e *Endpoints) insert(ctx context.Context, in newInvoice) (Invoice, error) {
-	tx, p, _ := reqctx.Request(ctx) // callers run in a request
+func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in newInvoice) (Invoice, error) {
 	c, err := e.validate(ctx, tx, in.Input)
 	if err != nil {
 		return Invoice{}, err
@@ -62,7 +64,7 @@ func (e *Endpoints) insert(ctx context.Context, in newInvoice) (Invoice, error) 
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)`,
 		p.TenantID, id, number, in.LegalEntityID, in.SupplierID, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax,
 		c.purchaseOrder, in.status, in.holdReason, in.source, ref, in.sha, in.Extensions, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: insert invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
 		return Invoice{}, err
@@ -77,8 +79,8 @@ func (e *Endpoints) insert(ctx context.Context, in newInvoice) (Invoice, error) 
 		sha = &s
 	}
 	events := []outbox.Event{event(v, "supplier_invoice_captured", map[string]any{"document_number": v.DocumentNumber, "supplier_reference": v.SupplierReference,
-		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "gross_amount": amount(v.Gross, v.Currency, v.Exponent),
-		"tax_amount": amount(v.Tax, v.Currency, v.Exponent), "purchase_order_id": v.PurchaseOrderID, "source": v.Source,
+		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "gross_amount": money.EventAmount(v.Gross, v.Currency, v.Exponent),
+		"tax_amount": money.EventAmount(v.Tax, v.Currency, v.Exponent), "purchase_order_id": v.PurchaseOrderID, "source": v.Source,
 		"capture_sha256": sha, "status": v.Status})}
 	if v.Status == OnHold {
 		events = append(events, heldEvent(v))
@@ -88,13 +90,14 @@ func (e *Endpoints) insert(ctx context.Context, in newInvoice) (Invoice, error) 
 
 // CreateInvoice enters a parked invoice.
 func (e *Endpoints) CreateInvoice(ctx context.Context, in Input, source string) (Invoice, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
 		return Invoice{}, err
 	}
 	if !Sources[source] {
 		return Invoice{}, invalid("payables.unknown_source", "source", "Invoices are entered as manual, edi or migration; documents use :capture.")
 	}
-	return e.insert(ctx, newInvoice{Input: in, source: source, status: Parked})
+	return e.insert(ctx, tx, p, newInvoice{Input: in, source: source, status: Parked})
 }
 
 // Change is a merge patch of a parked invoice; nil fields are unchanged.
@@ -108,12 +111,14 @@ type Change struct {
 	Extensions        map[string]any
 }
 
-func amountInput(minor int64, currency string, exp int) Amount {
-	a := amount(minor, currency, exp)
-	return Amount{Value: a["amount"], Currency: currency}
+func amountInput(minor money.Minor, currency string, exp int) Amount {
+	return Amount{Value: minor.Plain(exp), Currency: currency}
 }
 
-// UpdateInvoice changes a parked invoice and validates it again.
+// UpdateInvoice changes a parked invoice and validates it again. The edit
+// needs a new match before the invoice posts (F13): it changes the version
+// the latest match was recorded at, and it unlinks an approved exception
+// request, which was decided on the invoice as it was.
 func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch Change) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -129,9 +134,36 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	if err := requireStatus(v, "change", Parked); err != nil {
 		return Invoice{}, err
 	}
+	in := changed(v, ch)
+	c, err := e.validate(ctx, tx, in)
+	if err != nil {
+		return Invoice{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
+			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, workflow_request_id = NULL, version = version + 1, updated_by = $10
+		WHERE id = $1`,
+		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID); err != nil {
+		return Invoice{}, fmt.Errorf("payables: update invoice %s: %w", id, err)
+	}
+	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
+		return Invoice{}, err
+	}
+	updated, err := load(ctx, tx, id, false)
+	if err != nil {
+		return Invoice{}, err
+	}
+	detail := map[string]any{"items": len(c.items)}
+	if v.WorkflowRequestID != nil {
+		detail["exception_unlinked"] = *v.WorkflowRequestID
+	}
+	return updated, record(ctx, "payables.supplier_invoice.update", id, detail)
+}
+
+// changed is the input of a parked invoice with a change applied.
+func changed(v Invoice, ch Change) Input {
 	in := Input{LegalEntityID: v.LegalEntityID, SupplierID: v.SupplierID, SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate,
 		PostingDate: v.PostingDate, Gross: amountInput(v.Gross, v.Currency, v.Exponent), Tax: amountInput(v.Tax, v.Currency, v.Exponent),
-		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergePatch(v.Extensions, ch.Extensions)}
+		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergepatch.Apply(v.Extensions, ch.Extensions)}
 	for _, it := range v.Items {
 		in.Items = append(in.Items, ItemInput{PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.POItemNo, Description: it.Description,
 			Quantity: it.Quantity, Unit: it.Unit, Amount: amountInput(it.Amount, v.Currency, v.Exponent), TaxCode: it.TaxCode, AccountID: it.AccountID})
@@ -157,43 +189,7 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	if ch.Items != nil {
 		in.Items = ch.Items
 	}
-	c, err := e.validate(ctx, tx, in)
-	if err != nil {
-		return Invoice{}, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
-			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, version = version + 1, updated_by = $10 WHERE id = $1`,
-		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID); err != nil {
-		return Invoice{}, err
-	}
-	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
-		return Invoice{}, err
-	}
-	updated, err := load(ctx, tx, id, false)
-	if err != nil {
-		return Invoice{}, err
-	}
-	return updated, record(ctx, "payables.supplier_invoice.update", id, map[string]any{"items": len(c.items)})
-}
-
-// mergePatch applies an RFC 7396 merge patch to a JSON object.
-func mergePatch(target, patch map[string]any) map[string]any {
-	out := make(map[string]any, len(target))
-	for k, v := range target {
-		out[k] = v
-	}
-	for k, v := range patch {
-		switch pv := v.(type) {
-		case nil:
-			delete(out, k)
-		case map[string]any:
-			tv, _ := out[k].(map[string]any)
-			out[k] = mergePatch(tv, pv)
-		default:
-			out[k] = v
-		}
-	}
-	return out
+	return in
 }
 
 func requireStatus(v Invoice, action string, allowed ...string) error {
@@ -212,18 +208,17 @@ func joinStatuses(s []string) string {
 
 // transition moves an invoice to another status. holdReason is set with
 // on_hold and cleared otherwise; request replaces workflow_request_id.
-func transition(ctx context.Context, tx pgx.Tx, v Invoice, status string, holdReason *string, request *uuid.UUID) (Invoice, error) {
-	p, _ := reqctx.PrincipalFrom(ctx) // callers run in a request
+func transition(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, status string, holdReason *string, request *uuid.UUID) (Invoice, error) {
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = $2, hold_reason = $3, workflow_request_id = $4, version = version + 1,
 		updated_by = $5 WHERE id = $1`, v.ID, status, holdReason, request, p.ID); err != nil {
-		return Invoice{}, err
+		return Invoice{}, fmt.Errorf("payables: move invoice %s to %s: %w", v.ID, status, err)
 	}
 	return load(ctx, tx, v.ID, false)
 }
 
 // HoldInvoice puts a parked invoice on hold.
 func HoldInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Invoice, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -237,7 +232,7 @@ func HoldInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, r
 	if err := requireStatus(v, "hold", Parked); err != nil {
 		return Invoice{}, err
 	}
-	held, err := transition(ctx, tx, v, OnHold, &reason, v.WorkflowRequestID)
+	held, err := transition(ctx, tx, p, v, OnHold, &reason, v.WorkflowRequestID)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -251,7 +246,7 @@ func heldEvent(v Invoice) outbox.Event {
 // ReleaseInvoice returns an invoice on hold to parked; a pending exception
 // request is withdrawn.
 func (e *Endpoints) ReleaseInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, comment string) (Invoice, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -268,7 +263,7 @@ func (e *Endpoints) ReleaseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := e.Approvals.Withdraw(ctx, approvals.InvoiceException, id, "Released by hand: "+comment); err != nil {
 		return Invoice{}, err
 	}
-	released, err := transition(ctx, tx, v, Parked, nil, nil)
+	released, err := transition(ctx, tx, p, v, Parked, nil, nil)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -282,7 +277,7 @@ func releasedEvent(v Invoice, request *uuid.UUID) outbox.Event {
 // CancelInvoice cancels an unposted invoice; its supplier reference can be
 // entered again.
 func (e *Endpoints) CancelInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Invoice, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -299,7 +294,7 @@ func (e *Endpoints) CancelInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	if err := e.Approvals.Withdraw(ctx, approvals.InvoiceException, id, "Invoice cancelled: "+reason); err != nil {
 		return Invoice{}, err
 	}
-	cancelled, err := transition(ctx, tx, v, Cancelled, nil, v.WorkflowRequestID)
+	cancelled, err := transition(ctx, tx, p, v, Cancelled, nil, v.WorkflowRequestID)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -312,26 +307,36 @@ type Approvals struct{}
 
 // decided loads the invoice an exception request was for; it must still be
 // on hold.
-func decided(ctx context.Context, id uuid.UUID) (pgx.Tx, Invoice, error) {
-	tx, _, err := reqctx.Request(ctx)
+func decided(ctx context.Context, id uuid.UUID) (pgx.Tx, reqctx.Principal, Invoice, error) {
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
-		return nil, Invoice{}, err
+		return nil, reqctx.Principal{}, Invoice{}, err
 	}
 	v, err := load(ctx, tx, id, true)
 	if err == nil {
 		err = requireStatus(v, "an exception decision", OnHold)
 	}
-	return tx, v, err
+	return tx, p, v, err
 }
 
 // Approved releases the invoice from hold; the approved exception lets it
-// be posted despite its match issues.
+// be posted despite its match issues, as it now stands: the invoice records
+// the version the release leaves it at (exception_version, F16), and any
+// later change, even one that keeps the request linked, needs a new match
+// or approval.
 func (Approvals) Approved(ctx context.Context, invoice, request uuid.UUID) error {
-	tx, v, err := decided(ctx, invoice)
+	tx, p, v, err := decided(ctx, invoice)
 	if err != nil {
 		return err
 	}
-	released, err := transition(ctx, tx, v, Parked, nil, &request)
+	// transition's release, recording the version it leaves the invoice at
+	// in the same statement: every update moves the version on by one (the
+	// optimistic lock trigger), and v is locked since decided.
+	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'parked', hold_reason = NULL, workflow_request_id = $2,
+		exception_version = $4, version = $4, updated_by = $3 WHERE id = $1`, invoice, request, p.ID, v.Version+1); err != nil {
+		return fmt.Errorf("payables: release invoice %s on approved exception %s: %w", invoice, request, err)
+	}
+	released, err := load(ctx, tx, invoice, false)
 	if err != nil {
 		return err
 	}
@@ -341,11 +346,11 @@ func (Approvals) Approved(ctx context.Context, invoice, request uuid.UUID) error
 
 // Rejected rejects the invoice; its supplier reference can be entered again.
 func (Approvals) Rejected(ctx context.Context, invoice, request uuid.UUID, comment string) error {
-	tx, v, err := decided(ctx, invoice)
+	tx, p, v, err := decided(ctx, invoice)
 	if err != nil {
 		return err
 	}
-	rejected, err := transition(ctx, tx, v, Rejected, nil, &request)
+	rejected, err := transition(ctx, tx, p, v, Rejected, nil, &request)
 	if err != nil {
 		return err
 	}
@@ -355,11 +360,11 @@ func (Approvals) Rejected(ctx context.Context, invoice, request uuid.UUID, comme
 
 // Cancelled leaves the invoice on hold without a pending exception request.
 func (Approvals) Cancelled(ctx context.Context, invoice, request uuid.UUID, comment string) error {
-	tx, v, err := decided(ctx, invoice)
+	tx, p, v, err := decided(ctx, invoice)
 	if err != nil {
 		return err
 	}
-	if _, err := transition(ctx, tx, v, OnHold, v.HoldReason, nil); err != nil {
+	if _, err := transition(ctx, tx, p, v, OnHold, v.HoldReason, nil); err != nil {
 		return err
 	}
 	return record(ctx, "payables.supplier_invoice.exception_withdrawn", invoice, map[string]any{"workflow_request_id": request, "comment": comment})
@@ -377,7 +382,9 @@ func (Invoices) HasInvoices(ctx context.Context, purchaseOrder uuid.UUID) (bool,
 		return false, err
 	}
 	var ok bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM payables.supplier_invoice WHERE purchase_order_id = $1 AND status NOT IN ('cancelled', 'rejected'))`,
-		purchaseOrder).Scan(&ok)
-	return ok, err
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM payables.supplier_invoice WHERE purchase_order_id = $1 AND status NOT IN ('cancelled', 'rejected'))`,
+		purchaseOrder).Scan(&ok); err != nil {
+		return false, fmt.Errorf("payables: check invoices of purchase order %s: %w", purchaseOrder, err)
+	}
+	return ok, nil
 }

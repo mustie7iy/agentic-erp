@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -26,7 +27,10 @@ func (Directory) RoleByCode(ctx context.Context, code string) (uuid.UUID, bool, 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, false, nil
 	}
-	return id, err == nil, err
+	if err != nil {
+		return id, false, fmt.Errorf("identity: read role %s: %w", code, err)
+	}
+	return id, true, nil
 }
 
 // HoldsRole reports whether the principal is assigned the role today.
@@ -39,5 +43,23 @@ func (Directory) HoldsRole(ctx context.Context, principal, role uuid.UUID) (bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM identity.principal_role
 		WHERE principal_id = $1 AND role_id = $2 AND valid_from <= current_date AND (valid_to IS NULL OR valid_to > current_date))`,
 		principal, role).Scan(&ok)
-	return ok, err
+	if err != nil {
+		return ok, fmt.Errorf("identity: check role %s of principal %s: %w", role, principal, err)
+	}
+	return ok, nil
+}
+
+// Actors answers who deferred work acts as: the principal that queued it,
+// read in the worker's own transaction before the unit of work starts (a
+// port of the contexts whose workers act as the requester: payments,
+// configuration and workflows).
+type Actors struct{}
+
+// Actor returns the principal with the id as the unit of work acts as it.
+func (Actors) Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error) {
+	p := reqctx.Principal{ID: id}
+	if err := tx.QueryRow(ctx, `SELECT tenant_id, kind FROM identity.principal WHERE id = $1`, id).Scan(&p.TenantID, &p.Kind); err != nil {
+		return reqctx.Principal{}, fmt.Errorf("identity: read principal %s: %w", id, err)
+	}
+	return p, nil
 }

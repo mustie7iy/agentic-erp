@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 // Arbitrary YAML never panics the parser, validator or diff.
@@ -17,7 +19,7 @@ func FuzzParseValidateDiff(f *testing.F) {
 		if err != nil {
 			return
 		}
-		Validate(c)
+		Validate(c, currency.Seeded())
 		if _, err := Diff(base, c); err != nil {
 			t.Fatal(err)
 		}

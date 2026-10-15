@@ -1,16 +1,19 @@
 package analytics
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math"
+	"maps"
+	"math/big"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // Query is a semantic query: which metrics, broken down by which
@@ -46,9 +49,10 @@ type Column struct {
 	Currency string     `json:"currency,omitempty"`
 }
 
-// Row values: dimension values are strings; measures are float64 in major
-// units (money), whole numbers (count), or fractions (ratio). A measure is
-// nil when it cannot be computed (e.g. a ratio with a zero denominator).
+// Row values: dimension values are strings; measures are Values, exact
+// decimals: amounts at their currency's exponent, whole counts, ratios at
+// ratioScale digits. A measure is nil when it cannot be computed (e.g. a
+// ratio with a zero denominator).
 type Row []any
 
 type Result struct {
@@ -76,6 +80,7 @@ const maxRows = 500
 // QueryID is stable for the same query and principal scope, so saved reports
 // can refer to queries and rerun them later.
 func QueryID(q Query, p Principal) string {
+	// A Query and company ids are plain data: they always encode.
 	b, _ := json.Marshal(struct {
 		Q Query
 		C []string
@@ -87,13 +92,59 @@ func QueryID(q Query, p Principal) string {
 // Execute runs a semantic query against the facts with the principal's
 // row-level security applied.
 func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
-	if len(q.Measures) == 0 {
-		return nil, fmt.Errorf("query needs at least one measure")
+	if err := validateQuery(m, q); err != nil {
+		return nil, err
 	}
+	agg, err := aggregateMetrics(m, f, p, q)
+	if err != nil {
+		return nil, err
+	}
+	res := &Result{ID: QueryID(q, p), Query: q, AsOf: f.AsOf, DataThrough: f.DataThrough}
+	measureCol := describeColumns(m, q, res)
+	if err := fillRows(m, q, agg, res, measureCol); err != nil {
+		return nil, err
+	}
+	orderRows(q, res)
+	limitRows(q, res)
+	return res, nil
+}
+
+// validateQuery rejects a query before any facts are read: unknown
+// metrics, dimensions or filters the measures do not share, malformed
+// filters and an order_by that names no column.
+func validateQuery(m *Model, q Query) error {
+	if len(q.Measures) == 0 {
+		return fmt.Errorf("query needs at least one measure")
+	}
+	allowed, err := sharedDimensions(m, q.Measures)
+	if err != nil {
+		return err
+	}
+	for _, d := range q.By {
+		if !allowed[d] {
+			return fmt.Errorf("dimension %q is not available for %s", d, strings.Join(q.Measures, ", "))
+		}
+	}
+	for _, fl := range q.Where {
+		if !allowed[fl.Dim] {
+			return fmt.Errorf("cannot filter %s by %q", strings.Join(q.Measures, ", "), fl.Dim)
+		}
+		if err := fl.validate(); err != nil {
+			return err
+		}
+	}
+	if q.OrderBy != "" && !slices.Contains(q.By, q.OrderBy) && !slices.Contains(q.Measures, q.OrderBy) {
+		return fmt.Errorf("order_by %q must be one of the measures or dimensions", q.OrderBy)
+	}
+	return nil
+}
+
+// sharedDimensions is the set of dimensions every measure can be broken
+// down by: one breakdown applies to all measures of a query.
+func sharedDimensions(m *Model, measures []string) (map[string]bool, error) {
 	allowed := map[string]bool{}
-	for i, name := range q.Measures {
-		met := m.Metric(name)
-		if met == nil {
+	for i, name := range measures {
+		if m.Metric(name) == nil {
 			return nil, fmt.Errorf("unknown metric %q (use list_metrics)", name)
 		}
 		dims := m.AllowedDimensions(name)
@@ -101,75 +152,115 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 			for _, d := range dims {
 				allowed[d] = true
 			}
-		} else {
-			for d := range allowed {
-				if !slices.Contains(dims, d) {
-					delete(allowed, d)
-				}
+			continue
+		}
+		for d := range allowed {
+			if !slices.Contains(dims, d) {
+				delete(allowed, d)
 			}
 		}
 	}
-	for _, d := range q.By {
-		if !allowed[d] {
-			return nil, fmt.Errorf("dimension %q is not available for %s", d, strings.Join(q.Measures, ", "))
-		}
-	}
-	for _, fl := range q.Where {
-		if !allowed[fl.Dim] {
-			return nil, fmt.Errorf("cannot filter %s by %q", strings.Join(q.Measures, ", "), fl.Dim)
-		}
-		if err := fl.validate(); err != nil {
-			return nil, err
-		}
-	}
-	if q.OrderBy != "" && !slices.Contains(q.By, q.OrderBy) && !slices.Contains(q.Measures, q.OrderBy) {
-		return nil, fmt.Errorf("order_by %q must be one of the measures or dimensions", q.OrderBy)
-	}
+	return allowed, nil
+}
 
-	// Aggregate every base metric per group, tracking currencies so money
-	// from companies with different currencies is never added together.
-	type cell struct {
-		sum        int64
-		ids        map[string]bool
-		currencies map[string]bool
-		seen       bool
-	}
-	groups := map[string][]string{} // key -> dim values
-	base := map[string]map[string]*cell{}
+// aggCell accumulates one base metric for one group. Currencies are
+// tracked so money from companies with different currencies is never
+// added together. A sum keeps its terms until every fact is read, so it
+// is exact whatever their order (money.Sum).
+type aggCell struct {
+	terms      []money.Minor
+	sum        money.Minor
+	ids        map[string]bool
+	currencies map[string]bool
+}
+
+// aggregation holds every base metric aggregated per group.
+type aggregation struct {
+	groups    map[string][]string // key -> dim values
+	base      map[string]map[string]*aggCell
+	exponents map[string]int // currency -> minor-unit digits (Facts.Exponents)
+}
+
+// aggregateMetrics computes every base metric the measures need, once each, per
+// group of the query's dimensions. A sum out of the range of an amount
+// refuses the query (money.ErrOverflow) rather than reporting it wrapped.
+func aggregateMetrics(m *Model, f *Facts, p Principal, q Query) (*aggregation, error) {
+	agg := &aggregation{groups: map[string][]string{}, base: map[string]map[string]*aggCell{}, exponents: f.Exponents}
 	for _, name := range q.Measures {
 		for _, b := range m.baseMetrics(name) {
-			if base[b] != nil {
+			if agg.base[b] != nil {
 				continue
 			}
-			base[b] = map[string]*cell{}
-			met := m.Metric(b)
-			for _, fact := range f.Tables[met.Source] {
-				if !p.canSee(fact.Dims["company"]) || !matchAll(fact.Dims, met.Filter) || !matchQuery(fact.Dims, q.Where) {
-					continue
-				}
-				vals := make([]string, len(q.By))
-				for i, d := range q.By {
-					vals[i] = fact.Dims[d]
-				}
-				key := strings.Join(vals, "\x1f")
-				groups[key] = vals
-				c := base[b][key]
-				if c == nil {
-					c = &cell{ids: map[string]bool{}, currencies: map[string]bool{}}
-					base[b][key] = c
-				}
-				c.seen = true
-				c.currencies[fact.Currency] = true
-				if met.Aggregate == "count_distinct" {
-					c.ids[fact.ID] = true
-				} else {
-					c.sum += fact.Amount * met.Sign
-				}
+			agg.base[b] = map[string]*aggCell{}
+			agg.addMetric(b, m.Metric(b), f, p, q)
+			if err := agg.sum(b); err != nil {
+				return nil, err
 			}
 		}
 	}
+	return agg, nil
+}
 
-	res := &Result{ID: QueryID(q, p), Query: q, AsOf: f.AsOf, DataThrough: f.DataThrough}
+// sum totals each group's terms of base metric b, in key order so the
+// group named when several are out of range does not vary.
+func (agg *aggregation) sum(b string) error {
+	for _, key := range slices.Sorted(maps.Keys(agg.base[b])) {
+		c := agg.base[b][key]
+		total, err := money.Sum(c.terms...)
+		if err != nil {
+			group := "in total" // a query without a breakdown has one group, of no values
+			if vals := agg.groups[key]; len(vals) > 0 {
+				named := make([]string, len(vals))
+				for i, v := range vals {
+					named[i] = cmp.Or(v, "(blank)") // a fact without the dimension
+				}
+				group = "for " + strings.Join(named, ", ")
+			}
+			return fmt.Errorf("%s %s adds up to more than an amount can hold; filter or break it down further: %w", b, group, err)
+		}
+		c.sum, c.terms = total, nil
+	}
+	return nil
+}
+
+// addMetric folds the facts the principal may see and the filters select
+// into the groups of base metric b.
+func (agg *aggregation) addMetric(b string, met *Metric, f *Facts, p Principal, q Query) {
+	for _, fact := range f.Tables[met.Source] {
+		if !p.canSee(fact.Dims["company"]) || !matchAll(fact.Dims, met.Filter) || !matchQuery(fact.Dims, q.Where) {
+			continue
+		}
+		key := agg.group(fact, q.By)
+		c := agg.base[b][key]
+		if c == nil {
+			c = &aggCell{ids: map[string]bool{}, currencies: map[string]bool{}}
+			agg.base[b][key] = c
+		}
+		c.currencies[fact.Currency] = true
+		if met.Aggregate == "count_distinct" {
+			c.ids[fact.ID] = true
+		} else {
+			// The sign is ±1 (checkSourceMetric) and the range symmetric,
+			// so the product is an amount.
+			c.terms = append(c.terms, fact.Amount*money.Minor(met.Sign))
+		}
+	}
+}
+
+// group registers the fact's group and returns its key.
+func (agg *aggregation) group(fact Fact, by []string) string {
+	vals := make([]string, len(by))
+	for i, d := range by {
+		vals[i] = fact.Dims[d]
+	}
+	key := strings.Join(vals, "\x1f")
+	agg.groups[key] = vals
+	return key
+}
+
+// describeColumns adds the dimension and measure columns and the lineage
+// of every metric involved, and returns each measure's column index.
+func describeColumns(m *Model, q Query, res *Result) map[string]int {
 	for _, d := range q.By {
 		res.Columns = append(res.Columns, Column{Name: d, Label: m.dimLabel(d), Kind: "dimension"})
 	}
@@ -186,68 +277,26 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 			res.Definitions = appendLineage(res.Definitions, MetricLineage{Name: met.Name, Description: met.Description, Derived: met.Derived})
 		}
 	}
+	return measureCol
+}
 
-	keys := make([]string, 0, len(groups))
-	for k := range groups {
+// fillRows builds one row per group in key order, then labels each money
+// column with its currency when exactly one currency contributed to it.
+func fillRows(m *Model, q Query, agg *aggregation, res *Result, measureCol map[string]int) error {
+	keys := make([]string, 0, len(agg.groups))
+	for k := range agg.groups {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	colCurrency := map[string]map[string]bool{}
 	for _, key := range keys {
 		row := make(Row, len(res.Columns))
-		for i, v := range groups[key] {
+		for i, v := range agg.groups[key] {
 			row[i] = v
 		}
 		for _, name := range q.Measures {
-			curs := map[string]bool{}
-			var eval func(n string) (float64, bool)
-			eval = func(n string) (float64, bool) {
-				met := m.Metric(n)
-				if met.Derived != nil {
-					l, okL := eval(met.Derived.Left)
-					r, okR := eval(met.Derived.Right)
-					if met.Derived.Op == "divide" {
-						if !okL || !okR || r == 0 {
-							return 0, false
-						}
-						return l / r, true
-					}
-					return l - r, okL || okR
-				}
-				c := base[n][key]
-				if c == nil {
-					return 0, false
-				}
-				for cur := range c.currencies {
-					curs[cur] = true
-				}
-				if met.Aggregate == "count_distinct" {
-					return float64(len(c.ids)), true
-				}
-				scale := 100.0
-				for cur := range c.currencies {
-					scale = math.Pow(10, float64(currencyDecimals(cur)))
-				}
-				return float64(c.sum) / scale, true
-			}
-			v, ok := eval(name)
-			met := m.Metric(name)
-			if len(curs) > 1 && met.Type != Count {
-				return nil, fmt.Errorf("%s would add amounts in %s together; break down by company or filter to one company",
-					name, strings.Join(sortedSet(curs), " and "))
-			}
-			if colCurrency[name] == nil {
-				colCurrency[name] = map[string]bool{}
-			}
-			for c := range curs {
-				colCurrency[name][c] = true
-			}
-			if ok {
-				if met.Type == Ratio {
-					row[measureCol[name]] = round(v, 4)
-				} else {
-					row[measureCol[name]] = round(v, 2)
-				}
+			if err := fillMeasure(m, agg, key, name, row, measureCol[name], colCurrency); err != nil {
+				return err
 			}
 		}
 		res.Rows = append(res.Rows, row)
@@ -257,17 +306,138 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 			res.Columns[i].Currency = c[0]
 		}
 	}
+	return nil
+}
 
-	if q.OrderBy != "" {
-		idx := slices.IndexFunc(res.Columns, func(c Column) bool { return c.Name == q.OrderBy })
-		sort.SliceStable(res.Rows, func(a, b int) bool {
-			less := compareCells(res.Rows[a][idx], res.Rows[b][idx]) < 0
-			if q.Desc {
-				return compareCells(res.Rows[b][idx], res.Rows[a][idx]) < 0
-			}
-			return less
-		})
+// fillMeasure evaluates one measure for one group into row[col], refusing
+// to add amounts in different currencies, and records the currencies of
+// the column's amounts (not of documents a distinct count spans) to label
+// it.
+func fillMeasure(m *Model, agg *aggregation, key, name string, row Row, col int, colCurrency map[string]map[string]bool) error {
+	ev := &cellEval{m: m, agg: agg, key: key, summed: map[string]bool{}}
+	v, ok := ev.eval(name)
+	if len(ev.summed) > 1 {
+		return fmt.Errorf("%s would add amounts in %s together; break down by company or filter to one company",
+			name, strings.Join(sortedSet(ev.summed), " and "))
 	}
+	if colCurrency[name] == nil {
+		colCurrency[name] = map[string]bool{}
+	}
+	for c := range ev.summed {
+		colCurrency[name][c] = true
+	}
+	if !ok {
+		return nil
+	}
+	val, err := agg.value(m.Metric(name), v, ev.summed)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	row[col] = val
+	return nil
+}
+
+// value keeps an exact result at its digits: a ratio at ratioScale, a value
+// read from sums in one currency at that currency's exponent, a count
+// whole. A quotient of amounts (a money metric derived by divide) is
+// rounded half away from zero to the currency's digits.
+func (agg *aggregation) value(met *Metric, v *big.Rat, summed map[string]bool) (Value, error) {
+	scale, cur := 0, ""
+	for c := range summed { // at most one: fillMeasure refuses more
+		exp, known := agg.exponents[c]
+		if !known {
+			return Value{}, fmt.Errorf("the minor-unit digits of %s are unknown", c)
+		}
+		scale, cur = exp, c
+	}
+	if met.Type == Ratio {
+		scale, cur = ratioScale, ""
+	}
+	units, err := money.Round(v, scale)
+	if err != nil {
+		return Value{}, fmt.Errorf("the value is out of range: %w", err)
+	}
+	return Value{Units: units, Scale: scale, Currency: cur}, nil
+}
+
+// cellEval evaluates a metric for one group, exactly and in major units,
+// collecting in summed the currencies of the sum aggregates it reads, so
+// the caller can refuse mixed currencies and label the column. Fact
+// amounts are minor units of the fact's currency (facts.go), so a sum is
+// an amount whatever the metric's type, while a distinct count is not. A
+// cell is refused when its sums read several currencies, whether one sum
+// spans them or each operand of a derived metric is in its own; distinct
+// counts, and ratios of them, may span currencies.
+type cellEval struct {
+	m      *Model
+	agg    *aggregation
+	key    string
+	summed map[string]bool
+}
+
+func (ev *cellEval) eval(n string) (*big.Rat, bool) {
+	met := ev.m.Metric(n)
+	if met.Derived != nil {
+		return ev.derived(met.Derived)
+	}
+	c := ev.agg.base[n][ev.key]
+	if c == nil {
+		return nil, false
+	}
+	if met.Aggregate == "count_distinct" {
+		return new(big.Rat).SetInt64(int64(len(c.ids))), true
+	}
+	for cur := range c.currencies {
+		ev.summed[cur] = true
+	}
+	// With several currencies the caller refuses the cell, and with an
+	// unknown exponent it reports that, so the first currency's exponent
+	// only keeps the value deterministic.
+	cur := sortedSet(c.currencies)[0]
+	return Value{Units: c.sum, Scale: ev.agg.exponents[cur]}.rat(), true
+}
+
+// derived evaluates both inputs first, so both contribute currencies even
+// when the result is undefined: a ratio needs both inputs and a non-zero
+// denominator, a difference needs only one side.
+func (ev *cellEval) derived(d *Derived) (*big.Rat, bool) {
+	l, okL := ev.eval(d.Left)
+	r, okR := ev.eval(d.Right)
+	if d.Op == "divide" {
+		if !okL || !okR || r.Sign() == 0 {
+			return nil, false
+		}
+		return new(big.Rat).Quo(l, r), true
+	}
+	if !okL && !okR {
+		return nil, false
+	}
+	if !okL {
+		l = new(big.Rat)
+	}
+	if !okR {
+		r = new(big.Rat)
+	}
+	return new(big.Rat).Sub(l, r), true
+}
+
+// orderRows sorts stably by the order_by column, so ties keep group order.
+func orderRows(q Query, res *Result) {
+	if q.OrderBy == "" {
+		return
+	}
+	idx := slices.IndexFunc(res.Columns, func(c Column) bool { return c.Name == q.OrderBy })
+	sort.SliceStable(res.Rows, func(a, b int) bool {
+		if q.Desc {
+			return compareCells(res.Rows[b][idx], res.Rows[a][idx]) < 0
+		}
+		return compareCells(res.Rows[a][idx], res.Rows[b][idx]) < 0
+	})
+}
+
+// limitRows caps the rows at the query's limit (at most maxRows); the
+// result is marked truncated only when the cap, not the caller, cut it.
+func limitRows(q Query, res *Result) {
 	limit := q.Limit
 	if limit <= 0 || limit > maxRows {
 		limit = maxRows
@@ -276,7 +446,6 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 		res.Rows = res.Rows[:limit]
 		res.Truncated = q.Limit == 0 || q.Limit > maxRows
 	}
-	return res, nil
 }
 
 func (p Principal) canSee(company string) bool {
@@ -341,37 +510,57 @@ func matchQuery(dims map[string]string, where []Filter) bool {
 	return true
 }
 
-// compareValues compares numerically when both sides are numbers (months,
-// years), otherwise as strings (dates, codes).
+// compareValues compares numerically when both sides are plain decimals
+// (months, years, numeric codes), otherwise as strings (dates, codes). The
+// numbers compare exactly: through a float, two codes of more than 15
+// digits that differ in the last one would compare equal.
 func compareValues(a, b string) int {
-	fa, errA := strconv.ParseFloat(a, 64)
-	fb, errB := strconv.ParseFloat(b, 64)
-	if errA == nil && errB == nil {
-		switch {
-		case fa < fb:
-			return -1
-		case fa > fb:
-			return 1
-		}
-		return 0
+	ra, okA := plainDecimal(a)
+	rb, okB := plainDecimal(b)
+	if okA && okB {
+		return ra.Cmp(rb)
 	}
 	return strings.Compare(a, b)
 }
 
+// plainDecimal reads an optional sign, digits and an optional "." with
+// digits, exactly; anything else ("1e3", "0x10", "Inf", a date) is not a
+// number here.
+//
+// It is deliberately stricter than money's decimal grammar (ParseDecimal,
+// ParseDecimalRat), which reads input from SAP extracts: that grammar trims
+// space and takes a trailing minus ("12-") and a bare "." side (".5",
+// "5."). Here the operands are dimension values, mostly codes, so a code
+// such as "12-" or " 12" must stay a string: read as -12 or 12 it would
+// sort among the numbers and compare equal to a different value.
+func plainDecimal(s string) (*big.Rat, bool) {
+	body := s
+	if body != "" && (body[0] == '-' || body[0] == '+') {
+		body = body[1:]
+	}
+	intPart, frac, hasFrac := strings.Cut(body, ".")
+	if !isDigits(intPart) || (hasFrac && !isDigits(frac)) {
+		return nil, false
+	}
+	r, _ := new(big.Rat).SetString(s) // a sign, digits and at most one dot always parse
+	return r, true
+}
+
+// isDigits reports whether s is one or more ASCII digits.
+func isDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
+}
+
+// compareCells orders cells: measure values by size, before the cells
+// without one; dimension values as compareValues does.
 func compareCells(a, b any) int {
 	switch x := a.(type) {
-	case float64:
-		y, ok := b.(float64)
+	case Value:
+		y, ok := b.(Value)
 		if !ok {
 			return 1
 		}
-		switch {
-		case x < y:
-			return -1
-		case x > y:
-			return 1
-		}
-		return 0
+		return x.compare(y)
 	case string:
 		y, _ := b.(string)
 		return compareValues(x, y)
@@ -405,21 +594,4 @@ func sortedSet(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func round(v float64, places int) float64 {
-	p := math.Pow(10, float64(places))
-	return math.Round(v*p) / p
-}
-
-// currencyDecimals gives the minor-unit exponent (ISO 4217) for the
-// currencies that differ from the default of 2.
-func currencyDecimals(cur string) int {
-	switch cur {
-	case "JPY", "KRW", "CLP", "ISK", "VND":
-		return 0
-	case "BHD", "KWD", "OMR", "JOD", "TND":
-		return 3
-	}
-	return 2
 }

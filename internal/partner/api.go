@@ -2,85 +2,35 @@ package partner
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
-	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
-
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
-func optString(s gen.OptString) *string {
-	if !s.Set {
-		return nil
-	}
-	return &s.Value
-}
-
-func toOptString(s *string) gen.OptString {
-	if s == nil {
-		return gen.OptString{}
-	}
-	return gen.NewOptString(*s)
-}
-
-func optNilString(s gen.OptNilString) **string {
-	if !s.Set {
-		return nil
-	}
-	var v *string
-	if !s.Null {
-		v = &s.Value
-	}
-	return &v
-}
-
-func toRaw(m map[string]any) map[string]jx.Raw {
-	out := make(map[string]jx.Raw, len(m))
-	for k, v := range m {
-		b, _ := json.Marshal(v) // values decoded from JSON always encode
-		out[k] = jx.Raw(b)
-	}
-	return out
-}
-
-func fromExtensions(x gen.OptExtensions) map[string]any {
-	if !x.Set {
-		return nil
-	}
-	out := make(map[string]any, len(x.Value))
-	for k, raw := range x.Value {
-		var v any
-		_ = json.Unmarshal(raw, &v) // the generated decoder only passes valid JSON
-		out[k] = v
-	}
-	return out
-}
 
 func partnerToAPI(p Partner) gen.BusinessPartner {
 	out := gen.BusinessPartner{
 		ID: p.ID, Version: p.Version, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.UpdatedAt, UpdatedBy: gen.NewOptUUID(p.UpdatedBy),
-		Number: p.Number, Kind: p.Kind, Name: p.Name, LegalName: toOptString(p.LegalName), CountryCode: p.CountryCode,
-		Language: toOptString(p.Language), Status: p.Status, Roles: p.Roles, SupplierCompanies: []gen.SupplierCompany{},
-		Addresses: []gen.Address{}, TaxIdentifiers: []gen.TaxIdentifier{}, Extensions: toRaw(p.Extensions),
+		Number: p.Number, Kind: p.Kind, Name: p.Name, LegalName: apitypes.OptString(p.LegalName), CountryCode: p.CountryCode,
+		Language: apitypes.OptString(p.Language), Status: p.Status, Roles: p.Roles, SupplierCompanies: []gen.SupplierCompany{},
+		Addresses: []gen.Address{}, TaxIdentifiers: []gen.TaxIdentifier{}, Extensions: apitypes.EncodeObject(p.Extensions),
 	}
 	for _, s := range p.SupplierCompanies {
 		out.SupplierCompanies = append(out.SupplierCompanies, gen.SupplierCompany(s))
 	}
 	for _, a := range p.Addresses {
-		ga := gen.Address{ID: gen.NewOptUUID(a.ID), Purpose: a.Purpose, Line1: a.Line1, Line2: toOptString(a.Line2), City: a.City,
-			PostalCode: toOptString(a.PostalCode), Region: toOptString(a.Region), CountryCode: a.CountryCode, ValidFrom: a.ValidFrom.Time}
+		ga := gen.Address{ID: gen.NewOptUUID(a.ID), Purpose: a.Purpose, Line1: a.Line1, Line2: apitypes.OptString(a.Line2), City: a.City,
+			PostalCode: apitypes.OptString(a.PostalCode), Region: apitypes.OptString(a.Region), CountryCode: a.CountryCode, ValidFrom: a.ValidFrom.Time}
 		if a.ValidTo != nil {
 			ga.ValidTo.SetTo(a.ValidTo.Time)
 		}
@@ -95,7 +45,7 @@ func partnerToAPI(p Partner) gen.BusinessPartner {
 func changeToAPI(c Change) gen.PartnerChange {
 	out := gen.PartnerChange{
 		ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, UpdatedBy: gen.NewOptUUID(c.UpdatedBy),
-		Number: c.Number, Kind: c.Kind, PartnerID: c.PartnerID, Payload: toRaw(c.Masked()), Reason: c.Reason,
+		Number: c.Number, Kind: c.Kind, PartnerID: c.PartnerID, Payload: apitypes.EncodeObject(c.Masked()), Reason: c.Reason,
 		Warnings: []gen.PartnerChangeWarning{}, Status: c.Status, RequestedBy: c.RequestedBy,
 	}
 	for _, w := range c.Warnings {
@@ -112,7 +62,7 @@ func changeToAPI(c Change) gen.PartnerChange {
 
 func bankToAPI(b BankAccount) gen.BankAccount {
 	out := gen.BankAccount{ID: b.ID, ValidFrom: b.ValidFrom, CreatedAt: b.CreatedAt, CreatedBy: b.CreatedBy, PartnerID: b.PartnerID,
-		Purpose: b.Purpose, AccountLast4: b.AccountLast4, AccountScheme: b.AccountScheme, Bic: toOptString(b.BIC),
+		Purpose: b.Purpose, AccountLast4: b.AccountLast4, AccountScheme: b.AccountScheme, Bic: apitypes.OptString(b.BIC),
 		BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, PartnerChangeID: b.PartnerChangeID}
 	if b.ValidTo != nil {
 		out.ValidTo.SetTo(*b.ValidTo)
@@ -144,8 +94,8 @@ func companiesIn(in []gen.SupplierCompanyInput) []SupplierCompanyInput {
 func addressesIn(in []gen.Address) []AddressInput {
 	out := []AddressInput{}
 	for _, a := range in {
-		ai := AddressInput{Purpose: a.Purpose, Line1: a.Line1, Line2: optString(a.Line2), City: a.City, PostalCode: optString(a.PostalCode),
-			Region: optString(a.Region), CountryCode: a.CountryCode, ValidFrom: Date{a.ValidFrom}}
+		ai := AddressInput{Purpose: a.Purpose, Line1: a.Line1, Line2: apitypes.Ptr[string](a.Line2), City: a.City, PostalCode: apitypes.Ptr[string](a.PostalCode),
+			Region: apitypes.Ptr[string](a.Region), CountryCode: a.CountryCode, ValidFrom: Date{a.ValidFrom}}
 		if a.ValidTo.Set {
 			ai.ValidTo = &Date{a.ValidTo.Value}
 		}
@@ -164,12 +114,16 @@ func taxesIn(in []gen.TaxIdentifierInput) []TaxInput {
 
 // CreateBusinessPartner implements POST /v1/business-partners.
 func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.BusinessPartnerCreate, _ gen.CreateBusinessPartnerParams) (gen.CreateBusinessPartnerRes, error) {
-	in := NewPartner{Kind: req.Kind, Name: req.Name, LegalName: optString(req.LegalName), CountryCode: req.CountryCode,
-		Language: optString(req.Language), Roles: req.Roles, SupplierCompanies: companiesIn(req.SupplierCompanies),
-		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: fromExtensions(req.Extensions), Reason: req.Reason}
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in := NewPartner{Kind: req.Kind, Name: req.Name, LegalName: apitypes.Ptr[string](req.LegalName), CountryCode: req.CountryCode,
+		Language: apitypes.Ptr[string](req.Language), Roles: req.Roles, SupplierCompanies: companiesIn(req.SupplierCompanies),
+		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: apitypes.DecodeObject(req.Extensions.Or(nil)), Reason: req.Reason}
 	for _, b := range req.BankAccounts {
 		in.BankAccounts = append(in.BankAccounts, BankInput{Purpose: b.Purpose.Value, AccountNumber: b.AccountNumber, AccountScheme: b.AccountScheme,
-			BIC: optString(b.Bic), BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, ValidFrom: b.ValidFrom})
+			BIC: apitypes.Ptr[string](b.Bic), BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, ValidFrom: b.ValidFrom})
 	}
 	p, c, err := CreatePartner(ctx, e.ports(), in)
 	if err != nil {
@@ -178,7 +132,6 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	if _, err := RequestApproval(ctx, e.Approvals, c); err != nil {
 		return nil, err
 	}
-	tx, _, _ := reqctx.Request(ctx) // CreatePartner ran in the request
 	if p, err = getPartner(ctx, tx, p.ID, false); err != nil {
 		return nil, err
 	}
@@ -223,10 +176,7 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 		return nil, err
 	}
 	scope := "listBusinessPartners|" + params.Number.Value + "|" + params.NamePrefix.Value + "|" + params.Role.Value + "|" + params.Status.Value
-	ks, err := e.Pages.Keyset(partnerSort, scope, pagination.Request{
-		OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
-		PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(partnerSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -244,27 +194,20 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 	rows, _ := tx.Query(ctx, q, args...)
 	ps, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Partner, error) { return scanPartner(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: list business partners: %w", err)
 	}
-	ps, next := pagination.Page(ks, ps, func(p Partner) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, ps, func(p Partner) (string, uuid.UUID) {
 		if ks.Field() == "name" {
 			return p.Name, p.ID
 		}
 		return p.Number, p.ID
-	})
-	page := gen.BusinessPartnerPage{Items: make([]gen.BusinessPartner, 0, len(ps))}
-	for _, p := range ps {
-		page.Items = append(page.Items, partnerToAPI(visible(p, access)))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.BusinessPartnerPageHeaders{Response: page}, nil
+	}, func(p Partner) gen.BusinessPartner { return partnerToAPI(visible(p, access)) })
+	return &gen.BusinessPartnerPageHeaders{Response: gen.BusinessPartnerPage{Items: items, NextPageToken: next}}, nil
 }
 
 // BlockBusinessPartner implements POST /v1/business-partners/{id}:block.
 func (e *Endpoints) BlockBusinessPartner(ctx context.Context, req *gen.ReasonInput, params gen.BlockBusinessPartnerParams) (gen.BlockBusinessPartnerRes, error) {
-	c, err := Block(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	c, err := Block(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +216,7 @@ func (e *Endpoints) BlockBusinessPartner(ctx context.Context, req *gen.ReasonInp
 
 // UnblockBusinessPartner implements POST /v1/business-partners/{id}:unblock.
 func (e *Endpoints) UnblockBusinessPartner(ctx context.Context, req *gen.ReasonInput, params gen.UnblockBusinessPartnerParams) (gen.UnblockBusinessPartnerRes, error) {
-	c, err := Unblock(ctx, params.ID, ifMatch(params.IfMatch), req.Reason)
+	c, err := Unblock(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err == nil {
 		c, err = RequestApproval(ctx, e.Approvals, c)
 	}
@@ -289,9 +232,9 @@ func (e *Endpoints) CreatePartnerChange(ctx context.Context, req *gen.PartnerCha
 		return nil, invalid("partner.unsupported_kind", "kind", "only update; other kinds have their own operations")
 	}
 	pl := req.Payload
-	ch := Changes{Name: optString(pl.Name), LegalName: optNilString(pl.LegalName), Language: optNilString(pl.Language), Roles: pl.Roles,
+	ch := Changes{Name: apitypes.Ptr[string](pl.Name), LegalName: apitypes.OptNilString(pl.LegalName), Language: apitypes.OptNilString(pl.Language), Roles: pl.Roles,
 		SupplierCompanies: companiesIn(pl.SupplierCompanies), Addresses: addressesIn(pl.Addresses), TaxIdentifiers: taxesIn(pl.TaxIdentifiers),
-		Extensions: fromExtensions(pl.Extensions)}
+		Extensions: apitypes.DecodeObject(pl.Extensions.Or(nil))}
 	c, err := RequestUpdate(ctx, e.ports(), req.PartnerID, ch, req.Reason)
 	if err == nil {
 		c, err = RequestApproval(ctx, e.Approvals, c)
@@ -328,10 +271,7 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 		partnerID = &params.PartnerID.Value
 	}
 	scope := "listPartnerChanges|" + params.PartnerID.Value.String() + "|" + params.Kind.Value + "|" + params.Status.Value
-	ks, err := e.Pages.Keyset(changeSort, scope, pagination.Request{
-		OrderBy: params.OrderBy.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
-		PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(changeSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -340,23 +280,16 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 	rows, _ := tx.Query(ctx, q, args...)
 	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Change, error) { return scanChange(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: list partner changes: %w", err)
 	}
-	cs, next := pagination.Page(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID })
-	page := gen.PartnerChangePage{Items: make([]gen.PartnerChange, 0, len(cs))}
-	for _, c := range cs {
-		page.Items = append(page.Items, changeToAPI(c))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.PartnerChangePageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID }, changeToAPI)
+	return &gen.PartnerChangePageHeaders{Response: gen.PartnerChangePage{Items: items, NextPageToken: next}}, nil
 }
 
 // RequestBankAccountChange implements POST /v1/business-partners/{id}/bank-accounts.
 func (e *Endpoints) RequestBankAccountChange(ctx context.Context, req *gen.BankChangeCreate, params gen.RequestBankAccountChangeParams) (gen.RequestBankAccountChangeRes, error) {
 	c, err := RequestBankAccount(ctx, e.ports(), params.ID, BankInput{Purpose: req.Purpose.Value, AccountNumber: req.AccountNumber,
-		AccountScheme: req.AccountScheme, BIC: optString(req.Bic), BankCountryCode: req.BankCountryCode, HolderName: req.HolderName,
+		AccountScheme: req.AccountScheme, BIC: apitypes.Ptr[string](req.Bic), BankCountryCode: req.BankCountryCode, HolderName: req.HolderName,
 		ValidFrom: req.ValidFrom}, req.Reason)
 	if err == nil {
 		c, err = RequestApproval(ctx, e.Approvals, c)
@@ -407,33 +340,24 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 		validOn = &params.ValidOn.Value
 		scope += params.ValidOn.Value.Format(time.DateOnly)
 	}
-	ks, err := e.Pages.Keyset(bankSort, scope, pagination.Request{
-		PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set, PageToken: params.PageToken.Value, PageTokenSet: params.PageToken.Set,
-	})
+	ks, err := e.Pages.Keyset(bankSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM partner.business_partner WHERE id = $1)`, params.ID).Scan(&exists); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: find business partner %s: %w", params.ID, err)
 	}
 	if !exists {
-		return nil, notFound("business partner")
+		return nil, problem.NotFoundOf("business partner")
 	}
 	q, args := ks.SQL(`SELECT `+bankColumns+` FROM partner.bank_account WHERE partner_id = $1
 		AND ($2::date IS NULL OR (valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2)))`, []any{params.ID, validOn})
 	rows, _ := tx.Query(ctx, q, args...)
 	bs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (BankAccount, error) { return scanBank(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("partner: list bank accounts of business partner %s: %w", params.ID, err)
 	}
-	bs, next := pagination.Page(ks, bs, func(b BankAccount) (string, uuid.UUID) { return b.ValidFrom.Format(time.DateOnly), b.ID })
-	page := gen.BankAccountPage{Items: make([]gen.BankAccount, 0, len(bs))}
-	for _, b := range bs {
-		page.Items = append(page.Items, bankToAPI(b))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.BankAccountPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, bs, func(b BankAccount) (string, uuid.UUID) { return b.ValidFrom.Format(time.DateOnly), b.ID }, bankToAPI)
+	return &gen.BankAccountPageHeaders{Response: gen.BankAccountPage{Items: items, NextPageToken: next}}, nil
 }

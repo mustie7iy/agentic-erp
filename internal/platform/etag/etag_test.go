@@ -19,13 +19,39 @@ func TestCheck(t *testing.T) {
 		`W/"3"`:    412, // weak tags never match a strong comparison
 		`3`:        412,
 	} {
-		err := Check(header, 3)
-		got := 0
-		if err != nil {
-			got = problem.From(err).Status
-		}
-		if got != want {
-			t.Errorf("%q: %d, want %d", header, got, want)
-		}
+		t.Run(header, func(t *testing.T) {
+			got := 0
+			if err := Check(header, 3); err != nil {
+				got = problem.From(err).Status
+			}
+			if got != want {
+				t.Errorf("Check(%q, 3): got %d, want %d", header, got, want)
+			}
+		})
+	}
+}
+
+// TestIfMatch: the bound check answers as Check does for the header.
+func TestIfMatch(t *testing.T) {
+	cases := []struct {
+		name    string
+		header  string
+		version int32
+		want    int // HTTP status; 0 means it matches
+	}{
+		{"matching version", `"3"`, 3, 0},
+		{"other version", `"3"`, 4, 412},
+		{"no header", "", 3, 428},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := 0
+			if err := IfMatch(c.header)(c.version); err != nil {
+				got = problem.From(err).Status
+			}
+			if got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
 	}
 }

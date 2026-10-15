@@ -2,7 +2,6 @@ package analytics
 
 import (
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 )
@@ -60,132 +59,173 @@ type Compare struct {
 // Validate checks that every reference resolves and that the commentary
 // only cites numbers the results support.
 func (s *Spec) Validate(results map[string]*Result) []string {
-	var problems []string
-	bad := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
+	v := &specValidator{results: results}
 	if strings.TrimSpace(s.Title) == "" {
-		bad("title is required")
+		v.bad("title is required")
 	}
 	if len(s.Tiles)+len(s.Charts)+len(s.Tables) == 0 {
-		bad("add at least one tile, chart or table")
-	}
-	get := func(where, id string) *Result {
-		r := results[id]
-		if r == nil {
-			bad("%s: unknown query_id %q (run the query first)", where, id)
-		}
-		return r
+		v.bad("add at least one tile, chart or table")
 	}
 	for i, t := range s.Tiles {
-		where := fmt.Sprintf("tile %d (%s)", i+1, t.Label)
-		r := get(where, t.QueryID)
-		if r == nil {
-			continue
-		}
-		if r.col(t.Measure) < 0 || r.Columns[r.col(t.Measure)].Kind != "measure" {
-			bad("%s: measure %q is not in query %s", where, t.Measure, t.QueryID)
-			continue
-		}
-		if _, n, err := r.sum(t.Measure, t.Where); err != nil {
-			bad("%s: %v", where, err)
-		} else if n == 0 {
-			bad("%s: no rows match %v", where, t.Where)
-		}
-		if t.CompareWhere != nil {
-			if _, n, err := r.sum(t.Measure, t.CompareWhere); err != nil {
-				bad("%s compare: %v", where, err)
-			} else if n == 0 {
-				bad("%s: no rows match compare_where %v", where, t.CompareWhere)
-			}
-		}
+		v.tile(i, t)
 	}
 	for i, c := range s.Charts {
-		where := fmt.Sprintf("chart %d (%s)", i+1, c.Title)
-		r := get(where, c.QueryID)
-		if r == nil {
-			continue
-		}
-		if c.Type != "bar" && c.Type != "line" {
-			bad("%s: type must be bar or line", where)
-		}
-		if r.col(c.X) < 0 || r.Columns[r.col(c.X)].Kind != "dimension" {
-			bad("%s: x %q is not a dimension of query %s", where, c.X, c.QueryID)
-		}
-		if c.Series != "" && (r.col(c.Series) < 0 || r.Columns[r.col(c.Series)].Kind != "dimension") {
-			bad("%s: series %q is not a dimension of query %s", where, c.Series, c.QueryID)
-		}
-		if r.col(c.Measure) < 0 || r.Columns[r.col(c.Measure)].Kind != "measure" {
-			bad("%s: measure %q is not in query %s", where, c.Measure, c.QueryID)
-		}
+		v.chart(i, c)
 	}
 	for i, t := range s.Tables {
-		where := fmt.Sprintf("table %d (%s)", i+1, t.Title)
-		r := get(where, t.QueryID)
-		if r == nil || t.Compare == nil {
-			continue
-		}
-		c := t.Compare
-		if r.col(c.Dim) < 0 || r.Columns[r.col(c.Dim)].Kind != "dimension" {
-			bad("%s: compare dim %q is not a dimension of query %s", where, c.Dim, t.QueryID)
-		}
-		if r.col(c.Measure) < 0 || r.Columns[r.col(c.Measure)].Kind != "measure" {
-			bad("%s: compare measure %q is not in query %s", where, c.Measure, t.QueryID)
-		}
+		v.table(i, t)
 	}
 	if s.Commentary != "" {
-		var used []*Result
-		for _, r := range results {
-			used = append(used, r)
-		}
-		if missing := CheckNarrative(s.Commentary, used); len(missing) > 0 {
-			problems = append(problems, narrativeError(missing).Error())
-		}
+		v.commentary(s.Commentary)
 	}
-	return problems
+	return v.problems
+}
+
+// specValidator collects the problems of a spec in the order found.
+type specValidator struct {
+	results  map[string]*Result
+	problems []string
+}
+
+func (v *specValidator) bad(format string, args ...any) {
+	v.problems = append(v.problems, fmt.Sprintf(format, args...))
+}
+
+// get resolves a query_id, reporting an unknown one.
+func (v *specValidator) get(where, id string) *Result {
+	r := v.results[id]
+	if r == nil {
+		v.bad("%s: unknown query_id %q (run the query first)", where, id)
+	}
+	return r
+}
+
+func (v *specValidator) tile(i int, t Tile) {
+	where := fmt.Sprintf("tile %d (%s)", i+1, t.Label)
+	r := v.get(where, t.QueryID)
+	if r == nil {
+		return
+	}
+	if !r.hasColumn(t.Measure, "measure") {
+		v.bad("%s: measure %q is not in query %s", where, t.Measure, t.QueryID)
+		return
+	}
+	cur, okC := v.tileSum(where, "", "where", r, t.Measure, t.Where)
+	if t.CompareWhere == nil {
+		return
+	}
+	base, okB := v.tileSum(where, " compare", "compare_where", r, t.Measure, t.CompareWhere)
+	if _, err := diff(cur, base); okC && okB && err != nil {
+		v.bad("%s compare: %v", where, err) // e.g. the baseline is in another currency
+	}
+}
+
+// tileSum sums a tile's measure over the rows matching filter, reporting a
+// failed sum or one of no rows.
+func (v *specValidator) tileSum(where, side, field string, r *Result, measure string, filter map[string]string) (Value, bool) {
+	total, n, err := r.sum(measure, filter)
+	switch {
+	case err != nil:
+		v.bad("%s%s: %v", where, side, err)
+	case n == 0 && field == "where":
+		v.bad("%s: no rows match %v", where, filter)
+	case n == 0:
+		v.bad("%s: no rows match %s %v", where, field, filter)
+	}
+	return total, err == nil && n > 0
+}
+
+func (v *specValidator) chart(i int, c Chart) {
+	where := fmt.Sprintf("chart %d (%s)", i+1, c.Title)
+	r := v.get(where, c.QueryID)
+	if r == nil {
+		return
+	}
+	if c.Type != "bar" && c.Type != "line" {
+		v.bad("%s: type must be bar or line", where)
+	}
+	n := len(v.problems)
+	if !r.hasColumn(c.X, "dimension") {
+		v.bad("%s: x %q is not a dimension of query %s", where, c.X, c.QueryID)
+	}
+	if c.Series != "" && !r.hasColumn(c.Series, "dimension") {
+		v.bad("%s: series %q is not a dimension of query %s", where, c.Series, c.QueryID)
+	}
+	if !r.hasColumn(c.Measure, "measure") {
+		v.bad("%s: measure %q is not in query %s", where, c.Measure, c.QueryID)
+	}
+	if len(v.problems) > n {
+		return
+	}
+	if _, _, _, err := chartData(c, r); err != nil {
+		v.bad("%s: %v", where, err) // a point adds amounts in two currencies
+	}
+}
+
+func (v *specValidator) table(i int, t Table) {
+	where := fmt.Sprintf("table %d (%s)", i+1, t.Title)
+	r := v.get(where, t.QueryID)
+	if r == nil || t.Compare == nil {
+		return
+	}
+	c := t.Compare
+	if !r.hasColumn(c.Dim, "dimension") {
+		v.bad("%s: compare dim %q is not a dimension of query %s", where, c.Dim, t.QueryID)
+	}
+	if !r.hasColumn(c.Measure, "measure") {
+		v.bad("%s: compare measure %q is not in query %s", where, c.Measure, t.QueryID)
+	}
+}
+
+// commentary checks the commentary against every result, not only those
+// the spec references: the agent may cite any query it ran.
+func (v *specValidator) commentary(text string) {
+	var used []*Result
+	for _, r := range v.results {
+		used = append(used, r)
+	}
+	if missing := CheckNarrative(text, used); len(missing) > 0 {
+		v.problems = append(v.problems, narrativeError(missing).Error())
+	}
 }
 
 func (r *Result) col(name string) int {
 	return slices.IndexFunc(r.Columns, func(c Column) bool { return c.Name == name })
 }
 
+// hasColumn reports whether the result has a column name of the given kind.
+func (r *Result) hasColumn(name, kind string) bool {
+	i := r.col(name)
+	return i >= 0 && r.Columns[i].Kind == kind
+}
+
 // sum adds a measure over rows whose dimensions match every where entry.
-func (r *Result) sum(measure string, where map[string]string) (float64, int, error) {
+func (r *Result) sum(measure string, where map[string]string) (Value, int, error) {
 	mi := r.col(measure)
 	if mi < 0 {
-		return 0, 0, fmt.Errorf("measure %q not in result", measure)
+		return Value{}, 0, fmt.Errorf("measure %q not in result", measure)
 	}
 	for d := range where {
 		if i := r.col(d); i < 0 || r.Columns[i].Kind != "dimension" {
-			return 0, 0, fmt.Errorf("where uses %q, which is not a dimension of this query", d)
+			return Value{}, 0, fmt.Errorf("where uses %q, which is not a dimension of this query", d)
 		}
 	}
-	if r.Columns[mi].Type == Ratio {
-		// A ratio can only be read from exactly one row.
-		var val float64
-		n := 0
-		for _, row := range r.Rows {
-			if rowMatches(r, row, where) {
-				if v, ok := row[mi].(float64); ok {
-					val, n = v, n+1
-				}
-			}
-		}
-		if n > 1 {
-			return 0, n, fmt.Errorf("ratio %s matches %d rows; narrow where to one row", measure, n)
-		}
-		return val, n, nil
-	}
-	var total float64
-	n := 0
+	var vals []Value
 	for _, row := range r.Rows {
-		if !rowMatches(r, row, where) {
-			continue
-		}
-		if v, ok := row[mi].(float64); ok {
-			total += v
-			n++
+		if v, ok := row[mi].(Value); ok && rowMatches(r, row, where) {
+			vals = append(vals, v)
 		}
 	}
-	return round(total, 2), n, nil
+	if len(vals) > 1 && r.Columns[mi].Type == Ratio {
+		return Value{}, len(vals), fmt.Errorf("ratio %s matches %d rows; narrow where to one row", measure, len(vals))
+	}
+	// Exact, in the amounts' own digits: a BHD total keeps its third
+	// decimal, and amounts in two currencies are refused, not added.
+	total, _, err := sumValues(vals)
+	if err != nil {
+		return Value{}, len(vals), fmt.Errorf("%s: %w; narrow where to one company", measure, err)
+	}
+	return total, len(vals), nil
 }
 
 func rowMatches(r *Result, row Row, where map[string]string) bool {
@@ -195,116 +235,4 @@ func rowMatches(r *Result, row Row, where map[string]string) bool {
 		}
 	}
 	return true
-}
-
-// formatValue renders a measure for display.
-func formatValue(v float64, c Column) string {
-	switch c.Type {
-	case Ratio:
-		return fmt.Sprintf("%.1f%%", v*100)
-	case Count:
-		return groupThousands(fmt.Sprintf("%.0f", v))
-	}
-	prefix := currencySymbol(c.Currency)
-	av := math.Abs(v)
-	sign := ""
-	if v < 0 {
-		sign = "−"
-	}
-	switch {
-	case av >= 1e9:
-		return fmt.Sprintf("%s%s%.2fB", sign, prefix, av/1e9)
-	case av >= 1e6:
-		return fmt.Sprintf("%s%s%.2fM", sign, prefix, av/1e6)
-	case av >= 1e4:
-		return fmt.Sprintf("%s%s%sK", sign, prefix, groupThousands(fmt.Sprintf("%.1f", av/1e3)))
-	}
-	return sign + prefix + groupThousands(fmt.Sprintf("%.2f", av))
-}
-
-// formatFull renders an amount with all digits, for tables.
-func formatFull(v float64, c Column) string {
-	switch c.Type {
-	case Ratio:
-		return fmt.Sprintf("%.1f%%", v*100)
-	case Count:
-		return groupThousands(fmt.Sprintf("%.0f", v))
-	}
-	s := groupThousands(fmt.Sprintf("%.2f", math.Abs(v)))
-	if v < 0 {
-		return "−" + s
-	}
-	return s
-}
-
-func currencySymbol(cur string) string {
-	switch cur {
-	case "USD":
-		return "$"
-	case "EUR":
-		return "€"
-	case "GBP":
-		return "£"
-	case "":
-		return ""
-	}
-	return cur + " "
-}
-
-func groupThousands(s string) string {
-	intPart, frac, hasFrac := strings.Cut(s, ".")
-	neg := strings.HasPrefix(intPart, "-")
-	intPart = strings.TrimPrefix(intPart, "-")
-	var b strings.Builder
-	for i, r := range intPart {
-		if i > 0 && (len(intPart)-i)%3 == 0 {
-			b.WriteByte(',')
-		}
-		b.WriteRune(r)
-	}
-	out := b.String()
-	if hasFrac {
-		out += "." + frac
-	}
-	if neg {
-		out = "-" + out
-	}
-	return out
-}
-
-// change describes current vs baseline for tiles and tables.
-func change(cur, base float64, c Column) (delta string, pct string, up bool) {
-	d := cur - base
-	up = d >= 0
-	if c.Type == Ratio {
-		return fmt.Sprintf("%+.1f pts", d*100), "", up
-	}
-	sign := "+"
-	if d < 0 {
-		sign = "−"
-	}
-	delta = sign + strings.TrimPrefix(formatValue(math.Abs(d), c), "−")
-	if base != 0 {
-		p := d / math.Abs(base) * 100
-		ps := "+"
-		if p < 0 {
-			ps = "−"
-		}
-		pct = fmt.Sprintf("%s%.1f%%", ps, math.Abs(p))
-	}
-	return delta, pct, up
-}
-
-// changeFull is change with the delta written in full, for tables.
-func changeFull(cur, base float64, c Column) (delta string, pct string, up bool) {
-	_, pct, up = change(cur, base, c)
-	if c.Type == Ratio {
-		delta, _, _ = change(cur, base, c)
-		return delta, pct, up
-	}
-	sign := "+"
-	if cur-base < 0 {
-		sign = "−"
-	}
-	return sign + formatFull(math.Abs(cur-base), c), pct, up
 }

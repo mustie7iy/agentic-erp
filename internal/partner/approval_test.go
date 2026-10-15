@@ -6,10 +6,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 )
 
 // TestChangesThroughApproval decides partner changes on their approval
@@ -54,9 +54,11 @@ func TestChangesThroughApproval(t *testing.T) {
 			return partner.Approvals{}.Cancelled(ctx, uuid.New(), uuid.New(), "c")
 		},
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+		})
 	}
 }
 
@@ -102,8 +104,20 @@ func TestSuppliersPort(t *testing.T) {
 	s := partner.Suppliers{}
 	err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
 		sup, ok, err := s.Supplier(ctx, f.Supplier, f.DE)
-		if err != nil || !ok || !sup.SetUp || sup.PaymentTermCode != "NT30" || sup.ReconciliationID != f.Account(t, "2000", "211000") || sup.Usable() != "" {
-			t.Errorf("supplier: %+v %v %v", sup, ok, err)
+		if err != nil || !ok {
+			t.Errorf("supplier: got %v %v, want found", ok, err)
+		}
+		if !sup.SetUp {
+			t.Error("supplier set up: got false, want true")
+		}
+		if sup.PaymentTermCode != "NT30" {
+			t.Errorf("supplier payment term: got %s, want NT30", sup.PaymentTermCode)
+		}
+		if want := f.Account(t, "2000", "211000"); sup.ReconciliationID != want {
+			t.Errorf("supplier reconciliation account: got %v, want %v", sup.ReconciliationID, want)
+		}
+		if got := sup.Usable(); got != "" {
+			t.Errorf("supplier usable: got %q, want \"\"", got)
 		}
 		if sup, _, _ := s.Supplier(ctx, f.Supplier, uuid.New()); sup.Usable() != "the supplier is not set up in this legal entity" {
 			t.Errorf("other legal entity: %q", sup.Usable())
@@ -116,9 +130,11 @@ func TestSuppliersPort(t *testing.T) {
 			"the business partner is not a supplier":                   {Status: "active"},
 			"the supplier is blocked for posting in this legal entity": {Status: "active", IsSupplier: true, SetUp: true, IsPostingBlocked: true},
 		} {
-			if got := sup.Usable(); got != want {
-				t.Errorf("usable: %q, want %q", got, want)
-			}
+			t.Run(want, func(t *testing.T) {
+				if got := sup.Usable(); got != want {
+					t.Errorf("got %q, want %q", got, want)
+				}
+			})
 		}
 		if ok, err := s.PaymentTermExists(ctx, "NT30"); !ok || err != nil {
 			t.Errorf("NT30: %v %v", ok, err)
@@ -135,9 +151,11 @@ func TestSuppliersPort(t *testing.T) {
 		"supplier": func(ctx context.Context) error { _, _, err := s.Supplier(ctx, f.Supplier, f.DE); return err },
 		"terms":    func(ctx context.Context) error { _, err := s.PaymentTermExists(ctx, "NT30"); return err },
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, name, call)
+		})
 	}
 }

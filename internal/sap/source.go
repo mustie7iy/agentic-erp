@@ -31,11 +31,11 @@ func (f FileSource) Name() string { return "file:" + f.Path }
 func (f FileSource) Extract(_ context.Context, scope Scope) (*Extract, error) {
 	data, err := os.ReadFile(f.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sap: read extract %s: %w", f.Path, err)
 	}
 	var all Extract
 	if err := json.Unmarshal(data, &all); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", f.Path, err)
+		return nil, fmt.Errorf("sap: parse extract %s: %w", f.Path, err)
 	}
 	return FilterScope(&all, scope), nil
 }
@@ -43,99 +43,62 @@ func (f FileSource) Extract(_ context.Context, scope Scope) (*Extract, error) {
 // WriteExtract saves an extract as JSON.
 func WriteExtract(path string, e *Extract) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return fmt.Errorf("sap: create directory of extract %s: %w", path, err)
 	}
 	data, _ := json.MarshalIndent(e, "", "  ") // plain data: cannot fail
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("sap: write extract %s: %w", path, err)
+	}
+	return nil
 }
 
 // FilterScope keeps only rows belonging to the scope's company codes and
 // fiscal year (leading ledger only for ACDOCA).
 func FilterScope(all *Extract, scope Scope) *Extract {
 	inCC := func(cc string) bool { return slices.Contains(scope.CompanyCodes, cc) }
-	pos, invs, vendors := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	out := &Extract{}
-	for _, r := range all.T001 {
-		if inCC(r.BUKRS) {
-			out.T001 = append(out.T001, r)
-		}
+	out.T001 = keep(all.T001, func(r T001) bool { return inCC(r.BUKRS) })
+	out.SKB1 = keep(all.SKB1, func(r SKB1) bool { return inCC(r.BUKRS) })
+	out.LFB1 = keep(all.LFB1, func(r LFB1) bool { return inCC(r.BUKRS) })
+	vendors := map[string]bool{}
+	for _, r := range out.LFB1 {
+		vendors[r.LIFNR] = true
 	}
-	for _, r := range all.SKB1 {
-		if inCC(r.BUKRS) {
-			out.SKB1 = append(out.SKB1, r)
-		}
+	out.LFA1 = keep(all.LFA1, func(r LFA1) bool { return vendors[r.LIFNR] })
+	out.LFBK = keep(all.LFBK, func(r LFBK) bool { return vendors[r.LIFNR] })
+	out.EKKO = keep(all.EKKO, func(r EKKO) bool { return inCC(r.BUKRS) })
+	pos := map[string]bool{}
+	for _, r := range out.EKKO {
+		pos[r.EBELN] = true
 	}
-	for _, r := range all.LFB1 {
-		if inCC(r.BUKRS) {
-			out.LFB1 = append(out.LFB1, r)
-			vendors[r.LIFNR] = true
-		}
+	out.EKPO = keep(all.EKPO, func(r EKPO) bool { return pos[r.EBELN] })
+	out.MSEG = keep(all.MSEG, func(r MSEG) bool { return pos[r.EBELN] })
+	out.RBKP = keep(all.RBKP, func(r RBKP) bool { return inCC(r.BUKRS) && r.GJAHR == scope.FiscalYear })
+	invs := map[string]bool{}
+	for _, r := range out.RBKP {
+		invs[r.BELNR+"/"+r.GJAHR] = true
 	}
-	for _, r := range all.LFA1 {
-		if vendors[r.LIFNR] {
-			out.LFA1 = append(out.LFA1, r)
-		}
-	}
-	for _, r := range all.LFBK {
-		if vendors[r.LIFNR] {
-			out.LFBK = append(out.LFBK, r)
-		}
-	}
-	for _, r := range all.EKKO {
-		if inCC(r.BUKRS) {
-			out.EKKO = append(out.EKKO, r)
-			pos[r.EBELN] = true
-		}
-	}
-	for _, r := range all.EKPO {
-		if pos[r.EBELN] {
-			out.EKPO = append(out.EKPO, r)
-		}
-	}
-	for _, r := range all.MSEG {
-		if pos[r.EBELN] {
-			out.MSEG = append(out.MSEG, r)
-		}
-	}
-	for _, r := range all.RBKP {
-		if inCC(r.BUKRS) && r.GJAHR == scope.FiscalYear {
-			out.RBKP = append(out.RBKP, r)
-			invs[r.BELNR+"/"+r.GJAHR] = true
-		}
-	}
-	for _, r := range all.RSEG {
-		if invs[r.BELNR+"/"+r.GJAHR] {
-			out.RSEG = append(out.RSEG, r)
-		}
-	}
-	for _, r := range all.ACDOCA {
-		if r.RLDNR == "0L" && inCC(r.RBUKRS) && r.GJAHR == scope.FiscalYear {
-			out.ACDOCA = append(out.ACDOCA, r)
-		}
-	}
+	out.RSEG = keep(all.RSEG, func(r RSEG) bool { return invs[r.BELNR+"/"+r.GJAHR] })
+	out.ACDOCA = keep(all.ACDOCA, func(r ACDOCA) bool { return r.RLDNR == "0L" && inCC(r.RBUKRS) && r.GJAHR == scope.FiscalYear })
 	// Customizing: company-specific tables by company code; client-wide
 	// tables (payment terms, roles) unchanged.
 	out.T052 = all.T052
-	for _, r := range all.T007A {
-		if inCC(r.BUKRS) {
-			out.T007A = append(out.T007A, r)
-		}
-	}
-	for _, r := range all.T030 {
-		if inCC(r.BUKRS) {
-			out.T030 = append(out.T030, r)
-		}
-	}
-	for _, r := range all.T169G {
-		if inCC(r.BUKRS) {
-			out.T169G = append(out.T169G, r)
-		}
-	}
-	for _, r := range all.T012K {
-		if inCC(r.BUKRS) {
-			out.T012K = append(out.T012K, r)
-		}
-	}
+	out.T007A = keep(all.T007A, func(r T007A) bool { return inCC(r.BUKRS) })
+	out.T030 = keep(all.T030, func(r T030) bool { return inCC(r.BUKRS) })
+	out.T169G = keep(all.T169G, func(r T169G) bool { return inCC(r.BUKRS) })
+	out.T012K = keep(all.T012K, func(r T012K) bool { return inCC(r.BUKRS) })
 	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
+	return out
+}
+
+// keep returns the rows that match, in order. It returns nil, not an empty
+// slice, when none do, so an empty table is written as null in an extract.
+func keep[T any](rows []T, match func(T) bool) []T {
+	var out []T
+	for _, r := range rows {
+		if match(r) {
+			out = append(out, r)
+		}
+	}
 	return out
 }

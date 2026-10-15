@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 // Client calls the API as one principal.
@@ -64,7 +66,40 @@ func (r Response) Decode(into any) error {
 	if err := r.Err(); err != nil {
 		return err
 	}
-	return json.Unmarshal(r.Body, into)
+	return errs.Wrapf(json.Unmarshal(r.Body, into), "decode response body")
+}
+
+// List reads every page of the list operation at path with the query, 500
+// items a page, following next_page_token until a page has none: a caller
+// that read only the first page would silently miss the rest.
+func List[T any](ctx context.Context, c *Client, path string, query url.Values) ([]T, error) {
+	q := url.Values{"page_size": {"500"}}
+	for k, v := range query {
+		q[k] = v
+	}
+	var out []T
+	for {
+		resp, err := c.Do(ctx, http.MethodGet, path, q, nil, "")
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Items         []T
+			NextPageToken string `json:"next_page_token"`
+		}
+		if err := resp.Decode(&page); err != nil {
+			return nil, fmt.Errorf("apitools: list %s: %w", path, err)
+		}
+		out = append(out, page.Items...)
+		if page.NextPageToken == "" {
+			return out, nil
+		}
+		// A server answering the token it was sent would be read forever.
+		if page.NextPageToken == q.Get("page_token") {
+			return nil, fmt.Errorf("apitools: list %s: page token %q repeated", path, page.NextPageToken)
+		}
+		q.Set("page_token", page.NextPageToken)
+	}
 }
 
 // Do performs a call. Unsafe calls get a fresh Idempotency-Key; ifMatch,
@@ -107,7 +142,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	if err != nil {
 		return Response{}, fmt.Errorf("apitools: %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return Response{}, fmt.Errorf("apitools: %s %s: %w", method, path, err)

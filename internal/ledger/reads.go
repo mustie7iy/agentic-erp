@@ -3,12 +3,15 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -49,8 +52,8 @@ const accountSelect = `SELECT a.id, a.chart_id, a.number, a.name, a.account_type
 
 func scanAccount(row pgx.Row) (Account, error) {
 	var a Account
-	err := row.Scan(&a.ID, &a.ChartID, &a.Number, &a.Name, &a.AccountType, &a.IsBalanceSheet, &a.ReconciliationKind, &a.Status,
-		&a.Settings, &a.Version, &a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy)
+	err := errs.Wrapf(row.Scan(&a.ID, &a.ChartID, &a.Number, &a.Name, &a.AccountType, &a.IsBalanceSheet, &a.ReconciliationKind, &a.Status,
+		&a.Settings, &a.Version, &a.CreatedAt, &a.CreatedBy, &a.UpdatedAt, &a.UpdatedBy), "scan account")
 	return a, err
 }
 
@@ -66,9 +69,12 @@ func GetAccount(ctx context.Context, id uuid.UUID) (Account, error) {
 	}
 	a, err := scanAccount(tx.QueryRow(ctx, accountSelect+` WHERE a.id = $3`, access.All, access.IDs, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Account{}, problem.NotFound("No account with this id.")
+		return Account{}, problem.NotFoundOf("account")
 	}
-	return a, err
+	if err != nil {
+		return Account{}, fmt.Errorf("ledger: read account %s: %w", id, err)
+	}
+	return a, nil
 }
 
 // OpenItem is an uncleared line on a supplier or customer reconciliation
@@ -80,7 +86,7 @@ type OpenItem struct {
 	AccountID      uuid.UUID
 	PartnerID      *uuid.UUID
 	PostingDate    time.Time
-	TC, LC         int64
+	TC, LC         money.Minor
 	CurrencyTC     string
 	CurrencyLC     string
 	ExpTC, ExpLC   int
@@ -102,8 +108,8 @@ const openItemSelect = `SELECT * FROM (SELECT l.fiscal_year, l.journal_entry_id,
 
 func scanOpenItem(row pgx.Row) (OpenItem, error) {
 	var o OpenItem
-	err := row.Scan(&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate, &o.TC, &o.LC,
-		&o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference)
+	err := errs.Wrapf(row.Scan(&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate, &o.TC, &o.LC,
+		&o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference), "scan open item")
 	return o, err
 }
 
@@ -114,9 +120,9 @@ type Balance struct {
 	FiscalPeriod      int16
 	CurrencyTC        string
 	ExpTC             int
-	DebitTC, CreditTC int64
-	DebitLC, CreditLC int64
-	DebitGC, CreditGC int64
+	DebitTC, CreditTC money.Minor
+	DebitLC, CreditLC money.Minor
+	DebitGC, CreditGC money.Minor
 	UpdatedAt         time.Time
 }
 
@@ -151,7 +157,7 @@ const balanceSelect = `SELECT * FROM (SELECT md5(account_id::text || '/' || fisc
 
 func scanBalance(row pgx.Row) (Balance, error) {
 	var b Balance
-	err := row.Scan(&b.ID, &b.AccountID, &b.FiscalPeriod, &b.CurrencyTC, &b.ExpTC, &b.DebitTC, &b.CreditTC, &b.DebitLC, &b.CreditLC,
-		&b.DebitGC, &b.CreditGC, &b.UpdatedAt)
+	err := errs.Wrapf(row.Scan(&b.ID, &b.AccountID, &b.FiscalPeriod, &b.CurrencyTC, &b.ExpTC, &b.DebitTC, &b.CreditTC, &b.DebitLC, &b.CreditLC,
+		&b.DebitGC, &b.CreditGC, &b.UpdatedAt), "scan balance")
 	return b, err
 }

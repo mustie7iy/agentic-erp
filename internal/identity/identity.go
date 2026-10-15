@@ -21,21 +21,24 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 func init() {
+	// The subject alone (principal_subject) is unique until the contract
+	// step drops that index; then the issuer and subject are (ADR-0010).
+	subjectTaken := func() *problem.Problem {
+		return problem.Conflict("identity.subject_taken", "Another principal already has this identity provider subject.")
+	}
 	for name, p := range map[string]func() *problem.Problem{
-		"principal_subject": func() *problem.Problem {
-			return problem.Conflict("identity.subject_taken", "Another principal already has this identity provider subject.")
-		},
+		"principal_subject":        subjectTaken,
+		"principal_issuer_subject": subjectTaken,
 		"role_tenant_id_code_key": func() *problem.Problem {
 			return problem.Conflict("identity.role_code_taken", "Another role already has this code.")
 		},
@@ -80,13 +83,6 @@ const grantColumns = `id, valid_from, valid_to, created_at, created_by, ended_at
 
 func (g *Grant) fields() []any {
 	return []any{&g.ID, &g.ValidFrom, &g.ValidTo, &g.CreatedAt, &g.CreatedBy, &g.EndedAt, &g.EndedBy}
-}
-
-// today is the database's current date: the day validity is judged on.
-func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var d time.Time
-	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	return d, err
 }
 
 // Validity is the requested period of a new grant.
@@ -172,7 +168,7 @@ func sodConflict(ctx context.Context, tx pgx.Tx, principal, role, rule uuid.UUID
 		return nil
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("identity: check segregation of duties: %w", err)
 	}
 	return problem.Conflict("identity.sod_conflict", "Segregation of duties: principal "+c.Principal.String()+" would hold both "+
 		c.PermissionA+" and "+c.PermissionB+".")
@@ -190,27 +186,8 @@ func nilIfZero(id uuid.UUID) *uuid.UUID {
 // commit.
 func agentApprovalsNow(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, `SET CONSTRAINTS identity.principal_role_agent_approvals, identity.role_permission_agent_approvals IMMEDIATE`)
-	return err
-}
-
-// record publishes the events and adds the audit entry of a change.
-func record(ctx context.Context, action, objectType string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
+	if err != nil {
+		return fmt.Errorf("identity: check agent approvals: %w", err)
 	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
-}
-
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
-
-// referenceError turns "not found" for a referenced resource into 422 on
-// the referencing field.
-func referenceError(err error, field, what string) error {
-	if problem.From(err).Status == 404 {
-		return problem.Unprocessable("request.reference_not_found", "No "+what+" with this id.",
-			problem.FieldError{Field: field, Code: "not_found", Message: "no " + what + " with this id"})
-	}
-	return err
+	return nil
 }

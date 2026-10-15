@@ -15,15 +15,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"regexp"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -107,7 +107,10 @@ type Date struct{ time.Time }
 func (d *Date) UnmarshalJSON(b []byte) error {
 	t, err := time.Parse(`"2006-01-02"`, string(b))
 	d.Time = t
-	return err
+	if err != nil {
+		return fmt.Errorf("partner: parse date: %w", err) // the parse error quotes the input
+	}
+	return nil
 }
 
 // MarshalJSON writes "2006-01-02".
@@ -182,7 +185,7 @@ func scanPartner(row pgx.Row) (Partner, error) {
 	var p Partner
 	err := row.Scan(&p.ID, &p.Number, &p.Kind, &p.Name, &p.LegalName, &p.CountryCode, &p.Language, &p.Status, &p.Extensions,
 		&p.Version, &p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.Roles, &p.SupplierCompanies, &p.Addresses, &p.TaxIdentifiers)
-	return p, err
+	return p, errs.Wrapf(err, "scan business partner")
 }
 
 // visible keeps the company data of legal entities the caller may act in.
@@ -197,8 +200,6 @@ func visible(p Partner, access authz.Access) Partner {
 	return p
 }
 
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
-
 func getPartner(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Partner, error) {
 	q := partnerSelect + ` WHERE p.id = $1`
 	if lock {
@@ -206,9 +207,12 @@ func getPartner(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Partne
 	}
 	p, err := scanPartner(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p, notFound("business partner")
+		return p, problem.NotFoundOf("business partner")
 	}
-	return p, err
+	if err != nil {
+		return p, fmt.Errorf("partner: read business partner %s: %w", id, err)
+	}
+	return p, nil
 }
 
 // Warning is a finding recorded on a partner change.
@@ -245,7 +249,7 @@ func scanChange(row pgx.Row) (Change, error) {
 	var c Change
 	err := row.Scan(&c.ID, &c.Number, &c.Kind, &c.PartnerID, &c.Payload, &c.Reason, &c.Warnings, &c.Status, &c.WorkflowRequestID,
 		&c.RequestedBy, &c.AppliedAt, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
-	return c, err
+	return c, errs.Wrapf(err, "scan partner change")
 }
 
 func getChange(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Change, error) {
@@ -255,9 +259,12 @@ func getChange(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Change,
 	}
 	c, err := scanChange(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return c, notFound("partner change")
+		return c, problem.NotFoundOf("partner change")
 	}
-	return c, err
+	if err != nil {
+		return c, fmt.Errorf("partner: read partner change %s: %w", id, err)
+	}
+	return c, nil
 }
 
 // Masked returns the payload without sealed values and fingerprints.
@@ -313,70 +320,33 @@ func scanBank(row pgx.Row) (BankAccount, error) {
 	var b BankAccount
 	err := row.Scan(&b.ID, &b.PartnerID, &b.Purpose, &b.AccountLast4, &b.AccountScheme, &b.BIC, &b.BankCountryCode, &b.HolderName,
 		&b.ValidFrom, &b.ValidTo, &b.PartnerChangeID, &b.CreatedAt, &b.CreatedBy, &b.EndedAt, &b.EndedBy)
-	return b, err
+	return b, errs.Wrapf(err, "scan bank account")
 }
 
 func getBank(ctx context.Context, tx pgx.Tx, partnerID, id uuid.UUID) (BankAccount, error) {
 	b, err := scanBank(tx.QueryRow(ctx, `SELECT `+bankColumns+` FROM partner.bank_account WHERE id = $1 AND partner_id = $2`, id, partnerID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return b, notFound("bank account of this partner")
+		return b, problem.NotFoundOf("bank account of this partner")
 	}
-	return b, err
+	if err != nil {
+		return b, fmt.Errorf("partner: read bank account %s of business partner %s: %w", id, partnerID, err)
+	}
+	return b, nil
 }
 
 // nextNumber issues the tenant's next number with the prefix (BP or PC):
 // the prefix and eight digits. Numbering is serialized per tenant and table.
 func nextNumber(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, table, prefix string) (string, error) {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "partner."+table+"."+tenant.String()); err != nil {
-		return "", err
+		return "", fmt.Errorf("partner: lock the %s numbering: %w", table, err)
 	}
 	var n string
 	err := tx.QueryRow(ctx, `SELECT $1 || lpad((coalesce(substr(max(number), 3)::bigint, 0) + 1)::text, 8, '0')
 		FROM `+pgx.Identifier{"partner", table}.Sanitize()+` WHERE number LIKE $1 || '%'`, prefix).Scan(&n)
-	return n, err
-}
-
-var extensionKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// checkExtensions enforces snake_case keys (ADR-0009).
-func checkExtensions(ext map[string]any) error {
-	for k := range ext {
-		if !extensionKey.MatchString(k) {
-			return problem.Unprocessable("request.invalid_extension", "Custom field keys are snake_case.",
-				problem.FieldError{Field: "extensions." + k, Code: "invalid_key", Message: "snake_case, starting with a letter"})
-		}
+	if err != nil {
+		return n, fmt.Errorf("partner: issue the next %s number: %w", table, err)
 	}
-	return nil
-}
-
-// mergePatch applies an RFC 7396 merge patch to a JSON object.
-func mergePatch(target, patch map[string]any) map[string]any {
-	out := make(map[string]any, len(target))
-	for k, v := range target {
-		out[k] = v
-	}
-	for k, v := range patch {
-		switch pv := v.(type) {
-		case nil:
-			delete(out, k)
-		case map[string]any:
-			tv, _ := out[k].(map[string]any)
-			out[k] = mergePatch(tv, pv)
-		default:
-			out[k] = v
-		}
-	}
-	return out
-}
-
-// record publishes the events and adds the audit entry of a change.
-func record(ctx context.Context, action, objectType string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, e := range events {
-		if _, err := outbox.Add(ctx, e); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: objectType, ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return n, nil
 }
 
 func event(name string, aggregate uuid.UUID, aggregateType string, payload map[string]any) outbox.Event {
@@ -387,13 +357,6 @@ func event(name string, aggregate uuid.UUID, aggregateType string, payload map[s
 func toJSON(v any) map[string]any {
 	b, _ := json.Marshal(v) // payload structs always encode
 	var m map[string]any
-	_ = json.Unmarshal(b, &m)
+	_ = json.Unmarshal(b, &m) // b was just encoded from a struct
 	return m
-}
-
-// today is the database's current date, the one its validity triggers use.
-func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var d time.Time
-	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	return d, err
 }

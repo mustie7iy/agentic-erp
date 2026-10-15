@@ -836,7 +836,7 @@ paths:
       tags:
         - identity
       summary: Create a principal
-      description: Creates a person, agent or service principal. Identity administration is human-only.
+      description: "Creates a person, agent or service principal. Identity administration is human-only. The request can name a subject but no issuer: a principal created with a subject is bound to the creating administrator's identity provider (the issuer the administrator's own principal is bound to) with that subject, and only that provider's tokens act as it. An administrator whose own principal is bound to no issuer cannot create a person or service with a subject (422 `identity.creator_without_issuer`); it can still create an agent."
       x-permission: identity.access.manage
       x-agent: false
       parameters:
@@ -3838,7 +3838,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: Posts a reversal entry with every amount negated and links both entries. An entry can be reversed at most once (409). Returns the new reversal entry.
+      description: "Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry."
       x-permission: ledger.entry.post
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -4259,7 +4259,7 @@ paths:
       tags:
         - ledger
       summary: Clear open items
-      description: Clears open items against each other and posts the clearing entry. A line already cleared is 409.
+      description: "Clears open items against each other and posts the clearing entry. A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run settles or frees it."
       x-permission: ledger.clearing.post
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -5955,7 +5955,7 @@ paths:
       tags:
         - payables
       summary: Update a parked supplier invoice
-      description: "Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
+      description: "Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. An invoice on a purchase order is matched again after a change before it posts, and the change unlinks an approved exception request (`workflow_request_id`), decided on the invoice as it was."
       x-permission: payables.invoice.capture
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -6062,7 +6062,7 @@ paths:
       tags:
         - payables
       summary: Post a supplier invoice
-      description: "Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires status `parked`, a clean latest match for PO-based invoices (or an approved exception), an open period and an unblocked supplier."
+      description: "Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an invoice changed after its match, including a hold and release by hand, is matched again, and an edit unlinks an approved exception), an open period and an unblocked supplier."
       x-permission: payables.invoice.post
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -6637,7 +6637,7 @@ paths:
       tags:
         - payments
       summary: Release a payment run
-      description: "The F110 release step, a direct human transition (not an approval request), as an operation (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its items (one transaction per payment, progress on the operation), and the bank file is produced; the run is `released` when the operation succeeds. Every supplier is checked again before anything is posted (409 `payments.proposal_outdated`). Human-only. Segregation of duties: the proposer can never release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release operation, which resumes it."
+      description: "The F110 release step, a direct human transition (not an approval request), as an operation (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its items (one transaction per payment, progress on the operation), and the bank file is produced; the run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet whose item was reversed, or is no longer open, since the proposal can never post: the release drops it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release operation, which resumes it."
       x-permission: payments.run.release
       x-agent: false
       parameters:
@@ -6753,7 +6753,7 @@ paths:
       tags:
         - payments
       summary: List payments of a run
-      description: Payments in the run.
+      description: "Payments in the run. A payment the release dropped (its item reversed or no longer open since the proposal) is not listed: its supplier is in the run's exclusions, with reason `item_reversed` or `item_not_open`."
       x-permission: payments.run.read
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -9728,7 +9728,7 @@ components:
       properties:
         supplier:
           $ref: "#/components/schemas/PartnerSummary"
-          description: "The supplier, when `expand=supplier` was requested."
+          description: "The supplier, when `expand=supplier` was requested and the supplier is found; otherwise `expanded` is left out."
           readOnly: true
       examples:
         - supplier:
@@ -10892,6 +10892,7 @@ components:
             - auto_post
             - review
             - exception
+            - not_evaluable
           readOnly: true
         expected_issues:
           type: array
@@ -15278,7 +15279,7 @@ components:
       properties:
         code:
           type: string
-          description: "Stable issue code, for example `price_variance`, `quantity_not_received`."
+          description: "Stable issue code: `tax_or_total_mismatch`, `order_not_open`, `order_item_missing`, `price_variance` or `quantity_exceeds_received`. New codes may be added, so a client treats an unknown code as an issue."
         item_no:
           type: integer
           format: int32
@@ -15288,8 +15289,9 @@ components:
           type: string
           description: Explanation.
       examples:
-        - code: required
-          message: invoice_date is required.
+        - code: price_variance
+          item_no: 1
+          message: "order item 10: invoiced 109.00 but the order price gives 100.00 (variance 9.00, tolerance 2.00 or 5.50 EUR)"
     MatchResult:
       type: object
       description: "One three-way match evaluation (invoice vs order vs receipt). Insert-only history; `evaluated_*` play the role of `created_*`."
@@ -15338,6 +15340,10 @@ components:
           format: uuid
           description: Principal that ran the match.
           readOnly: true
+        decision:
+          $ref: "#/components/schemas/MatchDecision"
+          description: "The invoice flow's decision on a clean match, in the response of `:match` only (it is not stored, and the ETag is that of the stored result): the rule regression suites and simulations apply. Absent when the match found issues (the invoice is held and decided on its exception request) and on reads of the history."
+          readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
           supplier_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d84"
@@ -15348,6 +15354,28 @@ components:
               message: invoice_date is required.
           config_version: 42
           evaluated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbb"
+    MatchDecision:
+      type: object
+      description: "Whether a matched invoice is posted automatically: its gross amount, converted into the company's currency at the average rate of its invoice date, compared exactly with the company's `auto_post_limit`."
+      required:
+        - outcome
+        - reason
+      properties:
+        outcome:
+          type: string
+          description: "`auto_post`: within the limit, the rule posts it; `review`: above it, a person posts it; `not_evaluable`: its gross amount is out of range in the company's currency (without a rate the match is refused, 422 `ledger.no_exchange_rate`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - auto_post
+            - review
+            - not_evaluable
+          readOnly: true
+        reason:
+          type: string
+          description: "Why: the converted gross and the limit, or for `not_evaluable` the stable issue code (`amount_too_large`)."
+          readOnly: true
+      examples:
+        - outcome: auto_post
+          reason: gross 43400.00 EUR is within the auto-post limit 50000.00 EUR
     MatchResultPage:
       type: object
       description: One page of match results.
@@ -15717,7 +15745,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -15725,6 +15753,8 @@ components:
             - bank_change_pending
             - bank_change_hold
             - debit_balance
+            - item_reversed
+            - item_not_open
           readOnly: true
         amount:
           $ref: "#/components/schemas/Money"

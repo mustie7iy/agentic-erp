@@ -71,8 +71,14 @@ func TestProposalBudget(t *testing.T) {
 		uuidOf(op["resource"].(string)[len("/v1/payment-runs/"):])).Scan(&payments, &items, &total); err != nil {
 		t.Fatal(err)
 	}
-	if payments != 2000 || items != 100000 || total != 2000*5000 {
-		t.Fatalf("proposal: %d payments, %d items, total %d", payments, items, total)
+	if payments != 2000 {
+		t.Errorf("proposal payments: got %d, want 2000", payments)
+	}
+	if items != 100000 {
+		t.Errorf("proposal items: got %d, want 100000", items)
+	}
+	if total != 2000*5000 {
+		t.Errorf("proposal total: got %d, want %d", total, 2000*5000)
 	}
 	t.Logf("proposal of %d items: %v", items, elapsed)
 	if elapsed > 60*time.Second {

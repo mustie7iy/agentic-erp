@@ -182,6 +182,32 @@ example a payment run in `proposing`).
 `GET /v1/operations/{id}` polls; `POST /v1/operations/{id}:cancel` cancels
 where the operation supports it; completion is also published as an event.
 
+A succeeded, failed or cancelled operation is final. Cancelling one is
+`409 platform.operation_not_cancellable`; a worker that tries to finish it
+again gets the internal conflict `platform.operation_finished` (never
+returned to a client) and changes nothing, so the
+outcome is never overwritten and completion is published once; progress
+reported late is ignored and never brings it back to `running`.
+
+Cancellation stops the work where the operation can stop, not what is
+already done. A payment-run release (`:release`, 202) posts one payment per
+step: cancelling its operation keeps the payments already posted, writes no
+bank file, and leaves the operation `cancelled` and the run `releasing`
+(with nothing posted, a refused release returns the run to `proposed`). The
+in-process releaser of a cell without a workflow engine keeps posting the
+release it is on. The run is resumed with `:release` again, which starts a
+new operation and posts only what is left; steps of the cancelled
+operation still running then do nothing. While the run is releasing, an
+invoice whose payment is not posted yet cannot be reversed
+(`409 payables.invoice_in_payment_run`), so the resumed release never pays a
+reversed invoice. A payment that can never post (an item reversed, or no
+longer open, since the proposal) is dropped by the release rather than
+failing it again on every resume: its supplier is excluded with
+`item_reversed` or `item_not_open`, its items are freed and
+`PaymentExcluded` is published; a release that drops every payment fails
+with `payments.nothing_to_pay` and returns the run to `proposed`. A run has
+at most one bank file.
+
 ## 4.9 Security
 
 - OAuth 2.0 bearer tokens (OIDC) from the tenant's identity provider; the
@@ -195,6 +221,12 @@ where the operation supports it; completion is also published as an event.
   caller's companies are 404, not 403, so ids cannot be probed.
 - Segregation of duties is checked on transitions (for example, the user who
   created a payment run cannot release it).
+- A document's journal entry is reversed through the document, never
+  around it: `journal-entries/{id}:reverse` refuses a supplier invoice's
+  entry (`409 ledger.entry_owned_elsewhere`, naming
+  `supplier-invoices/{id}:reverse`), so `ledger.entry.post` cannot stand in
+  for `payables.invoice.post`. Entries of contexts with no reversal path yet
+  (procurement, receivables, assets) are refused the same way, saying so.
 - Approval decisions (`:approve`, `:reject` on approval requests) require a
   human principal; agent tokens are refused with `403 identity.agent_not_allowed`
   and the database enforces the same rule (ADR-0010).
@@ -267,6 +299,40 @@ and role administration) are never exposed as agent tools.
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |
 | platform | `operations` | `:cancel` |
+
+`:match` on a supplier invoice answers the match result with the invoice
+flow's `decision` (F12b): `outcome` `auto_post` (clean, gross within the
+company's auto-post limit), `review` (above it) or `not_evaluable` (the
+gross is out of range in the company's currency; `reason` is the stable
+code `amount_too_large`), with a `reason`. Without an average rate on the
+invoice date the match is refused (422 `ledger.no_exchange_rate`) and
+nothing is recorded. It
+is the rule simulations and regression suites apply (03 §3.9): the gross is
+converted at the average rate of the invoice date and its exact value, before
+rounding to the company's minor units, is compared with the limit, as an item's
+price variance is with the absolute tolerance (F13): 50,000.004 EUR is above
+a limit of 50,000.00, though `reason` shows amounts rounded. A
+match with issues has no `decision` (the invoice is held and decided on its
+exception request), and neither do reads of the match history, as the
+decision is not stored; the ETag of the `:match` response is that of the
+stored result. Clients act on the server's decision rather than
+compare amounts themselves; a server without the field leaves the decision
+unavailable, not guessed. `:post` of an invoice on a purchase order needs
+its latest match to be clean and of the invoice's current version (or an
+exception approved at that version, F16): an invoice changed after its
+match or its approval is refused (409 `payables.match_required`) until it
+is matched, or its exception approved, again (F13). `erp invoices`
+posts or holds with the ETag it sent to `:match`, which a clean match of a
+parked invoice leaves valid, so an edit in between fails with 412 and the
+invoice is left parked for the next run rather than acted on unmatched.
+A match of a parked invoice whose exception was approved at its current
+version records its issues but leaves it parked on that approval: it is not
+held again nor its approvers asked again (F18). `erp invoices` does not
+match such an invoice (`workflow_request_id` set) at all, nor post it: a
+match with issues answers no decision and `:post` does not check the
+auto-post limit, so the rule cannot tell an approved exception it may post
+from one a person reviews; it lists the invoice as left parked for a
+person to decide.
 
 ## 4.15 Control plane
 

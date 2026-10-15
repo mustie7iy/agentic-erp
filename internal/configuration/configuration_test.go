@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -67,7 +67,9 @@ func setup(t *testing.T, bare bool) env {
 			ten.ID, r, ten.Human.ID)
 	}
 	if !bare {
-		e.bootstrap(t, jsonOf(t, document(t)))
+		if err := e.bootstrap(t, jsonOf(t, document(t))); err != nil {
+			t.Fatalf("bootstrap the configuration: %v", err)
+		}
 	}
 	return e
 }
@@ -102,46 +104,59 @@ func events(t *testing.T, ten pgtest.Tenant, name string) []map[string]any {
 
 func TestBootstrap(t *testing.T) {
 	e := setup(t, true)
-	if err := e.bootstrap(t, `{"version": 1}`); err == nil || !strings.Contains(err.Error(), "config.validation_failed") {
-		t.Fatalf("invalid document: %v", err)
-	}
-	if err := e.bootstrap(t, `{"nonsense": true}`); err == nil || !strings.Contains(err.Error(), "cannot be read") {
-		t.Fatalf("unreadable document: %v", err)
-	}
+	pgtest.WantErr(t, e.bootstrap(t, `{"version": 1}`), "config.validation_failed")
+	pgtest.WantErr(t, e.bootstrap(t, `{"nonsense": true}`), "cannot be read")
 	foreign := document(t)
 	foreign.NumberRanges[0].Company = "9999"
-	if err := e.bootstrap(t, jsonOf(t, foreign)); err == nil || !strings.Contains(err.Error(), "config.validation_failed") {
-		t.Fatalf("unknown company: %v", err)
-	}
+	pgtest.WantErr(t, e.bootstrap(t, jsonOf(t, foreign)), "config.validation_failed")
 	// Change requests need a configuration to change.
 	e.Problem(409, "config.not_bootstrapped", "POST", "/v1/change-requests", `{"title": "T", "base_version": 1, "proposed": {}}`, "")
 
 	if err := e.bootstrap(t, jsonOf(t, document(t))); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.bootstrap(t, jsonOf(t, document(t))); err == nil || !strings.Contains(err.Error(), "config.already_bootstrapped") {
-		t.Fatalf("second bootstrap: %v", err)
-	}
+	pgtest.WantErr(t, e.bootstrap(t, jsonOf(t, document(t))), "config.already_bootstrapped")
 	list, _ := e.Must(200, "GET", "/v1/config-versions", "", "")
 	items := list["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("versions: got %d %v, want 1", len(items), items)
+	}
 	v := items[0].(map[string]any)
-	if len(items) != 1 || v["number"] != float64(1) || v["source"] != "bootstrap" || v["is_active"] != true || v["change_request_id"] != nil ||
-		v["document"].(map[string]any)["version"] != float64(1) {
-		t.Fatalf("versions: %v", list)
+	for field, want := range map[string]any{"number": float64(1), "source": "bootstrap", "is_active": true, "change_request_id": nil} {
+		if v[field] != want {
+			t.Errorf("version %s: got %v, want %v", field, v[field], want)
+		}
+	}
+	if got := v["document"].(map[string]any)["version"]; got != float64(1) {
+		t.Errorf("version document version: got %v, want 1", got)
 	}
 	got, tag := e.Must(200, "GET", "/v1/config-versions/"+v["id"].(string), "", "")
-	if got["number"] != float64(1) || len(tag) < 10 {
-		t.Fatal(got, tag)
+	if got["number"] != float64(1) {
+		t.Errorf("get version number: got %v, want 1", got["number"])
+	}
+	if len(tag) < 10 {
+		t.Errorf("get version tag: got %q, want at least 10 characters", tag)
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/config-versions/"+uuid.NewString(), "", "")
 	ranges, _ := e.Must(200, "GET", "/v1/number-ranges", "", "")
 	r := ranges["items"].([]any)[0].(map[string]any)
-	if r["legal_entity_id"] != e.le.String() || r["prefix"] != "SI-" || r["next_value"] != float64(1) || r["is_gapless"] != true {
-		t.Fatalf("ranges: %v", ranges)
+	for field, want := range map[string]any{"legal_entity_id": e.le.String(), "prefix": "SI-", "next_value": float64(1), "is_gapless": true} {
+		if r[field] != want {
+			t.Errorf("range %s: got %v, want %v", field, r[field], want)
+		}
 	}
 	activated := events(t, e.ten, "configuration_activated")
-	if len(activated) != 1 || activated[0]["source"] != "bootstrap" || activated[0]["previous_version"] != nil || len(activated[0]["hash"].(string)) != 64 {
-		t.Fatalf("events: %v", activated)
+	if len(activated) != 1 {
+		t.Fatalf("activated events: got %d %v, want 1", len(activated), activated)
+	}
+	if activated[0]["source"] != "bootstrap" {
+		t.Errorf("activated event source: got %v, want bootstrap", activated[0]["source"])
+	}
+	if activated[0]["previous_version"] != nil {
+		t.Errorf("activated event previous_version: got %v, want none", activated[0]["previous_version"])
+	}
+	if hash := activated[0]["hash"].(string); len(hash) != 64 {
+		t.Errorf("activated event hash: got %q, want 64 characters", hash)
 	}
 }
 
@@ -152,39 +167,75 @@ func TestNumberRangeChange(t *testing.T) {
 	r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/change-requests", Tenant: e.ten.ID, As: e.ten.Human, Key: apitest.NewKey(),
 		Body: fmt.Sprintf(`{"title": "Payment numbers 2026", "base_version": 1, "proposed": %s}`, jsonOf(t, doc))})
 	cr := apitest.JSON(t, r)
-	if r.Code != 201 || r.Header().Get("Location") != "/v1/change-requests/"+cr["id"].(string) || cr["number"] != "CR-000001" ||
-		cr["status"] != "draft" || cr["author_id"] != e.ten.Human.ID.String() || len(cr["items"].([]any)) != 0 || cr["rationale"] != "" {
-		t.Fatalf("create: %d %v", r.Code, cr)
+	if r.Code != 201 {
+		t.Fatalf("create: got %d %v, want 201", r.Code, cr)
+	}
+	if got, want := r.Header().Get("Location"), "/v1/change-requests/"+cr["id"].(string); got != want {
+		t.Errorf("create Location: got %s, want %s", got, want)
+	}
+	for field, want := range map[string]any{"number": "CR-000001", "status": "draft", "author_id": e.ten.Human.ID.String(), "rationale": ""} {
+		if cr[field] != want {
+			t.Errorf("create %s: got %v, want %v", field, cr[field], want)
+		}
+	}
+	if items := cr["items"].([]any); len(items) != 0 {
+		t.Errorf("create items: got %v, want none", items)
 	}
 	path := "/v1/change-requests/" + cr["id"].(string)
 	got, _ := e.Must(200, "PATCH", path, `{"title": "Payment number range 2026", "rationale": "New document type"}`, `"1"`)
-	if got["title"] != "Payment number range 2026" || got["version"] != float64(2) {
-		t.Fatal(got)
+	if got["title"] != "Payment number range 2026" {
+		t.Errorf("patched title: got %v, want Payment number range 2026", got["title"])
+	}
+	if got["version"] != float64(2) {
+		t.Errorf("patched version: got %v, want 2", got["version"])
 	}
 	got, _ = e.Must(200, "POST", path+":submit", "", `"2"`)
+	if got["status"] != "approved" {
+		t.Errorf("submit status: got %v, want approved", got["status"])
+	}
+	if got["tier"] != float64(1) {
+		t.Errorf("submit tier: got %v, want 1", got["tier"])
+	}
 	items := got["items"].([]any)
-	if got["status"] != "approved" || got["tier"] != float64(1) || len(items) != 1 ||
-		items[0].(map[string]any)["path"] != "number_ranges[1000/payment/2026]" || items[0].(map[string]any)["new_value"] != "(added)" ||
-		items[0].(map[string]any)["old_value"] != nil {
-		t.Fatalf("submit: %v", got)
+	if len(items) != 1 {
+		t.Fatalf("submit items: got %d %v, want 1", len(items), items)
+	}
+	item := items[0].(map[string]any)
+	for field, want := range map[string]any{"path": "number_ranges[1000/payment/2026]", "new_value": "(added)", "old_value": nil} {
+		if item[field] != want {
+			t.Errorf("submit item %s: got %v, want %v", field, item[field], want)
+		}
 	}
 	e.Problem(409, "config.invalid_status", "POST", path+":submit", "", `"3"`)
 	got, _ = e.Must(200, "POST", path+":activate", "", `"3"`)
-	if got["status"] != "active" || got["activated_version"] != float64(2) {
-		t.Fatalf("activate: %v", got)
+	if got["status"] != "active" {
+		t.Errorf("activate status: got %v, want active", got["status"])
+	}
+	if got["activated_version"] != float64(2) {
+		t.Errorf("activated version: got %v, want 2", got["activated_version"])
 	}
 	e.Problem(409, "config.invalid_status", "POST", path+":activate", "", `"4"`)
 
 	versions, _ := e.Must(200, "GET", "/v1/config-versions", "", "")
 	vs := versions["items"].([]any)
-	if len(vs) != 2 || vs[0].(map[string]any)["number"] != float64(2) || vs[0].(map[string]any)["is_active"] != true ||
-		vs[0].(map[string]any)["change_request_id"] != cr["id"] || vs[1].(map[string]any)["is_active"] != false {
-		t.Fatalf("versions: %v", versions)
+	if len(vs) != 2 {
+		t.Fatalf("versions: got %d %v, want 2", len(vs), vs)
+	}
+	newest, older := vs[0].(map[string]any), vs[1].(map[string]any)
+	for field, want := range map[string]any{"number": float64(2), "is_active": true, "change_request_id": cr["id"]} {
+		if newest[field] != want {
+			t.Errorf("version 2 %s: got %v, want %v", field, newest[field], want)
+		}
+	}
+	if older["is_active"] != false {
+		t.Errorf("version 1 is_active: got %v, want false", older["is_active"])
 	}
 	payment, _ := e.Must(200, "GET", "/v1/number-ranges?document_type=payment", "", "")
 	p := payment["items"].([]any)[0].(map[string]any)
-	if p["first_value"] != float64(100) || p["next_value"] != float64(100) || p["prefix"] != "" || p["is_gapless"] != false {
-		t.Fatalf("payment range: %v", p)
+	for field, want := range map[string]any{"first_value": float64(100), "next_value": float64(100), "prefix": "", "is_gapless": false} {
+		if p[field] != want {
+			t.Errorf("payment range %s: got %v, want %v", field, p[field], want)
+		}
 	}
 
 	// Raising the limit of a range keeps its issued numbers.
@@ -193,16 +244,20 @@ func TestNumberRangeChange(t *testing.T) {
 	raised.NumberRanges = append(raised.NumberRanges, doc.NumberRanges[1])
 	raised.NumberRanges[0].Last = 199999
 	cr2 := e.propose(t, 2, raised)
-	if code, m := e.transition(t, cr2, "submit"); code != 200 || m["tier"] != float64(1) {
-		t.Fatalf("submit raise: %d %v", code, m)
+	if code, m := e.transition(t, cr2, "submit"); code != 200 {
+		t.Fatalf("submit raise: got %d %v, want 200", code, m)
+	} else if m["tier"] != float64(1) {
+		t.Errorf("submit raise tier: got %v, want 1", m["tier"])
 	}
 	if code, m := e.transition(t, cr2, "activate"); code != 200 {
 		t.Fatalf("activate raise: %d %v", code, m)
 	}
 	si, _ := e.Must(200, "GET", "/v1/number-ranges?document_type=supplier_invoice&fiscal_year=2026&legal_entity_id="+e.le.String(), "", "")
 	s := si["items"].([]any)[0].(map[string]any)
-	if s["last_value"] != float64(199999) || s["next_value"] != float64(2) || s["version"] != float64(3) {
-		t.Fatalf("raised range: %v", s)
+	for field, want := range map[string]any{"last_value": float64(199999), "next_value": float64(2), "version": float64(3)} {
+		if s[field] != want {
+			t.Errorf("raised range %s: got %v, want %v", field, s[field], want)
+		}
 	}
 	_, tag := e.Must(200, "GET", "/v1/number-ranges/"+s["id"].(string), "", "")
 	if tag != `"3"` {
@@ -213,10 +268,28 @@ func TestNumberRangeChange(t *testing.T) {
 	validated := events(t, e.ten, "change_request_validated")
 	approved := events(t, e.ten, "change_request_approved")
 	activated := events(t, e.ten, "configuration_activated")
-	if len(submitted) != 2 || submitted[0]["item_count"] != float64(1) || submitted[0]["title"] != "Payment number range 2026" ||
-		len(validated) != 2 || validated[0]["outcome"] != "approved" || len(approved) != 2 ||
-		len(activated) != 3 || activated[1]["previous_version"] != float64(1) || activated[1]["change_request_id"] != cr["id"] {
-		t.Fatalf("events: %v %v %v %v", submitted, validated, approved, activated)
+	for name, c := range map[string]struct {
+		got  []map[string]any
+		want int
+	}{"submitted": {submitted, 2}, "validated": {validated, 2}, "approved": {approved, 2}, "activated": {activated, 3}} {
+		if len(c.got) != c.want {
+			t.Fatalf("%s events: got %d %v, want %d", name, len(c.got), c.got, c.want)
+		}
+	}
+	if submitted[0]["item_count"] != float64(1) {
+		t.Errorf("submitted event item_count: got %v, want 1", submitted[0]["item_count"])
+	}
+	if submitted[0]["title"] != "Payment number range 2026" {
+		t.Errorf("submitted event title: got %v, want Payment number range 2026", submitted[0]["title"])
+	}
+	if validated[0]["outcome"] != "approved" {
+		t.Errorf("validated event outcome: got %v, want approved", validated[0]["outcome"])
+	}
+	if activated[1]["previous_version"] != float64(1) {
+		t.Errorf("activated event previous_version: got %v, want 1", activated[1]["previous_version"])
+	}
+	if activated[1]["change_request_id"] != cr["id"] {
+		t.Errorf("activated event change_request_id: got %v, want %v", activated[1]["change_request_id"], cr["id"])
 	}
 }
 
@@ -226,8 +299,14 @@ func TestSubmitRefusals(t *testing.T) {
 		t.Helper()
 		cr, _ := e.Must(201, "POST", "/v1/change-requests", fmt.Sprintf(`{"title": "T", "base_version": 1, "proposed": %s}`, doc), "")
 		code2, m := e.transition(t, cr, "submit")
-		if code2 != 422 || m["code"] != code || (field != "" && !strings.Contains(fmt.Sprint(m["errors"]), field)) {
-			t.Errorf("%s: %d %v", name, code2, m)
+		if code2 != 422 {
+			t.Errorf("%s: got status %d %v, want 422", name, code2, m)
+		}
+		if m["code"] != code {
+			t.Errorf("%s: got code %v, want %s", name, m["code"], code)
+		}
+		if field != "" && !strings.Contains(fmt.Sprint(m["errors"]), field) {
+			t.Errorf("%s: got errors %v, want one about %s", name, m["errors"], field)
 		}
 		if got, _ := e.Must(200, "GET", "/v1/change-requests/"+cr["id"].(string), "", ""); got["status"] != "draft" {
 			t.Errorf("%s: status %v", name, got["status"])
@@ -250,6 +329,11 @@ func TestSubmitRefusals(t *testing.T) {
 	foreign := document(t)
 	foreign.NumberRanges = append(foreign.NumberRanges, config.NumberRange{Company: "3000", DocumentType: "payment", FiscalYear: 2026, First: 1, Last: 9})
 	refuse("unknown company", jsonOf(t, foreign), "config.validation_failed", "no legal entity has company code 3000")
+	// F14: the configured amounts are read in the company's currency and
+	// compared after conversion into the legal entity's; the two must agree.
+	dollars := document(t)
+	dollars.Companies[1].Currency = "USD"
+	refuse("currency differs from the legal entity's", jsonOf(t, dollars), "config.validation_failed", "proposed.companies[2000].currency")
 
 	e.Problem(422, "config.unknown_base_version", "POST", "/v1/change-requests", `{"title": "T", "base_version": 7, "proposed": {}}`, "")
 	e.Problem(404, "request.not_found", "GET", "/v1/change-requests/"+uuid.NewString(), "", "")
@@ -263,11 +347,22 @@ func TestTiersEvidenceAndWithdrawal(t *testing.T) {
 	terms := document(t)
 	terms.PaymentTerms[0].NetDays += 15 // tier 2: operational
 	pending := e.propose(t, 1, terms)
-	if code, m := e.transition(t, pending, "submit"); code != 200 || m["status"] != "pending_approval" || m["tier"] != float64(2) || m["workflow_request_id"] == nil {
-		t.Fatalf("tier 2: %d %v", code, m)
+	code, m := e.transition(t, pending, "submit")
+	if code != 200 {
+		t.Fatalf("tier 2: got %d %v, want 200", code, m)
 	}
-	if code, m := e.transition(t, pending, "activate"); code != 409 || m["code"] != "config.invalid_status" {
-		t.Fatalf("activate pending: %d %v", code, m)
+	for field, want := range map[string]any{"status": "pending_approval", "tier": float64(2)} {
+		if m[field] != want {
+			t.Errorf("tier 2 %s: got %v, want %v", field, m[field], want)
+		}
+	}
+	if m["workflow_request_id"] == nil {
+		t.Error("tier 2 workflow_request_id: got nil, want a request")
+	}
+	if code, m := e.transition(t, pending, "activate"); code != 409 {
+		t.Fatalf("activate pending: got %d %v, want 409", code, m)
+	} else if m["code"] != "config.invalid_status" {
+		t.Errorf("activate pending: got %v, want config.invalid_status", m["code"])
 	}
 	if code, m := e.transition(t, pending, "simulate"); code != 409 {
 		t.Fatalf("simulate pending: %d %v", code, m)
@@ -276,15 +371,29 @@ func TestTiersEvidenceAndWithdrawal(t *testing.T) {
 	tax := document(t)
 	tax.Companies[0].TaxCodes[0].RatePercent = "9" // tier 3: posting-relevant
 	evidence := e.propose(t, 1, tax)
-	if code, m := e.transition(t, evidence, "submit"); code != 200 || m["status"] != "awaiting_evidence" || m["tier"] != float64(3) {
-		t.Fatalf("tier 3: %d %v", code, m)
+	code, m = e.transition(t, evidence, "submit")
+	if code != 200 {
+		t.Fatalf("tier 3: got %d %v, want 200", code, m)
+	}
+	for field, want := range map[string]any{"status": "awaiting_evidence", "tier": float64(3)} {
+		if m[field] != want {
+			t.Errorf("tier 3 %s: got %v, want %v", field, m[field], want)
+		}
 	}
 	cur, tag := e.Must(200, "GET", "/v1/change-requests/"+evidence["id"].(string), "", "")
 	r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/change-requests/" + cur["id"].(string) + ":simulate", Tenant: e.ten.ID, As: e.ten.Human,
 		Key: apitest.NewKey(), IfMatch: tag})
 	op := apitest.JSON(t, r)
-	if r.Code != 202 || op["kind"] != "config.simulate" || op["status"] != "queued" || r.Header().Get("Location") != "/v1/operations/"+op["id"].(string) {
-		t.Fatalf("simulate: %d %v", r.Code, op)
+	if r.Code != 202 {
+		t.Fatalf("simulate: got %d %v, want 202", r.Code, op)
+	}
+	for field, want := range map[string]any{"kind": "config.simulate", "status": "queued"} {
+		if op[field] != want {
+			t.Errorf("simulate %s: got %v, want %v", field, op[field], want)
+		}
+	}
+	if got, want := r.Header().Get("Location"), "/v1/operations/"+op["id"].(string); got != want {
+		t.Errorf("simulate Location: got %s, want %s", got, want)
 	}
 	e.Problem(412, "request.version_mismatch", "POST", "/v1/change-requests/"+cur["id"].(string)+":simulate", "", `"99"`)
 	e.Problem(404, "request.not_found", "POST", "/v1/change-requests/"+uuid.NewString()+":simulate", "", `"1"`)
@@ -292,8 +401,8 @@ func TestTiersEvidenceAndWithdrawal(t *testing.T) {
 	// Only the author changes or withdraws a request.
 	other := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	other.Subject = "human|" + other.ID.String()
-	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, 'Other', 'active', $2, $2)`, e.ten.ID, other.ID, other.Subject)
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, 'Other', 'active', $2, $2)`, e.ten.ID, other.ID, pgtest.Issuer(t), other.Subject)
 	pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
 		SELECT $1, gen_random_uuid(), $2, role_id, current_date - 1, $2 FROM identity.principal_role WHERE principal_id = $3`, e.ten.ID, other.ID, e.ten.Human.ID)
 	colleague := apitest.Client{T: t, API: e.API, Tenant: e.ten, As: other}
@@ -314,16 +423,31 @@ func TestTiersEvidenceAndWithdrawal(t *testing.T) {
 	// An invalid request (from asynchronous validation) returns to draft when changed.
 	pgtest.Exec(t, `UPDATE config.change_request SET status = 'invalid', version = version + 1 WHERE id = $1`, uuid.MustParse(draft["id"].(string)))
 	got, _ = e.Must(200, "PATCH", "/v1/change-requests/"+draft["id"].(string), fmt.Sprintf(`{"base_version": 1, "proposed": %s}`, jsonOf(t, tax)), `"2"`)
-	if got["status"] != "draft" || got["proposed"].(map[string]any)["companies"] == nil {
-		t.Fatal(got)
+	if got["status"] != "draft" {
+		t.Errorf("changed invalid request: got status %v, want draft", got["status"])
+	}
+	if got["proposed"].(map[string]any)["companies"] == nil {
+		t.Errorf("changed invalid request: got no proposed companies in %v, want them", got["proposed"])
 	}
 
 	withdrawn := events(t, e.ten, "change_request_withdrawn")
 	validated := events(t, e.ten, "change_request_validated")
-	if len(withdrawn) != 1 || withdrawn[0]["previous_status"] != "pending_approval" ||
-		len(validated) != 2 || validated[0]["outcome"] != "pending_approval" || validated[1]["outcome"] != "awaiting_evidence" ||
-		len(events(t, e.ten, "change_request_approved")) != 0 {
-		t.Fatalf("events: %v %v", withdrawn, validated)
+	if len(withdrawn) != 1 {
+		t.Fatalf("withdrawn events: got %d %v, want 1", len(withdrawn), withdrawn)
+	}
+	if withdrawn[0]["previous_status"] != "pending_approval" {
+		t.Errorf("withdrawn event previous_status: got %v, want pending_approval", withdrawn[0]["previous_status"])
+	}
+	if len(validated) != 2 {
+		t.Fatalf("validated events: got %d %v, want 2", len(validated), validated)
+	}
+	for i, want := range []string{"pending_approval", "awaiting_evidence"} {
+		if validated[i]["outcome"] != want {
+			t.Errorf("validated event %d outcome: got %v, want %s", i, validated[i]["outcome"], want)
+		}
+	}
+	if approved := events(t, e.ten, "change_request_approved"); len(approved) != 0 {
+		t.Errorf("approved events: got %v, want none", approved)
 	}
 
 	// Lists of change requests: newest first, by status.
@@ -331,16 +455,21 @@ func TestTiersEvidenceAndWithdrawal(t *testing.T) {
 		m, _ := e.Must(200, "GET", "/v1/change-requests"+q, "", "")
 		return m["items"].([]any)
 	}
-	if all := list(""); len(all) != 3 || all[0].(map[string]any)["id"] != draft["id"] {
-		t.Fatalf("all: %v", all)
+	if all := list(""); len(all) != 3 {
+		t.Fatalf("all: got %d %v, want 3", len(all), all)
+	} else if first := all[0].(map[string]any)["id"]; first != draft["id"] {
+		t.Errorf("all: got %v first, want the newest %v", first, draft["id"])
 	}
 	if w := list("?status=withdrawn"); len(w) != 1 {
 		t.Fatalf("withdrawn: %v", w)
 	}
 	page, _ := e.Must(200, "GET", "/v1/change-requests?order_by=created_at%20asc&page_size=2", "", "")
 	rest, _ := e.Must(200, "GET", "/v1/change-requests?order_by=created_at%20asc&page_size=2&page_token="+page["next_page_token"].(string), "", "")
-	if page["items"].([]any)[0].(map[string]any)["id"] != pending["id"] || len(rest["items"].([]any)) != 1 {
-		t.Fatalf("pages: %v %v", page, rest)
+	if first := page["items"].([]any)[0].(map[string]any)["id"]; first != pending["id"] {
+		t.Errorf("page 1: got %v first, want the oldest %v", first, pending["id"])
+	}
+	if n := len(rest["items"].([]any)); n != 1 {
+		t.Errorf("page 2: got %d items, want 1", n)
 	}
 }
 
@@ -355,8 +484,10 @@ func TestStaleBaseVersion(t *testing.T) {
 	if code, m := e.transition(t, a, "activate"); code != 200 {
 		t.Fatalf("first: %d %v", code, m)
 	}
-	if code, m := e.transition(t, b, "activate"); code != 409 || m["code"] != "config.base_version_stale" {
-		t.Fatalf("second: %d %v", code, m)
+	if code, m := e.transition(t, b, "activate"); code != 409 {
+		t.Fatalf("second: got %d %v, want 409", code, m)
+	} else if m["code"] != "config.base_version_stale" {
+		t.Errorf("second: got %v, want config.base_version_stale", m["code"])
 	}
 	e.Problem(404, "request.not_found", "POST", "/v1/change-requests/"+uuid.NewString()+":activate", "", `"1"`)
 	cr, tag := e.Must(200, "GET", "/v1/change-requests/"+b["id"].(string), "", "")
@@ -395,8 +526,11 @@ func TestVersionAndRangeLists(t *testing.T) {
 		t.Fatalf("number: %v", got)
 	}
 	page := numbers("?order_by=number%20asc&page_size=2")
-	if fmt.Sprint(page[:2]) != "[1 2]" || len(page) != 3 {
-		t.Fatalf("page: %v", page)
+	if len(page) != 3 {
+		t.Fatalf("page: got %d %v, want two numbers and a token", len(page), page)
+	}
+	if got := fmt.Sprint(page[:2]); got != "[1 2]" {
+		t.Errorf("page: got %s, want [1 2]", got)
 	}
 	if rest := numbers("?order_by=number%20asc&page_size=2&page_token=" + page[2].(string)); fmt.Sprint(rest) != "[3]" {
 		t.Fatalf("rest: %v", rest)

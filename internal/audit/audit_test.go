@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -57,13 +57,27 @@ func TestAuditEvents(t *testing.T) {
 	}
 	page, _ := c.Must(200, "GET", "/v1/audit-events?page_size=2", "", "")
 	first := page["items"].([]any)[0].(map[string]any)
-	if got := seqs(page); len(got) != 2 || got[0] != 3 || page["next_page_token"] == nil || first["object_id"] != nil ||
-		first["detail"].(map[string]any)["i"] != float64(2) || first["actor_id"] != c.Tenant.Human.ID.String() {
-		t.Fatalf("newest first: %v", page)
+	if got := seqs(page); len(got) != 2 || got[0] != 3 {
+		t.Fatalf("newest first: got seqs %v, want 2 from seq 3", got)
+	}
+	if page["next_page_token"] == nil {
+		t.Fatalf("newest first: got no next page token, want one")
+	}
+	if first["object_id"] != nil {
+		t.Errorf("newest first object_id: got %v, want nil", first["object_id"])
+	}
+	if i := first["detail"].(map[string]any)["i"]; i != float64(2) {
+		t.Errorf("newest first detail.i: got %v, want 2", i)
+	}
+	if want := c.Tenant.Human.ID.String(); first["actor_id"] != want {
+		t.Errorf("newest first actor_id: got %v, want %s", first["actor_id"], want)
 	}
 	rest, _ := c.Must(200, "GET", "/v1/audit-events?page_size=2&page_token="+url.QueryEscape(page["next_page_token"].(string)), "", "")
-	if got := seqs(rest); len(got) != 1 || got[0] != 1 || rest["next_page_token"] != nil {
-		t.Fatalf("second page: %v", rest)
+	if got := seqs(rest); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("second page: got seqs %v, want [1]", got)
+	}
+	if rest["next_page_token"] != nil {
+		t.Fatalf("second page: got next page token %v, want none", rest["next_page_token"])
 	}
 	from := url.QueryEscape(time.Now().Add(-time.Hour).Format(time.RFC3339))
 	to := url.QueryEscape(time.Now().Add(time.Hour).Format(time.RFC3339))
@@ -76,19 +90,32 @@ func TestAuditEvents(t *testing.T) {
 	c.Problem(400, "request.invalid_page_token", "GET", "/v1/audit-events?page_token=x", "", "")
 
 	op, _ := c.Must(202, "POST", "/v1/audit-events:verify", `{}`, "")
-	if op["status"] != "succeeded" || op["result"].(map[string]any)["verified"] != true || op["result"].(map[string]any)["last_seq"] != float64(3) {
-		t.Fatalf("verify: %v", op)
+	if op["status"] != "succeeded" {
+		t.Fatalf("verify status: got %v, want succeeded: %v", op["status"], op)
+	}
+	result := op["result"].(map[string]any)
+	if result["verified"] != true {
+		t.Errorf("verify result verified: got %v, want true", result["verified"])
+	}
+	if result["last_seq"] != float64(3) {
+		t.Errorf("verify result last_seq: got %v, want 3", result["last_seq"])
 	}
 	c.Must(202, "POST", "/v1/audit-events:verify", `{"from_seq": 2, "to_seq": 3}`, "")
 	if last, _ := c.Must(200, "GET", "/v1/audit-events?page_size=1", "", ""); last["items"].([]any)[0].(map[string]any)["trace_id"] == nil {
 		t.Fatalf("verification without its trace: %v", last)
 	}
-	for _, body := range []string{`{"from_seq": 99}`, `{"to_seq": 99}`, `{"from_seq": 3, "to_seq": 2}`} {
-		c.Problem(422, "audit.invalid_range", "POST", "/v1/audit-events:verify", body, "")
+	for name, body := range map[string]string{"from past the head": `{"from_seq": 99}`, "to past the head": `{"to_seq": 99}`, "from after to": `{"from_seq": 3, "to_seq": 2}`} {
+		t.Run(name, func(t *testing.T) {
+			sc := c
+			sc.T = t
+			sc.Problem(422, "audit.invalid_range", "POST", "/v1/audit-events:verify", body, "")
+		})
 	}
 	// A tampered chain is reported, not refused.
 	admin := pgtest.Admin(t)
-	admin.Exec(context.Background(), "SET session_replication_role = replica")
+	if _, err := admin.Exec(context.Background(), "SET session_replication_role = replica"); err != nil {
+		t.Fatalf("disable triggers: %v", err)
+	}
 	if _, err := admin.Exec(context.Background(), `UPDATE audit.audit_event SET detail = '{"i": 9}' WHERE tenant_id = $1 AND seq = 2`, c.Tenant.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -112,10 +139,12 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if call(context.Background()) == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, c.Tenant, c.Tenant.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Errorf("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, c.Tenant, c.Tenant.Human, name, call)
+		})
 	}
 	if err := apitest.InRequest(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) error {
 		_, err := h.ListAuditEvents(ctx, gen.ListAuditEventsParams{PageSize: gen.NewOptInt32(0)})

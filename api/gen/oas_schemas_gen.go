@@ -8069,7 +8069,8 @@ func (*ExchangeRatePageHeaders) listExchangeRatesRes() {}
 // Read-only copies of referenced resources requested with `expand`.
 // Ref: #/components/schemas/Expanded
 type Expanded struct {
-	// The supplier, when `expand=supplier` was requested.
+	// The supplier, when `expand=supplier` was requested and the supplier is found; otherwise `expanded`
+	// is left out.
 	Supplier OptPartnerSummary `json:"supplier"`
 }
 
@@ -12133,10 +12134,47 @@ func (s *LegalEntityUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+// Whether a matched invoice is posted automatically: its gross amount, converted into the company's
+// currency at the average rate of its invoice date, compared exactly with the company's
+// `auto_post_limit`.
+// Ref: #/components/schemas/MatchDecision
+type MatchDecision struct {
+	// `auto_post`: within the limit, the rule posts it; `review`: above it, a person posts it;
+	// `not_evaluable`: its gross amount is out of range in the company's currency (without a rate the
+	// match is refused, 422 `ledger.no_exchange_rate`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Outcome string `json:"outcome"`
+	// Why: the converted gross and the limit, or for `not_evaluable` the stable issue code
+	// (`amount_too_large`).
+	Reason string `json:"reason"`
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *MatchDecision) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetReason returns the value of Reason.
+func (s *MatchDecision) GetReason() string {
+	return s.Reason
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *MatchDecision) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetReason sets the value of Reason.
+func (s *MatchDecision) SetReason(val string) {
+	s.Reason = val
+}
+
 // One three-way match issue.
 // Ref: #/components/schemas/MatchIssue
 type MatchIssue struct {
-	// Stable issue code, for example `price_variance`, `quantity_not_received`.
+	// Stable issue code: `tax_or_total_mismatch`, `order_not_open`, `order_item_missing`, `price_variance`
+	// or `quantity_exceeds_received`. New codes may be added, so a client treats an unknown code as an
+	// issue.
 	Code string `json:"code"`
 	// Invoice item concerned, if any.
 	ItemNo OptInt32 `json:"item_no"`
@@ -12192,6 +12230,11 @@ type MatchResult struct {
 	ConfigVersion int32 `json:"config_version"`
 	// Principal that ran the match.
 	EvaluatedBy uuid.UUID `json:"evaluated_by"`
+	// The invoice flow's decision on a clean match, in the response of `:match` only (it is not stored,
+	// and the ETag is that of the stored result): the rule regression suites and simulations apply. Absent
+	// when the match found issues (the invoice is held and decided on its exception request) and on reads
+	// of the history.
+	Decision OptMatchDecision `json:"decision"`
 }
 
 // GetID returns the value of ID.
@@ -12229,6 +12272,11 @@ func (s *MatchResult) GetEvaluatedBy() uuid.UUID {
 	return s.EvaluatedBy
 }
 
+// GetDecision returns the value of Decision.
+func (s *MatchResult) GetDecision() OptMatchDecision {
+	return s.Decision
+}
+
 // SetID sets the value of ID.
 func (s *MatchResult) SetID(val uuid.UUID) {
 	s.ID = val
@@ -12262,6 +12310,11 @@ func (s *MatchResult) SetConfigVersion(val int32) {
 // SetEvaluatedBy sets the value of EvaluatedBy.
 func (s *MatchResult) SetEvaluatedBy(val uuid.UUID) {
 	s.EvaluatedBy = val
+}
+
+// SetDecision sets the value of Decision.
+func (s *MatchResult) SetDecision(val OptMatchDecision) {
+	s.Decision = val
 }
 
 // MatchResultHeaders wraps MatchResult with response headers.
@@ -14810,6 +14863,52 @@ func (o OptJournalEntryReverse) Or(d JournalEntryReverse) JournalEntryReverse {
 	return d
 }
 
+// NewOptMatchDecision returns new OptMatchDecision with value set to v.
+func NewOptMatchDecision(v MatchDecision) OptMatchDecision {
+	return OptMatchDecision{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMatchDecision is optional MatchDecision.
+type OptMatchDecision struct {
+	Value MatchDecision
+	Set   bool
+}
+
+// IsSet returns true if OptMatchDecision was set.
+func (o OptMatchDecision) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMatchDecision) Reset() {
+	var v MatchDecision
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMatchDecision) SetTo(v MatchDecision) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMatchDecision) Get() (v MatchDecision, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMatchDecision) Or(d MatchDecision) MatchDecision {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptMigrationRunReport returns new OptMigrationRunReport with value set to v.
 func NewOptMigrationRunReport(v MigrationRunReport) OptMigrationRunReport {
 	return OptMigrationRunReport{
@@ -16519,7 +16618,8 @@ type PaymentExclusion struct {
 	// Supplier.
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
+	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
 	ReasonCode string `json:"reason_code"`
 	// Amount that would otherwise have been paid.
 	Amount Money `json:"amount"`

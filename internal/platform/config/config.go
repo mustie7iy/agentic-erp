@@ -1,6 +1,7 @@
 // Package config reads the server's configuration from the environment
 // (twelve-factor). Every setting is validated at start, so a misconfigured
-// replica fails fast instead of serving errors.
+// replica fails fast instead of serving errors. Secrets are named by
+// reference and resolved here (ADR-0017).
 package config
 
 import (
@@ -10,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"os"
 	"regexp"
@@ -27,6 +29,7 @@ type Config struct {
 	HTTPAddr        string          // ERP_HTTP_ADDR, public API (default :8080)
 	AdminAddr       string          // ERP_ADMIN_ADDR, liveness, readiness, metrics (default :9090)
 	DatabaseURL     string          // DATABASE_URL (required)
+	Environment     string          // ERP_ENV (required, no default): development, or production, where insecure settings refuse to start
 	AppRole         string          // ERP_DB_APP_ROLE (default erp_app)
 	RelayRole       string          // ERP_DB_RELAY_ROLE (default erp_relay)
 	ProjectorRole   string          // ERP_DB_PROJECTOR_ROLE (default erp_projector)
@@ -52,9 +55,9 @@ type Config struct {
 	TenantQuota     ratelimit.Quota // ERP_RATE_LIMIT_TENANT, requests per second[/burst] per tenant, or off (default 2000/10000, 04 §4.11)
 	PrincipalQuota  ratelimit.Quota // ERP_RATE_LIMIT_PRINCIPAL, the same per principal (default 50/100)
 	DevIssuer       bool            // ERP_DEV_ISSUER: mint tokens on the admin listener for local development; makes ERP_OIDC_ISSUERS optional
-	Objects         Objects         // ERP_OBJECT_DIR or ERP_OBJECT_S3_*: object storage for documents, bank files and audit anchors; neither leaves it off
+	Objects         Objects         // ERP_OBJECT_DIR or ERP_OBJECT_S3_*: object storage for documents, bank files and audit anchors; neither leaves it off (refused in production)
 	OffboardGrace   time.Duration   // ERP_OFFBOARD_GRACE: how long an offboarded tenant's data stays in the cell after its export before it is erased (default 720h; ADR-0021)
-	AuditVerify     time.Duration   // ERP_AUDIT_VERIFY_INTERVAL: how often every tenant's audit chain is verified against its anchors (default 1h; 0 disables the worker)
+	AuditVerify     time.Duration   // ERP_AUDIT_VERIFY_INTERVAL: how often every tenant's audit chain is verified against its anchors (default 1h; 0 disables the worker, refused in production)
 	KeyRotationAge  time.Duration   // ERP_KEY_ROTATION_AGE: tenant keys older than this are rotated by the server (default 0: on request only; ADR-0028)
 	Temporal        Temporal        // ERP_TEMPORAL_ADDRESS, _NAMESPACE, _TASK_QUEUE: the workflow engine (ADR-0012); empty address: in-process workers
 	PublicURL       string          // ERP_PUBLIC_URL: the public base URL of this API, for absolute upload URLs (default: paths)
@@ -85,6 +88,22 @@ type KMS struct {
 	Endpoint  string // ERP_FIELD_KMS_ENDPOINT (default https://kms.<region>.amazonaws.com)
 	AccessKey string // ERP_FIELD_KMS_ACCESS_KEY
 	SecretKey string // ERP_FIELD_KMS_SECRET_KEY
+}
+
+// TenantIssuers are the issuers of tenants' tokens the cell trusts: the
+// development issuer and the entries of ERP_OIDC_ISSUERS. A new tenant's
+// first administrator is bound to the only one with their subject
+// (ADR-0010), since a provisioning request names no issuer; a cell that
+// trusts several cannot provision.
+func (c Config) TenantIssuers() []string {
+	var urls []string
+	if c.DevIssuer {
+		urls = append(urls, authn.DevIssuerURL)
+	}
+	for _, is := range c.Issuers {
+		urls = append(urls, is.URL)
+	}
+	return urls
 }
 
 // Enabled reports whether a KMS master is configured.
@@ -135,10 +154,6 @@ var (
 	regionPattern   = regexp.MustCompile(`^[a-z]{2}(-[a-z0-9]+)*$`)
 )
 
-// Load reads and validates the configuration. The settings in
-// SecretSettings may be references (env:, file:, vault:), resolved here, so
-// that credentials live in the vault or in mounted files rather than in
-// the environment of every replica.
 // Temporal locates the workflow engine (ADR-0012). An empty Address keeps
 // the in-process workers; with one, the server hosts a Temporal worker on
 // TaskQueue and dispatches queued operations to it.
@@ -154,37 +169,80 @@ type Temporal struct {
 	Escalations   int
 }
 
+// Load reads and validates the configuration. The settings in
+// SecretSettings may be references (env:, file:, vault:), resolved here, so
+// that credentials live in the vault or in mounted files rather than in
+// the environment of every replica.
 func Load(getenv func(string) string) (Config, error) {
-	var errs []error
-	resolver, vault, err := resolver(getenv)
+	l := newLoader(getenv)
+	c := l.basics()
+	l.issuers(&c)
+	l.fieldKeys(&c)
+	l.kms(&c)
+	l.objects(&c)
+	l.lifetimes(&c)
+	l.temporal(&c)
+	l.directory(&c)
+	l.server(&c)
+	c.Environment = l.getenv("ERP_ENV")
+	l.errs = append(l.errs, checkEnvironment(c)...)
+	return c, errors.Join(l.errs...)
+}
+
+// loader carries what every step of Load shares: the raw environment, the
+// environment with secret references resolved, and the problems found so
+// far, which Load reports together so that one start shows them all.
+type loader struct {
+	raw      func(string) string
+	getenv   func(string) string
+	resolver secrets.Resolver
+	vault    Vault
+	errs     []error
+}
+
+// newLoader resolves the settings in SecretSettings; a reference that does
+// not resolve is reported and reads as empty.
+func newLoader(getenv func(string) string) *loader {
+	l := &loader{raw: getenv}
+	var err error
+	l.resolver, l.vault, err = resolver(getenv)
 	if err != nil {
-		errs = append(errs, err)
+		l.errs = append(l.errs, err)
 	}
 	raw := getenv
 	resolved := map[string]string{}
 	for _, name := range SecretSettings {
-		v, err := secrets.Value(context.Background(), resolver, raw(name))
+		v, err := secrets.Value(context.Background(), l.resolver, raw(name))
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			l.errs = append(l.errs, fmt.Errorf("%s: %w", name, err))
 			v = ""
 		}
 		resolved[name] = v
 	}
-	getenv = func(key string) string {
+	l.getenv = func(key string) string {
 		if v, ok := resolved[key]; ok {
 			return v
 		}
 		return raw(key)
 	}
-	get := func(key, def string) string {
-		if v := getenv(key); v != "" {
-			return v
-		}
-		return def
+	return l
+}
+
+// get is a setting, or def when it is empty.
+func (l *loader) get(key, def string) string {
+	if v := l.getenv(key); v != "" {
+		return v
 	}
+	return def
+}
+
+// basics reads the plain settings: addresses, database roles, the cell and
+// the optional integrations that need no validation beyond presence.
+func (l *loader) basics() Config {
+	getenv, get := l.getenv, l.get
 	c := Config{
-		Vault:         vault,
-		Secrets:       resolver,
+		Vault:         l.vault,
+		Secrets:       l.resolver,
 		HTTPAddr:      get("ERP_HTTP_ADDR", ":8080"),
 		AdminAddr:     get("ERP_ADMIN_ADDR", ":9090"),
 		DatabaseURL:   getenv("DATABASE_URL"),
@@ -201,34 +259,47 @@ func Load(getenv func(string) string) (Config, error) {
 		ExtractDir:    getenv("ERP_EXTRACT_DIR"),
 	}
 	if c.DatabaseURL == "" {
-		errs = append(errs, errors.New("DATABASE_URL is required"))
+		l.errs = append(l.errs, errors.New("DATABASE_URL is required"))
 	}
 	if !cellPattern.MatchString(c.Cell) {
-		errs = append(errs, fmt.Errorf("ERP_CELL %q must be 1-20 lower-case letters or digits", c.Cell))
+		l.errs = append(l.errs, fmt.Errorf("ERP_CELL %q must be 1-20 lower-case letters or digits", c.Cell))
 	}
-	dev, err := strconv.ParseBool(get("ERP_DEV_ISSUER", "false"))
+	return c
+}
+
+// issuers reads who may sign tokens: the development issuer, the tenants'
+// OIDC issuers (optional with the development issuer) and the operators'.
+func (l *loader) issuers(c *Config) {
+	getenv := l.getenv
+	dev, err := strconv.ParseBool(l.get("ERP_DEV_ISSUER", "false"))
 	if err != nil {
-		errs = append(errs, errors.New("ERP_DEV_ISSUER must be true or false"))
+		l.errs = append(l.errs, errors.New("ERP_DEV_ISSUER must be true or false"))
 	}
 	c.DevIssuer = dev
 	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" || !c.DevIssuer {
 		if err := json.Unmarshal([]byte(raw), &c.Issuers); err != nil || len(c.Issuers) == 0 {
-			errs = append(errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} (optional with ERP_DEV_ISSUER=true)`))
+			l.errs = append(l.errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} (optional with ERP_DEV_ISSUER=true)`))
 		}
 	}
 	if raw := getenv("ERP_OPERATOR_ISSUERS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.OperatorIssuers); err != nil || len(c.OperatorIssuers) == 0 {
-			errs = append(errs, errors.New(`ERP_OPERATOR_ISSUERS must be a JSON list of {"issuer", "audience"} when set`))
+			l.errs = append(l.errs, errors.New(`ERP_OPERATOR_ISSUERS must be a JSON list of {"issuer", "audience"} when set`))
 		}
 	}
+}
+
+// fieldKeys reads the page-token key and the local field encryption keys:
+// the legacy key and the master ring, which defaults to the legacy key.
+func (l *loader) fieldKeys(c *Config) {
+	getenv := l.getenv
 	key, err := base64.StdEncoding.DecodeString(getenv("ERP_PAGE_TOKEN_KEY"))
 	if err != nil || len(key) < 32 {
-		errs = append(errs, errors.New("ERP_PAGE_TOKEN_KEY must be base64 of at least 32 random bytes, the same on every replica"))
+		l.errs = append(l.errs, errors.New("ERP_PAGE_TOKEN_KEY must be base64 of at least 32 random bytes, the same on every replica"))
 	}
 	c.PageTokenKey = key
 	if raw := getenv("ERP_FIELD_KEY"); raw != "" || (getenv("ERP_FIELD_KEYS") == "" && getenv("ERP_FIELD_KMS_KEY") == "") {
 		if c.FieldKey, err = base64.StdEncoding.DecodeString(raw); err != nil || len(c.FieldKey) < 32 {
-			errs = append(errs, errors.New("ERP_FIELD_KEY must be base64 of at least 32 random bytes, the same on every replica and kept secret (optional with ERP_FIELD_KEYS or ERP_FIELD_KMS_KEY)"))
+			l.errs = append(l.errs, errors.New("ERP_FIELD_KEY must be base64 of at least 32 random bytes, the same on every replica and kept secret (optional with ERP_FIELD_KEYS or ERP_FIELD_KMS_KEY)"))
 		}
 	}
 	if raw := getenv("ERP_FIELD_KEYS"); raw != "" {
@@ -236,7 +307,7 @@ func Load(getenv func(string) string) (Config, error) {
 			id, b64, ok := strings.Cut(strings.TrimSpace(part), "=")
 			secret, derr := base64.StdEncoding.DecodeString(b64)
 			if !ok || !masterIDPattern.MatchString(id) || derr != nil || len(secret) < 32 {
-				errs = append(errs, errors.New(`ERP_FIELD_KEYS must be "id=base64,..." with ids of 1-64 letters, digits, - or _ and secrets of at least 32 bytes`))
+				l.errs = append(l.errs, errors.New(`ERP_FIELD_KEYS must be "id=base64,..." with ids of 1-64 letters, digits, - or _ and secrets of at least 32 bytes`))
 				break
 			}
 			c.FieldKeys = append(c.FieldKeys, MasterKey{ID: id, Secret: secret})
@@ -244,105 +315,201 @@ func Load(getenv func(string) string) (Config, error) {
 	} else if len(c.FieldKey) >= 32 {
 		c.FieldKeys = []MasterKey{{ID: "v1", Secret: c.FieldKey}}
 	}
-	c.KMS = KMS{Name: "kms", Key: getenv("ERP_FIELD_KMS_KEY"), Region: get("ERP_FIELD_KMS_REGION", "us-east-1"), Endpoint: getenv("ERP_FIELD_KMS_ENDPOINT"),
+}
+
+// kms reads the KMS master in front of the ring (ADR-0019).
+func (l *loader) kms(c *Config) {
+	getenv := l.getenv
+	c.KMS = KMS{Name: "kms", Key: getenv("ERP_FIELD_KMS_KEY"), Region: l.get("ERP_FIELD_KMS_REGION", "us-east-1"), Endpoint: getenv("ERP_FIELD_KMS_ENDPOINT"),
 		AccessKey: getenv("ERP_FIELD_KMS_ACCESS_KEY"), SecretKey: getenv("ERP_FIELD_KMS_SECRET_KEY")}
 	if c.KMS.Enabled() {
 		if name, key, ok := strings.Cut(c.KMS.Key, "="); ok {
 			c.KMS.Name, c.KMS.Key = name, key
 		}
 		if c.KMS.Key == "" || !masterIDPattern.MatchString(c.KMS.Name) {
-			errs = append(errs, errors.New(`ERP_FIELD_KMS_KEY must be a KMS key id, ARN or alias, or "name=key" with a name of 1-64 letters, digits, - or _`))
+			l.errs = append(l.errs, errors.New(`ERP_FIELD_KMS_KEY must be a KMS key id, ARN or alias, or "name=key" with a name of 1-64 letters, digits, - or _`))
 		}
 		if (c.KMS.AccessKey == "") != (c.KMS.SecretKey == "") {
-			errs = append(errs, errors.New("ERP_FIELD_KMS_ACCESS_KEY and ERP_FIELD_KMS_SECRET_KEY go together; leave both unset for the deployment's ambient AWS credentials"))
+			l.errs = append(l.errs, errors.New("ERP_FIELD_KMS_ACCESS_KEY and ERP_FIELD_KMS_SECRET_KEY go together; leave both unset for the deployment's ambient AWS credentials"))
 		}
 		if c.KMS.Endpoint == "" {
 			c.KMS.Endpoint = "https://kms." + c.KMS.Region + ".amazonaws.com"
 		}
 	}
+}
+
+// objects reads the object store: a directory or an S3 service, not both.
+func (l *loader) objects(c *Config) {
+	getenv := l.getenv
 	c.Objects = Objects{Dir: getenv("ERP_OBJECT_DIR"), Endpoint: getenv("ERP_OBJECT_S3_ENDPOINT"), Bucket: getenv("ERP_OBJECT_S3_BUCKET"),
-		Region: get("ERP_OBJECT_S3_REGION", "us-east-1"), AccessKey: getenv("ERP_OBJECT_S3_ACCESS_KEY"), SecretKey: getenv("ERP_OBJECT_S3_SECRET_KEY")}
+		Region: l.get("ERP_OBJECT_S3_REGION", "us-east-1"), AccessKey: getenv("ERP_OBJECT_S3_ACCESS_KEY"), SecretKey: getenv("ERP_OBJECT_S3_SECRET_KEY")}
 	switch {
 	case c.Objects.Dir != "" && c.Objects.Endpoint != "":
-		errs = append(errs, errors.New("ERP_OBJECT_DIR and ERP_OBJECT_S3_ENDPOINT exclude each other: one object store"))
+		l.errs = append(l.errs, errors.New("ERP_OBJECT_DIR and ERP_OBJECT_S3_ENDPOINT exclude each other: one object store"))
 	case c.Objects.Endpoint != "" && c.Objects.Bucket == "":
-		errs = append(errs, errors.New("ERP_OBJECT_S3_ENDPOINT needs ERP_OBJECT_S3_BUCKET"))
+		l.errs = append(l.errs, errors.New("ERP_OBJECT_S3_ENDPOINT needs ERP_OBJECT_S3_BUCKET"))
 	case c.Objects.Endpoint != "" && (c.Objects.AccessKey == "") != (c.Objects.SecretKey == ""):
-		errs = append(errs, errors.New("ERP_OBJECT_S3_ACCESS_KEY and ERP_OBJECT_S3_SECRET_KEY go together; leave both unset for the deployment's ambient AWS credentials"))
+		l.errs = append(l.errs, errors.New("ERP_OBJECT_S3_ACCESS_KEY and ERP_OBJECT_S3_SECRET_KEY go together; leave both unset for the deployment's ambient AWS credentials"))
 	}
+}
+
+// lifetimes reads how long data and keys live: the anchors' lock, the
+// offboarding grace, the audit verification and key rotation periods; and
+// the public URL that upload links are made from.
+func (l *loader) lifetimes(c *Config) {
+	get := l.get
+	var err error
 	if c.Objects.Retention, err = time.ParseDuration(get("ERP_OBJECT_RETENTION", "87600h")); err != nil || c.Objects.Retention < 0 {
-		errs = append(errs, errors.New("ERP_OBJECT_RETENTION must be a duration such as 87600h (10 years), or 0 for no lock"))
+		l.errs = append(l.errs, errors.New("ERP_OBJECT_RETENTION must be a duration such as 87600h (10 years), or 0 for no lock"))
 	}
 	if c.OffboardGrace, err = time.ParseDuration(get("ERP_OFFBOARD_GRACE", "720h")); err != nil || c.OffboardGrace < 0 {
-		errs = append(errs, errors.New("ERP_OFFBOARD_GRACE must be a duration such as 720h (30 days); 0 erases right after the export"))
+		l.errs = append(l.errs, errors.New("ERP_OFFBOARD_GRACE must be a duration such as 720h (30 days); 0 erases right after the export"))
 	}
 	if c.AuditVerify, err = time.ParseDuration(get("ERP_AUDIT_VERIFY_INTERVAL", "1h")); err != nil || c.AuditVerify < 0 {
-		errs = append(errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must be a duration such as 1h, or 0 to leave chains unverified between requests"))
+		l.errs = append(l.errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must be a duration such as 1h, or 0 to leave chains unverified between requests"))
 	}
 	if c.KeyRotationAge, err = time.ParseDuration(get("ERP_KEY_ROTATION_AGE", "0")); err != nil || c.KeyRotationAge < 0 {
-		errs = append(errs, errors.New("ERP_KEY_ROTATION_AGE must be a duration such as 8760h (a year), or 0 to rotate on request only"))
+		l.errs = append(l.errs, errors.New("ERP_KEY_ROTATION_AGE must be a duration such as 8760h (a year), or 0 to rotate on request only"))
 	}
-	if c.PublicURL = strings.TrimRight(getenv("ERP_PUBLIC_URL"), "/"); c.PublicURL != "" {
+	if c.PublicURL = strings.TrimRight(l.getenv("ERP_PUBLIC_URL"), "/"); c.PublicURL != "" {
 		if u, err := url.Parse(c.PublicURL); err != nil || u.Scheme == "" || u.Host == "" {
-			errs = append(errs, errors.New("ERP_PUBLIC_URL must be a base URL such as https://api.example.com"))
+			l.errs = append(l.errs, errors.New("ERP_PUBLIC_URL must be a base URL such as https://api.example.com"))
 		}
 	}
-	c.Temporal = Temporal{Address: getenv("ERP_TEMPORAL_ADDRESS"), Namespace: get("ERP_TEMPORAL_NAMESPACE", "default"), TaskQueue: get("ERP_TEMPORAL_TASK_QUEUE", "erp")}
-	if raw := getenv("ERP_TEMPORAL_CODEC_KEY"); raw != "" {
+}
+
+// temporal reads the workflow engine (ADR-0012) and the approvals'
+// escalation policy it runs.
+func (l *loader) temporal(c *Config) {
+	get := l.get
+	var err error
+	c.Temporal = Temporal{Address: l.getenv("ERP_TEMPORAL_ADDRESS"), Namespace: get("ERP_TEMPORAL_NAMESPACE", "default"), TaskQueue: get("ERP_TEMPORAL_TASK_QUEUE", "erp")}
+	if raw := l.getenv("ERP_TEMPORAL_CODEC_KEY"); raw != "" {
 		if key, err := base64.StdEncoding.DecodeString(raw); err != nil || len(key) != 32 {
-			errs = append(errs, errors.New("ERP_TEMPORAL_CODEC_KEY must be base64 of 32 random bytes, the same on every replica and kept secret"))
+			l.errs = append(l.errs, errors.New("ERP_TEMPORAL_CODEC_KEY must be base64 of 32 random bytes, the same on every replica and kept secret"))
 		} else {
 			c.Temporal.CodecKey = key
 		}
 	}
 	if c.Temporal.EscalateAfter, err = time.ParseDuration(get("ERP_APPROVAL_ESCALATE_AFTER", "48h")); err != nil || c.Temporal.EscalateAfter < 0 {
-		errs = append(errs, errors.New("ERP_APPROVAL_ESCALATE_AFTER must be a duration such as 48h, or 0 not to escalate"))
+		l.errs = append(l.errs, errors.New("ERP_APPROVAL_ESCALATE_AFTER must be a duration such as 48h, or 0 not to escalate"))
 	}
-	if c.Temporal.Escalations, err = strconv.Atoi(get("ERP_APPROVAL_ESCALATIONS", "3")); err != nil || c.Temporal.Escalations < 1 {
-		errs = append(errs, errors.New("ERP_APPROVAL_ESCALATIONS must be a whole number of at least 1"))
+	// The deadline workflow counts escalations in an int16 and stores them in a
+	// smallint, so a larger setting would wrap rather than escalate further.
+	if c.Temporal.Escalations, err = strconv.Atoi(get("ERP_APPROVAL_ESCALATIONS", "3")); err != nil || c.Temporal.Escalations < 1 || c.Temporal.Escalations > math.MaxInt16 {
+		l.errs = append(l.errs, fmt.Errorf("ERP_APPROVAL_ESCALATIONS must be a whole number from 1 to %d", math.MaxInt16))
 	}
-	c.AWS = AWS{Getenv: raw, STSEndpoint: get("ERP_AWS_STS_ENDPOINT", "https://sts.amazonaws.com"), IMDSEndpoint: get("ERP_AWS_IMDS_ENDPOINT", "http://169.254.169.254")}
+}
+
+// directory reads where ambient AWS credentials come from, the global
+// directory and this cell's entry in it (ADR-0022), and checks that the
+// configured directories exist.
+func (l *loader) directory(c *Config) {
+	getenv, get := l.getenv, l.get
+	c.AWS = AWS{Getenv: l.raw, STSEndpoint: get("ERP_AWS_STS_ENDPOINT", "https://sts.amazonaws.com"), IMDSEndpoint: get("ERP_AWS_IMDS_ENDPOINT", "http://169.254.169.254")}
 	c.DirectoryURL, c.CellAPIURL, c.CellRegion, c.CellControlURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL"), getenv("ERP_CELL_REGION"), getenv("ERP_CELL_CONTROL_URL")
 	c.CellAccepting = get("ERP_CELL_ACCEPTING", "true") != "false"
 	if c.DirectoryURL != "" {
-		for name, value := range map[string]string{"ERP_CELL_API_URL": c.CellAPIURL, "ERP_CELL_CONTROL_URL": c.CellControlURL} {
-			if u, err := url.Parse(value); err != nil || u.Scheme == "" || u.Host == "" {
-				errs = append(errs, errors.New("ERP_DIRECTORY_URL needs "+name+", a base URL such as https://eu-1.api.example.com"))
+		// Slices, not maps, so the errors come out in the same order every run.
+		for _, s := range []setting{{"ERP_CELL_API_URL", c.CellAPIURL}, {"ERP_CELL_CONTROL_URL", c.CellControlURL}} {
+			if u, err := url.Parse(s.value); err != nil || u.Scheme == "" || u.Host == "" {
+				l.errs = append(l.errs, errors.New("ERP_DIRECTORY_URL needs "+s.name+", a base URL such as https://eu-1.api.example.com"))
 			}
 		}
 		if !regionPattern.MatchString(c.CellRegion) {
-			errs = append(errs, errors.New("ERP_DIRECTORY_URL needs ERP_CELL_REGION, the cell's region such as eu-west"))
+			l.errs = append(l.errs, errors.New("ERP_DIRECTORY_URL needs ERP_CELL_REGION, the cell's region such as eu-west"))
 		}
 	}
-	for name, dir := range map[string]string{"ERP_BANK_OUTBOX_DIR": c.BankOutboxDir, "ERP_EXTRACT_DIR": c.ExtractDir, "ERP_OBJECT_DIR": c.Objects.Dir} {
-		if fi, err := os.Stat(dir); dir != "" && (err != nil || !fi.IsDir()) {
-			errs = append(errs, fmt.Errorf("%s %q must be an existing directory", name, dir))
+	for _, s := range []setting{{"ERP_BANK_OUTBOX_DIR", c.BankOutboxDir}, {"ERP_EXTRACT_DIR", c.ExtractDir}, {"ERP_OBJECT_DIR", c.Objects.Dir}} {
+		if fi, err := os.Stat(s.value); s.value != "" && (err != nil || !fi.IsDir()) {
+			l.errs = append(l.errs, fmt.Errorf("%s %q must be an existing directory", s.name, s.value))
 		}
 	}
+}
+
+// setting is one environment setting's name and value, checked in a fixed order.
+type setting struct{ name, value string }
+
+// server reads how the process runs: migrations at start, logging,
+// timeouts, the connection pool and the rate limits.
+func (l *loader) server(c *Config) {
+	get := l.get
+	var err error
 	if c.MigrateOnStart, err = strconv.ParseBool(get("ERP_MIGRATE_ON_START", "false")); err != nil {
-		errs = append(errs, errors.New("ERP_MIGRATE_ON_START must be true or false"))
+		l.errs = append(l.errs, errors.New("ERP_MIGRATE_ON_START must be true or false"))
 	}
 	if err := c.LogLevel.UnmarshalText([]byte(get("ERP_LOG_LEVEL", "info"))); err != nil {
-		errs = append(errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
+		l.errs = append(l.errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
 	}
 	if c.ShutdownTimeout, err = time.ParseDuration(get("ERP_SHUTDOWN_TIMEOUT", "20s")); err != nil || c.ShutdownTimeout <= 0 {
-		errs = append(errs, errors.New("ERP_SHUTDOWN_TIMEOUT must be a positive duration such as 20s"))
+		l.errs = append(l.errs, errors.New("ERP_SHUTDOWN_TIMEOUT must be a positive duration such as 20s"))
 	}
 	if c.RequestTimeout, err = time.ParseDuration(get("ERP_REQUEST_TIMEOUT", "30s")); err != nil || c.RequestTimeout <= 0 {
-		errs = append(errs, errors.New("ERP_REQUEST_TIMEOUT must be a positive duration such as 30s"))
+		l.errs = append(l.errs, errors.New("ERP_REQUEST_TIMEOUT must be a positive duration such as 30s"))
 	}
 	if n, err := strconv.Atoi(get("ERP_DB_MAX_CONNS", "0")); err != nil || n < 0 || n > 10_000 {
-		errs = append(errs, errors.New("ERP_DB_MAX_CONNS must be a whole number of connections (0: the driver's default)"))
+		l.errs = append(l.errs, errors.New("ERP_DB_MAX_CONNS must be a whole number of connections (0: the driver's default)"))
 	} else {
 		c.DBMaxConns = int32(n) // #nosec G109 -- a pool size, checked to be a small whole number
 	}
 	if c.TenantQuota, err = ratelimit.ParseQuota(get("ERP_RATE_LIMIT_TENANT", "2000/10000")); err != nil {
-		errs = append(errs, fmt.Errorf("ERP_RATE_LIMIT_TENANT: %w", err))
+		l.errs = append(l.errs, fmt.Errorf("ERP_RATE_LIMIT_TENANT: %w", err))
 	}
 	if c.PrincipalQuota, err = ratelimit.ParseQuota(get("ERP_RATE_LIMIT_PRINCIPAL", "50/100")); err != nil {
-		errs = append(errs, fmt.Errorf("ERP_RATE_LIMIT_PRINCIPAL: %w", err))
+		l.errs = append(l.errs, fmt.Errorf("ERP_RATE_LIMIT_PRINCIPAL: %w", err))
 	}
-	return c, errors.Join(errs...)
+}
+
+// The environments ERP_ENV names, as the verifier knows them.
+const (
+	Development = string(authn.Development)
+	Production  = string(authn.Production)
+)
+
+// environmentHint tells the operator what to set when ERP_ENV is missing or
+// unknown.
+const environmentHint = "set ERP_ENV=development on a developer's machine or in tests, ERP_ENV=production everywhere else"
+
+// CheckEnvironment checks ERP_ENV as read: development or production, and
+// nothing else, not even empty. Every process that reads the environment
+// (the server, the router) checks it here, so they agree on the names.
+func CheckEnvironment(env string) error {
+	switch env {
+	case Development, Production:
+		return nil
+	case "":
+		return errors.New("ERP_ENV is required: " + environmentHint)
+	}
+	return fmt.Errorf("ERP_ENV %q must be development or production: %s", env, environmentHint)
+}
+
+// checkEnvironment requires ERP_ENV and refuses, in production, the
+// settings that are only safe on a developer's machine: a missing security
+// setting fails startup rather than logging a warning (CLAUDE.md). There is
+// no default environment: a production replica whose ERP_ENV went missing
+// must not start with development's allowances (the development issuer,
+// unsealed workflow payloads, operator tokens holding every role).
+func checkEnvironment(c Config) []error {
+	if err := CheckEnvironment(c.Environment); err != nil {
+		return []error{err}
+	}
+	if c.Environment == Development {
+		return nil
+	}
+	var errs []error
+	if c.DevIssuer {
+		errs = append(errs, errors.New("ERP_DEV_ISSUER must not be set with ERP_ENV=production: it mints tokens for any subject of any tenant"))
+	}
+	if c.Temporal.Address != "" && c.Temporal.CodecKey == nil {
+		errs = append(errs, errors.New("ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production and a workflow engine: without it payloads reach the engine unsealed"))
+	}
+	if !c.Objects.Enabled() {
+		errs = append(errs, errors.New("object storage (ERP_OBJECT_DIR or ERP_OBJECT_S3_*) is required with ERP_ENV=production: without it the audit chain is not anchored (ADR-0011) and offboarded tenants are not exported (ADR-0021)"))
+	}
+	if c.AuditVerify == 0 {
+		errs = append(errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production: audit chains would go unverified against their anchors"))
+	}
+	return errs
 }
 
 // DefaultK8sJWTFile is where Kubernetes mounts the service account token.

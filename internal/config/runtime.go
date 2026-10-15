@@ -5,6 +5,7 @@ package config
 // roles are identity roles with these codes.
 func ApprovalSteps(t Tier) []ApprovalStep {
 	switch t {
+	case TierCosmetic: // no approval
 	case TierOperational:
 		return []ApprovalStep{{Role: "process_owner", Approvals: 1}}
 	case TierPostingRelated:

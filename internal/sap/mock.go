@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strconv"
+	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
@@ -56,6 +57,11 @@ type mockGen struct {
 
 	through int // last month with revenue postings
 }
+
+// mockDecimals is the digits of the mock's amounts: they are generated in
+// hundredths, and its companies are in USD and EUR, two-digit currencies
+// in ref.currency. SAP extracts write an amount with its currency's digits.
+const mockDecimals = 2
 
 var mockCompanies = []T001{
 	{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US"},
@@ -154,10 +160,11 @@ func (g *mockGen) fiDoc(cc, budat, blart, xblnr string, lines []fiLine) string {
 		total += l.amount
 		g.e.ACDOCA = append(g.e.ACDOCA, ACDOCA{
 			RLDNR: "0L", RBUKRS: cc, GJAHR: g.gj, BELNR: belnr, DOCLN: fmt.Sprintf("%06d", i+1),
-			RACCT: l.acct, HSL: l.amount.Decimal(), BUDAT: budat, BLART: blart, LIFNR: l.vendor, XBLNR: xblnr,
+			RACCT: l.acct, HSL: l.amount.Plain(mockDecimals), BUDAT: budat, BLART: blart, LIFNR: l.vendor, XBLNR: xblnr,
 		})
 	}
 	if total != 0 {
+		//nolint:forbidigo // an invariant of this generator: its callers build every document's lines from the same amounts, so an unbalanced one is a bug in this file, not something a seed or year can cause
 		panic(fmt.Sprintf("mock FI doc %s/%s unbalanced by %s", cc, belnr, total))
 	}
 	return belnr
@@ -174,9 +181,24 @@ func (g *mockGen) clear(cc, belnr, vendor, clearingDoc string) {
 
 func (g *mockGen) money(lo, hi int64) money.Minor { return money.Minor(lo + g.r.Int64N(hi-lo+1)) }
 
+// milli is a mock quantity in thousandths of a unit, SAP MENGE's three
+// decimals, kept as an integer so a partial receipt can halve it.
+type milli int64
+
+const perUnit = 1000
+
+// String renders the quantity as SAP extracts do, without trailing zeros:
+// "12.5", "3".
+func (q milli) String() string {
+	if q%perUnit == 0 {
+		return strconv.FormatInt(int64(q/perUnit), 10)
+	}
+	return strings.TrimRight(fmt.Sprintf("%d.%03d", q/perUnit, q%perUnit), "0")
+}
+
 type mockPOLine struct {
 	item   string
-	qty    money.Qty
+	qty    milli
 	price  money.Minor
 	peinh  int64
 	sakto  string
@@ -194,62 +216,7 @@ func (g *mockGen) company(cc string, taxPct int64, vendors []string, scenarios b
 
 	const numPOs = 20
 	for i := range numPOs {
-		vendor := vendors[g.r.IntN(len(vendors))]
-		switch {
-		case scenarios && i == 3:
-			vendor = blockedVendor // invoiced before the vendor was blocked
-		case scenarios && i == 16:
-			vendor = g.e.EKKO[len(g.e.EKKO)-16].LIFNR // same vendor as this company's PO 0
-		}
-		g.poSeq++
-		ebeln := fmt.Sprintf("45%02d%06d", g.year()%100, g.poSeq)
-		month := 1 + i%6
-		g.e.EKKO = append(g.e.EKKO, EKKO{EBELN: ebeln, BUKRS: cc, LIFNR: vendor, WAERS: mockCurrency(cc), BEDAT: g.date(month, 3)})
-
-		var lines []mockPOLine
-		for j := range 1 + g.r.IntN(3) {
-			l := mockPOLine{
-				item:  fmt.Sprintf("%05d", (j+1)*10),
-				qty:   money.Qty((1 + g.r.Int64N(50)) * money.QtyScale),
-				price: g.money(1000, 200000),
-				peinh: 1,
-				sakto: expenseAccounts[g.r.IntN(len(expenseAccounts))],
-			}
-			if i == 5 && j == 0 {
-				l.qty = 12500 // 12.5 units
-			}
-			if i == 7 && j == 0 {
-				l.peinh = 100 // price per 100 units
-				l.qty = 2400 * money.QtyScale
-			}
-			if scenarios && i == 17 {
-				l.price = g.money(2000000, 3000000) // pushes the invoice over the auto-post limit
-				l.qty += 10 * money.QtyScale
-			}
-			l.amount = money.Extend(l.qty, l.price, l.peinh)
-			lines = append(lines, l)
-			g.e.EKPO = append(g.e.EKPO, EKPO{
-				EBELN: ebeln, EBELP: l.item, MATNR: fmt.Sprintf("MAT-%04d", g.r.IntN(9000)+1000),
-				TXZ01: fmt.Sprintf("Item %d for %s", j+1, ebeln), MENGE: l.qty.String(),
-				NETPR: l.price.Decimal(), PEINH: fmt.Sprint(l.peinh), SAKTO: l.sakto,
-			})
-		}
-
-		partialGR := scenarios && i == 15
-		for _, l := range lines {
-			q := l.qty
-			if partialGR {
-				q = l.qty / 2
-			}
-			g.grSeq++
-			g.e.MSEG = append(g.e.MSEG, MSEG{
-				MBLNR: fmt.Sprintf("50%08d", g.grSeq), MJAHR: g.gj, ZEILE: "0001", BWART: "101",
-				EBELN: ebeln, EBELP: l.item, MENGE: q.String(), BUDAT: g.date(month, 10),
-			})
-		}
-
-		posted := i < 12
-		g.invoice(cc, ebeln, vendor, month, i, lines, taxPct, posted, scenarios)
+		g.purchaseOrder(cc, i, taxPct, vendors, scenarios)
 	}
 
 	// Second-half revenue is generated after purchasing so the random stream
@@ -257,6 +224,75 @@ func (g *mockGen) company(cc string, taxPct int64, vendors []string, scenarios b
 	for m := 7; m <= g.through; m++ {
 		g.revenue(cc, m)
 	}
+}
+
+// purchaseOrder generates a company's i-th order with its receipts and
+// invoice. The order of random draws is part of the mock's contract: the
+// same seed must produce the same extract.
+func (g *mockGen) purchaseOrder(cc string, i int, taxPct int64, vendors []string, scenarios bool) {
+	vendor := vendors[g.r.IntN(len(vendors))]
+	switch {
+	case scenarios && i == 3:
+		vendor = blockedVendor // invoiced before the vendor was blocked
+	case scenarios && i == 16:
+		vendor = g.e.EKKO[len(g.e.EKKO)-16].LIFNR // same vendor as this company's PO 0
+	}
+	g.poSeq++
+	ebeln := fmt.Sprintf("45%02d%06d", g.year()%100, g.poSeq)
+	month := 1 + i%6
+	g.e.EKKO = append(g.e.EKKO, EKKO{EBELN: ebeln, BUKRS: cc, LIFNR: vendor, WAERS: mockCurrency(cc), BEDAT: g.date(month, 3)})
+
+	var lines []mockPOLine
+	for j := range 1 + g.r.IntN(3) {
+		lines = append(lines, g.poLine(ebeln, i, j, scenarios))
+	}
+
+	partialGR := scenarios && i == 15
+	for _, l := range lines {
+		q := l.qty
+		if partialGR {
+			q = l.qty / 2
+		}
+		g.grSeq++
+		g.e.MSEG = append(g.e.MSEG, MSEG{
+			MBLNR: fmt.Sprintf("50%08d", g.grSeq), MJAHR: g.gj, ZEILE: "0001", BWART: "101",
+			EBELN: ebeln, EBELP: l.item, MENGE: q.String(), BUDAT: g.date(month, 10),
+		})
+	}
+
+	posted := i < 12
+	g.invoice(cc, ebeln, vendor, month, i, lines, taxPct, posted, scenarios)
+}
+
+// poLine generates item j of the i-th order, with the scenario overrides
+// (fractional quantity, price unit, over-limit price), and appends it to
+// EKPO.
+func (g *mockGen) poLine(ebeln string, i, j int, scenarios bool) mockPOLine {
+	l := mockPOLine{
+		item:  fmt.Sprintf("%05d", (j+1)*10),
+		qty:   milli((1 + g.r.Int64N(50)) * perUnit),
+		price: g.money(1000, 200000),
+		peinh: 1,
+		sakto: expenseAccounts[g.r.IntN(len(expenseAccounts))],
+	}
+	if i == 5 && j == 0 {
+		l.qty = 12500 // 12.5 units
+	}
+	if i == 7 && j == 0 {
+		l.peinh = 100 // price per 100 units
+		l.qty = 2400 * perUnit
+	}
+	if scenarios && i == 17 {
+		l.price = g.money(2000000, 3000000) // pushes the invoice over the auto-post limit
+		l.qty += 10 * perUnit
+	}
+	l.amount, _ = money.Scale(l.price, l.qty.String(), l.peinh) // mock quantities and prices are far from the range
+	g.e.EKPO = append(g.e.EKPO, EKPO{
+		EBELN: ebeln, EBELP: l.item, MATNR: fmt.Sprintf("MAT-%04d", g.r.IntN(9000)+1000),
+		TXZ01: fmt.Sprintf("Item %d for %s", j+1, ebeln), MENGE: l.qty.String(),
+		NETPR: l.price.Plain(mockDecimals), PEINH: fmt.Sprint(l.peinh), SAKTO: l.sakto,
+	})
+	return l
 }
 
 // revenue posts one month's sales (a trend growing ~7% a year, with +/-5%
@@ -280,7 +316,7 @@ func (g *mockGen) revenue(cc string, m int) {
 }
 
 func (g *mockGen) year() int {
-	y, _ := strconv.Atoi(g.gj)
+	y, _ := strconv.Atoi(g.gj) // the callers' fiscal year is four digits; mock data only
 	return y
 }
 
@@ -305,15 +341,15 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 	for k, l := range lines {
 		amt := l.amount
 		if scenarios && i == 14 && k == 0 {
-			amt = money.Percent(amt, 110) // 10% over PO price
+			amt, _ = money.Percent(amt, 110) // 10% over PO price; mock amounts are far from the range
 		}
 		net += amt
 		g.e.RSEG = append(g.e.RSEG, RSEG{
 			BELNR: belnr, GJAHR: g.gj, BUZEI: fmt.Sprintf("%06d", k+1), EBELN: ebeln, EBELP: l.item,
-			MENGE: l.qty.String(), WRBTR: amt.Decimal(),
+			MENGE: l.qty.String(), WRBTR: amt.Plain(mockDecimals),
 		})
 	}
-	tax := money.Percent(net, taxPct)
+	tax, _ := money.Percent(net, taxPct) // mock amounts are far from the range
 	gross := net + tax
 	if scenarios && i == 18 {
 		gross += 100 // vendor added tax incorrectly
@@ -324,7 +360,7 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 	}
 	g.e.RBKP = append(g.e.RBKP, RBKP{
 		BELNR: belnr, GJAHR: g.gj, BUKRS: cc, LIFNR: vendor, XBLNR: xblnr, BLDAT: g.date(month, 15),
-		WAERS: mockCurrency(cc), RMWWR: gross.Decimal(), WMWST1: tax.Decimal(), RBSTAT: status,
+		WAERS: mockCurrency(cc), RMWWR: gross.Plain(mockDecimals), WMWST1: tax.Plain(mockDecimals), RBSTAT: status,
 	})
 	if !posted {
 		return

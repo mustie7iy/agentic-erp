@@ -25,12 +25,20 @@ func TestScopeSetsRoleTenantAndTimeouts(t *testing.T) {
 		if err := tx.QueryRow(ctx, "SELECT current_user, current_setting('app.tenant_id'), current_setting('lock_timeout')").Scan(&role, &tenant, &lock); err != nil {
 			return err
 		}
-		if role != "erp_app" || tenant != ten.ID.String() || lock != "5s" {
-			t.Errorf("role %s tenant %s lock %s", role, tenant, lock)
+		if role != "erp_app" {
+			t.Errorf("current_user: got %q, want %q", role, "erp_app")
+		}
+		if want := ten.ID.String(); tenant != want {
+			t.Errorf("app.tenant_id: got %q, want %q", tenant, want)
+		}
+		if lock != "5s" {
+			t.Errorf("lock_timeout: got %q, want %q", lock, "5s")
 		}
 		// Row-level security: only this tenant's principals are visible.
 		var n int
-		tx.QueryRow(ctx, "SELECT count(*) FROM identity.principal WHERE tenant_id = $1", other.ID).Scan(&n)
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM identity.principal WHERE tenant_id = $1", other.ID).Scan(&n); err != nil {
+			return err
+		}
 		if n != 0 {
 			t.Error("other tenant visible")
 		}
@@ -38,7 +46,9 @@ func TestScopeSetsRoleTenantAndTimeouts(t *testing.T) {
 			return err
 		}
 		var actor string
-		tx.QueryRow(ctx, "SELECT current_setting('app.actor_id')").Scan(&actor)
+		if err := tx.QueryRow(ctx, "SELECT current_setting('app.actor_id')").Scan(&actor); err != nil {
+			return err
+		}
 		if actor != ten.Human.ID.String() {
 			t.Error("actor not set")
 		}
@@ -56,14 +66,18 @@ func TestScopeSetsRoleTenantAndTimeouts(t *testing.T) {
 		t.Fatal("write in read-only transaction")
 	}
 	// The setting does not leak to the next transaction on the same pool.
-	pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+	if err := pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		var tenant string
-		tx.QueryRow(ctx, "SELECT coalesce(current_setting('app.tenant_id', true), '')").Scan(&tenant)
+		if err := tx.QueryRow(ctx, "SELECT coalesce(current_setting('app.tenant_id', true), '')").Scan(&tenant); err != nil {
+			return err
+		}
 		if tenant != "" {
 			t.Errorf("tenant leaked: %q", tenant)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestInTxCommitsAndRollsBack(t *testing.T) {
@@ -79,13 +93,17 @@ func TestInTxCommitsAndRollsBack(t *testing.T) {
 	}
 	sentinel := errors.New("abort")
 	if err := pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
-		tx.Exec(ctx, "INSERT INTO public.tx_probe VALUES ($1)", drop)
+		if _, err := tx.Exec(ctx, "INSERT INTO public.tx_probe VALUES ($1)", drop); err != nil {
+			return err // not the sentinel: the rollback below would prove nothing
+		}
 		return sentinel
 	}); !errors.Is(err, sentinel) {
 		t.Fatal(err)
 	}
 	var n int
-	pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM public.tx_probe WHERE id IN ($1, $2)", keep, drop).Scan(&n)
+	if err := pgtest.Admin(t).QueryRow(ctx, "SELECT count(*) FROM public.tx_probe WHERE id IN ($1, $2)", keep, drop).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 1 {
 		t.Fatalf("rows %d", n)
 	}
@@ -162,5 +180,67 @@ func TestOpenAndBeginErrors(t *testing.T) {
 	tx.Rollback(ctx)
 	if err := database.SetActor(ctx, tx, uuid.New()); err == nil {
 		t.Fatal("closed transaction accepted")
+	}
+}
+
+// TestBeginOr: an injected begin is used when set, the pool otherwise.
+func TestBeginOr(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	t.Run("injected", func(t *testing.T) {
+		injected := errors.New("injected")
+		_, err := database.BeginOr(ctx, nil, func(context.Context, database.Scope) (pgx.Tx, error) { return nil, injected }, database.Scope{})
+		if !errors.Is(err, injected) {
+			t.Errorf("got %v, want the injected begin's error", err)
+		}
+	})
+	t.Run("pool", func(t *testing.T) {
+		tx, err := database.BeginOr(ctx, pool, nil, database.Scope{ReadOnly: true})
+		if err != nil {
+			t.Fatalf("got %v, want a transaction from the pool", err)
+		}
+		defer tx.Rollback(ctx)
+		var readOnly string
+		if err := tx.QueryRow(ctx, `SHOW transaction_read_only`).Scan(&readOnly); err != nil {
+			t.Fatal(err)
+		}
+		if readOnly != "on" {
+			t.Errorf("transaction_read_only: got %q, want on (the scope reaches the pool)", readOnly)
+		}
+	})
+}
+
+// TestPingClosedPool: a pool that is closed reports the failed ping.
+func TestPingClosedPool(t *testing.T) {
+	ctx := context.Background()
+	pool, err := database.Open(ctx, pgtest.URL(t), database.DefaultSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+	pgtest.CheckErr(t, pool.Ping(ctx), "database: ping")
+}
+
+// TestToday: the transaction's current_date, and a failed read reported.
+func TestToday(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx, database.Scope{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want time.Time
+	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := database.Today(ctx, tx)
+	if err != nil || !got.Equal(want) {
+		t.Errorf("got %v, %v, want %v", got, err, want)
+	}
+	tx.Rollback(ctx)
+	got, err = database.Today(ctx, tx)
+	pgtest.CheckErr(t, err, "database: read current date") // the closed transaction's read fails
+	if !got.IsZero() {
+		t.Errorf("closed transaction: got %v, want the zero date", got)
 	}
 }

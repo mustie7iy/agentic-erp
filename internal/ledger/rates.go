@@ -3,13 +3,16 @@ package ledger
 import (
 	"context"
 	"errors"
-	"math/big"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -49,7 +52,7 @@ const rateColumns = `id, rate_type, from_currency, to_currency, valid_from, rate
 
 func scanRate(row pgx.Row) (Rate, error) {
 	var r Rate
-	err := row.Scan(&r.ID, &r.RateType, &r.FromCurrency, &r.ToCurrency, &r.ValidFrom, &r.Rate, &r.Source, &r.CreatedAt, &r.CreatedBy)
+	err := errs.Wrapf(row.Scan(&r.ID, &r.RateType, &r.FromCurrency, &r.ToCurrency, &r.ValidFrom, &r.Rate, &r.Source, &r.CreatedAt, &r.CreatedBy), "scan exchange rate")
 	return r, err
 }
 
@@ -61,9 +64,12 @@ func GetRate(ctx context.Context, id uuid.UUID) (Rate, error) {
 	}
 	r, err := scanRate(tx.QueryRow(ctx, `SELECT `+rateColumns+` FROM ledger.exchange_rate WHERE id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Rate{}, problem.NotFound("No exchange rate with this id.")
+		return Rate{}, problem.NotFoundOf("exchange rate")
 	}
-	return r, err
+	if err != nil {
+		return Rate{}, fmt.Errorf("ledger: read exchange rate %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // NewRate is the input of CreateRate.
@@ -88,15 +94,25 @@ func CreateRate(ctx context.Context, in NewRate) (Rate, error) {
 		return Rate{}, problem.Unprocessable("ledger.same_currency", "A rate converts between two different currencies.",
 			problem.FieldError{Field: "to_currency", Code: "same_currency", Message: "a currency other than from_currency"})
 	}
-	if r, _ := new(big.Rat).SetString(in.Rate); r.Sign() <= 0 { // the contract's pattern admits only decimals
-		return Rate{}, problem.Unprocessable("ledger.invalid_rate", "A rate is positive.",
-			problem.FieldError{Field: "rate", Code: "not_positive", Message: "units of to_currency per unit of from_currency, above zero"})
+	// Money's plain grammar, as the API's Decimal pattern has it, for any
+	// caller: big.Rat would also take "1/3", which the database then
+	// refuses as an invalid value, and exponents, "1e1000000" unbounded.
+	if r, err := money.ParsePlain(in.Rate); err != nil || r.Sign() <= 0 {
+		return Rate{}, problem.Unprocessable("ledger.invalid_rate", "A rate is a plain positive decimal.",
+			problem.FieldError{Field: "rate", Code: "not_positive", Message: "units of to_currency per unit of from_currency, above zero, as digits with an optional decimal point"})
+	}
+	// numeric(28,12), as the Decimal pattern has it: the database would
+	// round a 13th decimal away, the rate then being one nobody entered or
+	// zero, and refuse a 17th integer digit as an internal error (F19).
+	if whole, decimals, _ := strings.Cut(in.Rate, "."); len(strings.TrimLeft(whole, "0")) > 16 || len(decimals) > 12 {
+		return Rate{}, problem.Unprocessable("ledger.invalid_rate", "A rate has at most 16 integer digits and 12 decimals.",
+			problem.FieldError{Field: "rate", Code: "too_many_digits", Message: "at most 16 digits before the decimal point and 12 after it"})
 	}
 	r, err := scanRate(tx.QueryRow(ctx, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9) RETURNING `+rateColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), in.RateType, in.FromCurrency, in.ToCurrency, in.ValidFrom, in.Rate, in.Source, p.ID))
 	if err != nil {
-		return Rate{}, err
+		return Rate{}, fmt.Errorf("ledger: create exchange rate %s/%s from %s: %w", in.FromCurrency, in.ToCurrency, in.ValidFrom.Format(time.DateOnly), err)
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "exchange_rate_maintained", AggregateType: "ledger.exchange_rate", AggregateID: r.ID,
 		Payload: map[string]any{"exchange_rate_id": r.ID, "rate_type": r.RateType, "from_currency": r.FromCurrency, "to_currency": r.ToCurrency,

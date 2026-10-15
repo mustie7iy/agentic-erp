@@ -1,7 +1,7 @@
 // Package blobstoretest is a test double of an S3-compatible service: an
 // in-memory bucket over HTTP that checks Signature Version 4, honours
-// If-None-Match: * and records object-lock headers, so S3 can be tested
-// without a service.
+// If-None-Match: * and records object-lock headers, so the write-once store
+// of ADR-0016 can be tested without a service (06-engineering-process §6.6).
 package blobstoretest
 
 import (
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sigv4"
 )
 
@@ -54,11 +55,11 @@ type Server struct {
 }
 
 // New starts a server that stops when the test ends.
-func New(t testing.TB) *Server {
-	t.Helper()
+func New(tb testing.TB) *Server {
+	tb.Helper()
 	s := &Server{Objects: map[string]Object{}}
 	srv := httptest.NewServer(http.HandlerFunc(s.serve))
-	t.Cleanup(srv.Close)
+	tb.Cleanup(srv.Close)
 	s.URL = srv.URL
 	return s
 }
@@ -113,6 +114,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.answer(w, http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.")
 		return
 	}
+	s.object(w, r, key, body)
+}
+
+// object answers a request for one object (delete, head, put, get), the
+// lock held.
+func (s *Server) object(w http.ResponseWriter, r *http.Request, key string, body []byte) {
 	switch r.Method {
 	case http.MethodDelete:
 		if o, exists := s.Objects[key]; exists {
@@ -162,11 +169,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 func (s *Server) authentic(r *http.Request, body []byte) bool {
 	if r.URL.Query().Get("X-Amz-Signature") != "" {
 		ok, made, ttl := sigv4.Verify(r, AccessKey, SecretKey, Region, "s3")
-		now := time.Now()
-		if s.Now != nil {
-			now = s.Now()
-		}
-		return ok && now.Before(made.Add(ttl))
+		return ok && s.now().Before(made.Add(ttl))
 	}
 	got := r.Header.Get("Authorization")
 	when, err := time.Parse("20060102T150405Z", r.Header.Get("X-Amz-Date"))
@@ -181,10 +184,7 @@ func (s *Server) authentic(r *http.Request, body []byte) bool {
 }
 
 func (s *Server) now() time.Time {
-	if s.Now != nil {
-		return s.Now()
-	}
-	return time.Now()
+	return clock.Now(s.Now)
 }
 
 // list answers ListObjectsV2: the keys with the prefix, sorted, PageSize

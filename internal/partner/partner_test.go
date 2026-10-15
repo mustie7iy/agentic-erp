@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -79,6 +79,14 @@ func (e env) supplier(name string, bankFrom int) string {
 		"extensions": {"cost_object_hint": "MKT"}, "reason": "New supplier"}`, name, e.le, e.recon, e.date(-30), name, e.date(bankFrom))
 }
 
+// in returns e reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (e env) in(t *testing.T) env {
+	t.Helper()
+	e.T = t
+	return e
+}
+
 func id(m map[string]any) string { return m["id"].(string) }
 
 // create posts a partner and returns it with its create change.
@@ -125,44 +133,131 @@ func (e env) events(t *testing.T, name string) []map[string]any {
 }
 
 func TestCreateAndRead(t *testing.T) {
-	e := setup(t)
-	p, c := e.create(t, e.supplier("Muster Industrie GmbH", 0))
-	if p["status"] != "pending" || p["number"] != "BP00000001" || p["kind"] != "organization" || len(p["supplier_companies"].([]any)) != 1 ||
-		p["extensions"].(map[string]any)["cost_object_hint"] != "MKT" {
-		t.Fatalf("partner: %v", p)
+	s := &createAndRead{e: setup(t)}
+	if !t.Run("create a supplier", s.createSupplier) {
+		t.FailNow()
 	}
-	tax := p["tax_identifiers"].([]any)[0].(map[string]any)
-	if tax["scheme"] != "EU_VAT" || tax["value_last4"] != "6789" || len(tax) != 2 {
-		t.Fatalf("tax identifier not masked: %v", tax)
+	t.Run("read the partner and its change", s.readPartnerAndChange)
+	if !t.Run("a customer with the same identifiers", s.createCustomerWithTheSameIdentifiers) {
+		t.FailNow()
+	}
+	t.Run("list and page", s.listAndPagePartners)
+	t.Run("the service sees no company data", s.serviceSeesNoCompanyData)
+	t.Run("list changes", s.listPartnerChanges)
+}
+
+// createAndRead is TestCreateAndRead's scenario: the supplier and its
+// create change, made by the first step.
+type createAndRead struct {
+	e    env
+	p, c map[string]any
+}
+
+// createSupplier creates a supplier and checks it and its create change, masked.
+func (s *createAndRead) createSupplier(t *testing.T) {
+	e := s.e.in(t)
+	p, c := e.create(t, e.supplier("Muster Industrie GmbH", 0))
+	for field, want := range map[string]any{"status": "pending", "number": "BP00000001", "kind": "organization"} {
+		if p[field] != want {
+			t.Errorf("partner %s: got %v, want %v", field, p[field], want)
+		}
+	}
+	if n := len(p["supplier_companies"].([]any)); n != 1 {
+		t.Errorf("partner supplier companies: got %d, want 1", n)
+	}
+	if hint := p["extensions"].(map[string]any)["cost_object_hint"]; hint != "MKT" {
+		t.Errorf("partner cost_object_hint: got %v, want MKT", hint)
+	}
+	taxes := apitest.List(t, p, "tax_identifiers")
+	if len(taxes) == 0 {
+		t.Fatalf("tax identifiers: got none, want one")
+	}
+	tax, _ := taxes[0].(map[string]any) // a nil map fails the scheme check below
+	if tax["scheme"] != "EU_VAT" {
+		t.Errorf("tax identifier scheme: got %v, want EU_VAT", tax["scheme"])
+	}
+	if tax["value_last4"] != "6789" {
+		t.Errorf("tax identifier last 4: got %v, want 6789", tax["value_last4"])
+	}
+	if len(tax) != 2 {
+		t.Errorf("tax identifier not masked: got fields %v, want scheme and value_last4 only", tax)
 	}
 	addr := p["addresses"].([]any)[0].(map[string]any)
-	if addr["purpose"] != "legal" || addr["valid_from"] != e.date(-30) || addr["id"] == nil {
-		t.Fatalf("address: %v", addr)
+	if addr["purpose"] != "legal" {
+		t.Errorf("address purpose: got %v, want legal", addr["purpose"])
 	}
-	if c["number"] != "PC00000001" || c["status"] != "pending" || c["reason"] != "New supplier" || len(c["warnings"].([]any)) != 0 {
-		t.Fatalf("change: %v", c)
+	if addr["valid_from"] != e.date(-30) {
+		t.Errorf("address valid_from: got %v, want %s", addr["valid_from"], e.date(-30))
+	}
+	if addr["id"] == nil {
+		t.Error("address id: got nil, want an id")
+	}
+	for field, want := range map[string]any{"number": "PC00000001", "status": "pending", "reason": "New supplier"} {
+		if c[field] != want {
+			t.Errorf("change %s: got %v, want %v", field, c[field], want)
+		}
+	}
+	if warnings := c["warnings"].([]any); len(warnings) != 0 {
+		t.Errorf("change warnings: got %v, want none", warnings)
 	}
 	payload := c["payload"].(map[string]any)
 	bank := payload["bank_accounts"].([]any)[0].(map[string]any)
-	if bank["account_last4"] != "3000" || bank["account_cipher"] != nil || bank["account_fingerprint"] != nil {
-		t.Fatalf("bank account in payload not masked: %v", bank)
+	if bank["account_last4"] != "3000" {
+		t.Errorf("bank account last 4: got %v, want 3000", bank["account_last4"])
 	}
-	if strings.Contains(fmt.Sprint(payload), "DE123456789") || strings.Contains(fmt.Sprint(payload), iban) {
-		t.Fatalf("payload leaks a sensitive value: %v", payload)
+	for _, field := range []string{"account_cipher", "account_fingerprint"} {
+		if bank[field] != nil {
+			t.Errorf("bank account in payload not masked: got %s %v, want none", field, bank[field])
+		}
+	}
+	for _, secret := range []string{"DE123456789", iban} {
+		if strings.Contains(fmt.Sprint(payload), secret) {
+			t.Errorf("payload leaks %s: %v", secret, payload)
+		}
 	}
 	created := e.events(t, "business_partner_created")
-	if len(created) != 1 || created[0]["partner_change_id"] != id(c) || created[0]["status"] != "pending" {
-		t.Fatalf("events: %v", created)
+	if len(created) != 1 {
+		t.Fatalf("created events: got %d %v, want 1", len(created), created)
 	}
-	if got, tag := e.Must(200, "GET", "/v1/business-partners/"+id(p), "", ""); got["name"] != "Muster Industrie GmbH" || tag != `"1"` {
-		t.Fatalf("get: %v %s", got, tag)
+	if created[0]["partner_change_id"] != id(c) {
+		t.Errorf("created event partner_change_id: got %v, want %s", created[0]["partner_change_id"], id(c))
 	}
-	if got, tag := e.Must(200, "GET", "/v1/partner-changes/"+id(c), "", ""); got["kind"] != "create" || tag != `"2"` || got["workflow_request_id"] == nil {
-		t.Fatalf("get change: %v %s", got, tag)
+	if created[0]["status"] != "pending" {
+		t.Errorf("created event status: got %v, want pending", created[0]["status"])
+	}
+	s.p, s.c = p, c
+}
+
+// readPartnerAndChange reads the partner and its change back.
+func (s *createAndRead) readPartnerAndChange(t *testing.T) {
+	e := s.e.in(t)
+	p, c := s.p, s.c
+	got, tag := e.Must(200, "GET", "/v1/business-partners/"+id(p), "", "")
+	if got["name"] != "Muster Industrie GmbH" {
+		t.Errorf("get name: got %v, want Muster Industrie GmbH", got["name"])
+	}
+	if tag != `"1"` {
+		t.Errorf("get tag: got %s, want \"1\"", tag)
+	}
+	got, tag = e.Must(200, "GET", "/v1/partner-changes/"+id(c), "", "")
+	if got["kind"] != "create" {
+		t.Errorf("get change kind: got %v, want create", got["kind"])
+	}
+	if tag != `"2"` {
+		t.Errorf("get change tag: got %s, want \"2\"", tag)
+	}
+	if got["workflow_request_id"] == nil {
+		t.Error("get change workflow_request_id: got nil, want a request")
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/business-partners/"+uuid.NewString(), "", "")
 	e.Problem(404, "request.not_found", "GET", "/v1/partner-changes/"+uuid.NewString(), "", "")
+}
 
+// createCustomerWithTheSameIdentifiers applies the supplier's change and creates a
+// person who is a customer, with the supplier's identifiers.
+func (s *createAndRead) createCustomerWithTheSameIdentifiers(t *testing.T) {
+	e := s.e.in(t)
+	c := s.c
 	// A person who is a customer, and the same identifiers again: warnings
 	// once the first partner's bank account exists.
 	e.mustApply(t, id(c))
@@ -177,8 +272,12 @@ func TestCreateAndRead(t *testing.T) {
 	if strings.Join(codes, ",") != "partner.duplicate_tax_identifier,partner.duplicate_bank_account" {
 		t.Fatalf("warnings: %v", c2["warnings"])
 	}
+}
 
-	list := func(q string) []string {
+// listAndPagePartners lists the supplier and the customer by every filter and order.
+func (s *createAndRead) listAndPagePartners(t *testing.T) {
+	e := s.e.in(t)
+	list := func(e env, q string) []string {
 		page, _ := e.Must(200, "GET", "/v1/business-partners"+q, "", "")
 		var out []string
 		for _, it := range page["items"].([]any) {
@@ -205,26 +304,37 @@ func TestCreateAndRead(t *testing.T) {
 		"?name_prefix=muster%20%20indus":   "BP00000001",
 		"?number=BP00000001&role=supplier": "BP00000001",
 	} {
-		got := list(q)
-		if len(got) > 0 && strings.HasPrefix(got[len(got)-1], "next:") {
-			got = got[:len(got)-1]
-		}
-		if strings.Join(got, ",") != want {
-			t.Errorf("list %s: %v, want %s", q, got, want)
-		}
+		t.Run("list"+q, func(t *testing.T) {
+			got := list(e.in(t), q)
+			if len(got) > 0 && strings.HasPrefix(got[len(got)-1], "next:") {
+				got = got[:len(got)-1]
+			}
+			if strings.Join(got, ",") != want {
+				t.Errorf("got %v, want %s", got, want)
+			}
+		})
 	}
-	first := list("?order_by=name&page_size=1")
+	first := list(e, "?order_by=name&page_size=1")
 	if len(first) != 2 {
 		t.Fatalf("page 1: %v", first)
 	}
-	if rest := list("?order_by=name&page_size=1&page_token=" + strings.TrimPrefix(first[1], "next:")); strings.Join(rest, ",") != "BP00000001" {
+	if rest := list(e, "?order_by=name&page_size=1&page_token="+strings.TrimPrefix(first[1], "next:")); strings.Join(rest, ",") != "BP00000001" {
 		t.Fatalf("page 2: %v", rest)
 	}
-	if byNumber := list("?page_size=1"); len(byNumber) != 2 || list("?page_size=1&page_token=" + strings.TrimPrefix(byNumber[1], "next:"))[0] != "BP00000002" {
-		t.Fatalf("by number: %v", byNumber)
+	byNumber := list(e, "?page_size=1")
+	if len(byNumber) != 2 {
+		t.Fatalf("by number: got %d %v, want 2", len(byNumber), byNumber)
+	}
+	if rest := list(e, "?page_size=1&page_token="+strings.TrimPrefix(byNumber[1], "next:")); rest[0] != "BP00000002" {
+		t.Errorf("by number, page 2: got %v, want BP00000002 first", rest)
 	}
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/business-partners?order_by=status", "", "")
+}
 
+// serviceSeesNoCompanyData reads the supplier as the service, which has no company access.
+func (s *createAndRead) serviceSeesNoCompanyData(t *testing.T) {
+	e := s.e.in(t)
+	p := s.p
 	// The service has no company access: it sees the partner, not its company data.
 	svc := e.Client
 	svc.As = e.ten.Service
@@ -234,10 +344,17 @@ func TestCreateAndRead(t *testing.T) {
 	if page, _ := svc.Must(200, "GET", "/v1/business-partners?number=BP00000001", "", ""); len(page["items"].([]any)[0].(map[string]any)["supplier_companies"].([]any)) != 0 {
 		t.Fatalf("listed company data outside access: %v", page)
 	}
+}
 
+// listPartnerChanges lists the two create changes.
+func (s *createAndRead) listPartnerChanges(t *testing.T) {
+	e := s.e.in(t)
 	changes, _ := e.Must(200, "GET", "/v1/partner-changes?order_by=created_at%20desc&page_size=1", "", "")
-	if changes["items"].([]any)[0].(map[string]any)["number"] != "PC00000002" || changes["next_page_token"] == nil {
-		t.Fatalf("changes: %v", changes)
+	if number := changes["items"].([]any)[0].(map[string]any)["number"]; number != "PC00000002" {
+		t.Errorf("changes: got %v first, want PC00000002", number)
+	}
+	if changes["next_page_token"] == nil {
+		t.Fatalf("changes: got no next_page_token, want one: %v", changes)
 	}
 	more, _ := e.Must(200, "GET", "/v1/partner-changes?order_by=created_at%20desc&page_size=1&page_token="+changes["next_page_token"].(string), "", "")
 	if more["items"].([]any)[0].(map[string]any)["number"] != "PC00000001" {
@@ -297,9 +414,15 @@ func TestCreateRefusals(t *testing.T) {
 		{"backdated bank account", base(`, "bank_accounts": [` + bank("payments", iban, "iban", e.date(-1)) + `]`), 422, "partner.backdated_bank_account"},
 	}
 	for _, c := range cases {
-		if got, m, _ := e.Do("POST", "/v1/business-partners", c.body, ""); got != c.status || m["code"] != c.code {
-			t.Errorf("%s: %d %v, want %d %s", c.name, got, m, c.status, c.code)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			got, m, _ := e.in(t).Do("POST", "/v1/business-partners", c.body, "")
+			if got != c.status {
+				t.Errorf("status: got %d, want %d (%v)", got, c.status, m)
+			}
+			if m["code"] != c.code {
+				t.Errorf("code: got %v, want %s", m["code"], c.code)
+			}
+		})
 	}
 	// Supplier data only in legal entities the caller may act in.
 	svc := e.Client
@@ -315,44 +438,62 @@ func TestApplyRejectCancel(t *testing.T) {
 	p, c := e.create(t, e.supplier("A", 5))
 	e.mustApply(t, id(c))
 	got, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p), "", "")
-	if got["status"] != "active" || got["version"] != float64(2) {
-		t.Fatalf("applied create: %v", got)
+	if got["status"] != "active" {
+		t.Errorf("applied create status: got %v, want active", got["status"])
+	}
+	if got["version"] != float64(2) {
+		t.Errorf("applied create version: got %v, want 2", got["version"])
 	}
 	applied, _ := e.Must(200, "GET", "/v1/partner-changes/"+id(c), "", "")
-	if applied["status"] != "applied" || applied["applied_at"] == nil {
-		t.Fatalf("change: %v", applied)
+	if applied["status"] != "applied" {
+		t.Errorf("change status: got %v, want applied", applied["status"])
+	}
+	if applied["applied_at"] == nil {
+		t.Error("change applied_at: got nil, want a time")
 	}
 	banks, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p)+"/bank-accounts", "", "")
 	b := banks["items"].([]any)[0].(map[string]any)
-	if b["valid_from"] != e.date(5) || b["account_last4"] != "3000" || b["partner_change_id"] != id(c) || b["bic"] != "COBADEFFXXX" {
-		t.Fatalf("bank account: %v", b)
+	for field, want := range map[string]any{"valid_from": e.date(5), "account_last4": "3000", "partner_change_id": id(c), "bic": "COBADEFFXXX"} {
+		if b[field] != want {
+			t.Errorf("bank account %s: got %v, want %v", field, b[field], want)
+		}
 	}
 	approved := e.events(t, "supplier_approved")
-	if len(approved) != 1 || approved[0]["legal_entity_ids"].([]any)[0] != e.le.String() || approved[0]["status"] != "active" {
-		t.Fatalf("supplier approved: %v", approved)
+	if len(approved) != 1 {
+		t.Fatalf("supplier approved events: got %d %v, want 1", len(approved), approved)
+	}
+	if le := approved[0]["legal_entity_ids"].([]any)[0]; le != e.le.String() {
+		t.Errorf("supplier approved legal entity: got %v, want %s", le, e.le)
+	}
+	if approved[0]["status"] != "active" {
+		t.Errorf("supplier approved status: got %v, want active", approved[0]["status"])
 	}
 	changed := e.events(t, "bank_account_changed")
-	if len(changed) != 1 || changed[0]["ended_bank_account_id"] != nil || changed[0]["valid_from"] != e.date(5) {
-		t.Fatalf("bank account changed: %v", changed)
+	if len(changed) != 1 {
+		t.Fatalf("bank account changed events: got %d %v, want 1", len(changed), changed)
+	}
+	if changed[0]["ended_bank_account_id"] != nil {
+		t.Errorf("bank account changed ended_bank_account_id: got %v, want none", changed[0]["ended_bank_account_id"])
+	}
+	if changed[0]["valid_from"] != e.date(5) {
+		t.Errorf("bank account changed valid_from: got %v, want %s", changed[0]["valid_from"], e.date(5))
 	}
 	for name, fn := range map[string]func(context.Context, uuid.UUID) (partner.Change, error){
 		"apply": partner.ApplyChange, "reject": partner.RejectChange, "cancel": partner.CancelChange,
 	} {
-		err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-			_, err := fn(ctx, uuid.MustParse(id(c)))
-			return err
+		t.Run(name, func(t *testing.T) {
+			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+				_, err := fn(ctx, uuid.MustParse(id(c)))
+				return err
+			})
+			pgtest.CheckErr(t, err, "partner.invalid_status")
 		})
-		if err == nil || !strings.Contains(err.Error(), "partner.invalid_status") {
-			t.Errorf("%s an applied change: %v", name, err)
-		}
 	}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		_, err := partner.ApplyChange(ctx, uuid.New())
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), "request.not_found") {
-		t.Fatalf("unknown change: %v", err)
-	}
+	pgtest.WantErr(t, err, "request.not_found")
 
 	// A customer without bank accounts, rejected; another cancelled.
 	customer := `{"kind": "person", "name": "C", "country_code": "DE", "roles": ["customer"], "reason": "r"}`
@@ -362,10 +503,16 @@ func TestApplyRejectCancel(t *testing.T) {
 	}
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		ch, err := partner.RejectChange(ctx, uuid.MustParse(id(cc)))
-		if err == nil && (ch.Status != "rejected" || ch.Version != 3) {
-			t.Errorf("rejected: %+v", ch)
+		if err != nil {
+			return err
 		}
-		return err
+		if ch.Status != "rejected" {
+			t.Errorf("rejected status: got %s, want rejected", ch.Status)
+		}
+		if ch.Version != 3 {
+			t.Errorf("rejected version: got %d, want 3", ch.Version)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -379,11 +526,20 @@ func TestApplyRejectCancel(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if r := e.events(t, "partner_change_rejected"); len(r) != 1 || r[0]["previous_status"] != "pending" || r[0]["kind"] != "create" {
-		t.Fatalf("rejected events: %v", r)
+	r := e.events(t, "partner_change_rejected")
+	if len(r) != 1 {
+		t.Fatalf("rejected events: got %d %v, want 1", len(r), r)
 	}
-	if c := e.events(t, "partner_change_cancelled"); len(c) != 1 || c[0]["status"] != "cancelled" {
-		t.Fatalf("cancelled events: %v", c)
+	if r[0]["previous_status"] != "pending" {
+		t.Errorf("rejected event previous_status: got %v, want pending", r[0]["previous_status"])
+	}
+	if r[0]["kind"] != "create" {
+		t.Errorf("rejected event kind: got %v, want create", r[0]["kind"])
+	}
+	if c := e.events(t, "partner_change_cancelled"); len(c) != 1 {
+		t.Fatalf("cancelled events: got %d %v, want 1", len(c), c)
+	} else if c[0]["status"] != "cancelled" {
+		t.Errorf("cancelled event status: got %v, want cancelled", c[0]["status"])
 	}
 	// Applying a customer's create publishes no supplier approval.
 	_, cc3 := e.create(t, customer)
@@ -404,35 +560,60 @@ func TestBlockAndUnblock(t *testing.T) {
 	p := e.active(t, "A", 0)
 	e.Problem(412, "request.version_mismatch", "POST", "/v1/business-partners/"+id(p)+":block", `{"reason": "r"}`, `"1"`)
 	block, tag := e.Must(200, "POST", "/v1/business-partners/"+id(p)+":block", `{"reason": "Fraud suspected"}`, `"2"`)
-	if block["kind"] != "block" || block["status"] != "applied" || block["applied_at"] == nil || tag != `"1"` ||
-		block["payload"].(map[string]any)["scope"] != "all" {
-		t.Fatalf("block: %v %s", block, tag)
+	for field, want := range map[string]any{"kind": "block", "status": "applied"} {
+		if block[field] != want {
+			t.Errorf("block %s: got %v, want %v", field, block[field], want)
+		}
+	}
+	if block["applied_at"] == nil {
+		t.Error("block applied_at: got nil, want a time")
+	}
+	if tag != `"1"` {
+		t.Errorf("block tag: got %s, want \"1\"", tag)
+	}
+	if scope := block["payload"].(map[string]any)["scope"]; scope != "all" {
+		t.Errorf("block scope: got %v, want all", scope)
 	}
 	if got, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p), "", ""); got["status"] != "blocked" {
 		t.Fatalf("not blocked: %v", got)
 	}
-	if b := e.events(t, "partner_blocked"); len(b) != 1 || b[0]["reason"] != "Fraud suspected" || b[0]["legal_entity_id"] != nil {
-		t.Fatalf("blocked events: %v", b)
+	b := e.events(t, "partner_blocked")
+	if len(b) != 1 {
+		t.Fatalf("blocked events: got %d %v, want 1", len(b), b)
+	}
+	if b[0]["reason"] != "Fraud suspected" {
+		t.Errorf("blocked event reason: got %v, want Fraud suspected", b[0]["reason"])
+	}
+	if b[0]["legal_entity_id"] != nil {
+		t.Errorf("blocked event legal_entity_id: got %v, want none", b[0]["legal_entity_id"])
 	}
 	e.Problem(409, "partner.invalid_status", "POST", "/v1/business-partners/"+id(p)+":block", `{"reason": "r"}`, `"3"`)
 	e.Problem(412, "request.version_mismatch", "POST", "/v1/business-partners/"+id(p)+":unblock", `{"reason": "r"}`, `"2"`)
 	unblock, _ := e.Must(200, "POST", "/v1/business-partners/"+id(p)+":unblock", `{"reason": "Cleared"}`, `"3"`)
-	if unblock["kind"] != "unblock" || unblock["status"] != "pending" {
-		t.Fatalf("unblock: %v", unblock)
+	if unblock["kind"] != "unblock" {
+		t.Errorf("unblock kind: got %v, want unblock", unblock["kind"])
+	}
+	if unblock["status"] != "pending" {
+		t.Errorf("unblock status: got %v, want pending", unblock["status"])
 	}
 	e.Problem(409, "partner.change_pending", "POST", "/v1/business-partners/"+id(p)+":unblock", `{"reason": "again"}`, `"3"`)
 	e.mustApply(t, id(unblock))
 	if got, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p), "", ""); got["status"] != "active" {
 		t.Fatalf("not unblocked: %v", got)
 	}
-	if u := e.events(t, "partner_unblocked"); len(u) != 1 || u[0]["reason"] != "Cleared" || u[0]["scope"] != "all" {
-		t.Fatalf("unblocked events: %v", u)
+	u := e.events(t, "partner_unblocked")
+	if len(u) != 1 {
+		t.Fatalf("unblocked events: got %d %v, want 1", len(u), u)
+	}
+	if u[0]["reason"] != "Cleared" {
+		t.Errorf("unblocked event reason: got %v, want Cleared", u[0]["reason"])
+	}
+	if u[0]["scope"] != "all" {
+		t.Errorf("unblocked event scope: got %v, want all", u[0]["scope"])
 	}
 	// An unblock whose partner is no longer blocked cannot be applied.
 	e.Must(200, "POST", "/v1/business-partners/"+id(p)+":block", `{"reason": "r"}`, `"4"`)
 	again, _ := e.Must(200, "POST", "/v1/business-partners/"+id(p)+":unblock", `{"reason": "r"}`, `"5"`)
 	pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'active', version = version + 1 WHERE id = $1`, uuid.MustParse(id(p)))
-	if err := e.apply(t, id(again)); err == nil || !strings.Contains(err.Error(), "partner.invalid_status") {
-		t.Fatalf("unblock of an active partner: %v", err)
-	}
+	pgtest.WantErr(t, e.apply(t, id(again)), "partner.invalid_status")
 }

@@ -23,9 +23,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	auditlog "github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -34,6 +36,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Statuses of a tenant (03-data-model §3.3). Provisioning is never seen:
@@ -48,7 +51,8 @@ const (
 // Statuses lists them, in lifecycle order.
 var Statuses = []string{Provisioning, Active, Suspended, Offboarded}
 
-// Tenant is a row of tenancy.tenant as the control plane shows it.
+// Tenant is a tenant as the control plane shows it: its row (tenancy),
+// its active key (fieldcrypt) and its latest audit verification (audit).
 type Tenant struct {
 	ID            uuid.UUID    `json:"id"`
 	Name          string       `json:"name"`
@@ -77,7 +81,7 @@ type Verified struct {
 	OK             bool      `json:"ok"`
 	HeadSeq        int64     `json:"head_seq"`
 	Checked        int64     `json:"checked"`
-	AnchorsChecked int32     `json:"anchors_checked"`
+	AnchorsChecked int       `json:"anchors_checked"`
 	BrokenAt       *int64    `json:"broken_at"`
 }
 
@@ -125,47 +129,91 @@ type Service struct {
 	Now         func() time.Time
 	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
 	// inject database failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (s *Service) begin(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
-	if s.Begin != nil {
-		return s.Begin(ctx, scope)
-	}
-	return s.Pool.Begin(ctx, scope)
+	return database.BeginOr(ctx, s.Pool, s.Begin, scope)
 }
 
 func (s *Service) now() time.Time {
-	if s.Now != nil {
-		return s.Now()
-	}
-	return time.Now()
+	return clock.Now(s.Now)
 }
 
-// columns are the tenant's row plus, as JSON, its active key and its
-// latest audit verification, read with the row so a listing stays one query.
-const columns = `id, name, region, group_currency, status, version, created_at, updated_at, exported_at, export_ref, erase_after, erased_at,
-	(SELECT row_to_json(k) FROM (SELECT k.id AS key_id, k.master_key_id, k.created_at FROM tenancy.tenant_key k WHERE k.tenant_id = tenancy.tenant.id AND k.status = 'active') k),
-	(SELECT row_to_json(v) FROM (SELECT v.verified_at, v.ok, v.head_seq, v.checked, v.anchors_checked, v.broken_at FROM audit.verification v WHERE v.tenant_id = tenancy.tenant.id ORDER BY v.verified_at DESC LIMIT 1) v)`
+// shown is the tenant as the control plane shows it, without its key and
+// verification, which views adds.
+func shown(r tenancy.Tenant) Tenant {
+	t := Tenant{ID: r.ID, Name: r.Name, Region: r.Region, GroupCurrency: r.GroupCurrency, Status: r.Status, Version: r.Version,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	if r.ExportedAt != nil {
+		t.Offboarding = &Offboarding{ExportedAt: *r.ExportedAt, ExportRef: *r.ExportRef, EraseAfter: *r.EraseAfter, ErasedAt: r.ErasedAt}
+	}
+	return t
+}
 
-func scan(row pgx.Row) (Tenant, error) {
-	var t Tenant
-	var exportedAt, eraseAfter, erasedAt *time.Time
-	var ref *string
-	var key, verified []byte
-	err := row.Scan(&t.ID, &t.Name, &t.Region, &t.GroupCurrency, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt, &exportedAt, &ref, &eraseAfter, &erasedAt, &key, &verified)
-	if exportedAt != nil {
-		t.Offboarding = &Offboarding{ExportedAt: *exportedAt, ExportRef: *ref, EraseAfter: *eraseAfter, ErasedAt: erasedAt}
+// views shows the tenants with their active keys and latest verifications,
+// two reads in tx however many tenants there are. The key's and the
+// verification's times are shown in UTC. The reads are separate statements
+// under READ COMMITTED, so a key rotated between them can show next to the
+// version before it; accepted for an operator's read, since the ETag guards
+// any change made from it (a stale If-Match is refused, and reading again
+// shows both).
+func views(ctx context.Context, tx pgx.Tx, rows []tenancy.Tenant) ([]Tenant, error) {
+	ids := make([]uuid.UUID, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ID
 	}
-	if key != nil {
-		t.Encryption = &Encryption{}
-		_ = json.Unmarshal(key, t.Encryption) // the database's JSON of its own columns
+	keys, err := fieldcrypt.ActiveKeys(ctx, tx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("controlplane: %w", err)
 	}
-	if verified != nil {
-		t.Verification = &Verified{}
-		_ = json.Unmarshal(verified, t.Verification)
+	verified, err := auditlog.LatestVerifications(ctx, tx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("controlplane: %w", err)
 	}
-	return t, err
+	out := make([]Tenant, len(rows))
+	for i, r := range rows {
+		out[i] = shown(r)
+		if k, ok := keys[r.ID]; ok {
+			out[i].Encryption = &Encryption{KeyID: k.ID, MasterKeyID: k.MasterKeyID, CreatedAt: k.CreatedAt.UTC()}
+		}
+		if v, ok := verified[r.ID]; ok {
+			out[i].Verification = &Verified{VerifiedAt: v.VerifiedAt.UTC(), OK: v.OK, HeadSeq: v.HeadSeq, Checked: v.Checked,
+				AnchorsChecked: v.AnchorsChecked, BrokenAt: brokenAt(v.BrokenAt)}
+		}
+	}
+	return out, nil
+}
+
+// brokenAt is a verification's first broken sequence number; nil when the
+// chain is intact (0).
+func brokenAt(seq int64) *int64 {
+	if seq == 0 {
+		return nil
+	}
+	return &seq
+}
+
+// view shows one tenant as views does.
+func view(ctx context.Context, tx pgx.Tx, r tenancy.Tenant) (Tenant, error) {
+	ts, err := views(ctx, tx, []tenancy.Tenant{r})
+	if err != nil {
+		return Tenant{}, err
+	}
+	return ts[0], nil
+}
+
+// read reads the tenant's row in tx, locked when lock is set; a tenant this
+// cell does not have is 404.
+func read(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (tenancy.Tenant, error) {
+	t, err := tenancy.GetTenant(ctx, tx, id, lock)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return tenancy.Tenant{}, problem.NotFoundOf("tenant")
+	}
+	if err != nil {
+		return tenancy.Tenant{}, fmt.Errorf("controlplane: %w", err)
+	}
+	return t, nil
 }
 
 // Sort is the order_by a tenant listing accepts.
@@ -190,9 +238,11 @@ func (s *Service) List(ctx context.Context, status string, page pagination.Reque
 		return nil, "", err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	q, args := ks.SQL(`SELECT `+columns+` FROM tenancy.tenant WHERE ($1 = '' OR status = $1)`, []any{status})
-	rows, _ := tx.Query(ctx, q, args...)
-	tenants, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Tenant, error) { return scan(r) })
+	rows, err := tenancy.ListTenants(ctx, tx, status, ks)
+	if err != nil {
+		return nil, "", fmt.Errorf("controlplane: %w", err)
+	}
+	tenants, err := views(ctx, tx, rows)
 	if err != nil {
 		return nil, "", err
 	}
@@ -212,11 +262,11 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Tenant, error) {
 		return Tenant{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Tenant{}, problem.NotFound("No tenant with this id.")
+	r, err := read(ctx, tx, id, false)
+	if err != nil {
+		return Tenant{}, err
 	}
-	return t, err
+	return view(ctx, tx, r)
 }
 
 // Fingerprint reads the tenant and its fingerprint (ADR-0030): every
@@ -229,10 +279,11 @@ func (s *Service) Fingerprint(ctx context.Context, id uuid.UUID) (Tenant, offboa
 		return Tenant{}, offboarding.Fingerprint{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Tenant{}, offboarding.Fingerprint{}, problem.NotFound("No tenant with this id.")
+	r, err := read(ctx, tx, id, false)
+	if err != nil {
+		return Tenant{}, offboarding.Fingerprint{}, err
 	}
+	t, err := view(ctx, tx, r)
 	if err != nil {
 		return Tenant{}, offboarding.Fingerprint{}, err
 	}
@@ -291,7 +342,7 @@ func (s *Service) replay(ctx context.Context, k *provisioning.Idempotency) (prov
 		return provisioning.Result{}, false, nil
 	}
 	if err != nil {
-		return provisioning.Result{}, false, err
+		return provisioning.Result{}, false, fmt.Errorf("controlplane: read idempotency key of operator %s: %w", k.ActorID, err)
 	}
 	if owner != k.ActorID || !bytes.Equal(hash, k.RequestHash) {
 		return provisioning.Result{}, false, problem.Unprocessable("request.idempotency_key_reused", "This Idempotency-Key was already used for a different request.")
@@ -329,25 +380,26 @@ func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, ver
 		return Tenant{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1 FOR UPDATE`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Tenant{}, problem.NotFound("No tenant with this id.")
-	}
+	r, err := read(ctx, tx, id, true)
 	if err != nil {
 		return Tenant{}, err
 	}
-	if err := etag.Check(ifMatch, t.Version); err != nil {
+	if err := etag.Check(ifMatch, r.Version); err != nil {
 		return Tenant{}, err
 	}
-	if !slices.Contains(tr.from, t.Status) {
+	if !slices.Contains(tr.from, r.Status) {
 		return Tenant{}, problem.Conflict("tenancy.invalid_transition",
-			fmt.Sprintf("The tenant is %s; %s applies to %s tenants.", t.Status, verb, strings.Join(tr.from, " or ")))
+			fmt.Sprintf("The tenant is %s; %s applies to %s tenants.", r.Status, verb, strings.Join(tr.from, " or ")))
 	}
-	previous := t.Status
+	previous := r.Status
 	if err := database.SetActor(ctx, tx, op.ID); err != nil {
 		return Tenant{}, err
 	}
-	if t, err = scan(tx.QueryRow(ctx, `UPDATE tenancy.tenant SET status = $2, version = version + 1 WHERE id = $1 RETURNING `+columns, id, tr.to)); err != nil {
+	if r, err = tenancy.SetTenantStatus(ctx, tx, id, tr.to); err != nil {
+		return Tenant{}, fmt.Errorf("controlplane: %s: %w", verb, err)
+	}
+	t, err := view(ctx, tx, r)
+	if err != nil {
 		return Tenant{}, err
 	}
 	trace := reqctx.TraceID(ctx)
@@ -361,7 +413,7 @@ func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, ver
 		return Tenant{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Tenant{}, err
+		return Tenant{}, fmt.Errorf("controlplane: commit %s of tenant %s: %w", verb, id, err)
 	}
 	s.register(ctx, t)
 	return t, nil
@@ -379,17 +431,14 @@ func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMa
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1 FOR UPDATE`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Tenant{}, fieldcrypt.Rotation{}, problem.NotFound("No tenant with this id.")
-	}
+	r, err := read(ctx, tx, id, true)
 	if err != nil {
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
-	if err := etag.Check(ifMatch, t.Version); err != nil {
+	if err := etag.Check(ifMatch, r.Version); err != nil {
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
-	if t.Status == Offboarded {
+	if r.Status == Offboarded {
 		return Tenant{}, fieldcrypt.Rotation{}, problem.Conflict("tenancy.invalid_transition", "The tenant is offboarded; its keys are not rotated.")
 	}
 	if err := database.SetActor(ctx, tx, op.ID); err != nil {
@@ -399,7 +448,11 @@ func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMa
 	if err != nil {
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
-	if t, err = scan(tx.QueryRow(ctx, `UPDATE tenancy.tenant SET version = version + 1 WHERE id = $1 RETURNING `+columns, id)); err != nil {
+	if r, err = tenancy.TouchTenant(ctx, tx, id); err != nil {
+		return Tenant{}, fieldcrypt.Rotation{}, fmt.Errorf("controlplane: %w", err)
+	}
+	t, err := view(ctx, tx, r)
+	if err != nil {
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
 	actor := reqctx.Principal{ID: op.ID, Kind: reqctx.KindSystem, TenantID: id}
@@ -408,7 +461,7 @@ func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMa
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Tenant{}, fieldcrypt.Rotation{}, err
+		return Tenant{}, fieldcrypt.Rotation{}, fmt.Errorf("controlplane: commit key rotation of tenant %s: %w", id, err)
 	}
 	return t, rot, nil
 }
@@ -424,27 +477,24 @@ func (s *Service) Erase(ctx context.Context, op Operator, id uuid.UUID, ifMatch 
 	if err != nil {
 		return Tenant{}, offboarding.Erasure{}, err
 	}
-	t, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM tenancy.tenant WHERE id = $1`, id))
+	r, err := read(ctx, tx, id, false)
 	tx.Rollback(context.WithoutCancel(ctx))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Tenant{}, offboarding.Erasure{}, problem.NotFound("No tenant with this id.")
-	}
 	if err != nil {
 		return Tenant{}, offboarding.Erasure{}, err
 	}
-	if err := etag.Check(ifMatch, t.Version); err != nil {
+	if err := etag.Check(ifMatch, r.Version); err != nil {
 		return Tenant{}, offboarding.Erasure{}, err
 	}
 	switch {
-	case t.Status != Offboarded || t.Offboarding == nil:
-		return Tenant{}, offboarding.Erasure{}, problem.Conflict("tenancy.invalid_transition", "The tenant is "+t.Status+" and not yet exported; erase applies to offboarded tenants whose export is complete.")
-	case t.Offboarding.ErasedAt != nil:
+	case r.Status != Offboarded || r.ExportedAt == nil:
+		return Tenant{}, offboarding.Erasure{}, problem.Conflict("tenancy.invalid_transition", "The tenant is "+r.Status+" and not yet exported; erase applies to offboarded tenants whose export is complete.")
+	case r.ErasedAt != nil:
 		return Tenant{}, offboarding.Erasure{}, problem.Conflict("tenancy.invalid_transition", "The tenant has already been erased.")
 	}
 	er, err := s.Offboarding.Erase(ctx, id, op.ID, map[string]any{"operator": op.Subject, "issuer": op.Issuer})
 	if err != nil {
 		return Tenant{}, offboarding.Erasure{}, err
 	}
-	t, err = s.Get(ctx, id)
+	t, err := s.Get(ctx, id)
 	return t, er, err
 }

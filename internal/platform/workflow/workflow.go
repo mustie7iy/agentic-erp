@@ -107,5 +107,8 @@ func (t *Temporal) Worker(ctx context.Context, queue string, register func(Regis
 		<-ctx.Done()
 		close(interrupt)
 	}()
-	return w.Run(interrupt)
+	if err := w.Run(interrupt); err != nil {
+		return fmt.Errorf("workflow: worker on queue %s: %w", queue, err)
+	}
+	return nil
 }

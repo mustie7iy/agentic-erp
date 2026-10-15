@@ -2,7 +2,8 @@
 // (ADR-0014): one database transaction scoped to the tenant and actor, the
 // principal resolved and required active, idempotency for unsafe methods in
 // the same transaction (ADR-0008), audit entries written last (ADR-0011) and
-// the response sent only after commit.
+// the response sent only after commit. Act is the same unit of work for a
+// job that runs without a request: a worker round or a workflow activity.
 package uow
 
 import (
@@ -11,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -42,14 +45,11 @@ type Middleware struct {
 	Now  func() time.Time
 	// Begin starts the request transaction; nil means Pool.Begin. Tests
 	// replace it to inject database failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (m *Middleware) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if m.Begin != nil {
-		return m.Begin(ctx, s)
-	}
-	return m.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, m.Pool, m.Begin, s)
 }
 
 func unsafe(method string) bool {
@@ -135,7 +135,7 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 			return err
 		}
 		if _, err := tx.Exec(ctx, "SAVEPOINT uow"); err != nil {
-			return err
+			return fmt.Errorf("uow: savepoint: %w", err)
 		}
 	}
 
@@ -149,6 +149,25 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	}
 	rec.send(w)
 	return nil
+}
+
+// Act runs fn as actor in tx: the unit of work of a job that has no request
+// (a worker round, a workflow activity, provisioning). It records the actor
+// for the row triggers, puts the transaction, the actor and an audit buffer
+// in fn's context, and writes fn's audit entries (ADR-0011) once fn has
+// succeeded, stamped now (the wall clock when now is nil). The caller
+// begins the transaction, reads what decides the actor and commits, so its
+// errors keep the context only it knows. Middleware does not use it: a
+// request's audit flush depends on the response status (finish).
+func Act(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now func() time.Time, fn func(ctx context.Context) error) error {
+	if err := database.SetActor(ctx, tx, actor.ID); err != nil {
+		return err
+	}
+	ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor))
+	if err := fn(ctx); err != nil {
+		return err
+	}
+	return buf.Flush(ctx, tx, actor, reqctx.TraceID(ctx), clock.Now(now))
 }
 
 // businessOutcome lists the 4xx answers that are the result of running the
@@ -171,7 +190,7 @@ func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	}
 	if failed {
 		if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT uow"); err != nil {
-			return err
+			return fmt.Errorf("uow: rollback to savepoint: %w", err)
 		}
 	} else if err := buf.Flush(ctx, tx, p, reqctx.TraceID(ctx), m.Now()); err != nil {
 		// The audit trail rejecting an entry is never the client's fault: a
@@ -187,22 +206,29 @@ func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("uow: commit: %w", err)
+	}
+	return nil
 }
 
-// resolve finds the active principal for the token in an active tenant.
+// resolve finds the active principal for the token in an active tenant. A
+// principal is the subject of one issuer (ADR-0010, F7): every trusted
+// issuer may name any tenant, so a subject alone would let one tenant's
+// identity provider sign in as another tenant's principal whose subject it
+// also issues.
 func resolve(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal, error) {
 	var tenantStatus string
 	var id *uuid.UUID
 	var kind, status *string
 	err := tx.QueryRow(ctx, `SELECT t.status, p.id, p.kind, p.status FROM tenancy.tenant t
-		LEFT JOIN identity.principal p ON p.tenant_id = t.id AND p.external_subject = $2
-		WHERE t.id = $1`, c.TenantID, c.Subject).Scan(&tenantStatus, &id, &kind, &status)
+		LEFT JOIN identity.principal p ON p.tenant_id = t.id AND p.external_issuer = $2 AND p.external_subject = $3
+		WHERE t.id = $1`, c.TenantID, c.Issuer, c.Subject).Scan(&tenantStatus, &id, &kind, &status)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return reqctx.Principal{}, problem.Unauthorized("The token's tenant is not known here.")
 	case err != nil:
-		return reqctx.Principal{}, err
+		return reqctx.Principal{}, fmt.Errorf("uow: resolve principal in tenant %s: %w", c.TenantID, err)
 	case tenantStatus != "active":
 		return reqctx.Principal{}, problem.Forbidden("tenancy.tenant_inactive", "The tenant is "+tenantStatus+".")
 	case id == nil:
@@ -229,7 +255,8 @@ func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 		return false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return false, err // includes 55P03: the first request still holds the key → 409 Retry-After
+		// Includes 55P03: the first request still holds the key → 409 Retry-After.
+		return false, fmt.Errorf("uow: claim idempotency key: %w", err)
 	}
 	var owner uuid.UUID
 	var hash []byte
@@ -238,7 +265,7 @@ func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	var headers map[string]string
 	if err := tx.QueryRow(ctx, `SELECT principal_id, request_hash, coalesce(response_code, 0), coalesce(response_body::text, ''), response_headers
 		FROM platform.idempotency_key WHERE tenant_id = $1 AND key = $2`, p.TenantID, req.key).Scan(&owner, &hash, &code, &body, &headers); err != nil {
-		return false, err
+		return false, fmt.Errorf("uow: read idempotency key: %w", err)
 	}
 	if owner != p.ID || !bytes.Equal(hash, req.hash) {
 		return false, problem.Unprocessable("request.idempotency_key_reused",
@@ -249,7 +276,9 @@ func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	}
 	w.Header().Set("Idempotent-Replayed", "true")
 	w.WriteHeader(code)
-	w.Write(body)
+	// A failed write means the client has gone: the replay changes nothing
+	// and the status is already sent, so there is no one left to tell.
+	_, _ = w.Write(body)
 	return true, nil
 }
 
@@ -267,10 +296,12 @@ func (m *Middleware) storeResponse(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 		}
 		body = rec.body.String()
 	}
-	_, err := tx.Exec(ctx, `UPDATE platform.idempotency_key SET status = 'completed', response_code = $3,
+	if _, err := tx.Exec(ctx, `UPDATE platform.idempotency_key SET status = 'completed', response_code = $3,
 		response_body = $4::jsonb, response_headers = $5 WHERE tenant_id = $1 AND key = $2`,
-		p.TenantID, req.key, rec.status, body, headers)
-	return err
+		p.TenantID, req.key, rec.status, body, headers); err != nil {
+		return fmt.Errorf("uow: store response: %w", err)
+	}
+	return nil
 }
 
 // recorder buffers the response until the transaction has committed.
@@ -291,7 +322,8 @@ func (r *recorder) WriteHeader(status int) {
 
 func (r *recorder) Write(b []byte) (int, error) {
 	r.WriteHeader(http.StatusOK)
-	return r.body.Write(b)
+	r.body.Write(b) // a bytes.Buffer write cannot fail
+	return len(b), nil
 }
 
 func (r *recorder) send(w http.ResponseWriter) {
@@ -299,5 +331,8 @@ func (r *recorder) send(w http.ResponseWriter) {
 		w.Header()[k] = vs
 	}
 	w.WriteHeader(r.status)
-	w.Write(r.body.Bytes())
+	// A failed write means the client has gone after the commit; with an
+	// Idempotency-Key it replays the stored outcome, so there is nothing to
+	// undo and no one left to tell.
+	_, _ = w.Write(r.body.Bytes())
 }

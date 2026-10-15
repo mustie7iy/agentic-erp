@@ -18,8 +18,11 @@ func TestContextValues(t *testing.T) {
 	if _, ok := TxFrom(ctx); ok {
 		t.Fatal("tx in empty context")
 	}
-	if TraceID(ctx) != "" || InfoFrom(ctx) == nil {
-		t.Fatal("defaults")
+	if got := TraceID(ctx); got != "" {
+		t.Fatalf("TraceID of an empty context = %q, want empty", got)
+	}
+	if InfoFrom(ctx) == nil {
+		t.Fatal("InfoFrom of an empty context = nil, want a default Info")
 	}
 	id := uuid.New()
 	ctx = WithClaims(ctx, Claims{Subject: "s", TenantID: id})
@@ -34,7 +37,10 @@ func TestContextValues(t *testing.T) {
 	if p, _ := PrincipalFrom(ctx); p.ID != id {
 		t.Fatal(p)
 	}
-	if TraceID(ctx) != "t" || InfoFrom(ctx).Operation != "getOperation" {
-		t.Fatal("trace or info")
+	if got := TraceID(ctx); got != "t" {
+		t.Errorf("TraceID = %q, want %q", got, "t")
+	}
+	if got := InfoFrom(ctx).Operation; got != "getOperation" {
+		t.Errorf("InfoFrom(ctx).Operation = %q, want %q", got, "getOperation")
 	}
 }

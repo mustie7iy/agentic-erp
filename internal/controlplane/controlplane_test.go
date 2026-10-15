@@ -17,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	auditchain "github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
@@ -27,8 +29,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -46,7 +46,7 @@ func service(t *testing.T) *controlplane.Service {
 	}
 	keys := apitest.FieldKeys()
 	return &controlplane.Service{Pool: pool, AppRole: "erp_app", ControlRole: "erp_control", Pages: pages, Keys: keys,
-		Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: "erp_app", Keys: keys, Configuration: httpapi.Configuration(httpapi.Config{FieldKeys: keys})}}
+		Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: "erp_app", Keys: keys, Issuers: []string{authntest.URL(t)}, Configuration: app.Configuration(app.Config{FieldKeys: keys})}}
 }
 
 // plane is the control plane on a listener with an operator identity provider.
@@ -59,8 +59,14 @@ type plane struct {
 
 func newPlane(t *testing.T) *plane {
 	t.Helper()
+	return newPlaneIn(t, authn.Development)
+}
+
+// newPlaneIn is the control plane of a deployment in env.
+func newPlaneIn(t *testing.T, env authn.Environment) *plane {
+	t.Helper()
 	is := authntest.New(t)
-	v, err := authn.New(context.Background(), []authn.Issuer{is.Config()})
+	v, err := authn.New(context.Background(), env, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +74,14 @@ func newPlane(t *testing.T) *plane {
 	srv := httptest.NewServer(controlplane.Handler(s, v, slog.New(slog.NewTextHandler(io.Discard, nil))))
 	t.Cleanup(srv.Close)
 	return &plane{t: t, s: s, is: is, srv: srv}
+}
+
+// in is the plane for a subtest: its failures stop the subtest.
+func (p *plane) in(t *testing.T) *plane {
+	t.Helper()
+	c := *p
+	c.t = t
+	return &c
 }
 
 // operator mints an operator token: the issuer's token without a tenant.
@@ -79,7 +93,7 @@ func (p *plane) operator(subject string) string {
 // present) and returns the status, the decoded body and the headers.
 func (p *plane) do(method, path, body string, headers map[string]string) (int, map[string]any, http.Header) {
 	p.t.Helper()
-	req, err := http.NewRequest(method, p.srv.URL+path, strings.NewReader(body))
+	req, err := http.NewRequestWithContext(p.t.Context(), method, p.srv.URL+path, strings.NewReader(body))
 	if err != nil {
 		p.t.Fatal(err)
 	}
@@ -90,7 +104,7 @@ func (p *plane) do(method, path, body string, headers map[string]string) (int, m
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read to the end below; closing a read body loses nothing
 	var m map[string]any
 	raw, _ := io.ReadAll(resp.Body)
 	if len(raw) > 0 {
@@ -145,36 +159,112 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	p := newPlane(t)
 	recorded := &memoryDirectory{entries: map[uuid.UUID]directory.Entry{}}
 	p.s.Directory = &directory.Sync{Directory: recorded, Cell: "test", APIURL: "https://test.api.example.com", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	ctx := context.Background()
+	s := &lifecycle{p: p, recorded: recorded}
+	// Each step builds on the ones before it, so the first failure stops the rest.
+	if !t.Run("only operators get in", s.operatorsOnly) {
+		t.FailNow()
+	}
+	if !t.Run("provisioning", s.provision) {
+		t.FailNow()
+	}
+	if !t.Run("request rules", s.requestRules) {
+		t.FailNow()
+	}
+	if !t.Run("listing", s.listing) {
+		t.FailNow()
+	}
+	if !t.Run("reading one", s.readOne) {
+		t.FailNow()
+	}
+	if !t.Run("transitions", s.transitions) {
+		t.FailNow()
+	}
+	if !t.Run("offboarded listing", s.offboardedListing) {
+		t.FailNow()
+	}
+	if !t.Run("events and audit", s.eventsAndAudit) {
+		t.FailNow()
+	}
+	if !t.Run("erasure", s.erasure) {
+		t.FailNow()
+	}
+}
 
-	// Only operators get in: no token, a tenant's token and a token from an untrusted issuer are refused.
+// lifecycle is the state the steps of
+// TestTenantsLifecycleThroughTheControlPlane share: one tenant taken from
+// provisioning to erasure, and a second one for the listings.
+type lifecycle struct {
+	p        *plane
+	recorded *memoryDirectory
+	body     string         // the provisioning request
+	id       string         // the tenant
+	prov     map[string]any // what provisioning made for it
+	second   map[string]any // the second tenant
+	ten      pgtest.Tenant
+}
+
+// operatorsOnly: no token, a tenant's token and a token from an untrusted issuer are refused.
+func (s *lifecycle) operatorsOnly(t *testing.T) {
+	p := s.p.in(t)
 	if code, m, _ := p.do("GET", tenants, "", nil); code != 401 || m["code"] != "authn.invalid_token" {
 		t.Fatalf("no token: %d %v", code, m)
 	}
 	if code, _, _ := p.do("GET", tenants, "", map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.New(), "idp|ada", nil)}); code != 401 {
 		t.Fatalf("tenant token: %d", code)
 	}
-	if code, _, _ := p.do("GET", tenants, "", map[string]string{"Authorization": "Bearer " + authntest.New(t).Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil})}); code != 401 {
+	if code, _, _ := p.do("GET", tenants, "", map[string]string{"Authorization": "Bearer " + authntest.NewSeparate(t).Token(t, uuid.Nil, "ops", map[string]any{"tenant_id": nil})}); code != 401 {
 		t.Fatalf("untrusted operator: %d", code)
 	}
+}
 
-	// Provisioning: the tenant is active with everything made for it; the Idempotency-Key replays it.
+// provision: the tenant is active with everything made for it; the Idempotency-Key replays it.
+func (s *lifecycle) provision(t *testing.T) {
+	p := s.p.in(t)
 	key := "key-" + uuid.NewString()
 	body := tenantBody(t, "Acme")
 	created, h := p.must(201, "ops|alice", "POST", tenants, body, "Idempotency-Key", key)
 	id := created["id"].(string)
 	prov := created["provisioned"].(map[string]any)
-	if created["status"] != "active" || h.Get("ETag") != `"1"` || h.Get("Location") != tenants+"/"+id || prov["configuration_version"] != float64(1) ||
-		len(prov["legal_entities"].(map[string]any)) != 2 || prov["tenant_id"] != id || h.Get("Idempotent-Replayed") != "" {
-		t.Fatalf("created: %v %v", created, h)
+	if created["status"] != "active" {
+		t.Errorf("created status: got %v, want active", created["status"])
+	}
+	if got := h.Get("ETag"); got != `"1"` {
+		t.Errorf("created ETag: got %s, want \"1\"", got)
+	}
+	if got := h.Get("Location"); got != tenants+"/"+id {
+		t.Errorf("created Location: got %s, want %s", got, tenants+"/"+id)
+	}
+	if prov["configuration_version"] != float64(1) {
+		t.Errorf("provisioned configuration version: got %v, want 1", prov["configuration_version"])
+	}
+	if n := len(prov["legal_entities"].(map[string]any)); n != 2 {
+		t.Errorf("provisioned legal entities: got %d, want 2", n)
+	}
+	if prov["tenant_id"] != id {
+		t.Errorf("provisioned tenant: got %v, want %s", prov["tenant_id"], id)
+	}
+	if got := h.Get("Idempotent-Replayed"); got != "" {
+		t.Errorf("created Idempotent-Replayed: got %q, want none", got)
 	}
 	again, h := p.must(201, "ops|alice", "POST", tenants, body, "Idempotency-Key", key)
-	if again["id"] != id || h.Get("Idempotent-Replayed") != "true" || again["provisioned"].(map[string]any)["administrator_id"] != prov["administrator_id"] {
-		t.Fatalf("replay: %v %v", again, h)
+	if again["id"] != id {
+		t.Errorf("replay id: got %v, want %s", again["id"], id)
+	}
+	if got := h.Get("Idempotent-Replayed"); got != "true" {
+		t.Errorf("replay Idempotent-Replayed: got %q, want true", got)
+	}
+	if got := again["provisioned"].(map[string]any)["administrator_id"]; got != prov["administrator_id"] {
+		t.Errorf("replay administrator: got %v, want %v", got, prov["administrator_id"])
 	}
 	p.problem(422, "request.idempotency_key_reused", "ops|alice", "POST", tenants, tenantBody(t, "Other"), "Idempotency-Key", key)
 	p.problem(422, "request.idempotency_key_reused", "ops|bob", "POST", tenants, body, "Idempotency-Key", key)
-	// The request's rules.
+	s.body, s.id, s.prov = body, id, prov
+}
+
+// requestRules: what a create request must carry.
+func (s *lifecycle) requestRules(t *testing.T) {
+	p := s.p.in(t)
+	body := s.body
 	p.problem(428, "request.precondition_required", "ops|alice", "POST", tenants, body)
 	p.problem(400, "request.invalid_idempotency_key", "ops|alice", "POST", tenants, body, "Idempotency-Key", "short")
 	p.problem(400, "request.invalid_body", "ops|alice", "POST", tenants, `{"name": `, "Idempotency-Key", "key-"+uuid.NewString())
@@ -190,12 +280,19 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	if errs := noDoc["errors"].([]any); errs[0].(map[string]any)["field"] != "document" {
 		t.Fatalf("missing document: %v", noDoc)
 	}
+}
 
-	// Listing: filters, order and pages across the cell.
+// listing: filters, order and pages across the cell.
+func (s *lifecycle) listing(t *testing.T) {
+	p := s.p.in(t)
+	id := s.id
 	second, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Beta"), "Idempotency-Key", "key-"+uuid.NewString())
 	page, _ := p.must(200, "ops|alice", "GET", tenants+"?status=active&page_size=1", "")
-	if items := page["items"].([]any); len(items) != 1 || page["next_page_token"] == nil {
-		t.Fatalf("first page: %v", page)
+	if n := len(page["items"].([]any)); n != 1 {
+		t.Errorf("first page: got %d tenants, want 1", n)
+	}
+	if page["next_page_token"] == nil {
+		t.Errorf("first page token: got none, want one")
 	}
 	seen := map[string]bool{}
 	next, pages := "", 0
@@ -214,8 +311,14 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 		}
 		next = page["next_page_token"].(string)
 	}
-	if !seen[id] || !seen[second["id"].(string)] || pages < 2 {
-		t.Fatalf("paged %d pages, saw %v", pages, seen)
+	if !seen[id] {
+		t.Errorf("paging: tenant %s not seen in %v", id, seen)
+	}
+	if !seen[second["id"].(string)] {
+		t.Errorf("paging: tenant %s not seen in %v", second["id"], seen)
+	}
+	if pages < 2 {
+		t.Errorf("paging: got %d pages, want at least 2", pages)
 	}
 	if first, _ := p.must(200, "ops|alice", "GET", tenants+"?order_by=name%20asc&page_size=1", ""); first["next_page_token"] == nil {
 		t.Fatalf("by name, one per page: %v", first)
@@ -233,26 +336,49 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	p.problem(400, "request.invalid_page_size", "ops|alice", "GET", tenants+"?page_size=0", "")
 	p.problem(400, "request.invalid_order_by", "ops|alice", "GET", tenants+"?order_by=region", "")
 	p.problem(400, "request.invalid_page_token", "ops|alice", "GET", tenants+"?page_token=x.y", "")
+	s.second = second
+}
 
-	// Reading one.
+// readOne: one tenant, and the methods each path allows.
+func (s *lifecycle) readOne(t *testing.T) {
+	p := s.p.in(t)
+	id := s.id
 	got, h := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
-	if got["name"] != "Acme" || h.Get("ETag") != `"1"` {
-		t.Fatalf("get: %v %v", got, h)
+	if got["name"] != "Acme" {
+		t.Errorf("get name: got %v, want Acme", got["name"])
+	}
+	if etag := h.Get("ETag"); etag != `"1"` {
+		t.Errorf("get ETag: got %s, want \"1\"", etag)
 	}
 	p.problem(404, "request.not_found", "ops|alice", "GET", tenants+"/"+uuid.NewString(), "")
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", tenants+"/not-a-uuid", "")
 	p.problem(404, "request.not_found", "ops|alice", "GET", controlplane.Base+"/nothing", "")
-	if code, m, h := p.as("ops|alice", "PUT", tenants, ""); code != 405 || h.Get("Allow") != "GET, POST" || m["code"] != "request.method_not_allowed" {
-		t.Fatalf("PUT: %d %v %v", code, m, h)
+	code, m, h := p.as("ops|alice", "PUT", tenants, "")
+	if code != 405 {
+		t.Errorf("PUT status: got %d, want 405: %v", code, m)
 	}
-	if code, _, h := p.as("ops|alice", "POST", tenants+"/"+id, ""); code != 405 || h.Get("Allow") != "GET" {
-		t.Fatalf("POST item: %d %v", code, h)
+	if got := h.Get("Allow"); got != "GET, POST" {
+		t.Errorf("PUT Allow: got %q, want %q", got, "GET, POST")
 	}
-	if code, _, h := p.as("ops|alice", "GET", tenants+"/"+id+":suspend", ""); code != 405 || h.Get("Allow") != "POST" {
-		t.Fatalf("GET custom: %d %v", code, h)
+	if m["code"] != "request.method_not_allowed" {
+		t.Errorf("PUT problem code: got %v, want request.method_not_allowed", m["code"])
 	}
+	if code, _, h := p.as("ops|alice", "POST", tenants+"/"+id, ""); code != 405 {
+		t.Errorf("POST item status: got %d, want 405", code)
+	} else if got := h.Get("Allow"); got != "GET" {
+		t.Errorf("POST item Allow: got %q, want GET", got)
+	}
+	if code, _, h := p.as("ops|alice", "GET", tenants+"/"+id+":suspend", ""); code != 405 {
+		t.Errorf("GET custom status: got %d, want 405", code)
+	} else if got := h.Get("Allow"); got != "POST" {
+		t.Errorf("GET custom Allow: got %q, want POST", got)
+	}
+}
 
-	// Transitions: guarded by If-Match, refused in the wrong status, felt at the public API's door.
+// transitions: guarded by If-Match, refused in the wrong status, felt at the public API's door.
+func (s *lifecycle) transitions(t *testing.T) {
+	p := s.p.in(t)
+	id, prov, recorded := s.id, s.prov, s.recorded
 	ten := pgtest.Tenant{ID: uuid.MustParse(id)}
 	admin := pgtest.Actor{ID: uuid.MustParse(prov["administrator_id"].(string)), Subject: "idp|ada", Kind: "human"}
 	public := apitest.Client{T: t, API: apitest.New(t), Tenant: ten, As: admin}
@@ -263,8 +389,14 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	p.problem(404, "request.not_found", "ops|alice", "POST", tenants+"/"+uuid.NewString()+":suspend", "", "If-Match", `"1"`)
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":resume", "", "If-Match", `"1"`)
 	suspended, h := p.must(200, "ops|alice", "POST", tenants+"/"+id+":suspend", "", "If-Match", `"1"`)
-	if suspended["status"] != "suspended" || suspended["version"] != float64(2) || h.Get("ETag") != `"2"` {
-		t.Fatalf("suspend: %v %v", suspended, h)
+	if suspended["status"] != "suspended" {
+		t.Errorf("suspend status: got %v, want suspended", suspended["status"])
+	}
+	if suspended["version"] != float64(2) {
+		t.Errorf("suspend version: got %v, want 2", suspended["version"])
+	}
+	if got := h.Get("ETag"); got != `"2"` {
+		t.Errorf("suspend ETag: got %s, want \"2\"", got)
 	}
 	public.Problem(403, "tenancy.tenant_inactive", "GET", "/v1/roles", "", "")
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":suspend", "", "If-Match", `"2"`)
@@ -274,25 +406,67 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 	}
 	public.Must(200, "GET", "/v1/roles", "", "")
 	offboarded, _ := p.must(200, "ops|bob", "POST", tenants+"/"+id+":offboard", "", "If-Match", "*")
-	if offboarded["status"] != "offboarded" || offboarded["version"] != float64(4) {
-		t.Fatalf("offboard: %v", offboarded)
+	if offboarded["status"] != "offboarded" {
+		t.Errorf("offboard status: got %v, want offboarded", offboarded["status"])
+	}
+	if offboarded["version"] != float64(4) {
+		t.Errorf("offboard version: got %v, want 4", offboarded["version"])
 	}
 	public.Problem(403, "tenancy.tenant_inactive", "GET", "/v1/roles", "", "")
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":resume", "", "If-Match", `"4"`)
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":offboard", "", "If-Match", `"4"`)
-	if e := recorded.entries[uuid.MustParse(id)]; e.Status != directory.Offboarded || e.Cell != "test" || e.APIURL != "https://test.api.example.com" || e.Region != "eu-west" {
-		t.Fatalf("directory entry after the lifecycle: %+v", e)
+	dirEntry := recorded.entries[uuid.MustParse(id)]
+	if dirEntry.Status != directory.Offboarded {
+		t.Errorf("directory entry status: got %v, want %v", dirEntry.Status, directory.Offboarded)
+	}
+	if dirEntry.Cell != "test" {
+		t.Errorf("directory entry cell: got %s, want test", dirEntry.Cell)
+	}
+	if dirEntry.APIURL != "https://test.api.example.com" {
+		t.Errorf("directory entry API URL: got %s, want https://test.api.example.com", dirEntry.APIURL)
+	}
+	if dirEntry.Region != "eu-west" {
+		t.Errorf("directory entry region: got %s, want eu-west", dirEntry.Region)
 	}
 	if recorded.writes < 5 { // provisioning, suspend, resume, offboard, and the second tenant
 		t.Fatalf("%d directory writes", recorded.writes)
 	}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":suspend", "", "If-Match", `"4"`)
-	filtered, _ := p.must(200, "ops|alice", "GET", tenants+"?status=offboarded", "")
-	if items := filtered["items"].([]any); len(items) != 1 || items[0].(map[string]any)["id"] != id {
-		t.Fatalf("offboarded: %v", filtered)
-	}
+	s.ten = ten
+}
 
-	// Every change was published and recorded in the tenant's chain as the operator, kind system.
+// offboardedListing: only offboarded tenants, and of this test's two only the offboarded one.
+func (s *lifecycle) offboardedListing(t *testing.T) {
+	p := s.p.in(t)
+	id, second := s.id, s.second
+	// Other tests offboard tenants in the same database: every item must be
+	// offboarded, and of this test's two tenants only the offboarded one listed.
+	filtered, _ := p.must(200, "ops|alice", "GET", tenants+"?status=offboarded&page_size=500", "")
+	// The package database holds every tenant this binary made, earlier -count
+	// runs included; the checks below
+	// read one page, so a second one would leave tenants unchecked.
+	if next := filtered["next_page_token"]; next != nil {
+		t.Fatalf("offboarded tenants: got more than one page (next %v), want them all on one", next)
+	}
+	ours := []string{}
+	for _, it := range filtered["items"].([]any) {
+		item := it.(map[string]any)
+		if item["status"] != "offboarded" {
+			t.Errorf("status filter listed %v, want only offboarded tenants", item)
+		}
+		if item["id"] == id || item["id"] == second["id"] {
+			ours = append(ours, item["id"].(string))
+		}
+	}
+	if len(ours) != 1 || ours[0] != id {
+		t.Fatalf("offboarded tenants of this test: got %v, want [%s]", ours, id)
+	}
+}
+
+// eventsAndAudit: every change was published and recorded in the tenant's chain as the operator, kind system.
+func (s *lifecycle) eventsAndAudit(t *testing.T) {
+	p := s.p.in(t)
+	ten, ctx := s.ten, context.Background()
 	events := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "tenant_status_changed"})
 	statuses := []string{}
 	for _, e := range events {
@@ -310,52 +484,120 @@ func TestTenantsLifecycleThroughTheControlPlane(t *testing.T) {
 		Operator string
 	}
 	entries, err := pgx.CollectRows(rows, pgx.RowToStructByPos[entry])
-	if err != nil || len(entries) != 4 {
-		t.Fatalf("audit: %v %v", entries, err)
+	if err != nil {
+		t.Fatalf("audit: %v", err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("audit entries: got %d, want 4: %+v", len(entries), entries)
 	}
 	alice := controlplane.OperatorFrom(reqctx.Claims{Issuer: p.is.URL, Subject: "ops|alice"})
-	if entries[0].Kind != "human" || entries[0].Operator != "ops|alice" || entries[0].Action != "tenancy.tenant.provision" {
-		t.Fatalf("provision entry: %+v", entries[0])
+	if entries[0].Kind != "human" {
+		t.Errorf("provision entry kind: got %s, want human", entries[0].Kind)
+	}
+	if entries[0].Operator != "ops|alice" {
+		t.Errorf("provision entry operator: got %s, want ops|alice", entries[0].Operator)
+	}
+	if entries[0].Action != "tenancy.tenant.provision" {
+		t.Errorf("provision entry action: got %s, want tenancy.tenant.provision", entries[0].Action)
 	}
 	for i, want := range []string{"suspend", "resume", "offboard"} {
 		e := entries[i+1]
-		if e.Kind != "system" || e.Action != "tenancy.tenant."+want || (want != "offboard" && (e.Actor != alice.ID || e.Operator != "ops|alice")) {
-			t.Errorf("%s: %+v", want, e)
+		if e.Kind != "system" {
+			t.Errorf("%s entry kind: got %s, want system", want, e.Kind)
+		}
+		if e.Action != "tenancy.tenant."+want {
+			t.Errorf("%s entry action: got %s, want tenancy.tenant.%s", want, e.Action, want)
+		}
+		if want == "offboard" {
+			continue
+		}
+		if e.Actor != alice.ID {
+			t.Errorf("%s entry actor: got %v, want %v", want, e.Actor, alice.ID)
+		}
+		if e.Operator != "ops|alice" {
+			t.Errorf("%s entry operator: got %s, want ops|alice", want, e.Operator)
 		}
 	}
-	if entries[3].Actor == alice.ID || entries[3].Operator != "ops|bob" {
-		t.Errorf("offboard by bob: %+v", entries[3])
+	if entries[3].Actor == alice.ID {
+		t.Errorf("offboard entry actor: got alice %v, want bob", entries[3].Actor)
+	}
+	if entries[3].Operator != "ops|bob" {
+		t.Errorf("offboard entry operator: got %s, want ops|bob", entries[3].Operator)
 	}
 	tx, _ := conn.Begin(ctx)
 	defer tx.Rollback(ctx)
-	if res, err := audit.Verify(ctx, tx, ten.ID); err != nil || res.BrokenAt != 0 || res.Checked < 4 {
-		t.Fatalf("chain: %+v %v", res, err)
+	res, err := audit.Verify(ctx, tx, ten.ID)
+	if err != nil {
+		t.Fatalf("chain: %v", err)
 	}
+	if res.BrokenAt != 0 {
+		t.Errorf("chain broken at: got %d, want 0", res.BrokenAt)
+	}
+	if res.Checked < 4 {
+		t.Errorf("chain checked: got %d, want at least 4", res.Checked)
+	}
+}
 
-	// Erasure: not before the export, which the offboarding worker does; then on request, once.
+// erasure: not before the export, which the offboarding worker does; then on request, once.
+func (s *lifecycle) erasure(t *testing.T) {
+	p := s.p.in(t)
+	id, ctx := s.id, context.Background()
 	p.problem(503, "platform.unavailable", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
 	clock := time.Now().UTC().Truncate(time.Second)
 	store := blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}
 	p.s.Offboarding = &offboarding.Worker{Pool: p.s.Pool, Store: store, AppRole: "erp_app", WorkerRole: "erp_worker", Grace: time.Hour, Now: func() time.Time { return clock }}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
-	if ex, _, err := p.s.Offboarding.RunOnce(ctx); err != nil || ex != 1 {
-		t.Fatalf("export: %d %v", ex, err)
+	// The round exports every offboarded tenant still unexported, which
+	// includes ones other tests in this database left: this one and those.
+	var pending int
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM tenancy.tenant WHERE status = 'offboarded' AND exported_at IS NULL`).Scan(&pending); err != nil {
+		t.Fatalf("count tenants to export: %v", err)
+	}
+	ex, _, err := p.s.Offboarding.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if ex != pending {
+		t.Fatalf("export: got %d exported, want %d", ex, pending)
 	}
 	after, afterH := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	off := after["offboarding"].(map[string]any)
-	if off["exported_at"] == nil || off["erase_after"] == nil || off["erased_at"] != nil || !strings.HasSuffix(off["export_ref"].(string), "/manifest.json") || afterH.Get("ETag") != `"5"` {
-		t.Fatalf("after the export: %v", after)
+	if off["exported_at"] == nil {
+		t.Errorf("after the export, exported at: got none, want a time")
+	}
+	if off["erase_after"] == nil {
+		t.Errorf("after the export, erase after: got none, want a time")
+	}
+	if off["erased_at"] != nil {
+		t.Errorf("after the export, erased at: got %v, want none", off["erased_at"])
+	}
+	if ref := off["export_ref"].(string); !strings.HasSuffix(ref, "/manifest.json") {
+		t.Errorf("after the export, export ref: got %s, want a manifest.json", ref)
+	}
+	if got := afterH.Get("ETag"); got != `"5"` {
+		t.Fatalf("after the export, ETag: got %s, want \"5\"", got)
 	}
 	p.problem(412, "request.version_mismatch", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"4"`)
 	p.problem(404, "request.not_found", "ops|alice", "POST", tenants+"/"+uuid.NewString()+":erase", "", "If-Match", "*")
 	erased, erasedH := p.must(200, "ops|bob", "POST", tenants+"/"+id+":erase", "", "If-Match", `"5"`)
 	er := erased["erasure"].(map[string]any)
-	if erasedH.Get("ETag") != `"6"` || erased["offboarding"].(map[string]any)["erased_at"] == nil || er["rows"].(map[string]any)["identity.principal"] == nil || er["erased_at"] == nil {
-		t.Fatalf("erasure: %v", erased)
+	if got := erasedH.Get("ETag"); got != `"6"` {
+		t.Errorf("erasure ETag: got %s, want \"6\"", got)
+	}
+	if erased["offboarding"].(map[string]any)["erased_at"] == nil {
+		t.Errorf("erasure: offboarding erased at: got none, want a time")
+	}
+	if er["rows"].(map[string]any)["identity.principal"] == nil {
+		t.Errorf("erasure: identity.principal rows: got none, want a count")
+	}
+	if er["erased_at"] == nil {
+		t.Errorf("erasure: erased at: got none, want a time")
 	}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"6"`)
 	var n int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, uuid.MustParse(id)).Scan(&n)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, uuid.MustParse(id)).Scan(&n); err != nil {
+		t.Fatalf("count principals: %v", err)
+	}
 	if n != 0 {
 		t.Fatalf("%d principals left after the erasure", n)
 	}
@@ -393,10 +635,38 @@ func TestOperatorRoles(t *testing.T) {
 		{"operator rotates", []any{"erp:operate"}, "POST", tenants + "/" + id + ":rotateKey", 200},
 		{"reader rotates", []any{"erp:read"}, "POST", tenants + "/" + id + ":rotateKey", 403},
 	} {
-		status, m, _ := p.do(c.method, c.path, "", map[string]string{"Authorization": with(c.roles), "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()})
-		if status != c.code || (status == 403 && m["code"] != "authz.operator_role") {
-			t.Errorf("%s: %d %v", c.name, status, m)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			status, m, _ := p.in(t).do(c.method, c.path, "", map[string]string{"Authorization": with(c.roles), "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()})
+			if status != c.code {
+				t.Errorf("status: got %d, want %d: %v", status, c.code, m)
+			}
+			if status == 403 && m["code"] != "authz.operator_role" {
+				t.Errorf("problem code: got %v, want authz.operator_role", m["code"])
+			}
+		})
+	}
+}
+
+// TestProductionRequiresRoles: in production an operator token without a
+// roles claim holds no role, so every operation of api/control.yaml is
+// refused with authz.operator_role (ADR-0027, amended for F7).
+func TestProductionRequiresRoles(t *testing.T) {
+	p := newPlaneIn(t, authn.Production)
+	ops, err := api.ControlOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, op := range ops {
+		t.Run(id, func(t *testing.T) {
+			path := strings.ReplaceAll(op.Path, "{id}", uuid.NewString())
+			code, m, _ := p.in(t).as("ops|alice", op.Method, path, "{}", "If-Match", "*", "Idempotency-Key", "key-"+uuid.NewString())
+			if code != 403 {
+				t.Errorf("%s %s: got %d, want 403: %v", op.Method, path, code, m)
+			}
+			if m["code"] != "authz.operator_role" {
+				t.Errorf("%s %s: got problem %v, want authz.operator_role", op.Method, path, m["code"])
+			}
+		})
 	}
 }
 
@@ -409,11 +679,16 @@ func TestContractIsServed(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, op := range ops {
-		path := strings.ReplaceAll(op.Path, "{id}", uuid.NewString())
-		code, m, _ := p.as("ops|alice", op.Method, path, "")
-		if code == 405 || (code == 404 && m["detail"] == "No such endpoint.") {
-			t.Errorf("%s (%s %s): %d %v", id, op.Method, path, code, m)
-		}
+		t.Run(id, func(t *testing.T) {
+			path := strings.ReplaceAll(op.Path, "{id}", uuid.NewString())
+			code, m, _ := p.in(t).as("ops|alice", op.Method, path, "")
+			if code == 405 {
+				t.Errorf("%s %s: got 405, want the operation routed: %v", op.Method, path, m)
+			}
+			if code == 404 && m["detail"] == "No such endpoint." {
+				t.Errorf("%s %s: got no such endpoint, want the operation routed", op.Method, path)
+			}
+		})
 	}
 }
 
@@ -431,11 +706,14 @@ func TestControlRoleIsReadOnly(t *testing.T) {
 	if err := as(`SELECT count(*) FROM tenancy.tenant`); err != nil {
 		t.Fatal(err)
 	}
-	for _, sql := range []string{`UPDATE tenancy.tenant SET name = name, version = version + 1`, `SELECT count(*) FROM identity.principal`,
-		`INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, expires_at) VALUES (gen_random_uuid(), 'control|x', gen_random_uuid(), '', 'completed', now())`} {
-		if err := as(sql); err == nil || !strings.Contains(err.Error(), "permission denied") {
-			t.Errorf("%s: %v", sql, err)
-		}
+	for name, sql := range map[string]string{
+		"update tenants":         `UPDATE tenancy.tenant SET name = name, version = version + 1`,
+		"read principals":        `SELECT count(*) FROM identity.principal`,
+		"insert idempotency key": `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, expires_at) VALUES (gen_random_uuid(), 'control|x', gen_random_uuid(), '', 'completed', now())`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			pgtest.CheckErr(t, as(sql), "permission denied")
+		})
 	}
 }
 
@@ -493,9 +771,16 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		return provisioning.Request{Name: "Acme", Region: "eu-west", GroupCurrency: "EUR", Document: doc,
 			Administrator: provisioning.Administrator{Subject: "idp|ada", DisplayName: "Ada"}, Idempotency: &provisioning.Idempotency{Key: key, RequestHash: []byte("h")}}
 	}
-	created, replayed, err := s.Create(ctx, op, request("key-first"))
-	if err != nil || replayed || created.Status != controlplane.Active {
-		t.Fatalf("%+v %v %v", created, replayed, err)
+	first := "key-first-" + uuid.NewString() // a key of this run's: an earlier run's would replay its tenant
+	created, replayed, err := s.Create(ctx, op, request(first))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if replayed {
+		t.Errorf("create: got a replay, want a new tenant")
+	}
+	if created.Status != controlplane.Active {
+		t.Fatalf("created status: got %v, want %v", created.Status, controlplane.Active)
 	}
 	everyFailure(t, s, "list", func(ctx context.Context) error {
 		_, _, err := s.List(ctx, "", pagination.Request{})
@@ -506,7 +791,7 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		return err
 	})
 	everyFailure(t, s, "replay", func(ctx context.Context) error {
-		_, _, err := s.Create(ctx, op, request("key-first"))
+		_, _, err := s.Create(ctx, op, request(first))
 		return err
 	})
 	everyFailure(t, s, "create", func(ctx context.Context) error {
@@ -518,7 +803,7 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		return err
 	})
 	// Erasure spans the control plane's and the worker's transactions; an exported, offboarded tenant is needed.
-	gone, _, err := s.Create(ctx, op, request("key-gone"))
+	gone, _, err := s.Create(ctx, op, request("key-gone-"+uuid.NewString()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,13 +828,13 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 	for name, call := range map[string]func() error{
 		"list":   func() error { _, _, err := s.List(ctx, "", pagination.Request{}); return err },
 		"get":    func() error { _, err := s.Get(ctx, created.ID); return err },
-		"replay": func() error { _, _, err := s.Create(ctx, op, request("key-first")); return err },
+		"replay": func() error { _, _, err := s.Create(ctx, op, request(first)); return err },
 		"resume": func() error { _, err := s.Transition(ctx, op, created.ID, "resume", "*"); return err },
 		"erase":  func() error { _, _, err := s.Erase(ctx, op, gone.ID, "*"); return err },
 	} {
-		if err := call(); err == nil || !strings.Contains(err.Error(), "database down") {
-			t.Errorf("%s: %v", name, err)
-		}
+		t.Run(name, func(t *testing.T) {
+			pgtest.CheckErr(t, call(), "database down")
+		})
 	}
 	s.Begin = nil
 	// A commit that fails is reported too (the connection is gone).
@@ -558,23 +843,19 @@ func TestDatabaseFailuresAreReported(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &brokenCommit{Tx: tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
-	if _, err := s.Transition(ctx, op, created.ID, "resume", "*"); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("commit: %v", err)
+	if _, err := s.Transition(ctx, op, created.ID, "resume", "*"); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("commit: got %v, want the injected failure", err)
 	}
 	s.Begin = nil
-	if got, err := s.Get(ctx, created.ID); err != nil || got.Status != controlplane.Suspended {
-		t.Fatalf("after the failed commit: %+v %v", got, err)
+	got, err := s.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("after the failed commit: %v", err)
 	}
-}
-
-// brokenCommit is a transaction whose commit fails.
-type brokenCommit struct{ pgx.Tx }
-
-func (b *brokenCommit) Commit(ctx context.Context) error {
-	_ = b.Tx.Rollback(ctx)
-	return errors.New("commit failed")
+	if got.Status != controlplane.Suspended {
+		t.Fatalf("after the failed commit: got status %v, want %v", got.Status, controlplane.Suspended)
+	}
 }
 
 // TestProvisioningKeyUniqueness: two provisioning requests with the same
@@ -590,11 +871,20 @@ func TestProvisioningKeyUniqueness(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := s.Provisioner.Provision(ctx, req) // the replay check was skipped: straight to the insert
-	if p := problem.From(err); p.Status != 409 || p.Code != "request.idempotency_key_in_use" || p.RetryAfter != 1 {
-		t.Fatalf("second: %v", err)
+	p := problem.From(err)
+	if p.Status != 409 {
+		t.Errorf("second: got status %d, want 409: %v", p.Status, err)
+	}
+	if p.Code != "request.idempotency_key_in_use" {
+		t.Errorf("second: got code %s, want request.idempotency_key_in_use", p.Code)
+	}
+	if p.RetryAfter != 1 {
+		t.Errorf("second: got Retry-After %d, want 1", p.RetryAfter)
 	}
 	var n int
-	pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM platform.idempotency_key WHERE key = $1`, provisioning.KeyPrefix+req.Idempotency.Key).Scan(&n)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM platform.idempotency_key WHERE key = $1`, provisioning.KeyPrefix+req.Idempotency.Key).Scan(&n); err != nil {
+		t.Fatalf("count idempotency keys: %v", err)
+	}
 	if n != 1 {
 		t.Fatalf("%d keys", n)
 	}
@@ -603,21 +893,65 @@ func TestProvisioningKeyUniqueness(t *testing.T) {
 // TestKeyRotationThroughTheControlPlane: a provisioned tenant has its own
 // key; rotation gives it a new one and re-seals its house banks.
 func TestKeyRotationThroughTheControlPlane(t *testing.T) {
-	p := newPlane(t)
-	ctx := context.Background()
-	created, _ := p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Keyed"), "Idempotency-Key", "key-"+uuid.NewString())
-	id := created["id"].(string)
-	var keys []string
-	rows, _ := pgtest.Admin(t).Query(ctx, `SELECT status FROM tenancy.tenant_key WHERE tenant_id = $1`, uuid.MustParse(id))
-	keys, _ = pgx.CollectRows(rows, pgx.RowTo[string])
+	s := &rotationScenario{p: newPlane(t)}
+	// Each step goes on from the tenant and rotation the ones before it
+	// left, so the first failure stops the rest.
+	if !t.Run("a provisioned tenant has its own key", s.provisionedKey) {
+		t.FailNow()
+	}
+	if !t.Run("rotation gives it a new key", s.rotate) {
+		t.FailNow()
+	}
+	if !t.Run("the tenant shows its key and audit verification", s.shown) {
+		t.FailNow()
+	}
+	if !t.Run("the house banks are re-sealed and still read", s.resealed) {
+		t.FailNow()
+	}
+	if !t.Run("legacy, offboarded and keyless tenants", s.otherTenants) {
+		t.FailNow()
+	}
+	t.Run("database failures are reported", s.databaseFailures)
+}
+
+// rotationScenario is what the steps of TestKeyRotationThroughTheControlPlane
+// share: the plane, the provisioned tenant and its sealed house bank, the
+// rotation's result and the tenant still on the legacy key.
+type rotationScenario struct {
+	p       *plane
+	id      string
+	created map[string]any
+	sealed  []byte
+	rot     map[string]any
+	legacy  pgtest.Tenant
+}
+
+// provisionedKey: a provisioned tenant has one active key, which seals its
+// house banks.
+func (s *rotationScenario) provisionedKey(t *testing.T) {
+	p, ctx := s.p.in(t), context.Background()
+	s.created, _ = p.must(201, "ops|alice", "POST", tenants, tenantBody(t, "Keyed"), "Idempotency-Key", "key-"+uuid.NewString())
+	s.id = s.created["id"].(string)
+	rows, _ := pgtest.Admin(t).Query(ctx, `SELECT status FROM tenancy.tenant_key WHERE tenant_id = $1`, uuid.MustParse(s.id))
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("read the tenant keys: %v", err)
+	}
 	if len(keys) != 1 || keys[0] != "active" {
 		t.Fatalf("provisioned tenant keys: %v", keys)
 	}
-	var sealed []byte
-	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&sealed)
-	if sealed[0] != 2 {
-		t.Fatalf("house bank sealed with format %d", sealed[0])
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(s.id)).Scan(&s.sealed); err != nil {
+		t.Fatalf("read the sealed house bank: %v", err)
 	}
+	if s.sealed[0] != 2 {
+		t.Fatalf("house bank sealed with format %d", s.sealed[0])
+	}
+}
+
+// rotate: a rotation needs a matching If-Match and a known tenant; it gives
+// the tenant a new key and re-seals its house banks.
+func (s *rotationScenario) rotate(t *testing.T) {
+	p, id := s.p.in(t), s.id
 	p.problem(428, "request.precondition_required", "ops|alice", "POST", tenants+"/"+id+":rotateKey", "")
 	p.problem(412, "request.version_mismatch", "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", `"7"`)
 	p.problem(404, "request.not_found", "ops|alice", "POST", tenants+"/"+uuid.NewString()+":rotateKey", "", "If-Match", "*")
@@ -625,16 +959,49 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	p.s.Now = func() time.Time { return at } // the audit entry carries the service's clock
 	got, h := p.must(200, "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", `"1"`)
 	p.s.Now = nil
-	rot := got["rotation"].(map[string]any)
-	if got["version"] != float64(2) || h.Get("ETag") != `"2"` || rot["resealed"] != float64(2) || rot["master_key_id"] != "test" ||
-		rot["previous_key_id"] == uuid.Nil.String() || rot["key_id"] == rot["previous_key_id"] {
-		t.Fatalf("rotation: %v", got)
+	s.rot = got["rotation"].(map[string]any)
+	rot := s.rot
+	if got["version"] != float64(2) {
+		t.Errorf("rotation version: got %v, want 2", got["version"])
 	}
-	// The tenant shows its key and, once a round ran, its latest audit verification.
+	if etag := h.Get("ETag"); etag != `"2"` {
+		t.Errorf("rotation ETag: got %s, want \"2\"", etag)
+	}
+	if rot["resealed"] != float64(2) {
+		t.Errorf("rotation resealed: got %v, want 2", rot["resealed"])
+	}
+	if rot["master_key_id"] != "test" {
+		t.Errorf("rotation master key: got %v, want test", rot["master_key_id"])
+	}
+	if rot["previous_key_id"] == uuid.Nil.String() {
+		t.Errorf("rotation previous key: got the nil key, want the provisioned one")
+	}
+	if rot["key_id"] == rot["previous_key_id"] {
+		t.Errorf("rotation key: got %v, want a key other than the previous one", rot["key_id"])
+	}
+}
+
+// shown: the tenant shows its key and, once a round ran, its latest audit
+// verification, in the tenant and in the listing; a later round that found
+// the chain broken is the one shown.
+func (s *rotationScenario) shown(t *testing.T) {
+	p, id, rot, ctx := s.p.in(t), s.id, s.rot, context.Background()
 	shown, _ := p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	enc, _ := shown["encryption"].(map[string]any)
-	if enc == nil || enc["key_id"] != rot["key_id"] || enc["master_key_id"] != "test" || enc["created_at"] == nil || shown["audit_verification"] != nil {
-		t.Fatalf("encryption shown: %v", shown)
+	if enc == nil {
+		t.Fatalf("encryption shown: got none, want the key: %v", shown)
+	}
+	if enc["key_id"] != rot["key_id"] {
+		t.Errorf("encryption key: got %v, want %v", enc["key_id"], rot["key_id"])
+	}
+	if enc["master_key_id"] != "test" {
+		t.Errorf("encryption master key: got %v, want test", enc["master_key_id"])
+	}
+	if enc["created_at"] == nil {
+		t.Errorf("encryption created at: got none, want a time")
+	}
+	if shown["audit_verification"] != nil {
+		t.Errorf("audit verification before a round: got %v, want none", shown["audit_verification"])
 	}
 	verifier := &auditchain.Verifier{Pool: p.s.Pool, AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if _, err := verifier.Verify(ctx, uuid.MustParse(id)); err != nil {
@@ -642,8 +1009,20 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	}
 	shown, _ = p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
 	ver, _ := shown["audit_verification"].(map[string]any)
-	if ver == nil || ver["ok"] != true || ver["head_seq"].(float64) < 1 || ver["broken_at"] != nil || ver["verified_at"] == nil {
-		t.Fatalf("verification shown: %v", shown)
+	if ver == nil {
+		t.Fatalf("verification shown: got none, want one: %v", shown)
+	}
+	if ver["ok"] != true {
+		t.Errorf("verification ok: got %v, want true", ver["ok"])
+	}
+	if seq := ver["head_seq"].(float64); seq < 1 {
+		t.Errorf("verification head seq: got %v, want at least 1", seq)
+	}
+	if ver["broken_at"] != nil {
+		t.Errorf("verification broken at: got %v, want none", ver["broken_at"])
+	}
+	if ver["verified_at"] == nil {
+		t.Errorf("verification verified at: got none, want a time")
 	}
 	listed, _ := p.must(200, "ops|alice", "GET", tenants+"?status=active&order_by=name", "")
 	found := false
@@ -654,52 +1033,87 @@ func TestKeyRotationThroughTheControlPlane(t *testing.T) {
 	if !found {
 		t.Fatalf("listing lacks the fields: %v", listed)
 	}
+	pgtest.Exec(t, `INSERT INTO audit.verification (tenant_id, verified_at, head_seq, checked, anchors_checked, broken_at, ok)
+		VALUES ($1, now() + interval '1 hour', 9, 9, 0, 4, false)`, uuid.MustParse(id))
+	shown, _ = p.must(200, "ops|alice", "GET", tenants+"/"+id, "")
+	if ver, _ = shown["audit_verification"].(map[string]any); ver == nil {
+		t.Fatalf("broken verification shown: got none, want one: %v", shown)
+	}
+	if ver["ok"] != false {
+		t.Errorf("broken verification ok: got %v, want false", ver["ok"])
+	}
+	if ver["broken_at"] != float64(4) {
+		t.Errorf("broken verification broken at: got %v, want 4", ver["broken_at"])
+	}
+}
+
+// resealed: the house bank is sealed again with the new key, the tenant's
+// administrator still reads through the API, and the rotation is in the
+// tenant's chain as the operator's.
+func (s *rotationScenario) resealed(t *testing.T) {
+	id, ctx := s.id, context.Background()
 	var resealed []byte
-	pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&resealed)
-	if string(resealed) == string(sealed) || string(resealed[1:17]) != uuid.MustParse(rot["key_id"].(string)).String()[:0]+string(mustBytes(rot["key_id"].(string))) {
-		t.Fatalf("house bank not re-sealed under the new key")
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(id)).Scan(&resealed); err != nil {
+		t.Fatalf("read the re-sealed house bank: %v", err)
+	}
+	if string(resealed) == string(s.sealed) {
+		t.Errorf("house bank: got the same cipher text, want it re-sealed")
+	}
+	if got, want := string(resealed[1:17]), string(mustBytes(s.rot["key_id"].(string))); got != want {
+		t.Errorf("house bank key id: got %x, want %x", got, want)
 	}
 	// The tenant's administrator still reads its house banks through the API (opened with the new key).
-	admin := pgtest.Actor{ID: uuid.MustParse(created["provisioned"].(map[string]any)["administrator_id"].(string)), Subject: "idp|ada", Kind: "human"}
+	admin := pgtest.Actor{ID: uuid.MustParse(s.created["provisioned"].(map[string]any)["administrator_id"].(string)), Subject: "idp|ada", Kind: "human"}
 	public := apitest.Client{T: t, API: apitest.New(t), Tenant: pgtest.Tenant{ID: uuid.MustParse(id)}, As: admin}
 	public.Must(200, "GET", "/v1/config-versions?is_active=true", "", "")
-	// Recorded in the tenant's chain as the operator.
 	var action, operator string
-	pgtest.Admin(t).QueryRow(ctx, `SELECT action, detail->>'operator' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.rotate_key'`, uuid.MustParse(id)).Scan(&action, &operator)
+	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT action, detail->>'operator' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.rotate_key'`, uuid.MustParse(id)).Scan(&action, &operator); err != nil {
+		t.Fatalf("read the rotation audit: %v", err)
+	}
 	if operator != "ops|alice" {
 		t.Fatalf("audit: %s %s", action, operator)
 	}
-	// A tenant on the legacy key gets its first key; an offboarded tenant is left alone; without masters, 503.
-	legacy := pgtest.NewTenant(t)
-	got, _ = p.must(200, "ops|alice", "POST", tenants+"/"+legacy.ID.String()+":rotateKey", "", "If-Match", "*")
+}
+
+// otherTenants: a tenant on the legacy key gets its first key; an
+// offboarded tenant is left alone; without masters, 503.
+func (s *rotationScenario) otherTenants(t *testing.T) {
+	p, id := s.p.in(t), s.id
+	s.legacy = pgtest.NewTenant(t)
+	got, _ := p.must(200, "ops|alice", "POST", tenants+"/"+s.legacy.ID.String()+":rotateKey", "", "If-Match", "*")
 	if got["rotation"].(map[string]any)["previous_key_id"] != uuid.Nil.String() {
 		t.Fatalf("legacy rotation: %v", got)
 	}
 	p.must(200, "ops|alice", "POST", tenants+"/"+id+":offboard", "", "If-Match", "*")
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":rotateKey", "", "If-Match", "*")
 	p.s.Keys = nil
-	p.problem(503, "platform.unavailable", "ops|alice", "POST", tenants+"/"+legacy.ID.String()+":rotateKey", "", "If-Match", "*")
-	p.s.Keys = apitest.FieldKeys()
+	defer func() { p.s.Keys = apitest.FieldKeys() }()
+	p.problem(503, "platform.unavailable", "ops|alice", "POST", tenants+"/"+s.legacy.ID.String()+":rotateKey", "", "If-Match", "*")
+}
+
+// databaseFailures: every failing statement, a failed begin and a failed
+// commit of a rotation are reported.
+func (s *rotationScenario) databaseFailures(t *testing.T) {
+	p, legacy, ctx := s.p.in(t), s.legacy, context.Background()
+	defer func() { p.s.Begin = nil }()
 	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: p.is.URL, Subject: "ops|alice"})
 	everyFailure(t, p.s, "rotate", func(ctx context.Context) error {
 		_, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*")
 		return err
 	})
 	p.s.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*"); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Fatalf("begin: %v", err)
-	}
+	_, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*")
+	pgtest.WantErr(t, err, "database down")
 	p.s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 		tx, err := p.s.Pool.Begin(ctx, scope)
 		if err != nil {
 			return nil, err
 		}
-		return &brokenCommit{Tx: tx}, nil
+		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
-	if _, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*"); err == nil || !strings.Contains(err.Error(), "commit failed") {
-		t.Fatalf("commit: %v", err)
+	if _, _, err := p.s.RotateKey(ctx, op, legacy.ID, "*"); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("commit: got %v, want the injected failure", err)
 	}
-	p.s.Begin = nil
 }
 
 func mustBytes(id string) []byte {
@@ -756,8 +1170,32 @@ func TestTenantFingerprint(t *testing.T) {
 		}
 	}
 	head, _ := fp["audit_chain_head"].(map[string]any)
-	if got["id"] != id || got["status"] != "active" || h.Get("ETag") == "" || rows["identity.principal"] < 1 || rows["tenancy.tenant_key"] != 1 || head == nil || head["seq"].(float64) < 1 || len(head["hash"].(string)) != 64 || fp["tenant_id"] != id {
-		t.Fatalf("fingerprint: %v %v", got, h)
+	if got["id"] != id {
+		t.Errorf("fingerprint id: got %v, want %s", got["id"], id)
+	}
+	if got["status"] != "active" {
+		t.Errorf("fingerprint status: got %v, want active", got["status"])
+	}
+	if h.Get("ETag") == "" {
+		t.Errorf("fingerprint ETag: got none, want the tenant's")
+	}
+	if n := rows["identity.principal"]; n < 1 {
+		t.Errorf("fingerprint identity.principal rows: got %v, want at least 1", n)
+	}
+	if n := rows["tenancy.tenant_key"]; n != 1 {
+		t.Errorf("fingerprint tenancy.tenant_key rows: got %v, want 1", n)
+	}
+	if fp["tenant_id"] != id {
+		t.Errorf("fingerprint tenant: got %v, want %s", fp["tenant_id"], id)
+	}
+	if head == nil {
+		t.Fatalf("fingerprint chain head: got none, want one: %v", fp)
+	}
+	if seq := head["seq"].(float64); seq < 1 {
+		t.Errorf("fingerprint chain head seq: got %v, want at least 1", seq)
+	}
+	if n := len(head["hash"].(string)); n != 64 {
+		t.Errorf("fingerprint chain head hash length: got %d, want 64", n)
 	}
 	// The same tenant twice gives the same fingerprint (computed_at aside).
 	again, _ := p.must(200, "ops|alice", "GET", tenants+"/"+id+"/fingerprint", "")
@@ -772,17 +1210,19 @@ func TestTenantFingerprint(t *testing.T) {
 	if status, _, _ := p.as("ops|alice", "POST", tenants+"/"+id+"/fingerprint", ""); status != 405 {
 		t.Fatalf("POST fingerprint: %d", status)
 	}
-	if status, m, _ := p.as("ops|alice", "GET", tenants+"/"+id+"/thumbprint", ""); status != 404 || m["detail"] != "No such endpoint." {
-		t.Fatalf("unknown sub-resource: %d %v", status, m)
+	if status, m, _ := p.as("ops|alice", "GET", tenants+"/"+id+"/thumbprint", ""); status != 404 {
+		t.Errorf("unknown sub-resource: got status %d, want 404: %v", status, m)
+	} else if m["detail"] != "No such endpoint." {
+		t.Errorf("unknown sub-resource: got detail %v, want No such endpoint.", m["detail"])
 	}
 	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", tenants+"/not-a-uuid/fingerprint", "")
 	reader := map[string]string{"Authorization": "Bearer " + p.is.Token(t, uuid.Nil, "ops|roled", map[string]any{"tenant_id": nil, "roles": []any{"erp:read"}})}
 	if status, _, _ := p.do("GET", tenants+"/"+id+"/fingerprint", "", reader); status != 200 {
 		t.Fatalf("reader: %d", status)
 	}
-	// Every database failure is reported: the tenant row, the table list,
-	// a count, the chain head (one statement per table, more than
-	// everyFailure walks).
+	// Every database failure is reported: the tenant row, its key, its
+	// verification, the table list, a count, the chain head (one statement
+	// per table, more than everyFailure walks).
 	failingAt := func(n int, count *int) {
 		p.s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 			tx, err := p.s.Pool.Begin(ctx, scope)
@@ -795,20 +1235,24 @@ func TestTenantFingerprint(t *testing.T) {
 	defer func() { p.s.Begin = nil }()
 	var total int
 	failingAt(0, &total)
-	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err != nil || total < 4 {
-		t.Fatalf("counting statements: %v after %d", err, total)
+	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err != nil {
+		t.Fatalf("counting statements: %v", err)
 	}
-	for _, n := range []int{1, 2, 3, total} {
-		count := 0
-		failingAt(n, &count)
-		if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); !errors.Is(err, pgtest.ErrInjected) {
-			t.Errorf("statement %d failing: %v", n, err)
-		}
+	if total < 6 {
+		t.Fatalf("counting statements: got %d, want at least 6", total)
+	}
+	for _, n := range []int{1, 2, 3, 4, 5, total} {
+		t.Run(fmt.Sprintf("statement %d failing", n), func(t *testing.T) {
+			count := 0
+			failingAt(n, &count)
+			if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want the injected failure", err)
+			}
+		})
 	}
 	p.s.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-	if _, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id)); err == nil || !strings.Contains(err.Error(), "database down") {
-		t.Errorf("database down: %v", err)
-	}
+	_, _, err := p.s.Fingerprint(context.Background(), uuid.MustParse(id))
+	pgtest.CheckErr(t, err, "database down")
 	p.s.Begin = nil
 	// A tenant without an audit trail has no chain head.
 	bare := pgtest.NewTenant(t)

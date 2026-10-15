@@ -47,6 +47,11 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: Vet
         run: go vet ./...
+      - name: Structural lint of the whole tree (.golangci.yml, CLAUDE.md)
+        # The refactoring recorded in docs/refactoring-progress.md brought every linter
+        # to zero across the tree, so the whole tree is held to the rules, not
+        # only the code a push changes. api/gen is left out as the Makefile does.
+        run: make lint-all
       - name: Static analysis
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: Vulnerabilities

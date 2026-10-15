@@ -8,6 +8,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 // Budgets are about 10-25x the time measured on a laptop: tight enough to
@@ -26,6 +27,7 @@ func budget(t *testing.T, name string, limit time.Duration, f func()) {
 }
 
 func skipShort(t *testing.T) {
+	t.Helper()
 	if testing.Short() || raceDetector {
 		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
 	}
@@ -61,7 +63,7 @@ func TestPerfConfiguration(t *testing.T) {
 			FiscalYear: 2000 + i/26, First: 1, Last: 999999})
 	}
 	budget(t, "validate + diff (2k number ranges)", 3*time.Second, func() {
-		if config.HasErrors(config.Validate(c)) {
+		if config.HasErrors(config.Validate(c, currency.Seeded())) {
 			t.Fatal("unexpected errors")
 		}
 		changes, err := config.Diff(other, c)
@@ -77,6 +79,8 @@ func BenchmarkSemanticQuery(b *testing.B) {
 	q := analytics.Query{Measures: []string{"expenses"}, By: []string{"fiscal_month"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		analytics.Execute(m, facts, analytics.Principal{ID: "u"}, q)
+		if _, err := analytics.Execute(m, facts, analytics.Principal{ID: "u"}, q); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

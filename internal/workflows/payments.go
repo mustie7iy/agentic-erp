@@ -16,9 +16,9 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/payments"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // ProposeInput names the payment run a proposal workflow builds.
@@ -44,9 +44,9 @@ func ProposePaymentRun(ctx workflow.Context, in ProposeInput) error {
 	if temporal.IsCanceledError(err) || ctx.Err() != nil {
 		detached, cancel := workflow.NewDisconnectedContext(ctx)
 		defer cancel()
-		return workflow.ExecuteActivity(workflow.WithActivityOptions(detached, ao), a.Propose, in).Get(detached, nil)
+		return workflow.ExecuteActivity(workflow.WithActivityOptions(detached, ao), a.Propose, in).Get(detached, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 	}
-	return err
+	return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
 }
 
 // Payments holds the payment activities: the services the API uses, and the
@@ -58,14 +58,11 @@ type Payments struct {
 	Timeout   time.Duration // statement timeout while building; default 5 minutes
 	Now       func() time.Time
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (p *Payments) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if p.Begin != nil {
-		return p.Begin(ctx, s)
-	}
-	return p.Pool.Begin(ctx, s)
+	return database.BeginOr(ctx, p.Pool, p.Begin, s)
 }
 
 // Propose builds the run as its proposer, in one transaction with its
@@ -74,36 +71,24 @@ func (p *Payments) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) 
 // run and its operation (the proposer's rules); any other error is
 // returned for the retry policy.
 func (p *Payments) Propose(ctx context.Context, in ProposeInput) error {
-	tx, err := p.begin(ctx, database.Scope{Role: p.AppRole, TenantID: in.TenantID})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
-	if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
-		return err
+	var job payments.Job
+	proposer := func(ctx context.Context, tx pgx.Tx) (reqctx.Principal, bool, error) {
+		if _, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
+			return reqctx.Principal{}, false, fmt.Errorf("workflows: propose payment run %s: set the statement timeout: %w", in.RunID, err)
+		}
+		var ok bool
+		var err error
+		if job, ok, err = p.Endpoints.JobFor(ctx, tx, in.RunID); err != nil || !ok {
+			return reqctx.Principal{}, false, err
+		}
+		return reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: in.TenantID}, true, nil
 	}
-	job, ok, err := payments.JobFor(ctx, tx, in.RunID)
-	if err != nil || !ok {
-		return err
-	}
-	if err := database.SetActor(ctx, tx, job.ProposedBy); err != nil {
-		return err
-	}
-	actor := reqctx.Principal{ID: job.ProposedBy, Kind: job.ProposerKind, TenantID: in.TenantID}
-	rctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor))
-	if err := p.Endpoints.Process(rctx, job); err != nil {
-		return err
-	}
-	now := time.Now
-	if p.Now != nil {
-		now = p.Now
-	}
-	if err := buf.Flush(rctx, tx, actor, "", now()); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return uow.Job{Begin: p.begin, Scope: database.Scope{Role: p.AppRole, TenantID: in.TenantID}, Now: p.Now,
+		Name: fmt.Sprintf("workflows: propose payment run %s", in.RunID)}.As(ctx, proposer, func(ctx context.Context) error {
+		return p.Endpoints.Process(ctx, job)
+	})
 }

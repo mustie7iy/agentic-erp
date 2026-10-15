@@ -6,16 +6,21 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 // MaxDocument is the largest document :capture accepts.
@@ -51,7 +56,7 @@ func (e *Endpoints) CaptureUpload(ctx context.Context, legalEntity, upload uuid.
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	document, up, err := e.Uploads.take(ctx, tx, upload, "supplier_invoice")
+	document, up, err := e.Uploads.take(ctx, tx, upload)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -70,7 +75,7 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	sum := sha256.Sum256(document)
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM payables.supplier_invoice WHERE capture_sha256 = $1)`, sum[:]).Scan(&exists); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("payables: check capture of document %x: %w", sum, err)
 	}
 	if exists {
 		return operations.Operation{}, problem.Conflict("payables.already_captured", "This document has already been captured.")
@@ -79,95 +84,20 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	objectRef := ""
-	if e.Objects != nil {
-		objectRef = blobstore.Key(p.TenantID, blobstore.KindDocuments, hex.EncodeToString(sum[:]))
-		err := e.Objects.Put(ctx, objectRef, document, blobstore.PutOptions{ContentType: http.DetectContentType(document)})
-		if err != nil && !errors.Is(err, blobstore.ErrExists) { // the same bytes are the same object
-			return operations.Operation{}, problem.Unavailable("The document store did not take the document; capture it again.", 30).WithCause(err)
-		}
+	objectRef, err := e.storeDocument(ctx, p.TenantID, sum, document)
+	if err != nil {
+		return operations.Operation{}, err
 	}
 	ext, err := e.Extractor.Extract(ctx, document)
 	if err != nil {
 		return operations.Operation{}, unreadable(err.Error())
 	}
-	if ext.PurchaseOrder == "" {
-		return operations.Operation{}, problem.Unprocessable("payables.capture_needs_order",
-			"The document prints no purchase order number; enter invoices without an order by hand.")
-	}
-	po, ok, err := e.OrderNumbers.OrderByNumber(ctx, legalEntity, ext.PurchaseOrder)
+	in, err := e.capturedInput(ctx, tx, legalEntity, ext)
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	if !ok {
-		return operations.Operation{}, unreadable("the legal entity has no purchase order " + ext.PurchaseOrder)
-	}
-	order, _, err := e.Orders.Order(ctx, po)
-	if err != nil {
-		return operations.Operation{}, err
-	}
-	date, err := time.Parse(time.DateOnly, ext.InvoiceDate)
-	if err != nil {
-		return operations.Operation{}, unreadable("the invoice date " + ext.InvoiceDate + " is not a date")
-	}
-	if ext.InvoiceNumber == "" {
-		return operations.Operation{}, unreadable("there is no invoice number")
-	}
-	if ext.Currency != order.Currency {
-		return operations.Operation{}, unreadable("the invoice is in " + ext.Currency + " but the order in " + order.Currency)
-	}
-	var exp int
-	if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, order.Currency).Scan(&exp); err != nil {
-		return operations.Operation{}, err
-	}
-	amountOf := func(s, what string) (Amount, error) {
-		m, err := money.ParseDecimal(s, exp)
-		if err != nil {
-			return Amount{}, unreadable(what + ": " + err.Error())
-		}
-		return Amount{Value: m.Plain(exp), Currency: order.Currency}, nil
-	}
-	in := Input{LegalEntityID: legalEntity, SupplierID: order.SupplierID, SupplierReference: ext.InvoiceNumber, InvoiceDate: date, PurchaseOrderID: &po}
-	if in.Gross, err = amountOf(ext.GrossAmount, "gross amount"); err != nil {
-		return operations.Operation{}, err
-	}
-	if in.Tax, err = amountOf(ext.TaxAmount, "tax amount"); err != nil {
-		return operations.Operation{}, err
-	}
-	if len(ext.Lines) == 0 {
-		return operations.Operation{}, unreadable("there are no invoice lines")
-	}
-	for i, l := range ext.Lines {
-		no := int32(l.POLine)
-		if no == 0 && len(ext.Lines) == len(order.Items) {
-			no = order.Items[i].ItemNo // same number of lines: match by position
-		}
-		unit := ""
-		for _, oi := range order.Items {
-			if oi.ItemNo == no {
-				unit = oi.Unit
-			}
-		}
-		if unit == "" {
-			return operations.Operation{}, unreadable("a line names no item of the order")
-		}
-		a, err := amountOf(l.Amount, "a line amount")
-		if err != nil {
-			return operations.Operation{}, err
-		}
-		description := l.Description
-		in.Items = append(in.Items, ItemInput{POItemNo: &no, Description: &description, Quantity: l.Quantity, Unit: unit, Amount: a})
-	}
-	status, reason := Parked, (*string)(nil)
-	var warnings []string
-	if ext.Confidence != "high" {
-		warnings = append(warnings, "extraction confidence is "+ext.Confidence)
-	}
-	if ext.Confidence == "low" {
-		r := lowConfidence
-		status, reason = OnHold, &r
-	}
-	v, err := e.insert(ctx, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
+	status, reason, warnings := captureStatus(ext.Confidence)
+	v, err := e.insert(ctx, tx, p, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -178,6 +108,118 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	}
 	return operations.Succeed(ctx, op.ID, "/v1/supplier-invoices/"+v.ID.String(),
 		map[string]any{"supplier_invoice_id": v.ID, "status": v.Status, "warnings": warnings})
+}
+
+// storeDocument keeps the document in object storage under its hash and
+// returns its key, or "" without object storage.
+func (e *Endpoints) storeDocument(ctx context.Context, tenant uuid.UUID, sum [sha256.Size]byte, document []byte) (string, error) {
+	if e.Objects == nil {
+		return "", nil
+	}
+	objectRef := blobstore.Key(tenant, blobstore.KindDocuments, hex.EncodeToString(sum[:]))
+	err := e.Objects.Put(ctx, objectRef, document, blobstore.PutOptions{ContentType: http.DetectContentType(document)})
+	if err != nil && !errors.Is(err, blobstore.ErrExists) { // the same bytes are the same object
+		return "", problem.Unavailable("The document store did not take the document; capture it again.", 30).WithCause(err)
+	}
+	return objectRef, nil
+}
+
+// capturedInput turns an extraction into invoice input: supplier and items
+// come from the purchase order the document prints, whose currency the
+// document must match.
+func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, ext *capture.Extraction) (Input, error) {
+	if ext.PurchaseOrder == "" {
+		return Input{}, problem.Unprocessable("payables.capture_needs_order",
+			"The document prints no purchase order number; enter invoices without an order by hand.")
+	}
+	po, ok, err := e.OrderNumbers.OrderByNumber(ctx, legalEntity, ext.PurchaseOrder)
+	if err != nil {
+		return Input{}, err
+	}
+	if !ok {
+		return Input{}, unreadable("the legal entity has no purchase order " + ext.PurchaseOrder)
+	}
+	order, _, err := e.Orders.Order(ctx, po)
+	if err != nil {
+		return Input{}, err
+	}
+	date, err := time.Parse(time.DateOnly, ext.InvoiceDate)
+	if err != nil {
+		return Input{}, unreadable("the invoice date " + ext.InvoiceDate + " is not a date")
+	}
+	if ext.InvoiceNumber == "" {
+		return Input{}, unreadable("there is no invoice number")
+	}
+	if ext.Currency != order.Currency {
+		return Input{}, unreadable("the invoice is in " + ext.Currency + " but the order in " + order.Currency)
+	}
+	exp, err := currency.Exponent(ctx, tx, order.Currency, nil) // the order's currency is in the reference data
+	if err != nil {
+		return Input{}, fmt.Errorf("payables: capture: %w", err)
+	}
+	amountOf := func(s, what string) (Amount, error) {
+		m, err := money.ParseDecimal(s, exp)
+		if err != nil {
+			return Amount{}, unreadable(what + ": " + err.Error())
+		}
+		return Amount{Value: m.Plain(exp), Currency: order.Currency}, nil
+	}
+	in := Input{LegalEntityID: legalEntity, SupplierID: order.SupplierID, SupplierReference: ext.InvoiceNumber, InvoiceDate: date, PurchaseOrderID: &po}
+	if in.Gross, err = amountOf(ext.GrossAmount, "gross amount"); err != nil {
+		return Input{}, err
+	}
+	if in.Tax, err = amountOf(ext.TaxAmount, "tax amount"); err != nil {
+		return Input{}, err
+	}
+	if in.Items, err = capturedItems(ext.Lines, order, amountOf); err != nil {
+		return Input{}, err
+	}
+	return in, nil
+}
+
+// capturedItems maps the document's lines to items of the order: by the
+// order line printed on them, or by position when the counts agree.
+func capturedItems(lines []capture.Line, order procurement.Order, amountOf func(s, what string) (Amount, error)) ([]ItemInput, error) {
+	if len(lines) == 0 {
+		return nil, unreadable("there are no invoice lines")
+	}
+	var items []ItemInput
+	for i, l := range lines {
+		no := int32(l.POLine)
+		if no == 0 && len(lines) == len(order.Items) {
+			no = order.Items[i].ItemNo // same number of lines: match by position
+		}
+		unit := ""
+		for _, oi := range order.Items {
+			if oi.ItemNo == no {
+				unit = oi.Unit
+			}
+		}
+		if unit == "" {
+			return nil, unreadable("a line names no item of the order")
+		}
+		a, err := amountOf(l.Amount, "a line amount")
+		if err != nil {
+			return nil, err
+		}
+		description := l.Description
+		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: l.Quantity, Unit: unit, Amount: a})
+	}
+	return items, nil
+}
+
+// captureStatus parks a captured invoice, or holds it when the extraction
+// is unsure; anything below high confidence is a warning.
+func captureStatus(confidence string) (status string, reason *string, warnings []string) {
+	status = Parked
+	if confidence != "high" {
+		warnings = append(warnings, "extraction confidence is "+confidence)
+	}
+	if confidence == "low" {
+		r := lowConfidence
+		status, reason = OnHold, &r
+	}
+	return status, reason, warnings
 }
 
 // Document returns the document an invoice was captured from, with its

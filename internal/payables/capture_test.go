@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -17,8 +18,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -36,9 +37,12 @@ func (x extractor) Extract(context.Context, []byte) (*capture.Extraction, error)
 type orderNumbers struct{}
 
 func (orderNumbers) OrderByNumber(ctx context.Context, le uuid.UUID, number string) (uuid.UUID, bool, error) {
-	tx, _, _ := reqctx.Request(ctx)
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
 	var id uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT id FROM procurement.purchase_order WHERE legal_entity_id = $1 AND document_number = $2`, le, number).Scan(&id)
+	err = tx.QueryRow(ctx, `SELECT id FROM procurement.purchase_order WHERE legal_entity_id = $1 AND document_number = $2`, le, number).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, false, nil
 	}
@@ -51,7 +55,7 @@ func endpoints(x capture.Extractor) *payables.Endpoints {
 	return &payables.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Orders: procurement.Orders{},
 		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
 		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
-		Settings: configuration.Settings{}, Approvals: fixture.Approvals(), Payments: payments.Reservations{}, OrderNumbers: orderNumbers{}, Extractor: x}
+		Settings: configuration.Settings{}, Rates: rates, Approvals: fixture.Approvals(), Payments: payments.Reservations{}, OrderNumbers: orderNumbers{}, Extractor: x}
 }
 
 func extraction() *capture.Extraction {
@@ -77,20 +81,40 @@ func TestCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 	op := res.(*gen.OperationHeaders).Response
-	if op.Status != "succeeded" || op.Kind != "payables.capture" || op.Resource.Null {
-		t.Fatalf("operation: %+v", op)
+	if op.Status != "succeeded" {
+		t.Errorf("operation status: got %q, want %q", op.Status, "succeeded")
+	}
+	if op.Kind != "payables.capture" {
+		t.Errorf("operation kind: got %q, want %q", op.Kind, "payables.capture")
+	}
+	if op.Resource.Null {
+		t.Fatalf("operation resource: got null, want the invoice: %+v", op)
 	}
 	inv, _ := e.Must(200, "GET", op.Resource.Value, "", "")
-	if inv["source"] != "capture" || inv["status"] != "parked" || inv["supplier_id"] != e.Supplier.String() || len(inv["items"].([]any)) != 2 ||
-		inv["tax_amount"].(map[string]any)["amount"] != "22.80" {
-		t.Fatalf("captured: %v", inv)
+	if inv["source"] != "capture" {
+		t.Errorf("captured source: got %v, want capture", inv["source"])
 	}
-	if ev := events(t, e.Tenant, "supplier_invoice_captured"); len(ev) != 1 || len(ev[0]["capture_sha256"].(string)) != 64 {
-		t.Fatalf("events: %v", ev)
+	if inv["status"] != "parked" {
+		t.Errorf("captured status: got %v, want parked", inv["status"])
 	}
-	if _, err := run(extractor{e: extraction()}, "%PDF-1 invoice one"); err == nil || !strings.Contains(err.Error(), "payables.already_captured") {
-		t.Fatalf("captured twice: %v", err)
+	if inv["supplier_id"] != e.Supplier.String() {
+		t.Errorf("captured supplier: got %v, want %v", inv["supplier_id"], e.Supplier)
 	}
+	if got := len(inv["items"].([]any)); got != 2 {
+		t.Errorf("captured items: got %d, want 2", got)
+	}
+	if got := inv["tax_amount"].(map[string]any)["amount"]; got != "22.80" {
+		t.Errorf("captured tax amount: got %v, want 22.80", got)
+	}
+	ev := events(t, e.Tenant, "supplier_invoice_captured")
+	if len(ev) != 1 {
+		t.Fatalf("captured events: got %d, want 1: %v", len(ev), ev)
+	}
+	if got := len(ev[0]["capture_sha256"].(string)); got != 64 {
+		t.Errorf("capture hash length: got %d, want 64", got)
+	}
+	_, err = run(extractor{e: extraction()}, "%PDF-1 invoice one")
+	pgtest.WantErr(t, err, "payables.already_captured")
 	// Low confidence: on hold, with lines numbered by the order.
 	low := extraction()
 	low.InvoiceNumber, low.Confidence = "CAP-2", "low"
@@ -101,8 +125,11 @@ func TestCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 	held, _ := e.Must(200, "GET", res.(*gen.OperationHeaders).Response.Resource.Value, "", "")
-	if held["status"] != "on_hold" || len(held["items"].([]any)) != 1 {
-		t.Fatalf("low confidence: %v", held)
+	if held["status"] != "on_hold" {
+		t.Errorf("low confidence status: got %v, want on_hold", held["status"])
+	}
+	if got := len(held["items"].([]any)); got != 1 {
+		t.Errorf("low confidence items: got %d, want 1", got)
 	}
 
 	refusals := map[string]func(*capture.Extraction){
@@ -120,19 +147,20 @@ func TestCapture(t *testing.T) {
 		"extraction err": nil,
 	}
 	for name, change := range refusals {
-		x := extractor{e: extraction()}
-		if change == nil {
-			x = extractor{err: errors.New("model unavailable")}
-		} else {
-			change(x.e)
-		}
-		if _, err := run(x, "%PDF-1 "+name); err == nil {
-			t.Errorf("%s: captured", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			x := extractor{e: extraction()}
+			if change == nil {
+				x = extractor{err: errors.New("model unavailable")}
+			} else {
+				change(x.e)
+			}
+			if _, err := run(x, "%PDF-1 "+name); err == nil {
+				t.Error("got a captured invoice, want a refusal")
+			}
+		})
 	}
-	if _, err := run(nil, "%PDF"); err == nil || !strings.Contains(err.Error(), "not configured") {
-		t.Errorf("no extractor: %v", err)
-	}
+	_, err = run(nil, "%PDF")
+	pgtest.CheckErr(t, err, "not configured")
 	if _, err := run(extractor{e: extraction()}, strings.Repeat("x", payables.MaxDocument+1)); err == nil {
 		t.Error("oversized document captured")
 	}

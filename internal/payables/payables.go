@@ -17,8 +17,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
-	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +31,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -117,6 +118,12 @@ type Calendar interface {
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
 }
 
+// Rates converts an invoice's amounts into its company's currency, the
+// currency of the configured tolerances and limits (ledger context, F12).
+type Rates interface {
+	Conversion(ctx context.Context, from, to string, date time.Time) (ledger.Conversion, error)
+}
+
 // Settings reads the active configuration: tolerances and limits
 // (configuration context).
 type Settings interface {
@@ -130,9 +137,10 @@ type Opener interface {
 }
 
 // Payments says whether an entry's open item is in a live payment run
-// (payments context).
+// (payments context); asking holds off the legal entity's proposals until
+// the transaction ends.
 type Payments interface {
-	RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (string, bool, error)
+	RunOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, entryID uuid.UUID) (string, bool, error)
 }
 
 // Endpoints implements the payables part of the generated API.
@@ -146,6 +154,7 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Rates         Rates
 	Approvals     Opener
 	Payments      Payments
 	OrderNumbers  OrderNumbers      // resolves the order number a captured document prints
@@ -156,15 +165,15 @@ type Endpoints struct {
 
 // Item is a live invoice item.
 type Item struct {
-	ItemNo          int32      `json:"item_no"`
-	PurchaseOrderID *uuid.UUID `json:"purchase_order_id"`
-	POItemNo        *int32     `json:"po_item_no"`
-	Description     *string    `json:"description"`
-	Quantity        string     `json:"quantity"`
-	Unit            string     `json:"unit"`
-	Amount          int64      `json:"amount"`
-	TaxCode         *string    `json:"tax_code"`
-	AccountID       *uuid.UUID `json:"account_id"`
+	ItemNo          int32       `json:"item_no"`
+	PurchaseOrderID *uuid.UUID  `json:"purchase_order_id"`
+	POItemNo        *int32      `json:"po_item_no"`
+	Description     *string     `json:"description"`
+	Quantity        string      `json:"quantity"`
+	Unit            string      `json:"unit"`
+	Amount          money.Minor `json:"amount"`
+	TaxCode         *string     `json:"tax_code"`
+	AccountID       *uuid.UUID  `json:"account_id"`
 }
 
 // Invoice is a row of payables.supplier_invoice with its live items.
@@ -179,7 +188,7 @@ type Invoice struct {
 	PostingDate       *time.Time
 	Currency          string
 	Exponent          int
-	Gross, Tax        int64
+	Gross, Tax        money.Minor
 	PurchaseOrderID   *uuid.UUID
 	Status            string
 	HoldReason        *string
@@ -216,24 +225,27 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 		&v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256, &v.CaptureObjectRef,
 		&v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
 		&v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
-	return v, err
+	return v, errs.Wrapf(err, "scan invoice")
 }
 
-func notFound() error { return problem.NotFound("No supplier invoice with this id.") }
+func notFound() error { return problem.NotFoundOf("supplier invoice") }
 
 // load reads an invoice without company access, for the workflow context's
 // callbacks; lock takes the row lock for a change.
 func load(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Invoice, error) {
 	if lock {
 		if _, err := tx.Exec(ctx, `SELECT FROM payables.supplier_invoice WHERE id = $1 FOR UPDATE`, id); err != nil {
-			return Invoice{}, err
+			return Invoice{}, fmt.Errorf("payables: lock invoice %s: %w", id, err)
 		}
 	}
 	v, err := scanInvoice(tx.QueryRow(ctx, invoiceSelect+` WHERE i.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Invoice{}, notFound()
 	}
-	return v, err
+	if err != nil {
+		return Invoice{}, fmt.Errorf("payables: read invoice %s: %w", id, err)
+	}
+	return v, nil
 }
 
 // get reads an invoice of a legal entity the caller may act in.
@@ -288,7 +300,7 @@ type Input struct {
 // checked is an input that passed validation.
 type checked struct {
 	currency      string
-	gross, tax    int64
+	gross, tax    money.Minor
 	purchaseOrder *uuid.UUID
 	items         []Item
 }
@@ -297,157 +309,222 @@ func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
 
-var extensionKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
 // validate checks an invoice for entry: a legal entity the caller may act
 // in, a usable supplier, amounts in one currency with its minor-unit
 // digits, items on the order or on postable accounts, known tax codes.
 func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked, error) {
-	access, err := authz.Companies(ctx)
+	le, sup, err := e.invoiceParties(ctx, in)
 	if err != nil {
 		return checked{}, err
 	}
-	le, ok, err := e.LegalEntities.Entity(ctx, in.LegalEntityID)
-	if err != nil {
+	if err := extensions.Check(in.Extensions); err != nil {
 		return checked{}, err
-	}
-	if !ok || !access.Allows(le.ID) {
-		return checked{}, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
-			problem.FieldError{Field: "legal_entity_id", Code: "not_found", Message: "no legal entity with this id that you can access"})
-	}
-	sup, ok, err := e.Suppliers.Supplier(ctx, in.SupplierID, le.ID)
-	if err != nil {
-		return checked{}, err
-	}
-	if !ok {
-		return checked{}, problem.Unprocessable("request.reference_not_found", "No business partner with this id.",
-			problem.FieldError{Field: "supplier_id", Code: "not_found", Message: "no business partner with this id"})
-	}
-	if why := sup.Usable(); why != "" {
-		return checked{}, invalid("payables.supplier_not_usable", "supplier_id", "The supplier cannot be invoiced: "+why+".")
-	}
-	for k := range in.Extensions {
-		if !extensionKey.MatchString(k) {
-			return checked{}, problem.Unprocessable("request.invalid_extension", "Custom field keys are snake_case.",
-				problem.FieldError{Field: "extensions." + k, Code: "invalid_key", Message: "snake_case, starting with a letter"})
-		}
 	}
 	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID}
-	var exp int
-	err = tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, c.currency).Scan(&exp)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return checked{}, invalid("payables.unknown_currency", "gross_amount.currency", "The currency is not known.")
-	}
+	exp, err := currencyExponent(ctx, tx, c.currency)
 	if err != nil {
 		return checked{}, err
 	}
-	parse := func(a Amount, field string) (int64, error) {
-		if a.Currency != c.currency {
-			return 0, invalid("payables.currency_mismatch", field+".currency", "Every amount of an invoice is in one currency, "+c.currency+".")
-		}
-		v, err := money.ParseAmount(a.Value, exp)
-		if err != nil {
-			return 0, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", c.currency, exp),
-				problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
-		}
-		return int64(v), nil
-	}
-	if c.gross, err = parse(in.Gross, "gross_amount"); err != nil {
+	v := &invoiceCheck{e: e, ctx: ctx, in: in, le: le, sup: sup, exp: exp, c: &c, orders: map[uuid.UUID]procurement.Order{}}
+	if c.gross, err = v.parse(in.Gross, "gross_amount"); err != nil {
 		return checked{}, err
 	}
-	if c.tax, err = parse(in.Tax, "tax_amount"); err != nil {
+	if c.tax, err = v.parse(in.Tax, "tax_amount"); err != nil {
 		return checked{}, err
-	}
-	orders := map[uuid.UUID]procurement.Order{}
-	order := func(id uuid.UUID, field string) (procurement.Order, error) {
-		if o, ok := orders[id]; ok {
-			return o, nil
-		}
-		o, ok, err := e.Orders.Order(ctx, id)
-		if err != nil {
-			return o, err
-		}
-		if !ok || o.Status != "released" || o.SupplierID != sup.ID || o.LegalEntityID != le.ID || o.Currency != c.currency {
-			return o, invalid("payables.invalid_purchase_order", field,
-				"The purchase order must be a released order of this supplier and legal entity in the invoice currency.")
-		}
-		orders[id] = o
-		return o, nil
 	}
 	if c.purchaseOrder != nil {
-		if _, err := order(*c.purchaseOrder, "purchase_order_id"); err != nil {
+		if _, err := v.order(*c.purchaseOrder, "purchase_order_id"); err != nil {
 			return checked{}, err
 		}
 	}
 	for i, it := range in.Items {
-		field := fmt.Sprintf("items[%d]", i)
-		item := Item{ItemNo: int32(i + 1), Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, TaxCode: it.TaxCode, AccountID: it.AccountID}
-		if q, ok := new(big.Rat).SetString(it.Quantity); !ok || q.Sign() <= 0 {
-			return checked{}, invalid("payables.invalid_quantity", field+".quantity.value", "Quantities are positive.")
-		}
-		if item.Amount, err = parse(it.Amount, field+".amount"); err != nil {
+		item, err := v.item(i, it)
+		if err != nil {
 			return checked{}, err
-		}
-		po := it.PurchaseOrderID
-		if po == nil && it.POItemNo != nil {
-			po = c.purchaseOrder
-		}
-		switch {
-		case po != nil && it.POItemNo == nil:
-			return checked{}, invalid("payables.po_item_required", field+".po_item_no", "An item on a purchase order names the order item.")
-		case po == nil && it.POItemNo != nil:
-			return checked{}, invalid("payables.purchase_order_required", field+".purchase_order_id", "An order item needs its purchase order.")
-		case po != nil:
-			if c.purchaseOrder != nil && *c.purchaseOrder != *po {
-				return checked{}, invalid("payables.mixed_purchase_orders", field+".purchase_order_id", "An invoice is for one purchase order.")
-			}
-			c.purchaseOrder = po
-			o, err := order(*po, field+".purchase_order_id")
-			if err != nil {
-				return checked{}, err
-			}
-			var oi *procurement.OrderItem
-			for j := range o.Items {
-				if o.Items[j].ItemNo == *it.POItemNo {
-					oi = &o.Items[j]
-				}
-			}
-			if oi == nil {
-				return checked{}, invalid("payables.unknown_po_item", field+".po_item_no", fmt.Sprintf("Order %s has no item %d.", o.DocumentNumber, *it.POItemNo))
-			}
-			if oi.Unit != it.Unit {
-				return checked{}, invalid("payables.unit_mismatch", field+".quantity.unit", "The order item is in "+oi.Unit+".")
-			}
-			item.PurchaseOrderID, item.POItemNo = po, it.POItemNo
-			if item.AccountID == nil {
-				item.AccountID = &oi.AccountID
-			}
-			if item.TaxCode == nil {
-				item.TaxCode = oi.TaxCode
-			}
-		case it.AccountID == nil:
-			return checked{}, invalid("payables.account_required", field+".account_id", "An item without a purchase order names its account.")
-		default:
-			ok, err := e.Accounts.IsPostable(ctx, le.ID, *it.AccountID)
-			if err != nil {
-				return checked{}, err
-			}
-			if !ok {
-				return checked{}, invalid("payables.account_not_postable", field+".account_id", "The account cannot be posted in this legal entity.")
-			}
-		}
-		if item.TaxCode != nil {
-			_, ok, err := e.Accounts.TaxCode(ctx, le.ID, *item.TaxCode, in.InvoiceDate)
-			if err != nil {
-				return checked{}, err
-			}
-			if !ok {
-				return checked{}, invalid("payables.unknown_tax_code", field+".tax_code", "Tax code "+*item.TaxCode+" is not valid in the legal entity on the invoice date.")
-			}
 		}
 		c.items = append(c.items, item)
 	}
 	return c, nil
+}
+
+// invoiceParties resolves the legal entity, which the caller must be allowed
+// to act in, and the supplier, which must be usable in it.
+func (e *Endpoints) invoiceParties(ctx context.Context, in Input) (tenancy.Entity, partner.Supplier, error) {
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return tenancy.Entity{}, partner.Supplier{}, err
+	}
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, in.LegalEntityID, "legal_entity_id")
+	if err != nil {
+		return tenancy.Entity{}, partner.Supplier{}, err
+	}
+	sup, ok, err := e.Suppliers.Supplier(ctx, in.SupplierID, le.ID)
+	if err != nil {
+		return tenancy.Entity{}, partner.Supplier{}, err
+	}
+	if !ok {
+		return tenancy.Entity{}, partner.Supplier{}, problem.ReferenceNotFound("supplier_id", "business partner", "no business partner with this id")
+	}
+	if why := sup.Usable(); why != "" {
+		return tenancy.Entity{}, partner.Supplier{}, invalid("payables.supplier_not_usable", "supplier_id", "The supplier cannot be invoiced: "+why+".")
+	}
+	return le, sup, nil
+}
+
+// currencyExponent reads the minor-unit digits of the invoice currency.
+func currencyExponent(ctx context.Context, tx pgx.Tx, code string) (int, error) {
+	exp, err := currency.Exponent(ctx, tx, code, invalid("payables.unknown_currency", "gross_amount.currency", "The currency is not known."))
+	if err != nil {
+		return 0, fmt.Errorf("payables: invoice: %w", err)
+	}
+	return exp, nil
+}
+
+// invoiceCheck carries what validate has established so far into the
+// per-amount and per-item checks. c.purchaseOrder is fixed by the header or
+// the first item on an order, so later items are checked against it, and
+// orders caches each order so it is read once per validation.
+type invoiceCheck struct {
+	e      *Endpoints
+	ctx    context.Context
+	in     Input
+	le     tenancy.Entity
+	sup    partner.Supplier
+	exp    int
+	c      *checked
+	orders map[uuid.UUID]procurement.Order
+}
+
+// parse reads an amount, which must be in the invoice currency with its
+// minor-unit digits.
+func (v *invoiceCheck) parse(a Amount, field string) (money.Minor, error) {
+	if a.Currency != v.c.currency {
+		return 0, invalid("payables.currency_mismatch", field+".currency", "Every amount of an invoice is in one currency, "+v.c.currency+".")
+	}
+	n, err := money.ParseAmount(a.Value, v.exp)
+	if err != nil {
+		return 0, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", v.c.currency, v.exp),
+			problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
+	}
+	return n, nil
+}
+
+// order reads a purchase order and checks that it is a released order of
+// this supplier and legal entity in the invoice currency.
+func (v *invoiceCheck) order(id uuid.UUID, field string) (procurement.Order, error) {
+	if o, ok := v.orders[id]; ok {
+		return o, nil
+	}
+	o, ok, err := v.e.Orders.Order(v.ctx, id)
+	if err != nil {
+		return o, err
+	}
+	if !ok || o.Status != "released" || o.SupplierID != v.sup.ID || o.LegalEntityID != v.le.ID || o.Currency != v.c.currency {
+		return o, invalid("payables.invalid_purchase_order", field,
+			"The purchase order must be a released order of this supplier and legal entity in the invoice currency.")
+	}
+	v.orders[id] = o
+	return o, nil
+}
+
+// item checks one invoice item: a positive quantity, an amount in the
+// invoice currency, an order item or a postable account, a known tax code.
+func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
+	field := fmt.Sprintf("items[%d]", i)
+	item := Item{ItemNo: int32(i + 1), Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, TaxCode: it.TaxCode, AccountID: it.AccountID}
+	if money.PositiveQuantity(it.Quantity) != nil {
+		return Item{}, invalid("payables.invalid_quantity", field+".quantity.value", fmt.Sprintf("A quantity is a positive plain decimal of at most %d integer digits and %d decimals.", money.QuantityIntDigits, money.QuantityDecimals))
+	}
+	var err error
+	if item.Amount, err = v.parse(it.Amount, field+".amount"); err != nil {
+		return Item{}, err
+	}
+	if err := v.itemTarget(field, it, &item); err != nil {
+		return Item{}, err
+	}
+	if err := v.taxCode(field, item.TaxCode); err != nil {
+		return Item{}, err
+	}
+	return item, nil
+}
+
+// itemTarget checks what an item is booked against: an item of the
+// invoice's one purchase order, or else an account postable in the legal
+// entity.
+func (v *invoiceCheck) itemTarget(field string, it ItemInput, item *Item) error {
+	po := it.PurchaseOrderID
+	if po == nil && it.POItemNo != nil {
+		po = v.c.purchaseOrder
+	}
+	switch {
+	case po != nil && it.POItemNo == nil:
+		return invalid("payables.po_item_required", field+".po_item_no", "An item on a purchase order names the order item.")
+	case po == nil && it.POItemNo != nil:
+		return invalid("payables.purchase_order_required", field+".purchase_order_id", "An order item needs its purchase order.")
+	case po != nil:
+		return v.orderItem(field, po, it, item)
+	case it.AccountID == nil:
+		return invalid("payables.account_required", field+".account_id", "An item without a purchase order names its account.")
+	default:
+		ok, err := v.e.Accounts.IsPostable(v.ctx, v.le.ID, *it.AccountID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return invalid("payables.account_not_postable", field+".account_id", "The account cannot be posted in this legal entity.")
+		}
+		return nil
+	}
+}
+
+// orderItem links an item to its purchase order item, which must exist in
+// the same unit; the order item's account and tax code fill those the
+// invoice item leaves open.
+func (v *invoiceCheck) orderItem(field string, po *uuid.UUID, it ItemInput, item *Item) error {
+	if v.c.purchaseOrder != nil && *v.c.purchaseOrder != *po {
+		return invalid("payables.mixed_purchase_orders", field+".purchase_order_id", "An invoice is for one purchase order.")
+	}
+	v.c.purchaseOrder = po
+	o, err := v.order(*po, field+".purchase_order_id")
+	if err != nil {
+		return err
+	}
+	var oi *procurement.OrderItem
+	for j := range o.Items {
+		if o.Items[j].ItemNo == *it.POItemNo {
+			oi = &o.Items[j]
+		}
+	}
+	if oi == nil {
+		return invalid("payables.unknown_po_item", field+".po_item_no", fmt.Sprintf("Order %s has no item %d.", o.DocumentNumber, *it.POItemNo))
+	}
+	if oi.Unit != it.Unit {
+		return invalid("payables.unit_mismatch", field+".quantity.unit", "The order item is in "+oi.Unit+".")
+	}
+	item.PurchaseOrderID, item.POItemNo = po, it.POItemNo
+	if item.AccountID == nil {
+		item.AccountID = &oi.AccountID
+	}
+	if item.TaxCode == nil {
+		item.TaxCode = oi.TaxCode
+	}
+	return nil
+}
+
+// taxCode checks that an item's tax code, if any, is valid in the legal
+// entity on the invoice date.
+func (v *invoiceCheck) taxCode(field string, code *string) error {
+	if code == nil {
+		return nil
+	}
+	_, ok, err := v.e.Accounts.TaxCode(v.ctx, v.le.ID, *code, v.in.InvoiceDate)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return invalid("payables.unknown_tax_code", field+".tax_code", "Tax code "+*code+" is not valid in the legal entity on the invoice date.")
+	}
+	return nil
 }
 
 // putItems makes the invoice's live items the given ones: existing item
@@ -456,7 +533,7 @@ func putItems(ctx context.Context, tx pgx.Tx, tenant, invoice uuid.UUID, items [
 	n := len(items)
 	nos, pos, poItems, accounts := make([]int32, n), make([]*uuid.UUID, n), make([]*int32, n), make([]*uuid.UUID, n)
 	descriptions, quantities, units, taxes := make([]*string, n), make([]string, n), make([]string, n), make([]*string, n)
-	amounts := make([]int64, n)
+	amounts := make([]money.Minor, n)
 	for i, it := range items {
 		nos[i], pos[i], poItems[i], accounts[i] = it.ItemNo, it.PurchaseOrderID, it.POItemNo, it.AccountID
 		descriptions[i], quantities[i], units[i], taxes[i], amounts[i] = it.Description, it.Quantity, it.Unit, it.TaxCode, it.Amount
@@ -470,36 +547,23 @@ func putItems(ctx context.Context, tx pgx.Tx, tenant, invoice uuid.UUID, items [
 			po_item_no = EXCLUDED.po_item_no, description = EXCLUDED.description, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
 			amount = EXCLUDED.amount, tax_code = EXCLUDED.tax_code, account_id = EXCLUDED.account_id, is_removed = false`,
 		tenant, invoice, nos, pos, poItems, descriptions, quantities, units, amounts, taxes, accounts); err != nil {
-		return err
+		return fmt.Errorf("payables: write items of invoice %s: %w", invoice, err)
 	}
-	_, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice_item SET is_removed = true WHERE supplier_invoice_id = $1 AND item_no > $2 AND NOT is_removed`,
-		invoice, n)
-	return err
+	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice_item SET is_removed = true WHERE supplier_invoice_id = $1 AND item_no > $2 AND NOT is_removed`,
+		invoice, n); err != nil {
+		return fmt.Errorf("payables: remove items of invoice %s: %w", invoice, err)
+	}
+	return nil
 }
 
 // record publishes the events and adds the audit entry of a change.
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, ev := range events {
-		if _, err := outbox.Add(ctx, ev); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: "payables.supplier_invoice", ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, "payables.supplier_invoice", id, detail, events...)
 }
 
 func event(v Invoice, name string, payload map[string]any) outbox.Event {
 	payload["supplier_invoice_id"], payload["supplier_id"], payload["legal_entity_id"] = v.ID, v.SupplierID, v.LegalEntityID
 	return outbox.Event{Context: "payables", Name: name, AggregateType: "payables.supplier_invoice", AggregateID: v.ID, Payload: payload}
-}
-
-func amount(minor int64, currency string, exp int) map[string]string {
-	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
-}
-
-func today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
-	var d time.Time
-	err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d)
-	return d, err
 }
 
 // Count is how many of the invoices exist.
@@ -509,6 +573,8 @@ func (Invoices) Count(ctx context.Context, ids []uuid.UUID) (int, error) {
 		return 0, err
 	}
 	var n int
-	err = tx.QueryRow(ctx, `SELECT count(*) FROM payables.supplier_invoice WHERE id = ANY($1)`, ids).Scan(&n)
-	return n, err
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM payables.supplier_invoice WHERE id = ANY($1)`, ids).Scan(&n); err != nil {
+		return 0, fmt.Errorf("payables: count %d invoices: %w", len(ids), err)
+	}
+	return n, nil
 }

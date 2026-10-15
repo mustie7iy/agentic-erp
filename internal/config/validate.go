@@ -8,6 +8,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 type Severity string
@@ -39,9 +40,11 @@ var (
 )
 
 // Validate runs every deterministic check. The configuration may only be
-// activated when no finding has error severity.
-func Validate(c *Config) []Finding {
-	v := &validator{}
+// activated when no finding has error severity. exponents are the
+// currencies of ref.currency with their minor-unit digits (ADR-0005):
+// currency.Load in a transaction, currency.Seeded offline.
+func Validate(c *Config, exponents currency.Exponents) []Finding {
+	v := &validator{exponents: exponents}
 	if c.Version != 1 {
 		v.err("version", "unsupported version %d (expected 1)", c.Version)
 	}
@@ -110,7 +113,10 @@ func (v *validator) numberRanges(c *Config) {
 	}
 }
 
-type validator struct{ out []Finding }
+type validator struct {
+	exponents currency.Exponents
+	out       []Finding
+}
 
 func (v *validator) err(path, format string, a ...any) {
 	v.out = append(v.out, Finding{SevError, path, fmt.Sprintf(format, a...)})
@@ -136,8 +142,12 @@ func (v *validator) company(p string, co *Company) {
 	if strings.TrimSpace(co.Name) == "" {
 		v.err(p+".name", "name is required")
 	}
-	if !currencyRe.MatchString(co.Currency) {
+	exp, known := v.exponents[co.Currency]
+	switch {
+	case !currencyRe.MatchString(co.Currency):
 		v.err(p+".currency", "currency %q must be an ISO 4217 code", co.Currency)
+	case !known:
+		v.err(p+".currency", "currency %s is not in the currency reference data", co.Currency)
 	}
 	if !countryRe.MatchString(co.Country) {
 		v.err(p+".country", "country %q must be an ISO 3166 two-letter code", co.Country)
@@ -145,6 +155,34 @@ func (v *validator) company(p string, co *Company) {
 	if co.FiscalYearStartMonth < 1 || co.FiscalYearStartMonth > 12 {
 		v.err(p+".fiscal_year_start_month", "must be 1-12")
 	}
+	v.chartOfAccounts(p, co)
+	v.accountDetermination(p, co)
+	v.taxCodes(p, co)
+	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
+		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
+	}
+	// Amounts are read with the currency's digits from ref.currency; with
+	// no known currency there are none to read them with, and the
+	// currency's finding already blocks activation.
+	if known {
+		v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, exp)
+		v.amount(p+".auto_post_limit", co.AutoPostLimit, exp)
+	}
+	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
+		v.err(p+".gr_over_delivery_percent", "must be 0-100")
+	}
+	if !ValidIBAN(co.HouseBank.IBAN) {
+		v.err(p+".house_bank.iban", "IBAN %q fails the ISO 13616 check", co.HouseBank.IBAN)
+	}
+	if !bicRe.MatchString(co.HouseBank.BIC) {
+		v.err(p+".house_bank.bic", "BIC %q is not a valid SWIFT code", co.HouseBank.BIC)
+	}
+}
+
+// chartOfAccounts checks the company's accounts: valid, unique numbers and
+// types, and at least one vendor reconciliation account, which must be a
+// liability.
+func (v *validator) chartOfAccounts(p string, co *Company) {
 	types := map[AccountType]bool{Asset: true, Liability: true, Equity: true, Revenue: true, Expense: true}
 	nums := map[string]bool{}
 	recon := 0
@@ -173,6 +211,11 @@ func (v *validator) company(p string, co *Company) {
 	if recon == 0 {
 		v.err(p+".chart_of_accounts", "no vendor reconciliation account")
 	}
+}
+
+// accountDetermination checks that each determined account is in the chart
+// with the type its use needs; the FX accounts are optional.
+func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
 		a := co.Account(number)
@@ -196,7 +239,11 @@ func (v *validator) company(p string, co *Company) {
 	if ad.FXLoss != "" {
 		check("fx_loss", ad.FXLoss, Expense, false)
 	}
+}
 
+// taxCodes checks the company's tax codes: unique, a rate of at most 100%
+// and an account in the chart.
+func (v *validator) taxCodes(p string, co *Company) {
 	codes := map[string]bool{}
 	for _, t := range co.TaxCodes {
 		tp := fmt.Sprintf("%s.tax_codes[%s]", p, t.Code)
@@ -213,20 +260,6 @@ func (v *validator) company(p string, co *Company) {
 	}
 	if len(co.TaxCodes) == 0 {
 		v.warn(p+".tax_codes", "no tax codes; captured invoices cannot be checked for tax rate")
-	}
-	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
-		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
-	}
-	v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, decimalsFor(co.Currency))
-	v.amount(p+".auto_post_limit", co.AutoPostLimit, decimalsFor(co.Currency))
-	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
-		v.err(p+".gr_over_delivery_percent", "must be 0-100")
-	}
-	if !ValidIBAN(co.HouseBank.IBAN) {
-		v.err(p+".house_bank.iban", "IBAN %q fails the ISO 13616 check", co.HouseBank.IBAN)
-	}
-	if !bicRe.MatchString(co.HouseBank.BIC) {
-		v.err(p+".house_bank.bic", "BIC %q is not a valid SWIFT code", co.HouseBank.BIC)
 	}
 }
 
@@ -263,21 +296,50 @@ func (v *validator) purchasing(c *Config) {
 		case !last && t.UpTo == "":
 			v.err(p+".up_to", "only the last tier may omit up_to")
 		case !last:
-			if m, ok := v.amount(p+".up_to", t.UpTo, 2); ok {
+			if m, ok := v.threshold(p+".up_to", t.UpTo, c); ok {
 				if m <= prev {
 					v.err(p+".up_to", "tiers must be in increasing order")
 				}
 				prev = m
 			}
 		}
-		for j, s := range t.Steps {
-			sp := fmt.Sprintf("%s.steps[%d]", p, j)
-			if strings.TrimSpace(s.Role) == "" {
-				v.err(sp+".role", "the role is required")
-			}
-			if s.Approvals < 1 {
-				v.err(sp+".approvals", "must be at least 1")
-			}
+		v.approvalSteps(p, t.Steps)
+	}
+}
+
+// threshold reads a requisition approval limit. A limit applies to
+// requisitions in every company's currency, so it must read with the
+// digits of each (ref.currency): the approval routing then never meets a
+// limit it cannot parse. Its value, for the order of the tiers, is read
+// with the most digits.
+func (v *validator) threshold(path, s string, c *Config) (money.Minor, bool) {
+	most, known := 0, false
+	for _, co := range c.Companies {
+		exp, ok := v.exponents[co.Currency]
+		if !ok {
+			continue // the company's currency finding blocks activation
+		}
+		if _, err := money.ParseDecimal(s, exp); err != nil {
+			v.err(path, "%v for %s, the currency of company %s", err, co.Currency, co.Code)
+			return 0, false
+		}
+		most, known = max(most, exp), true
+	}
+	if !known {
+		return 0, false // no currency to read it with; the companies' findings block activation
+	}
+	return v.amount(path, s, most)
+}
+
+// approvalSteps checks the steps of one requisition approval tier.
+func (v *validator) approvalSteps(p string, steps []ApprovalStep) {
+	for j, s := range steps {
+		sp := fmt.Sprintf("%s.steps[%d]", p, j)
+		if strings.TrimSpace(s.Role) == "" {
+			v.err(sp+".role", "the role is required")
+		}
+		if s.Approvals < 1 {
+			v.err(sp+".approvals", "must be at least 1")
 		}
 	}
 }
@@ -298,13 +360,3 @@ func (v *validator) payments(c *Config) {
 
 // ValidIBAN checks an IBAN with the ISO 13616 mod-97 algorithm.
 func ValidIBAN(iban string) bool { return bankfile.ValidIBAN(iban) }
-
-func decimalsFor(currency string) int {
-	switch currency {
-	case "JPY", "KRW", "CLP", "ISK", "VND":
-		return 0
-	case "BHD", "KWD", "OMR", "JOD", "TND":
-		return 3
-	}
-	return 2
-}

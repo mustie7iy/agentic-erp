@@ -13,13 +13,14 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 )
@@ -62,9 +63,21 @@ func TestGetOperation(t *testing.T) {
 		t.Fatalf("%d %s", r.Code, r.Body)
 	}
 	got := apitest.JSON(t, r)
-	if got["id"] != o.ID.String() || got["status"] != "queued" || got["kind"] != "payments.propose" || got["resource"] != nil ||
-		got["progress"].(map[string]any)["total"] != nil || got["created_by"] != ten.Human.ID.String() {
-		t.Fatalf("%v", got)
+	progress, ok := got["progress"].(map[string]any)
+	if !ok {
+		t.Fatalf("progress: got %v, want an object (a required field)", got["progress"])
+	}
+	for field, c := range map[string]struct{ got, want any }{
+		"id":             {got["id"], o.ID.String()},
+		"status":         {got["status"], "queued"},
+		"kind":           {got["kind"], "payments.propose"},
+		"resource":       {got["resource"], nil},
+		"progress.total": {progress["total"], nil},
+		"created_by":     {got["created_by"], ten.Human.ID.String()},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	// A finished operation shows its result and error.
 	failed := start(t, ten, "integration.migrate")
@@ -72,9 +85,18 @@ func TestGetOperation(t *testing.T) {
 		result = '{"loaded": 5}', error = '{"type":"t","title":"Failed","status":422,"code":"integration.reconciliation_failed"}', version = version + 1
 		WHERE id = $1`, failed.ID)
 	got = apitest.JSON(t, api.Do(apitest.Req{Method: "GET", Path: "/v1/operations/" + failed.ID.String(), Tenant: ten.ID, As: ten.Human}))
-	if got["resource"] != "/v1/migration-runs/x" || got["progress"].(map[string]any)["total"] != float64(10) ||
-		got["result"].(map[string]any)["loaded"] != float64(5) || got["error"].(map[string]any)["code"] != "integration.reconciliation_failed" {
-		t.Fatalf("%v", got)
+	progress, _ = got["progress"].(map[string]any)
+	result, _ := got["result"].(map[string]any)
+	problemBody, _ := got["error"].(map[string]any)
+	for field, c := range map[string]struct{ got, want any }{
+		"resource":       {got["resource"], "/v1/migration-runs/x"},
+		"progress.total": {progress["total"], float64(10)},
+		"result.loaded":  {result["loaded"], float64(5)},
+		"error.code":     {problemBody["code"], "integration.reconciliation_failed"},
+	} {
+		if c.got != c.want {
+			t.Errorf("failed operation %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 }
 
@@ -98,10 +120,18 @@ func TestOperationAccess(t *testing.T) {
 		{"bad id", apitest.Req{Method: "GET", Path: "/v1/operations/not-a-uuid", Tenant: ten.ID, As: ten.Human}, 400, "request.invalid_parameter"},
 	}
 	for _, c := range cases {
-		r := api.Do(c.req)
-		if r.Code != c.code || apitest.JSON(t, r)["code"] != c.pc || r.Header().Get("Content-Type") != "application/problem+json" {
-			t.Errorf("%s: %d %s", c.name, r.Code, r.Body)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			r := api.Do(c.req)
+			if r.Code != c.code {
+				t.Errorf("got status %d, want %d: %s", r.Code, c.code, r.Body)
+			}
+			if ct := r.Header().Get("Content-Type"); ct != "application/problem+json" {
+				t.Errorf("got content type %q, want application/problem+json", ct)
+			}
+			if pc := apitest.JSON(t, r)["code"]; pc != c.pc {
+				t.Errorf("got problem %v, want %s", pc, c.pc)
+			}
+		})
 	}
 }
 
@@ -127,13 +157,16 @@ func TestListOperations(t *testing.T) {
 		return out
 	}
 	first := list("?kind=payments.propose&page_size=2")
-	if got := itemIDs(first); len(got) != 2 || got[0] != ids[2] || got[1] != ids[1] {
-		t.Fatalf("newest first: %v (ids %v)", got, ids)
+	if got, want := strings.Join(itemIDs(first), ","), ids[2]+","+ids[1]; got != want {
+		t.Fatalf("newest first: got %s, want %s", got, want)
 	}
 	tok := first["next_page_token"].(string)
 	second := list("?kind=payments.propose&page_size=2&page_token=" + tok)
-	if got := itemIDs(second); len(got) != 1 || got[0] != ids[0] || second["next_page_token"] != nil {
-		t.Fatalf("second page: %v", second)
+	if got := strings.Join(itemIDs(second), ","); got != ids[0] {
+		t.Fatalf("second page: got %s, want %s", got, ids[0])
+	}
+	if second["next_page_token"] != nil {
+		t.Fatalf("second page next_page_token: got %v, want none", second["next_page_token"])
 	}
 	asc := list("?kind=payments.propose&order_by=created_at%20asc")
 	if got := itemIDs(asc); len(got) != 3 || got[0] != ids[0] {
@@ -151,10 +184,12 @@ func TestListOperations(t *testing.T) {
 		"?page_token=garbage": "request.invalid_page_token",
 		"?kind=integration.migrate&page_token=" + tok: "request.invalid_page_token", // issued for other filters
 	} {
-		r := api.Do(apitest.Req{Method: "GET", Path: "/v1/operations" + query, Tenant: ten.ID, As: ten.Human})
-		if r.Code != 400 || apitest.JSON(t, r)["code"] != code {
-			t.Errorf("%s: %d %s", query, r.Code, r.Body)
-		}
+		t.Run(query, func(t *testing.T) {
+			r := api.Do(apitest.Req{Method: "GET", Path: "/v1/operations" + query, Tenant: ten.ID, As: ten.Human})
+			if r.Code != 400 || apitest.JSON(t, r)["code"] != code {
+				t.Errorf("got %d %s, want 400 %s", r.Code, r.Body, code)
+			}
+		})
 	}
 }
 
@@ -174,7 +209,7 @@ func (f *fakeEngine) Cancel(_ context.Context, id string) error {
 func TestCancelOperation(t *testing.T) {
 	engine := &fakeEngine{}
 	var logs bytes.Buffer
-	api := apitest.NewWith(t, func(cfg *httpapi.Config) { cfg.Workflows = engine; cfg.Log = slog.New(slog.NewTextHandler(&logs, nil)) })
+	api := apitest.NewWith(t, func(cfg *app.Config) { cfg.Workflows = engine; cfg.Log = slog.New(slog.NewTextHandler(&logs, nil)) })
 	ten := pgtest.NewTenant(t, perms...)
 	o := start(t, ten, "payments.propose")
 	path := "/v1/operations/" + o.ID.String() + ":cancel"
@@ -194,8 +229,17 @@ func TestCancelOperation(t *testing.T) {
 	}
 	r := api.Do(apitest.Req{Method: "POST", Path: path, Tenant: ten.ID, As: ten.Agent, Key: key, IfMatch: `"1"`})
 	got := apitest.JSON(t, r)
-	if r.Code != 200 || r.Header().Get("ETag") != `"2"` || got["status"] != "cancelled" || got["updated_by"] != ten.Agent.ID.String() {
-		t.Fatalf("cancel: %d %v", r.Code, got)
+	if r.Code != 200 {
+		t.Fatalf("cancel: got status %d, want 200: %v", r.Code, got)
+	}
+	if tag := r.Header().Get("ETag"); tag != `"2"` {
+		t.Errorf("cancel ETag: got %s, want %s", tag, `"2"`)
+	}
+	if got["status"] != "cancelled" {
+		t.Errorf("cancel status: got %v, want cancelled", got["status"])
+	}
+	if want := ten.Agent.ID.String(); got["updated_by"] != want {
+		t.Errorf("cancel updated_by: got %v, want %s", got["updated_by"], want)
 	}
 	// An operation without a workflow asks the engine nothing; one with a
 	// workflow has it cancelled; an engine that does not take the
@@ -204,19 +248,32 @@ func TestCancelOperation(t *testing.T) {
 		t.Fatalf("engine asked for %v", engine.cancelled)
 	}
 	for _, wf := range []string{"wf-ok", "wf-fail"} {
-		ox := start(t, ten, "payments.propose")
-		pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = $2, version = version + 1 WHERE id = $1`, ox.ID, wf)
-		if r := api.Do(apitest.Req{Method: "POST", Path: "/v1/operations/" + ox.ID.String() + ":cancel", Tenant: ten.ID, As: ten.Agent, Key: apitest.NewKey(), IfMatch: "*"}); r.Code != 200 {
-			t.Fatalf("cancel %s: %d %s", wf, r.Code, r.Body)
+		if !t.Run(wf, func(t *testing.T) {
+			ox := start(t, ten, "payments.propose")
+			pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = $2, version = version + 1 WHERE id = $1`, ox.ID, wf)
+			if r := api.Do(apitest.Req{Method: "POST", Path: "/v1/operations/" + ox.ID.String() + ":cancel", Tenant: ten.ID, As: ten.Agent, Key: apitest.NewKey(), IfMatch: "*"}); r.Code != 200 {
+				t.Fatalf("got %d %s, want 200", r.Code, r.Body)
+			}
+		}) {
+			t.FailNow()
 		}
 	}
-	if strings.Join(engine.cancelled, " ") != "wf-ok wf-fail" || !strings.Contains(logs.String(), "did not take the cancellation") {
-		t.Fatalf("engine: %v %s", engine.cancelled, logs.String())
+	if got := strings.Join(engine.cancelled, " "); got != "wf-ok wf-fail" {
+		t.Fatalf("engine cancellations: got %s, want wf-ok wf-fail", got)
+	}
+	if !strings.Contains(logs.String(), "did not take the cancellation") {
+		t.Fatalf("logs: got %s, want the refused cancellation logged", logs.String())
 	}
 	// A retry with the same key returns the same answer and changes nothing.
 	replay := api.Do(apitest.Req{Method: "POST", Path: path, Tenant: ten.ID, As: ten.Agent, Key: key, IfMatch: `"1"`})
-	if replay.Code != 200 || replay.Header().Get("Idempotent-Replayed") != "true" || replay.Header().Get("ETag") != `"2"` {
-		t.Fatalf("replay: %d %v", replay.Code, replay.Header())
+	if replay.Code != 200 {
+		t.Fatalf("replay: got status %d, want 200", replay.Code)
+	}
+	if got := replay.Header().Get("Idempotent-Replayed"); got != "true" {
+		t.Errorf("replay Idempotent-Replayed: got %q, want true", got)
+	}
+	if got := replay.Header().Get("ETag"); got != `"2"` {
+		t.Errorf("replay ETag: got %s, want %s", got, `"2"`)
 	}
 	if code, body := cancel(apitest.NewKey(), `"2"`); code != 409 || body["code"] != "platform.operation_not_cancellable" {
 		t.Fatalf("cancel twice: %d %v", code, body)
@@ -225,17 +282,29 @@ func TestCancelOperation(t *testing.T) {
 	var audits, events int
 	var payload []byte
 	admin := pgtest.Admin(t)
-	admin.QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'platform.operation.cancel'
-		AND object_id = $2 AND actor_id = $3 AND actor_kind = 'agent'`, ten.ID, o.ID, ten.Agent.ID).Scan(&audits)
-	admin.QueryRow(context.Background(), `SELECT count(*), max(payload::text) FROM platform.outbox WHERE tenant_id = $1 AND aggregate_id = $2
-		AND event_type = 'com.example.erp.platform.operation_completed.v1' AND actor_id = $3`, ten.ID, o.ID, ten.Agent.ID).Scan(&events, &payload)
+	if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'platform.operation.cancel'
+		AND object_id = $2 AND actor_id = $3 AND actor_kind = 'agent'`, ten.ID, o.ID, ten.Agent.ID).Scan(&audits); err != nil {
+		t.Fatalf("count cancel audits: %v", err)
+	}
+	if err := admin.QueryRow(context.Background(), `SELECT count(*), max(payload::text) FROM platform.outbox WHERE tenant_id = $1 AND aggregate_id = $2
+		AND event_type = 'com.example.erp.platform.operation_completed.v1' AND actor_id = $3`, ten.ID, o.ID, ten.Agent.ID).Scan(&events, &payload); err != nil {
+		t.Fatalf("read completion events: %v", err)
+	}
 	if audits != 1 || events != 1 {
 		t.Fatalf("audits %d events %d", audits, events)
 	}
 	var ev map[string]any
-	json.Unmarshal(payload, &ev)
-	if ev["status"] != "cancelled" || ev["operation_id"] != o.ID.String() || ev["error"] != nil {
-		t.Fatalf("event %v", ev)
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		t.Fatalf("decode the event: %v", err)
+	}
+	if ev["status"] != "cancelled" {
+		t.Errorf("event status: got %v, want cancelled", ev["status"])
+	}
+	if ev["operation_id"] != o.ID.String() {
+		t.Errorf("event operation_id: got %v, want %s", ev["operation_id"], o.ID)
+	}
+	if ev["error"] != nil {
+		t.Errorf("event error: got %v, want nil", ev["error"])
 	}
 	// A running operation that recorded an error carries it in its completion event.
 	running := start(t, ten, "integration.migrate")
@@ -245,7 +314,9 @@ func TestCancelOperation(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body)
 	}
-	admin.QueryRow(context.Background(), `SELECT payload::text FROM platform.outbox WHERE aggregate_id = $1`, running.ID).Scan(&payload)
+	if err := admin.QueryRow(context.Background(), `SELECT payload::text FROM platform.outbox WHERE aggregate_id = $1`, running.ID).Scan(&payload); err != nil {
+		t.Fatalf("read the failure event: %v", err)
+	}
 	if !strings.Contains(string(payload), `"message": "SAP not reachable"`) {
 		t.Fatalf("event %s", payload)
 	}
@@ -299,6 +370,9 @@ func TestDatabaseFailures(t *testing.T) {
 	if _, err := e.CancelOperation(dead, gen.CancelOperationParams{ID: uuid.New(), IfMatch: `"1"`}); err == nil {
 		t.Error("cancel on a dead transaction")
 	}
+	if err := operations.Report(dead, uuid.New(), 1, 2); err == nil {
+		t.Error("report on a dead transaction")
+	}
 	// Failures injected with triggers: the update, the outbox write, and a missing audit buffer.
 	pgtest.Exec(t, `CREATE OR REPLACE FUNCTION public.fail_kind() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN IF NEW.kind = 'test.fail_update' THEN RAISE EXCEPTION 'injected'; END IF; RETURN NEW; END $$`)
@@ -311,14 +385,16 @@ func TestDatabaseFailures(t *testing.T) {
 		pgtest.Exec(t, `DROP TRIGGER fail_event ON platform.outbox`)
 	})
 	for kind, withAudit := range map[string]bool{"test.fail_update": true, "test.fail_outbox": true, "test.no_audit": false} {
-		o := start(t, ten, kind)
-		err := inRequest(t, ten, ten.Human, withAudit, func(ctx context.Context) error {
-			_, err := e.CancelOperation(ctx, gen.CancelOperationParams{ID: o.ID, IfMatch: `"1"`})
-			return err
+		t.Run(kind, func(t *testing.T) {
+			o := start(t, ten, kind)
+			err := inRequest(t, ten, ten.Human, withAudit, func(ctx context.Context) error {
+				_, err := e.CancelOperation(ctx, gen.CancelOperationParams{ID: o.ID, IfMatch: `"1"`})
+				return err
+			})
+			if err == nil {
+				t.Errorf("got nil error, want the failure reported")
+			}
 		})
-		if err == nil {
-			t.Errorf("%s: failure not reported", kind)
-		}
 	}
 }
 
@@ -339,10 +415,19 @@ func TestSucceed(t *testing.T) {
 			t.Error("unencodable result accepted")
 		}
 		done, err := operations.Succeed(ctx, o.ID, "/v1/supplier-invoices/1", map[string]any{"fields": 3})
-		if err == nil && (done.Status != operations.Succeeded || *done.Resource != "/v1/supplier-invoices/1" || string(done.Result) != `{"fields": 3}`) {
-			t.Errorf("succeeded: %+v %s", done, done.Result)
+		if err != nil {
+			return err
 		}
-		return err
+		if done.Status != operations.Succeeded {
+			t.Errorf("succeeded status: got %v, want %v", done.Status, operations.Succeeded)
+		}
+		if *done.Resource != "/v1/supplier-invoices/1" {
+			t.Errorf("succeeded resource: got %s, want /v1/supplier-invoices/1", *done.Resource)
+		}
+		if string(done.Result) != `{"fields": 3}` {
+			t.Errorf("succeeded result: got %s, want %s", done.Result, `{"fields": 3}`)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -354,4 +439,64 @@ func TestSucceed(t *testing.T) {
 		_, err = operations.Succeed(ctx, o.ID, "/v1/x", nil)
 		return err
 	})
+}
+
+// TestFinishOnce: an operation finishes once. Succeeding or failing one that
+// has already succeeded, failed or been cancelled is a conflict, and
+// progress reported on it is ignored: neither changes it or publishes a
+// second completion.
+func TestFinishOnce(t *testing.T) {
+	ten := pgtest.NewTenant(t, perms...)
+	why := problem.Unprocessable("payments.bank_file_invalid", "test")
+	type finisher func(ctx context.Context, id uuid.UUID) error
+	succeed := func(ctx context.Context, id uuid.UUID) error {
+		_, err := operations.Succeed(ctx, id, "/v1/x", nil)
+		return err
+	}
+	fail := func(ctx context.Context, id uuid.UUID) error {
+		_, err := operations.Fail(ctx, id, why)
+		return err
+	}
+	cancel := func(_ context.Context, id uuid.UUID) error {
+		pgtest.Exec(t, `UPDATE platform.operation SET status = 'cancelled', version = version + 1 WHERE id = $1`, id)
+		return nil
+	}
+	state := func(t *testing.T, id uuid.UUID) (status string, version int32, events int) {
+		t.Helper()
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT status, version, (SELECT count(*) FROM platform.outbox x
+			WHERE x.tenant_id = o.tenant_id AND x.aggregate_id = o.id) FROM platform.operation o WHERE id = $1`, id).Scan(&status, &version, &events); err != nil {
+			t.Fatalf("read the operation: %v", err)
+		}
+		return status, version, events
+	}
+	for first, finish := range map[string]finisher{"succeeded": succeed, "failed": fail, "cancelled": cancel} {
+		for again, finishAgain := range map[string]finisher{"succeed": succeed, "fail": fail} {
+			t.Run(first+" then "+again, func(t *testing.T) {
+				o := start(t, ten, "payables.capture")
+				if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error { return finish(ctx, o.ID) }); err != nil {
+					t.Fatal(err)
+				}
+				status, version, events := state(t, o.ID)
+				err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error { return finishAgain(ctx, o.ID) })
+				var p *problem.Problem
+				if !errors.As(err, &p) || p.Code != "platform.operation_finished" || !strings.Contains(p.Detail, first) {
+					t.Fatalf("finish again: got %v, want platform.operation_finished naming %s", err, first)
+				}
+				if err := inRequest(t, ten, ten.Human, false, func(ctx context.Context) error { return operations.Report(ctx, o.ID, 1, 2) }); err != nil {
+					t.Fatalf("report on a finished operation: got %v, want nil", err)
+				}
+				gotStatus, gotVersion, gotEvents := state(t, o.ID)
+				if gotStatus != status {
+					t.Errorf("status: got %s, want %s", gotStatus, status)
+				}
+				if gotVersion != version {
+					t.Errorf("version: got %d, want %d", gotVersion, version)
+				}
+				if gotEvents != events {
+					t.Errorf("completion events: got %d, want %d", gotEvents, events)
+				}
+			})
+		}
+	}
+	pgtest.WantErr(t, inRequest(t, ten, ten.Human, false, func(ctx context.Context) error { return succeed(ctx, uuid.New()) }), "No operation")
 }

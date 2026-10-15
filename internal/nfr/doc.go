@@ -1,10 +1,11 @@
-// Package nfr holds the in-memory performance budgets: the semantic query
-// engine and configuration validation. Database-backed budgets live with
-// their contexts (ledger trial balance, payment proposal), and concurrency,
-// security and reliability are tested on the foundation by each context
-// (SoD and agent rules in authz and approvals, idempotency and audit in the
-// unit of work). It contains only test helpers; the tests themselves live
-// in the _test files.
+// Package nfr holds the in-memory performance budgets of 01-requirements
+// §1.3, tested as 06-engineering-process §6.6 and 05-scalability §5.8
+// describe: the semantic query engine and configuration validation.
+// Database-backed budgets live with their contexts (ledger trial balance,
+// payment proposal), and concurrency, security and reliability are tested on
+// the foundation by each context (SoD and agent rules in authz and
+// approvals, idempotency and audit in the unit of work). It contains only
+// test helpers; the tests themselves live in the _test files.
 package nfr
 
 import (
@@ -12,18 +13,19 @@ import (
 	"strconv"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // LargeFacts builds synthetic fact tables for one company: per invoice a
 // journal entry of three lines, a purchase order line and the invoice.
 // Amounts are deterministic.
 func LargeFacts(vendors, invoices int) *analytics.Facts {
-	f := &analytics.Facts{Tables: map[string][]analytics.Fact{}, Companies: map[string]string{"1000": "USD"}}
+	f := &analytics.Facts{Tables: map[string][]analytics.Fact{}, Companies: map[string]string{"1000": "USD"}, Exponents: map[string]int{"USD": 2}}
 	for i := 0; i < invoices; i++ {
 		vendor := fmt.Sprintf("V%06d", i%vendors)
 		month := 1 + i%9
 		date := fmt.Sprintf("2026-%02d-%02d", month, 1+i%28)
-		net := int64((1 + i%20) * (1_000 + i%50_000))
+		net := money.Minor((1 + i%20) * (1_000 + i%50_000))
 		tax := net * 8 / 100
 		dims := func(extra map[string]string) map[string]string {
 			d := map[string]string{"company": "1000", "posting_date": date, "fiscal_year": "2026", "fiscal_month": strconv.Itoa(month),
@@ -36,7 +38,7 @@ func LargeFacts(vendors, invoices int) *analytics.Facts {
 		id := fmt.Sprintf("INV%07d", i)
 		for _, l := range []struct {
 			account, typ string
-			amount       int64
+			amount       money.Minor
 			recon        bool
 		}{{"510000", "expense", net, false}, {"140000", "asset", tax, false}, {"211000", "liability", -(net + tax), true}} {
 			f.Tables["gl_lines"] = append(f.Tables["gl_lines"], analytics.Fact{ID: "JE" + id, Amount: l.amount, Currency: "USD",

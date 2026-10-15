@@ -97,7 +97,7 @@ func (s *statusWriter) Write(b []byte) (int, error) {
 	if !s.wrote {
 		s.status, s.wrote = http.StatusOK, true
 	}
-	return s.ResponseWriter.Write(b)
+	return s.ResponseWriter.Write(b) //nolint:wrapcheck // transparent http.ResponseWriter decorator: net/http and handlers compare its errors (http.ErrBodyNotAllowed, http.ErrHandlerTimeout) with ==
 }
 
 func randomTraceID() string {

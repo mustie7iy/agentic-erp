@@ -1,8 +1,9 @@
 // Package sigv4 signs HTTP requests with AWS Signature Version 4, for the
-// S3-compatible object store (blobstore) and the KMS master key (fieldcrypt).
-// Written here rather than taken from the AWS SDK: two calls, a signer and
-// a presigner are all the platform needs, and the signer is checked against
-// the AWS test vectors.
+// S3-compatible object store (blobstore, ADR-0016) and the KMS master key
+// (fieldcrypt, ADR-0019), with role session tokens (ADR-0024). Written here
+// rather than taken from the AWS SDK: two calls, a signer and a presigner
+// are all the platform needs, and the signer is checked against the AWS test
+// vectors.
 package sigv4
 
 import (
@@ -103,7 +104,7 @@ func Verify(req *http.Request, accessKey, secretKey, region, service string) (bo
 	q := req.URL.Query()
 	got := q.Get("X-Amz-Signature")
 	made, err := time.Parse("20060102T150405Z", q.Get("X-Amz-Date"))
-	secs, _ := strconv.Atoi(q.Get("X-Amz-Expires"))
+	secs, _ := strconv.Atoi(q.Get("X-Amz-Expires")) // unreadable is a validity of zero: the URL counts as expired
 	if err != nil || got == "" || q.Get("X-Amz-Credential") != accessKey+"/"+made.Format("20060102")+"/"+region+"/"+service+"/aws4_request" {
 		return false, made, 0
 	}

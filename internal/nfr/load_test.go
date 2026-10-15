@@ -41,8 +41,16 @@ func TestLoad(t *testing.T) {
 // TestLoadShedsAHotPrincipal checks that one principal over its quota is
 // refused at the door (04 §4.11) while the others are served.
 func TestLoadShedsAHotPrincipal(t *testing.T) {
-	s := Start(t, Options{Users: 2, Limits: ratelimit.New(ratelimit.Quota{}, ratelimit.Quota{Rate: 20, Burst: 20})})
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	// The limiter's clock stands still: its buckets refill at 20 tokens a
+	// second, so on the wall clock a run slower than 20 requests a second
+	// (a busy machine, the race detector) got its tokens back as fast as it
+	// spent them and was never refused. With no time passing, each user has
+	// exactly its burst of 20, whatever the machine's speed.
+	limits := ratelimit.New(ratelimit.Quota{}, ratelimit.Quota{Rate: 20, Burst: 20})
+	frozen := time.Now()
+	limits.Now = func() time.Time { return frozen }
+	s := Start(t, Options{Users: 2, Limits: limits})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	hot, quiet := s.Users[0], s.Users[1]
 	path := "/v1/journal-entries?legal_entity_id=" + s.Env.DE.String() + "&fiscal_year=2026&page_size=10"
@@ -70,7 +78,16 @@ func TestLoadShedsAHotPrincipal(t *testing.T) {
 			}
 		}
 	}
-	if served < 20 || refused == 0 || !contains(string(refusal), "request.rate_limited") || quietServed != 20 {
-		t.Fatalf("hot user served %d, refused %d; quiet user served %d: %s", served, refused, quietServed, refusal)
+	if served != 20 {
+		t.Errorf("hot user served: got %d, want its burst of 20", served)
+	}
+	if refused != 40 {
+		t.Errorf("hot user refused: got %d, want the 40 requests past its burst", refused)
+	}
+	if !contains(string(refusal), "request.rate_limited") {
+		t.Errorf("refusal: got %s, want a request.rate_limited problem", refusal)
+	}
+	if quietServed != 20 {
+		t.Errorf("quiet user served: got %d, want all 20", quietServed)
 	}
 }

@@ -91,6 +91,10 @@ func NotFound(detail string) *Problem {
 	return New(http.StatusNotFound, "request.not_found", "Not found", detail)
 }
 
+// NotFoundOf is the 404 for a lookup by id of the resource named by what
+// ("No purchase order with this id."), the wording every context uses.
+func NotFoundOf(what string) *Problem { return NotFound("No " + what + " with this id.") }
+
 func Conflict(code, detail string) *Problem {
 	return New(http.StatusConflict, code, "Conflict", detail)
 }
@@ -108,6 +112,33 @@ func Unprocessable(code, detail string, errs ...FieldError) *Problem {
 	p := New(http.StatusUnprocessableEntity, code, "Unprocessable request", detail)
 	p.Errors = errs
 	return p
+}
+
+// Reference turns "not found" (404) from reading a resource the request
+// refers to into 422 request.reference_not_found on the referring field:
+// the request's content is wrong, not its URL. what names the resource in
+// the detail ("No legal entity with this id."), message is the field
+// error's message; any other error passes through unchanged.
+func Reference(err error, field, what, message string) error {
+	if From(err).Status == http.StatusNotFound {
+		return ReferenceNotFound(field, what, message)
+	}
+	return err
+}
+
+// ReferenceNotFound is Reference's 422 request.reference_not_found for a
+// caller that learnt the resource is missing from a lookup's ok = false
+// rather than from a 404.
+func ReferenceNotFound(field, what, message string) *Problem {
+	return MissingReference("No "+what+" with this id.",
+		FieldError{Field: field, Code: "not_found", Message: message})
+}
+
+// MissingReference is the 422 request.reference_not_found that every
+// missing reference is reported as, with the caller's detail and field
+// errors.
+func MissingReference(detail string, errs ...FieldError) *Problem {
+	return Unprocessable("request.reference_not_found", detail, errs...)
 }
 
 func Unavailable(detail string, retryAfter int) *Problem {
@@ -171,7 +202,7 @@ func From(err error) *Problem {
 	case "23505": // unique_violation
 		return Conflict("request.duplicate", "A resource with the same unique values already exists.").WithCause(err)
 	case "23503": // foreign_key_violation
-		return Unprocessable("request.reference_not_found", "The request refers to a resource that does not exist.").WithCause(err)
+		return MissingReference("The request refers to a resource that does not exist.").WithCause(err)
 	case "23514", "23P01": // check_violation, exclusion_violation (also raised by business-rule triggers)
 		return Conflict("request.rule_violated", "The request violates a business rule.").WithCause(err)
 	case "23502", "22P02", "22001", "22003", "22007", "22008": // not null, invalid text, too long, out of range, dates

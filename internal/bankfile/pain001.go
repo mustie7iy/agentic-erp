@@ -1,5 +1,6 @@
 // Package bankfile writes payment instructions for banks: ISO 20022
-// pain.001.001.03 customer credit transfers.
+// pain.001.001.03 customer credit transfers, the bank file format of the
+// payments context (03-data-model §3.10).
 package bankfile
 
 import (
@@ -54,7 +55,7 @@ func ValidIBAN(iban string) bool {
 			return false
 		}
 	}
-	n, _ := new(big.Int).SetString(digits.String(), 10)
+	n, _ := new(big.Int).SetString(digits.String(), 10) // only digits were written, at least 15 (the length check above)
 	return new(big.Int).Mod(n, big.NewInt(97)).Int64() == 1
 }
 
@@ -63,10 +64,18 @@ func Pain001(b Batch) ([]byte, error) {
 	if err := b.validate(); err != nil {
 		return nil, err
 	}
-	var total money.Minor
+	amounts := make([]money.Minor, len(b.Payments))
+	for i, p := range b.Payments {
+		amounts[i] = p.Amount
+	}
+	// The control sum is what the bank checks the file against: a wrapped
+	// sum would be a wrong file, so it is refused instead.
+	total, err := money.Sum(amounts...)
+	if err != nil {
+		return nil, fmt.Errorf("bankfile: control sum of %d payments: %w", len(amounts), err)
+	}
 	txs := make([]cdtTrfTxInf, 0, len(b.Payments))
 	for _, p := range b.Payments {
-		total += p.Amount
 		acct := account{}
 		if ValidIBAN(p.CreditorAccount) {
 			acct.IBAN = strings.ReplaceAll(p.CreditorAccount, " ", "")

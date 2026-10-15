@@ -1,0 +1,106 @@
+# Code standards checked by machine (CLAUDE.md, docs/design/06-engineering-process.md).
+# gofmt, vet, staticcheck and gosec run as their own CI steps; this file adds the
+# structural rules. `make lint` reports only issues in code changed since the
+# merge base with main, so existing code is tightened as it is touched.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - funlen       # long functions
+    - gocognit     # hard-to-follow functions
+    - dupl         # copy-paste
+    - wrapcheck    # errors from other packages returned without context
+    - errorlint    # == / type assertions on wrapped errors
+    - nilerr       # returning nil when err != nil
+    - exhaustive   # enum switches missing cases
+    - forbidigo    # banned calls, see below
+    - thelper      # test helpers call t.Helper()
+    - tparallel    # inconsistent t.Parallel use
+    - gocritic
+    - bodyclose
+    - noctx        # HTTP requests without a context
+    - misspell
+    - nolintlint   # a //nolint must name its linter, give a reason and still suppress something
+  settings:
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+    errcheck:
+      exclude-functions:
+        # Every call site writes console output (stdout/stderr, tabwriters) or
+        # into an in-memory buffer: a failed console write has nowhere better
+        # to be reported, and a buffer write cannot fail. The exclusion covers
+        # any io.Writer, so an Fprint* to a file or the network must check its
+        # error by hand (or write through a value whose Close is checked).
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # Writing a response body: the status and headers are already sent,
+        # so a failed write (client gone) cannot be answered differently.
+        - (net/http.ResponseWriter).Write
+        # Rollback runs deferred after Commit (where it is a no-op), on a
+        # transaction that already failed (the error that matters is the one
+        # already being returned), or ends a read-only transaction, which has
+        # nothing to lose. Close is deliberately not excluded: closing a
+        # writer can lose data.
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+    funlen:
+      lines: 60
+      statements: 40
+      ignore-comments: true
+    gocognit:
+      min-complexity: 20
+    dupl:
+      threshold: 120
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+        - problem. # problem+json values are the API error contract
+        - .WithCause(
+      ignore-package-globs:
+        - github.com/mustie7iy/agentic-erp/*
+    exhaustive:
+      default-signifies-exhaustive: true
+    forbidigo:
+      forbid:
+        - pattern: ^time\.Sleep$
+          msg: in tests, poll for the condition or inject a clock instead of sleeping
+        - pattern: ^panic$
+          msg: return an error; panic only in main or init-time wiring
+        - pattern: ^float(32|64)$
+          msg: money and quantities are money.Minor / integer units (ADR-0005)
+  exclusions:
+    generated: strict
+    paths:
+      - api/gen
+    rules:
+      # time.Sleep is legitimate in production code (back-off); banned in tests only.
+      - path-except: _test\.go$
+        linters: [forbidigo]
+        text: time\.Sleep
+      # panic is allowed in main packages and test helpers.
+      - path: (^cmd/|_test\.go$|/internal/platform/[a-z]+test/|/internal/llm/llmtest/|/internal/platform/pgtest/|/internal/platform/fixture/)
+        linters: [forbidigo]
+        text: panic
+      # Floats are fine outside money: metrics, rate limiting, load tests, and
+      # analytics drawing (charts, percentages) and prose matching only; its
+      # query results carry money as exact minor units (F9).
+      - path: (internal/(nfr|platform/(ratelimit|telemetry))/|internal/analytics/(render|narrative)\.go$|_test\.go$)
+        linters: [forbidigo]
+        text: float
+      # Table-driven tests and fixtures are long and similar by nature.
+      - path: _test\.go$
+        linters: [funlen, dupl, gocognit, wrapcheck]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

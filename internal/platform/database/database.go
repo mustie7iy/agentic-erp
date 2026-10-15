@@ -70,7 +70,12 @@ func Open(ctx context.Context, url string, settings Settings) (*Pool, error) {
 func (p *Pool) Close() { p.pool.Close() }
 
 // Ping checks connectivity (readiness).
-func (p *Pool) Ping(ctx context.Context) error { return p.pool.Ping(ctx) }
+func (p *Pool) Ping(ctx context.Context) error {
+	if err := p.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("database: ping: %w", err)
+	}
+	return nil
+}
 
 // WithConn runs fn on a dedicated connection, outside any transaction (for
 // migrations and schema checks).
@@ -95,10 +100,25 @@ func (p *Pool) Begin(ctx context.Context, s Scope) (pgx.Tx, error) {
 		return nil, fmt.Errorf("database: begin: %w", err)
 	}
 	if err := p.setup(ctx, tx, s); err != nil {
+		// Best effort: the setup error is the one returned; a failed rollback
+		// only means the connection is discarded, which ends the transaction too.
 		_ = tx.Rollback(ctx)
 		return nil, err
 	}
 	return tx, nil
+}
+
+// BeginFunc starts a transaction in a scope. Workers and services hold one
+// as their Begin field, nil in production, so tests can inject failures.
+type BeginFunc func(context.Context, Scope) (pgx.Tx, error)
+
+// BeginOr starts a transaction with begin when it is set and with the pool
+// otherwise.
+func BeginOr(ctx context.Context, pool *Pool, begin BeginFunc, s Scope) (pgx.Tx, error) {
+	if begin != nil {
+		return begin(ctx, s)
+	}
+	return pool.Begin(ctx, s)
 }
 
 func (p *Pool) setup(ctx context.Context, tx pgx.Tx, s Scope) error {
@@ -131,6 +151,17 @@ func SetActor(ctx context.Context, tx pgx.Tx, actor uuid.UUID) error {
 	return nil
 }
 
+// Today is the database's current date in the transaction: the day the
+// validity checks and triggers judge by, so code that compares with them
+// uses it rather than the application clock.
+func Today(ctx context.Context, tx pgx.Tx) (time.Time, error) {
+	var d time.Time
+	if err := tx.QueryRow(ctx, `SELECT current_date`).Scan(&d); err != nil {
+		return time.Time{}, fmt.Errorf("database: read current date: %w", err)
+	}
+	return d, nil
+}
+
 // InTx runs fn in a transaction and commits if it returns nil.
 func (p *Pool) InTx(ctx context.Context, s Scope, fn func(context.Context, pgx.Tx) error) error {
 	tx, err := p.Begin(ctx, s)
@@ -138,6 +169,8 @@ func (p *Pool) InTx(ctx context.Context, s Scope, fn func(context.Context, pgx.T
 		return err
 	}
 	if err := fn(ctx, tx); err != nil {
+		// Best effort: fn's error is the one returned; a failed rollback only
+		// means the connection is discarded, which ends the transaction too.
 		_ = tx.Rollback(ctx)
 		return err
 	}

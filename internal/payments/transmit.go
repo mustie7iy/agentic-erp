@@ -3,7 +3,7 @@ package payments
 import (
 	"context"
 	"encoding/hex"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -38,12 +38,15 @@ type DirConnector struct {
 func (d DirConnector) Transmit(_ context.Context, f File) error {
 	tmp := filepath.Join(d.Dir, ".partial-"+f.Name)
 	if err := os.WriteFile(tmp, f.Content, 0o600); err != nil {
-		return err
+		return fmt.Errorf("payments: write bank file %s: %w", f.ID, err)
 	}
-	return os.Rename(tmp, filepath.Join(d.Dir, f.Name))
+	if err := os.Rename(tmp, filepath.Join(d.Dir, f.Name)); err != nil {
+		return fmt.Errorf("payments: publish bank file %s: %w", f.ID, err)
+	}
+	return nil
 }
 
-func fileNotFound() error { return problem.NotFound("No bank file with this id.") }
+func fileNotFound() error { return problem.NotFoundOf("bank file") }
 
 // getFile reads a bank file of a legal entity the caller may act in.
 func getFile(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (BankFile, error) {
@@ -56,10 +59,10 @@ func getFile(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (BankFile,
 		q += ` FOR UPDATE OF f`
 	}
 	f, err := scanFile(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(f.LegalEntityID)) {
-		return BankFile{}, fileNotFound()
+	if err = authz.Visible(err, access, f.LegalEntityID, fileNotFound(), "payments: read bank file %s", id); err != nil {
+		return BankFile{}, err
 	}
-	return f, err
+	return f, nil
 }
 
 // GetFile returns a bank file.
@@ -78,7 +81,7 @@ func GetFile(ctx context.Context, id uuid.UUID) (BankFile, error) {
 // transmitted again (banks refuse a message id they have already
 // processed).
 func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -99,15 +102,15 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	content, err := e.fileOf(ctx, tx, f)
-	if err != nil {
-		return operations.Operation{}, err
-	}
 	r, err := load(ctx, tx, f.RunID, false)
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	le, _, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
+	le, err := e.entityOf(ctx, r)
+	if err != nil { // errNoEntity included: an existing run's missing entity is a 500, as on the download
+		return operations.Operation{}, err
+	}
+	content, err := e.fileOf(ctx, tx, p.TenantID, f)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -115,7 +118,7 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 		return operations.Operation{}, problem.Unavailable("The bank connector did not take the file; transmit it again.", 30).WithCause(err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = 'transmitted', version = version + 1 WHERE id = $1`, f.ID); err != nil {
-		return operations.Operation{}, err
+		return operations.Operation{}, fmt.Errorf("payments: mark bank file %s transmitted: %w", f.ID, err)
 	}
 	if err := record(ctx, "payments.bank_file.transmit", f.ID, map[string]any{"bank_file_id": f.ID, "operation_id": op.ID},
 		fileEvent(f, "bank_file_transmitted", map[string]any{"format": f.Format, "sha256": hex.EncodeToString(f.SHA256), "connector_id": nil,
@@ -169,7 +172,7 @@ func ReportFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ou
 		return BankFile{}, problem.Conflict("payments.invalid_status", "Only a transmitted bank file can be "+r.to+"; this one is "+f.Status+".")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = $2, version = version + 1 WHERE id = $1`, f.ID, r.to); err != nil {
-		return BankFile{}, err
+		return BankFile{}, fmt.Errorf("payments: mark bank file %s %s: %w", f.ID, r.to, err)
 	}
 	updated, err := getFile(ctx, tx, id, false)
 	if err != nil {
@@ -185,7 +188,7 @@ func ReportFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ou
 
 // FileContent returns a bank file's content, checked against its hash.
 func (e *Endpoints) FileContent(ctx context.Context, id uuid.UUID) ([]byte, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -193,5 +196,5 @@ func (e *Endpoints) FileContent(ctx context.Context, id uuid.UUID) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	return e.fileOf(ctx, tx, f)
+	return e.fileOf(ctx, tx, p.TenantID, f)
 }

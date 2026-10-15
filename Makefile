@@ -5,16 +5,20 @@ build:
 	go build -o bin/erp-server ./cmd/erp-server
 	go build -o bin/erp-router ./cmd/erp-router
 
-# Structural lint (.golangci.yml) of code changed since LINT_BASE: the merge
-# base with main locally, the pushed range in CI. lint-all shows the whole tree.
+# Structural lint (.golangci.yml). lint checks code changed since LINT_BASE,
+# the merge base with main: the fast local loop. lint-all checks the whole
+# tree, which is at zero issues; CI runs it.
+# api/gen is left out of the package list: its findings are excluded anyway,
+# and analysing its 650,000 generated lines takes over half an hour.
 GOLANGCI = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
 LINT_BASE ?= main
+LINT_PKGS = $(shell go list -e -f '{{.Dir}}' ./... | grep -vE '/api/gen(/|$$)')
 
 lint:
-	$(GOLANGCI) run --new-from-merge-base=$(LINT_BASE) ./...
+	$(GOLANGCI) run --new-from-merge-base=$(LINT_BASE) $(LINT_PKGS)
 
 lint-all:
-	$(GOLANGCI) run ./...
+	$(GOLANGCI) run $(LINT_PKGS)
 
 # Everything: functional, end-to-end and non-functional suites, race detector on.
 test:
@@ -40,15 +44,17 @@ generate:
 	cd api && go generate ./...
 
 # Run the API server against the local database (see internal/platform/config).
+# ERP_ENV has no default; a local run is development unless the caller says otherwise.
+ERP_ENV ?= development
 run-server:
-	DATABASE_URL="$(DATABASE_URL)" ERP_MIGRATE_ON_START=true go run ./cmd/erp-server
+	DATABASE_URL="$(DATABASE_URL)" ERP_ENV="$(ERP_ENV)" ERP_MIGRATE_ON_START=true go run ./cmd/erp-server
 
 coverage:
 	DATABASE_URL="$(DATABASE_URL)" ./scripts/coverage.sh
 
 FUZZTIME ?= 15s
-FUZZ_TARGETS = money:FuzzParseDecimal config:FuzzParseValidateDiff analytics:FuzzNarrative \
-	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue
+FUZZ_TARGETS = money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
+	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString
 
 # Fuzz every untrusted-input parser for FUZZTIME each. A run that fails
 # without saving a failing input under testdata/fuzz is the fuzz engine

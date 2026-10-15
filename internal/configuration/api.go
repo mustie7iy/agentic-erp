@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -13,8 +14,10 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -25,10 +28,6 @@ import (
 type Endpoints struct {
 	Pages *pagination.Codec
 	Dependencies
-}
-
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
 }
 
 // rawObject turns a generated free-form object into JSON.
@@ -86,10 +85,6 @@ func crOK(c ChangeRequest) *gen.UpdateChangeRequestOKHeaders {
 	return &gen.UpdateChangeRequestOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: crToAPI(c)}
 }
 
-func pageRequest(orderBy gen.OptString, size gen.OptInt32, token gen.OptString) pagination.Request {
-	return pagination.Request{OrderBy: orderBy.Value, PageSize: size.Value, PageSizeSet: size.Set, PageToken: token.Value, PageTokenSet: token.Set}
-}
-
 // CreateChangeRequest implements POST /v1/change-requests.
 func (e *Endpoints) CreateChangeRequest(ctx context.Context, req *gen.ChangeRequestCreate, _ gen.CreateChangeRequestParams) (gen.CreateChangeRequestRes, error) {
 	c, err := CreateChangeRequest(ctx, NewChangeRequest{Title: req.Title, Rationale: req.Rationale.Value, BaseVersion: req.BaseVersion,
@@ -124,7 +119,7 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(crSort, "listChangeRequests|"+params.Status.Value, pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(crSort, "listChangeRequests|"+params.Status.Value, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -132,17 +127,10 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 	rows, _ := tx.Query(ctx, q, args...)
 	crs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ChangeRequest, error) { return scanCR(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: list change requests: %w", err)
 	}
-	crs, next := pagination.Page(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID })
-	page := gen.ChangeRequestPage{Items: make([]gen.ChangeRequest, 0, len(crs))}
-	for _, c := range crs {
-		page.Items = append(page.Items, crToAPI(c))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ChangeRequestPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID }, crToAPI)
+	return &gen.ChangeRequestPageHeaders{Response: gen.ChangeRequestPage{Items: items, NextPageToken: next}}, nil
 }
 
 // UpdateChangeRequest implements PATCH /v1/change-requests/{id}.
@@ -160,7 +148,7 @@ func (e *Endpoints) UpdateChangeRequest(ctx context.Context, req *gen.ChangeRequ
 	if req.Proposed.Set {
 		ch.Proposed = rawObject(req.Proposed.Value)
 	}
-	c, err := UpdateChangeRequest(ctx, params.ID, ifMatch(params.IfMatch), ch)
+	c, err := UpdateChangeRequest(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +157,7 @@ func (e *Endpoints) UpdateChangeRequest(ctx context.Context, req *gen.ChangeRequ
 
 // SubmitChangeRequest implements POST /v1/change-requests/{id}:submit.
 func (e *Endpoints) SubmitChangeRequest(ctx context.Context, params gen.SubmitChangeRequestParams) (gen.SubmitChangeRequestRes, error) {
-	c, err := SubmitChangeRequest(ctx, e.Dependencies, params.ID, ifMatch(params.IfMatch))
+	c, err := SubmitChangeRequest(ctx, e.Dependencies, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +166,7 @@ func (e *Endpoints) SubmitChangeRequest(ctx context.Context, params gen.SubmitCh
 
 // WithdrawChangeRequest implements POST /v1/change-requests/{id}:withdraw.
 func (e *Endpoints) WithdrawChangeRequest(ctx context.Context, req *gen.ReasonInput, params gen.WithdrawChangeRequestParams) (gen.WithdrawChangeRequestRes, error) {
-	c, err := WithdrawChangeRequest(ctx, e.Dependencies, params.ID, ifMatch(params.IfMatch), req.Reason)
+	c, err := WithdrawChangeRequest(ctx, e.Dependencies, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +175,7 @@ func (e *Endpoints) WithdrawChangeRequest(ctx context.Context, req *gen.ReasonIn
 
 // ActivateChangeRequest implements POST /v1/change-requests/{id}:activate.
 func (e *Endpoints) ActivateChangeRequest(ctx context.Context, params gen.ActivateChangeRequestParams) (gen.ActivateChangeRequestRes, error) {
-	c, err := ActivateChangeRequest(ctx, e.Dependencies, params.ID, ifMatch(params.IfMatch))
+	c, err := ActivateChangeRequest(ctx, e.Dependencies, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -245,10 +233,10 @@ func (e *Endpoints) GetConfigVersion(ctx context.Context, params gen.GetConfigVe
 	}
 	v, err := scanVersion(tx.QueryRow(ctx, versionSelect+` WHERE v.id = $1`, params.ID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem.NotFound("No configuration version with this id.")
+		return nil, problem.NotFoundOf("configuration version")
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: read configuration version %s: %w", params.ID, err)
 	}
 	out := versionToAPI(v)
 	return &gen.ConfigVersionHeaders{ETag: gen.NewOptString(etag.Of(&out)), Response: out}, nil
@@ -274,7 +262,7 @@ func (e *Endpoints) ListConfigVersions(ctx context.Context, params gen.ListConfi
 	}
 	scope := "listConfigVersions|" + strconv.Itoa(int(params.Number.Value)) + "|" + strconv.FormatBool(params.Number.Set) + "|" +
 		strconv.FormatBool(params.IsActive.Value) + "|" + strconv.FormatBool(params.IsActive.Set)
-	ks, err := e.Pages.Keyset(versionSort, scope, pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(versionSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -283,17 +271,10 @@ func (e *Endpoints) ListConfigVersions(ctx context.Context, params gen.ListConfi
 	rows, _ := tx.Query(ctx, q, args...)
 	vs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (version, error) { return scanVersion(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: list configuration versions: %w", err)
 	}
-	vs, next := pagination.Page(ks, vs, func(v version) (string, uuid.UUID) { return strconv.Itoa(int(v.Number)), v.ID })
-	page := gen.ConfigVersionPage{Items: make([]gen.ConfigVersion, 0, len(vs))}
-	for _, v := range vs {
-		page.Items = append(page.Items, versionToAPI(v))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ConfigVersionPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, vs, func(v version) (string, uuid.UUID) { return strconv.Itoa(int(v.Number)), v.ID }, versionToAPI)
+	return &gen.ConfigVersionPageHeaders{Response: gen.ConfigVersionPage{Items: items, NextPageToken: next}}, nil
 }
 
 // NumberRange is a row of config.number_range.
@@ -317,7 +298,7 @@ func scanRange(row pgx.Row) (NumberRange, error) {
 	var n NumberRange
 	err := row.Scan(&n.ID, &n.LegalEntityID, &n.DocumentType, &n.FiscalYear, &n.Prefix, &n.FirstValue, &n.LastValue, &n.NextValue, &n.IsGapless,
 		&n.Version, &n.CreatedAt, &n.UpdatedAt, &n.CreatedBy)
-	return n, err
+	return n, errs.Wrapf(err, "scan number range")
 }
 
 func rangeToAPI(n NumberRange) gen.NumberRange {
@@ -338,10 +319,7 @@ func (e *Endpoints) GetNumberRange(ctx context.Context, params gen.GetNumberRang
 		return nil, err
 	}
 	n, err := scanRange(tx.QueryRow(ctx, `SELECT `+rangeColumns+` FROM config.number_range WHERE id = $1`, params.ID))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(n.LegalEntityID)) {
-		return nil, problem.NotFound("No number range with this id.")
-	}
-	if err != nil {
+	if err = authz.Visible(err, access, n.LegalEntityID, problem.NotFoundOf("number range"), "configuration: read number range %s", params.ID); err != nil {
 		return nil, err
 	}
 	return &gen.NumberRangeHeaders{ETag: gen.NewOptString(etag.Format(n.Version)), Response: rangeToAPI(n)}, nil
@@ -366,7 +344,7 @@ func (e *Endpoints) ListNumberRanges(ctx context.Context, params gen.ListNumberR
 		year = &params.FiscalYear.Value
 	}
 	scope := "listNumberRanges|" + params.LegalEntityID.Value.String() + "|" + params.DocumentType.Value + "|" + strconv.Itoa(int(params.FiscalYear.Value))
-	ks, err := e.Pages.Keyset(rangeSort, scope, pageRequest(params.OrderBy, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(rangeSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -380,21 +358,14 @@ func (e *Endpoints) ListNumberRanges(ctx context.Context, params gen.ListNumberR
 	rows, _ := tx.Query(ctx, q, args...)
 	ranges, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (NumberRange, error) { return scanRange(r) })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("configuration: list number ranges: %w", err)
 	}
 	byYear := ks.Field() == "fiscal_year"
-	ranges, next := pagination.Page(ks, ranges, func(n NumberRange) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, ranges, func(n NumberRange) (string, uuid.UUID) {
 		if byYear {
 			return strconv.Itoa(int(n.FiscalYear)), n.ID
 		}
 		return n.DocumentType, n.ID
-	})
-	page := gen.NumberRangePage{Items: make([]gen.NumberRange, 0, len(ranges))}
-	for _, n := range ranges {
-		page.Items = append(page.Items, rangeToAPI(n))
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.NumberRangePageHeaders{Response: page}, nil
+	}, rangeToAPI)
+	return &gen.NumberRangePageHeaders{Response: gen.NumberRangePage{Items: items, NextPageToken: next}}, nil
 }

@@ -1,4 +1,4 @@
-package httpapi_test
+package app_test
 
 import (
 	"fmt"
@@ -65,12 +65,18 @@ func TestProcureToPay(t *testing.T) {
 		t.Fatalf("match: %v", m)
 	}
 	posted := act(first, "post", `{"posting_date": "2026-03-20"}`)
-	if posted["status"] != "posted" || posted["journal_entry_id"] == nil {
-		t.Fatalf("posted: %v", posted)
+	if posted["status"] != "posted" {
+		t.Fatalf("posted status: got %v, want posted (%v)", posted["status"], posted)
+	}
+	if posted["journal_entry_id"] == nil {
+		t.Fatalf("posted journal_entry_id: got nil, want an id (%v)", posted)
 	}
 	je, _ := f.Must(200, "GET", "/v1/journal-entries/"+posted["journal_entry_id"].(string), "", "")
-	if je["source_context"] != "payables" || len(je["lines"].([]any)) != 3 {
-		t.Fatalf("journal entry: %v", je)
+	if je["source_context"] != "payables" {
+		t.Errorf("journal entry source_context: got %v, want payables", je["source_context"])
+	}
+	if lines, _ := je["lines"].([]any); len(lines) != 3 {
+		t.Errorf("journal entry lines: got %d, want 3 (%v)", len(lines), je)
 	}
 	open, _ := f.Must(200, "GET", "/v1/open-items?partner_id="+f.Supplier.String(), "", "")
 	if items := open["items"].([]any); len(items) != 1 || items[0].(map[string]any)["amount"].(map[string]any)["amount"] != "-14280.00" {
@@ -83,8 +89,11 @@ func TestProcureToPay(t *testing.T) {
 		t.Fatalf("second match: %v", m)
 	}
 	held, _ := f.Must(200, "GET", second, "", "")
-	if held["status"] != "on_hold" || held["workflow_request_id"] == nil {
-		t.Fatalf("held: %v", held)
+	if held["status"] != "on_hold" {
+		t.Fatalf("held status: got %v, want on_hold (%v)", held["status"], held)
+	}
+	if held["workflow_request_id"] == nil {
+		t.Fatalf("held workflow_request_id: got nil, want an id (%v)", held)
 	}
 	f.Problem(409, "payables.invalid_status", "POST", second+":post", "", `"`+fmt.Sprint(held["version"])+`"`)
 	f.Approve(t, held["id"].(string))

@@ -1,10 +1,12 @@
 package workflows
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,9 +14,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 
+	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
+	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 )
 
@@ -38,23 +44,11 @@ type Dispatcher struct {
 	Interval    time.Duration // between rounds; default 1 second
 	Log         *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
-	Begin func(context.Context, database.Scope) (pgx.Tx, error)
+	Begin database.BeginFunc
 }
 
 func (d *Dispatcher) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	if d.Begin != nil {
-		return d.Begin(ctx, s)
-	}
-	return d.Pool.Begin(ctx, s)
-}
-
-// pending is a queued operation (or a proposal cancelled before it started)
-// with the business key its workflow id derives from.
-type pending struct {
-	kind                                string
-	tenant, operation, run, legalEntity uuid.UUID
-	number                              string
-	attempt                             int // of a release: its number among the run's release operations
+	return database.BeginOr(ctx, d.Pool, d.Begin, s)
 }
 
 // WorkflowID is the id of a payment run's proposal workflow:
@@ -82,21 +76,21 @@ func MigrateWorkflowID(tenant, run uuid.UUID, kind string, attempt int) string {
 	return fmt.Sprintf("%s-migration_run-%s-%s-%d", tenant, run, strings.TrimPrefix(kind, "integration."), attempt)
 }
 
-// start is what the dispatcher starts for a pending operation.
-func (p pending) start(queue string) workflow.Start {
-	switch p.kind {
+// start is what the dispatcher starts for a waiting operation.
+func start(w operations.Waiting, queue string) workflow.Start {
+	switch w.Kind {
 	case "integration.migrate", "integration.reconcile":
-		return workflow.Start{ID: MigrateWorkflowID(p.tenant, p.run, p.kind, p.attempt), Queue: queue, Name: MigrateWorkflow,
-			Args: []any{MigrateInput{TenantID: p.tenant, RunID: p.run, OperationID: p.operation}}}
+		return workflow.Start{ID: MigrateWorkflowID(w.TenantID, w.Resource, w.Kind, w.Attempt), Queue: queue, Name: MigrateWorkflow,
+			Args: []any{MigrateInput{TenantID: w.TenantID, RunID: w.Resource, OperationID: w.ID}}}
 	case payments.ReleaseKind:
-		return workflow.Start{ID: ReleaseWorkflowID(p.tenant, p.legalEntity, p.number, p.attempt), Queue: queue, Name: ReleaseWorkflow,
-			Args: []any{ReleaseInput{TenantID: p.tenant, RunID: p.run, OperationID: p.operation}}}
+		return workflow.Start{ID: ReleaseWorkflowID(w.TenantID, w.LegalEntity, w.Number, w.Attempt), Queue: queue, Name: ReleaseWorkflow,
+			Args: []any{ReleaseInput{TenantID: w.TenantID, RunID: w.Resource, OperationID: w.ID}}}
 	case configuration.SimulateKind:
-		return workflow.Start{ID: SimulateWorkflowID(p.tenant, p.number, p.attempt), Queue: queue, Name: SimulateWorkflow,
-			Args: []any{SimulateInput{TenantID: p.tenant, OperationID: p.operation}}}
+		return workflow.Start{ID: SimulateWorkflowID(w.TenantID, w.Number, w.Attempt), Queue: queue, Name: SimulateWorkflow,
+			Args: []any{SimulateInput{TenantID: w.TenantID, OperationID: w.ID}}}
 	}
-	return workflow.Start{ID: WorkflowID(p.tenant, p.legalEntity, p.number), Queue: queue, Name: ProposeWorkflow,
-		Args: []any{ProposeInput{TenantID: p.tenant, RunID: p.run, OperationID: p.operation}}}
+	return workflow.Start{ID: WorkflowID(w.TenantID, w.LegalEntity, w.Number), Queue: queue, Name: ProposeWorkflow,
+		Args: []any{ProposeInput{TenantID: w.TenantID, RunID: w.Resource, OperationID: w.ID}}}
 }
 
 // RunOnce dispatches every pending proposal and returns how many it started.
@@ -106,48 +100,22 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT o.kind, o.tenant_id, o.id, r.id, r.legal_entity_id, r.document_number, 0 FROM platform.operation o
-			JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
-			WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing' AND o.workflow_id IS NULL
-		UNION ALL
-		SELECT o.kind, o.tenant_id, o.id, r.id, r.legal_entity_id, r.document_number,
-			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.resource = o.resource AND x.id <= o.id)
-			FROM platform.operation o
-			JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.release_operation_id = o.id
-			WHERE o.kind = $2 AND o.status = 'queued' AND r.status = 'releasing' AND o.workflow_id IS NULL
-		UNION ALL
-		SELECT o.kind, o.tenant_id, o.id, o.id, '00000000-0000-0000-0000-000000000000'::uuid, cr.number,
-			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.request->>'change_request_id' = o.request->>'change_request_id' AND x.id <= o.id)
-			FROM platform.operation o
-			JOIN config.change_request cr ON cr.tenant_id = o.tenant_id AND cr.id = (o.request->>'change_request_id')::uuid
-			WHERE o.kind = $3 AND o.status = 'queued' AND o.workflow_id IS NULL
-		UNION ALL
-		SELECT o.kind, o.tenant_id, o.id, r.id, '00000000-0000-0000-0000-000000000000'::uuid, '',
-			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.resource = o.resource AND x.id <= o.id)
-			FROM platform.operation o
-			JOIN integration.migration_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
-			WHERE o.kind IN ('integration.migrate', 'integration.reconcile') AND o.status = 'queued' AND r.status = 'running' AND o.workflow_id IS NULL
-		ORDER BY 3`, payments.ProposeKind, payments.ReleaseKind, configuration.SimulateKind)
-	jobs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (pending, error) {
-		var p pending
-		err := r.Scan(&p.kind, &p.tenant, &p.operation, &p.run, &p.legalEntity, &p.number, &p.attempt)
-		return p, err
-	})
+	jobs, err := queued(ctx, tx)
 	if err != nil {
-		return 0, fmt.Errorf("dispatcher: reading queued operations: %w", err)
+		return 0, err
 	}
 	n := 0
-	var errs []error
+	var failures []error
 	for _, j := range jobs {
-		s := j.start(d.Queue)
+		s := start(j, d.Queue)
 		id := s.ID
 		started, err := d.Client.Start(ctx, s)
 		if err != nil {
-			errs = append(errs, err)
+			failures = append(failures, err)
 			continue
 		}
-		if _, err := tx.Exec(ctx, `UPDATE platform.operation SET workflow_id = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`, j.tenant, j.operation, id); err != nil {
-			return n, fmt.Errorf("dispatcher: recording the workflow of operation %s: %w", j.operation, err)
+		if _, err := tx.Exec(ctx, `UPDATE platform.operation SET workflow_id = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`, j.TenantID, j.ID, id); err != nil {
+			return n, fmt.Errorf("dispatcher: recording the workflow of operation %s: %w", j.ID, err)
 		}
 		if started {
 			n++
@@ -157,13 +125,31 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 		k, err := d.watch(ctx, tx)
 		n += k
 		if err != nil {
-			errs = append(errs, err)
+			failures = append(failures, err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return n, err
+		return n, fmt.Errorf("dispatcher: committing the started workflows: %w", err)
 	}
-	return n, errors.Join(errs...)
+	return n, errors.Join(failures...)
+}
+
+// queued reads the operations waiting for a workflow: payment proposals
+// and releases, configuration simulations, migrations and reconciliations,
+// each listed by the context that owns its resource, in the order they
+// were queued (operation ids are UUIDv7, and PostgreSQL orders uuids by
+// their bytes, as bytes.Compare does).
+func queued(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
+	var jobs []operations.Waiting
+	for _, list := range []func(context.Context, pgx.Tx) ([]operations.Waiting, error){payments.Queued, configuration.QueuedSimulations, integration.QueuedRuns} {
+		more, err := list(ctx, tx)
+		if err != nil {
+			return nil, fmt.Errorf("dispatcher: reading queued operations: %w", err)
+		}
+		jobs = append(jobs, more...)
+	}
+	slices.SortFunc(jobs, func(a, b operations.Waiting) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	return jobs, nil
 }
 
 // DeadlineWorkflowID is the id of an approval request's deadline workflow.
@@ -174,54 +160,39 @@ func DeadlineWorkflowID(tenant, request uuid.UUID) string {
 // watch starts a deadline workflow for every pending approval request that
 // has none and records it on the request.
 func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
-	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM workflow.approval_request WHERE status = 'pending' AND workflow_id IS NULL ORDER BY id`)
-	type req struct{ tenant, id uuid.UUID }
-	pending, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (req, error) {
-		var q req
-		err := r.Scan(&q.tenant, &q.id)
-		return q, err
-	})
+	pending, err := approvals.Unwatched(ctx, tx)
 	if err != nil {
-		return 0, fmt.Errorf("dispatcher: reading pending approval requests: %w", err)
+		return 0, fmt.Errorf("dispatcher: %w", err)
 	}
 	n := 0
-	var errs []error
+	var failures []error
 	for _, q := range pending {
-		id := DeadlineWorkflowID(q.tenant, q.id)
+		id := DeadlineWorkflowID(q.TenantID, q.ID)
 		started, err := d.Client.Start(ctx, workflow.Start{ID: id, Queue: d.Queue, Name: DeadlineWorkflow,
-			Args: []any{DeadlineInput{TenantID: q.tenant, RequestID: q.id, After: d.Deadline, Max: d.Escalations}}})
+			Args: []any{DeadlineInput{TenantID: q.TenantID, RequestID: q.ID, After: d.Deadline, Max: d.Escalations}}})
 		if err != nil {
-			errs = append(errs, err)
+			failures = append(failures, err)
 			continue
 		}
-		if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET workflow_id = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`, q.tenant, q.id, id); err != nil {
-			return n, fmt.Errorf("dispatcher: recording the deadline of approval request %s: %w", q.id, err)
+		if err := approvals.Watched(ctx, tx, q.TenantID, q.ID, id); err != nil {
+			return n, fmt.Errorf("dispatcher: %w", err)
 		}
 		if started {
 			n++
 		}
 	}
-	return n, errors.Join(errs...)
+	return n, errors.Join(failures...)
 }
 
 // Run dispatches until ctx ends, logging failures and work done.
 func (d *Dispatcher) Run(ctx context.Context) {
-	interval := d.Interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
-		if n, err := d.RunOnce(ctx); err != nil && ctx.Err() == nil {
-			d.Log.ErrorContext(ctx, "workflow dispatch failed", "error", err)
-		} else if n > 0 {
+	worker.Loop(ctx, d.Interval, time.Second, func(ctx context.Context) (bool, error) {
+		n, err := d.RunOnce(ctx)
+		if n > 0 && !worker.Failed(ctx, err) {
 			d.Log.InfoContext(ctx, "workflows started", "count", n)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
+		return false, err
+	}, d.Log, "workflow dispatch failed")
 }
 
 // Register registers the workflows and activities a cell's worker hosts.

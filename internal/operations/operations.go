@@ -6,6 +6,11 @@
 // It is the first context built on the T1 skeleton: handlers implement the
 // generated API interface and use the request transaction, audit and outbox
 // from the unit of work, never their own.
+//
+// platform.operation is in the platform schema, like the outbox and the
+// idempotency keys: the contexts whose work runs as an operation join it to
+// their own rows to find and claim that work, locking both in one statement
+// (06 §6.7 names this exception).
 package operations
 
 import (
@@ -18,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -59,7 +65,7 @@ func scan(row pgx.Row) (Operation, error) {
 	var o Operation
 	err := row.Scan(&o.ID, &o.Kind, &o.Status, &o.ProgressDone, &o.ProgressTotal, &o.Resource, &o.Result, &o.Error,
 		&o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy, &o.WorkflowID)
-	return o, err
+	return o, errs.Wrapf(err, "scan operation")
 }
 
 func request(ctx context.Context) (pgx.Tx, reqctx.Principal, error) {
@@ -92,8 +98,12 @@ func start(ctx context.Context, kind string, req any, resource *string) (Operati
 	if err != nil {
 		return Operation{}, fmt.Errorf("operations: request: %w", err)
 	}
-	return scan(tx.QueryRow(ctx, `INSERT INTO platform.operation (tenant_id, id, kind, status, request, resource, created_by, updated_by)
+	o, err := scan(tx.QueryRow(ctx, `INSERT INTO platform.operation (tenant_id, id, kind, status, request, resource, created_by, updated_by)
 		VALUES ($1, $2, $3, 'queued', $4, $5, $6, $6) RETURNING `+columns, p.TenantID, uuid.Must(uuid.NewV7()), kind, body, resource, p.ID))
+	if err != nil {
+		return o, fmt.Errorf("operations: start %s: %w", kind, err)
+	}
+	return o, nil
 }
 
 // Get reads an operation in the request's transaction.
@@ -113,9 +123,12 @@ func get(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Operation, er
 	}
 	o, err := scan(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return o, problem.NotFound("No operation with this id.")
+		return o, problem.NotFoundOf("operation")
 	}
-	return o, err
+	if err != nil {
+		return o, fmt.Errorf("operations: read operation %s: %w", id, err)
+	}
+	return o, nil
 }
 
 // filter selects operations for a list.
@@ -141,7 +154,11 @@ func list(ctx context.Context, tx pgx.Tx, f filter) ([]Operation, error) {
 		after = &f.After
 	}
 	rows, _ := tx.Query(ctx, q, f.Status, f.Kind, after, f.Limit)
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Operation, error) { return scan(r) })
+	ops, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Operation, error) { return scan(r) })
+	if err != nil {
+		return nil, fmt.Errorf("operations: list operations: %w", err)
+	}
+	return ops, nil
 }
 
 // cancel moves a running or queued operation to cancelled and publishes its
@@ -153,7 +170,7 @@ func cancel(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o Operation) (Op
 	updated, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET status = 'cancelled', version = version + 1,
 		updated_by = $2 WHERE id = $1 RETURNING `+columns, o.ID, p.ID))
 	if err != nil {
-		return o, err
+		return o, fmt.Errorf("operations: cancel operation %s: %w", o.ID, err)
 	}
 	if _, err := outbox.Add(ctx, completedEvent(updated)); err != nil {
 		return o, err
@@ -201,16 +218,23 @@ func Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) (Operation, err
 }
 
 // finish sets a final status and publishes OperationCompleted; args follow
-// the operation id from $2.
+// the operation id from $2. Only a queued or running operation finishes: one
+// already succeeded, failed or cancelled is a conflict (409
+// platform.operation_finished) that changes nothing, so a worker finishing
+// twice never overwrites the outcome or publishes a second completion.
 func finish(ctx context.Context, set string, id uuid.UUID, args ...any) (Operation, error) {
 	tx, p, err := request(ctx)
 	if err != nil {
 		return Operation{}, err
 	}
-	o, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET `+set+fmt.Sprintf(`, version = version + 1, updated_by = $%d WHERE id = $1 RETURNING `, len(args)+2)+columns,
+	o, err := scan(tx.QueryRow(ctx, `UPDATE platform.operation SET `+set+fmt.Sprintf(`, version = version + 1, updated_by = $%d
+		WHERE id = $1 AND status IN ('queued', 'running') RETURNING `, len(args)+2)+columns,
 		append(append([]any{id}, args...), p.ID)...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finished(ctx, tx, id)
+	}
 	if err != nil {
-		return Operation{}, err
+		return Operation{}, fmt.Errorf("operations: finish operation %s: %w", id, err)
 	}
 	if _, err := outbox.Add(ctx, completedEvent(o)); err != nil {
 		return Operation{}, err
@@ -218,13 +242,27 @@ func finish(ctx context.Context, set string, id uuid.UUID, args ...any) (Operati
 	return o, nil
 }
 
-// Report records the progress of a running operation.
+// finished answers a finish that matched no queued or running operation:
+// the operation does not exist, or it has already finished.
+func finished(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Operation, error) {
+	o, err := get(ctx, tx, id, false)
+	if err != nil {
+		return Operation{}, err
+	}
+	return Operation{}, problem.Conflict("platform.operation_finished", "The operation has already "+o.Status+".")
+}
+
+// Report records the progress of a queued or running operation. One that
+// has finished is left alone: progress reported late, by a worker still
+// busy after a cancellation, never brings it back to running.
 func Report(ctx context.Context, id uuid.UUID, done, total int64) error {
 	tx, p, err := request(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `UPDATE platform.operation SET status = 'running', progress_done = $2, progress_total = $3, version = version + 1,
-		updated_by = $4 WHERE id = $1`, id, done, total, p.ID)
-	return err
+	if _, err := tx.Exec(ctx, `UPDATE platform.operation SET status = 'running', progress_done = $2, progress_total = $3, version = version + 1,
+		updated_by = $4 WHERE id = $1 AND status IN ('queued', 'running')`, id, done, total, p.ID); err != nil {
+		return fmt.Errorf("operations: report progress of operation %s: %w", id, err)
+	}
+	return nil
 }

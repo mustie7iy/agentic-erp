@@ -1,6 +1,8 @@
-// Package sap reads data out of SAP ECC / S/4HANA. Structs mirror SAP tables
-// (field names unchanged) so mapping specs can be reviewed by SAP functional
-// consultants. Amounts and quantities are decimal strings, dates YYYYMMDD.
+// Package sap reads data out of SAP ECC / S/4HANA, which stays read-only
+// during migration (01-requirements §1.4; tables mapped as in 03-data-model
+// §3.17). Structs mirror SAP tables (field names unchanged) so mapping specs
+// can be reviewed by SAP functional consultants. Amounts and quantities are
+// decimal strings, dates YYYYMMDD.
 package sap
 
 // T001 - company codes.

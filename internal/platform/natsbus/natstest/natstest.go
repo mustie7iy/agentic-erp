@@ -1,5 +1,6 @@
-// Package natstest runs an embedded NATS JetStream server for tests. It is
-// test support and is excluded from the coverage figure.
+// Package natstest runs an embedded NATS JetStream server for tests of the
+// outbox relay and its consumers (ADR-0007, 06-engineering-process §6.6). It
+// is test support and is excluded from the coverage figure.
 package natstest
 
 import (
@@ -12,22 +13,28 @@ import (
 
 // Server starts JetStream on a random port and returns its URL; it stops
 // when the test ends.
-func Server(t testing.TB) string { return start(t, true) }
+func Server(tb testing.TB) string {
+	tb.Helper()
+	return start(tb, true)
+}
 
 // Plain starts a NATS server without JetStream.
-func Plain(t testing.TB) string { return start(t, false) }
+func Plain(tb testing.TB) string {
+	tb.Helper()
+	return start(tb, false)
+}
 
-func start(t testing.TB, jetstream bool) string {
-	t.Helper()
-	s, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: jetstream, StoreDir: t.TempDir(), NoLog: true, NoSigs: true})
+func start(tb testing.TB, jetstream bool) string {
+	tb.Helper()
+	s, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: jetstream, StoreDir: tb.TempDir(), NoLog: true, NoSigs: true})
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	go s.Start()
 	if !s.ReadyForConnections(10 * time.Second) {
-		t.Fatal("natstest: server not ready")
+		tb.Fatal("natstest: server not ready")
 	}
-	t.Cleanup(s.Shutdown)
+	tb.Cleanup(s.Shutdown)
 	return s.ClientURL()
 }
 
@@ -43,17 +50,17 @@ type Restartable struct {
 }
 
 // NewRestartable starts a restartable JetStream server.
-func NewRestartable(t testing.TB) *Restartable {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+func NewRestartable(tb testing.TB) *Restartable {
+	tb.Helper()
+	l, err := new(net.ListenConfig).Listen(tb.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-	r := &Restartable{t: t, port: port, store: t.TempDir()}
+	_ = l.Close() // it only found a free port; were the port still bound, Start would fail and say so
+	r := &Restartable{t: tb, port: port, store: tb.TempDir()}
 	r.Start()
-	t.Cleanup(r.Stop)
+	tb.Cleanup(r.Stop)
 	return r
 }
 

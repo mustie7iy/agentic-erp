@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
@@ -75,7 +75,7 @@ type Orders interface {
 
 // OrderValues reads purchase order totals (procurement).
 type OrderValues interface {
-	Value(ctx context.Context, ids []uuid.UUID) (int, int64, error)
+	Value(ctx context.Context, ids []uuid.UUID) (int, money.Minor, error)
 }
 
 // Invoices enters supplier invoices (payables).
@@ -92,12 +92,13 @@ type InvoiceCounts interface {
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
 	Clear(ctx context.Context, legalEntity uuid.UUID, date time.Time, by ledger.ItemRef, items []ledger.ItemRef) (uuid.UUID, error)
+	LockAllEntries(ctx context.Context) error
 }
 
 // Reports reads ledger totals for reconciliation (ledger).
 type Reports interface {
 	Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (ledger.Totals, error)
-	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]int64, error)
+	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 }
 
 // Secrets resolves a connector's secret reference (env:, file: or vault:;
@@ -129,18 +130,11 @@ type Endpoints struct {
 // record publishes the events and adds the audit entry of a change; the
 // action names the object type (integration.connector.create).
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, ev := range events {
-		if _, err := outbox.Add(ctx, ev); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: action[:strings.LastIndex(action, ".")], ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, audit.ObjectTypeOf(action), id, detail, events...)
 }
 
 func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
-
-func notFound(what string) error { return problem.NotFound("No " + what + " with this id.") }
 
 func noRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }

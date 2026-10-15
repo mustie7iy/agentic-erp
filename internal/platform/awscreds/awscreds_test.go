@@ -7,12 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -22,15 +22,31 @@ func TestStaticAndEnv(t *testing.T) {
 	if _, err := (awscreds.Static{}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("empty static: %v", err)
 	}
-	if c, err := (awscreds.Static{AccessKey: "AK", SecretKey: "SK"}).Credentials(ctx); err != nil || c.AccessKey != "AK" || c.SessionToken != "" {
-		t.Fatalf("%+v %v", c, err)
+	static, err := (awscreds.Static{AccessKey: "AK", SecretKey: "SK"}).Credentials(ctx)
+	if err != nil {
+		t.Fatalf("static: %v", err)
+	}
+	if static.AccessKey != "AK" {
+		t.Errorf("static access key: got %q, want %q", static.AccessKey, "AK")
+	}
+	if static.SessionToken != "" {
+		t.Errorf("static session token: got %q, want none", static.SessionToken)
 	}
 	if _, err := (awscreds.Env{Getenv: env(map[string]string{"AWS_ACCESS_KEY_ID": "AK"})}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("half an environment: %v", err)
 	}
 	c, err := (awscreds.Env{Getenv: env(map[string]string{"AWS_ACCESS_KEY_ID": "AK", "AWS_SECRET_ACCESS_KEY": "SK", "AWS_SESSION_TOKEN": "ST"})}).Credentials(ctx)
-	if err != nil || c.AccessKey != "AK" || c.SecretKey != "SK" || c.SessionToken != "ST" {
-		t.Fatalf("%+v %v", c, err)
+	if err != nil {
+		t.Fatalf("environment: %v", err)
+	}
+	if c.AccessKey != "AK" {
+		t.Errorf("access key: got %q, want %q", c.AccessKey, "AK")
+	}
+	if c.SecretKey != "SK" {
+		t.Errorf("secret key: got %q, want %q", c.SecretKey, "SK")
+	}
+	if c.SessionToken != "ST" {
+		t.Errorf("session token: got %q, want %q", c.SessionToken, "ST")
 	}
 	t.Setenv("AWS_ACCESS_KEY_ID", "")
 	if _, err := (awscreds.Env{}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
@@ -41,12 +57,13 @@ func TestStaticAndEnv(t *testing.T) {
 func TestWebIdentity(t *testing.T) {
 	ctx := context.Background()
 	token := filepath.Join(t.TempDir(), "token")
-	os.WriteFile(token, []byte("jwt-token\n"), 0o600)
+	if err := os.WriteFile(token, []byte("jwt-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var mode atomic.Value
 	mode.Store("ok")
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
-		if r.Form.Get("Action") != "AssumeRoleWithWebIdentity" || r.Form.Get("WebIdentityToken") != "jwt-token" || r.Form.Get("RoleArn") != "arn:aws:iam::1:role/erp" || r.Form.Get("RoleSessionName") != "erp" {
+		if r.ParseForm() != nil || r.Form.Get("Action") != "AssumeRoleWithWebIdentity" || r.Form.Get("WebIdentityToken") != "jwt-token" || r.Form.Get("RoleArn") != "arn:aws:iam::1:role/erp" || r.Form.Get("RoleSessionName") != "erp" {
 			w.WriteHeader(400)
 			w.Write([]byte(`<ErrorResponse><Error><Code>InvalidParameter</Code><Message>bad request</Message></Error></ErrorResponse>`))
 			return
@@ -57,6 +74,14 @@ func TestWebIdentity(t *testing.T) {
 			w.Write([]byte(`<ErrorResponse><Error><Code>AccessDenied</Code><Message>Not authorized</Message></Error></ErrorResponse>`))
 		case "garbage":
 			w.Write([]byte(`<html>`))
+		case "badexpiry":
+			w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
+				<AccessKeyId>ASIA1</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken><Expiration>soon</Expiration>
+				</Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`))
+		case "noexpiry":
+			w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
+				<AccessKeyId>ASIA1</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken>
+				</Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`))
 		default:
 			w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
 				<AccessKeyId>ASIA1</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken><Expiration>2030-01-01T00:00:00Z</Expiration>
@@ -66,29 +91,47 @@ func TestWebIdentity(t *testing.T) {
 	defer sts.Close()
 	w := awscreds.WebIdentity{TokenFile: token, RoleARN: "arn:aws:iam::1:role/erp", Endpoint: sts.URL}
 	c, err := w.Credentials(ctx)
-	if err != nil || c.AccessKey != "ASIA1" || c.SecretKey != "secret" || c.SessionToken != "session" || c.Expires.Year() != 2030 {
-		t.Fatalf("%+v %v", c, err)
+	if err != nil {
+		t.Fatalf("web identity: %v", err)
+	}
+	if c.AccessKey != "ASIA1" {
+		t.Errorf("access key: got %q, want %q", c.AccessKey, "ASIA1")
+	}
+	if c.SecretKey != "secret" {
+		t.Errorf("secret key: got %q, want %q", c.SecretKey, "secret")
+	}
+	if c.SessionToken != "session" {
+		t.Errorf("session token: got %q, want %q", c.SessionToken, "session")
+	}
+	if c.Expires.Year() != 2030 {
+		t.Errorf("expiry year: got %d, want 2030", c.Expires.Year())
 	}
 	mode.Store("denied")
-	if _, err := w.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "403 AccessDenied Not authorized") {
-		t.Fatalf("denied: %v", err)
-	}
+	_, err = w.Credentials(ctx)
+	pgtest.WantErr(t, err, "403 AccessDenied Not authorized")
 	mode.Store("garbage")
-	if _, err := w.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "not an AssumeRoleWithWebIdentity response") {
-		t.Fatalf("garbage: %v", err)
-	}
+	_, err = w.Credentials(ctx)
+	pgtest.WantErr(t, err, "not an AssumeRoleWithWebIdentity response")
+	// An expiry that does not parse is refused, not taken for "never":
+	// Cached would otherwise hold the credentials past their end.
+	mode.Store("badexpiry")
+	_, err = w.Credentials(ctx)
+	pgtest.WantErr(t, err, `expiration "soon"`)
+	// No expiry at all on temporary credentials is refused too: the zero
+	// time is what Cached takes for long-lived keys.
+	mode.Store("noexpiry")
+	_, err = w.Credentials(ctx)
+	pgtest.WantErr(t, err, "awscreds: sts: a session token without an expiration")
 	mode.Store("ok")
 	if _, err := (awscreds.WebIdentity{}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("unset: %v", err)
 	}
-	if _, err := (awscreds.WebIdentity{TokenFile: filepath.Join(t.TempDir(), "none"), RoleARN: "arn", Endpoint: sts.URL}).Credentials(ctx); err == nil || !strings.Contains(err.Error(), "token") {
-		t.Fatalf("missing token file: %v", err)
-	}
+	_, err = (awscreds.WebIdentity{TokenFile: filepath.Join(t.TempDir(), "none"), RoleARN: "arn", Endpoint: sts.URL}).Credentials(ctx)
+	pgtest.WantErr(t, err, "token")
 	other := w
 	other.RoleARN = "arn:aws:iam::1:role/other" // the fake refuses
-	if _, err := other.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "InvalidParameter") {
-		t.Fatalf("refused: %v", err)
-	}
+	_, err = other.Credentials(ctx)
+	pgtest.WantErr(t, err, "InvalidParameter")
 	other = w
 	other.Endpoint = "http://127.0.0.1:1"
 	if _, err := other.Credentials(ctx); err == nil {
@@ -141,6 +184,18 @@ func TestIMDS(t *testing.T) {
 				w.WriteHeader(500)
 				return
 			}
+			if mode.Load() == "badexpiry" {
+				w.Write([]byte(`{"Code":"Success","AccessKeyId":"ASIA2","SecretAccessKey":"secret2","Token":"session2","Expiration":"soon"}`))
+				return
+			}
+			if mode.Load() == "noexpiry" {
+				w.Write([]byte(`{"Code":"Success","AccessKeyId":"ASIA2","SecretAccessKey":"secret2","Token":"session2"}`))
+				return
+			}
+			if mode.Load() == "longlived" {
+				w.Write([]byte(`{"Code":"Success","AccessKeyId":"AKIA2","SecretAccessKey":"secret2"}`))
+				return
+			}
 			w.Write([]byte(`{"Code":"Success","AccessKeyId":"ASIA2","SecretAccessKey":"secret2","Token":"session2","Expiration":"2030-01-01T00:00:00Z"}`))
 		default:
 			w.WriteHeader(404)
@@ -149,24 +204,48 @@ func TestIMDS(t *testing.T) {
 	defer imds.Close()
 	m := awscreds.IMDS{Endpoint: imds.URL}
 	c, err := m.Credentials(ctx)
-	if err != nil || c.AccessKey != "ASIA2" || c.SessionToken != "session2" || c.Expires.Year() != 2030 {
-		t.Fatalf("%+v %v", c, err)
+	if err != nil {
+		t.Fatalf("imds: %v", err)
+	}
+	if c.AccessKey != "ASIA2" {
+		t.Errorf("access key: got %q, want %q", c.AccessKey, "ASIA2")
+	}
+	if c.SessionToken != "session2" {
+		t.Errorf("session token: got %q, want %q", c.SessionToken, "session2")
+	}
+	if c.Expires.Year() != 2030 {
+		t.Errorf("expiry year: got %d, want 2030", c.Expires.Year())
 	}
 	mode.Store("v1only")
 	if _, err := m.Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("no v2 token: %v", err)
 	}
 	mode.Store("norole")
-	if _, err := m.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "404") {
-		t.Fatalf("no role: %v", err)
-	}
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, "404")
 	mode.Store("garbage")
-	if _, err := m.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "not a credentials document") {
-		t.Fatalf("garbage: %v", err)
-	}
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, "not a credentials document")
 	mode.Store("rolefail")
-	if _, err := m.Credentials(ctx); err == nil || !strings.Contains(err.Error(), "erp-role: 500") {
-		t.Fatalf("role document failing: %v", err)
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, "erp-role: 500")
+	mode.Store("badexpiry")
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, `expiration "soon"`)
+	// A session token without an expiry is a malformed answer, refused:
+	// the zero time would make Cached hold temporary credentials forever.
+	mode.Store("noexpiry")
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, "awscreds: imds: a session token without an expiration")
+	// Keys without a session token and without an expiry are long-lived:
+	// the zero time.
+	mode.Store("longlived")
+	c, err = m.Credentials(ctx)
+	if err != nil {
+		t.Errorf("long-lived keys: got err %v, want nil", err)
+	}
+	if !c.Expires.IsZero() {
+		t.Errorf("long-lived keys: Expires got %v, want zero", c.Expires)
 	}
 	if _, err := (awscreds.IMDS{Endpoint: "http://127.0.0.1:1"}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("no service: %v", err)
@@ -203,13 +282,25 @@ func (f *fixed) Credentials(context.Context) (awscreds.Credentials, error) {
 	return f.c, f.err
 }
 
+// mustCredentials fetches credentials where the test counts provider calls
+// and relies on each fetch succeeding.
+func mustCredentials(t *testing.T, p awscreds.Provider) {
+	t.Helper()
+	if _, err := p.Credentials(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestChainCachedAndDefault(t *testing.T) {
 	ctx := context.Background()
 	none := &fixed{err: awscreds.ErrNone}
 	broken := &fixed{err: errors.New("provider down")}
 	good := &fixed{c: awscreds.Credentials{AccessKey: "AK"}}
-	if c, err := (awscreds.Chain{none, good, broken}).Credentials(ctx); err != nil || c.AccessKey != "AK" || broken.calls != 0 {
-		t.Fatalf("%+v %v", c, err)
+	if c, err := (awscreds.Chain{none, good, broken}).Credentials(ctx); err != nil || c.AccessKey != "AK" {
+		t.Fatalf("chain: got %+v, %v, want access key AK", c, err)
+	}
+	if broken.calls != 0 {
+		t.Fatalf("provider after the first answer: got %d calls, want 0", broken.calls)
 	}
 	if _, err := (awscreds.Chain{none, broken}).Credentials(ctx); err == nil || errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("broken provider: %v", err)
@@ -222,19 +313,19 @@ func TestChainCachedAndDefault(t *testing.T) {
 	temp := &fixed{c: awscreds.Credentials{AccessKey: "T", Expires: clock.Add(time.Hour)}}
 	cached := &awscreds.Cached{Provider: temp, Now: func() time.Time { return clock }}
 	for i := 0; i < 3; i++ {
-		cached.Credentials(ctx)
+		mustCredentials(t, cached)
 	}
 	if temp.calls != 1 {
 		t.Fatalf("%d calls within validity", temp.calls)
 	}
 	clock = clock.Add(56 * time.Minute) // within 5 minutes of expiry
-	cached.Credentials(ctx)
+	mustCredentials(t, cached)
 	if temp.calls != 2 {
 		t.Fatalf("%d calls near expiry", temp.calls)
 	}
 	long := &awscreds.Cached{Provider: good, Early: time.Minute}
-	long.Credentials(ctx)
-	long.Credentials(ctx)
+	mustCredentials(t, long)
+	mustCredentials(t, long)
 	if good.calls != 2 { // one from the chain above, one here
 		t.Fatalf("%d calls for long-lived credentials", good.calls)
 	}

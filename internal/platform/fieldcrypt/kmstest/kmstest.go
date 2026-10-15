@@ -1,7 +1,8 @@
 // Package kmstest is a test double of AWS KMS: one symmetric key behind the
 // Encrypt and Decrypt actions of the JSON protocol, checking Signature
 // Version 4 and binding every ciphertext to its encryption context, so the
-// KMS master can be tested without the service.
+// KMS master of ADR-0019 can be tested without the service
+// (06-engineering-process §6.6).
 package kmstest
 
 import (
@@ -48,15 +49,15 @@ type Server struct {
 }
 
 // New starts a server that stops when the test ends.
-func New(t testing.TB) *Server {
-	t.Helper()
+func New(tb testing.TB) *Server {
+	tb.Helper()
 	key := make([]byte, 32)
-	rand.Read(key)
+	_, _ = rand.Read(key) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 	block, _ := aes.NewCipher(key)
 	aead, _ := cipher.NewGCM(block)
 	s := &Server{aead: aead}
 	srv := httptest.NewServer(http.HandlerFunc(s.serve))
-	t.Cleanup(srv.Close)
+	tb.Cleanup(srv.Close)
 	s.URL = srv.URL
 	return s
 }
@@ -110,11 +111,16 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, "NotFoundException", "Key '"+in.KeyID+"' does not exist")
 		return
 	}
-	aad := []byte(contextOf(in.EncryptionContext))
+	s.operate(w, r, in, []byte(contextOf(in.EncryptionContext)))
+}
+
+// operate runs the operation the request targets (Encrypt or Decrypt)
+// under the encryption context aad, the lock held.
+func (s *Server) operate(w http.ResponseWriter, r *http.Request, in request, aad []byte) {
 	switch r.Header.Get("X-Amz-Target") {
 	case "TrentService.Encrypt":
 		nonce := make([]byte, s.aead.NonceSize())
-		rand.Read(nonce)
+		_, _ = rand.Read(nonce) // crypto/rand.Read never returns an error: it crashes the program instead (Go 1.24+)
 		s.Encrypts++
 		s.answer(w, map[string]any{"CiphertextBlob": s.aead.Seal(nonce, nonce, in.Plaintext, aad), "KeyId": KeyARN})
 	case "TrentService.Decrypt":
@@ -165,11 +171,11 @@ func (s *Server) authentic(r *http.Request, body []byte) bool {
 
 func (s *Server) answer(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v) // a failed response write means the client is gone: no one is left to tell
 }
 
 func (s *Server) fail(w http.ResponseWriter, status int, typ, message string) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"__type": typ, "message": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{"__type": typ, "message": message}) // a failed response write means the client is gone: no one is left to tell
 }

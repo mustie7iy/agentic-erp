@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/db"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 )
 
@@ -45,7 +47,7 @@ func Main(m *testing.M) {
 			if _, err = conn.Exec(ctx, "CREATE DATABASE "+name); err == nil {
 				break
 			}
-			conn.Close(ctx)
+			_ = conn.Close(ctx) // the CREATE failure is the one reported if every attempt fails
 		}
 		if attempt == 20 {
 			fmt.Fprintln(os.Stderr, "pgtest: setting up the package database:", err)
@@ -61,66 +63,124 @@ func Main(m *testing.M) {
 		os.Exit(1)
 	}
 	code := m.Run()
-	conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
-	conn.Close(ctx)
+	// A database left behind does not change this run's result, but it
+	// piles up on the server unnoticed: say so, with its name.
+	if _, err := conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+		fmt.Fprintf(os.Stderr, "pgtest: dropping the package database %s (drop it by hand): %v\n", name, err)
+	}
+	_ = conn.Close(ctx) // the process exits next, which ends the session anyway
 	os.Exit(code)
 }
 
 func migrate(ctx context.Context, u string) error {
 	c, err := pgx.Connect(ctx, u)
 	if err != nil {
-		return err
+		return fmt.Errorf("pgtest: connect: %w", err)
 	}
-	defer c.Close(ctx)
+	defer func() { _ = c.Close(ctx) }() // the work on it is done or has failed; closing loses nothing
 	_, err = db.Migrate(ctx, c)
 	return err
 }
 
 // URL is the package database's URL; the test is skipped without one.
-func URL(t testing.TB) string {
-	t.Helper()
+func URL(tb testing.TB) string {
+	tb.Helper()
 	if packageURL == "" {
-		t.Skip("DATABASE_URL not set")
+		tb.Skip("DATABASE_URL not set")
 	}
 	return packageURL
 }
 
 // Pool opens a pool on the package database, closed when the test ends.
-func Pool(t testing.TB) *database.Pool {
-	t.Helper()
-	p, err := database.Open(context.Background(), URL(t), database.DefaultSettings)
+func Pool(tb testing.TB) *database.Pool {
+	tb.Helper()
+	p, err := database.Open(context.Background(), URL(tb), database.DefaultSettings)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	t.Cleanup(p.Close)
+	tb.Cleanup(p.Close)
 	return p
 }
 
 // Admin is a superuser connection (bypasses row-level security) for fixtures
-// and assertions.
-func Admin(t testing.TB) *pgx.Conn {
-	t.Helper()
-	c, err := pgx.Connect(context.Background(), URL(t))
+// and assertions. Each call opens a new connection, held until the test
+// ends: take one before a loop or a polling wait, never inside it, or a slow
+// run holds hundreds and the database refuses the next client.
+func Admin(tb testing.TB) *pgx.Conn {
+	tb.Helper()
+	c, err := pgx.Connect(context.Background(), URL(tb))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	t.Cleanup(func() { c.Close(context.Background()) })
+	tb.Cleanup(func() { _ = c.Close(context.Background()) }) // the test is over; closing loses nothing
 	return c
+}
+
+// Scan runs a superuser query on a connection of its own, closed right
+// after, scans its one row into dest and fails the test on error. Unlike
+// Admin it holds no connection afterwards, so a test may call it in a loop
+// or a polling wait.
+func Scan(tb testing.TB, sql string, args []any, dest ...any) {
+	tb.Helper()
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, URL(tb))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	defer func() { _ = c.Close(ctx) }() // the read is done or has failed; closing loses nothing
+	if err := c.QueryRow(ctx, sql, args...).Scan(dest...); err != nil {
+		tb.Fatalf("pgtest: %v\n%s", err, sql)
+	}
 }
 
 // Exec runs fixture SQL as superuser on a connection of its own, closed
 // right after, and fails the test on error.
-func Exec(t testing.TB, sql string, args ...any) {
-	t.Helper()
+func Exec(tb testing.TB, sql string, args ...any) {
+	tb.Helper()
 	ctx := context.Background()
-	c, err := pgx.Connect(ctx, URL(t))
+	c, err := pgx.Connect(ctx, URL(tb))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	defer c.Close(ctx)
+	defer func() { _ = c.Close(ctx) }() // the work on it is done or has failed; closing loses nothing
 	if _, err := c.Exec(ctx, sql, args...); err != nil {
-		t.Fatalf("pgtest: %v\n%s", err, sql)
+		tb.Fatalf("pgtest: %v\n%s", err, sql)
 	}
+}
+
+// EmptyDatabase creates a database with nothing in it, dropped when the test
+// ends, and returns its URL. A test that needs a database to itself uses
+// one: the package database holds what every earlier test, and every
+// earlier run under -count, left in it.
+func EmptyDatabase(tb testing.TB) string {
+	tb.Helper()
+	ctx := context.Background()
+	// Package binaries run in parallel against one server; a random name
+	// cannot collide where a clock reading could.
+	name := "erp_empty_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	Exec(tb, "CREATE DATABASE "+name)
+	tb.Cleanup(func() {
+		c, err := pgx.Connect(ctx, URL(tb))
+		if err != nil {
+			tb.Errorf("drop %s: %v", name, err)
+			return
+		}
+		defer func() { _ = c.Close(ctx) }() // the drop's outcome is checked; closing the admin connection is best-effort
+		if _, err := c.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+			tb.Errorf("drop %s: %v", name, err)
+		}
+	})
+	u, _ := url.Parse(URL(tb)) // URL is the package database's, parsed and connected to by Main
+	u.Path = "/" + name
+	return u.String()
+}
+
+// Issuer is the issuer the principals of tests are bound to with their
+// subject (ADR-0010): the test identity provider, whose tokens the tests
+// mint. A test that inserts a principal itself records it.
+func Issuer(tb testing.TB) string {
+	tb.Helper()
+	return authntest.URL(tb)
 }
 
 // Actor is a principal with the token subject that authenticates as it.
@@ -142,10 +202,10 @@ type Tenant struct {
 }
 
 // NewTenant creates a tenant whose principals hold the given permissions.
-func NewTenant(t testing.TB, permissions ...string) Tenant {
-	t.Helper()
+func NewTenant(tb testing.TB, permissions ...string) Tenant {
+	tb.Helper()
 	ctx := context.Background()
-	c := Admin(t)
+	c := Admin(tb)
 	ten := Tenant{ID: uuid.Must(uuid.NewV7()), Permissions: permissions}
 	ten.Human = Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	ten.Agent = Actor{ID: uuid.Must(uuid.NewV7()), Kind: "agent"}
@@ -155,13 +215,16 @@ func NewTenant(t testing.TB, permissions ...string) Tenant {
 	}
 	must := func(sql string, args ...any) {
 		if _, err := c.Exec(ctx, sql, args...); err != nil {
-			t.Fatalf("pgtest: %v\n%s", err, sql)
+			tb.Fatalf("pgtest: %v\n%s", err, sql)
 		}
 	}
 	must(`INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Tenant', 'eu-west', 'EUR', 'active')`, ten.ID)
+	// Bound to the test identity provider, whose tokens the tests mint
+	// (ADR-0010: a principal is its issuer's subject).
+	issuer := Issuer(tb)
 	for _, a := range []Actor{ten.Human, ten.Agent, ten.Service} {
-		must(`INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, $3, 'active', $2, $2)`, ten.ID, a.ID, a.Kind, a.Subject)
+		must(`INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $3, 'active', $2, $2)`, ten.ID, a.ID, a.Kind, issuer, a.Subject)
 	}
 	human, machine := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	must(`INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, 'all', 'All', 'active', $3, $3), ($1, $4, 'machine', 'Machine', 'active', $3, $3)`,
@@ -183,7 +246,7 @@ func NewTenant(t testing.TB, permissions ...string) Tenant {
 }
 
 // AllCompanies lets the actor act in every legal entity.
-func (ten Tenant) AllCompanies(t testing.TB, a Actor) {
-	t.Helper()
-	Exec(t, `UPDATE identity.principal SET all_companies = true, version = version + 1 WHERE tenant_id = $1 AND id = $2`, ten.ID, a.ID)
+func (ten Tenant) AllCompanies(tb testing.TB, a Actor) {
+	tb.Helper()
+	Exec(tb, `UPDATE identity.principal SET all_companies = true, version = version + 1 WHERE tenant_id = $1 AND id = $2`, ten.ID, a.ID)
 }

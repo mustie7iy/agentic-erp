@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -55,7 +56,7 @@ func (c *Codec) sign(scope string, payload []byte) []byte {
 func (c *Codec) Encode(scope string, v any) (string, error) {
 	payload, err := json.Marshal(v)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("pagination: encode cursor: %w", err)
 	}
 	enc := base64.RawURLEncoding
 	return enc.EncodeToString(payload) + "." + enc.EncodeToString(c.sign(scope, payload)), nil

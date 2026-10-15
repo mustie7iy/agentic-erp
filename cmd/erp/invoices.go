@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,144 +16,210 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
-	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
 type parkedInvoice struct {
 	ID              string
-	DocumentNumber  string                  `json:"document_number"`
-	LegalEntityID   string                  `json:"legal_entity_id"`
-	PurchaseOrderID string                  `json:"purchase_order_id"`
-	Gross           struct{ Amount string } `json:"gross_amount"`
+	DocumentNumber  string `json:"document_number"`
+	PurchaseOrderID string `json:"purchase_order_id"`
+	// WorkflowRequestID is set on an invoice parked on an approved
+	// exception (or, after an edit by the previous release, on one it no
+	// longer covers).
+	WorkflowRequestID string `json:"workflow_request_id"`
 }
 
-// minor reads a decimal amount in the minor units its decimals imply.
-func minor(s string) int64 {
-	decimals := 0
-	if i := strings.IndexByte(s, '.'); i >= 0 {
-		decimals = len(s) - i - 1
-	}
-	m, _ := money.ParseDecimal(s, decimals) // amounts come from the API or the configuration
-	return int64(m)
+// decision is the server's decision on a matched invoice (F12b): it
+// converts the gross amount into the company's currency and compares it
+// with the auto-post limit, the rule its simulations and regression suites
+// apply. Outcome is an open enumeration.
+type decision struct {
+	Outcome string
+	Reason  string
 }
 
-// limits are each legal entity's auto-post limit from the active
-// configuration, in minor units.
-func limits(ctx context.Context, c *apitools.Client) (map[string]int64, error) {
-	resp, err := c.Do(ctx, http.MethodGet, "/v1/config-versions", url.Values{"is_active": {"true"}}, nil, "")
-	if err != nil {
-		return nil, err
-	}
-	var versions struct {
-		Items []struct {
-			Document struct {
-				Companies []struct {
-					Code          string
-					AutoPostLimit string `json:"auto_post_limit"`
-				}
-			}
-		}
-	}
-	if err := resp.Decode(&versions); err != nil {
-		return nil, err
-	}
-	if len(versions.Items) == 0 {
-		return nil, errors.New("the tenant has no active configuration")
-	}
-	resp, err = c.Do(ctx, http.MethodGet, "/v1/legal-entities", url.Values{"page_size": {"500"}}, nil, "")
-	if err != nil {
-		return nil, err
-	}
-	var les struct{ Items []struct{ ID, Code string } }
-	if err := resp.Decode(&les); err != nil {
-		return nil, err
-	}
-	byCode := map[string]int64{}
-	for _, co := range versions.Items[0].Document.Companies {
-		byCode[co.Code] = minor(co.AutoPostLimit)
-	}
-	out := map[string]int64{}
-	for _, le := range les.Items {
-		out[le.ID] = byCode[le.Code]
-	}
-	return out, nil
+// matched is the answer of a match: a server before F12b answers no
+// decision.
+type matched struct {
+	IsClean  bool      `json:"is_clean"`
+	Decision *decision `json:"decision"`
 }
+
+// settled is what the rule did with the invoices: posted, held for a
+// person, or left parked for want of a decision it knows.
+type settled struct{ posted, held, parked []string }
 
 // invoices is the matching rule as an API client: every parked invoice on
-// a purchase order is matched; a clean match within the legal entity's
-// auto-post limit is posted, one above it is held for a person, and the
-// match holds the others itself, opening their exception requests. With
-// -agent, the exceptions agent then investigates the held invoices.
+// a purchase order is matched, and the server's decision is acted on. A
+// clean match it decides auto_post is posted, one it reviews or cannot
+// evaluate is held for a person, and the match holds the others itself,
+// opening their exception requests. Every page of parked invoices is
+// settled.
+//
+// The rule never compares amounts itself. The invoice is left parked when:
+//   - there is no decision it knows (an older server, a new outcome);
+//   - the server refuses the match (422, e.g. no exchange rate);
+//   - the invoice is gone (404);
+//   - it changed between its read and its match, or between its match and
+//     the post or hold (412: the server acts only on the matched version).
+//
+// An invoice parked with an exception request linked is neither matched
+// nor posted but listed as left parked for a person to decide (F18).
+// Normally it is an approved exception, but after an edit by the previous
+// release the approval may no longer cover it, which :post then refuses
+// (409 payables.match_required). Matching it again only finds the issues
+// the approval covers, and posting it is a person's decision, as the rule
+// cannot tell whether the server would decide review (a match with issues
+// answers no decision, and :post does not check the auto-post limit).
+//
+// With -agent, the exceptions agent then investigates the held invoices.
 func invoices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("invoices", flag.ContinueOnError)
 	withAgent := fs.Bool("agent", false, "let the exceptions agent investigate held invoices")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := client("ERP_TOKEN")
 	if err != nil {
 		return err
 	}
-	limit, err := limits(ctx, c)
+	parked, err := apitools.List[parkedInvoice](ctx, c, "/v1/supplier-invoices", url.Values{"status": {"parked"}})
 	if err != nil {
 		return err
 	}
-	resp, err := c.Do(ctx, http.MethodGet, "/v1/supplier-invoices", url.Values{"status": {"parked"}, "page_size": {"500"}}, nil, "")
-	if err != nil {
-		return err
-	}
-	var page struct{ Items []parkedInvoice }
-	if err := resp.Decode(&page); err != nil {
-		return err
-	}
-	var posted, held []string
-	for _, inv := range page.Items {
+	w := printer()
+	var done settled
+	for _, inv := range parked {
 		if inv.PurchaseOrderID == "" {
 			continue // entered by hand without an order: a person posts it
 		}
-		path := "/v1/supplier-invoices/" + inv.ID
-		got, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
-		if err != nil {
-			return err
-		}
-		resp, err := c.Do(ctx, http.MethodPost, path+":match", nil, nil, got.ETag)
-		if err != nil {
-			return err
-		}
-		var match struct {
-			IsClean bool `json:"is_clean"`
-		}
-		if err := resp.Decode(&match); err != nil {
-			return fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
-		}
-		action, body := "post", any(nil)
-		switch {
-		case !match.IsClean:
-			held = append(held, inv.DocumentNumber+" (match)")
+		if inv.WorkflowRequestID != "" {
+			done.parked = append(done.parked, inv.DocumentNumber+" (exception request linked: a person decides)")
 			continue
-		case minor(inv.Gross.Amount) > limit[inv.LegalEntityID]:
-			action, body = "hold", map[string]string{"reason": "Above the auto-post limit; a person posts it."}
 		}
-		got, err = c.Do(ctx, http.MethodGet, path, nil, nil, "")
-		if err != nil {
+		if err := settle(ctx, c, w, inv, &done); err != nil {
 			return err
-		}
-		resp, err = c.Do(ctx, http.MethodPost, path+":"+action, nil, body, got.ETag)
-		if err != nil {
-			return err
-		}
-		if err := resp.Err(); err != nil {
-			return fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
-		}
-		if action == "hold" {
-			held = append(held, inv.DocumentNumber+" (limit)")
-		} else {
-			posted = append(posted, inv.DocumentNumber)
 		}
 	}
-	fmt.Fprintf(out, "Posted %d: %s\nHeld %d: %s\n", len(posted), strings.Join(posted, ", "), len(held), strings.Join(held, ", "))
+	fmt.Fprintf(w, "Posted %d: %s\nHeld %d: %s\n", len(done.posted), strings.Join(done.posted, ", "), len(done.held), strings.Join(done.held, ", "))
+	if len(done.parked) > 0 {
+		fmt.Fprintf(w, "Left parked %d: %s\n", len(done.parked), strings.Join(done.parked, ", "))
+	}
+	if err := errs.Wrapf(w.Flush(), "invoices: print"); err != nil {
+		return err
+	}
 	if *withAgent {
 		return agentInvoices(ctx)
+	}
+	return nil
+}
+
+// settle matches one invoice, shows the server's decision and acts on it,
+// on the version it matched: the server posts only the version its latest
+// match evaluated (F13), and an invoice changed since is refused (412) and
+// left parked.
+func settle(ctx context.Context, c *apitools.Client, w io.Writer, inv parkedInvoice, done *settled) error {
+	path := "/v1/supplier-invoices/" + inv.ID
+	m, tag, err := matchInvoice(ctx, c, path, inv)
+	if refused := (*apitools.Error)(nil); errors.As(err, &refused) && parkedOn[refused.Status] != "" {
+		why := parkedOn[refused.Status]
+		fmt.Fprintf(w, "%s: %s: %s: %s\n", inv.DocumentNumber, why, refused.Code, refused.Detail)
+		done.parked = append(done.parked, inv.DocumentNumber+" ("+why+": "+refused.Code+")")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !m.IsClean {
+		done.held = append(done.held, inv.DocumentNumber+" (match)")
+		return nil
+	}
+	if m.Decision == nil {
+		fmt.Fprintf(w, "%s: decision unavailable (the server does not return it)\n", inv.DocumentNumber)
+		done.parked = append(done.parked, inv.DocumentNumber)
+		return nil
+	}
+	d := *m.Decision
+	fmt.Fprintf(w, "%s: %s (%s)\n", inv.DocumentNumber, d.Outcome, d.Reason)
+	act := func(list *[]string, listed, action string, body any) error {
+		return done.listIfDone(w, list, inv.DocumentNumber, listed, settleInvoice(ctx, c, path, inv, action, body, tag))
+	}
+	switch d.Outcome {
+	case "auto_post":
+		return act(&done.posted, inv.DocumentNumber, "post", nil)
+	case "review":
+		return act(&done.held, inv.DocumentNumber+" (review)", "hold", map[string]string{"reason": "Above the auto-post limit; a person posts it."})
+	case "not_evaluable":
+		return act(&done.held, inv.DocumentNumber+" (not_evaluable: "+d.Reason+")", "hold",
+			map[string]string{"reason": "The auto-post rule cannot evaluate it (" + d.Reason + "); a person posts it."})
+	}
+	done.parked = append(done.parked, inv.DocumentNumber)
+	return nil
+}
+
+// parkedOn are the refusals of an invoice's read or match that leave it
+// parked for a person or the next run, while the other invoices go on, by
+// how they are listed.
+var parkedOn = map[int]string{
+	// The server refuses to match it: no exchange rate, no order.
+	http.StatusUnprocessableEntity: "refused",
+	// It is gone from the caller's view since the listing.
+	http.StatusNotFound: "not found",
+	// It changed between its read and its match; the next run reads it again.
+	http.StatusPreconditionFailed: "changed before its match",
+}
+
+// listIfDone lists an invoice (as listed) once the action on it succeeded
+// (err nil). An invoice changed since its match (412) is left parked for
+// the next run, which matches it again; other errors stop the rule.
+func (done *settled) listIfDone(w io.Writer, list *[]string, invoice, listed string, err error) error {
+	var refused *apitools.Error
+	if errors.As(err, &refused) && refused.Status == http.StatusPreconditionFailed {
+		fmt.Fprintf(w, "%s: changed since its match; left parked\n", invoice)
+		done.parked = append(done.parked, invoice+" (changed since its match)")
+		return nil
+	}
+	if err == nil {
+		*list = append(*list, listed)
+	}
+	return err
+}
+
+// matchInvoice matches the invoice at path against its order, on its
+// current version, and returns the match with the server's decision and
+// the ETag the match was sent with: the version the decision is for. A
+// failed read is returned, never matched with the empty ETag it carries.
+func matchInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice) (matched, string, error) {
+	cur, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
+	if err != nil {
+		return matched{}, "", err
+	}
+	if err := cur.Err(); err != nil {
+		return matched{}, "", fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
+	}
+	resp, err := c.Do(ctx, http.MethodPost, path+":match", nil, nil, cur.ETag)
+	if err != nil {
+		return matched{}, "", err
+	}
+	var m matched
+	if err := resp.Decode(&m); err != nil {
+		return matched{}, "", fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
+	}
+	return m, cur.ETag, nil
+}
+
+// settleInvoice posts or holds (action) the matched invoice at path with
+// tag, the ETag its match was sent with: a clean match of a parked invoice
+// leaves its version unchanged, so the tag holds unless the invoice was
+// changed since, which the server refuses (412) rather than act on what was
+// not matched.
+func settleInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice, action string, body any, tag string) error {
+	resp, err := c.Do(ctx, http.MethodPost, path+":"+action, nil, body, tag)
+	if err != nil {
+		return err
+	}
+	if err := resp.Err(); err != nil {
+		return fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
 	}
 	return nil
 }
@@ -166,11 +233,12 @@ func agentInvoices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Agent reviewed %d held invoices and made %d recommendations.\n", len(res.Reviewed), res.Recommendations)
+	w := printer()
+	fmt.Fprintf(w, "Agent reviewed %d held invoices and made %d recommendations.\n", len(res.Reviewed), res.Recommendations)
 	for _, e := range res.Errors {
-		fmt.Fprintln(out, "  "+e)
+		fmt.Fprintln(w, "  "+e)
 	}
-	return nil
+	return errs.Wrapf(w.Flush(), "agent invoices: print")
 }
 
 // agentCmd runs a delivery agent with the agents' token.
@@ -194,7 +262,7 @@ func agentCmd(ctx context.Context, args []string) error {
 func agentConfig(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("agent config", flag.ContinueOnError)
 	draftFile := fs.String("draft", "", "configuration draft (erp config generate) to start from")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	request := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -205,7 +273,7 @@ func agentConfig(ctx context.Context, args []string) error {
 	if *draftFile != "" {
 		var err error
 		if draft, err = os.ReadFile(*draftFile); err != nil {
-			return err
+			return fmt.Errorf("agent config: read draft: %w", err)
 		}
 	}
 	c, err := client("ERP_AGENT_TOKEN")
@@ -216,8 +284,7 @@ func agentConfig(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "%s\n\nChange requests: %s\n", res.Reply, strings.Join(res.ChangeRequests, ", "))
-	return nil
+	return printf("agent config", "%s\n\nChange requests: %s\n", res.Reply, strings.Join(res.ChangeRequests, ", "))
 }
 
 func agentMigration(ctx context.Context, args []string) error {
@@ -226,7 +293,7 @@ func agentMigration(ctx context.Context, args []string) error {
 	entities := fs.String("legal-entities", "", "comma-separated legal entity ids")
 	year := fs.Int("year", 2026, "fiscal year")
 	mode := fs.String("mode", "documents", "documents or balances")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := client("ERP_AGENT_TOKEN")
@@ -237,15 +304,14 @@ func agentMigration(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out, text)
-	return nil
+	return printf("agent migration", "%s\n", text)
 }
 
 func agentTest(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("agent test", flag.ContinueOnError)
 	cr := fs.String("change-request", "", "change request id")
 	outFile := fs.String("out", "", "also write the test scripts to this file")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	c, err := client("ERP_AGENT_TOKEN")
@@ -256,9 +322,13 @@ func agentTest(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Recommendation recorded: %t\n\n%s\n", rev.Recommended, rev.Scripts)
+	if err := printf("agent test", "Recommendation recorded: %t\n\n%s\n", rev.Recommended, rev.Scripts); err != nil {
+		return err
+	}
 	if *outFile != "" {
-		return os.WriteFile(*outFile, []byte(rev.Scripts), 0o600)
+		if err := os.WriteFile(*outFile, []byte(rev.Scripts), 0o600); err != nil {
+			return fmt.Errorf("agent test: write scripts: %w", err)
+		}
 	}
 	return nil
 }

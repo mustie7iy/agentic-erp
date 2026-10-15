@@ -51,7 +51,7 @@ func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, star
 }
 
 func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(api, admin net.Listener)) error {
-	verifier, err := authn.New(ctx, cfg.Issuers, cfg.Static...)
+	verifier, err := authn.New(ctx, authn.Environment(cfg.Environment), cfg.Issuers, cfg.Static...)
 	if err != nil {
 		return err
 	}
@@ -63,31 +63,19 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	metrics := telemetry.NewMetrics()
 	traced := telemetry.Middleware(log, metrics, tracenoop.NewTracerProvider())
 	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: cfg.Transport})
-	// The admin listener: liveness, metrics, and with operator issuers the
-	// global control plane (api/directory.yaml).
-	admin := http.NewServeMux()
-	admin.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
-	admin.Handle("GET /metrics", metrics.Handler())
-	if len(cfg.OperatorIssuers) > 0 {
-		operators, err := authn.New(ctx, cfg.OperatorIssuers, cfg.Static...)
-		if err != nil {
-			return err
-		}
-		pages, _ := pagination.NewCodec(cfg.PageTokenKey) // the key's length was checked with the configuration
-		admin.Handle(globalplane.Base+"/", traced(globalplane.Handler(&globalplane.Service{Directory: dir, Pages: pages}, operators, log)))
-		log.Info("global control plane served on the admin listener", "path", globalplane.Base, "operator_issuers", len(cfg.OperatorIssuers))
-	}
-	ln, err := net.Listen("tcp", cfg.Addr)
+	admin, err := adminMux(ctx, cfg, dir, metrics, traced, log)
 	if err != nil {
 		return err
 	}
-	adminLn, err := net.Listen("tcp", cfg.AdminAddr)
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
 	if err != nil {
-		ln.Close()
-		return err
+		return fmt.Errorf("erp-router: listen on %s: %w", cfg.Addr, err)
+	}
+	adminLn, err := lc.Listen(ctx, "tcp", cfg.AdminAddr)
+	if err != nil {
+		_ = ln.Close() // the admin listener's failure is the one reported
+		return fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
 	}
 	servers := []*http.Server{
 		{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
@@ -109,8 +97,31 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	shutdownCtx, done := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
 	defer done()
 	for _, s := range servers {
-		s.Shutdown(shutdownCtx)
+		// In-flight requests finish or time out; a server that did not stop
+		// in time is abandoned with the process, so its error changes nothing.
+		_ = s.Shutdown(shutdownCtx)
 	}
 	log.Info("erp-router stopped")
 	return serveErr
+}
+
+// adminMux is the admin listener's handler: liveness, metrics, and with
+// operator issuers the global control plane (api/directory.yaml).
+func adminMux(ctx context.Context, cfg router.Config, dir *directory.Postgres, metrics *telemetry.Metrics, traced func(http.Handler) http.Handler, log *slog.Logger) (*http.ServeMux, error) {
+	admin := http.NewServeMux()
+	admin.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+	admin.Handle("GET /metrics", metrics.Handler())
+	if len(cfg.OperatorIssuers) > 0 {
+		operators, err := authn.New(ctx, authn.Environment(cfg.Environment), cfg.OperatorIssuers, cfg.Static...)
+		if err != nil {
+			return nil, err
+		}
+		pages, _ := pagination.NewCodec(cfg.PageTokenKey) // the key's length was checked with the configuration
+		admin.Handle(globalplane.Base+"/", traced(globalplane.Handler(&globalplane.Service{Directory: dir, Pages: pages}, operators, log)))
+		log.Info("global control plane served on the admin listener", "path", globalplane.Base, "operator_issuers", len(cfg.OperatorIssuers))
+	}
+	return admin, nil
 }

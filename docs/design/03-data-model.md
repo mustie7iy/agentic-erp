@@ -68,7 +68,10 @@ assignments, company access, SoD rules, tax codes, approval policies.
 Assignments are ended, never rewritten: `platform.end_validity()` permits only
 setting or shortening `valid_to` (not into the past) with `ended_by`, and the
 application role may update only those columns. Exchange rates are
-insert-only; a new rate is a new row with a later `valid_from`.
+insert-only; a new rate is a new row with a later `valid_from`. A rate is
+`numeric(28,12)`, and recording one refuses more than 16 integer digits or
+12 decimals (422 `ledger.invalid_rate`) rather than letting the column
+round a decimal away (F19).
 
 ### Naming
 `snake_case`; singular table names (`purchase_order`); `<entity>_id` for
@@ -138,6 +141,7 @@ erDiagram
   principal {
     uuid id PK
     text kind "human | agent | service"
+    text external_issuer "IdP issuer (iss)"
     text external_subject "IdP subject"
     text display_name
     text status
@@ -173,6 +177,44 @@ erDiagram
 
 Agents are principals like people, with their own roles. A trigger rejects
 granting an `is_approval` permission to a role held by an agent.
+
+A token authenticates the principal whose `external_issuer` and
+`external_subject` are its `iss` and `sub`, in the tenant it names: every
+trusted issuer may name any tenant, so the subject alone would let one
+tenant's identity provider sign in as another tenant's principal whose
+subject it also issues (ADR-0010, amended 2026-10-14). People and services
+carry both; agents carry an issuer only when they have a subject. The
+contract names no issuer, so a principal is bound to the issuer of the
+administrator who creates it, and a new tenant's first administrator to
+the cell's only tenant issuer (a cell that trusts several refuses to
+provision, `provisioning.issuer_ambiguous`). `principal_issuer_subject`
+(tenant, issuer, subject) is unique. Migration 000037 added the column
+(expand step) and bound the principals that existed to the development
+issuer `erp-dev`, the single issuer of the only installations that had any
+(no record says which issuer created a principal; elsewhere it matches no
+token, so such a principal is refused until re-bound). During the rolling
+deploy the previous release keeps inserting people and services with a
+subject and a NULL issuer, after 000037's backfill has run; the new release
+never finds them (it resolves issuer and subject), so they cannot sign in
+until bound. The contract step, in a later release, once no replica of the
+previous release runs, therefore goes in this order (06 §6.4): (1) adds the
+check that a principal with a subject has an issuer, `NOT VALID`, so no new
+row can lack one; (2) re-runs the backfill for every principal still
+`external_issuer IS NULL AND external_subject IS NOT NULL`, binding it to
+the issuer of the principal that created it (`created_by`, as
+`CreatePrincipal` does) and, where that creator has none, to the cell's
+single tenant issuer (`erp-dev` in development, as 000037 did); a cell that
+trusts several issuers cannot tell which, so the backfill leaves those rows
+and lists them for an operator to re-bind rather than guess (as
+provisioning refuses, `provisioning.issuer_ambiguous`); (3) in the next
+migration, once none is left, `VALIDATE`s the check, which would fail on
+any row step 2 did not bind; (4) drops `principal_subject` (the subject
+alone unique per tenant), which the previous release relies on.
+Meanwhile the new release refuses to create a person or service whose
+issuer it cannot tell: `CreatePrincipal` answers 422
+`identity.creator_without_issuer` when the creating actor (an agent, a job
+acting through `uow.Act`, a principal created during the rollout) is bound
+to no issuer, and writes nothing; agents, which have no subject, need none.
 
 Role permissions, role assignments, company access and SoD rules are
 **effective-dated assignments**: each has its own id, a validity range that
@@ -228,6 +270,44 @@ activation, each owning context applies its part to its own relational tables
 (chart of accounts to `ledger`, approval policies to `workflow`, payment terms
 to `partner`...). Domain tables are therefore always typed and constrained,
 and every change to them traces back to an approved change request.
+
+The document's money amounts are in the company's currency: the
+requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
+in the currency of the requisition's company), the invoice price tolerance
+(`invoice_tolerance.price_absolute`) and the auto-post limit
+(`auto_post_limit`). The amounts are read with the digits of the
+document's `companies[].currency`, and documents are converted into the
+legal entity's `local_currency`; the two are one currency because a
+configuration whose company currency differs from its legal entity's local
+currency is refused when it is checked, at submission and at bootstrap
+(422 `config.validation_failed`, field `proposed.companies[<code>].currency`,
+reported by the ledger's section check), and a legal entity's
+`local_currency` never changes after it is created (F14). A document in
+another currency is converted into the company's currency with the
+ledger's posting lookup (the latest average
+rate of the pair; when only the reverse is recorded, the amount is
+divided by it exactly, never multiplied by a rounded reciprocal, F19) on the
+document's date: a requisition on the day it was raised (UTC), so a
+resubmission is routed at the same rate, an invoice on its invoice date
+(a posting converts on the posting date instead). The converted amount is
+compared with the configured one exactly, as amount × rate before any
+rounding to the company's minor units (F13): a variance worth 5.004 EUR is
+beyond a 5.00 tolerance, and a requisition worth 1,000.004 EUR is above an
+"up to 1000.00" tier. Amounts shown to people are rounded half away from
+zero to the company's minor units, as they would be posted. Without
+a rate a requisition's submission and an invoice's match are refused (422
+`ledger.no_exchange_rate`, naming the pair and the date; nothing is
+recorded); the raw numbers of two currencies are never compared. An
+invoice whose gross amount is out of range in the company's currency is
+matched, and a clean match answers the decision `not_evaluable` (F12b).
+Replaying history does not refuse: an invoice without a rate or out of
+range is not evaluable rather than a failure for the whole tenant, a
+simulation reports it as
+one it cannot evaluate, and a regression suite records it as
+`not_evaluable` (issue `no_exchange_rate` or `amount_too_large`). A
+captured invoice that has since lost its purchase order (a parked invoice
+edited onto accounts) is replayed as `not_evaluable` with the issue
+`no_purchase_order` (F17).
 
 ## 3.6 Business partners (`partner`)
 
@@ -343,6 +423,32 @@ Rules enforced in the database:
 - Posting requires the period to be open for the legal entity and ledger.
 - A line is cleared at most once (`clearing_item` unique on the line).
 - Open items are lines on reconciliation accounts without a clearing item.
+- A reversal clears the original's open items against the matching lines of
+  the reversal, in the same transaction, with the reversal as the clearing
+  entry (as SAP does); no other clearing or settlement takes a line of a
+  reversed entry or of a reversal.
+- An entry posted for a document with a reversal of its own belongs to
+  that document's context: today a supplier invoice's (`source_context`
+  `payables`). The ledger's `:reverse` refuses it (409
+  `ledger.entry_owned_elsewhere`, naming `supplier-invoices/{id}:reverse`),
+  whose reversal goes through `Postings.Reverse` and also changes the
+  invoice and applies its permission and checks. Manual entries, entries a
+  migration run loaded (`integration`) and payment entries stay reversible
+  through the ledger; entries of any other context (procurement,
+  receivables, assets) are refused with the same code until a reversal path
+  is decided for them.
+- An open item another context is about to settle is reserved in
+  `item_reservation` (owner context, owner document and its reference;
+  migration 000034): at most one active reservation per line (partial unique
+  index `item_reserved_once`), and a reservation is only ever released, once
+  (trigger, `UPDATE` granted on `released_at`/`released_by` only). The ledger's
+  manual clearing, migrated clearing and reversal refuse a reserved item
+  (409 `ledger.item_reserved`); a settlement passes its owner
+  (`Settlement.ReservedFor`), is refused items another owner holds, and ends
+  the owner's reservation of what it clears. The owner reserves through
+  `Postings.Reserve`, which locks the entries exclusively and refuses items
+  that are not open, reversed or held, and frees through `Postings.Release`;
+  the ledger never reads the owner's tables.
 - `period_balance` is maintained by an idempotent projector (ADR-0006).
 - `journal_line` is partitioned by `fiscal_year`.
 - `period_status` (one row per legal entity, ledger, year and period) has a
@@ -445,6 +551,7 @@ erDiagram
     uuid journal_entry_id
     uuid reversal_entry_id
     uuid workflow_request_id
+    int exception_version
     int version }
   supplier_invoice_item { uuid supplier_invoice_id PK
     int item_no PK
@@ -459,13 +566,66 @@ erDiagram
     timestamptz evaluated_at
     bool is_clean
     jsonb issues
-    int config_version }
+    int config_version
+    int invoice_version }
 ```
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
 level, not just detectable. `match_result` keeps the history of every match
-evaluation with the configuration version used.
+evaluation with the configuration version used and the invoice version the
+match left the invoice at (`invoice_version`, migration 000040, F13; after
+the hold or release the match itself causes). An invoice on a purchase
+order posts only when its latest match is clean and of its current version,
+or with an approved exception of its current version (409
+`payables.match_required` otherwise): any change after the match (an edit of
+amounts, items, order or any other field, a hold and release by hand) needs
+a new match, and an edit unlinks an approved exception request, which was
+decided on the invoice as it was. Matches recorded before 000040, or by the
+previous release during the rollout, have no version and count for none:
+such an invoice is matched again before it posts. The column is the expand
+step of 06 §6.4 (nullable, its positive check `NOT VALID`, no backfill:
+nothing records which version an old match evaluated).
+
+The invoice likewise records the version the approval of its exception left
+it at (`exception_version`, migration 000041, F16), and the linked approved
+request authorises posting only that version. The unlinking edit is not
+enough on its own: the edit before 000040, and the previous release's
+during the rollout, kept the request linked, so an invoice edited there
+would post on an approval of different amounts. An invoice changed after
+its approval is matched clean, or held and approved again, before it posts.
+Approvals before 000041, or by the previous release, have no version and
+count for none. A match of an invoice parked on an approval of its current
+version leaves it parked rather than holding it for a new request (F18).
+The column is again the expand step (nullable, its check of
+`0 < exception_version <= version` `NOT VALID`, no backfill); it is not tied
+to `workflow_request_id` by a rule, as the previous release unlinks requests
+without clearing it, and a stale value is always below the invoice's
+version.
+
+The match compares an item's price variance with the company's tolerances:
+within the percentage of the expected amount (in the invoice's currency),
+or within the absolute tolerance once converted into the company's currency
+at the average rate of the invoice date (§3.5). The converted variance is
+compared exactly, as amount × rate before any rounding to the company's
+minor units (F13): a variance worth 5.004 EUR is beyond a tolerance of 5.00
+EUR. The auto-post limit is compared with the gross amount's exact value the
+same way; the amounts shown in messages and reasons are rounded. An invoice
+without a rate on its date is not matched at all. Simulations and regression
+suites decide the auto-post limit the same way, and the amounts a changed
+posting rule moves are each converted into the company's currency before
+they are added up. One function (`payables.decide`) takes the decision for
+all three: not evaluable, an exception when the match has issues, else
+`auto_post` within the auto-post limit and `review` above it. An invoice
+whose purchase order or legal entity its context does not have (the
+references cross contexts, so no foreign key holds them, but neither is
+ever deleted) is broken data, not a case to decide: the match, a
+simulation and a suite refuse it alike (422 `payables.order_not_found`,
+`payables.legal_entity_not_found`, F16) rather than deciding it against an
+empty order. The match
+returns it (`decision`, F12b) without storing it, as the limit and the rate
+may change before the invoice is posted, and `erp invoices` acts on it
+instead of comparing amounts itself.
 
 `upload` (ADR-0020) records a direct upload of a document above the
 request limit: purpose, content type, size limit, the object key the bytes
@@ -486,9 +646,10 @@ erDiagram
     uuid legal_entity_id
     uuid house_bank_id
     date run_date
-    text status "proposing | proposed | released | rejected | failed"
+    text status "proposing | proposed | releasing | released | rejected | failed"
     uuid proposed_by
     uuid decided_by "released/rejected by; never proposed_by"
+    uuid release_operation_id "the latest release operation"
     int version }
   payment { uuid id PK
     uuid payment_run_id
@@ -512,7 +673,7 @@ erDiagram
     text bic
     uuid gl_account_id }
   bank_file { uuid id PK
-    uuid payment_run_id
+    uuid payment_run_id "unique per run"
     text format "pain.001.001.03"
     text object_ref
     bytea sha256 }
@@ -520,8 +681,135 @@ erDiagram
 
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run
-deactivates its items. Bank files are stored in object storage, referenced by
+deactivates its items. The run also reserves its items in the ledger
+(`ledger.item_reservation`, owner the run, §3.7) in the proposal's
+transaction, and frees them there when it is rejected; posting a payment
+ends the reservation of the items it settles. So the ledger reservations
+are the items of live runs not paid yet, and a manual clearing or reversal
+of one is refused while the run holds it. A reservation left behind (an
+application version from before 000034 rejecting a run during the rollout)
+only keeps its item out of proposals (`OpenItems.Payable` leaves reserved
+items out), and refuses its manual clearing and reversal, until a
+reconciliation releases the reservations no live run holds and adds those
+missing. That reconciliation is a contract step (06 §6.4): it is a
+migration of its own (the next free number in the release after this one; 000040 went to
+F13; tracker F5b), landed once 000034 runs everywhere, not part of the
+change that adds the table.
+
+Entry locks (clearing, reversal, settlement, reservation) are advisory
+locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
+|| bucket`, the bucket from the entry id's random low bits; the tenant from
+`platform.require_tenant()` (migration 000039), which fails a transaction
+without one where a NULL key would take no lock), each set
+taken once per transaction in bucket order and before any posting period or
+number range (posting takes those). The lock order is entry buckets, then
+the `period_status` row of each period posted into (`FOR SHARE`), then the
+number range.
+
+Every posting (manual entries, the ports other contexts post through,
+clearings, settlements, reversals and the migration load) reads its
+period's status `FOR SHARE` (`postingPeriod`), in a query of its own since
+the lock cannot take the nullable side of an outer join. A close or reopen
+locks the row `FOR UPDATE` and takes no other lock until the audit chain
+head at its commit (which no transaction holds while it waits), so a
+posting waits for a close under way and then reads the committed status
+(409 `ledger.period_not_open`), and a close waits for the postings under
+way: no entry lands in a period whose close committed first. The order
+stays acyclic: a close waits only for postings, and a posting waits for a
+close that holds nothing else. The migration load holds the share locks of
+every period it posts into until it commits, so a close of one of them
+waits for the load (and fails after `lock_timeout` with 409
+`request.in_progress`); the load holds no lock a close would take. A new
+`FOR SHARE` does not queue behind a waiting `FOR UPDATE`, so under steady
+overlapping postings in one period a close may keep failing with 409 and
+be retried; closes come after posting stops, so this is accepted. The
+trigger `ledger.check_entry_period` still reads the status without a lock:
+it runs after `postingPeriod` took the share lock in the same transaction,
+so no close can commit in between, and the only insert into
+`journal_entry` is the one after `postingPeriod`. Hardening the trigger with
+`FOR SHARE` is left for a migration of its own if another insert path
+appears.
+
+A transaction that would otherwise lock in several
+steps or after posting, the migration load (it posts every document, then
+clears one SAP clearing at a time), takes all 64 buckets shared first
+(`Postings.LockAllEntries`), so its later locks are ones it holds and it
+cannot deadlock with a reservation or reversal; those wait for the load. A
+proposal or release check over 100,000 items holds at most 64 locks, within
+`max_locks_per_transaction`'s default, and never holds another tenant's
+entries up.
+
+Within a tenant the buckets are coarse, which is an accepted trade-off: a
+reversal may wait for a clearing of another entry in its bucket, and a large
+proposal holds nearly all of the tenant's buckets exclusively from its
+`Reserve` to its commit. That is the end of the build (the items are
+reserved after they are chosen and inserted, and the run is moved to
+proposed and recorded in the same transaction), so the window is short; but
+a clearing, settlement or reversal of any legal entity of the tenant that
+waits in it longer than `lock_timeout` (5 s) fails with 409
+`request.in_progress` and is retried. A migration load holds the buckets
+shared for its whole transaction, so reservations and reversals of the
+tenant wait for it the same way.
+
+Proposals of a legal entity serialise on the advisory lock
+`payments.propose.<legal entity id>` (`hashtextextended`, transaction
+scoped). An invoice reversal takes the same lock before it asks whether the
+invoice is in a live run (`Reservations.RunOf`): a reversal waits for a
+proposal under way and then finds the invoice in it (409
+`payables.invoice_in_payment_run`), and a proposal that starts while a
+reversal is under way waits for it and no longer finds the item open. Bank files are stored in object storage, referenced by
 key and content hash.
+
+The release (ADR-0012) moves the run to `releasing` under a release
+operation, `release_operation_id`, and posts one payment per transaction;
+the run is `released` when its bank file is written. Its rules, each held by
+the database or by a row lock:
+
+- **One bank file per run.** A unique index on `bank_file (tenant_id,
+  payment_run_id)` (migration 000033, built concurrently) refuses a second
+  file, so a release step run again or two overlapping releases cannot pay
+  the suppliers twice. In object storage the file is kept under the run's
+  key (`tenants/<tenant>/bank-files/<run id>.xml`, write-once), so a
+  FinishRelease retried after the store took the file but its transaction
+  was lost writes no second object: it finds the key taken, checks that the
+  stored file is the run's file as rendered at the creation time it carries,
+  and records that file and time (anything else under the key is 409
+  `payments.bank_file_changed`). The store not answering is the machinery's
+  failure (503), retried by the release. The release steps of a run also serialise on it:
+  each reads the run `FOR UPDATE`.
+- **The current operation only.** A release step acts only when the run's
+  `release_operation_id` is the operation it was started for; a step of a
+  cancelled or failed release that a later `:release` took over does
+  nothing.
+- **A cancelled release stays cancelled.** Cancelling the operation does not
+  undo or stop postings already made: posted payments stand, the operation
+  stays `cancelled` (it is never finished or reported on again), no bank
+  file is written, and the run stays `releasing` until `:release` resumes it
+  under a new operation. A run whose release fails with nothing posted goes
+  back to `proposed`.
+- **Items stay reserved while releasing.** An item of a `releasing` run whose
+  payment is not posted yet counts as in a live run, as in a proposal, so
+  its invoice cannot be reversed (409 `payables.invoice_in_payment_run`)
+  and a resumed release never pays a reversed invoice. Once the payment is
+  posted the item is cleared, and the payment is reversed first.
+- **A payment that can never post is dropped, not retried.** Before posting
+  a payment the release asks the ledger whether its items can still be
+  settled (`OpenItems.Unpayable`). One reversed, or no longer open, since the
+  proposal (both lasting; possible only for runs proposed before the ledger
+  reservations, or by a direct change) makes the payment unpostable: the
+  release excludes its supplier with `item_reversed` or `item_not_open`
+  (exclusion reasons widened by migrations 000035/000036), deactivates its
+  items and ends their ledger reservation, takes its amount out of the run's
+  total, audits `payments.payment_run.drop_payment` and publishes
+  `payment_excluded`, and goes on; the bank file and `payment_count` cover
+  the payments left. A dropped payment is one whose supplier has an
+  exclusion in the run, and every later release step skips it. A release
+  that drops every payment fails with `payments.nothing_to_pay`, which
+  returns the run (nothing posted) to `proposed`, to be rejected. Without
+  this a releasing run with a posted payment and one that can never post
+  stayed releasing for good: `:reject` needs `proposed`, and every resumed
+  release failed again. `:release` of a proposed run re-checks the items as
+  well as the suppliers (409 `payments.proposal_outdated`).
 
 ## 3.11 Workflow (`workflow`)
 
@@ -602,7 +890,7 @@ the decision trigger); decisions are insert-only.
 | Table | Purpose |
 |---|---|
 | `platform.idempotency_key` | Key, request hash, stored response; kept 7 days (ADR-0008), expired by a batched cleanup job on `expires_at` (partition by day if delete volume ever hurts; the key does not change) |
-| `platform.operation` | Long-running operations (ADR-0012): kind, status, `progress_done` / `progress_total` (null while unknown), `resource` path, result or error |
+| `platform.operation` | Long-running operations (ADR-0012): kind, status, `progress_done` / `progress_total` (null while unknown), `resource` path, result or error. Only a `queued` or `running` operation finishes or takes progress; a succeeded, failed or cancelled one is final |
 | `<context>.outbox` | Domain events awaiting publication, one table per context schema |
 | `<context>.inbox` | Event ids already processed by that context's consumers |
 

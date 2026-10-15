@@ -13,7 +13,9 @@
 // have a bank change pending or changed bank details within the
 // configuration's hold days, or whose items net to a debit, are excluded
 // with the reason. The partial unique index on active payment items
-// reserves the paid items.
+// reserves the paid items, and the run reserves them in the ledger too
+// (ledger.item_reservation), which refuses to clear or reverse them by hand
+// until the run pays or frees them.
 //
 // :release posts one entry per payment (document type ZP, on the run date)
 // that offsets the supplier's items, credits the house bank's account and
@@ -25,7 +27,7 @@ package payments
 import (
 	"context"
 	"errors"
-	"strings"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +40,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -88,11 +91,16 @@ type LegalEntities interface {
 type OpenItems interface {
 	Payable(ctx context.Context, legalEntity uuid.UUID, currency string, documentDateTo time.Time) ([]ledger.PayableItem, error)
 	References(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
+	Unpayable(ctx context.Context, items []ledger.ItemRef) (map[ledger.ItemRef]string, error)
 }
 
-// Postings posts payments (ledger context).
+// Postings posts payments and reserves the open items a live run holds
+// (ledger context): the reservation makes the ledger refuse to clear or
+// reverse them by hand while the run is about to pay them.
 type Postings interface {
 	Settle(ctx context.Context, in ledger.Settlement) (ledger.Entry, error)
+	Reserve(ctx context.Context, owner ledger.Owner, items []ledger.ItemRef) error
+	Release(ctx context.Context, owner uuid.UUID, items []ledger.ItemRef) error
 }
 
 // Payees is what payments reads about the suppliers it pays (partner context).
@@ -116,6 +124,12 @@ type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
 
+// Actors reads who a run's deferred work acts as: its proposer or
+// releaser (identity context).
+type Actors interface {
+	Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Principal, error)
+}
+
 // Endpoints implements the payments part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -126,6 +140,7 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Actors        Actors
 	Keys          *fieldcrypt.Keyring // opens house bank IBANs
 	Connector     Connector           // transmits bank files; nil: transmission answers 503
 	Objects       blobstore.Store     // keeps bank files as written at release; nil: files are rendered again when needed
@@ -142,7 +157,7 @@ type Run struct {
 	DueBy          time.Time
 	Currency       string
 	Exponent       int
-	Total          int64
+	Total          money.Minor
 	Status         string
 	ProposedBy     uuid.UUID
 	DecidedBy      *uuid.UUID
@@ -164,7 +179,7 @@ func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.HouseBankID, &r.RunDate, &r.DueBy, &r.Currency, &r.Exponent, &r.Total,
 		&r.Status, &r.ProposedBy, &r.DecidedBy, &r.DecidedAt, &r.OperationID, &r.ReleaseOpID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
-	return r, err
+	return r, errs.Wrapf(err, "scan payment run")
 }
 
 // load reads a run without company access; lock takes the row lock for a
@@ -176,9 +191,12 @@ func load(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Run, error) 
 	}
 	r, err := scanRun(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Run{}, problem.NotFound("No payment run with this id.")
+		return Run{}, problem.NotFoundOf("payment run")
 	}
-	return r, err
+	if err != nil {
+		return Run{}, fmt.Errorf("payments: read run %s: %w", id, err)
+	}
+	return r, nil
 }
 
 // get reads a run of a legal entity the caller may act in.
@@ -189,7 +207,7 @@ func get(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Run, error) {
 	}
 	r, err := load(ctx, tx, id, lock)
 	if err == nil && !access.Allows(r.LegalEntityID) {
-		return Run{}, problem.NotFound("No payment run with this id.")
+		return Run{}, problem.NotFoundOf("payment run")
 	}
 	return r, err
 }
@@ -208,7 +226,7 @@ type Item struct {
 	FiscalYear int16        `json:"fiscal_year"`
 	EntryID    uuid.UUID    `json:"journal_entry_id"`
 	LineNo     int32        `json:"line_no"`
-	Amount     int64        `json:"amount"` // paid: what the item owes, so a credit memo is negative
+	Amount     money.Minor  `json:"amount"` // paid: what the item owes, so a credit memo is negative
 	DueDate    partner.Date `json:"due_date"`
 	Active     bool         `json:"is_active"`
 }
@@ -219,41 +237,55 @@ type Payment struct {
 	RunID            uuid.UUID
 	SupplierID       uuid.UUID
 	BankAccountID    uuid.UUID
-	Amount           int64
+	Amount           money.Minor
 	EndToEndID       string
 	JournalEntryYear *int16
 	JournalEntryID   *uuid.UUID
 	Items            []Item
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
+	Excluded         bool // dropped by the release (dropPayment): the supplier is excluded with the reason
 }
+
+// dropped says whether payment p was dropped by its run's release: its
+// supplier has an exclusion, which a payment of the run otherwise never
+// has (a proposal pays or excludes each supplier). It relies on one payment
+// per supplier and run, which UNIQUE (tenant_id, payment_run_id,
+// supplier_id) on payments.payment holds (000008).
+const dropped = `EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id AND x.payment_run_id = p.payment_run_id
+		AND x.supplier_id = p.supplier_id)`
 
 const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_account_id, p.amount, p.end_to_end_id, p.journal_entry_year,
 		p.journal_entry_id, (SELECT json_agg(json_build_object('fiscal_year', i.item_fiscal_year, 'journal_entry_id', i.item_entry_id,
 			'line_no', i.item_line_no, 'amount', i.amount, 'due_date', i.due_date, 'is_active', i.is_active)
 			ORDER BY i.item_fiscal_year, i.item_entry_id, i.item_line_no)
-		 FROM payments.payment_item i WHERE i.tenant_id = p.tenant_id AND i.payment_id = p.id), p.created_at, p.created_by
+		 FROM payments.payment_item i WHERE i.tenant_id = p.tenant_id AND i.payment_id = p.id), p.created_at, p.created_by,
+		` + dropped + ` AS is_dropped
 	FROM payments.payment p`
 
 func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
 	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
-		&p.Items, &p.CreatedAt, &p.CreatedBy)
-	return p, err
+		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded)
+	return p, errs.Wrapf(err, "scan payment")
 }
 
-// paymentsOf reads every payment of a run in end-to-end id order, the
-// order of the bank file.
+// paymentsOf reads the payments a run makes, in end-to-end id order, the
+// order of the bank file; payments its release dropped are left out.
 func paymentsOf(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Payment, error) {
-	rows, _ := tx.Query(ctx, paymentSelect+` WHERE p.payment_run_id = $1 ORDER BY p.end_to_end_id`, run)
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Payment, error) { return scanPayment(r) })
+	rows, _ := tx.Query(ctx, paymentSelect+` WHERE p.payment_run_id = $1 AND NOT `+dropped+` ORDER BY p.end_to_end_id`, run)
+	pays, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Payment, error) { return scanPayment(r) })
+	if err != nil {
+		return pays, fmt.Errorf("payments: read the payments of run %s: %w", run, err)
+	}
+	return pays, nil
 }
 
 // Exclusion is a supplier left out of a run.
 type Exclusion struct {
 	SupplierID uuid.UUID
 	Reason     string
-	Amount     int64
+	Amount     money.Minor
 }
 
 // houseBank is a row of payments.house_bank.
@@ -275,7 +307,37 @@ func loadHouseBank(ctx context.Context, tx pgx.Tx, id uuid.UUID) (houseBank, boo
 	if errors.Is(err, pgx.ErrNoRows) {
 		return h, false, nil
 	}
-	return h, err == nil, err
+	if err != nil {
+		return h, false, fmt.Errorf("payments: read house bank %s: %w", id, err)
+	}
+	return h, true, nil
+}
+
+// errNoEntity is entityOf's error for a run whose legal entity the tenancy
+// context does not find.
+var errNoEntity = errors.New("no legal entity")
+
+// entityOf reads the legal entity of run r. A missing one is broken data
+// (payment_run.legal_entity_id has no foreign key into tenancy, and legal
+// entities are never deleted), so it is errNoEntity, never an entity with
+// an empty code that would begin the run's ids and file names with "-".
+// Each caller says what errNoEntity means to it.
+func (e *Endpoints) entityOf(ctx context.Context, r Run) (tenancy.Entity, error) {
+	le, found, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
+	if err != nil {
+		return tenancy.Entity{}, fmt.Errorf("payments: legal entity %s of run %s: %w", r.LegalEntityID, r.ID, err)
+	}
+	if !found {
+		return tenancy.Entity{}, fmt.Errorf("payments: run %s: %w %s", r.ID, errNoEntity, r.LegalEntityID)
+	}
+	return le, nil
+}
+
+// noEntity is the problem a proposal fails with for entityOf's errNoEntity,
+// naming the entity. It has no field error: the entity was there when the
+// request was accepted, so no field of the request is wrong.
+func noEntity(r Run) *problem.Problem {
+	return problem.MissingReference("Legal entity " + r.LegalEntityID.String() + " of payment run " + r.DocumentNumber + " does not exist.")
 }
 
 func requireProposed(r Run, done string) error {
@@ -297,12 +359,7 @@ func decider(r Run, p reqctx.Principal) error {
 // record publishes the events and adds the audit entry of a change; the
 // action names the object type (payments.payment_run.release).
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
-	for _, ev := range events {
-		if _, err := outbox.Add(ctx, ev); err != nil {
-			return err
-		}
-	}
-	return audit.Add(ctx, audit.Entry{Action: action, ObjectType: action[:strings.LastIndex(action, ".")], ObjectID: id, Outcome: "succeeded", Detail: detail})
+	return audit.Record(ctx, action, audit.ObjectTypeOf(action), id, detail, events...)
 }
 
 func runEvent(r Run, name string, payload map[string]any) outbox.Event {
@@ -315,29 +372,39 @@ func fileEvent(f BankFile, name string, payload map[string]any) outbox.Event {
 	return outbox.Event{Context: "payments", Name: name, AggregateType: "payments.bank_file", AggregateID: f.ID, Payload: payload}
 }
 
-func amount(minor int64, currency string, exp int) map[string]string {
-	return map[string]string{"amount": money.Minor(minor).Plain(exp), "currency": currency}
-}
-
 // Reservations answers whether an entry's open items are in a live payment
 // run, for contexts that would otherwise change what the run pays.
 type Reservations struct{}
 
-// RunOf returns the document number of the proposing or proposed run that
-// holds an open item of the entry.
-func (Reservations) RunOf(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (string, bool, error) {
+// RunOf returns the document number of the live run that holds an open
+// item of the entry of the legal entity: a proposing or proposed run, or a
+// releasing one whose payment of the item is not posted yet. A releasing
+// run is under way, or stopped (failed or cancelled) with some payments
+// posted, to be resumed; the release posts the rest, so their items are as
+// reserved as in a proposal. It takes the legal entity's proposals lock
+// first (lockProposals), held until the caller's transaction ends: a
+// proposal under way is waited for, and none can choose the entry's items
+// until the caller (reversing the entry) commits.
+func (Reservations) RunOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, entryID uuid.UUID) (string, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
+		return "", false, err
+	}
+	if err := lockProposals(ctx, tx, legalEntity); err != nil {
 		return "", false, err
 	}
 	var number string
 	err = tx.QueryRow(ctx, `SELECT r.document_number FROM payments.payment_item i
 		JOIN payments.payment p ON p.tenant_id = i.tenant_id AND p.id = i.payment_id
 		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
-		WHERE i.item_fiscal_year = $1 AND i.item_entry_id = $2 AND i.is_active AND r.status IN ('proposing', 'proposed') LIMIT 1`,
+		WHERE i.item_fiscal_year = $1 AND i.item_entry_id = $2 AND i.is_active
+			AND (r.status IN ('proposing', 'proposed') OR (r.status = 'releasing' AND p.journal_entry_id IS NULL)) LIMIT 1`,
 		fiscalYear, entryID).Scan(&number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
-	return number, err == nil, err
+	if err != nil {
+		return number, false, fmt.Errorf("payments: find the run holding entry %d/%s: %w", fiscalYear, entryID, err)
+	}
+	return number, true, nil
 }

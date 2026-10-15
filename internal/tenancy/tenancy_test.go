@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -31,7 +31,16 @@ func org(t *testing.T) pgtest.Tenant {
 type client struct{ apitest.Client }
 
 func newClient(t *testing.T, ten pgtest.Tenant, as pgtest.Actor) client {
+	t.Helper()
 	return client{apitest.Client{T: t, API: apitest.New(t), Tenant: ten, As: as}}
+}
+
+// in returns c reporting to t, so a subtest's failure stops that subtest
+// rather than its parent.
+func (c client) in(t *testing.T) client {
+	t.Helper()
+	c.T = t
+	return c
 }
 
 func (c client) legalEntity(code string) map[string]any {
@@ -49,9 +58,23 @@ func TestLegalEntityLifecycle(t *testing.T) {
 		"fiscal_calendar_id": "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da0", "extensions": {"cost_hint": "MKT", "region": {"a": 1}}}`})
 	le := apitest.JSON(t, r)
 	id := le["id"].(string)
-	if r.Code != 201 || r.Header().Get("Location") != "/v1/legal-entities/"+id || r.Header().Get("ETag") != `"1"` ||
-		le["status"] != "inactive" || le["created_by"] != ten.Human.ID.String() || le["extensions"].(map[string]any)["cost_hint"] != "MKT" {
-		t.Fatalf("create: %d %v", r.Code, le)
+	if r.Code != 201 {
+		t.Fatalf("create: got status %d, want 201: %v", r.Code, le)
+	}
+	if got, want := r.Header().Get("Location"), "/v1/legal-entities/"+id; got != want {
+		t.Errorf("create Location: got %q, want %q", got, want)
+	}
+	if got := r.Header().Get("ETag"); got != `"1"` {
+		t.Errorf("create ETag: got %s, want %s", got, `"1"`)
+	}
+	if le["status"] != "inactive" {
+		t.Errorf("create status: got %v, want inactive", le["status"])
+	}
+	if got, want := le["created_by"], ten.Human.ID.String(); got != want {
+		t.Errorf("create created_by: got %v, want %v", got, want)
+	}
+	if ext, _ := le["extensions"].(map[string]any); ext["cost_hint"] != "MKT" {
+		t.Errorf("create extensions.cost_hint: got %v, want MKT", ext["cost_hint"])
 	}
 	path := "/v1/legal-entities/" + id
 	got, tag := c.Must(200, "GET", path, "", "")
@@ -62,9 +85,21 @@ func TestLegalEntityLifecycle(t *testing.T) {
 	// Merge patch: name replaced, a custom field removed, a nested one merged.
 	got, tag = c.Must(200, "PATCH", path, `{"name": "Muster Industrie GmbH", "extensions": {"cost_hint": null, "region": {"b": 2}}}`, `"1"`)
 	ext := got["extensions"].(map[string]any)
-	if got["name"] != "Muster Industrie GmbH" || tag != `"2"` || ext["cost_hint"] != nil || ext["region"].(map[string]any)["b"] != float64(2) ||
-		ext["region"].(map[string]any)["a"] != float64(1) {
-		t.Fatalf("update: %v", got)
+	if got["name"] != "Muster Industrie GmbH" {
+		t.Errorf("update name: got %v, want Muster Industrie GmbH", got["name"])
+	}
+	if tag != `"2"` {
+		t.Errorf("update ETag: got %s, want %s", tag, `"2"`)
+	}
+	if ext["cost_hint"] != nil {
+		t.Errorf("update extensions.cost_hint: got %v, want nil", ext["cost_hint"])
+	}
+	region, _ := ext["region"].(map[string]any)
+	if region["b"] != float64(2) {
+		t.Errorf("update extensions.region.b: got %v, want 2", region["b"])
+	}
+	if region["a"] != float64(1) {
+		t.Errorf("update extensions.region.a: got %v, want 1", region["a"])
 	}
 	c.Must(200, "PATCH", path, `{}`, `"2"`) // an empty patch changes nothing but the version
 
@@ -94,17 +129,34 @@ func TestLegalEntityLifecycle(t *testing.T) {
 	activated := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "legal_entity_activated"})
 	blocked := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "legal_entity_blocked"})
 	unblocked := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "legal_entity_unblocked"})
-	if len(created) != 1 || created[0]["code"] != "DE01" || created[0]["status"] != "inactive" ||
-		len(activated) != 1 || activated[0]["previous_status"] != "inactive" || activated[0]["status"] != "active" ||
-		len(blocked) != 1 || blocked[0]["previous_status"] != "active" || len(unblocked) != 1 || unblocked[0]["status"] != "active" {
-		t.Fatalf("events: %v %v %v %v", created, activated, blocked, unblocked)
+	for name, tc := range map[string]struct {
+		events []map[string]any
+		want   map[string]any
+	}{
+		"created":   {created, map[string]any{"code": "DE01", "status": "inactive"}},
+		"activated": {activated, map[string]any{"previous_status": "inactive", "status": "active"}},
+		"blocked":   {blocked, map[string]any{"previous_status": "active"}},
+		"unblocked": {unblocked, map[string]any{"status": "active"}},
+	} {
+		t.Run(name+" event", func(t *testing.T) {
+			if len(tc.events) != 1 {
+				t.Fatalf("got %d events, want 1: %v", len(tc.events), tc.events)
+			}
+			for k, want := range tc.want {
+				if got := tc.events[0][k]; got != want {
+					t.Errorf("%s: got %v, want %v", k, got, want)
+				}
+			}
+		})
 	}
 	var actions []string
 	rows, _ := pgtest.Admin(t).Query(context.Background(), `SELECT action || coalesce(':' || (detail->>'reason'), '') FROM audit.audit_event
 		WHERE tenant_id = $1 AND object_id = $2 ORDER BY seq`, ten.ID, uuid.MustParse(id))
 	for rows.Next() {
 		var a string
-		rows.Scan(&a)
+		if err := rows.Scan(&a); err != nil {
+			t.Fatalf("scan audit action: %v", err)
+		}
 		actions = append(actions, a)
 	}
 	want := "tenancy.legal_entity.create tenancy.legal_entity.update tenancy.legal_entity.update tenancy.legal_entity.activate " +
@@ -133,10 +185,12 @@ func TestLegalEntityValidation(t *testing.T) {
 		"bad extension":    {body("XX03", "DE", "EUR", `{"CostHint": 1}`), 422, "request.invalid_extension"},
 		"bad code":         {body("de01", "DE", "EUR", "{}"), 400, "request.invalid_body"},
 	} {
-		code, m, _ := c.Do("POST", "/v1/legal-entities", tc.body, "")
-		if code != tc.code || m["code"] != tc.pc {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			code, m, _ := c.in(t).Do("POST", "/v1/legal-entities", tc.body, "")
+			if code != tc.code || m["code"] != tc.pc {
+				t.Errorf("got %d %v, want %d %s", code, m["code"], tc.code, tc.pc)
+			}
+		})
 	}
 	le := c.legalEntity("DE02")
 	if code, m, _ := c.Do("PATCH", "/v1/legal-entities/"+le["id"].(string), `{"extensions": {"Bad": 1}}`, `"1"`); code != 422 || m["code"] != "request.invalid_extension" {
@@ -169,10 +223,12 @@ func TestCompanyAccess(t *testing.T) {
 	if items := list["items"].([]any); len(items) != 1 || items[0].(map[string]any)["code"] != "DE01" {
 		t.Fatalf("list: %v", list)
 	}
-	for _, path := range []string{"/v1/legal-entities/" + fr["id"].(string), "/v1/org-units/" + unit["id"].(string)} {
-		if code, m, _ := agent.Do("GET", path, "", ""); code != 404 || m["code"] != "request.not_found" {
-			t.Errorf("%s: %d %v", path, code, m)
-		}
+	for name, path := range map[string]string{"legal entity": "/v1/legal-entities/" + fr["id"].(string), "org unit": "/v1/org-units/" + unit["id"].(string)} {
+		t.Run(name+" outside access", func(t *testing.T) {
+			if code, m, _ := agent.in(t).Do("GET", path, "", ""); code != 404 || m["code"] != "request.not_found" {
+				t.Errorf("GET %s: got %d %v, want 404 request.not_found", path, code, m["code"])
+			}
+		})
 	}
 	if code, m, _ := agent.Do("POST", "/v1/legal-entities/"+fr["id"].(string)+":activate", "", `"1"`); code != 404 {
 		t.Errorf("activate outside access: %d %v", code, m)
@@ -182,8 +238,10 @@ func TestCompanyAccess(t *testing.T) {
 		t.Errorf("org units outside access listed: %v", units)
 	}
 	code, m, _ := agent.Do("POST", "/v1/org-units", fmt.Sprintf(`{"legal_entity_id": %q, "kind": "plant", "code": "P2", "name": "Plant"}`, fr["id"]), "")
-	if code != 422 || m["code"] != "request.reference_not_found" || m["errors"].([]any)[0].(map[string]any)["field"] != "legal_entity_id" {
-		t.Errorf("org unit outside access: %d %v", code, m)
+	if code != 422 || m["code"] != "request.reference_not_found" {
+		t.Errorf("org unit outside access: got %d %v, want 422 request.reference_not_found", code, m)
+	} else if field := m["errors"].([]any)[0].(map[string]any)["field"]; field != "legal_entity_id" {
+		t.Errorf("org unit outside access: got field %v, want legal_entity_id", field)
 	}
 	// Without the permission the operation is refused before any lookup.
 	none := pgtest.NewTenant(t)
@@ -225,9 +283,11 @@ func TestListLegalEntities(t *testing.T) {
 		"?order_by=code%20sideways": "request.invalid_parameter",
 		"?status=active&page_token=" + first["next_page_token"].(string): "request.invalid_page_token",
 	} {
-		if code, m, _ := c.Do("GET", "/v1/legal-entities"+query, "", ""); code != 400 || m["code"] != pc {
-			t.Errorf("%s: %d %v", query, code, m)
-		}
+		t.Run(query, func(t *testing.T) {
+			if code, m, _ := c.in(t).Do("GET", "/v1/legal-entities"+query, "", ""); code != 400 || m["code"] != pc {
+				t.Errorf("got %d %v, want 400 %s", code, m["code"], pc)
+			}
+		})
 	}
 }
 
@@ -235,7 +295,7 @@ func TestOrgUnits(t *testing.T) {
 	ten := org(t)
 	c := newClient(t, ten, ten.Human)
 	de, fr := c.legalEntity("DE01"), c.legalEntity("FR01")
-	unit := func(le map[string]any, kind, code, parent string) (int, map[string]any) {
+	unit := func(c client, le map[string]any, kind, code, parent string) (int, map[string]any) {
 		body := fmt.Sprintf(`{"legal_entity_id": %q, "kind": %q, "code": %q, "name": "Unit %s"`, le["id"], kind, code, code)
 		if parent != "" {
 			body += fmt.Sprintf(`, "parent_id": %q`, parent)
@@ -243,11 +303,17 @@ func TestOrgUnits(t *testing.T) {
 		code2, m, _ := c.Do("POST", "/v1/org-units", body+"}", "")
 		return code2, m
 	}
-	code, plant := unit(de, "plant", "P100", "")
-	if code != 201 || plant["status"] != "inactive" || plant["parent_id"] != nil {
-		t.Fatalf("plant: %d %v", code, plant)
+	code, plant := unit(c, de, "plant", "P100", "")
+	if code != 201 {
+		t.Fatalf("plant: got status %d, want 201: %v", code, plant)
 	}
-	code, store := unit(de, "storage_location", "S1", plant["id"].(string))
+	if plant["status"] != "inactive" {
+		t.Errorf("plant status: got %v, want inactive", plant["status"])
+	}
+	if plant["parent_id"] != nil {
+		t.Errorf("plant parent_id: got %v, want nil", plant["parent_id"])
+	}
+	code, store := unit(c, de, "storage_location", "S1", plant["id"].(string))
 	if code != 201 || store["parent_id"] != plant["id"] {
 		t.Fatalf("storage location: %d %v", code, store)
 	}
@@ -263,9 +329,11 @@ func TestOrgUnits(t *testing.T) {
 		"unknown parent":  {de, "plant", "P300", uuid.NewString(), 422, "tenancy.invalid_parent"},
 		"unknown company": {map[string]any{"id": uuid.NewString()}, "plant", "P4", "", 422, "request.reference_not_found"},
 	} {
-		if code, m := unit(tc.le, tc.kind, tc.code, tc.parent); code != tc.status || m["code"] != tc.pc {
-			t.Errorf("%s: %d %v", name, code, m)
-		}
+		t.Run(name, func(t *testing.T) {
+			if code, m := unit(c.in(t), tc.le, tc.kind, tc.code, tc.parent); code != tc.status || m["code"] != tc.pc {
+				t.Errorf("got %d %v, want %d %s", code, m["code"], tc.status, tc.pc)
+			}
+		})
 	}
 
 	// A unit cannot become its own ancestor.
@@ -309,9 +377,23 @@ func TestOrgUnits(t *testing.T) {
 	activated := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "org_unit_activated"})
 	blocked := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "org_unit_blocked"})
 	unblocked := apitest.Published(t, ten, outbox.Event{Context: "tenancy", Name: "org_unit_unblocked"})
-	if len(created) != 2 || created[1]["parent_id"] != plant["id"] || len(activated) == 0 || activated[0]["previous_status"] != "inactive" ||
-		len(blocked) != 1 || len(unblocked) != 1 || unblocked[0]["kind"] != "plant" {
-		t.Fatalf("events: %v %v %v %v", created, activated, blocked, unblocked)
+	if len(created) != 2 {
+		t.Errorf("created events: got %d, want 2: %v", len(created), created)
+	} else if created[1]["parent_id"] != plant["id"] {
+		t.Errorf("created event parent_id: got %v, want %v", created[1]["parent_id"], plant["id"])
+	}
+	if len(activated) == 0 {
+		t.Errorf("activated events: got none, want at least 1")
+	} else if activated[0]["previous_status"] != "inactive" {
+		t.Errorf("activated event previous_status: got %v, want inactive", activated[0]["previous_status"])
+	}
+	if len(blocked) != 1 {
+		t.Errorf("blocked events: got %d, want 1: %v", len(blocked), blocked)
+	}
+	if len(unblocked) != 1 {
+		t.Errorf("unblocked events: got %d, want 1: %v", len(unblocked), unblocked)
+	} else if unblocked[0]["kind"] != "plant" {
+		t.Errorf("unblocked event kind: got %v, want plant", unblocked[0]["kind"])
 	}
 
 	list := func(q string) []string {
@@ -325,7 +407,7 @@ func TestOrgUnits(t *testing.T) {
 		}
 		return out
 	}
-	unit(fr, "sales_org", "SO1", "")
+	unit(c, fr, "sales_org", "SO1", "")
 	if got := list("?legal_entity_id=" + de["id"].(string)); strings.Join(got, ",") != "P100,S1" {
 		t.Fatalf("by legal entity: %v", got)
 	}
@@ -360,8 +442,14 @@ func TestDirectory(t *testing.T) {
 	de := c.legalEntity("DE01")
 	err := apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
 		id, status, ok, err := tenancy.Directory{}.LegalEntityByCode(ctx, "DE01")
-		if err != nil || !ok || id.String() != de["id"] || status != "inactive" {
-			t.Errorf("DE01: %v %s %v %v", id, status, ok, err)
+		if err != nil || !ok {
+			t.Errorf("DE01: got ok %v, err %v, want found", ok, err)
+		}
+		if id.String() != de["id"] {
+			t.Errorf("DE01 id: got %v, want %v", id, de["id"])
+		}
+		if status != "inactive" {
+			t.Errorf("DE01 status: got %s, want inactive", status)
 		}
 		if _, _, ok, err := (tenancy.Directory{}).LegalEntityByCode(ctx, "XX"); ok || err != nil {
 			t.Errorf("XX: %v %v", ok, err)
@@ -373,8 +461,11 @@ func TestDirectory(t *testing.T) {
 	}
 	err = apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
 		status, ok, err := tenancy.Directory{}.LegalEntityStatus(ctx, uuid.MustParse(de["id"].(string)))
-		if err != nil || !ok || status != "inactive" {
-			t.Errorf("status: %s %v %v", status, ok, err)
+		if err != nil || !ok {
+			t.Errorf("status: got ok %v, err %v, want found", ok, err)
+		}
+		if status != "inactive" {
+			t.Errorf("status: got %s, want inactive", status)
 		}
 		if _, ok, err := (tenancy.Directory{}).LegalEntityStatus(ctx, uuid.New()); ok || err != nil {
 			t.Errorf("unknown: %v %v", ok, err)
@@ -402,11 +493,25 @@ func TestDirectory(t *testing.T) {
 	err = apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
 		d := tenancy.Directory{}
 		e, ok, err := d.Entity(ctx, uuid.MustParse(de["id"].(string)))
-		if err != nil || !ok || e.Code != "DE01" || e.LocalCurrency != "EUR" || e.Status != "inactive" || e.FiscalCalendarID.String() != de["fiscal_calendar_id"] {
-			t.Errorf("entity: %+v %v %v", e, ok, err)
+		if err != nil || !ok {
+			t.Errorf("entity: got ok %v, err %v, want found", ok, err)
 		}
-		if byCode, ok, err := d.EntityByCode(ctx, "DE01"); err != nil || !ok || byCode != e {
-			t.Errorf("entity by code: %+v %v %v", byCode, ok, err)
+		for field, c := range map[string]struct{ got, want any }{
+			"code":               {e.Code, "DE01"},
+			"local currency":     {e.LocalCurrency, "EUR"},
+			"status":             {e.Status, "inactive"},
+			"fiscal calendar id": {e.FiscalCalendarID.String(), de["fiscal_calendar_id"]},
+		} {
+			if c.got != c.want {
+				t.Errorf("entity %s: got %v, want %v", field, c.got, c.want)
+			}
+		}
+		byCode, ok, err := d.EntityByCode(ctx, "DE01")
+		if err != nil || !ok {
+			t.Errorf("entity by code: got ok %v, err %v, want found", ok, err)
+		}
+		if byCode != e {
+			t.Errorf("entity by code: got %+v, want %+v", byCode, e)
 		}
 		if _, ok, err := d.EntityByCode(ctx, "XX"); ok || err != nil {
 			t.Errorf("unknown code: %v %v", ok, err)
@@ -437,8 +542,17 @@ func TestDirectory(t *testing.T) {
 	plant, _ := c.Must(201, "POST", "/v1/org-units", fmt.Sprintf(`{"legal_entity_id": %q, "kind": "plant", "code": "P1", "name": "Plant"}`, de["id"]), "")
 	err = apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
 		u, ok, err := tenancy.Directory{}.OrgUnit(ctx, uuid.MustParse(plant["id"].(string)))
-		if err != nil || !ok || u.Kind != "plant" || u.LegalEntityID.String() != de["id"] || u.Status != "inactive" {
-			t.Errorf("org unit: %+v %v %v", u, ok, err)
+		if err != nil || !ok {
+			t.Errorf("org unit: got ok %v, err %v, want found", ok, err)
+		}
+		for field, c := range map[string]struct{ got, want any }{
+			"kind":            {u.Kind, "plant"},
+			"legal entity id": {u.LegalEntityID.String(), de["id"]},
+			"status":          {u.Status, "inactive"},
+		} {
+			if c.got != c.want {
+				t.Errorf("org unit %s: got %v, want %v", field, c.got, c.want)
+			}
 		}
 		if _, ok, err := (tenancy.Directory{}).OrgUnit(ctx, uuid.New()); ok || err != nil {
 			t.Errorf("unknown org unit: %v %v", ok, err)
@@ -523,10 +637,12 @@ func TestFailures(t *testing.T) {
 		},
 	}
 	for name, call := range calls {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, ten, ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Errorf("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, ten, ten.Human, name, call)
+		})
 	}
 	// Handlers that only differ from the above in their transition.
 	for name, call := range map[string]func(ctx context.Context) error{
@@ -543,9 +659,11 @@ func TestFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Errorf("outside a unit of work: got nil error, want an error")
+			}
+		})
 	}
 	// Page sizes are checked by the handler too, for callers other than the generated router.
 	for name, call := range map[string]func(ctx context.Context) error{
@@ -558,8 +676,10 @@ func TestFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, ten, ten.Human, call); err == nil {
-			t.Errorf("%s: page_size 0 accepted", name)
-		}
+		t.Run(name+" page size 0", func(t *testing.T) {
+			if err := apitest.InRequest(t, ten, ten.Human, call); err == nil {
+				t.Errorf("got nil error, want page_size 0 refused")
+			}
+		})
 	}
 }

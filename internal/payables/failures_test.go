@@ -10,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -33,6 +33,9 @@ func TestDatabaseFailures(t *testing.T) {
 	e.act(t, 200, id(posted), "post", "")
 	over, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "P-4", "142.80", "22.80", poItem(po, 1, "10", "EA", "120.00")), "")
 	e.act(t, 200, id(over), "match", "") // on hold: item 1 is already invoiced by P-3
+	excused, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "P-5", "142.80", "22.80", poItem(po, 1, "10", "EA", "120.00")), "")
+	e.act(t, 200, id(excused), "match", "")
+	e.Approve(t, id(excused)) // parked on its approved exception
 	results, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(matched)+"/match-results", "", "")
 	result := uuid.MustParse(results["items"].([]any)[0].(map[string]any)["id"].(string))
 	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
@@ -75,6 +78,10 @@ func TestDatabaseFailures(t *testing.T) {
 				return err
 			}
 			_, err = h.MatchSupplierInvoice(ctx, gen.MatchSupplierInvoiceParams{ID: u(over), IfMatch: "*"})
+			return err
+		},
+		"match of an approved exception": func(ctx context.Context) error {
+			_, err := h.MatchSupplierInvoice(ctx, gen.MatchSupplierInvoiceParams{ID: u(excused), IfMatch: "*"})
 			return err
 		},
 		"clean match after hold": func(ctx context.Context) error {
@@ -124,10 +131,12 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 	}
 	for name, call := range calls {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		})
 	}
 	for name, call := range map[string]func(ctx context.Context) error{
 		"rejected unknown": func(ctx context.Context) error {
@@ -149,13 +158,19 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
+				t.Error("got nil error, want a refusal")
+			}
+		})
 	}
 	for action, body := range map[string]string{"hold": `{"reason": "r"}`, "release": "", "cancel": `{"reason": "r"}`, "match": "", "post": "",
 		"reverse": `{"reason": "r"}`} {
-		e.Problem(412, "request.version_mismatch", "POST", "/v1/supplier-invoices/"+id(parked)+":"+action, body, `"99"`)
+		t.Run("stale "+action, func(t *testing.T) {
+			api := e.Client
+			api.T = t
+			api.Problem(412, "request.version_mismatch", "POST", "/v1/supplier-invoices/"+id(parked)+":"+action, body, `"99"`)
+		})
 	}
 	if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: "supplier_invoice_capture_once"}); p.Code != "payables.already_captured" {
 		t.Errorf("capture constraint: %v", p)
@@ -201,8 +216,11 @@ func TestEdgeCases(t *testing.T) {
 			t.Error("over-received invoice matched clean")
 		}
 		v, _ := payables.GetInvoice(ctx, uuid.MustParse(id(over)))
-		if v.Status != payables.OnHold || v.WorkflowRequestID != nil {
-			t.Errorf("held without a request: %+v", v)
+		if v.Status != payables.OnHold {
+			t.Errorf("held status: got %v, want %v", v.Status, payables.OnHold)
+		}
+		if v.WorkflowRequestID != nil {
+			t.Errorf("held workflow request: got %v, want none", *v.WorkflowRequestID)
 		}
 		return err
 	})
@@ -224,7 +242,11 @@ func TestEdgeCases(t *testing.T) {
 	withExt, tag := e.Must(201, "POST", "/v1/supplier-invoices", strings.Replace(e.invoice(e.Vendor, "E-5", "1.00", "0.00", plain),
 		`"items"`, `"extensions": {"routing": {"desk": "north", "floor": 2}}, "items"`, 1), "")
 	got, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(withExt), `{"extensions": {"routing": {"floor": 3}}}`, tag)
-	if r := got["extensions"].(map[string]any)["routing"].(map[string]any); r["desk"] != "north" || r["floor"] != float64(3) {
-		t.Fatalf("merged: %v", got)
+	r := got["extensions"].(map[string]any)["routing"].(map[string]any)
+	if r["desk"] != "north" {
+		t.Errorf("merged desk: got %v, want north", r["desk"])
+	}
+	if r["floor"] != float64(3) {
+		t.Errorf("merged floor: got %v, want 3", r["floor"])
 	}
 }

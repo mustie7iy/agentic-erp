@@ -49,3 +49,12 @@ files rendered again, no anchoring) and says so at start; downloads answer
 - Documents and bank files are downloadable, by permission; bank file
   content is never offered to agents.
 - Secrets for the store come from the environment until the vault exists.
+
+## Amendment (2026-10-14)
+
+Optional in development only. With `ERP_ENV=production` the platform refuses
+to start without a store (`ERP_OBJECT_DIR` or `ERP_OBJECT_S3_*`): without one
+the audit chain is never anchored (ADR-0011) and an offboarded tenant cannot
+be exported (ADR-0021), and CLAUDE.md asks a missing security setting to fail
+startup in production rather than log a warning. Development keeps running
+without a store and says so at start, as above.

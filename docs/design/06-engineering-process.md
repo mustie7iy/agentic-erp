@@ -115,25 +115,75 @@ tested against the database.
 
 ## 6.7 Code layout for contexts
 
-Each bounded context is one Go package tree with the layers of
-02-architecture §2.1:
+Each bounded context is one flat Go package, `internal/<context>`, holding the
+layers of 02-architecture §2.1 as files rather than sub-packages: its types and
+invariants, its use cases (each in the unit of work: transaction, authorization,
+idempotency, outbox, audit), the SQL against its own schema, and `api.go`, the
+handlers of its part of the generated OpenAPI interface. What other contexts may
+call is the package's exported Go API, usually a small interface the caller declares
+and the context satisfies (for example `payables` declares the `Payments` it
+needs and `payments.Reservations` satisfies it), wired together in one place:
+`internal/app`.
 
 ```
-internal/<context>/
-  domain/        entities, value objects, invariants, events (no I/O imports)
-  app/           use cases: transaction, authorization, idempotency, outbox
-  postgres/      repositories implementing ports in domain/ or app/
-  api/           handlers implementing the generated OpenAPI interface
-  <context>.go   the published Go interface other contexts may call
+internal/<context>/      one context: types, use cases, SQL, api.go handlers
+internal/delivery/<agent>/  each delivery agent stands alone
+internal/money/          shared kernel every context may import
+internal/platform/<pkg>/ technical services the contexts use (database, uow,
+                         outbox, audit, authn, problem, ...) and test support
+internal/platform/httpapi/  the request pipeline around the generated server
+                         (authentication, quotas, unit of work, problems);
+                         names no context
+internal/app/            the composition root: builds the API from every
+                         context's handlers and wires their ports together;
+                         cmd/erp-server's workers use the same wiring
+internal/app/apitest/    test support: the real API on the test database
 ```
 
-Import rules, checked by a test that parses imports:
+Import rules, checked by `internal/layout`'s test, which parses the imports of
+every production file under `internal/` and `cmd/`:
 
-- `domain` imports only the standard library and shared kernel packages
-  (`money`, identifiers).
-- No package imports another context's `domain`, `app` or `postgres`; only
-  its published interface.
-- Only `postgres` packages import the database driver.
+- A platform package imports no context. The one exception is named in the
+  test: `platform/fixture`, test support that builds a configured tenant.
+- Any package may import the platform and the shared kernel (`money`); the
+  composition root `app` and a command under `cmd/` may import any context,
+  since they wire them together.
+- A context imports another context only where the test's allowlist says so.
+  The list is exact: a new dependency fails the test until it is added there,
+  in the same change as the interface it uses (and an ADR if it reverses a
+  dependency direction), and an entry no longer used fails it too.
+- Tests are not checked: a test may import whatever it needs.
+
+The test also refuses a production import of test support (`pgtest`,
+`fixture`, `apitest`, the fake servers, `nfr`).
+
+The test checks Go imports only; the same rule holds for SQL by review. A
+context's SQL names its own schema; another context's rows are read and
+written through that context's Go API, in the caller's transaction. So
+`tenancy` owns the tenant row (the control plane, provisioning, offboarding
+and the directory go through it), `identity` answers who deferred work acts
+as (`identity.Actors`) and creates a tenant's first administrator, and each
+context lists its own operations waiting for a workflow
+(`operations.Waiting`) for the workflows dispatcher. Platform packages
+own technical tables that sit in context schemas: `fieldcrypt` the tenant
+keys (`tenancy.tenant_key`), `platform/audit` the hash chain
+(`audit.audit_event`, `audit.chain_head`); `uow` and `authz` read
+`tenancy.tenant` and identity's grants to admit a request. Accepted
+exceptions, each named at its query:
+
+- The `platform` schema (the outbox, idempotency keys, `platform.operation`)
+  is shared technical state. Contexts whose work runs as an operation join
+  `platform.operation` to their own rows to find and claim it, locking both
+  in one statement; provisioning and the control plane store and replay
+  their idempotency keys in it.
+- The `ref` schema (currencies, permissions) is reference data every
+  context reads.
+- Offboarding's export, import and fingerprint read and write every tenant
+  table through the catalog (ADR-0021, ADR-0030): they move the tenant's
+  data as data.
+- `cmd/erp-server`'s backlog gauges count queues across schemas as the role
+  that drains each: the operators' read-only view of the cell.
+- nfr, test support, reads several schemas to check its load runs.
 
 ## 6.8 Definition of done
 

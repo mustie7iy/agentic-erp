@@ -2,6 +2,7 @@ package partner_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,11 +10,12 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -135,10 +137,12 @@ func TestDatabaseFailures(t *testing.T) {
 		return err
 	}
 	for name, call := range calls {
-		if err := call(context.Background()); err == nil {
-			t.Errorf("%s outside a unit of work", name)
-		}
-		apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
 	}
 
 	// Page sizes are checked by the handlers too, for callers other than the generated router.
@@ -157,8 +161,22 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	} {
-		if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
-			t.Errorf("%s: page_size 0 accepted", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := apitest.InRequest(t, e.ten, e.ten.Human, call); err == nil {
+				t.Error("page_size 0: got no error, want it refused")
+			}
+		})
+	}
+}
+
+// TestOutsideARequest: a handler called without a unit of work reports
+// reqctx.ErrOutsideRequest instead of using a nil transaction.
+func TestOutsideARequest(t *testing.T) {
+	_, err := endpoints().CreateBusinessPartner(context.Background(), &gen.BusinessPartnerCreate{}, gen.CreateBusinessPartnerParams{})
+	if !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("CreateBusinessPartner: got %v, want reqctx.ErrOutsideRequest", err)
+	}
+	if _, _, err := partner.CreatePartner(context.Background(), partner.Ports{}, partner.NewPartner{}); !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("CreatePartner: got %v, want reqctx.ErrOutsideRequest", err)
 	}
 }
