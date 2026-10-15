@@ -139,10 +139,11 @@ const (
 	issueNoPurchaseOrder = "no_purchase_order"
 )
 
-// replay gathers one invoice's inputs, through the cache. An invoice
-// without a purchase order is refused (noPurchaseOrder): a parked invoice
-// can lose its order after it was captured into a suite, and everything
-// below reads the order.
+// replay gathers one invoice's inputs, through the cache.
+//
+// An invoice without a purchase order is refused (noPurchaseOrder): a
+// parked invoice can lose its order after it was captured into a suite,
+// and everything below reads the order.
 func replay(ctx context.Context, tx pgx.Tx, src sources, v Invoice, c *replayCache) (replayed, error) {
 	if v.PurchaseOrderID == nil {
 		return replayed{}, noPurchaseOrder()
@@ -169,12 +170,13 @@ func replay(ctx context.Context, tx pgx.Tx, src sources, v Invoice, c *replayCac
 
 // entity is the invoice's legal entity. One its context does not have is
 // refused (422 payables.legal_entity_not_found), never replaced by an empty
-// one: there is no company to take the limits and currency of. Neither it
-// nor the order below is a not_evaluable case, as a missing rate is: the
-// reference has no foreign key across contexts, but legal entities and
-// orders are never deleted, so a missing one is broken data that stops the
-// simulation or suite (a problem below 500 fails it at once) rather than a
-// case it reports and goes on past.
+// one: there is no company to take the limits and currency of.
+//
+// Neither it nor the order below is a not_evaluable case, as a missing
+// rate is. The reference has no foreign key across contexts, but legal
+// entities and orders are never deleted, so a missing one is broken data
+// that stops the simulation or suite (a problem below 500 fails it at
+// once) rather than a case it reports and goes on past.
 func (c *replayCache) entity(ctx context.Context, les LegalEntities, v Invoice) (tenancy.Entity, error) {
 	if le, ok := c.companies[v.LegalEntityID]; ok {
 		return le, nil
@@ -389,11 +391,12 @@ func (g Regression) Replay(ctx context.Context, doc *config.Config, cases []conf
 	return failures, nil
 }
 
-// replayCase decides one case again under doc. An invoice that lost its
-// purchase order since the capture (a parked invoice can be edited onto
-// accounts) is not evaluable, with no_purchase_order as its issue: it is
-// reported, as an invoice without a rate is, not a reason to fail the
-// simulation (F17).
+// replayCase decides one case again under doc.
+//
+// An invoice that lost its purchase order since the capture (a parked
+// invoice can be edited onto accounts) is not evaluable, with
+// no_purchase_order as its issue. It is reported, as an invoice without a
+// rate is, not a reason to fail the simulation (F17).
 func (g Regression) replayCase(ctx context.Context, tx pgx.Tx, doc *config.Config, c configuration.RegressionCase, cache *replayCache) (string, []string, error) {
 	v, err := load(ctx, tx, c.InvoiceID, false)
 	if err != nil {

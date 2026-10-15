@@ -50,24 +50,29 @@ type matched struct {
 type settled struct{ posted, held, parked []string }
 
 // invoices is the matching rule as an API client: every parked invoice on
-// a purchase order is matched, and the server's decision is acted on: a
+// a purchase order is matched, and the server's decision is acted on. A
 // clean match it decides auto_post is posted, one it reviews or cannot
 // evaluate is held for a person, and the match holds the others itself,
 // opening their exception requests. Every page of parked invoices is
-// settled. Without a decision it knows (an older server, a new outcome),
-// or when the server refuses the match (422, e.g. no exchange rate), or
-// when the invoice is gone (404) or changed between its read and its match
-// or between its match and the post or hold (412: the server acts only on
-// the matched version), the invoice is left parked; the rule never
-// compares amounts itself. An invoice parked with an exception request
-// linked is neither matched nor posted but listed as left parked for a
-// person to decide (F18): normally it is an approved exception, but after
-// an edit by the previous release the approval may no longer cover it,
-// which :post then refuses (409 payables.match_required): matching it again only finds the issues the approval covers,
-// and posting it is a person's decision, as the rule cannot tell whether
-// the server would decide review (a match with issues answers no decision,
-// and :post does not check the auto-post limit). With -agent, the
-// exceptions agent then investigates the held invoices.
+// settled.
+//
+// The rule never compares amounts itself. The invoice is left parked when:
+//   - there is no decision it knows (an older server, a new outcome);
+//   - the server refuses the match (422, e.g. no exchange rate);
+//   - the invoice is gone (404);
+//   - it changed between its read and its match, or between its match and
+//     the post or hold (412: the server acts only on the matched version).
+//
+// An invoice parked with an exception request linked is neither matched
+// nor posted but listed as left parked for a person to decide (F18).
+// Normally it is an approved exception, but after an edit by the previous
+// release the approval may no longer cover it, which :post then refuses
+// (409 payables.match_required). Matching it again only finds the issues
+// the approval covers, and posting it is a person's decision, as the rule
+// cannot tell whether the server would decide review (a match with issues
+// answers no decision, and :post does not check the auto-post limit).
+//
+// With -agent, the exceptions agent then investigates the held invoices.
 func invoices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("invoices", flag.ContinueOnError)
 	withAgent := fs.Bool("agent", false, "let the exceptions agent investigate held invoices")
