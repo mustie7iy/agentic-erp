@@ -221,8 +221,12 @@ func TestIMDS(t *testing.T) {
 	pgtest.WantErr(t, err, `expiration "soon"`)
 	// No expiry at all: long-lived, the zero time.
 	mode.Store("noexpiry")
-	if c, err := m.Credentials(ctx); err != nil || !c.Expires.IsZero() {
-		t.Errorf("no expiration: got %v, %v; want the zero time", c.Expires, err)
+	c, err = m.Credentials(ctx)
+	if err != nil {
+		t.Errorf("no expiration: got err %v, want nil", err)
+	}
+	if !c.Expires.IsZero() {
+		t.Errorf("no expiration: Expires got %v, want zero", c.Expires)
 	}
 	if _, err := (awscreds.IMDS{Endpoint: "http://127.0.0.1:1"}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("no service: %v", err)

@@ -208,15 +208,16 @@ func TestVisible(t *testing.T) {
 	notFound := problem.NotFoundOf("thing")
 	boom := errors.New("boom")
 	cases := []struct {
-		name string
-		err  error
-		le   uuid.UUID
-		want error
+		name    string
+		err     error
+		le      uuid.UUID
+		want    error
+		message string // the error's text, when it is wrapped
 	}{
-		{"accessible", nil, mine, nil},
-		{"other company", nil, other, notFound},
-		{"no row", fmt.Errorf("scan: %w", pgx.ErrNoRows), mine, notFound},
-		{"read error", boom, mine, boom},
+		{"accessible", nil, mine, nil, ""},
+		{"other company", nil, other, notFound, ""},
+		{"no row", fmt.Errorf("scan: %w", pgx.ErrNoRows), mine, notFound, ""},
+		{"read error", boom, mine, boom, "read thing " + id.String() + ": boom"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -224,11 +225,10 @@ func TestVisible(t *testing.T) {
 			if !errors.Is(got, c.want) {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
+			if c.message != "" && got.Error() != c.message {
+				t.Errorf("message: got %q, want %q", got, c.message)
+			}
 		})
-	}
-	got := authz.Visible(boom, access, mine, notFound, "read thing %s", id)
-	if want := "read thing " + id.String() + ": boom"; got.Error() != want {
-		t.Errorf("read error: got %q, want %q", got, want)
 	}
 }
 
