@@ -396,9 +396,14 @@ func TestBuildRenderAndRerun(t *testing.T) {
 	spec := salesSpec(r.ID)
 	ytd26, _, _ := r.sum("revenue", map[string]string{"fiscal_year": "2026"})
 	spec.Commentary = "Revenue for January to September 2026 was " + formatValue(ytd26, r.Columns[2]) + "."
+	built := time.Date(2026, 10, 2, 8, 30, 0, 0, time.UTC)
+	s.Now = func() time.Time { return built }
 	rep, problems := s.Build(spec, "agent:analytics")
 	if len(problems) > 0 {
 		t.Fatalf("valid spec rejected: %v", problems)
+	}
+	if !rep.CreatedAt.Equal(built) {
+		t.Errorf("created at: got %v, want %v", rep.CreatedAt, built)
 	}
 
 	// Invented numbers are rejected.
@@ -419,7 +424,7 @@ func TestBuildRenderAndRerun(t *testing.T) {
 		t.Fatal(err)
 	}
 	html, _ := os.ReadFile(path)
-	for _, want := range []string{"Revenue: Jan–Sep 2026", "<svg", "Monthly comparison", "How these numbers were computed", formatValue(ytd26, r.Columns[2])} {
+	for _, want := range []string{"Revenue: Jan–Sep 2026", "<svg", "Monthly comparison", "Generated 2026-10-02 08:30 UTC", "How these numbers were computed", formatValue(ytd26, r.Columns[2])} {
 		if !bytes.Contains(html, []byte(want)) {
 			t.Errorf("rendered page missing %q", want)
 		}

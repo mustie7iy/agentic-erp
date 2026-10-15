@@ -11,18 +11,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // Render writes the dashboard as a self-contained HTML page (inline CSS and
 // SVG, no scripts) that can be opened, emailed or archived as-is. It
 // validates the spec against the results first and writes nothing for an
 // invalid one, so the drawing below can rely on every query, column and
-// sum the spec names.
-func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal) error {
+// sum the spec names. now is the page's generation time (clock.Now: nil
+// reads the wall clock).
+func Render(w io.Writer, s *Spec, results map[string]*Result, p Principal, now func() time.Time) error {
 	if problems := s.Validate(results); len(problems) > 0 {
 		return fmt.Errorf("analytics: render: invalid spec: %s", strings.Join(problems, "; "))
 	}
-	v := view{Spec: s, Principal: p.ID, Generated: time.Now().UTC().Format("2006-01-02 15:04 UTC")}
+	v := view{Spec: s, Principal: p.ID, Generated: clock.Now(now).UTC().Format("2006-01-02 15:04 UTC")}
 	v.Tiles = tileViews(s, results)
 	for _, c := range s.Charts {
 		v.Charts = append(v.Charts, chartView{Title: c.Title, SVG: template.HTML(chartSVG(c, results[c.QueryID]))}) // #nosec G203 -- SVG built by chartSVG from numbers and escaped labels, never from raw input

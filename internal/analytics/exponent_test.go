@@ -104,7 +104,7 @@ func TestMoneyKeepsTheCurrencyExponent(t *testing.T) {
 			t.Fatalf("spec: %v", problems)
 		}
 		var b bytes.Buffer
-		if err := Render(&b, spec, results, Principal{ID: "u"}); err != nil {
+		if err := Render(&b, spec, results, Principal{ID: "u"}, nil); err != nil {
 			t.Fatal(err)
 		}
 		page := b.String()

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // Session holds the results of one conversation with the analytics agent,
@@ -18,6 +20,9 @@ type Session struct {
 	Facts     *Facts
 	Principal Principal
 	Results   map[string]*Result
+	// Now is the clock reports are built and rendered with; nil reads the
+	// wall clock (clock.Now).
+	Now func() time.Time
 }
 
 func NewSession(m *Model, f *Facts, p Principal) *Session {
@@ -45,6 +50,9 @@ type Report struct {
 	Queries   map[string]Query `json:"queries"`
 	CreatedAt time.Time        `json:"created_at"`
 	CreatedBy string           `json:"created_by"`
+	// Now is the clock the page is rendered with; nil reads the wall
+	// clock (clock.Now). It is not saved with the report.
+	Now func() time.Time `json:"-"`
 }
 
 // Build validates a spec against the session's results and turns it into a
@@ -56,7 +64,7 @@ func (s *Session) Build(spec Spec, createdBy string) (*Report, []string) {
 	}
 	rep := &Report{
 		Question: spec.Question, Principal: s.Principal, Spec: spec, Queries: map[string]Query{},
-		CreatedAt: time.Now().UTC(), CreatedBy: createdBy,
+		CreatedAt: clock.Now(s.Now).UTC(), CreatedBy: createdBy, Now: s.Now,
 	}
 	for id, r := range used {
 		rep.Queries[id] = r.Query
@@ -183,7 +191,7 @@ func (rep *Report) Save(dir string, results map[string]*Result) (htmlPath string
 	// Rendered first, so a spec that does not validate against the results
 	// leaves nothing behind.
 	var page bytes.Buffer
-	if err := Render(&page, &rep.Spec, results, rep.Principal); err != nil {
+	if err := Render(&page, &rep.Spec, results, rep.Principal, rep.Now); err != nil {
 		return "", fmt.Errorf("analytics: save report %s: %w", rep.ID, err)
 	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {

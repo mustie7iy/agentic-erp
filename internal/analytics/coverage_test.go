@@ -715,7 +715,7 @@ func TestSessionErrorPaths(t *testing.T) {
 	}
 	_, err = rep.Save(htmlDir, ok.Results)
 	pgtest.WantErr(t, err, "analytics: save report "+rep.ID+" page")
-	pgtest.WantErr(t, Render(failWriter{}, &rep.Spec, ok.Results, rep.Principal), "analytics: render page")
+	pgtest.WantErr(t, Render(failWriter{}, &rep.Spec, ok.Results, rep.Principal, nil), "analytics: render page")
 
 	// Rerun: a query that no longer runs, and a spec that no longer validates.
 	broken := &Report{Spec: salesSpec("monthly"), Queries: map[string]Query{"monthly": {Measures: []string{"gone"}}}}
@@ -755,7 +755,7 @@ func TestRenderRefusesAnInvalidSpec(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var b strings.Builder
-			pgtest.WantErr(t, Render(&b, &spec, results, Principal{ID: "u"}), "analytics: render: invalid spec")
+			pgtest.WantErr(t, Render(&b, &spec, results, Principal{ID: "u"}, nil), "analytics: render: invalid spec")
 			if b.Len() != 0 {
 				t.Errorf("got %d bytes written, want none", b.Len())
 			}

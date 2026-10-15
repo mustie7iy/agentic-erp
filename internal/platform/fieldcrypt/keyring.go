@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -136,6 +137,9 @@ type Keyring struct {
 	// inside one, the request's transaction is used.
 	Pool    *database.Pool
 	AppRole string
+	// Now is the clock rotations are dated with; nil reads the wall clock
+	// (clock.Now).
+	Now func() time.Time
 
 	mu     sync.Mutex
 	active map[uuid.UUID]*tenantKey // by tenant
@@ -407,7 +411,7 @@ func (r *Keyring) Rotate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rota
 	if err != nil {
 		return Rotation{}, err
 	}
-	rot := Rotation{KeyID: k.id, Master: r.Masters[0].ID(), At: time.Now().UTC()}
+	rot := Rotation{KeyID: k.id, Master: r.Masters[0].ID(), At: clock.Now(r.Now).UTC()}
 	if previous != nil {
 		rot.Previous = previous.id
 	}

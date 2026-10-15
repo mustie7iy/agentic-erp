@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -229,10 +230,15 @@ func TestRotationResealsEveryColumn(t *testing.T) {
 		t.Fatalf("house bank not on the legacy key: %v", before[0])
 	}
 	var rot fieldcrypt.Rotation
+	rotated := time.Date(2026, 10, 2, 8, 30, 0, 0, time.UTC)
+	r.Now = func() time.Time { return rotated }
 	inTenant(t, r, e.Tenant.ID, func(ctx context.Context, tx pgx.Tx) (err error) {
 		rot, err = r.Rotate(ctx, tx, e.Tenant.ID)
 		return err
 	})
+	if !rot.At.Equal(rotated) {
+		t.Errorf("first rotation time: got %v, want %v", rot.At, rotated)
+	}
 	if rot.Previous != uuid.Nil {
 		t.Errorf("first rotation previous key: got %v, want none", rot.Previous)
 	}
