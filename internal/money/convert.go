@@ -31,7 +31,7 @@ func Convert(amount Minor, rate string, fromExp, toExp int) (Minor, error) {
 // a converted amount with a configured one, where rounding to the other
 // currency's digits first would let 5.004 pass a limit of 5.00 (F13).
 func Exact(amount Minor, rate string, fromExp int) (*big.Rat, error) {
-	r, err := parsePlain(rate)
+	r, err := ParsePlain(rate)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +46,7 @@ func Exact(amount Minor, rate string, fromExp int) (*big.Rat, error) {
 // price unit. The factor is a plain decimal such as "2.5" or "-1"; the
 // divisor is positive. A result out of range is ErrOverflow, never wrapped.
 func Scale(amount Minor, factor string, divisor int64) (Minor, error) {
-	f, err := parsePlain(strings.TrimPrefix(factor, "-"))
+	f, err := ParsePlain(strings.TrimPrefix(factor, "-"))
 	if err != nil {
 		return 0, err
 	}
@@ -84,9 +84,12 @@ func Rat(m Minor, exp int) *big.Rat {
 // pow10 is 10^n for n >= 0.
 func pow10(n int) *big.Int { return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil) }
 
-// parsePlain accepts only plain non-negative decimals: big.Rat would also take
-// fractions and exponents ("1e1000000"), whose expansion is unbounded.
-func parsePlain(s string) (*big.Rat, error) {
+// ParsePlain reads a plain non-negative decimal, the grammar Convert and
+// Scale read: digits and an optional "." with digits. big.Rat alone would
+// also take fractions ("1/3") and exponents ("1e1000000", whose expansion
+// is unbounded); validate a rate or factor with ParsePlain before storing
+// it, so what is stored is what Convert will read.
+func ParsePlain(s string) (*big.Rat, error) {
 	if _, _, ok := plainParts(s); !ok {
 		return nil, fmt.Errorf("money: invalid rate or factor %q: want a plain decimal", s)
 	}

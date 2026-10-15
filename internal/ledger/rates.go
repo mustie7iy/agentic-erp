@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -93,9 +93,12 @@ func CreateRate(ctx context.Context, in NewRate) (Rate, error) {
 		return Rate{}, problem.Unprocessable("ledger.same_currency", "A rate converts between two different currencies.",
 			problem.FieldError{Field: "to_currency", Code: "same_currency", Message: "a currency other than from_currency"})
 	}
-	if r, ok := new(big.Rat).SetString(in.Rate); !ok || r.Sign() <= 0 {
-		return Rate{}, problem.Unprocessable("ledger.invalid_rate", "A rate is positive.",
-			problem.FieldError{Field: "rate", Code: "not_positive", Message: "units of to_currency per unit of from_currency, above zero"})
+	// Money's plain grammar, as the API's Decimal pattern has it, for any
+	// caller: big.Rat would also take "1/3", which the database then
+	// refuses as an invalid value, and exponents, "1e1000000" unbounded.
+	if r, err := money.ParsePlain(in.Rate); err != nil || r.Sign() <= 0 {
+		return Rate{}, problem.Unprocessable("ledger.invalid_rate", "A rate is a plain positive decimal.",
+			problem.FieldError{Field: "rate", Code: "not_positive", Message: "units of to_currency per unit of from_currency, above zero, as digits with an optional decimal point"})
 	}
 	r, err := scanRate(tx.QueryRow(ctx, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9) RETURNING `+rateColumns,

@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -117,6 +118,29 @@ func TestFiscalPeriods(t *testing.T) {
 	agent := e.Client
 	agent.As = e.ten.Agent
 	agent.Problem(404, "request.not_found", "GET", "/v1/fiscal-periods/"+id, "", "")
+}
+
+// A rate is a plain positive decimal, the grammar money.Convert reads: a
+// fraction or an exponent, which big.Rat would read, is refused by
+// CreateRate itself, not only by the API's Decimal pattern.
+func TestCreateRateRefusesRatesNotPlain(t *testing.T) {
+	e := setup(t)
+	for _, rate := range []string{"1/3", "1e9", "-1", " 1", ".5", "x"} {
+		t.Run(rate, func(t *testing.T) {
+			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+				_, err := ledger.CreateRate(ctx, ledger.NewRate{RateType: "average", FromCurrency: "USD", ToCurrency: "GBP",
+					ValidFrom: date("2026-01-01"), Rate: rate, Source: "x"})
+				return err
+			})
+			p := problem.From(err)
+			if p.Code != "ledger.invalid_rate" {
+				t.Errorf("code: got %q (%v), want ledger.invalid_rate", p.Code, err)
+			}
+			if p.Status != 422 {
+				t.Errorf("status: got %d, want 422", p.Status)
+			}
+		})
+	}
 }
 
 func TestExchangeRates(t *testing.T) {
