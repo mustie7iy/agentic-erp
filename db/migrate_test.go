@@ -245,7 +245,7 @@ func (c deadPeer) Write(b []byte) (int, error) {
 	if bytes.Contains(b, []byte("pg_advisory_unlock")) {
 		return len(b), nil
 	}
-	return c.Conn.Write(b) //nolint:wrapcheck // a pass-through connection: pgx sees the socket's own error
+	return c.Conn.Write(b)
 }
 
 // TestMigrateReturnsWhenTheUnlockGetsNoAnswer: a server that stops

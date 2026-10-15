@@ -113,7 +113,7 @@ func (a *Approvals) Escalate(ctx context.Context, in EscalateInput) (bool, error
 		Name: fmt.Sprintf("workflows: escalate approval request %s", in.RequestID)}.Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		still, err := approvals.Escalate(ctx, tx, in.TenantID, in.RequestID, in.Prior, clock.Now(a.Now).UTC())
 		if errors.Is(err, approvals.ErrEscalationCount) {
-			return false, temporal.NewNonRetryableApplicationError(err.Error(), "EscalationCount", err) //nolint:wrapcheck // constructs the engine's error with err as its cause; nothing to wrap
+			return false, temporal.NewNonRetryableApplicationError(err.Error(), "EscalationCount", err)
 		}
 		if err != nil {
 			return false, err
