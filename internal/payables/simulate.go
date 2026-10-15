@@ -266,10 +266,17 @@ type Verdict struct {
 // decide is the invoice flow's decision under a company's limits, the one
 // rule the match, simulations and regression suites apply (F12b), with the
 // match issues. An invoice that cannot be converted into the company's
-// currency is not evaluable; one with issues is an exception; a clean one
+// currency is not evaluable, and without a rate not matched either; one
+// with issues is an exception; a clean one
 // is posted automatically when its gross amount in the company's currency
 // is within the auto-post limit, compared exactly, and reviewed above it.
 func decide(lim limits, r replayed) (Verdict, []Issue) {
+	// Without a rate there is no conversion to evaluate the variances with,
+	// so the invoice is not matched at all. A gross amount out of range has
+	// a conversion: its items are matched, as a match records them (F12).
+	if r.noRate != nil {
+		return Verdict{DecisionNotEvaluable, r.unevaluableCode}, nil
+	}
 	issues := evaluate(r.Invoice, r.Order, r.Invoiced, lim, r.Conversion)
 	if r.Unevaluable != "" {
 		return Verdict{DecisionNotEvaluable, r.unevaluableCode}, issues

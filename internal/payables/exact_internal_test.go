@@ -1,6 +1,7 @@
 package payables
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 
@@ -56,5 +57,26 @@ func TestAutoPostLimitComparedExactly(t *testing.T) {
 				t.Errorf("decision: got %s (%s), want %s", got.Outcome, got.Reason, want)
 			}
 		})
+	}
+}
+
+// Without a rate an invoice is not matched at all (F13): there is no
+// conversion to compare its variances with. Before, decide evaluated it
+// with a zero conversion and then dropped the issues it found.
+func TestNoRateIsNotEvaluated(t *testing.T) {
+	no := int32(1)
+	r := replayed{
+		Invoice:         Invoice{Exponent: 2, Gross: 500, Items: []Item{{ItemNo: 1, POItemNo: &no, Quantity: "1", Amount: 500}}},
+		Order:           procurement.Order{Status: "closed", Items: []procurement.OrderItem{{ItemNo: 1, UnitPrice: 100, PriceUnit: 1, Received: "1"}}},
+		Unevaluable:     "no average exchange rate from USD to EUR on 2026-03-10",
+		unevaluableCode: "no_exchange_rate",
+		noRate:          errors.New("no rate"),
+	}
+	got, issues := decide(noLimits(t), r)
+	if got.Outcome != DecisionNotEvaluable {
+		t.Errorf("decision: got %s, want %s", got.Outcome, DecisionNotEvaluable)
+	}
+	if issues != nil {
+		t.Errorf("issues: got %v, want none evaluated", issues)
 	}
 }
