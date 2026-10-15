@@ -299,7 +299,6 @@ func TestInvoicesErrors(t *testing.T) {
 		"invoice aborted":    {routes{"GET " + invoicePath: {aborted}}, "EOF"},
 		"match aborted":      {routes{"POST " + invoicePath + ":match": {aborted}}, "EOF"},
 		"match failed":       {routes{"POST " + invoicePath + ":match": {{500, `{"code": "internal"}`}}}, "invoice 5101: API 500"},
-		"reread aborted":     {routes{"GET " + invoicePath: {ok(`{}`), aborted}}, "EOF"},
 		"post aborted":       {routes{"POST " + invoicePath + ":post": {aborted}}, "EOF"},
 		"post refused":       {routes{"POST " + invoicePath + ":post": {{409, `{"code": "payables.period_closed"}`}}}, "period_closed"},
 		"agent cannot start": {routes{"GET /v1/supplier-invoices": {ok(`{"items": []}`), aborted}}, "EOF"},

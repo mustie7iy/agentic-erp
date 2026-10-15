@@ -51,7 +51,9 @@ type settled struct{ posted, held, parked []string }
 // evaluate is held for a person, and the match holds the others itself,
 // opening their exception requests. Without a decision it knows (an older
 // server, a new outcome), or when the server refuses the match (422, e.g.
-// no exchange rate), the invoice is left parked; the rule never compares
+// no exchange rate), or when the invoice changed between its match and the
+// post or hold (412: the server acts only on the matched version), the
+// invoice is left parked; the rule never compares
 // amounts itself. With -agent, the exceptions agent then
 // investigates the held invoices.
 func invoices(ctx context.Context, args []string) error {
@@ -95,10 +97,13 @@ func invoices(ctx context.Context, args []string) error {
 	return nil
 }
 
-// settle matches one invoice, shows the server's decision and acts on it.
+// settle matches one invoice, shows the server's decision and acts on it,
+// on the version it matched: the server posts only the version its latest
+// match evaluated (F13), and an invoice changed since is refused (412) and
+// left parked.
 func settle(ctx context.Context, c *apitools.Client, w io.Writer, inv parkedInvoice, done *settled) error {
 	path := "/v1/supplier-invoices/" + inv.ID
-	m, err := matchInvoice(ctx, c, path, inv)
+	m, tag, err := matchInvoice(ctx, c, path, inv)
 	var refused *apitools.Error
 	if errors.As(err, &refused) && refused.Status == http.StatusUnprocessableEntity {
 		// The server refuses to match this invoice (no exchange rate, no
@@ -121,54 +126,64 @@ func settle(ctx context.Context, c *apitools.Client, w io.Writer, inv parkedInvo
 	}
 	d := *m.Decision
 	fmt.Fprintf(w, "%s: %s (%s)\n", inv.DocumentNumber, d.Outcome, d.Reason)
+	act := func(list *[]string, listed, action string, body any) error {
+		return done.listIfDone(w, list, inv.DocumentNumber, listed, settleInvoice(ctx, c, path, inv, action, body, tag))
+	}
 	switch d.Outcome {
 	case "auto_post":
-		return listIfDone(&done.posted, inv.DocumentNumber, settleInvoice(ctx, c, path, inv, "post", nil))
+		return act(&done.posted, inv.DocumentNumber, "post", nil)
 	case "review":
-		return listIfDone(&done.held, inv.DocumentNumber+" (review)",
-			settleInvoice(ctx, c, path, inv, "hold", map[string]string{"reason": "Above the auto-post limit; a person posts it."}))
+		return act(&done.held, inv.DocumentNumber+" (review)", "hold", map[string]string{"reason": "Above the auto-post limit; a person posts it."})
 	case "not_evaluable":
-		return listIfDone(&done.held, inv.DocumentNumber+" (not_evaluable: "+d.Reason+")",
-			settleInvoice(ctx, c, path, inv, "hold", map[string]string{"reason": "The auto-post rule cannot evaluate it (" + d.Reason + "); a person posts it."}))
+		return act(&done.held, inv.DocumentNumber+" (not_evaluable: "+d.Reason+")", "hold",
+			map[string]string{"reason": "The auto-post rule cannot evaluate it (" + d.Reason + "); a person posts it."})
 	}
 	done.parked = append(done.parked, inv.DocumentNumber)
 	return nil
 }
 
-// listIfDone lists an invoice once the action on it succeeded (err nil).
-func listIfDone(list *[]string, invoice string, err error) error {
+// listIfDone lists an invoice (as listed) once the action on it succeeded
+// (err nil). An invoice changed since its match (412) is left parked for
+// the next run, which matches it again; other errors stop the rule.
+func (done *settled) listIfDone(w io.Writer, list *[]string, invoice, listed string, err error) error {
+	var refused *apitools.Error
+	if errors.As(err, &refused) && refused.Status == http.StatusPreconditionFailed {
+		fmt.Fprintf(w, "%s: changed since its match; left parked\n", invoice)
+		done.parked = append(done.parked, invoice+" (changed since its match)")
+		return nil
+	}
 	if err == nil {
-		*list = append(*list, invoice)
+		*list = append(*list, listed)
 	}
 	return err
 }
 
 // matchInvoice matches the invoice at path against its order, on its
-// current version, and returns the match with the server's decision.
-func matchInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice) (matched, error) {
-	got, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
+// current version, and returns the match with the server's decision and
+// the ETag the match was sent with: the version the decision is for.
+func matchInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice) (matched, string, error) {
+	cur, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
 	if err != nil {
-		return matched{}, err
+		return matched{}, "", err
 	}
-	resp, err := c.Do(ctx, http.MethodPost, path+":match", nil, nil, got.ETag)
+	resp, err := c.Do(ctx, http.MethodPost, path+":match", nil, nil, cur.ETag)
 	if err != nil {
-		return matched{}, err
+		return matched{}, "", err
 	}
 	var m matched
 	if err := resp.Decode(&m); err != nil {
-		return matched{}, fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
+		return matched{}, "", fmt.Errorf("invoice %s: %w", inv.DocumentNumber, err)
 	}
-	return m, nil
+	return m, cur.ETag, nil
 }
 
-// settleInvoice posts or holds (action) the matched invoice at path, on
-// its version after the match.
-func settleInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice, action string, body any) error {
-	got, err := c.Do(ctx, http.MethodGet, path, nil, nil, "")
-	if err != nil {
-		return err
-	}
-	resp, err := c.Do(ctx, http.MethodPost, path+":"+action, nil, body, got.ETag)
+// settleInvoice posts or holds (action) the matched invoice at path with
+// tag, the ETag its match was sent with: a clean match of a parked invoice
+// leaves its version unchanged, so the tag holds unless the invoice was
+// changed since, which the server refuses (412) rather than act on what was
+// not matched.
+func settleInvoice(ctx context.Context, c *apitools.Client, path string, inv parkedInvoice, action string, body any, tag string) error {
+	resp, err := c.Do(ctx, http.MethodPost, path+":"+action, nil, body, tag)
 	if err != nil {
 		return err
 	}
