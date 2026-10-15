@@ -243,6 +243,8 @@ func (rc *reconciler) vendors(ctx context.Context, s companyScope) error {
 		}
 		sapVendors++
 		if id, ok := rc.r["LFA1/"+v.LIFNR]; ok {
+			// A partner not found is not set up (SetUp is false), so it is
+			// not counted, which the comparison then reports.
 			sup, _, err := rc.e.Suppliers.Supplier(ctx, id, s.le)
 			if err != nil {
 				return err
