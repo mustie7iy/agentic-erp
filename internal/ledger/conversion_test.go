@@ -23,6 +23,7 @@ func TestRatesPort(t *testing.T) {
 	e := setup(t)
 	e.rate(t, "USD", "EUR", "2026-01-01", "0.9")
 	e.rate(t, "EUR", "JPY", "2026-01-01", "160")
+	e.rate(t, "EUR", "CHF", "2026-01-01", "0.96") // only EUR into CHF: CHF converts at 1/0.96
 	rates := ledger.Rates{LegalEntities: tenancy.Directory{}}
 	toCompany := func(le uuid.UUID, currency, day string, amount money.Minor) (money.Minor, int, error) {
 		var v money.Minor
@@ -38,8 +39,9 @@ func TestRatesPort(t *testing.T) {
 		amount, want   money.Minor
 	}{
 		{"same currency", "EUR", 12345, 12345},
-		{"rate", "USD", 1111111, 1000000},   // 11,111.11 USD at 0.9: 9,999.999 EUR, rounded
-		{"inverted rate", "JPY", 1000, 625}, // 1,000 JPY at 1/160: 6.25 EUR
+		{"rate", "USD", 1111111, 1000000},                  // 11,111.11 USD at 0.9: 9,999.999 EUR, rounded
+		{"inverted rate", "JPY", 1000, 625},                // 1,000 JPY at 1/160: 6.25 EUR
+		{"inverted repeating rate", "CHF", 100000, 104167}, // 1,000.00 CHF at 1/0.96 = 1.041666666667: 1,041.67 EUR
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, exp, err := toCompany(e.de, c.currency, "2026-03-10", c.amount)
@@ -74,9 +76,26 @@ func TestRatesPort(t *testing.T) {
 			}
 		})
 	}
-	if _, _, err := toCompany(uuid.New(), "EUR", "2026-03-10", 1); err == nil {
-		t.Error("unknown legal entity: got no error, want one")
+	// Callers pass the legal entity of a stored document, so this is a
+	// refusal of the request rather than a server error should it happen.
+	if _, _, err := toCompany(uuid.New(), "EUR", "2026-03-10", 1); problem.From(err).Code != "request.reference_not_found" {
+		t.Errorf("unknown legal entity: got %v, want request.reference_not_found", err)
 	}
+	t.Run("inverse rate", func(t *testing.T) {
+		var c ledger.Conversion
+		err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+			c, err = rates.Conversion(ctx, "CHF", "EUR", date("2026-03-10"))
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The inverse of the recorded rate, rounded to 12 places as posting
+		// rounds it; never the recorded 0.96 read the wrong way round.
+		if c.Rate != "1.041666666667" {
+			t.Errorf("rate: got %s, want 1.041666666667", c.Rate)
+		}
+	})
 	if _, err := rates.Conversion(context.Background(), "USD", "EUR", date("2026-03-10")); err == nil {
 		t.Error("outside a unit of work: got no error, want one")
 	}

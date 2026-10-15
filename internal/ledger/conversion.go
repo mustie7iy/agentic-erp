@@ -82,18 +82,21 @@ func (Rates) Conversion(ctx context.Context, from, to string, date time.Time) (C
 	return c, nil
 }
 
-// ToCompany converts an amount in the currency into the legal entity's
-// local currency at the rate valid on the date, and returns it with that
-// currency's minor-unit digits.
-func (r Rates) ToCompany(ctx context.Context, legalEntity uuid.UUID, currency string, date time.Time, amount money.Minor) (money.Minor, int, error) {
+// ToCompany converts an amount in the currency from into the legal
+// entity's local currency at the rate valid on the date, and returns it
+// with that currency's minor-unit digits. Callers pass the legal entity of
+// a stored document, which always exists; an unknown one is still refused
+// as the reference it is rather than failing the request.
+func (r Rates) ToCompany(ctx context.Context, legalEntity uuid.UUID, from string, date time.Time, amount money.Minor) (money.Minor, int, error) {
 	le, ok, err := r.LegalEntities.Entity(ctx, legalEntity)
 	if err != nil {
 		return 0, 0, fmt.Errorf("ledger: convert into the currency of legal entity %s: %w", legalEntity, err)
 	}
 	if !ok {
-		return 0, 0, fmt.Errorf("ledger: convert into the currency of legal entity %s: no such legal entity", legalEntity)
+		return 0, 0, problem.Unprocessable("request.reference_not_found", "No legal entity with this id.",
+			problem.FieldError{Field: "legal_entity_id", Code: "not_found", Message: "no legal entity with this id"})
 	}
-	c, err := r.Conversion(ctx, currency, le.LocalCurrency, date)
+	c, err := r.Conversion(ctx, from, le.LocalCurrency, date)
 	if err != nil {
 		return 0, 0, err
 	}
