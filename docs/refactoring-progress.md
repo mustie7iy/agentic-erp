@@ -11,6 +11,9 @@ with no blocking defects (8.2 when Phase 7 began). Final gates: lint 1238 → 0 
 coverage 17,510 of 17,510, make test across 71 packages, 8 fuzz targets, and -race
 -shuffle=on -count=3. Work returns to tracker items (CLAUDE.md, layer 4).
 
+The open items below moved into `docs/tracker.json`, the only plan, as steps T30, T31, T42
+and T44 of docs/design/07-transition.md §7.6.
+
 Recommended next items, by priority:
 1. An additive `invoice_version` on MatchResult and SupplierInvoiceMatched, and
    `external_issuer` in the API schema; `erp invoices` exits non-zero when a match is refused

@@ -1636,3 +1636,95 @@ the API), exactly as it will for every client.
 infrastructure) holds the platform items for T1, and each functional module
 gets "on foundation" items for its context's step. A Phase 1 feature counts as
 done again only when it runs on the foundation through the API.
+
+`docs/tracker.json` is the only plan. The refactoring programme
+(`refactor/quality-9.5`, merged on 2026-10-15) is recorded there as one done item;
+its open contract steps and follow-ups moved into the modules they belong to, and
+each planned item carries the step that builds it (T0, T30–T47). Items without a
+step stay planned until a later step is drafted for them.
+
+## 7.6 After the transition: completing Phase 1 (T30–T47, draft)
+
+T1–T29 moved Phase 1 onto the foundation. These steps finish what Phase 1 still
+needs for a pilot company code: the refactoring follow-ups first, then the
+accounting it lacks, then security, deployment and recovery, then agents, banks
+and the rest of procure-to-pay. The draft awaits the product owner's approval;
+the order may change, the bar in §7.7 may not.
+
+T0 (design approval) is still open: the product owner confirms the six modelling
+assumptions, decides each ADR, and has the data model reviewed by a finance/SAP
+expert. It is a review, not code, and runs alongside T30–T31.
+
+| Step | Work | Exit criterion |
+|---|---|---|
+| T30 | **Refactoring follow-ups in the contract** (additive) | `invoice_version` on the match result and on `SupplierInvoiceMatched`; `external_issuer` on principals in `openapi.yaml` and `control.yaml`; `erp invoices` exits non-zero when a match is refused and 0 when invoices are only parked; the breaking-change check passes without an accepted entry |
+| T31 | **Deferred contract-step migrations** | F5b (reservations reconciled with live runs), F8b (`check_entry_period` reads the period `FOR SHARE`), the F7 follow-up (issuer check, re-backfill, `VALIDATE`, `principal_subject` dropped), the `NOT VALID` checks of 000040 and 000041 validated, and `legal_entity.local_currency` guarded; each rule with a schema test, every migration reverting cleanly |
+| T32 | **Period lock** | Periods move open → closed → locked; a locked period refuses postings, reversals and clearings in the database and through the API; unlocking is a decision on an approval request; the `locked` status already in `ledger.period_status` is used, not a new one |
+| T33 | **GR/IR clearing** | A goods receipt posts Dr expense (or stock) / Cr GR/IR at the order price; its reversal (102) reverses that; the invoice posts Dr GR/IR for the received quantity with the price difference on its own line; the open GR/IR balance per order line can be listed and is zero once received and invoiced quantities agree |
+| T34 | **Supplier credit memos and subsequent debits** | Credit memos and subsequent debits captured, matched to their invoice or order, posted and reversed through the API; a credit memo nets in payment proposals and never pays out alone |
+| T35 | **Manual journal entries with approval** | People post manual entries through the API above a configured amount only after approval by someone else (SoD); below it they post directly; both audited; agents can propose, never post |
+| T36 | **Cash discount on early payment** | Payment terms carry discount tiers; the proposal takes the discount when it pays within a tier and posts it to `cash_discount`; the bank file and clearing carry the discounted amount exactly |
+| T37 | **Single sign-on** | A per-tenant identity provider registry (OIDC discovery per tenant), multi-factor required through the provider's `acr`/`amr` claims where the tenant demands it, session lifetime and idle timeout enforced; production refuses to start without a registered issuer |
+| T38 | **Transport and storage encryption** | TLS on every connection (PostgreSQL, NATS, Temporal, object storage, between router and cells) with production refusing plaintext; service and agent identities over mTLS; encryption at rest stated per environment and checked at start |
+| T39 | **Container image and releases** | A distroless image per binary, reproducible, with an SBOM and a signature checked before deployment; semantic release versions and a changelog generated from the commit history |
+| T40 | **Environments and delivery** | Helm chart and Terraform for dev, test, staging and production; continuous delivery with an approval before production and a tested rollback; migrations run once per release by the runner's lock |
+| T41 | **Backups and recovery** | Backups with point-in-time recovery; a disaster recovery plan meeting the RPO/RTO of 01 §1.3 proven by a restore drill; a database failover drill under load answered as retryable 503s |
+| T42 | **Agents and model gateway** | An ADR on agents and LLM use (permitted actions, approval points, budgets, audit, data sent to models), accepted before the code; model routing, cost per agent, spend caps and a kill switch per tenant |
+| T43 | **Live model evaluations** | Evaluation suites per agent (capture, AP exceptions, configuration, migration, test, analytics) against the live API, recorded per model version; autonomy is promoted only on the criteria the suites set |
+| T44 | **Bank transmission** | SFTP and EBICS connectors behind `payments.Connector`, credentials by secret reference; retry policies for integrations; a sweep removes bank files a cancelled release left in object storage |
+| T45 | **Several house banks and payment methods** | A run pays through the house bank and method each supplier's terms and the ranking in configuration choose; one bank file per house bank and method |
+| T46 | **Down payments and withholding tax** | Down payment requests and payments on special G/L items, cleared against the final invoice; withholding tax computed by code and posted at invoice or payment as configured |
+| T47 | **Purchase order lifecycle** | Changes to released orders as versions with their approval; a release strategy for orders without a requisition; contract expiry and renewal alerts; returns to the supplier with their goods movement |
+
+Lock-contention relief (a large proposal holds most of its tenant's buckets; a
+period close can be starved) is tracked but has no step: it is taken up only if
+real load shows it.
+
+## 7.7 How each step is built
+
+The refactoring programme raised the codebase to 9.5/10 (architecture, error
+handling, concurrency and tenancy, SQL, tests, readability, duplication, money).
+Every step from T30 on is held to the same bar; a step that would lower it is not
+done. CLAUDE.md states the conventions; this is the loop that applies them.
+
+1. **Scope.** One step at a time, on its own branch from `main`, its exit
+   criterion and tracker items written down before the code. Changes to the API
+   contract, a migration or an ADR are proposed to the product owner and wait for
+   approval. A step too large for reviewable commits (about 400 changed lines,
+   unless mechanical) is split into T<n>a, T<n>b.
+2. **Behaviour and refactoring apart.** A refactoring commit never changes
+   behaviour. A bug found on the way is noted and fixed as its own commit with a
+   test that fails before the fix; the failing output is copied, not described.
+3. **Design rules.** Tenancy through RLS only; money as `money.Minor`; state
+   changes `FOR UPDATE` or version-guarded; external effects through the outbox;
+   an audit record per change; errors wrapped with context or returned as
+   `problem.*`; security settings fail closed in production; no helper copied
+   between packages; no new cross-context import without a published interface
+   and, if a direction changes, an ADR.
+4. **Workflows.** Every activity is idempotent with a run-twice test; workflow
+   logic changes behind `workflow.GetVersion`, branched on, with a replay test of
+   histories recorded from the code before the change.
+5. **Schema.** New numbered migrations only, expand → migrate → contract, `tenant_id`
+   leading every key, RLS on every table, a schema test for every rule the database
+   enforces, and every migration reverting cleanly.
+6. **Integration.** Contract first: `openapi.yaml`, `control.yaml` and
+   `asyncapi.yaml` change before the code and `api/gen` is regenerated, never edited;
+   every write takes an idempotency key; events are CloudEvents through the outbox;
+   new operations are agent tools unless marked `x-agent: false`.
+7. **Performance.** New hot paths get a budget in the performance suite against
+   the targets of 01 §1.3, run in CI; a budget is never raised to make a step pass.
+8. **Gates, all green before a step is done**, run with failures visible
+   (`set -o pipefail`, never hidden by a pipe):
+   `go build ./...` · `make lint-all` at 0 issues (no `//nolint` without a linter
+   and a specific reason) · `make test` (vet and `-race`) · `make coverage` at 100% ·
+   `make fuzz` · `go test -race -shuffle=on -count=3 ./...` · `make generate` leaving
+   no diff · then CI: staticcheck, gosec, govulncheck, gitleaks, contract lint, the
+   breaking-change check and the performance budgets.
+9. **Review.** The `go-reviewer` agent reviews the step's diff and is re-run until
+   it has no blocking finding. After every few steps, and before a pilot, a fresh
+   whole-codebase review scores the eight dimensions; a dimension below 9.5 is
+   brought back before the next step starts.
+10. **Record.** Commits name the step (`<what> (T<n>)`) and end with the
+    co-author line; the tracker, the design documents and any ADR change in the
+    same commit as the code; `main` changes only through a reviewed pull request
+    merged with a merge commit; nothing is pushed without the product owner's say.
