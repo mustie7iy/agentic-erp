@@ -436,8 +436,13 @@ edited. Re-review after each group until the whole-codebase score reaches 9.5.
   into the SAP mock; ledger.CreateRate validates with money.ParsePlain (422 ledger.invalid_rate;
   1e9 and .5 were accepted). Reviewer: APPROVE. Open: CreateRate does not check digit counts
   against numeric(28,12) (only the API pattern does).
-- [ ] F16 An approved invoice exception only authorises posting the invoice version it was approved
-  at; robustness of the regression lookups and `erp invoices`
+- [x] F16 An approved invoice exception only authorises posting the invoice version it was approved
+  at: supplier_invoice.exception_version (migration 000041, expand step, check NOT VALID) is set
+  in the statement that releases the invoice; :post needs it equal to the version or a clean
+  match of the current version, NULL failing closed (409 payables.match_required). Replaying an
+  invoice refuses a missing order or legal entity with 422 instead of an empty value (it
+  panicked); `erp invoices` checks the read, leaves a gone or changed invoice parked, and settles
+  every page (apitools.List). Reviewer: changes asked (409 → 422), APPROVE.
 - [x] R62 Round-six duplication and clocks: tenancy.Accessible replaces six copies of the
   accessible-legal-entity refusal; problem.ReferenceNotFound/Reference replace the procurement and
   payments copies (one client-visible change: an unknown requisition_id on an order now reports
