@@ -329,6 +329,11 @@ func TestSubmitRefusals(t *testing.T) {
 	foreign := document(t)
 	foreign.NumberRanges = append(foreign.NumberRanges, config.NumberRange{Company: "3000", DocumentType: "payment", FiscalYear: 2026, First: 1, Last: 9})
 	refuse("unknown company", jsonOf(t, foreign), "config.validation_failed", "no legal entity has company code 3000")
+	// F14: the configured amounts are read in the company's currency and
+	// compared after conversion into the legal entity's; the two must agree.
+	dollars := document(t)
+	dollars.Companies[1].Currency = "USD"
+	refuse("currency differs from the legal entity's", jsonOf(t, dollars), "config.validation_failed", "proposed.companies[2000].currency")
 
 	e.Problem(422, "config.unknown_base_version", "POST", "/v1/change-requests", `{"title": "T", "base_version": 7, "proposed": {}}`, "")
 	e.Problem(404, "request.not_found", "GET", "/v1/change-requests/"+uuid.NewString(), "", "")

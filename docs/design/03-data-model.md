@@ -272,7 +272,14 @@ The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the invoice price tolerance
 (`invoice_tolerance.price_absolute`) and the auto-post limit
-(`auto_post_limit`). A document in another currency is converted into the
+(`auto_post_limit`). The amounts are read with the digits of the
+document's `companies[].currency`, and documents are converted into the
+legal entity's `local_currency`; the two are one currency because a
+configuration whose company currency differs from its legal entity's local
+currency is refused when it is checked, at submission and at bootstrap
+(422 `config.validation_failed`, field `proposed.companies[<code>].currency`,
+reported by the ledger's section check), and a legal entity's
+`local_currency` never changes after it is created (F14). A document in another currency is converted into the
 company's currency with the ledger's posting lookup (the latest average
 rate of the pair, inverted when only the reverse is recorded) on the
 document's date: a requisition on the day it was raised (UTC), so a
