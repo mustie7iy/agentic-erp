@@ -110,7 +110,7 @@ func requireCleanMatch(ctx context.Context, tx pgx.Tx, v Invoice) error {
 		return nil
 	case v.WorkflowRequestID != nil:
 		return problem.Conflict("payables.match_required",
-			"The invoice changed after its exception was approved; match it again, and have a new exception approved if it has issues.")
+			"The approved exception does not cover the invoice as it now stands (it changed since, or was approved by an earlier release); match it again, and have a new exception approved if it has issues.")
 	case !clean:
 		return problem.Conflict("payables.match_required",
 			"An invoice on a purchase order is posted after a clean match or an approved exception; match it first.")

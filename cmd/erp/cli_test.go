@@ -294,8 +294,10 @@ func TestInvoicesErrors(t *testing.T) {
 		r    routes
 		want string
 	}{
-		"invoices aborted":   {routes{"GET /v1/supplier-invoices": {aborted}}, "EOF"},
-		"invoices garbled":   {routes{"GET /v1/supplier-invoices": {ok(`{`)}}, "unexpected end"},
+		"invoices aborted": {routes{"GET /v1/supplier-invoices": {aborted}}, "EOF"},
+		"invoices garbled": {routes{"GET /v1/supplier-invoices": {ok(`{`)}}, "unexpected end"},
+		"page token repeated": {routes{"GET /v1/supplier-invoices": {ok(`{"items": [], "next_page_token": "p"}`)}},
+			`page token "p" repeated`},
 		"invoice aborted":    {routes{"GET " + invoicePath: {aborted}}, "EOF"},
 		"match aborted":      {routes{"POST " + invoicePath + ":match": {aborted}}, "EOF"},
 		"match failed":       {routes{"POST " + invoicePath + ":match": {{500, `{"code": "internal"}`}}}, "invoice 5101: API 500"},

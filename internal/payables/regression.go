@@ -147,7 +147,7 @@ func replay(ctx context.Context, tx pgx.Tx, src sources, v Invoice, c *replayCac
 }
 
 // entity is the invoice's legal entity. One its context does not have is
-// refused (409 payables.legal_entity_not_found), never replaced by an empty
+// refused (422 payables.legal_entity_not_found), never replaced by an empty
 // one: there is no company to take the limits and currency of. Neither it
 // nor the order below is a not_evaluable case, as a missing rate is: the
 // reference has no foreign key across contexts, but legal entities and
@@ -163,7 +163,7 @@ func (c *replayCache) entity(ctx context.Context, les LegalEntities, v Invoice) 
 		return tenancy.Entity{}, err
 	}
 	if !ok {
-		return tenancy.Entity{}, problem.Conflict("payables.legal_entity_not_found",
+		return tenancy.Entity{}, problem.Unprocessable("payables.legal_entity_not_found",
 			fmt.Sprintf("Invoice %s is for legal entity %s, which does not exist.", v.DocumentNumber, v.LegalEntityID))
 	}
 	c.companies[v.LegalEntityID] = le
@@ -171,7 +171,7 @@ func (c *replayCache) entity(ctx context.Context, les LegalEntities, v Invoice) 
 }
 
 // order is the invoice's purchase order. One its context does not have is
-// refused (409 payables.order_not_found), never replaced by an empty one,
+// refused (422 payables.order_not_found), never replaced by an empty one,
 // whose missing items the match would index.
 func (c *replayCache) order(ctx context.Context, orders Orders, v Invoice) (procurement.Order, error) {
 	if o, ok := c.orders[*v.PurchaseOrderID]; ok {
@@ -182,7 +182,7 @@ func (c *replayCache) order(ctx context.Context, orders Orders, v Invoice) (proc
 		return procurement.Order{}, err
 	}
 	if !ok {
-		return procurement.Order{}, problem.Conflict("payables.order_not_found",
+		return procurement.Order{}, problem.Unprocessable("payables.order_not_found",
 			fmt.Sprintf("Invoice %s is on purchase order %s, which does not exist.", v.DocumentNumber, *v.PurchaseOrderID))
 	}
 	c.orders[*v.PurchaseOrderID] = o

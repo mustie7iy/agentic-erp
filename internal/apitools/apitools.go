@@ -94,6 +94,10 @@ func List[T any](ctx context.Context, c *Client, path string, query url.Values) 
 		if page.NextPageToken == "" {
 			return out, nil
 		}
+		// A server answering the token it was sent would be read forever.
+		if page.NextPageToken == q.Get("page_token") {
+			return nil, fmt.Errorf("apitools: list %s: page token %q repeated", path, page.NextPageToken)
+		}
 		q.Set("page_token", page.NextPageToken)
 	}
 }

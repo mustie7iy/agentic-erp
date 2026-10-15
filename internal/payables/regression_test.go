@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -315,6 +316,9 @@ func TestReplayWithoutOrderOrEntity(t *testing.T) {
 				return err
 			})
 			pgtest.WantErr(t, err, c.code)
+			if got := problem.From(err).Status; got != 422 {
+				t.Errorf("capture status: got %d, want 422", got)
+			}
 		})
 		t.Run(c.name+" match", func(t *testing.T) {
 			h := endpoints(nil)
@@ -324,6 +328,9 @@ func TestReplayWithoutOrderOrEntity(t *testing.T) {
 				return err
 			})
 			pgtest.WantErr(t, err, c.code)
+			if got := problem.From(err).Status; got != 422 {
+				t.Errorf("match status: got %d, want 422", got)
+			}
 		})
 	}
 }

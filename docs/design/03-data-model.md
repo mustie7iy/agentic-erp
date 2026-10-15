@@ -609,7 +609,7 @@ all three: not evaluable, an exception when the match has issues, else
 whose purchase order or legal entity its context does not have (the
 references cross contexts, so no foreign key holds them, but neither is
 ever deleted) is broken data, not a case to decide: the match, a
-simulation and a suite refuse it alike (409 `payables.order_not_found`,
+simulation and a suite refuse it alike (422 `payables.order_not_found`,
 `payables.legal_entity_not_found`, F16) rather than deciding it against an
 empty order. The match
 returns it (`decision`, F12b) without storing it, as the limit and the rate
