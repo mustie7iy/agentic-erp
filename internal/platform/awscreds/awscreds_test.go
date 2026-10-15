@@ -74,6 +74,10 @@ func TestWebIdentity(t *testing.T) {
 			w.Write([]byte(`<ErrorResponse><Error><Code>AccessDenied</Code><Message>Not authorized</Message></Error></ErrorResponse>`))
 		case "garbage":
 			w.Write([]byte(`<html>`))
+		case "badexpiry":
+			w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
+				<AccessKeyId>ASIA1</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken><Expiration>soon</Expiration>
+				</Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`))
 		default:
 			w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
 				<AccessKeyId>ASIA1</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken><Expiration>2030-01-01T00:00:00Z</Expiration>
@@ -104,6 +108,11 @@ func TestWebIdentity(t *testing.T) {
 	mode.Store("garbage")
 	_, err = w.Credentials(ctx)
 	pgtest.WantErr(t, err, "not an AssumeRoleWithWebIdentity response")
+	// An expiry that does not parse is refused, not taken for "never":
+	// Cached would otherwise hold the credentials past their end.
+	mode.Store("badexpiry")
+	_, err = w.Credentials(ctx)
+	pgtest.WantErr(t, err, `expiration "soon"`)
 	mode.Store("ok")
 	if _, err := (awscreds.WebIdentity{}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("unset: %v", err)
@@ -166,6 +175,14 @@ func TestIMDS(t *testing.T) {
 				w.WriteHeader(500)
 				return
 			}
+			if mode.Load() == "badexpiry" {
+				w.Write([]byte(`{"Code":"Success","AccessKeyId":"ASIA2","SecretAccessKey":"secret2","Token":"session2","Expiration":"soon"}`))
+				return
+			}
+			if mode.Load() == "noexpiry" {
+				w.Write([]byte(`{"Code":"Success","AccessKeyId":"ASIA2","SecretAccessKey":"secret2","Token":"session2"}`))
+				return
+			}
 			w.Write([]byte(`{"Code":"Success","AccessKeyId":"ASIA2","SecretAccessKey":"secret2","Token":"session2","Expiration":"2030-01-01T00:00:00Z"}`))
 		default:
 			w.WriteHeader(404)
@@ -199,6 +216,14 @@ func TestIMDS(t *testing.T) {
 	mode.Store("rolefail")
 	_, err = m.Credentials(ctx)
 	pgtest.WantErr(t, err, "erp-role: 500")
+	mode.Store("badexpiry")
+	_, err = m.Credentials(ctx)
+	pgtest.WantErr(t, err, `expiration "soon"`)
+	// No expiry at all: long-lived, the zero time.
+	mode.Store("noexpiry")
+	if c, err := m.Credentials(ctx); err != nil || !c.Expires.IsZero() {
+		t.Errorf("no expiration: got %v, %v; want the zero time", c.Expires, err)
+	}
 	if _, err := (awscreds.IMDS{Endpoint: "http://127.0.0.1:1"}).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("no service: %v", err)
 	}
