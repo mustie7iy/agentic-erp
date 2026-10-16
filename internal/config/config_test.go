@@ -175,7 +175,7 @@ func TestDiscountTiersValid(t *testing.T) {
 	}
 	changes, err := Diff(c, changed)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("diff: %v", err)
 	}
 	if len(changes) != 1 {
 		t.Fatalf("changes: got %v, want the second tier's percent", changes)

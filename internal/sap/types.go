@@ -137,7 +137,16 @@ type T052 struct {
 	ZTAG2 string `json:"ZTAG2,omitempty"`
 	ZPRZ2 string `json:"ZPRZ2,omitempty"`
 	ZTAG3 string `json:"ZTAG3,omitempty"`
-	TEXT1 string `json:"TEXT1"`
+	// ZMONA1-3 and ZFAEL1-3 are additional months and a fixed day of each
+	// position ("2% by the 15th of next month"), which the configuration's
+	// days cannot hold.
+	ZMONA1 string `json:"ZMONA1,omitempty"`
+	ZFAEL1 string `json:"ZFAEL1,omitempty"`
+	ZMONA2 string `json:"ZMONA2,omitempty"`
+	ZFAEL2 string `json:"ZFAEL2,omitempty"`
+	ZMONA3 string `json:"ZMONA3,omitempty"`
+	ZFAEL3 string `json:"ZFAEL3,omitempty"`
+	TEXT1  string `json:"TEXT1"`
 }
 
 // T007A - tax codes (flattened with the condition rate and G/L account).

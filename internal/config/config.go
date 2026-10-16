@@ -98,9 +98,10 @@ type AccountDetermination struct {
 	// PriceDifference takes what an invoice on an order valued through
 	// GR/IR differs from the order price; required with GRIR.
 	PriceDifference string `yaml:"price_difference,omitempty" json:"price_difference,omitempty"`
-	// CashDiscount takes the cash discounts payments take (SAP SKE, cash
-	// discount received); required in every company once a payment term
-	// has discounts (T36a).
+	// CashDiscount takes the cash discounts payments take from suppliers
+	// (SAP SKE, cash discount received); required in every company once a
+	// payment term has discounts (T36a). Discounts granted to customers
+	// (SAP SKT, an expense) will need a key of their own.
 	CashDiscount string `yaml:"cash_discount,omitempty" json:"cash_discount,omitempty"`
 }
 

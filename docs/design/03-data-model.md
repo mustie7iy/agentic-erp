@@ -441,9 +441,12 @@ a discount, every company names its cash discount account
 (`account_determination.cash_discount`, a revenue account, SAP's SKE),
 which payments post the discounts they take to. The SAP load reads a T052
 position with a percent as a tier and the first without one as the net
-days; a term whose last discount runs to its net due date ("within 14 days
-2%"), which the configuration cannot hold, is drafted to fail validation
-with a note until a reviewer sets its net days.
+days, a position of no days after a tier (empty, or zero-filled as NUMC
+extracts write it) as unused, and a decimal comma as the point. A term
+whose last discount runs to its net due date ("within 14 days 2%"), which
+the configuration cannot hold, or that counts in months or fixed days
+(ZMONA, ZFAEL), is drafted to fail validation with a note until a reviewer
+sets it.
 
 ## 3.7 General ledger (`ledger`)
 

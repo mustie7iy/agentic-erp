@@ -2122,6 +2122,11 @@ func TestPaymentTermDiscountTiers(t *testing.T) {
 		{"second tier at the net days", "14, 3, 45, 2", "payment_term_discount2_tiers"},
 		{"second tier not less", "14, 3, 30, 3", "payment_term_discount2_tiers"},
 		{"second tier percent", "14, 3, 30, 0", "payment_term_discount2_pct_check"},
+		// No valid term reaches 100 on the second tier (it is below the
+		// first, itself below 100), so the first breaks its check too; the
+		// column check is evaluated before the table checks.
+		{"second tier percent 100", "14, 100, 30, 100", "payment_term_discount2_pct_check"},
+		{"second tier days negative", "14, 3, -1, 2", "payment_term_discount2_days_check"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := asApp(t, f.tenant, func(tx pgx.Tx) error {

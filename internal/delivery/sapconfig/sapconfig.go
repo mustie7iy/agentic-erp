@@ -8,6 +8,7 @@
 package sapconfig
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -141,11 +142,13 @@ func (g *gen) paymentTerms() []config.PaymentTerm {
 // paymentTerm reads a T052 row: its positions ZTAG1/ZPRZ1, ZTAG2/ZPRZ2 and
 // ZTAG3 are cash discount tiers while they carry a percent, and the first
 // without one holds the net days (a net-only term has them in ZTAG1).
-// Days are whole numbers in SAP; a term whose numbers do not parse gets
-// unknownDays and a note, and so does one whose last discount runs to the
-// net due date (SAP's "within 14 days 2%"), which the configuration
-// cannot hold: its net days equal the tier's, which fails validation
-// until a reviewer sets the term.
+// After a tier, a position of no days (empty, or zero-filled as NUMC
+// extracts write it) is unused: the last discount runs to the net due
+// date (SAP's "within 14 days 2%"), which the configuration cannot hold
+// (netUntilDiscount). Days are whole numbers; a term whose numbers do not
+// parse, or that counts in months or fixed days (ZMONA, ZFAEL), gets
+// unknownDays and a note, which fails validation until a reviewer sets
+// the term.
 func (g *gen) paymentTerm(t sap.T052) config.PaymentTerm {
 	p := "payment_terms[" + t.ZTERM + "]"
 	term := config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: unknownDays}
@@ -153,32 +156,32 @@ func (g *gen) paymentTerm(t sap.T052) config.PaymentTerm {
 		g.note(p+".net_days", fmt.Sprintf("T052 days %q are not a whole number; set the term's days (left at %d, which fails validation)", t.ZTAG1, unknownDays))
 		return term
 	}
-	for i, pos := range [][2]string{{t.ZTAG1, t.ZPRZ1}, {t.ZTAG2, t.ZPRZ2}} {
-		if i > 0 && strings.TrimSpace(pos[0]) == "" {
-			return g.netUntilDiscount(p, term)
-		}
-		days, err := strconv.Atoi(strings.TrimSpace(pos[0]))
-		zero, perr := zeroPercent(strings.TrimSpace(pos[1]))
-		if err != nil || perr != nil {
-			g.note(p+".discounts", fmt.Sprintf("T052 ZTAG%d/ZPRZ%d %q/%q are not whole days and a percent; set the term (net days left at %d, which fails validation)",
-				i+1, i+1, pos[0], pos[1], unknownDays))
-			return term
-		}
-		if zero {
-			term.NetDays = days
-			return term
-		}
-		term.Discounts = append(term.Discounts, config.Discount{Days: days, Percent: strings.TrimSpace(pos[1])})
-	}
-	if strings.TrimSpace(t.ZTAG3) == "" {
-		return g.netUntilDiscount(p, term)
-	}
-	days, err := strconv.Atoi(strings.TrimSpace(t.ZTAG3))
-	if err != nil {
-		g.note(p+".net_days", fmt.Sprintf("T052 ZTAG3 %q is not a whole number; set the term's net days (left at %d, which fails validation)", t.ZTAG3, unknownDays))
+	if calendar := strings.Trim(t.ZMONA1+t.ZFAEL1+t.ZMONA2+t.ZFAEL2+t.ZMONA3+t.ZFAEL3, "0 "); calendar != "" {
+		g.note(p, fmt.Sprintf("T052 counts in months or fixed days (ZMONA/ZFAEL), which the configuration's days cannot hold; set the term (net days left at %d, which fails validation)",
+			unknownDays))
 		return term
 	}
-	term.NetDays = days
+positions:
+	for i, pos := range [][2]string{{t.ZTAG1, t.ZPRZ1}, {t.ZTAG2, t.ZPRZ2}, {t.ZTAG3, ""}} {
+		days, err := strconv.Atoi(cmp.Or(strings.TrimSpace(pos[0]), "0"))
+		pct, perr := percent(pos[1])
+		switch {
+		case err != nil || perr != nil:
+			field := ".discounts"
+			if i == 2 {
+				field = ".net_days"
+			}
+			g.note(p+field, fmt.Sprintf("T052 ZTAG%d/ZPRZ%d %q/%q are not whole days and a percent; set the term (net days left at %d, which fails validation)",
+				i+1, i+1, pos[0], pos[1], unknownDays))
+			return term
+		case i > 0 && days == 0:
+			return g.netUntilDiscount(p, term)
+		case pct == "": // ZTAG3 carries none, so the loop always ends here
+			term.NetDays = days
+			break positions
+		}
+		term.Discounts = append(term.Discounts, config.Discount{Days: days, Percent: pct})
+	}
 	return term
 }
 
@@ -193,13 +196,22 @@ func (g *gen) netUntilDiscount(p string, term config.PaymentTerm) config.Payment
 	return term
 }
 
-// zeroPercent says whether a T052 percent is none: empty or zero.
-func zeroPercent(s string) (bool, error) {
+// percent is a T052 percent as the configuration holds it, with a
+// decimal point, or "" when it is none (empty or zero); like wholePercent
+// it reads the decimal comma of locale-formatted file extracts.
+func percent(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if !strings.Contains(s, ".") {
+		s = strings.Replace(s, ",", ".", 1) // a lone comma is the decimal separator
+	}
 	if s == "" {
-		return true, nil
+		return "", nil
 	}
 	m, err := money.ParseDecimal(s, 3)
-	return m == 0, err
+	if err != nil || m == 0 {
+		return "", err
+	}
+	return s, nil
 }
 
 // wholePercent parses an SAP percentage ("2", "2.0", "2.5", ".5", or
