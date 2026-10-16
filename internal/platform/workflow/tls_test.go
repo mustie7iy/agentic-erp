@@ -21,13 +21,15 @@ import (
 // refused rather than dialled in plaintext.
 func TestDialOverMutualTLS(t *testing.T) {
 	ca := tlstest.NewCA(t)
-	frontend := tlstest.Proxy(t, workflowtest.Server(t), ca.Issue(t, tlstest.Options{}).Pair(t), ca.Pool(), "h2")
+	// The frontend's certificate names it, not its address: the
+	// configuration's server name is what is verified.
+	frontend := tlstest.Proxy(t, workflowtest.Server(t), ca.Issue(t, tlstest.Options{DNS: []string{"temporal.internal"}}).Pair(t), ca.Pool(), "h2")
 	cell := ca.Issue(t, tlstest.Options{}).Pair(t)
 	var configs atomic.Int32 // taken on gRPC's goroutines
 	config := func(roots *tlstest.CA) func() (*tls.Config, error) {
 		return func() (*tls.Config, error) {
 			configs.Add(1)
-			return &tls.Config{MinVersion: tls.VersionTLS13, ServerName: "localhost", RootCAs: roots.Pool(), Certificates: []tls.Certificate{cell}}, nil
+			return &tls.Config{MinVersion: tls.VersionTLS13, ServerName: "temporal.internal", RootCAs: roots.Pool(), Certificates: []tls.Certificate{cell}}, nil
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -178,6 +178,9 @@ type Temporal struct {
 	Namespace string
 	TaskQueue string
 	CodecKey  []byte // ERP_TEMPORAL_CODEC_KEY, base64 of 32 bytes: payloads sealed before they reach the engine (ADR-0012)
+	// ServerName is ERP_TEMPORAL_SERVER_NAME, the name the frontend's
+	// certificate is verified for; empty: the address's host (ADR-0033).
+	ServerName string
 	// EscalateAfter is the period a pending approval request waits for a
 	// decision before it is escalated (ERP_APPROVAL_ESCALATE_AFTER, default
 	// 48h; 0 disables escalation), Escalations how often (ERP_APPROVAL_ESCALATIONS, default 3).
@@ -420,7 +423,8 @@ func (l *loader) lifetimes(c *Config) {
 func (l *loader) temporal(c *Config) {
 	get := l.get
 	var err error
-	c.Temporal = Temporal{Address: l.getenv("ERP_TEMPORAL_ADDRESS"), Namespace: get("ERP_TEMPORAL_NAMESPACE", "default"), TaskQueue: get("ERP_TEMPORAL_TASK_QUEUE", "erp")}
+	c.Temporal = Temporal{Address: l.getenv("ERP_TEMPORAL_ADDRESS"), Namespace: get("ERP_TEMPORAL_NAMESPACE", "default"), TaskQueue: get("ERP_TEMPORAL_TASK_QUEUE", "erp"),
+		ServerName: l.getenv("ERP_TEMPORAL_SERVER_NAME")}
 	if raw := l.getenv("ERP_TEMPORAL_CODEC_KEY"); raw != "" {
 		if key, err := base64.StdEncoding.DecodeString(raw); err != nil || len(key) != 32 {
 			l.errs = append(l.errs, errors.New("ERP_TEMPORAL_CODEC_KEY must be base64 of 32 random bytes, the same on every replica and kept secret"))

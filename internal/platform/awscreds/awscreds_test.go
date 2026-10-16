@@ -333,18 +333,39 @@ func TestChainCachedAndDefault(t *testing.T) {
 		t.Fatal("cached failure")
 	}
 	// The default chain: static first, then the environment, then nothing here (no STS variables, no metadata service).
-	if c, err := awscreds.Default(awscreds.Static{AccessKey: "S", SecretKey: "K"}, env(map[string]string{"AWS_ACCESS_KEY_ID": "E", "AWS_SECRET_ACCESS_KEY": "K"}), "", "http://127.0.0.1:1").Credentials(ctx); err != nil || c.AccessKey != "S" {
+	if c, err := awscreds.Default(awscreds.Static{AccessKey: "S", SecretKey: "K"}, env(map[string]string{"AWS_ACCESS_KEY_ID": "E", "AWS_SECRET_ACCESS_KEY": "K"}), "", "http://127.0.0.1:1", nil).Credentials(ctx); err != nil || c.AccessKey != "S" {
 		t.Fatalf("static first: %+v %v", c, err)
 	}
-	if c, err := awscreds.Default(awscreds.Static{}, env(map[string]string{"AWS_ACCESS_KEY_ID": "E", "AWS_SECRET_ACCESS_KEY": "K"}), "", "http://127.0.0.1:1").Credentials(ctx); err != nil || c.AccessKey != "E" {
+	if c, err := awscreds.Default(awscreds.Static{}, env(map[string]string{"AWS_ACCESS_KEY_ID": "E", "AWS_SECRET_ACCESS_KEY": "K"}), "", "http://127.0.0.1:1", nil).Credentials(ctx); err != nil || c.AccessKey != "E" {
 		t.Fatalf("environment: %+v %v", c, err)
 	}
-	if _, err := awscreds.Default(awscreds.Static{}, env(map[string]string{}), "", "http://127.0.0.1:1").Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
+	if _, err := awscreds.Default(awscreds.Static{}, env(map[string]string{}), "", "http://127.0.0.1:1", nil).Credentials(ctx); !errors.Is(err, awscreds.ErrNone) {
 		t.Fatalf("nothing ambient: %v", err)
 	}
 	t.Setenv("AWS_ACCESS_KEY_ID", "P")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "Q")
-	if c, err := awscreds.Default(awscreds.Static{}, nil, "", "http://127.0.0.1:1").Credentials(ctx); err != nil || c.AccessKey != "P" {
+	if c, err := awscreds.Default(awscreds.Static{}, nil, "", "http://127.0.0.1:1", nil).Credentials(ctx); err != nil || c.AccessKey != "P" {
 		t.Fatalf("process environment: %+v %v", c, err)
+	}
+}
+
+// TestDefaultUsesTheSTSClient: the ambient chain reaches STS with the
+// client it is given, the deployment's TLS client (ADR-0033): an STS
+// whose certificate only that client trusts answers.
+func TestDefaultUsesTheSTSClient(t *testing.T) {
+	token := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(token, []byte("jwt-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>
+			<AccessKeyId>ASIA2</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken><Expiration>2030-01-01T00:00:00Z</Expiration>
+			</Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`))
+	}))
+	defer sts.Close()
+	getenv := env(map[string]string{"AWS_WEB_IDENTITY_TOKEN_FILE": token, "AWS_ROLE_ARN": "arn:aws:iam::1:role/erp"})
+	c, err := awscreds.Default(awscreds.Static{}, getenv, sts.URL, "http://127.0.0.1:1", sts.Client()).Credentials(context.Background())
+	if err != nil || c.AccessKey != "ASIA2" {
+		t.Errorf("credentials through the given client: got %+v, %v, want ASIA2", c, err)
 	}
 }

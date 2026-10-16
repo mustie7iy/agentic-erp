@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -306,7 +307,7 @@ func (s *server) authenticate(ctx context.Context) error {
 // openObjects opens the object store and, where there is one, the worker
 // that exports and erases offboarded tenants.
 func (s *server) openObjects() {
-	s.store = objects(s.cfg.Objects, s.cfg.AWS)
+	s.store = objects(s.cfg)
 	if s.store == nil {
 		s.log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported (ERP_ENV=production refuses this)")
 	}
@@ -406,7 +407,11 @@ func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
 	} else {
 		s.log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed (ERP_ENV=production refuses this)")
 	}
-	engine, err := workflow.Dial(ctx, workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec})
+	wc := workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec}
+	if s.tls != nil {
+		wc.TLS = func() (*tls.Config, error) { return s.tls.ClientConfig(tlsconf.Internal, s.cfg.Temporal.ServerName) }
+	}
+	engine, err := workflow.Dial(ctx, wc)
 	if err != nil {
 		return nil, err
 	}
@@ -685,8 +690,9 @@ var (
 func keyring(cfg config.Config, pool *database.Pool) (*fieldcrypt.Keyring, error) {
 	ring := &fieldcrypt.Keyring{Pool: pool, AppRole: cfg.AppRole}
 	if cfg.KMS.Enabled() {
+		client := cfg.HTTPClient()
 		ring.Masters = append(ring.Masters, fieldcrypt.KMS{Name: cfg.KMS.Name, KeyID: cfg.KMS.Key, Endpoint: cfg.KMS.Endpoint, Region: cfg.KMS.Region,
-			Credentials: credentials(cfg.AWS, cfg.KMS.AccessKey, cfg.KMS.SecretKey)})
+			Credentials: credentials(cfg.AWS, cfg.KMS.AccessKey, cfg.KMS.SecretKey, client), Client: client})
 	}
 	for _, mk := range cfg.FieldKeys {
 		m, err := fieldcrypt.NewLocalMaster(mk.ID, mk.Secret)
@@ -716,18 +722,22 @@ func uploadKey(pageTokenKey []byte) []byte {
 }
 
 // credentials are an AWS client's: the access keys from settings when set,
-// else the deployment's ambient ones (ADR-0024), cached.
-func credentials(aws config.AWS, accessKey, secretKey string) awscreds.Provider {
-	return awscreds.Default(awscreds.Static{AccessKey: accessKey, SecretKey: secretKey}, aws.Getenv, aws.STSEndpoint, aws.IMDSEndpoint)
+// else the deployment's ambient ones (ADR-0024), cached; STS is reached
+// with client (nil: its default).
+func credentials(aws config.AWS, accessKey, secretKey string, client *http.Client) awscreds.Provider {
+	return awscreds.Default(awscreds.Static{AccessKey: accessKey, SecretKey: secretKey}, aws.Getenv, aws.STSEndpoint, aws.IMDSEndpoint, client)
 }
 
-// objects opens the configured object store, or nil without one.
-func objects(o config.Objects, aws config.AWS) blobstore.Store {
+// objects opens the configured object store, or nil without one; an S3
+// service is reached with the configuration's TLS client (ADR-0033).
+func objects(cfg config.Config) blobstore.Store {
+	o, aws := cfg.Objects, cfg.AWS
 	switch {
 	case o.Dir != "":
 		return blobstore.Dir{Root: o.Dir}
 	case o.Endpoint != "":
-		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey)}
+		client := cfg.HTTPClient()
+		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey, client), Client: client}
 	}
 	return nil
 }

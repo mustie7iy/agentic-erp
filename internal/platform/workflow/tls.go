@@ -22,6 +22,11 @@ func (r reloading) ClientHandshake(ctx context.Context, authority string, conn n
 	if err != nil {
 		return nil, nil, fmt.Errorf("workflow: tls: %w", err)
 	}
+	// gRPC verifies the server for the authority it is given, whatever the
+	// configuration's ServerName says; a configured name takes its place.
+	if cfg.ServerName != "" {
+		authority = cfg.ServerName
+	}
 	c, info, err := credentials.NewTLS(cfg).ClientHandshake(ctx, authority, conn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("workflow: tls: %w", err)

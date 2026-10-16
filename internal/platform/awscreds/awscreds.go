@@ -287,14 +287,16 @@ func (c *Cached) Credentials(ctx context.Context) (Credentials, error) {
 
 // Default is the ambient chain of a deployment: the environment, a web
 // identity, the instance metadata service; with static keys given they come
-// first. Temporary credentials are cached.
-func Default(static Static, getenv func(string) string, stsEndpoint, imdsEndpoint string) Provider {
+// first. Temporary credentials are cached. STS is reached with stsClient
+// (nil: a client with a 10 s timeout); the instance metadata service,
+// link-local, with its own.
+func Default(static Static, getenv func(string) string, stsEndpoint, imdsEndpoint string, stsClient *http.Client) Provider {
 	get := getenv
 	if get == nil {
 		get = os.Getenv
 	}
 	return &Cached{Provider: Chain{static, Env{Getenv: get},
-		WebIdentity{TokenFile: get("AWS_WEB_IDENTITY_TOKEN_FILE"), RoleARN: get("AWS_ROLE_ARN"), SessionName: get("AWS_ROLE_SESSION_NAME"), Endpoint: stsEndpoint},
+		WebIdentity{TokenFile: get("AWS_WEB_IDENTITY_TOKEN_FILE"), RoleARN: get("AWS_ROLE_ARN"), SessionName: get("AWS_ROLE_SESSION_NAME"), Endpoint: stsEndpoint, Client: stsClient},
 		IMDS{Endpoint: imdsEndpoint}}}
 }
 

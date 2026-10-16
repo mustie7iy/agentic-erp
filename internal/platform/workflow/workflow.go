@@ -1,7 +1,8 @@
 // Package workflow is the platform's port to the workflow engine (ADR-0012):
 // long-running work runs as Temporal workflows whose activities are the
 // application's services in a unit of work. The API sees a workflow as an
-// Operation; this package starts, cancels and hosts them.
+// Operation; this package starts, cancels and hosts them. The engine is
+// dialled over TLS with a configuration made per connection (ADR-0033).
 package workflow
 
 import (

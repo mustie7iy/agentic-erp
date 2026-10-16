@@ -47,7 +47,7 @@ func importTenant(ctx context.Context, cfg platformconfig.Config, manifest strin
 	if manifest == "" {
 		return offboarding.Imported{}, errors.New("-manifest is required: the object key of the export's manifest")
 	}
-	store := objects(cfg.Objects, cfg.AWS)
+	store := objects(cfg)
 	if store == nil {
 		return offboarding.Imported{}, errors.New("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*) to read the export from")
 	}

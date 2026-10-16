@@ -37,6 +37,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
@@ -1693,5 +1694,77 @@ func TestRelaysOverMutualTLS(t *testing.T) {
 	defer s.mu.Unlock()
 	if _, ok := s.running["tls"]; !ok {
 		t.Error("tls: got not started, want the material re-read while the server runs")
+	}
+}
+
+// tlsEnvironment is a valid configuration with TLS material: an authority
+// the test's servers present certificates of, and the cell's certificate.
+func tlsEnvironment(t *testing.T, ca *tlstest.CA) map[string]string {
+	t.Helper()
+	cell, dir := ca.Issue(t, tlstest.Options{}), t.TempDir()
+	env := environment(t, authntest.New(t), "")
+	env["ERP_TLS_CA"] = "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM)
+	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", cell.CertPEM)
+	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", cell.KeyPEM)
+	return env
+}
+
+// TestProvidersOverTLS: with TLS material the cell reaches its object
+// store with the material's client, which trusts ERP_TLS_CA: an S3 service
+// behind a certificate only that authority signed receives the anchors
+// (ADR-0033). The KMS master is given the same client.
+func TestProvidersOverTLS(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	s3 := blobstoretest.New(t)
+	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `INSERT INTO audit.chain_head (tenant_id, seq, hash) VALUES ($1, 1, decode(repeat('ef', 32), 'hex'))`, ten.ID)
+	backend := strings.TrimPrefix(s3.URL, "http://")
+	env := tlsEnvironment(t, ca)
+	delete(env, "ERP_OBJECT_DIR")
+	env["ERP_OBJECT_S3_ENDPOINT"] = "https://" + tlstest.Proxy(t, backend, ca.Issue(t, tlstest.Options{}).Pair(t), nil)
+	env["ERP_OBJECT_S3_BUCKET"], env["ERP_OBJECT_S3_REGION"] = blobstoretest.Bucket, blobstoretest.Region
+	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
+	env["ERP_FIELD_KMS_KEY"], env["ERP_FIELD_KMS_REGION"] = kmstest.KeyID, kmstest.Region
+	env["ERP_FIELD_KMS_ACCESS_KEY"], env["ERP_FIELD_KMS_SECRET_KEY"] = kmstest.AccessKey, kmstest.SecretKey
+	cfg := load(t, env)
+	ring, err := keyring(cfg, pgtest.Pool(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kms, ok := ring.Masters[0].(fieldcrypt.KMS); !ok || kms.Client == nil {
+		t.Errorf("KMS master: got %#v, want one with the material's client", ring.Masters[0])
+	}
+	delete(env, "ERP_FIELD_KMS_KEY") // the server would wrap keys at the stub-less KMS
+	anchorInterval = 20 * time.Millisecond
+	defer func() { anchorInterval = time.Minute }()
+	stop := background(load(t, env), quiet())
+	defer func() { _ = stop() }() // stops a server a failed wait left running before anchorInterval is reset; the wait's failure is the one reported
+	key := "tenants/" + ten.ID.String() + "/audit/anchors/000000000001.json"
+	pgtest.Eventually(t, 30*time.Second, func() bool { _, ok := s3.Object(key); return ok }, "no anchor %s in S3 over TLS: %v", key, lazy(func() string { return fmt.Sprint(s3.Keys()) }))
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestEngineOverMutualTLS: with TLS material the cell dials the workflow
+// engine over TLS 1.3 as its certificate, verifying the frontend for
+// ERP_TEMPORAL_SERVER_NAME (ADR-0033): a frontend that requires a client
+// certificate serves it, and the server starts.
+func TestEngineOverMutualTLS(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	frontend := tlstest.Proxy(t, workflowtest.Server(t), ca.Issue(t, tlstest.Options{DNS: []string{"temporal.internal"}}).Pair(t), ca.Pool(), "h2")
+	env := tlsEnvironment(t, ca)
+	env["ERP_TEMPORAL_ADDRESS"], env["ERP_TEMPORAL_SERVER_NAME"] = frontend, "temporal.internal"
+	ctx, cancel := context.WithCancel(context.Background())
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(net.Listener, net.Listener) { cancel() })
+	}()
+	if code := <-done; code != 0 {
+		t.Fatalf("exit %d, want started and stopped\n%s", code, logs.String())
+	}
+	if !strings.Contains(logs.String(), "workflow engine connected") {
+		t.Errorf("logs: got %s, want the engine connected", logs.String())
 	}
 }

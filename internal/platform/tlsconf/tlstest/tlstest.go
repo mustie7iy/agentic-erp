@@ -199,7 +199,7 @@ func relay(ctx context.Context, client net.Conn, backend string) {
 	if err != nil {
 		return
 	}
-	defer func() { _ = server.Close() }() // the relay is over
+	defer func() { _ = server.Close() }()                              // the relay is over
 	go func() { _, _ = io.Copy(server, client); _ = server.Close() }() // ends when either side closes
 	_, _ = io.Copy(client, server)
 }
