@@ -2,9 +2,11 @@ package authn_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -98,6 +100,7 @@ func TestRegistryCacheSharesALookup(t *testing.T) {
 		wg.Go(func() { _, _ = cache.Resolve(ctx, "https://x.example.com", []string{"erp"}) })
 	}
 	<-b.started
+	waitFor(t, func() bool { return cache.Waiting() == 10 }) // every request has joined the lookup
 	close(b.release)
 	wg.Wait()
 	if b.calls != 1 {
@@ -143,4 +146,95 @@ func TestRegistryCacheWaiterGivesUp(t *testing.T) {
 	}
 	close(b.release)
 	wg.Wait()
+}
+
+// stuck is a registry whose first lookup hangs until its context ends, as
+// on a connection gone half-open; later lookups answer.
+type stuck struct {
+	registry
+	mu    sync.Mutex
+	stuck bool
+}
+
+func (s *stuck) Resolve(ctx context.Context, issuer string, audiences []string) (authn.Registration, error) {
+	s.mu.Lock()
+	first := !s.stuck
+	s.stuck = true
+	s.mu.Unlock()
+	if first {
+		<-ctx.Done()
+		return authn.Registration{}, ctx.Err()
+	}
+	return s.registry.Resolve(ctx, issuer, audiences)
+}
+
+// TestRegistryCacheLookupsHaveADeadline: a shared lookup that hangs ends at
+// its own deadline, its failure is not kept, and the next request looks up
+// afresh, so one stuck connection never locks a tenant out.
+func TestRegistryCacheLookupsHaveADeadline(t *testing.T) {
+	s := &stuck{}
+	s.add(authn.Registration{TenantID: uuid.New(), Issuer: "https://x.example.com", Audience: "erp"})
+	cache := &authn.RegistryCache{Registry: s, LookupTimeout: 50 * time.Millisecond}
+	ctx := context.Background()
+	if _, err := cache.Resolve(ctx, "https://x.example.com", []string{"erp"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a hanging lookup: got %v, want its deadline", err)
+	}
+	if _, err := cache.Resolve(ctx, "https://x.example.com", []string{"erp"}); err != nil {
+		t.Errorf("the next request: got %v, want a fresh lookup's answer", err)
+	}
+}
+
+// TestRegistryCacheFollowersOutliveTheLeader: the request that started a
+// shared lookup giving up does not fail the others waiting on it.
+func TestRegistryCacheFollowersOutliveTheLeader(t *testing.T) {
+	b := &blocking{started: make(chan struct{}), release: make(chan struct{})}
+	b.add(authn.Registration{TenantID: uuid.New(), Issuer: "https://x.example.com", Audience: "erp"})
+	cache := &authn.RegistryCache{Registry: b}
+	leader, cancel := context.WithCancel(context.Background())
+	leaderDone := make(chan error, 1)
+	go func() { _, err := cache.Resolve(leader, "https://x.example.com", []string{"erp"}); leaderDone <- err }()
+	<-b.started
+	follower := make(chan error, 1)
+	go func() {
+		_, err := cache.Resolve(context.Background(), "https://x.example.com", []string{"erp"})
+		follower <- err
+	}()
+	waitFor(t, func() bool { return cache.Waiting() == 2 })
+	cancel()
+	if err := <-leaderDone; err == nil {
+		t.Error("the leader whose client gave up: got an answer, want its context's error")
+	}
+	close(b.release)
+	if err := <-follower; err != nil {
+		t.Errorf("the follower: got %v, want the shared answer", err)
+	}
+}
+
+// panicking is a registry that panics.
+type panicking struct{}
+
+func (panicking) Resolve(context.Context, string, []string) (authn.Registration, error) {
+	panic("registry broke")
+}
+
+// TestRegistryCacheSurvivesAPanic: a registry panicking in a shared lookup
+// fails the requests waiting on it rather than the process.
+func TestRegistryCacheSurvivesAPanic(t *testing.T) {
+	cache := &authn.RegistryCache{Registry: panicking{}}
+	_, err := cache.Resolve(context.Background(), "https://x.example.com", []string{"erp"})
+	if err == nil || !strings.Contains(err.Error(), "registry broke") {
+		t.Errorf("got %v, want the panic as an error", err)
+	}
+}
+
+// waitFor polls cond for at most 5 seconds.
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition never held")
+		}
+		<-time.After(time.Millisecond)
+	}
 }

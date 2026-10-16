@@ -144,15 +144,19 @@ func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
 // itself if that is not enough.
 type RegistryCache struct {
 	Registry   Registry
-	TTL        time.Duration    // 0: DefaultRegistryTTL
-	MaxEntries int              // 0: DefaultRegistryEntries
-	MaxMisses  int              // 0: DefaultRegistryMisses
-	Now        func() time.Time // nil: the wall clock
+	TTL        time.Duration // 0: DefaultRegistryTTL
+	MaxEntries int           // 0: DefaultRegistryEntries
+	MaxMisses  int           // 0: DefaultRegistryMisses
+	// LookupTimeout bounds a shared lookup, which outlives the request that
+	// started it; 0: DefaultLookupTimeout.
+	LookupTimeout time.Duration
+	Now           func() time.Time // nil: the wall clock
 
 	mu       sync.Mutex
 	hits     map[string]registryEntry
 	misses   map[string]registryEntry
 	inflight map[string]*lookup
+	waiting  int
 }
 
 // The cache's defaults.
@@ -160,6 +164,7 @@ const (
 	DefaultRegistryTTL     = 30 * time.Second
 	DefaultRegistryEntries = 10000
 	DefaultRegistryMisses  = 1000
+	DefaultLookupTimeout   = 5 * time.Second
 )
 
 type registryEntry struct {
@@ -191,11 +196,20 @@ func (c *RegistryCache) Resolve(ctx context.Context, issuer string, audiences []
 		}
 		c.inflight[key] = l
 	}
+	c.waiting++
 	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.waiting--
+		c.mu.Unlock()
+	}()
 	if !running {
-		// Detached from this request: the others waiting on it must not
-		// fail because this one's client gave up.
-		go c.run(context.WithoutCancel(ctx), key, issuer, audiences, l)
+		// Detached from this request's cancellation, so the others waiting
+		// on it do not fail because this one's client gave up, and bounded
+		// by its own deadline, so a lookup stuck on a connection fails them
+		// all in time rather than keeping the issuer locked out.
+		lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), orDefault(c.LookupTimeout, DefaultLookupTimeout))
+		go c.run(lctx, cancel, key, issuer, audiences, l)
 	}
 	select {
 	case <-l.done:
@@ -203,6 +217,13 @@ func (c *RegistryCache) Resolve(ctx context.Context, issuer string, audiences []
 	case <-ctx.Done():
 		return Registration{}, fmt.Errorf("authn: wait for the registry: %w", ctx.Err())
 	}
+}
+
+// Waiting is how many requests wait on registry lookups.
+func (c *RegistryCache) Waiting() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.waiting
 }
 
 // cacheKey is the issuer and the sorted audiences, each part
@@ -228,8 +249,9 @@ func (c *RegistryCache) cached(key string) (registryEntry, bool) {
 
 // run looks the answer up, keeps it unless the registry failed to answer,
 // and hands it to every request waiting on l.
-func (c *RegistryCache) run(ctx context.Context, key, issuer string, audiences []string, l *lookup) {
-	l.reg, l.err = c.Registry.Resolve(ctx, issuer, audiences)
+func (c *RegistryCache) run(ctx context.Context, cancel context.CancelFunc, key, issuer string, audiences []string, l *lookup) {
+	defer cancel()
+	l.reg, l.err = c.resolve(ctx, issuer, audiences)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.inflight, key)
@@ -242,6 +264,18 @@ func (c *RegistryCache) run(ctx context.Context, key, issuer string, audiences [
 	case errors.Is(l.err, ErrUnknownIssuer), errors.Is(l.err, ErrAmbiguousIssuer):
 		c.misses = keep(c.misses, key, e, now, orDefaultInt(c.MaxMisses, DefaultRegistryMisses))
 	}
+}
+
+// resolve asks the registry, turning a panic into an error: the lookup
+// runs on a goroutine of its own, where no request's recovery catches it,
+// and the requests waiting on it must get an answer.
+func (c *RegistryCache) resolve(ctx context.Context, issuer string, audiences []string) (reg Registration, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("authn: the registry panicked: %v", r)
+		}
+	}()
+	return c.Registry.Resolve(ctx, issuer, audiences)
 }
 
 // keep stores e in m, which holds at most limit answers: when full it

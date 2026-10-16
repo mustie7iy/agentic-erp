@@ -17525,11 +17525,11 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
           example:
-            type: "https://errors.example.com/identity/unauthenticated"
-            title: Unauthenticated
+            type: "https://errors.example.com/authn/invalid-token"
+            title: Unauthorized
             status: 401
-            code: identity.unauthenticated
-            detail: The access token has expired.
+            code: authn.invalid_token
+            detail: The bearer token is invalid or expired.
             instance: /v1/supplier-invoices
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
       headers:

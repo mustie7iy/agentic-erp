@@ -442,10 +442,10 @@ func validProvider(in NewIdentityProvider) error {
 		return invalid("tenant_claim", "a claim name: a letter or _, then up to 63 letters, digits or _.:/-")
 	}
 	if !validValues(in.ACRValues, 255) {
-		return invalid("acr_values", "at most 16 values of 1 to 255 characters")
+		return invalid("acr_values", "at most 16 values of 1 to 255 printable ASCII characters without spaces")
 	}
 	if !validValues(in.AMRValues, 64) {
-		return invalid("amr_values", "at most 16 values of 1 to 64 characters")
+		return invalid("amr_values", "at most 16 values of 1 to 64 printable ASCII characters without spaces")
 	}
 	return nil
 }
@@ -482,8 +482,8 @@ func validValues(vs []string, maxLen int) bool {
 		return false
 	}
 	for _, v := range vs {
-		if v == "" || len(v) > maxLen {
-			return false
+		if v == "" || len(v) > maxLen || strings.IndexFunc(v, func(r rune) bool { return r <= ' ' || r > '~' }) >= 0 {
+			return false // printable ASCII without spaces: acr_values is a space-separated list (RFC 9470)
 		}
 	}
 	return true

@@ -94,3 +94,13 @@ router against the directory's claims, each behind a cache of 30 s that
 holds at most 10,000 answers (expired ones dropped first). An issuer no
 tenant registered still costs one lookup per cache period, where it cost
 none before; the rate limits apply only after authentication.
+
+## Amendment (2026-10-16, T37e)
+
+The tenant's multi-factor rule and session rule reach the verifier with
+the cached registration, so a change of the policy, or of a provider's
+`acr`/`amr` values, takes effect within the cache period (30 s per
+replica), like a retirement. A shared lookup of the registry is bounded by
+its own deadline (5 s), so a lookup stuck on a connection fails the
+requests waiting on it in time. `acr` and `amr` values are printable ASCII
+without spaces, since `acr_values` is a space-separated list (RFC 9470).

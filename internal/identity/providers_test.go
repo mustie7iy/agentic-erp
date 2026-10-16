@@ -195,6 +195,9 @@ func TestInvalidIdentityProviders(t *testing.T) {
 		{"too many acr values", identity.NewIdentityProvider{Issuer: issuer("x"), Audience: "erp", ACRValues: strings.Split(long(17), "")}, "acr_values"},
 		{"empty acr value", identity.NewIdentityProvider{Issuer: issuer("x"), Audience: "erp", ACRValues: []string{""}}, "acr_values"},
 		{"acr value too long", identity.NewIdentityProvider{Issuer: issuer("x"), Audience: "erp", ACRValues: []string{long(256)}}, "acr_values"},
+		{"acr value with a space", identity.NewIdentityProvider{Issuer: issuer("x"), Audience: "erp", ACRValues: []string{"loa 2"}}, "acr_values"},
+		{"amr value with a control character", identity.NewIdentityProvider{Issuer: issuer("x"), Audience: "erp", AMRValues: []string{"mfa\n"}}, "amr_values"},
+		{"amr value not ASCII", identity.NewIdentityProvider{Issuer: issuer("x"), Audience: "erp", AMRValues: []string{"mfä"}}, "amr_values"},
 		{"amr value too long", identity.NewIdentityProvider{Issuer: issuer("x"), Audience: "erp", AMRValues: []string{long(65)}}, "amr_values"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
