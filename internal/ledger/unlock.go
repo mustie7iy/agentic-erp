@@ -42,8 +42,9 @@ func RequestUnlock(ctx context.Context, opener Opener, id uuid.UUID, ifMatch fun
 	if p.UnlockRequestID != nil {
 		return Period{}, problem.Conflict("ledger.unlock_pending", "The period already has a pending unlock request "+p.UnlockRequestID.String()+".")
 	}
+	// The title carries the reason: the controller decides seeing why.
 	request, needed, err := opener.Open(ctx, approvals.NewRequest{ObjectType: approvals.PeriodUnlock, ObjectID: id,
-		Title: fmt.Sprintf("Unlock period %d/%d", p.FiscalYear, p.Period)})
+		Title: fmt.Sprintf("Unlock period %d/%d: %s", p.FiscalYear, p.Period, reason)})
 	if err != nil {
 		return Period{}, err
 	}

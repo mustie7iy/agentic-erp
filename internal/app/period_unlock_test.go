@@ -39,6 +39,10 @@ func TestPeriodUnlock(t *testing.T) {
 		if r["object_type"] != "period_unlock" {
 			t.Errorf("object_type: got %v, want period_unlock", r["object_type"])
 		}
+		// The controller decides seeing why the unlock is asked for.
+		if want := "Unlock period 2026/1: Audit adjustment"; r["title"] != want {
+			t.Errorf("title: got %v, want %s", r["title"], want)
+		}
 		return r
 	}
 	// still asserts the period's status and that it names no request.

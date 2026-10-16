@@ -433,16 +433,9 @@ Rules enforced in the database:
   finished when it closed.
 - A locked period names its pending unlock request in `unlock_request_id`
   (workflow context, no foreign key across contexts), and only a locked
-  period names one (`period_status_unlock_only_locked`). `:unlock`
-  (permission `ledger.period.lock`, people only, T32c) opens the request
-  and names it, only on a locked period naming none (409
-  `ledger.unlock_pending` otherwise); the ledger's callbacks
-  (`ledger.PeriodUnlocks`) clear it when the request ends: approved, the
-  period returns to closed (`PeriodUnlocked`); rejected or withdrawn, it
-  stays locked. Each acts only while the period, locked, names that
-  request, and fails the decision otherwise. The transition trigger lets locked ->
-  closed through only when the update consumes the named request, clearing
-  it (migration 000051, T32b). That the request was approved is checked by
+  period names one (`period_status_unlock_only_locked`). The transition
+  trigger lets locked -> closed through only when the update consumes the
+  named request, clearing it (migration 000051, T32b). That the request was approved is checked by
   the ledger's approvals callback, which closes the period under the guard
   `unlock_request_id` = the approved request, not by the trigger: the rule
   stays within the ledger's schema (02-architecture, boundary rule 1). The
@@ -490,6 +483,16 @@ Rules enforced in the database:
 - `period_status` (one row per legal entity, ledger, year and period) has a
   uuid `id` so the API can address a posting period; its natural key stays
   the primary key.
+
+Enforced by the ledger, not the database (T32c): `:unlock` (permission
+`ledger.period.lock`, people only) opens the `period_unlock` request with
+the reason in its title and names it, only on a locked period naming none
+(409 `ledger.unlock_pending` otherwise). The ledger is the only writer of
+`unlock_request_id`. Its approvals callbacks (`ledger.PeriodUnlocks`)
+clear it when the request ends: approved, the period returns to closed
+(`PeriodUnlocked`); rejected or withdrawn, it stays locked. Each acts only
+while the period, locked, names that request, and fails the decision
+otherwise.
 
 Other ledger tables: `ledger` (leading 0L, parallel ledgers), `exchange_rate`
 (rate type `average | bank_buying | bank_selling | planning`, currency pair,
