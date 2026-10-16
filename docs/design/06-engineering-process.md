@@ -99,7 +99,8 @@ Every change passes, before it is merged:
 | Performance budgets | `-run Budget`, `-run Perf` |
 | Coverage gate | `scripts/coverage.sh`, 100% of production statements |
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
-| Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature) (ADR-0032) |
+| Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032) |
+| Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032) |
 | Build and container images | `make build`; `make images-reproducible`: the three images built with ko twice, with private caches, and their digests compared; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability (ADR-0032) |
 
 The checks are split between the author's machine and GitHub (the hybrid
@@ -261,10 +262,16 @@ A change is done when:
   reviewer; two for migrations, contracts and security-sensitive code.
 - Commit subjects are a sentence naming the tracker item, prefixed `Fix:`,
   `Refactor:`, `Tests:` (older history also `Test:`), `CI:`, `Plan:`,
-  `Tracker:` or `Process:` where they are one of
-  those; the changelog is generated from them (ADR-0032). The pull request
-  links its tracker item.
-- `main` is always releasable. Releases are container images promoted
-  through dev → staging → canary cell → all cells.
+  `Tracker:`, `Process:` or `Release:` where they are one of those; the
+  version and the changelog are computed from them (ADR-0032). The pull
+  request links its tracker item.
+- `main` is always releasable. A release is cut by dispatching the release
+  workflow from a green `main` commit; a second person approves it in the
+  `release` environment. The workflow computes the version
+  (`scripts/next-version.sh`) unless one is given, builds, scans, pushes,
+  signs and verifies the images, tags the built commit, publishes the GitHub
+  Release with the generated notes, and opens the pull request that adds
+  them to `CHANGELOG.md`. Releases are container images promoted through
+  dev → staging → canary cell → all cells.
 - Feature flags (per tenant) hide incomplete features; flags are removed once
   a feature is fully rolled out.

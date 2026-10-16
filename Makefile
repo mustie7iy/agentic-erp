@@ -1,4 +1,4 @@
-.PHONY: generate run-server build images images-reproducible image-scan signing-roundtrip lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
+.PHONY: generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -25,6 +25,13 @@ image-scan:
 SIGNING_REGISTRY ?= localhost:5000/erp
 signing-roundtrip:
 	./scripts/signing-roundtrip.sh $(SIGNING_REGISTRY)
+
+# The release version rules and changelog (scripts/next-version.sh,
+# cliff.toml) on throwaway repositories; GIT_CLIFF names git-cliff, without
+# it the changelog cases are skipped. The release itself is
+# .github/workflows/release.yml.
+test-release-scripts:
+	./scripts/test-release-scripts.sh
 
 # Structural lint (.golangci.yml). lint checks code changed since LINT_BASE,
 # the merge base with main: the fast local loop. lint-all checks the whole

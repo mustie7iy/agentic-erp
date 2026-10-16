@@ -83,17 +83,26 @@ signature and provenance from uncommitted changes are refused.
 the pilot and `1.0.0` at its go-live. Major: an accepted contract break
 (`api/breaking-accepted.txt` grew since the last tag), from 1.0 on; minor: a
 migration, a contract change or any commit that is not a `Fix:`,
-`Refactor:`, `Tests:` (or the older `Test:`), `CI:`, `Plan:`, `Tracker:` or
-`Process:`; patch otherwise. The
-changelog is generated from the commit history by git-cliff, grouped by
-tracker item and prefix. Commit subjects keep the house style (a sentence
-naming the T-number, with those prefixes); §6.9 is corrected to say so
-rather than Conventional Commits.
+`Refactor:`, `Tests:` (or the older `Test:`), `CI:`, `Plan:`, `Tracker:`,
+`Process:` or `Release:`; patch otherwise (`scripts/next-version.sh`; the
+person releasing may name the version instead). The changelog is generated
+from the commit history by git-cliff (`cliff.toml`, `scripts/changelog.sh`),
+grouped by kind (added, fixed, changed) and, within a kind, by tracker item;
+tests, CI, plans, tracker, process and release commits are left out. Commit
+subjects keep the house style (a sentence naming the T-number, with those
+prefixes); §6.9 says so rather than Conventional Commits.
 
-**Who releases.** A manual dispatch of the release workflow from a green
-`main` commit, approved by a second person through a protected GitHub
-environment. No release on every merge until T40's delivery and rollback
-exist.
+**Who releases.** A manual dispatch of `.github/workflows/release.yml` from
+a green `main` commit, approved by a second person through the protected
+`release` environment, which also holds the signing key reference and the
+AWS role the workflow assumes to use it. The workflow builds the images at
+that commit with the version stamped in, scans, pushes, signs and attests
+them, verifies what it pushed, then tags the commit it built and publishes
+the GitHub Release with the generated notes, the image digests and the
+SBOMs. `CHANGELOG.md` gains the release's entry through a pull request
+(`Release: changelog for vX.Y.Z`), since `main` is protected and the tag
+already names the built commit. No release on every merge until T40's
+delivery and rollback exist.
 
 The work is split in T39a (this ADR, images, buildinfo, the reproducibility
 gate, the scan), T39b (signing, attestations, `verify-image.sh`) and T39c

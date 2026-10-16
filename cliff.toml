@@ -1,0 +1,69 @@
+# The changelog, generated from the commit history by git-cliff
+# (scripts/changelog.sh, ADR-0032). Subjects follow 06 §6.9: a sentence
+# naming its tracker item, e.g. "A closed period locks for good (T32a)",
+# with Fix:, Refactor:, Tests:, CI:, Plan:, Tracker: or Process: when it is
+# one of those; Release: marks a release's changelog commit. A release's
+# entry groups its commits by kind (added, fixed, changed) and, within a
+# kind, by tracker item; tests, CI, plans, tracker, process and release
+# commits and merges are left out.
+
+[changelog]
+header = """
+# Changelog
+
+Generated from the commit history by git-cliff (cliff.toml, ADR-0032).
+"""
+body = """
+
+{% if version %}\
+## {{ version }} ({{ timestamp | date(format="%Y-%m-%d") }})
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for item, item_commits in commits | group_by(attribute="links.0.text") %}
+#### {{ item }}
+
+{% for commit in item_commits %}\
+{% set subject = commit.message | split(pat="\n") | first | trim %}\
+{% if subject is starting_with("Fix: ") or subject is starting_with("Refactor: ") %}\
+{% set subject = subject | split(pat=": ") | slice(start=1) | join(sep=": ") | upper_first %}\
+{% endif %}\
+- {{ subject }} ({{ commit.id | truncate(length=7, end="") }})
+{% endfor %}\
+{% endfor %}\
+{% set untracked = commits | filter(attribute="links", value=[]) %}\
+{% if untracked %}
+#### No tracker item
+
+{% for commit in untracked %}\
+{% set subject = commit.message | split(pat="\n") | first | trim %}\
+{% if subject is starting_with("Fix: ") or subject is starting_with("Refactor: ") %}\
+{% set subject = subject | split(pat=": ") | slice(start=1) | join(sep=": ") | upper_first %}\
+{% endif %}\
+- {{ subject }} ({{ commit.id | truncate(length=7, end="") }})
+{% endfor %}\
+{% endif %}\
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = false
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = false
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+sort_commits = "oldest"
+# The tracker item a subject names: "(T32a)", "(T30-T47)" or "(F7 follow-up, T31)".
+link_parsers = [
+  { pattern = "(?m)^[^\n]*\\((?:[^)]*, )?(T[0-9]+[a-z]?)(?:[-,][^)]*)?\\)$", text = "$1", href = "docs/design/07-transition.md" },
+]
+commit_parsers = [
+  { message = "^Merge ", skip = true },
+  { message = "^(Tests?|CI|Plan|Tracker|Process|Release):", skip = true },
+  { message = "^Fix:", group = "<!-- 1 -->Fixed" },
+  { message = "^Refactor:", group = "<!-- 2 -->Changed" },
+  { message = ".*", group = "<!-- 0 -->Added" },
+]
