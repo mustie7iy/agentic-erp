@@ -67,9 +67,11 @@ func lockOrders(ctx context.Context, tx pgx.Tx, keys []orderItem) error {
 }
 
 // positions locks and reads the order items' positions in the legal
-// entity's ledger: their lines on the GR/IR account. An item posted in
-// another currency than tc is refused: its amounts would not add up.
-func positions(ctx context.Context, tx pgx.Tx, le, ledgerID, grir uuid.UUID, tc string, keys []orderItem) (map[orderItem]*position, error) {
+// entity: the projection of their lines on the GR/IR account
+// (ledger.gr_ir_position, T33f), which the lock keeps current. An item
+// posted in another currency than tc is refused: its amounts would not
+// add up.
+func positions(ctx context.Context, tx pgx.Tx, le uuid.UUID, tc string, keys []orderItem) (map[orderItem]*position, error) {
 	if err := lockOrders(ctx, tx, keys); err != nil {
 		return nil, err
 	}
@@ -80,13 +82,10 @@ func positions(ctx context.Context, tx pgx.Tx, le, ledgerID, grir uuid.UUID, tc 
 	for i, k := range keys {
 		orders[i], items[i] = k.order, k.item
 	}
-	rows, _ := tx.Query(ctx, `SELECT x.o, x.n, coalesce(trim_scale(sum(l.quantity)), 0)::text, coalesce(sum(l.amount_tc), 0)::bigint,
-			coalesce(sum(l.amount_lc), 0)::bigint, coalesce(sum(l.amount_gc), 0)::bigint, coalesce(bool_and(e.currency_tc = $5), true)
-		FROM unnest($3::uuid[], $4::int[]) AS x(o, n)
-		LEFT JOIN ledger.journal_line l ON l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.account_id = $6
-			AND l.purchase_order_id = x.o AND l.po_item_no = x.n
-		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
-		GROUP BY x.o, x.n`, le, ledgerID, orders, items, tc, grir)
+	rows, _ := tx.Query(ctx, `SELECT x.o, x.n, coalesce(trim_scale(p.invoiced - p.received), 0)::text, coalesce(p.amount_tc, 0), coalesce(p.amount_lc, 0),
+			coalesce(p.amount_gc, 0), coalesce(p.currency_tc = $4, true)
+		FROM unnest($2::uuid[], $3::int[]) AS x(o, n)
+		LEFT JOIN ledger.gr_ir_position p ON p.legal_entity_id = $1 AND p.purchase_order_id = x.o AND p.po_item_no = x.n`, le, orders, items, tc)
 	out := map[orderItem]*position{}
 	var k orderItem
 	var qty string
@@ -278,7 +277,7 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 		}
 		keys[i] = orderItem{it.PurchaseOrderID, it.POItemNo}
 	}
-	pos, err := positions(ctx, tx, g.le.ID, g.ledgerID, g.grir, g.in.Currency, keys)
+	pos, err := positions(ctx, tx, g.le.ID, g.in.Currency, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -388,6 +387,9 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
+	if err := project(ctx, tx, posted); err != nil {
+		return Entry{}, err
+	}
 	return posted, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: posted.ID,
 		Outcome: "succeeded", Detail: map[string]any{"document_number": posted.DocumentNumber, "fiscal_year": posted.FiscalYear, "lines": len(lines),
 			"source_context": posted.SourceContext}})
@@ -409,7 +411,7 @@ func grirAdjustments(ctx context.Context, tx pgx.Tx, orig Entry, lines []Line) (
 		return lines, err
 	}
 	keys := slices.SortedFunc(maps.Keys(moves), compareOrderItems)
-	pos, err := positions(ctx, tx, orig.LegalEntityID, orig.LedgerID, grir, orig.CurrencyTC, keys)
+	pos, err := positions(ctx, tx, orig.LegalEntityID, orig.CurrencyTC, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -489,4 +491,32 @@ func appendAdjustments(ctx context.Context, le uuid.UUID, lines []Line, keys []o
 			PurchaseOrderID: m.line.PurchaseOrderID, POItemNo: m.line.POItemNo}, Line{AccountID: diff, TC: left[0], LC: left[1], GC: left[2]})
 	}
 	return lines, nil
+}
+
+// project adds a posted entry's lines on the legal entity's GR/IR account
+// to their order items' positions (ledger.gr_ir_position, T33f), in the
+// transaction that posts them and under the orders' GR/IR locks, which
+// the caller holds: receipts' quantities to received (negated), invoices'
+// to invoiced, every line's amounts to the balance. An entry without an
+// order item on its lines has nothing to add.
+func project(ctx context.Context, tx pgx.Tx, e Entry) error {
+	if !slices.ContainsFunc(e.Lines, func(l Line) bool { return l.PurchaseOrderID != nil }) {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.gr_ir_position AS p (tenant_id, legal_entity_id, purchase_order_id, po_item_no, account_id,
+			currency_tc, currency_lc, currency_gc, uom_code, received, invoiced, amount_tc, amount_lc, amount_gc, last_posting_date)
+		SELECT l.tenant_id, l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id, $3, $4, $5, min(l.uom_code),
+			CASE WHEN $6 = 'procurement' THEN -sum(l.quantity) ELSE 0 END, CASE WHEN $6 = 'payables' THEN sum(l.quantity) ELSE 0 END,
+			sum(l.amount_tc), sum(l.amount_lc), sum(l.amount_gc), max(l.posting_date)
+		FROM ledger.journal_line l
+		JOIN ledger.account_determination d ON d.tenant_id = l.tenant_id AND d.legal_entity_id = l.legal_entity_id AND d.key = 'gr_ir' AND d.account_id = l.account_id
+		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2 AND l.purchase_order_id IS NOT NULL
+		GROUP BY l.tenant_id, l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id
+		ON CONFLICT (tenant_id, legal_entity_id, purchase_order_id, po_item_no) DO UPDATE SET received = p.received + EXCLUDED.received,
+			invoiced = p.invoiced + EXCLUDED.invoiced, amount_tc = p.amount_tc + EXCLUDED.amount_tc, amount_lc = p.amount_lc + EXCLUDED.amount_lc,
+			amount_gc = p.amount_gc + EXCLUDED.amount_gc, last_posting_date = greatest(p.last_posting_date, EXCLUDED.last_posting_date),
+			version = p.version + 1`, e.FiscalYear, e.ID, e.CurrencyTC, e.CurrencyLC, e.CurrencyGC, e.SourceContext); err != nil {
+		return fmt.Errorf("ledger: project the GR/IR positions of entry %s: %w", e.ID, err)
+	}
+	return nil
 }

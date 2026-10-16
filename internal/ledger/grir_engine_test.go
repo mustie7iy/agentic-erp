@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"reflect"
 	"slices"
@@ -117,6 +118,42 @@ func one(t *testing.T, entry ledger.Entry, account uuid.UUID, what string) [3]mo
 	return lines[0]
 }
 
+// checkProjected compares the tenant's projected GR/IR positions with the
+// sums of their lines on the GR/IR account (T33f): each position equals
+// the sum of its lines, and no line's item lacks its position.
+func (g grirEnv) checkProjected(t *testing.T) {
+	t.Helper()
+	rows, err := pgtest.Admin(t).Query(context.Background(), `
+		WITH lines AS (SELECT l.purchase_order_id AS o, l.po_item_no AS n,
+				trim_scale(coalesce(-sum(l.quantity) FILTER (WHERE e.source_context = 'procurement'), 0)) AS received,
+				trim_scale(coalesce(sum(l.quantity) FILTER (WHERE e.source_context = 'payables'), 0)) AS invoiced,
+				sum(l.amount_tc)::bigint AS tc, sum(l.amount_lc)::bigint AS lc, sum(l.amount_gc)::bigint AS gc
+			FROM ledger.journal_line l JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+			WHERE l.tenant_id = $1 AND l.account_id = $2 AND l.purchase_order_id IS NOT NULL GROUP BY 1, 2)
+		SELECT coalesce(l.o, p.purchase_order_id)::text, coalesce(l.n, p.po_item_no) FROM lines l
+		FULL JOIN (SELECT * FROM ledger.gr_ir_position WHERE tenant_id = $1) p ON p.purchase_order_id = l.o AND p.po_item_no = l.n
+		WHERE (l.received, l.invoiced, l.tc, l.lc, l.gc) IS DISTINCT FROM (trim_scale(p.received), trim_scale(p.invoiced), p.amount_tc, p.amount_lc, p.amount_gc)`,
+		g.ten.ID, g.grir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var off []string
+	for rows.Next() {
+		var o string
+		var n int32
+		if err := rows.Scan(&o, &n); err != nil {
+			t.Fatal(err)
+		}
+		off = append(off, fmt.Sprintf("%s/%d", o, n))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(off) != 0 {
+		t.Errorf("projected positions that differ from their lines: got %v, want none", off)
+	}
+}
+
 // TestGRIRRounding: each goods movement moves the position to the order
 // price of the net quantity, so rounding never adds up: three receipts of
 // one at 10.00 per 3 credit 3.33, 3.34 and 3.33, and invoicing the three
@@ -144,6 +181,7 @@ func TestGRIRRounding(t *testing.T) {
 	if got := g.position(t, order); got != (position{"0", 0, 0, 0}) {
 		t.Errorf("position: got %+v, want zero", got)
 	}
+	g.checkProjected(t)
 }
 
 // TestGRIRPartialAndEarlyInvoices: partial receipts and invoices leave the
@@ -187,6 +225,7 @@ func TestGRIRPartialAndEarlyInvoices(t *testing.T) {
 			}
 		})
 	}
+	g.checkProjected(t)
 }
 
 // TestGRIRForeignCurrency: an order in USD of a company in EUR. A receipt
@@ -232,6 +271,7 @@ func TestGRIRForeignCurrency(t *testing.T) {
 			}
 		})
 	}
+	g.checkProjected(t)
 }
 
 // TestGRIRReversalResidue: a reversal mirrors the invoice it reverses;
@@ -305,6 +345,7 @@ func TestGRIRReversalResidue(t *testing.T) {
 			t.Errorf("position: got %+v, want zero", got)
 		}
 	})
+	g.checkProjected(t)
 }
 
 // TestGRIRPositionIsOnGRIR: a line that names an order item on another
@@ -345,6 +386,7 @@ func TestGRIRSeveralOrders(t *testing.T) {
 			t.Errorf("order %s after the reversal: got %+v, want zero", order, got)
 		}
 	}
+	g.checkProjected(t)
 }
 
 // TestGRIRConcurrentReceipts: receipts of one order item posted at once
@@ -377,6 +419,7 @@ func TestGRIRConcurrentReceipts(t *testing.T) {
 	if got := g.position(t, order); got != (position{"-6", -2000, -2000, -2000}) {
 		t.Errorf("position: got %+v, want -6 at -20.00", got)
 	}
+	g.checkProjected(t)
 }
 
 // TestGRIRRefusals: a company without a GR/IR account, an order item
