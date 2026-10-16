@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 )
@@ -516,7 +517,32 @@ func checkEnvironment(c Config) []error {
 	if c.AuditVerify == 0 {
 		errs = append(errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production: audit chains would go unverified against their anchors"))
 	}
+	return append(errs, checkTransport(c)...)
+}
+
+// checkTransport refuses, in production, a connection that may go without
+// verified TLS (ADR-0033).
+func checkTransport(c Config) []error {
+	var errs []error
+	for _, s := range []setting{{"DATABASE_URL", c.DatabaseURL}, {"ERP_DIRECTORY_URL", c.DirectoryURL}} {
+		if s.value == "" {
+			continue // DATABASE_URL is required on its own; no directory is a single cell
+		}
+		if err := CheckDatabaseTLS(s.name, s.value); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	return errs
+}
+
+// CheckDatabaseTLS is production's check of a database URL, the setting
+// name: verified TLS on every host pgx may try (ADR-0033). The router
+// applies it to its directory too.
+func CheckDatabaseTLS(name, url string) error {
+	if err := database.RequireVerifiedTLS(url); err != nil {
+		return fmt.Errorf("%s: %w (required with ERP_ENV=production, ADR-0033)", name, err)
+	}
+	return nil
 }
 
 // DefaultK8sJWTFile is where Kubernetes mounts the service account token.

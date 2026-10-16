@@ -177,7 +177,8 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is)
 	env["ERP_ENV"] = "production"
-	delete(env, "ERP_OIDC_ISSUERS") // production trusts tenants' registered providers only (ADR-0031)
+	delete(env, "ERP_OIDC_ISSUERS")                                    // production trusts tenants' registered providers only (ADR-0031)
+	env["ERP_DIRECTORY_URL"] = pgtest.TLS(t, env["ERP_DIRECTORY_URL"]) // and its directory over verified TLS (ADR-0033)
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs bytes.Buffer
 	adminAddr := make(chan string, 1)

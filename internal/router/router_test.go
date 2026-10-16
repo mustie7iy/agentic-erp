@@ -139,8 +139,12 @@ func TestLoadConfig(t *testing.T) {
 	_, err = router.LoadConfig(env(prodEnv))
 	pgtest.WantErr(t, err, "ERP_OIDC_ISSUERS must not be set with ERP_ENV=production")
 	delete(prodEnv, "ERP_OIDC_ISSUERS")
+	// Production reaches the directory over verified TLS only (ADR-0033).
+	_, err = router.LoadConfig(env(prodEnv))
+	pgtest.WantErr(t, err, "ERP_DIRECTORY_URL: sslmode must be verify-full")
+	prodEnv["ERP_DIRECTORY_URL"] = "postgres://u:p@dir.example.com/erp?sslmode=verify-full"
 	if _, err := router.LoadConfig(env(prodEnv)); err != nil {
-		t.Errorf("production without them: got %v, want loaded", err)
+		t.Errorf("production without them, over verified TLS: got %v, want loaded", err)
 	}
 }
 

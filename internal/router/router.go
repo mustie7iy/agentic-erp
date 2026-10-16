@@ -54,6 +54,10 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	}
 	if c.DirectoryURL == "" {
 		errs = append(errs, errors.New("ERP_DIRECTORY_URL is required: the directory database"))
+	} else if c.Environment == config.Production {
+		if err := config.CheckDatabaseTLS("ERP_DIRECTORY_URL", c.DirectoryURL); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.Issuers); err != nil || len(c.Issuers) == 0 {

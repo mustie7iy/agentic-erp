@@ -687,8 +687,10 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	env := environment(t, is, "")
 	env["ERP_ENV"] = "production"
 	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
-	delete(env, "ERP_OIDC_ISSUERS")               // production trusts registered providers only
-	env["DATABASE_URL"] = pgtest.EmptyDatabase(t) // a cell whose active tenants each have one
+	delete(env, "ERP_OIDC_ISSUERS") // production trusts registered providers only
+	// A cell whose active tenants each have one, reached over verified TLS
+	// as production requires (ADR-0033).
+	env["DATABASE_URL"] = pgtest.TLS(t, pgtest.EmptyDatabase(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
 	admin := make(chan string, 1)
@@ -890,6 +892,7 @@ func TestImportCommand(t *testing.T) {
 		prod[k] = v
 	}
 	prod["ERP_ENV"], prod["ERP_OPERATOR_ISSUERS"] = "production", env["ERP_OIDC_ISSUERS"]
+	prod["DATABASE_URL"] = pgtest.TLS(t, env["DATABASE_URL"]) // verified TLS, as production requires (ADR-0033)
 	delete(prod, "ERP_OIDC_ISSUERS")
 	stderr.Reset()
 	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, func(k string) string { return prod[k] }, &stdout, &stderr, nil); code == 0 {
@@ -1516,7 +1519,7 @@ func TestProductionRequiresProviders(t *testing.T) {
 	env["ERP_ENV"] = "production"
 	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
 	delete(env, "ERP_OIDC_ISSUERS")
-	env["DATABASE_URL"] = pgtest.EmptyDatabase(t)
+	env["DATABASE_URL"] = pgtest.TLS(t, pgtest.EmptyDatabase(t)) // verified TLS, as production requires (ADR-0033)
 	start := func() (int, string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		var logs pgtest.SyncBuffer
@@ -1565,6 +1568,7 @@ func TestRequireProvidersFailures(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
 	env["ERP_ENV"] = "production"
 	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
+	env["DATABASE_URL"] = pgtest.TLS(t, env["DATABASE_URL"]) // verified TLS, as production requires (ADR-0033)
 	delete(env, "ERP_OIDC_ISSUERS")
 	cfg := load(t, env)
 	pool := pgtest.Pool(t)

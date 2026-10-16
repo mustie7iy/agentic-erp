@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -554,9 +555,18 @@ func TestProductionFailsClosed(t *testing.T) {
 	// needs operators to register them (ADR-0031).
 	const sharedRefused, operatorsRequired = "ERP_OIDC_ISSUERS must not be set with ERP_ENV=production", "ERP_OPERATOR_ISSUERS is required with ERP_ENV=production"
 	operators := `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`
+	// Production reaches its databases over verified TLS only (ADR-0033).
+	const verified = "postgres://u:p@db.example.com/erp?sslmode=verify-full"
+	const dbRefused, dirRefused = "DATABASE_URL: sslmode must be verify-full", "ERP_DIRECTORY_URL: sslmode must be verify-full"
+	directory := map[string]string{"ERP_DIRECTORY_URL": verified, "ERP_CELL_API_URL": "https://eu1.example.com", "ERP_CELL_REGION": "eu-west", "ERP_CELL_CONTROL_URL": "https://eu1-admin.example.com"}
+	with := func(base map[string]string, set map[string]string) map[string]string {
+		m := maps.Clone(base)
+		maps.Copy(m, set)
+		return m
+	}
 	prod := func(set map[string]string) map[string]string {
 		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp",
-			"ERP_OIDC_ISSUERS": "", "ERP_OPERATOR_ISSUERS": operators}
+			"ERP_OIDC_ISSUERS": "", "ERP_OPERATOR_ISSUERS": operators, "DATABASE_URL": verified}
 		for k, v := range set {
 			m[k] = v
 		}
@@ -583,6 +593,11 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production without verification", prod(map[string]string{"ERP_AUDIT_VERIFY_INTERVAL": "0"}), []string{verifyRefused}},
 		{"production without either", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": "", "ERP_AUDIT_VERIFY_INTERVAL": "0s"}), []string{storeRefused, verifyRefused}},
 		{"unknown environment", map[string]string{"ERP_ENV": "staging"}, []string{"must be development or production"}},
+		{"development database without TLS", map[string]string{"ERP_ENV": "development", "DATABASE_URL": "postgres://u:p@localhost/erp?sslmode=disable"}, nil},
+		{"production database without verified TLS", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp?sslmode=require"}), []string{dbRefused}},
+		{"production database by default", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp"}), []string{dbRefused}},
+		{"production directory", prod(directory), nil},
+		{"production directory without verified TLS", prod(with(directory, map[string]string{"ERP_DIRECTORY_URL": "postgres://u:p@dir.example.com/erp?sslmode=prefer"})), []string{dirRefused}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
