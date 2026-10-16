@@ -31,14 +31,12 @@ import (
 )
 
 func init() {
-	// The subject alone (principal_subject) is unique until the contract
-	// step drops that index; then the issuer and subject are (ADR-0010).
-	subjectTaken := func() *problem.Problem {
-		return problem.Conflict("identity.subject_taken", "Another principal already has this identity provider subject.")
-	}
 	for name, p := range map[string]func() *problem.Problem{
-		"principal_subject":        subjectTaken,
-		"principal_issuer_subject": subjectTaken,
+		// A subject is unique per issuer (ADR-0010; 000048 dropped the
+		// index that made it unique per tenant).
+		"principal_issuer_subject": func() *problem.Problem {
+			return problem.Conflict("identity.subject_taken", "Another principal already has this identity provider subject.")
+		},
 		"role_tenant_id_code_key": func() *problem.Problem {
 			return problem.Conflict("identity.role_code_taken", "Another role already has this code.")
 		},

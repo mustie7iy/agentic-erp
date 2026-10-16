@@ -197,25 +197,26 @@ token, so such a principal is refused until re-bound). During the rolling
 deploy the previous release keeps inserting people and services with a
 subject and a NULL issuer, after 000037's backfill has run; the new release
 never finds them (it resolves issuer and subject), so they cannot sign in
-until bound. The contract step, in a later release, once no replica of the
-previous release runs, therefore goes in this order (06 §6.4): (1) adds the
-check that a principal with a subject has an issuer, `NOT VALID`, so no new
-row can lack one; (2) re-runs the backfill for every principal still
-`external_issuer IS NULL AND external_subject IS NOT NULL`, binding it to
-the issuer of the principal that created it (`created_by`, as
-`CreatePrincipal` does) and, where that creator has none, to the cell's
-single tenant issuer (`erp-dev` in development, as 000037 did); a cell that
-trusts several issuers cannot tell which, so the backfill leaves those rows
-and lists them for an operator to re-bind rather than guess (as
-provisioning refuses, `provisioning.issuer_ambiguous`); (3) in the next
-migration, once none is left, `VALIDATE`s the check, which would fail on
-any row step 2 did not bind; (4) drops `principal_subject` (the subject
-alone unique per tenant), which the previous release relies on.
-Meanwhile the new release refuses to create a person or service whose
-issuer it cannot tell: `CreatePrincipal` answers 422
+until bound. The contract step (06 §6.4, T31), run once no replica of the
+previous release runs (it ships in the release after 000037's only because
+there is no production data yet), is three migrations: 000046 (1) adds the
+check `principal_issuer_with_subject`, that a principal with a subject has
+an issuer, `NOT VALID`, so no new row can lack one, and (2) binds every
+principal still `external_issuer IS NULL AND external_subject IS NOT NULL`
+to the issuer of the principal that created it (`created_by`, as
+`CreatePrincipal` does), following chains of unbound creators up to a bound
+one, and, where none is found, to the development issuer `erp-dev`, as
+000037 did. A migration cannot read which issuers the cell trusts, and
+`ERP_ENV=production` refuses `erp-dev`, so outside development such a
+principal is refused until an operator binds it to its real issuer (T37):
+it fails closed rather than guess. 000047 `VALIDATE`s the check, and 000048
+drops `principal_subject` (the subject alone unique per tenant)
+concurrently; `principal_issuer_subject` carries uniqueness. A person or
+service now always has an issuer, and the new release refuses to create one
+whose issuer it cannot tell: `CreatePrincipal` answers 422
 `identity.creator_without_issuer` when the creating actor (an agent, a job
-acting through `uow.Act`, a principal created during the rollout) is bound
-to no issuer, and writes nothing; agents, which have no subject, need none.
+acting through `uow.Act`) is bound to no issuer, and writes nothing; agents,
+which have no subject, need none.
 
 Role permissions, role assignments, company access and SoD rules are
 **effective-dated assignments**: each has its own id, a validity range that
@@ -283,7 +284,8 @@ configuration whose company currency differs from its legal entity's local
 currency is refused when it is checked, at submission and at bootstrap
 (422 `config.validation_failed`, field `proposed.companies[<code>].currency`,
 reported by the ledger's section check), and a legal entity's
-`local_currency` never changes after it is created (F14). A document in
+`local_currency` never changes after it is created (F14; the database
+refuses a change, migration 000045). A document in
 another currency is converted into the company's currency with the
 ledger's posting lookup (the latest average
 rate of the pair; when only the reverse is recorded, the amount is
@@ -586,7 +588,8 @@ decided on the invoice as it was. Matches recorded before 000040, or by the
 previous release during the rollout, have no version and count for none:
 such an invoice is matched again before it posts. The column is the expand
 step of 06 §6.4 (nullable, its positive check `NOT VALID`, no backfill:
-nothing records which version an old match evaluated).
+nothing records which version an old match evaluated); 000044 validates the
+check (T31).
 
 The invoice likewise records the version the approval of its exception left
 it at (`exception_version`, migration 000041, F16), and the linked approved
@@ -599,7 +602,8 @@ Approvals before 000041, or by the previous release, have no version and
 count for none. A match of an invoice parked on an approval of its current
 version leaves it parked rather than holding it for a new request (F18).
 The column is again the expand step (nullable, its check of
-`0 < exception_version <= version` `NOT VALID`, no backfill); it is not tied
+`0 < exception_version <= version` `NOT VALID`, validated by 000044, no
+backfill); it is not tied
 to `workflow_request_id` by a rule, as the previous release unlinks requests
 without clearing it, and a stale value is always below the invoice's
 version.
@@ -692,10 +696,18 @@ application version from before 000034 rejecting a run during the rollout)
 only keeps its item out of proposals (`OpenItems.Payable` leaves reserved
 items out), and refuses its manual clearing and reversal, until a
 reconciliation releases the reservations no live run holds and adds those
-missing. That reconciliation is a contract step (06 §6.4): it is a
-migration of its own (the next free number in the release after this one; 000040 went to
-F13; tracker F5b), landed once 000034 runs everywhere, not part of the
-change that adds the table.
+missing. That reconciliation is the contract step (06 §6.4) 000042 (F5b,
+T31), a migration of its own, run once no replica of a release from before
+000034 runs (it ships in the release after 000034's only because there is
+no production data yet). It locks the runs, payments and reservations
+against writers while it runs, and fails rather than reconcile nothing
+under row-level security: a reservation no live item matches is released in the name of
+whoever last decided or changed its run, and a live item without one is
+reserved for its run in the proposer's name, as 000034 did. A live item its
+run already released cannot be reserved for that run again (a reservation is
+released once and keyed by owner and item), so the migration stops and
+counts them rather than leave one unreserved; such a run is rejected and
+proposed again before the migration is retried.
 
 Entry locks (clearing, reversal, settlement, reservation) are advisory
 locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
@@ -724,12 +736,11 @@ waits for the load (and fails after `lock_timeout` with 409
 `FOR SHARE` does not queue behind a waiting `FOR UPDATE`, so under steady
 overlapping postings in one period a close may keep failing with 409 and
 be retried; closes come after posting stops, so this is accepted. The
-trigger `ledger.check_entry_period` still reads the status without a lock:
-it runs after `postingPeriod` took the share lock in the same transaction,
-so no close can commit in between, and the only insert into
-`journal_entry` is the one after `postingPeriod`. Hardening the trigger with
-`FOR SHARE` is left for a migration of its own if another insert path
-appears.
+trigger `ledger.check_entry_period` reads the status `FOR SHARE` too
+(migration 000043, F8b), so an insert into `journal_entry` that did not go
+through `postingPeriod` would still hold its period against a close. On the
+one insert path there is, the lock is already held by `postingPeriod` in the
+same transaction, so the trigger adds no step to the lock order.
 
 A transaction that would otherwise lock in several
 steps or after posting, the migration load (it posts every document, then

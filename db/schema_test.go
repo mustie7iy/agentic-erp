@@ -148,66 +148,73 @@ type fixture struct {
 
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	f := fixture{tenant: id(), actor: id(), entity: id(), ledger: id(), calendar: id(), chart: id(),
+	f := fixtureIDs()
+	mustApp(t, f.tenant, f.seed)
+	return f
+}
+
+func fixtureIDs() fixture {
+	return fixture{tenant: id(), actor: id(), entity: id(), ledger: id(), calendar: id(), chart: id(),
 		bank: id(), ap: id(), expense: id(), tax: id(), supplier: id(), otherSupplier: id()}
-	mustApp(t, f.tenant, func(tx pgx.Tx) error {
-		steps := []struct {
-			sql  string
-			args []any
-		}{
-			{"INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", []any{f.tenant}},
-			{"INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by) VALUES ($1,$2,'1000','Acme US','US','USD',$3,'active',$4,$4)", []any{f.tenant, f.entity, f.calendar, f.actor}},
-			{"INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1,$2,'0L','Leading',true,'IFRS',$3)", []any{f.tenant, f.ledger, f.actor}},
-			{"INSERT INTO ledger.fiscal_calendar (tenant_id, id, code, name, normal_periods, special_periods, created_by) VALUES ($1,$2,'K4','Calendar year',12,4,$3)", []any{f.tenant, f.calendar, f.actor}},
-			{"INSERT INTO ledger.chart_of_accounts (tenant_id, id, code, name, created_by) VALUES ($1,$2,'INT','International',$3)", []any{f.tenant, f.chart, f.actor}},
+}
+
+// seed writes the fixture's rows in tx, the tenant's scope already set.
+func (f fixture) seed(tx pgx.Tx) error {
+	steps := []struct {
+		sql  string
+		args []any
+	}{
+		{"INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", []any{f.tenant}},
+		{"INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by) VALUES ($1,$2,'1000','Acme US','US','USD',$3,'active',$4,$4)", []any{f.tenant, f.entity, f.calendar, f.actor}},
+		{"INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1,$2,'0L','Leading',true,'IFRS',$3)", []any{f.tenant, f.ledger, f.actor}},
+		{"INSERT INTO ledger.fiscal_calendar (tenant_id, id, code, name, normal_periods, special_periods, created_by) VALUES ($1,$2,'K4','Calendar year',12,4,$3)", []any{f.tenant, f.calendar, f.actor}},
+		{"INSERT INTO ledger.chart_of_accounts (tenant_id, id, code, name, created_by) VALUES ($1,$2,'INT','International',$3)", []any{f.tenant, f.chart, f.actor}},
+	}
+	for _, s := range steps {
+		if err := exec(tx, s.sql, s.args...); err != nil {
+			return fmt.Errorf("%s: %w", s.sql[:40], err)
 		}
-		for _, s := range steps {
-			if err := exec(tx, s.sql, s.args...); err != nil {
-				return fmt.Errorf("%s: %w", s.sql[:40], err)
-			}
-		}
-		for m := 1; m <= 12; m++ {
-			start := time.Date(2026, time.Month(m), 1, 0, 0, 0, 0, time.UTC)
-			end := start.AddDate(0, 1, -1)
-			if err := exec(tx, "INSERT INTO ledger.fiscal_period VALUES ($1,$2,2026,$3,$4,$5,false)", f.tenant, f.calendar, m, start, end); err != nil {
-				return err
-			}
-			status := "open"
-			if m == 1 {
-				status = "closed"
-			}
-			if err := exec(tx, "INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by) VALUES ($1,gen_random_uuid(),$2,$3,$4,2026,$5,$6,$7)",
-				f.tenant, f.entity, f.ledger, f.calendar, m, status, f.actor); err != nil {
-				return err
-			}
-		}
-		for _, a := range []struct {
-			id           uuid.UUID
-			num, typ, rk string
-		}{{f.bank, "100000", "asset", "none"}, {f.ap, "211000", "liability", "supplier"}, {f.expense, "520000", "expense", "none"}, {f.tax, "140000", "asset", "none"}} {
-			if err := exec(tx, "INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by) VALUES ($1,$2,$3,$4,$4,$5,$6,'active',$7,$7)",
-				f.tenant, a.id, f.chart, a.num, a.typ, a.rk, f.actor); err != nil {
-				return err
-			}
-			if err := exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)", f.tenant, f.entity, a.id, f.actor); err != nil {
-				return err
-			}
-		}
-		if err := exec(tx, "INSERT INTO partner.payment_term (tenant_id, code, description, net_days, created_by, updated_by) VALUES ($1,'NT30','Net 30',30,$2,$2)", f.tenant, f.actor); err != nil {
+	}
+	for m := 1; m <= 12; m++ {
+		start := time.Date(2026, time.Month(m), 1, 0, 0, 0, 0, time.UTC)
+		end := start.AddDate(0, 1, -1)
+		if err := exec(tx, "INSERT INTO ledger.fiscal_period VALUES ($1,$2,2026,$3,$4,$5,false)", f.tenant, f.calendar, m, start, end); err != nil {
 			return err
 		}
-		for i, p := range []uuid.UUID{f.supplier, f.otherSupplier} {
-			if err := exec(tx, "INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by) VALUES ($1,$2,$3,'organization',$4,'US','active',$5,$5)",
-				f.tenant, p, fmt.Sprintf("S%04d", i+1), fmt.Sprintf("Supplier %d", i+1), f.actor); err != nil {
-				return err
-			}
-			if err := exec(tx, "INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1,$2,'supplier',$3)", f.tenant, p, f.actor); err != nil {
-				return err
-			}
+		status := "open"
+		if m == 1 {
+			status = "closed"
 		}
-		return nil
-	})
-	return f
+		if err := exec(tx, "INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by) VALUES ($1,gen_random_uuid(),$2,$3,$4,2026,$5,$6,$7)",
+			f.tenant, f.entity, f.ledger, f.calendar, m, status, f.actor); err != nil {
+			return err
+		}
+	}
+	for _, a := range []struct {
+		id           uuid.UUID
+		num, typ, rk string
+	}{{f.bank, "100000", "asset", "none"}, {f.ap, "211000", "liability", "supplier"}, {f.expense, "520000", "expense", "none"}, {f.tax, "140000", "asset", "none"}} {
+		if err := exec(tx, "INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by) VALUES ($1,$2,$3,$4,$4,$5,$6,'active',$7,$7)",
+			f.tenant, a.id, f.chart, a.num, a.typ, a.rk, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)", f.tenant, f.entity, a.id, f.actor); err != nil {
+			return err
+		}
+	}
+	if err := exec(tx, "INSERT INTO partner.payment_term (tenant_id, code, description, net_days, created_by, updated_by) VALUES ($1,'NT30','Net 30',30,$2,$2)", f.tenant, f.actor); err != nil {
+		return err
+	}
+	for i, p := range []uuid.UUID{f.supplier, f.otherSupplier} {
+		if err := exec(tx, "INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by) VALUES ($1,$2,$3,'organization',$4,'US','active',$5,$5)",
+			f.tenant, p, fmt.Sprintf("S%04d", i+1), fmt.Sprintf("Supplier %d", i+1), f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1,$2,'supplier',$3)", f.tenant, p, f.actor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // entry posts a journal entry with the given (account, amount) lines in USD.
@@ -430,6 +437,30 @@ func TestPostingPeriods(t *testing.T) {
 		return err
 	})
 	failsWith(t, err, "outside period")
+}
+
+// TestPostingHoldsItsPeriod: inserting an entry holds its period's status
+// row FOR SHARE until the transaction ends (F8b, 000043), as the ledger's
+// postingPeriod does, so a close, which locks the row FOR UPDATE, waits for
+// any posting under way rather than commit beneath it.
+func TestPostingHoldsItsPeriod(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	ctx := context.Background()
+	closer, err := pgx.ConnectConfig(ctx, testDB.Config().Copy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = closer.Close(ctx) }() // a close error leaves nothing to undo: the session ends either way
+	err = asApp(t, f.tenant, func(tx pgx.Tx) error {
+		if _, err := f.entry(tx, 7, "2026-07-02", line{account: f.expense, amount: 1}, line{account: f.bank, amount: -1}); err != nil {
+			return fmt.Errorf("post: %w", err)
+		}
+		_, err := closer.Exec(ctx, `SELECT FROM ledger.period_status WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = 2026 AND period = 7
+			FOR UPDATE NOWAIT`, f.tenant, f.entity)
+		return err
+	})
+	failsWith(t, err, "could not obtain lock on row in relation \"period_status\"")
 }
 
 func TestReconciliationAccountsNeedPartner(t *testing.T) {
@@ -817,7 +848,7 @@ func TestAssignmentsAreEndedNeverRewritten(t *testing.T) {
 	f := newFixture(t)
 	principal, role, assignment := id(), id(), id()
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
-		if err := exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','idp|ann','Ann','active',$3,$3)", f.tenant, principal, f.actor); err != nil {
+		if err := exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','https://idp.example.com','idp|ann','Ann','active',$3,$3)", f.tenant, principal, f.actor); err != nil {
 			return err
 		}
 		if err := exec(tx, "INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1,$2,'ap','AP clerk','active',$3,$3)", f.tenant, role, f.actor); err != nil {
@@ -988,8 +1019,9 @@ func TestExclusionReasons(t *testing.T) {
 }
 
 // TestPrincipalsAreTheirIssuersSubjects: a principal's issuer and subject
-// are unique per tenant (000038, ADR-0010); the unique index the unit of
-// work resolves tokens with is built and valid.
+// are unique per tenant (000038, ADR-0010), a subject alone is not
+// (000048), and a principal with a subject has an issuer (000046); the
+// unique index the unit of work resolves tokens with is built and valid.
 func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -1001,6 +1033,15 @@ func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
 	}
 	mustApp(t, f.tenant, insert("https://a.example.com", "idp|bo"))
 	failsWith(t, asApp(t, f.tenant, insert("https://a.example.com", "idp|bo")), "duplicate key")
+	// The subject alone is no longer unique (000048): another issuer may issue it.
+	if err := asApp(t, f.tenant, insert("https://b.example.com", "idp|bo")); err != nil {
+		t.Errorf("the same subject under another issuer: got %v, want success", err)
+	}
+	// A subject needs its issuer (000046, 000047).
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','idp|cy','P','active',$3,$3)",
+			f.tenant, id(), f.actor)
+	}), "principal_issuer_with_subject")
 	var valid, unique bool
 	if err := testDB.QueryRow(context.Background(), "SELECT indisvalid, indisunique FROM pg_index WHERE indexrelid = 'identity.principal_issuer_subject'::regclass").Scan(&valid, &unique); err != nil {
 		t.Fatalf("index: %v", err)
@@ -1020,15 +1061,7 @@ func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
 func TestPrincipalIssuerBackfill(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
-	var before []Migration
-	for _, m := range Migrations() {
-		if v, _ := m.Version(); v < 37 { // the names were checked by TestMigrationFiles
-			before = append(before, m)
-		}
-	}
-	if _, err := migrate(ctx, conn, before); err != nil {
-		t.Fatal(err)
-	}
+	migrateBefore(t, conn, 37)
 	tenant, human, agent := id(), id(), id()
 	for _, s := range []struct {
 		sql  string
@@ -1156,6 +1189,34 @@ func TestInvoiceExceptionVersion(t *testing.T) {
 			if c.fails == "" {
 				if err != nil {
 					t.Fatalf("approve: got %v, want success", err)
+				}
+				return
+			}
+			failsWith(t, err, c.fails)
+		})
+	}
+}
+
+// TestLocalCurrencyIsFixed: a legal entity's local currency is set when it
+// is created and never changes (000045, F14): configurations are checked
+// against it and its postings are kept in it. Its other details still change.
+func TestLocalCurrencyIsFixed(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	for _, c := range []struct {
+		name, set, fails string
+	}{
+		{"renamed", "name = 'Acme Inc.'", ""},
+		{"same currency", "local_currency = 'USD'", ""},
+		{"another currency", "local_currency = 'EUR'", "local currency of legal entity"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE tenancy.legal_entity SET "+c.set+", version = version + 1 WHERE id = $1", f.entity)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("update: got %v, want success", err)
 				}
 				return
 			}
