@@ -769,7 +769,8 @@ WE entry.
 
 Each item of a released order carries its `valuation_price` and
 `valuation_price_unit` (migration 000061, T47a): its price when it was
-released, with its order or as an order change adds it. Goods movements
+released, with its order or as an order change adds it; only the release
+and the change set it, never a draft's edit. Goods movements
 post GR/IR at it, and invoices clear GR/IR at it, putting what they differ
 from it on `price_difference`; its `unit_price` is what invoices are matched
 against. The GR/IR engine values an item's whole open position at the price

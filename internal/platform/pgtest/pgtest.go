@@ -155,12 +155,7 @@ func Exec(tb testing.TB, sql string, args ...any) {
 func Unguarded(tb testing.TB, sql string, args ...any) {
 	tb.Helper()
 	ctx := context.Background()
-	c, err := pgx.Connect(ctx, URL(tb))
-	if err != nil {
-		tb.Fatal(err)
-	}
-	defer func() { _ = c.Close(ctx) }() // the work on it is done or has failed; closing loses nothing
-	if err := pgx.BeginFunc(ctx, c, func(tx pgx.Tx) error {
+	if err := pgx.BeginFunc(ctx, Admin(tb), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
 			return fmt.Errorf("turn triggers off: %w", err)
 		}

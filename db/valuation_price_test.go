@@ -69,8 +69,11 @@ func TestValuationPrices(t *testing.T) {
 			WHERE purchase_order_id = $1`, po).Scan(&valued, &unit); err != nil {
 			t.Fatal(err)
 		}
-		if valued != 250 || unit != 1 {
-			t.Errorf("valued on release: got %d per %d, want 250 per 1", valued, unit)
+		if valued != 250 {
+			t.Errorf("valuation price on release: got %d, want 250", valued)
+		}
+		if unit != 1 {
+			t.Errorf("valuation price unit on release: got %d, want 1", unit)
 		}
 	})
 	t.Run("an item added to a released order unvalued", func(t *testing.T) {
