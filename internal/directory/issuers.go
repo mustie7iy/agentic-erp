@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -189,4 +190,45 @@ func (s *Sync) syncIssuers(ctx context.Context, tx pgx.Tx) error {
 		s.Log.WarnContext(ctx, "identity providers whose issuer and audience another tenant holds in the directory", "cell", s.Cell, "held by another tenant", taken)
 	}
 	return nil
+}
+
+// LookupIssuer lists the claims holding the issuer with one of the
+// audiences.
+func (p *Postgres) LookupIssuer(ctx context.Context, issuer string, audiences []string) ([]Issuer, error) {
+	var out []Issuer
+	err := p.inTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, _ := tx.Query(ctx, `SELECT issuer, audience, tenant_id, cell, coalesce(provider_id, '00000000-0000-0000-0000-000000000000')
+			FROM directory.issuer WHERE issuer = $1 AND audience = ANY($2) ORDER BY audience`, issuer, audiences)
+		var err error
+		if out, err = pgx.CollectRows(rows, pgx.RowToStructByPos[Issuer]); err != nil {
+			return fmt.Errorf("look up issuer %s: %w", issuer, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("directory: %w", err)
+	}
+	return out, nil
+}
+
+// IssuerRegistry is the router's authn.Registry: a token's tenant is the
+// one whose claim holds its issuer and audience (ADR-0031). The cell checks
+// the rest of the registration (its tenant claim) when the token reaches it.
+type IssuerRegistry struct {
+	Directory *Postgres
+}
+
+// Resolve implements authn.Registry.
+func (r IssuerRegistry) Resolve(ctx context.Context, issuer string, audiences []string) (authn.Registration, error) {
+	claims, err := r.Directory.LookupIssuer(ctx, issuer, audiences)
+	switch {
+	case err != nil:
+		return authn.Registration{}, err
+	case len(claims) == 0:
+		return authn.Registration{}, authn.ErrUnknownIssuer
+	case len(claims) > 1:
+		return authn.Registration{}, authn.ErrAmbiguousIssuer
+	}
+	c := claims[0]
+	return authn.Registration{ProviderID: c.ProviderID, TenantID: c.TenantID, Issuer: c.Issuer, Audience: c.Audience}, nil
 }

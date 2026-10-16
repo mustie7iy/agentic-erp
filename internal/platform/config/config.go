@@ -38,7 +38,7 @@ type Config struct {
 	Cell            string          // ERP_CELL, part of event subjects (default local)
 	NATSURL         string          // ERP_NATS_URL; empty disables the event relay
 	OTLPEndpoint    string          // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT; empty keeps traces local
-	Issuers         []authn.Issuer  // ERP_OIDC_ISSUERS, JSON list of {issuer, audience, tenant_claim} (required)
+	Issuers         []authn.Issuer  // ERP_OIDC_ISSUERS, JSON list of {issuer, audience, tenant_claim}: issuers trusted for every tenant (optional; tenants register their own, ADR-0031)
 	OperatorIssuers []authn.Issuer  // ERP_OPERATOR_ISSUERS, the same for the operators' tokens; empty leaves the control plane off (unless ERP_DEV_ISSUER)
 	PageTokenKey    []byte          // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required)
 	LLMEnabled      bool            // ANTHROPIC_API_KEY is set: invoice capture reads documents with Claude
@@ -267,8 +267,9 @@ func (l *loader) basics() Config {
 	return c
 }
 
-// issuers reads who may sign tokens: the development issuer, the tenants'
-// OIDC issuers (optional with the development issuer) and the operators'.
+// issuers reads who may sign tokens: the development issuer, the
+// deployment's own tenant issuers (optional: tenants register theirs,
+// ADR-0031) and the operators'.
 func (l *loader) issuers(c *Config) {
 	getenv := l.getenv
 	dev, err := strconv.ParseBool(l.get("ERP_DEV_ISSUER", "false"))
@@ -276,9 +277,9 @@ func (l *loader) issuers(c *Config) {
 		l.errs = append(l.errs, errors.New("ERP_DEV_ISSUER must be true or false"))
 	}
 	c.DevIssuer = dev
-	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" || !c.DevIssuer {
+	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.Issuers); err != nil || len(c.Issuers) == 0 {
-			l.errs = append(l.errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} (optional with ERP_DEV_ISSUER=true)`))
+			l.errs = append(l.errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} when set`))
 		}
 	}
 	if raw := getenv("ERP_OPERATOR_ISSUERS"); raw != "" {

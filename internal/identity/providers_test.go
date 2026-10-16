@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -695,5 +696,46 @@ func TestActiveIdentityProviders(t *testing.T) {
 	}
 	if _, err := identity.ActiveIdentityProviders(ctx, &pgtest.FailingTx{Tx: tx, FailAt: 1}); !errors.Is(err, pgtest.ErrInjected) {
 		t.Errorf("failing read: got %v, want the injected failure", err)
+	}
+}
+
+// TestRegistry: the cell resolves a token's tenant from its registered
+// identity providers, as the control role (ADR-0031).
+func TestRegistry(t *testing.T) {
+	r := newRegistry(t)
+	claim := "erp_tenant"
+	p, err := r.register(identity.NewIdentityProvider{Issuer: issuer("registry"), Audience: "erp", TenantClaim: &claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := identity.Registry{Pool: r.pool, ControlRole: "erp_control"}
+	ctx := context.Background()
+	got, err := reg.Resolve(ctx, p.Issuer, []string{"erp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProviderID != p.ID || got.TenantID != r.tenant || got.Issuer != p.Issuer || got.Audience != "erp" || got.TenantClaim == nil || *got.TenantClaim != claim {
+		t.Errorf("registration: got %+v, want provider %s of tenant %s with claim %s", got, p.ID, r.tenant, claim)
+	}
+	if _, err := reg.Resolve(ctx, issuer("nobody"), []string{"erp"}); !errors.Is(err, authn.ErrUnknownIssuer) {
+		t.Errorf("unknown: got %v, want ErrUnknownIssuer", err)
+	}
+	other := newRegistry(t)
+	other.mustRegister(p.Issuer, "erp-other")
+	if _, err := reg.Resolve(ctx, p.Issuer, []string{"erp", "erp-other"}); !errors.Is(err, authn.ErrAmbiguousIssuer) {
+		t.Errorf("ambiguous: got %v, want ErrAmbiguousIssuer", err)
+	}
+	failing := identity.Registry{Pool: r.pool, ControlRole: "erp_control", Begin: func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := r.pool.Begin(ctx, s)
+		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, err
+	}}
+	if _, err := failing.Resolve(ctx, p.Issuer, []string{"erp"}); !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("a failing read: got %v, want the injected failure", err)
+	}
+	down := identity.Registry{Pool: r.pool, ControlRole: "erp_control", Begin: func(context.Context, database.Scope) (pgx.Tx, error) {
+		return nil, errors.New("database down")
+	}}
+	if _, err := down.Resolve(ctx, p.Issuer, []string{"erp"}); err == nil || errors.Is(err, authn.ErrUnknownIssuer) {
+		t.Errorf("no transaction: got %v, want a failure to answer", err)
 	}
 }

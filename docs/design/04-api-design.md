@@ -220,6 +220,15 @@ at most one bank file.
 - OAuth 2.0 bearer tokens (OIDC) from the tenant's identity provider; the
   gateway validates signature, issuer and audience. Agents and services use
   client-credentials tokens tied to their `principal`.
+- The identity provider a tenant registered decides a token's tenant
+  (ADR-0031): the cell resolves the token's issuer and audience to the one
+  active registration (as `erp_control`, cached 30 s) and the router to the
+  directory's claim of them, whatever tenant a claim names; a registered
+  tenant claim must name that tenant. An issuer no tenant registered is
+  401 and never fetched; a registry or provider that cannot answer is 503
+  `platform.identity_provider_unavailable` (keys) or `platform.unavailable`
+  (registry). Issuers configured for every tenant (`ERP_OIDC_ISSUERS`) are
+  optional and keep the tenant claim.
 - Every operation in the spec declares its permission with
   `x-permission: payables.invoice.post`. The generated router refuses to start
   if a handler has no permission, and a test checks that every permission in

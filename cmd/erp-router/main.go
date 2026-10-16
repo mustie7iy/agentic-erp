@@ -51,15 +51,19 @@ func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, star
 }
 
 func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(api, admin net.Listener)) error {
-	verifier, err := authn.New(ctx, authn.Environment(cfg.Environment), cfg.Issuers, cfg.Static...)
-	if err != nil {
-		return err
-	}
 	dir, err := directory.Open(ctx, cfg.DirectoryURL)
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
+	// A tenant's registered identity provider decides its tokens' tenant
+	// through the directory's claims (ADR-0031); the cell checks them again.
+	registry := &authn.RegistryCache{Registry: directory.IssuerRegistry{Directory: dir}, TTL: cfg.CacheTTL}
+	providers := &authn.Providers{Production: cfg.Environment == string(authn.Production)}
+	verifier, err := authn.NewRegistered(ctx, authn.Environment(cfg.Environment), registry, providers, cfg.Issuers, cfg.Static...)
+	if err != nil {
+		return err
+	}
 	metrics := telemetry.NewMetrics()
 	traced := telemetry.Middleware(log, metrics, tracenoop.NewTracerProvider())
 	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: cfg.Transport})

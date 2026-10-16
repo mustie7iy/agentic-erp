@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -522,4 +524,34 @@ func ActiveIdentityProviders(ctx context.Context, tx pgx.Tx) ([]ProviderKey, err
 		return nil, fmt.Errorf("identity: list active identity providers: %w", err)
 	}
 	return keys, nil
+}
+
+// Registry resolves a token's issuer and audiences to the cell's active
+// registration holding them, as the control role across tenants: the
+// cell's authn.Registry (ADR-0031), behind an authn.RegistryCache.
+type Registry struct {
+	Pool        *database.Pool
+	ControlRole string // erp_control
+	// Begin starts the transaction; nil means Pool.Begin. Tests inject
+	// failures.
+	Begin database.BeginFunc
+}
+
+// Resolve implements authn.Registry.
+func (r Registry) Resolve(ctx context.Context, issuer string, audiences []string) (authn.Registration, error) {
+	tx, err := database.BeginOr(ctx, r.Pool, r.Begin, database.Scope{Role: r.ControlRole, ReadOnly: true})
+	if err != nil {
+		return authn.Registration{}, fmt.Errorf("identity: resolve identity provider %s: %w", issuer, err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	reg, err := ResolveIdentityProvider(ctx, tx, issuer, audiences)
+	switch {
+	case errors.Is(err, ErrUnknownProvider):
+		return authn.Registration{}, authn.ErrUnknownIssuer
+	case errors.Is(err, ErrAmbiguousProvider):
+		return authn.Registration{}, authn.ErrAmbiguousIssuer
+	case err != nil:
+		return authn.Registration{}, err
+	}
+	return authn.Registration{ProviderID: reg.ProviderID, TenantID: reg.TenantID, Issuer: reg.Issuer, Audience: reg.Audience, TenantClaim: reg.TenantClaim}, nil
 }

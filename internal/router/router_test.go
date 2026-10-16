@@ -68,11 +68,20 @@ func TestLoadConfig(t *testing.T) {
 	check("len(Issuers)", len(c.Issuers), 1)
 	check("LogLevel", c.LogLevel, slog.LevelInfo)
 	check("Environment", c.Environment, "development")
+	// Tenants' tokens may come from registered identity providers alone
+	// (ADR-0031): the router resolves them through the directory.
+	noIssuers := map[string]string{}
+	for k, v := range valid {
+		noIssuers[k] = v
+	}
+	delete(noIssuers, "ERP_OIDC_ISSUERS")
+	if c, err := router.LoadConfig(env(noIssuers)); err != nil || len(c.Issuers) != 0 {
+		t.Errorf("no issuers: got %d issuers, %v, want none and no error", len(c.Issuers), err)
+	}
 	for name, bad := range map[string]map[string]string{
 		"no environment":      {"ERP_ENV": ""},
 		"unknown environment": {"ERP_ENV": "staging"},
 		"no directory":        {"ERP_DIRECTORY_URL": ""},
-		"no issuers":          {"ERP_OIDC_ISSUERS": ""},
 		"bad issuers":         {"ERP_OIDC_ISSUERS": "[]"},
 		"bad cache":           {"ERP_DIRECTORY_CACHE": "0"},
 		"bad shutdown":        {"ERP_SHUTDOWN_TIMEOUT": "soon"},
@@ -240,4 +249,51 @@ func TestRouting(t *testing.T) {
 	code, out, _ = do("GET", "/livez", "", "")
 	check("livez status", code, 200)
 	check("livez body status", out["status"], "ok")
+}
+
+// TestRoutingRegisteredIssuers: a token of a tenant's registered identity
+// provider is routed to that tenant's cell by its issuer and audience in
+// the directory, whatever tenant it claims; one no tenant registered is
+// refused before any cell (ADR-0031).
+func TestRoutingRegisteredIssuers(t *testing.T) {
+	ctx := context.Background()
+	dir, err := directory.Open(ctx, pgtest.EmptyDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	is, other := authntest.NewSeparate(t), authntest.NewSeparate(t)
+	tenant := uuid.New()
+	if err := dir.ClaimIssuer(ctx, directory.Issuer{Issuer: is.URL, Audience: authntest.Audience, TenantID: tenant, Cell: "eu-1", ProviderID: uuid.New()}); err != nil {
+		t.Fatal(err)
+	}
+	cell := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"cell": "eu-1"}`)) // the client asserts on what arrives
+	}))
+	defer cell.Close()
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: cell.URL, Status: directory.Active}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := authn.NewRegistered(ctx, authn.Development, &authn.RegistryCache{Registry: directory.IssuerRegistry{Directory: dir}}, &authn.Providers{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(&router.Router{Verifier: v, Directory: dir, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	defer srv.Close()
+	get := func(token string) int {
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/v1/roles", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close() // the status is what this test reads
+		return resp.StatusCode
+	}
+	if got := get(is.Token(t, uuid.New(), "ada", nil)); got != 200 {
+		t.Errorf("a registered issuer's token claiming another tenant: got %d, want 200 from the registration's cell", got)
+	}
+	if got := get(other.Token(t, tenant, "mallory", nil)); got != 401 {
+		t.Errorf("an unregistered issuer's token: got %d, want 401", got)
+	}
 }

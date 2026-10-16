@@ -126,6 +126,12 @@ func TestOverrides(t *testing.T) {
 	if _, err := Load(env(m)); err == nil {
 		t.Fatal("empty issuer list accepted")
 	}
+	// Without either, tenants' tokens come from their registered identity
+	// providers alone (ADR-0031).
+	m = valid()
+	delete(m, "ERP_OIDC_ISSUERS")
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"DevIssuer", c.DevIssuer, false}, {"Issuers", len(c.Issuers), 0}})
 	// Master keys: a ring from ERP_FIELD_KEYS, or one master from the legacy key.
 	m = valid()
 	c = mustLoad(t, m)

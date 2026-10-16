@@ -235,7 +235,12 @@ func (s *server) authenticate(ctx context.Context) error {
 		s.log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant, and operator tokens (POST /dev/token); never in production, where ERP_ENV=production refuses it")
 	}
 	var err error
-	if s.verifier, err = authn.New(ctx, authn.Environment(s.cfg.Environment), s.cfg.Issuers, s.static...); err != nil {
+	// Tenants' tokens come from the identity providers they registered,
+	// resolved by issuer and audience in the cell (ADR-0031), and from the
+	// issuers the deployment configures for every tenant.
+	registry := &authn.RegistryCache{Registry: identity.Registry{Pool: s.pool, ControlRole: s.cfg.ControlRole}}
+	providers := &authn.Providers{Production: s.cfg.Environment == config.Production}
+	if s.verifier, err = authn.NewRegistered(ctx, authn.Environment(s.cfg.Environment), registry, providers, s.cfg.Issuers, s.static...); err != nil {
 		return err
 	}
 	if s.pages, err = pagination.NewCodec(s.cfg.PageTokenKey); err != nil {

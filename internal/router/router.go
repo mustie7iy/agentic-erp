@@ -29,7 +29,7 @@ type Config struct {
 	AdminAddr       string            // ERP_ROUTER_ADMIN_ADDR (default :9091): liveness, metrics, and the global control plane with operator issuers
 	DirectoryURL    string            // ERP_DIRECTORY_URL (required)
 	Environment     string            // ERP_ENV (required, no default): development or production, as for the cells (internal/platform/config)
-	Issuers         []authn.Issuer    // ERP_OIDC_ISSUERS, the same list the cells trust (required)
+	Issuers         []authn.Issuer    // ERP_OIDC_ISSUERS, the same list the cells trust (optional; tenants' registered providers resolve through the directory)
 	OperatorIssuers []authn.Issuer    // ERP_OPERATOR_ISSUERS, for the global control plane on the admin listener; empty leaves it off
 	PageTokenKey    []byte            // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required with ERP_OPERATOR_ISSUERS)
 	CacheTTL        time.Duration     // ERP_DIRECTORY_CACHE, how long a lookup is remembered (default 30s)
@@ -55,8 +55,10 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if c.DirectoryURL == "" {
 		errs = append(errs, errors.New("ERP_DIRECTORY_URL is required: the directory database"))
 	}
-	if err := json.Unmarshal([]byte(getenv("ERP_OIDC_ISSUERS")), &c.Issuers); err != nil || len(c.Issuers) == 0 {
-		errs = append(errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"}`))
+	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &c.Issuers); err != nil || len(c.Issuers) == 0 {
+			errs = append(errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} when set`))
+		}
 	}
 	if raw := getenv("ERP_OPERATOR_ISSUERS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.OperatorIssuers); err != nil || len(c.OperatorIssuers) == 0 {

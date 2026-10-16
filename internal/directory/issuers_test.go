@@ -14,6 +14,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -325,5 +326,44 @@ func TestReleaseGivesUpOnlyItsClaim(t *testing.T) {
 	}
 	if got := claims(t, dir); len(got) != 0 {
 		t.Errorf("claims after the new registration's release: got %v, want none", got)
+	}
+}
+
+// TestIssuerRegistry: the router resolves a token's tenant from the
+// directory's claims (ADR-0031).
+func TestIssuerRegistry(t *testing.T) {
+	ctx := context.Background()
+	dir, err := directory.Open(ctx, pgtest.EmptyDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	a, b := uuid.New(), uuid.New()
+	for _, is := range []directory.Issuer{
+		{Issuer: "https://r.example.com", Audience: "erp", TenantID: a, Cell: "c1", ProviderID: uuid.New()},
+		{Issuer: "https://r.example.com", Audience: "erp-b", TenantID: b, Cell: "c2", ProviderID: uuid.New()},
+	} {
+		if err := dir.ClaimIssuer(ctx, is); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg := directory.IssuerRegistry{Directory: dir}
+	got, err := reg.Resolve(ctx, "https://r.example.com", []string{"other", "erp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TenantID != a || got.Issuer != "https://r.example.com" || got.Audience != "erp" {
+		t.Errorf("registration: got %+v, want tenant %s for erp", got, a)
+	}
+	if _, err := reg.Resolve(ctx, "https://unknown.example.com", []string{"erp"}); !errors.Is(err, authn.ErrUnknownIssuer) {
+		t.Errorf("unknown: got %v, want ErrUnknownIssuer", err)
+	}
+	if _, err := reg.Resolve(ctx, "https://r.example.com", []string{"erp", "erp-b"}); !errors.Is(err, authn.ErrAmbiguousIssuer) {
+		t.Errorf("two tenants' audiences: got %v, want ErrAmbiguousIssuer", err)
+	}
+	broken, _ := directory.Open(ctx, pgtest.URL(t))
+	broken.Close()
+	if _, err := (directory.IssuerRegistry{Directory: broken}).Resolve(ctx, "https://r.example.com", []string{"erp"}); err == nil || errors.Is(err, authn.ErrUnknownIssuer) {
+		t.Errorf("a closed directory: got %v, want a failure to answer", err)
 	}
 }
