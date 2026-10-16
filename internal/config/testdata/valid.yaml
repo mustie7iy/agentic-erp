@@ -54,6 +54,7 @@ companies:
       price_percent: 2
       price_absolute: "5.00"
     auto_post_limit: "50000.00"
+    manual_entry_approval_limit: "10000.00"
     gr_over_delivery_percent: 0
     house_bank:
       name: MAIN
@@ -113,6 +114,7 @@ companies:
       price_percent: 2
       price_absolute: "5.00"
     auto_post_limit: "50000.00"
+    manual_entry_approval_limit: "10000.00"
     gr_over_delivery_percent: 0
     house_bank:
       name: MAIN

@@ -120,10 +120,47 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Manual journal entries with approval workflow",
       "r": "T35",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Parked manual entries in their own table; the database keeps them frozen while decided and links each to the journal entry posted for it",
+        "r": "db/migrations/000052 · ledger.parked_entry · T35a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Manual entry approval limit per company; approvals routes manual_entry above it to the controller",
+        "r": "companies[].manual_entry_approval_limit · approvals.ManualEntry · Approvals.Required · T35b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "People and agents park validated manual entries",
+        "r": "parked-journal-entries · T35c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The owner edits or cancels a parked entry; agents only their own proposals",
+        "r": "T35d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Posting a parked entry posts within the limit or asks approval; an approval by someone else posts it",
+        "r": ":post · ledger.ManualEntries · T35e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Direct posts above the limit refused; agents never post or reverse",
+        "r": "x-agent: false · T35f",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

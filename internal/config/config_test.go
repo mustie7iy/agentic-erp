@@ -95,6 +95,9 @@ func TestValidationRules(t *testing.T) {
 		{"tolerance pct", func(c *Config) { c.Companies[0].InvoiceTolerance.PricePercent = -1 }, "companies[1000].invoice_tolerance.price_percent"},
 		{"tolerance abs", func(c *Config) { c.Companies[0].InvoiceTolerance.PriceAbsolute = "-5" }, "companies[1000].invoice_tolerance.price_absolute"},
 		{"limit", func(c *Config) { c.Companies[0].AutoPostLimit = "lots" }, "companies[1000].auto_post_limit"},
+		{"manual entry limit", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "lots" }, "companies[1000].manual_entry_approval_limit"},
+		{"manual entry limit missing", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "" }, "companies[1000].manual_entry_approval_limit"},
+		{"manual entry limit negative", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "-1.00" }, "companies[1000].manual_entry_approval_limit"},
 		{"over delivery", func(c *Config) { c.Companies[0].OverDeliveryPercent = 101 }, "companies[1000].gr_over_delivery_percent"},
 		{"iban", func(c *Config) { c.Companies[0].HouseBank.IBAN = "GB33BUKB20201555555556" }, "companies[1000].house_bank.iban"},
 		{"bic", func(c *Config) { c.Companies[0].HouseBank.BIC = "BUK" }, "companies[1000].house_bank.bic"},
@@ -174,6 +177,7 @@ func TestDiffTiers(t *testing.T) {
 		{"output", func(c *Config) { c.Output.PurchaseOrderChannel = "edi" }, "output.purchase_order_channel", TierOperational},
 		{"account determination", func(c *Config) { c.Companies[0].AccountDetermination.InputTax = "100000" }, "companies[1000].account_determination.input_tax", TierPostingRelated},
 		{"auto limit", func(c *Config) { c.Companies[0].AutoPostLimit = "75000.00" }, "companies[1000].auto_post_limit", TierPostingRelated},
+		{"manual entry limit", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "25000.00" }, "companies[1000].manual_entry_approval_limit", TierPostingRelated},
 		{"release role", func(c *Config) { c.Payments.ReleaseRole = "controller" }, "payments.release_role", TierPostingRelated},
 		{"currency", func(c *Config) { c.Companies[0].Currency = "CAD" }, "companies[1000].currency", TierStructural},
 		{"new account", func(c *Config) {

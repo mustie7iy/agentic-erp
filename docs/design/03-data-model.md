@@ -276,8 +276,11 @@ and every change to them traces back to an approved change request.
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the invoice price tolerance
-(`invoice_tolerance.price_absolute`) and the auto-post limit
-(`auto_post_limit`). The amounts are read with the digits of the
+(`invoice_tolerance.price_absolute`), the auto-post limit
+(`auto_post_limit`) and the manual entry approval limit
+(`manual_entry_approval_limit`, T35: the largest manual journal entry, by
+its debits, that people post without approval; posting-relevant, so a
+change is approved as one). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -379,6 +382,8 @@ erDiagram
   journal_line ||--o| clearing_item : "cleared by"
   gl_account ||--o{ journal_line : posted_to
   ledger ||--o{ journal_entry : in
+  parked_entry ||--|{ parked_entry_line : contains
+  parked_entry |o--o| journal_entry : "posted as"
   journal_entry { uuid id PK
     uuid legal_entity_id
     uuid ledger_id
@@ -441,6 +446,33 @@ Rules enforced in the database:
   stays within the ledger's schema (02-architecture, boundary rule 1). The
   request needs one approval by the role `controller` holding
   `ledger.period.unlock.approve`, whatever the configuration says.
+- A manual entry waits in `parked_entry` (with `parked_entry_line`,
+  amounts in minor units of the entry's currency, debit positive, never
+  zero) until it is posted; the journal stays insert-only (ADR-0006).
+  Migration 000052 (T35a) keeps its lifecycle in the trigger
+  `ledger.check_parked_entry_change`: an entry is inserted `parked` and
+  moves only parked -> parked (edits), pending_approval, posted (within the
+  approval limit) or cancelled, and pending_approval -> posted, rejected or
+  back to parked (the request withdrawn, clearing `approval_request_id`);
+  posted, rejected and cancelled are final. Its content, and its lines
+  (`platform.check_editable_parent`; a line also stays on its entry and
+  keeps its number), change only while it is parked, so what is approved is
+  what is posted; who parked it, and when, never changes. A pending or
+  rejected entry names its `manual_entry` approval request (workflow
+  context, no foreign key; one entry per request), an entry posted on
+  approval keeps it and one posted directly names none, and it is posted
+  or rejected only on the request it names; that the request was approved
+  is checked by the ledger's approvals callback, as for period unlocks. A
+  posted entry names the journal entry posted for it (`source_context`
+  `ledger`, `source_document_id` the parked entry, its header, not its
+  reversal), and only a posted one does. The ledger reads an entry
+  `FOR UPDATE` before it changes the entry or its lines (ADR-0008): the
+  line trigger reads the entry's status without a lock. A person owns what they park (`owner_id` =
+  `created_by`); an agent's entry has no owner until a person changes or
+  posts it, an entry is submitted or posted only with an owner, and the
+  owner never changes: the requester an approval excludes is the one person
+  who wrote the entry. Agents may hold `ledger.entry.park`;
+  `ledger.entry.approve` is an approval permission (agents never hold it).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger
   (trigger `ledger.check_clearing_period`, migration 000049, T32), as a
@@ -909,6 +941,15 @@ erDiagram
 Database rules: one approval per actor per request (partial unique index);
 the requester cannot decide (check against `approval_request.requester_id` in
 the decision trigger); decisions are insert-only.
+
+A `manual_entry` request (T35) is opened for a parked manual journal entry
+whose debits, converted exactly into its company's currency at the average
+rate of its posting date, exceed the company's `manual_entry_approval_limit`;
+within the limit the policy has no steps and the entry posts at once
+(`Approvals.Required` answers the same question without opening a request,
+for direct posts). A company without a limit has a limit of 0. Above it,
+one approval by the role `controller` with `ledger.entry.approve`, whatever
+the configuration says, as for period unlocks.
 
 ## 3.12 Audit (`audit`)
 

@@ -2522,7 +2522,7 @@ components:
       required: [approval_request_id, object_type, object_id, current_step, escalations, pending_since]
       properties:
         approval_request_id: {$ref: '#/components/schemas/Uuid'}
-        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception.'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry.'}
         object_id: {$ref: '#/components/schemas/Uuid'}
         current_step: {type: integer, minimum: 1, description: The step waiting for a decision.}
         escalations: {type: integer, minimum: 1, description: How often the request has now been escalated.}
@@ -2532,7 +2532,7 @@ components:
       required: [approval_request_id, object_type, object_id, title, requester_id, steps]
       properties:
         approval_request_id: {$ref: '#/components/schemas/Uuid'}
-        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception.'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry.'}
         object_id: {$ref: '#/components/schemas/Uuid'}
         title: {type: string}
         requester_id: {$ref: '#/components/schemas/Uuid', description: 'Principal that raised the request: human, agent or service.'}

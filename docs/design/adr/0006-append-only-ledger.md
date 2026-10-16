@@ -9,7 +9,11 @@ the highest-volume table (up to 10 billion lines per region per year).
 ## Decision
 - `ledger.journal_entry` and `ledger.journal_line` are insert-only; the
   application role has no UPDATE/DELETE grant on them. Corrections are
-  reversal entries referencing the original.
+  reversal entries referencing the original. An entry is never stored
+  before it is posted: a manual entry that waits (for a person to post it,
+  or for approval above the company's limit, T35) is parked in its own
+  table, `ledger.parked_entry`, and the journal entry it becomes names it as
+  its source document.
 - Clearing (which open items are settled) is recorded in a separate insert-only
   table `ledger.clearing` instead of updating lines.
 - Balances are derived: `ledger.period_balance` (tenant, ledger, legal entity,
