@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -535,4 +536,68 @@ func TestSessionSweeperFailures(t *testing.T) {
 	cancel()
 	f.sweeperAt().Run(ctx)
 	(&identity.SessionSweeper{Pool: pool, AppRole: "erp_app", WorkerRole: "erp_worker"}).Run(ctx) // without a logger
+}
+
+// TestSessionSightingsOutOfOrder: a sighting older than the last one
+// recorded (a request that read the clock first but locked the row last,
+// or a replica whose clock is behind) leaves the last sighting as it is.
+func TestSessionSightingsOutOfOrder(t *testing.T) {
+	f := newSessions(t)
+	c := f.claims("sid-order")
+	if err := f.check(c); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.Advance(2 * time.Minute)
+	if err := f.check(c); err != nil {
+		t.Fatal(err)
+	}
+	behind := &identity.Sessions{Pool: f.s.Pool, AppRole: "erp_app", Now: func() time.Time { return f.clock.Now().Add(-time.Minute) }}
+	if err := behind.Check(context.Background(), c); err != nil {
+		t.Errorf("an earlier sighting: got %v, want accepted", err)
+	}
+}
+
+// TestStepUpDoesNotReviveASession: a token of an ended session that fails
+// the multi-factor rule is left to the unit of work, and remembers
+// nothing: the same session's step-up token is still refused.
+func TestStepUpDoesNotReviveASession(t *testing.T) {
+	f := newSessions(t)
+	c := f.claims("sid-step-up")
+	if err := f.check(c); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.Advance(11 * time.Minute)
+	wantCode(t, f.check(c), "identity.session_idle")
+	weak := f.claims("sid-step-up")
+	weak.MFA = reqctx.MFA{Required: true, AMRValues: []string{"mfa"}}
+	if err := f.check(weak); err != nil {
+		t.Fatalf("a token failing the multi-factor rule: got %v, want it left to the unit of work", err)
+	}
+	strong := weak
+	strong.AMR = []string{"mfa"}
+	wantCode(t, f.check(strong), "identity.session_idle")
+}
+
+// TestSweeperRunsAgainOnAFullBatch: a round that found a full batch of
+// idle sessions runs again at once, until the batch is not full.
+func TestSweeperRunsAgainOnAFullBatch(t *testing.T) {
+	f := newSessions(t)
+	for i := range 3 {
+		if err := f.check(f.claims("sid-batch-" + strconv.Itoa(i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.clock.Advance(identity.MaxIdleTimeout + time.Minute)
+	sw := f.sweeperAt()
+	sw.Batch, sw.Interval = 1, time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { sw.Run(ctx); close(done) }()
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var n int
+		pgtest.Scan(t, `SELECT count(*) FROM identity.session WHERE tenant_id = $1 AND ended_at IS NULL`, []any{f.ten.ID}, &n)
+		return n == 0
+	}, "a full batch did not make the sweeper run again before its hour")
+	cancel()
+	<-done
 }

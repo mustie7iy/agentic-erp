@@ -169,12 +169,16 @@ func (s *Sessions) touch(ctx context.Context, c reqctx.Claims, key [32]byte, key
 		return nil, fmt.Errorf("identity: session of %s: %w", c.Subject, err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	p, person, err := sessionPrincipal(ctx, tx, c)
-	if err != nil || !person {
-		if err == nil && p.ID != uuid.Nil {
-			return &sighting{touched: now}, nil
-		}
-		return nil, err
+	p, err := sessionPrincipal(ctx, tx, c)
+	switch {
+	case err != nil, p.ID == uuid.Nil:
+		return nil, err // a token of no principal is not remembered: the unit of work refuses it
+	case p.Kind != Human:
+		return &sighting{touched: now}, nil
+	case authn.CheckMFA(c) != nil:
+		// Refused by the unit of work's same check (uow.serve); remembering
+		// it would let the same session's next token skip this one.
+		return nil, nil
 	}
 	if err := s.personsToken(c, keyed); err != nil {
 		return nil, err
@@ -192,7 +196,7 @@ func (s *Sessions) touch(ctx context.Context, c reqctx.Claims, key [32]byte, key
 			return nil, err
 		}
 	case found:
-		if _, err := tx.Exec(ctx, `UPDATE identity.session SET last_seen_at = $2, version = version + 1 WHERE id = $1`, row.id, now); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE identity.session SET last_seen_at = greatest(last_seen_at, $2), version = version + 1 WHERE id = $1`, row.id, now); err != nil {
 			return nil, fmt.Errorf("identity: touch session %s: %w", row.id, err)
 		}
 	}
@@ -205,20 +209,21 @@ func (s *Sessions) touch(ctx context.Context, c reqctx.Claims, key [32]byte, key
 	return &sighting{person: true, started: row.started, touched: now}, nil
 }
 
-// sessionPrincipal finds the token's active principal and whether it is a
-// person whose token passes the multi-factor rule: sessions are people's,
-// and a token the unit of work refuses starts none.
-func sessionPrincipal(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal, bool, error) {
+// sessionPrincipal finds the token's active principal, as the unit of work
+// resolves it (uow.resolve); a zero id when there is none. The tenant's
+// status is the unit of work's to check: a suspended tenant's person may
+// touch a session before being refused, which ends nothing early.
+func sessionPrincipal(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal, error) {
 	p := reqctx.Principal{TenantID: c.TenantID}
 	err := tx.QueryRow(ctx, `SELECT id, kind FROM identity.principal WHERE external_issuer = $1 AND external_subject = $2 AND status = 'active'`,
 		c.Issuer, c.Subject).Scan(&p.ID, &p.Kind)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p, false, nil
+		return reqctx.Principal{}, nil
 	}
 	if err != nil {
-		return p, false, fmt.Errorf("identity: principal of session of %s: %w", c.Subject, err)
+		return p, fmt.Errorf("identity: principal of session of %s: %w", c.Subject, err)
 	}
-	return p, p.Kind == Human && authn.CheckMFA(c) == nil, nil
+	return p, nil
 }
 
 // personsToken refuses a person's token the session cannot be told by, or
@@ -355,16 +360,32 @@ var SweepActor = uuid.MustParse("6f1d0a5e-3c2b-4a89-9e7d-5e55105e0e01")
 // RunOnce ends idle sessions and deletes old ended ones; it returns how
 // many it deleted. Running it twice changes nothing more.
 func (s *SessionSweeper) RunOnce(ctx context.Context) (int64, error) {
+	deleted, _, err := s.sweep(ctx)
+	return deleted, err
+}
+
+// sweep is one round; more reports a full batch of idle sessions, so the
+// next round runs at once. A tenant whose sessions cannot be ended is
+// reported and the others' are ended still.
+func (s *SessionSweeper) sweep(ctx context.Context) (int64, bool, error) {
 	now := clock.Now(s.Now)
-	idle, err := s.idle(ctx, now)
+	idle, more, err := s.idle(ctx, now)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
+	var failed []error
 	for tenant, ids := range idle {
 		if err := s.endIdle(ctx, tenant, ids, now); err != nil {
-			return 0, err
+			failed = append(failed, err)
 		}
 	}
+	deleted, err := s.deleteEnded(ctx, now)
+	return deleted, more, errors.Join(append(failed, err)...)
+}
+
+// deleteEnded deletes the sessions ended a week ago, or 90 days ago when
+// keyed by sid alone.
+func (s *SessionSweeper) deleteEnded(ctx context.Context, now time.Time) (int64, error) {
 	tx, err := database.BeginOr(ctx, s.Pool, s.Begin, database.Scope{Role: s.WorkerRole})
 	if err != nil {
 		return 0, fmt.Errorf("identity: sweep sessions: %w", err)
@@ -383,10 +404,10 @@ func (s *SessionSweeper) RunOnce(ctx context.Context) (int64, error) {
 
 // idle finds sessions not ended and idle longer than any tenant allows, by
 // tenant.
-func (s *SessionSweeper) idle(ctx context.Context, now time.Time) (map[uuid.UUID][]uuid.UUID, error) {
+func (s *SessionSweeper) idle(ctx context.Context, now time.Time) (map[uuid.UUID][]uuid.UUID, bool, error) {
 	tx, err := database.BeginOr(ctx, s.Pool, s.Begin, database.Scope{Role: s.WorkerRole, ReadOnly: true})
 	if err != nil {
-		return nil, fmt.Errorf("identity: find idle sessions: %w", err)
+		return nil, false, fmt.Errorf("identity: find idle sessions: %w", err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	batch := 500
@@ -397,13 +418,15 @@ func (s *SessionSweeper) idle(ctx context.Context, now time.Time) (map[uuid.UUID
 		now.Add(-MaxIdleTimeout), batch)
 	out := map[uuid.UUID][]uuid.UUID{}
 	var tenant, id uuid.UUID
+	found := 0
 	if _, err := pgx.ForEachRow(rows, []any{&tenant, &id}, func() error {
 		out[tenant] = append(out[tenant], id)
+		found++
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("identity: find idle sessions: %w", err)
+		return nil, false, fmt.Errorf("identity: find idle sessions: %w", err)
 	}
-	return out, nil
+	return out, found == batch, nil
 }
 
 // endIdle ends a tenant's idle sessions as idle, each audited.
@@ -439,8 +462,8 @@ func (s *SessionSweeper) endIdle(ctx context.Context, tenant uuid.UUID, ids []uu
 // Run sweeps until ctx ends, logging failures.
 func (s *SessionSweeper) Run(ctx context.Context) {
 	worker.Loop(ctx, s.Interval, time.Hour, func(ctx context.Context) (bool, error) {
-		_, err := s.RunOnce(ctx)
-		return false, err
+		_, more, err := s.sweep(ctx)
+		return more, err
 	}, s.logger(), "session sweep failed")
 }
 

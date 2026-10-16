@@ -143,6 +143,8 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	}
 	// Multi-factor is asked of people only: services and agents use their
 	// own credentials, which prove no second factor (ADR-0031).
+	// identity.Sessions applies the same rule to decide which tokens start
+	// or touch a session; the two stay in step.
 	if principal.Kind == reqctx.KindHuman {
 		if err := authn.CheckMFA(claims); err != nil {
 			return err
