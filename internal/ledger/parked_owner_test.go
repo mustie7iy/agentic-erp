@@ -84,26 +84,34 @@ func TestChangeParkedEntry(t *testing.T) {
 	if live != 3 {
 		t.Errorf("live lines: got %d, want 3", live)
 	}
-	got, _ = e.Must(200, "PATCH", path, `{`+lines(bank, revenue, "7.00", "-7.00")+`}`, `"4"`)
+	// Line 3 comes back without the quantity it had.
+	e.Must(200, "PATCH", path, `{`+lines(bank, revenue, "4.00", "-1.00", "-3.00")+`}`, `"4"`)
+	var unit *string
+	pgtest.Scan(t, `SELECT uom_code FROM ledger.parked_entry_line WHERE parked_entry_id = $1 AND line_no = 3`,
+		[]any{uuid.MustParse(got["id"].(string))}, &unit)
+	if unit != nil {
+		t.Errorf("line 3 unit after its reuse: got %s, want none", *unit)
+	}
+	got, _ = e.Must(200, "PATCH", path, `{`+lines(bank, revenue, "7.00", "-7.00")+`}`, `"5"`)
 	if got := amounts(t, got, "amount"); got != "7.00,-7.00" {
 		t.Errorf("shortened again: got %s, want 7.00,-7.00", got)
 	}
-	got, _ = e.Must(200, "PATCH", path, `{"posting_date": "2026-04-01", "document_date": "2026-03-31", "document_type": "AB"}`, `"5"`)
+	got, _ = e.Must(200, "PATCH", path, `{"posting_date": "2026-04-01", "document_date": "2026-03-31", "document_type": "AB"}`, `"6"`)
 	want(t, "redated", got, map[string]any{"posting_date": "2026-04-01", "document_date": "2026-03-31", "document_type": "AB"})
 	if got := amounts(t, got, "amount"); got != "7.00,-7.00" {
 		t.Errorf("lines kept: got %s, want 7.00,-7.00", got)
 	}
 	e.Problem(412, "request.version_mismatch", "PATCH", path, `{"header_text": "x"}`, `"1"`)
-	e.Problem(422, "ledger.currency_mismatch", "PATCH", path, `{"currency": "USD"}`, `"6"`)
-	e.Problem(422, "ledger.unbalanced", "PATCH", path, `{`+lines(bank, revenue, "7.00", "-6.00")+`}`, `"6"`)
+	e.Problem(422, "ledger.currency_mismatch", "PATCH", path, `{"currency": "USD"}`, `"7"`)
+	e.Problem(422, "ledger.unbalanced", "PATCH", path, `{`+lines(bank, revenue, "7.00", "-6.00")+`}`, `"7"`)
 	e.Problem(404, "request.not_found", "PATCH", "/v1/parked-journal-entries/"+uuid.NewString(), `{"header_text": "x"}`, `"1"`)
 	stranger := e.Client // the agent, without company access here
 	stranger.As = e.ten.Agent
-	stranger.Problem(404, "request.not_found", "PATCH", path, `{"header_text": "x"}`, `"6"`)
+	stranger.Problem(404, "request.not_found", "PATCH", path, `{"header_text": "x"}`, `"7"`)
 	var audited int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.parked_entry.update'`, []any{e.ten.ID}, &audited)
-	if audited != 5 {
-		t.Errorf("audit records of changes: got %d, want 5", audited)
+	if audited != 6 {
+		t.Errorf("audit records of changes: got %d, want 6", audited)
 	}
 	var fields string
 	pgtest.Scan(t, `SELECT detail->>'fields' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.parked_entry.update' ORDER BY occurred_at, seq LIMIT 1`,
