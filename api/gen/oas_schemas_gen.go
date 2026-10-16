@@ -12230,6 +12230,10 @@ type MatchResult struct {
 	ConfigVersion int32 `json:"config_version"`
 	// Principal that ran the match.
 	EvaluatedBy uuid.UUID `json:"evaluated_by"`
+	// The supplier invoice version the match left the invoice at (its `version` after any hold or release
+	// the match caused): `:post` accepts the latest clean match only while the invoice is still at this
+	// version. Absent on matches recorded before invoice versions were kept, which authorise no posting.
+	InvoiceVersion OptInt32 `json:"invoice_version"`
 	// The invoice flow's decision on a clean match, in the response of `:match` only (it is not stored,
 	// and the ETag is that of the stored result): the rule regression suites and simulations apply. Absent
 	// when the match found issues (the invoice is held and decided on its exception request) and on reads
@@ -12272,6 +12276,11 @@ func (s *MatchResult) GetEvaluatedBy() uuid.UUID {
 	return s.EvaluatedBy
 }
 
+// GetInvoiceVersion returns the value of InvoiceVersion.
+func (s *MatchResult) GetInvoiceVersion() OptInt32 {
+	return s.InvoiceVersion
+}
+
 // GetDecision returns the value of Decision.
 func (s *MatchResult) GetDecision() OptMatchDecision {
 	return s.Decision
@@ -12310,6 +12319,11 @@ func (s *MatchResult) SetConfigVersion(val int32) {
 // SetEvaluatedBy sets the value of EvaluatedBy.
 func (s *MatchResult) SetEvaluatedBy(val uuid.UUID) {
 	s.EvaluatedBy = val
+}
+
+// SetInvoiceVersion sets the value of InvoiceVersion.
+func (s *MatchResult) SetInvoiceVersion(val OptInt32) {
+	s.InvoiceVersion = val
 }
 
 // SetDecision sets the value of Decision.
@@ -17613,6 +17627,13 @@ type Principal struct {
 	Kind string `json:"kind"`
 	// Subject at the tenant's identity provider; required for humans and services. Immutable.
 	ExternalSubject OptString `json:"external_subject"`
+	// The identity provider (OIDC `iss`) the principal's subject belongs to: only that provider's tokens
+	// sign in as this principal. Set when a principal with a subject is created, to the issuer of the
+	// principal creating it (a tenant's first administrator: the cell's trusted tenant identity provider).
+	// Not changed through the API. Absent when the principal has no subject, and for a person or service
+	// the previous release created during an issuer rollout: such a principal cannot sign in until an
+	// operator binds it.
+	ExternalIssuer OptString `json:"external_issuer"`
 	// Display name.
 	DisplayName string `json:"display_name"`
 	// E-mail address.
@@ -17664,6 +17685,11 @@ func (s *Principal) GetKind() string {
 // GetExternalSubject returns the value of ExternalSubject.
 func (s *Principal) GetExternalSubject() OptString {
 	return s.ExternalSubject
+}
+
+// GetExternalIssuer returns the value of ExternalIssuer.
+func (s *Principal) GetExternalIssuer() OptString {
+	return s.ExternalIssuer
 }
 
 // GetDisplayName returns the value of DisplayName.
@@ -17729,6 +17755,11 @@ func (s *Principal) SetKind(val string) {
 // SetExternalSubject sets the value of ExternalSubject.
 func (s *Principal) SetExternalSubject(val OptString) {
 	s.ExternalSubject = val
+}
+
+// SetExternalIssuer sets the value of ExternalIssuer.
+func (s *Principal) SetExternalIssuer(val OptString) {
+	s.ExternalIssuer = val
 }
 
 // SetDisplayName sets the value of DisplayName.

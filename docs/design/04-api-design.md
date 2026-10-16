@@ -332,7 +332,11 @@ match such an invoice (`workflow_request_id` set) at all, nor post it: a
 match with issues answers no decision and `:post` does not check the
 auto-post limit, so the rule cannot tell an approved exception it may post
 from one a person reviews; it lists the invoice as left parked for a
-person to decide.
+person to decide. Once every invoice is settled (and `-agent` has run), a
+run in which the server refused a match (422: no exchange rate, no order)
+exits 1, naming the invoices, as nothing settles them until a person fixes
+the cause; invoices only left parked (404, 412, an exception linked, no
+decision known) exit 0 (T30).
 
 ## 4.15 Control plane
 

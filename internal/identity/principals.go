@@ -46,6 +46,7 @@ type Principal struct {
 	ID              uuid.UUID
 	Kind            string
 	ExternalSubject *string
+	ExternalIssuer  *string // the identity provider the subject belongs to (ADR-0010)
 	DisplayName     string
 	Email           *string
 	AllCompanies    bool
@@ -59,7 +60,7 @@ type Principal struct {
 	UpdatedBy       uuid.UUID
 }
 
-const principalSelect = `SELECT p.id, p.kind, p.external_subject, p.display_name, p.email, p.all_companies, p.status, p.version,
+const principalSelect = `SELECT p.id, p.kind, p.external_subject, p.external_issuer, p.display_name, p.email, p.all_companies, p.status, p.version,
 		p.created_at, p.created_by, p.updated_at, p.updated_by,
 		ap.principal_id IS NOT NULL, coalesce(ap.autonomy_level, 0), coalesce(ap.model, ''), coalesce(ap.description, ''),
 		ap.monthly_budget, ap.budget_currency, coalesce(c.exponent, 0)
@@ -72,7 +73,7 @@ func scanPrincipal(row pgx.Row) (Principal, error) {
 	var hasProfile bool
 	var ap AgentProfile
 	var exponent int16
-	err := row.Scan(&p.ID, &p.Kind, &p.ExternalSubject, &p.DisplayName, &p.Email, &p.AllCompanies, &p.Status, &p.Version,
+	err := row.Scan(&p.ID, &p.Kind, &p.ExternalSubject, &p.ExternalIssuer, &p.DisplayName, &p.Email, &p.AllCompanies, &p.Status, &p.Version,
 		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy,
 		&hasProfile, &ap.AutonomyLevel, &ap.Model, &ap.Description, &ap.MonthlyBudget, &ap.BudgetCurrency, &exponent)
 	if err != nil {
@@ -200,7 +201,7 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 		return Principal{}, err
 	}
 	events = append([]outbox.Event{{Context: "identity", Name: "principal_created", AggregateType: "identity.principal", AggregateID: id,
-		Payload: map[string]any{"principal_id": id, "kind": p.Kind, "display_name": p.DisplayName, "all_companies": p.AllCompanies, "status": p.Status}}},
+		Payload: map[string]any{"principal_id": id, "kind": p.Kind, "external_issuer": p.ExternalIssuer, "display_name": p.DisplayName, "all_companies": p.AllCompanies, "status": p.Status}}},
 		events...)
 	return p, audit.Record(ctx, "identity.principal.create", "identity.principal", id, map[string]any{"kind": p.Kind}, events...)
 }

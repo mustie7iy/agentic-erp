@@ -869,7 +869,7 @@ components:
       name: SupplierInvoiceMatched
       title: Supplier invoice matched
       summary: A three-way match evaluation was recorded for a supplier invoice.
-      description: Emitted by `supplier-invoices/{id}:match` (and automatic re-matching after goods receipts) each time a `payables.match_result` is inserted, clean or not. A non-clean result is usually followed by `InvoiceHeld`. Subject is the match result id; `supplier_invoice_id` links it to the invoice.
+      description: Emitted by `supplier-invoices/{id}:match` each time a `payables.match_result` is inserted, clean or not. A non-clean result is usually followed by `InvoiceHeld`. Subject is the match result id; `supplier_invoice_id` links it to the invoice.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -880,7 +880,7 @@ components:
       examples:
         - name: price-variance
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000015, source: /erp/eu-1/payables, type: com.example.erp.payables.supplier_invoice_matched.v1, subject: 0192a000-0000-7000-8000-000000000702, time: '2026-10-06T07:46:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {match_result_id: 0192a000-0000-7000-8000-000000000702, supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, evaluated_at: '2026-10-06T07:46:00Z', is_clean: false, config_version: 42, issues: [{code: price_variance, item_no: 1, po_item_no: 1, detail: Invoiced 540.00 per EA against 500.00 ordered (tolerance 3%)}]}
+          payload: {match_result_id: 0192a000-0000-7000-8000-000000000702, supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, evaluated_at: '2026-10-06T07:46:00Z', is_clean: false, config_version: 42, invoice_version: 4, issues: [{code: price_variance, item_no: 1, po_item_no: 1, detail: Invoiced 540.00 per EA against 500.00 ordered (tolerance 3%)}]}
     InvoiceHeld:
       name: InvoiceHeld
       title: Invoice held
@@ -1591,7 +1591,7 @@ components:
       examples:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000055", "source": "/erp/eu-1/identity", "type": "com.example.erp.identity.principal_created.v1", "subject": "0192a000-0000-7000-8000-000000000107", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000102"}
-          payload: {"principal_id": "0192a000-0000-7000-8000-000000000107", "kind": "human", "display_name": "Jonas Weber", "all_companies": false, "status": "active"}
+          payload: {"principal_id": "0192a000-0000-7000-8000-000000000107", "kind": "human", "external_issuer": "https://login.acme.example/", "display_name": "Jonas Weber", "all_companies": false, "status": "active"}
     PrincipalBlocked:
       name: PrincipalBlocked
       title: Principal blocked
@@ -2338,6 +2338,7 @@ components:
         evaluated_at: {$ref: '#/components/schemas/Instant'}
         is_clean: {type: boolean}
         config_version: {type: integer, minimum: 1, description: Configuration version whose tolerances were applied.}
+        invoice_version: {type: integer, minimum: 1, description: 'The supplier invoice version the match left the invoice at; posting accepts the latest clean match only at this version. Absent from events of releases before it was kept.'}
         issues:
           type: array
           description: Empty when clean.
@@ -2837,6 +2838,7 @@ components:
       properties:
         principal_id: {"$ref": "#/components/schemas/Uuid"}
         kind: {"type": "string", "description": "Open enum: human, agent, service."}
+        external_issuer: {"type": ["string", "null"], "description": "The identity provider (OIDC iss) the principal's subject belongs to; null when the principal has no subject. Absent from events of releases before it was published."}
         display_name: {"type": "string"}
         all_companies: {"type": "boolean"}
         status: {"type": "string", "description": "Open enum: active, blocked, deprovisioned."}

@@ -337,20 +337,22 @@ func TestInvoicesDecision(t *testing.T) {
 	for name, c := range map[string]struct {
 		match string
 		want  []string
+		code  int // the exit status: only a refused match fails the run (T30)
 	}{
 		"auto_post": {`{"is_clean": true, "decision": {"outcome": "auto_post", "reason": "gross 6.20 EUR is within the auto-post limit 100.00 EUR"}}`,
-			[]string{"5101: auto_post (gross 6.20 EUR is within the auto-post limit 100.00 EUR)", "Posted 1: 5101", "Held 0:"}},
+			[]string{"5101: auto_post (gross 6.20 EUR is within the auto-post limit 100.00 EUR)", "Posted 1: 5101", "Held 0:"}, 0},
 		"review": {`{"is_clean": true, "decision": {"outcome": "review", "reason": "gross 240.00 EUR is above the auto-post limit 100.00 EUR"}}`,
-			[]string{"5101: review (gross 240.00 EUR is above the auto-post limit 100.00 EUR)", "Posted 0:", "Held 1: 5101 (review)"}},
+			[]string{"5101: review (gross 240.00 EUR is above the auto-post limit 100.00 EUR)", "Posted 0:", "Held 1: 5101 (review)"}, 0},
 		"not_evaluable": {`{"is_clean": true, "decision": {"outcome": "not_evaluable", "reason": "no_exchange_rate"}}`,
-			[]string{"5101: not_evaluable (no_exchange_rate)", "Posted 0:", "Held 1: 5101 (not_evaluable: no_exchange_rate)"}},
+			[]string{"5101: not_evaluable (no_exchange_rate)", "Posted 0:", "Held 1: 5101 (not_evaluable: no_exchange_rate)"}, 0},
 		"missing": {`{"is_clean": true}`,
-			[]string{"5101: decision unavailable (the server does not return it)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
+			[]string{"5101: decision unavailable (the server does not return it)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}, 0},
 		"unknown": {`{"is_clean": true, "decision": {"outcome": "escalate", "reason": "new rule"}}`,
-			[]string{"5101: escalate (new rule)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}},
+			[]string{"5101: escalate (new rule)", "Posted 0:", "Held 0:", "Left parked 1: 5101"}, 0},
 		"refused": {`422 {"code": "ledger.no_exchange_rate", "detail": "No average exchange rate from USD to EUR is valid on 2026-03-10."}`,
 			[]string{"5101: refused: ledger.no_exchange_rate: No average exchange rate from USD to EUR is valid on 2026-03-10.",
-				"Posted 0:", "Held 0:", "Left parked 1: 5101 (refused: ledger.no_exchange_rate)"}},
+				"Posted 0:", "Held 0:", "Left parked 1: 5101 (refused: ledger.no_exchange_rate)",
+				"error: invoices: 1 match refused: 5101 (ledger.no_exchange_rate)"}, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// A call the decision does not call for is refused, failing the command.
@@ -366,7 +368,10 @@ func TestInvoicesDecision(t *testing.T) {
 				r[held] = []reply{ok(`{}`)}
 			}
 			fakeAPI(t, parked(r))
-			got := must(t, "invoices")
+			code, got := cli(t, "invoices")
+			if code != c.code {
+				t.Errorf("exit: got %d, want %d\n%s", code, c.code, got)
+			}
 			for _, want := range c.want {
 				if !strings.Contains(got, want) {
 					t.Errorf("output: got\n%s\nwant it to contain %q", got, want)

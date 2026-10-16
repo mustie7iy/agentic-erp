@@ -170,3 +170,57 @@ func TestInvoicesFollowEveryPage(t *testing.T) {
 		t.Errorf("page tokens sent: got %q, want %q", got, want)
 	}
 }
+
+// TestRefusedMatchFailsTheRun: a run in which the server refused a match
+// (422, e.g. no exchange rate) exits non-zero after settling every invoice
+// and, with -agent, after the agent has run, so a scheduler sees the
+// invoices nobody will match until the cause is fixed (T30). Invoices only
+// left parked (gone, changed, a linked exception) exit 0.
+func TestRefusedMatchFailsTheRun(t *testing.T) {
+	refused := reply{422, `{"code": "ledger.no_exchange_rate", "detail": "No rate."}`}
+	t.Run("with the agent", func(t *testing.T) {
+		model(t)
+		fakeAPI(t, parked(routes{"POST " + invoicePath + ":match": {refused}}))
+		code, got := cli(t, "invoices", "-agent")
+		if code != 1 {
+			t.Errorf("exit: got %d, want 1\n%s", code, got)
+		}
+		for _, want := range []string{"Left parked 1: 5101 (refused: ledger.no_exchange_rate)", "5100: apitools: start session",
+			"error: invoices: 1 match refused: 5101 (ledger.no_exchange_rate)"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("output: got\n%s\nwant it to contain %q", got, want)
+			}
+		}
+	})
+	t.Run("only parked", func(t *testing.T) {
+		fakeAPI(t, parked(routes{"POST " + invoicePath + ":match": {{404, `{"code": "request.not_found"}`}}}))
+		if code, got := cli(t, "invoices"); code != 0 {
+			t.Errorf("exit: got %d, want 0\n%s", code, got)
+		}
+	})
+}
+
+// TestRefusal names every refused match, in the singular or the plural.
+func TestRefusal(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		refused []string
+		want    string
+	}{
+		{"none", nil, ""},
+		{"one", []string{"5101 (ledger.no_exchange_rate)"}, "invoices: 1 match refused: 5101 (ledger.no_exchange_rate)"},
+		{"two", []string{"5101 (ledger.no_exchange_rate)", "5102 (payables.order_not_found)"},
+			"invoices: 2 matches refused: 5101 (ledger.no_exchange_rate), 5102 (payables.order_not_found)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			done := settled{refused: c.refused}
+			got := ""
+			if err := done.refusal(); err != nil {
+				got = err.Error()
+			}
+			if got != c.want {
+				t.Errorf("refusal: got %q, want %q", got, c.want)
+			}
+		})
+	}
+}

@@ -84,7 +84,7 @@ export ERP_TOKEN=$(./bin/erp token -tenant <tenant_id> -subject ada)
 ./bin/erp call createConnector -body '{"kind": "sap_file", "name": "SAP PRD", "settings": {"path": "extract.json"}}'
 ./bin/erp migrate -connector <id> -legal-entities <id>,... -year 2026 -rehearsal   # load, reconcile, roll back
 ./bin/erp migrate -connector <id> -legal-entities <id>,... -year 2026              # fails unless the run reconciles
-./bin/erp invoices                     # the rule: match parked invoices, post clean ones within the auto-post limit
+./bin/erp invoices                     # the rule: match parked invoices, post clean ones within the auto-post limit; exits 1 if the server refused a match
 ./bin/erp call listRecommendations -p outcome=open
 ./bin/erp call listBalances -p legal_entity_id=<id> -p fiscal_year=2026
 ./bin/erp call verifyAuditChain -body '{}'   # from the last anchor the server wrote to object storage
