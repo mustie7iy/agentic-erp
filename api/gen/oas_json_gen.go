@@ -25833,6 +25833,12 @@ func (s *PurchaseOrder) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.ReleaseRequestID.Set {
+			e.FieldStart("release_request_id")
+			s.ReleaseRequestID.Encode(e)
+		}
+	}
+	{
 		if s.Valuation.Set {
 			e.FieldStart("valuation")
 			s.Valuation.Encode(e)
@@ -25862,7 +25868,7 @@ func (s *PurchaseOrder) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPurchaseOrder = [21]string{
+var jsonFieldsNameOfPurchaseOrder = [22]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -25879,11 +25885,12 @@ var jsonFieldsNameOfPurchaseOrder = [21]string{
 	13: "requisition_id",
 	14: "contract_id",
 	15: "status",
-	16: "valuation",
-	17: "items",
-	18: "total_amount",
-	19: "extensions",
-	20: "expanded",
+	16: "release_request_id",
+	17: "valuation",
+	18: "items",
+	19: "total_amount",
+	20: "extensions",
+	21: "expanded",
 }
 
 // Decode decodes PurchaseOrder from json.
@@ -26079,6 +26086,16 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "release_request_id":
+			if err := func() error {
+				s.ReleaseRequestID.Reset()
+				if err := s.ReleaseRequestID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"release_request_id\"")
+			}
 		case "valuation":
 			if err := func() error {
 				s.Valuation.Reset()
@@ -26090,7 +26107,7 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valuation\"")
 			}
 		case "items":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				s.Items = make([]PurchaseOrderItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -26108,7 +26125,7 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "total_amount":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				if err := s.TotalAmount.Decode(d); err != nil {
 					return err
@@ -26118,7 +26135,7 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"total_amount\"")
 			}
 		case "extensions":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -26149,7 +26166,7 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b10011110,
-		0b00001110,
+		0b00011100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

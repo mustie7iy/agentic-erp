@@ -79,4 +79,12 @@ func TestStoredTotalOutOfRange(t *testing.T) {
 	e.act(t, "/v1/purchase-orders/"+id(released), "release", "")
 	corrupt("purchase_order_item", "purchase_order_id", released)
 	e.Problem(422, "procurement.amount_too_large", "POST", "/v1/purchase-orders/"+id(released)+":cancel", "", "*")
+
+	// Approving the release of an order stored out of range is refused.
+	waiting := e.order(t, items(item(e.office, "10", "EA", "150.00", "EUR", "")), "")
+	e.act(t, "/v1/purchase-orders/"+id(waiting), "release", "")
+	request := e.Pending(t, id(waiting))
+	corrupt("purchase_order_item", "purchase_order_id", waiting)
+	e.As(e.Approver).Problem(422, "procurement.amount_too_large", "POST", "/v1/approval-requests/"+id(request)+":approve", `{"comment": "ok"}`,
+		fmt.Sprintf(`"%v"`, request["version"]))
 }

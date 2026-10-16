@@ -19252,9 +19252,13 @@ type PurchaseOrder struct {
 	RequisitionID OptUUID `json:"requisition_id"`
 	// Contract that prices the order.
 	ContractID OptUUID `json:"contract_id"`
-	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
-	// may be added within /v1.
+	// Lifecycle status: `pending_approval` while a release waits for its approval request
+	// (`release_request_id`). Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
 	Status string `json:"status"`
+	// The `purchase_order` approval request (workflow context) the order waits for while
+	// `pending_approval`; absent otherwise.
+	ReleaseRequestID OptUUID `json:"release_request_id"`
 	// How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post
 	// the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr
 	// GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a
@@ -19349,6 +19353,11 @@ func (s *PurchaseOrder) GetContractID() OptUUID {
 // GetStatus returns the value of Status.
 func (s *PurchaseOrder) GetStatus() string {
 	return s.Status
+}
+
+// GetReleaseRequestID returns the value of ReleaseRequestID.
+func (s *PurchaseOrder) GetReleaseRequestID() OptUUID {
+	return s.ReleaseRequestID
 }
 
 // GetValuation returns the value of Valuation.
@@ -19454,6 +19463,11 @@ func (s *PurchaseOrder) SetContractID(val OptUUID) {
 // SetStatus sets the value of Status.
 func (s *PurchaseOrder) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetReleaseRequestID sets the value of ReleaseRequestID.
+func (s *PurchaseOrder) SetReleaseRequestID(val OptUUID) {
+	s.ReleaseRequestID = val
 }
 
 // SetValuation sets the value of Valuation.

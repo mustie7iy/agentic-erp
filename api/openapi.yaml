@@ -5369,7 +5369,7 @@ paths:
       tags:
         - procurement
       summary: Release a purchase order
-      description: "Releases a draft order to the supplier and consumes the contract, if any. Requires status `draft`; the supplier must not be blocked."
+      description: "Releases a draft order to the supplier and consumes the contract, if any. Requires status `draft`; the supplier must not be blocked. An order without an approved requisition, or whose total exceeds its requisition's, is released by the release strategy: when `purchasing.order_release_approval` asks for approval of its total (in its company's currency), it waits in `pending_approval` for a `purchase_order` approval request (`release_request_id`), raised by the caller, who can never approve it. Approving it releases the order, checked again (a blocked supplier or a used-up contract refuses the approval, which stays pending); rejecting or withdrawing it returns the order to `draft`. A configuration without the tiers is 422 `workflow.no_policy`."
       x-permission: procurement.order.release
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -5469,7 +5469,7 @@ paths:
       tags:
         - procurement
       summary: Cancel a purchase order
-      description: Cancels an order without receipts or invoices and returns its contract consumption.
+      description: "Cancels an order without receipts or invoices and returns its contract consumption. An order waiting for its release approval is cancelled too, and its request withdrawn."
       x-permission: procurement.order.create
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -14941,12 +14941,18 @@ components:
               description: Contract that prices the order.
             status:
               type: string
-              description: "Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Lifecycle status: `pending_approval` while a release waits for its approval request (`release_request_id`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - draft
+                - pending_approval
                 - released
                 - closed
                 - cancelled
+              readOnly: true
+            release_request_id:
+              type: string
+              format: uuid
+              description: "The `purchase_order` approval request (workflow context) the order waits for while `pending_approval`; absent otherwise."
               readOnly: true
             valuation:
               type: string

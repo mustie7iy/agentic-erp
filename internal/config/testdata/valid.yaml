@@ -145,6 +145,8 @@ purchasing:
         - role: process_owner
           approvals: 1
   order_release_approval:
+    - up_to: "1000.00"
+      steps: []
     - up_to: "5000.00"
       steps:
         - role: Z_PURCH_MGR

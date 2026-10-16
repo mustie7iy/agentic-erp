@@ -2498,7 +2498,8 @@ func (s *Server) handleCancelParkedJournalEntryRequest(args [1]string, argsEscap
 
 // handleCancelPurchaseOrderRequest handles cancelPurchaseOrder operation.
 //
-// Cancels an order without receipts or invoices and returns its contract consumption.
+// Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
+// for its release approval is cancelled too, and its request withdrawn.
 //
 // POST /v1/purchase-orders/{id}:cancel
 func (s *Server) handleCancelPurchaseOrderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -29087,7 +29088,13 @@ func (s *Server) handleReleasePaymentRunRequest(args [1]string, argsEscaped bool
 // handleReleasePurchaseOrderRequest handles releasePurchaseOrder operation.
 //
 // Releases a draft order to the supplier and consumes the contract, if any. Requires status `draft`;
-// the supplier must not be blocked.
+// the supplier must not be blocked. An order without an approved requisition, or whose total exceeds
+// its requisition's, is released by the release strategy: when `purchasing.order_release_approval`
+// asks for approval of its total (in its company's currency), it waits in `pending_approval` for a
+// `purchase_order` approval request (`release_request_id`), raised by the caller, who can never
+// approve it. Approving it releases the order, checked again (a blocked supplier or a used-up contract
+// refuses the approval, which stays pending); rejecting or withdrawing it returns the order to
+// `draft`. A configuration without the tiers is 422 `workflow.no_policy`.
 //
 // POST /v1/purchase-orders/{id}:release
 func (s *Server) handleReleasePurchaseOrderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

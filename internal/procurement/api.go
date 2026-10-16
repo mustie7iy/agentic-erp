@@ -92,7 +92,7 @@ func orderToAPI(o PurchaseOrder) gen.PurchaseOrder {
 		UpdatedBy: gen.NewOptUUID(o.UpdatedBy), DocumentNumber: o.DocumentNumber, LegalEntityID: o.LegalEntityID,
 		PurchasingOrgID: apitypes.OptUUID(o.PurchasingOrgID), SupplierID: o.SupplierID, Currency: o.Currency, OrderDate: o.OrderDate,
 		PaymentTermCode: o.PaymentTermCode, RequisitionID: apitypes.OptUUID(o.RequisitionID), ContractID: apitypes.OptUUID(o.ContractID), Status: o.Status,
-		Valuation:   gen.NewOptString(o.Valuation),
+		Valuation: gen.NewOptString(o.Valuation), ReleaseRequestID: apitypes.OptUUID(o.ReleaseRequestID),
 		TotalAmount: apitypes.Money(o.Total(), o.Currency, o.Exponent), Extensions: apitypes.EncodeObject(o.Extensions), Items: make([]gen.PurchaseOrderItem, len(o.Items))}
 	for i, it := range o.Items {
 		out.Items[i] = gen.PurchaseOrderItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,

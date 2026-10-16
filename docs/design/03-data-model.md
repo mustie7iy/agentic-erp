@@ -720,7 +720,7 @@ erDiagram
     uuid supplier_id
     uuid requisition_id
     uuid contract_id
-    text status "draft | released | closed | cancelled"
+    text status "draft | pending_approval | released | closed | cancelled"
     text valuation "direct | gr_ir"
     int version }
   purchase_order_item { uuid purchase_order_id PK
@@ -785,6 +785,24 @@ memo clears (T34); payables takes no invoice on a closed order
 (`order_not_open`), so a closed order's position waits for a GR/IR
 account clearing (SAP MR11), not yet built. Reversals do not check the order's status: a
 mistaken receipt or return is undone on a closed order too.
+
+An order is released by the release strategy (migration 000063, T47d)
+when it has no approved requisition or its total exceeds its
+requisition's (in the order's currency, the requisition's): when
+`purchasing.order_release_approval` asks for approval of its total, it
+waits in `pending_approval`, naming its `purchase_order` approval request
+in `release_request_id` exactly while it waits
+(`purchase_order_release_request_pending`); the approval releases it,
+checked again, in the deciding transaction under the guard that it still
+names that request, and a rejection or withdrawal returns it to draft. A
+contract that does not cover the order refuses it before any approval is
+asked. Its items are valued as it leaves draft, as they cannot change
+while it waits. Statuses move only draft -> pending_approval -> released,
+pending_approval -> draft, draft -> released, released -> closed, and to
+cancelled from draft, pending_approval or released (trigger
+`purchase_order_transition`); an order waiting for approval is direct
+(`purchase_order_draft_direct`). A migration run's order is released as
+loaded.
 
 Each item of a released order carries its `valuation_price` and
 `valuation_price_unit` (migration 000061, T47a): its price when it was

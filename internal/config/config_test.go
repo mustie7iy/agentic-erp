@@ -106,8 +106,8 @@ func TestValidationRules(t *testing.T) {
 		{"no terms", func(c *Config) { c.PaymentTerms = nil }, "payment_terms"},
 		{"tiers empty", func(c *Config) { c.Purchasing.RequisitionApproval = nil }, "purchasing.requisition_approval"},
 		{"order tiers empty", func(c *Config) { c.Purchasing.OrderReleaseApproval = nil }, "purchasing.order_release_approval"},
-		{"order last tier capped", func(c *Config) { c.Purchasing.OrderReleaseApproval[1].UpTo = "1000000.00" }, "purchasing.order_release_approval[1].up_to"},
-		{"order tier role", func(c *Config) { c.Purchasing.OrderReleaseApproval[0].Steps[0].Role = " " }, "purchasing.order_release_approval[0].steps[0].role"},
+		{"order last tier capped", func(c *Config) { c.Purchasing.OrderReleaseApproval[2].UpTo = "1000000.00" }, "purchasing.order_release_approval[2].up_to"},
+		{"order tier role", func(c *Config) { c.Purchasing.OrderReleaseApproval[1].Steps[0].Role = " " }, "purchasing.order_release_approval[1].steps[0].role"},
 		{"last tier capped", func(c *Config) { c.Purchasing.RequisitionApproval[1].UpTo = "1000000.00" }, "purchasing.requisition_approval[1].up_to"},
 		{"middle tier open", func(c *Config) { c.Purchasing.RequisitionApproval[0].UpTo = "" }, "purchasing.requisition_approval[0].up_to"},
 		{"tier order", func(c *Config) {

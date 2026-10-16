@@ -240,7 +240,9 @@ func TestEntryRefusals(t *testing.T) {
 	po := e.order(t, e.Supplier, "PO-1")
 	otherPO := e.order(t, e.Vendor, "PO-2")
 	draft := e.order(t, e.Supplier, "PO-3")
-	pgtest.Exec(t, `UPDATE procurement.purchase_order SET status = 'draft', version = version + 1 WHERE id = $1`, draft)
+	// A released order back to draft, which no order goes (T47d), for an
+	// order payables meets as a draft.
+	pgtest.Unguarded(t, `UPDATE procurement.purchase_order SET status = 'draft', version = version + 1 WHERE id = $1`, draft)
 	blocked := e.NewSupplier(t, "BP90000003")
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_posting_blocked = true, version = version + 1 WHERE partner_id = $1`, blocked)
 	usBank := e.Account(t, "1000", "100000")
