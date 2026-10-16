@@ -173,6 +173,17 @@ erDiagram
   agent_profile { uuid principal_id PK
     smallint autonomy_level "0-3"
     text model }
+  identity_provider { uuid id PK
+    text issuer "OIDC iss"
+    text audience "aud; (issuer, audience) active unique"
+    text tenant_claim "optional cross-check"
+    text_array acr_values "prove multi-factor"
+    text_array amr_values "prove multi-factor (RFC 8176)"
+    text status "active | retired" }
+  auth_policy { uuid tenant_id PK
+    bool mfa_required
+    interval session_max_age "15 min to 24 h, default 12 h"
+    interval idle_timeout "5 min to 8 h, default 30 min" }
 ```
 
 Agents are principals like people, with their own roles. A trigger rejects
@@ -217,6 +228,22 @@ whose issuer it cannot tell: `CreatePrincipal` answers 422
 `identity.creator_without_issuer` when the creating actor (an agent, a job
 acting through `uow.Act`) is bound to no issuer, and writes nothing; agents,
 which have no subject, need none.
+
+A tenant's **identity providers** (ADR-0031, T37) are registered in
+`identity_provider`: the active registration holding a token's issuer and
+audience decides the token's tenant, so the pair is unique across tenants
+among active registrations (`identity_provider_issuer_audience`, the one key
+in a tenant schema not led by `tenant_id`). Issuer and audience never change
+and a retired registration stays retired (`check_identity_provider_update`),
+which frees the pair; a tenant keeps at least one active provider (checked
+when one is retired, its providers read `FOR UPDATE`). `auth_policy` holds the
+tenant's policy, one row or none for the defaults: whether people must prove
+multi-factor authentication (by a provider's `acr` or `amr` values; a policy
+requiring it while an active provider can prove neither is refused), the
+session lifetime and the idle timeout. The control role `erp_control` reads,
+across tenants, the columns that resolve a token (issuer, audience, tenant
+claim, the values, status and policy) and the principals' bindings, never who
+changed them nor e-mails. Migration 000056 adds both tables.
 
 Role permissions, role assignments, company access and SoD rules are
 **effective-dated assignments**: each has its own id, a validity range that
