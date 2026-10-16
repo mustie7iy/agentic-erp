@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -219,7 +220,8 @@ func (c *RegistryCache) Resolve(ctx context.Context, issuer string, audiences []
 	}
 }
 
-// Waiting is how many requests wait on registry lookups.
+// Waiting is how many requests wait on registry lookups: a gauge for
+// metrics, which the tests use to know every request has joined a lookup.
 func (c *RegistryCache) Waiting() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -272,7 +274,7 @@ func (c *RegistryCache) run(ctx context.Context, cancel context.CancelFunc, key,
 func (c *RegistryCache) resolve(ctx context.Context, issuer string, audiences []string) (reg Registration, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("authn: the registry panicked: %v", r)
+			err = fmt.Errorf("authn: the registry panicked: %v\n%s", r, debug.Stack())
 		}
 	}()
 	return c.Registry.Resolve(ctx, issuer, audiences)
