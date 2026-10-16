@@ -116,11 +116,11 @@ func TestProvidersShareOneFetch(t *testing.T) {
 // pollKeyFetches waits until the issuer has had n key requests.
 func pollKeyFetches(t *testing.T, is *authntest.Issuer, n int) {
 	t.Helper()
-	pgtestEventually(t, func() bool { _, k := is.Fetches(); return k >= n })
+	eventually(t, func() bool { _, k := is.Fetches(); return k >= n })
 }
 
-// pgtestEventually waits for cond, polling, for at most 5 seconds.
-func pgtestEventually(t *testing.T, cond func() bool) {
+// eventually waits for cond, polling, for at most 5 seconds.
+func eventually(t *testing.T, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for !cond() {
@@ -134,16 +134,7 @@ func pgtestEventually(t *testing.T, cond func() bool) {
 // pollFetches waits until the issuer has had n discovery requests.
 func pollFetches(t *testing.T, is *authntest.Issuer, n int) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if d, _ := is.Fetches(); d >= n {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("discovery fetches: never reached %d", n)
-		}
-		<-time.After(time.Millisecond)
-	}
+	eventually(t, func() bool { d, _ := is.Fetches(); return d >= n })
 }
 
 func TestProvidersFollowKeyRotation(t *testing.T) {
@@ -174,7 +165,7 @@ func TestProvidersFollowKeyRotation(t *testing.T) {
 			t.Errorf("expired keys serve while they are refetched: got %v, want verified", err)
 		}
 		pollKeyFetches(t, is, 3)
-		pgtestEventually(t, func() bool { return verify(p, is, old) != nil })
+		eventually(t, func() bool { return verify(p, is, old) != nil })
 		wantStatus(t, verify(p, is, old), 401)
 		if err := verify(p, is, lasting(t, is)); err != nil {
 			t.Errorf("token of %s: got %v, want verified", kid, err)
@@ -255,7 +246,7 @@ func TestProvidersServeStaleKeysWhileTheIssuerIsDown(t *testing.T) {
 	if err := verify(p, is, tok); err != nil {
 		t.Errorf("keys expired, issuer down: got %v, want verified with the old keys", err)
 	}
-	c.Advance(authn.DefaultDiscoveryTTL + time.Second)
+	c.Advance(authn.DefaultDiscoveryTTL - authn.DefaultKeysTTL)
 	if err := verify(p, is, tok); err != nil {
 		t.Errorf("discovery expired, issuer down: got %v, want verified with the old document", err)
 	}
@@ -484,6 +475,9 @@ func TestProvidersAnswer503ForANewKeyTheyCannotFetch(t *testing.T) {
 	c.Advance(authn.DefaultMinRefresh)
 	is.FailNext(1)
 	wantStatus(t, verify(p, is, lasting(t, is)), 503)
+	t.Run("until a fetch succeeds", func(t *testing.T) {
+		wantStatus(t, verify(p, is, lasting(t, is)), 503)
+	})
 }
 
 // TestProvidersKeepKeysWithTheirKeySet: keys fetched from a key set URL the
@@ -501,9 +495,29 @@ func TestProvidersKeepKeysWithTheirKeySet(t *testing.T) {
 	c.Advance(authn.DefaultDiscoveryTTL + time.Second)
 	_ = verify(p, is, tok) // starts the refetch of the document; served from the old one
 	pollFetches(t, is, 2)
-	pgtestEventually(t, func() bool { return verify(p, is, tok) != nil })
+	eventually(t, func() bool { return verify(p, is, tok) != nil })
 	wantStatus(t, verify(p, is, tok), 401)
 	if _, k := other.Fetches(); k != 1 {
 		t.Errorf("fetches of the new key set: got %d, want 1", k)
 	}
+}
+
+// TestProvidersStopTrustingKeysTheyCannotRefresh: expired keys serve while
+// refetches fail for as long again as a document does, no longer, even
+// while the document itself is fetched afresh.
+func TestProvidersStopTrustingKeysTheyCannotRefresh(t *testing.T) {
+	is := authntest.NewSeparate(t)
+	c := newClock()
+	p := providers(c)
+	tok := is.Token(t, uuid.Nil, "ada", map[string]any{"exp": time.Now().Add(72 * time.Hour).Unix()})
+	if err := verify(p, is, tok); err != nil {
+		t.Fatal(err)
+	}
+	is.Serve(authntest.KeysPath, []byte(`not json`))
+	c.Advance(authn.DefaultKeysTTL + authn.DefaultDiscoveryTTL - time.Second)
+	if err := verify(p, is, tok); err != nil {
+		t.Errorf("within the grace: got %v, want verified with the old keys", err)
+	}
+	c.Advance(authn.DefaultMinRefresh)
+	wantStatus(t, verify(p, is, tok), 503)
 }

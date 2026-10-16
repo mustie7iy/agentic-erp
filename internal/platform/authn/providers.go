@@ -34,9 +34,9 @@ import (
 // refetches at most once per MinRefresh, concurrent requests share one
 // fetch, every fetch has a timeout and a size limit, old keys stay until a
 // fetch succeeds, and in production only https reaches the provider, never
-// a loopback, private or link-local address.
+// an address that is not public unicast.
 type Providers struct {
-	Production   bool                       // https only; no loopback, private or link-local addresses
+	Production   bool                       // https only, to public unicast addresses only
 	Timeout      time.Duration              // per fetch; 0: DefaultFetchTimeout
 	DiscoveryTTL time.Duration              // 0: DefaultDiscoveryTTL; a stale document serves as long again while refetches fail
 	MinRefresh   time.Duration              // 0: DefaultMinRefresh
@@ -78,14 +78,18 @@ type remote struct {
 	keysFrom   string // the key set URL keys came from: unused once the document names another
 	keysUntil  time.Time
 	attempt    map[string]time.Time // kind → last fetch started
+	lastErr    map[string]error     // kind → how the last fetch ended
 	inflight   map[string]*fetch
 }
 
-// fetch is one fetch in flight that callers wait on.
+// fetch is one fetch in flight, or over, that callers wait on.
 type fetch struct {
 	done chan struct{}
 	err  error
 }
+
+// finished is the done channel of a fetch that is over before it is handed out.
+var finished = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
 
 func (p *Providers) now() time.Time { return clock.Now(p.Now) }
 
@@ -134,7 +138,7 @@ func (p *Providers) remote(issuer string) *remote {
 	}
 	r, ok := p.issuers[issuer]
 	if !ok {
-		r = &remote{issuer: issuer, attempt: map[string]time.Time{}, inflight: map[string]*fetch{}}
+		r = &remote{issuer: issuer, attempt: map[string]time.Time{}, lastErr: map[string]error{}, inflight: map[string]*fetch{}}
 		p.issuers[issuer] = r
 	}
 	return r
@@ -175,12 +179,13 @@ func (p *Providers) verifySignature(ctx context.Context, r *remote, raw string, 
 		return "", problem.Unauthorized("The bearer token is malformed.").WithCause(err)
 	}
 	kid := jws.Signatures[0].Header.KeyID
-	keys, expired := r.current(p.now())
+	grace := orDefault(p.DiscoveryTTL, DefaultDiscoveryTTL)
+	keys, expired := r.current(p.now(), grace)
 	var fetchErr error
 	switch {
 	case !hasKey(keys, kid):
 		fetchErr = p.wait(ctx, r, "keys", p.refresh(ctx, r, "keys", p.fetchKeys))
-		keys, _ = r.current(p.now())
+		keys, _ = r.current(p.now(), grace)
 	case expired:
 		p.refresh(ctx, r, "keys", p.fetchKeys) // in the background
 	}
@@ -188,6 +193,9 @@ func (p *Providers) verifySignature(ctx context.Context, r *remote, raw string, 
 		return "", unavailable(r.issuer, fetchErr)
 	}
 	if len(keys) == 0 {
+		// A key fetch already in flight for the key set the document named
+		// before is joined and its keys are not used: this request is 503,
+		// the next fetches the new set (fetchDiscovery lifts the limit).
 		return "", unavailable(r.issuer, nil)
 	}
 	for _, k := range keys {
@@ -202,11 +210,13 @@ func (p *Providers) verifySignature(ctx context.Context, r *remote, raw string, 
 }
 
 // current returns the keys of the key set the document names, and whether
-// they are past their lifetime.
-func (r *remote) current(now time.Time) ([]jose.JSONWebKey, bool) {
+// they are past their lifetime. Past it they serve while refetches fail for
+// as long again as a document does (grace), no longer: a key the provider
+// revoked while it could not be reached is not trusted for ever.
+func (r *remote) current(now time.Time, grace time.Duration) ([]jose.JSONWebKey, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.keysFrom != r.jwksURI {
+	if r.keysFrom != r.jwksURI || !now.Before(r.keysUntil.Add(grace)) {
 		return nil, true
 	}
 	return r.keys, !now.Before(r.keysUntil)
@@ -225,7 +235,7 @@ func sigAlgs(algs []string) []jose.SignatureAlgorithm {
 }
 
 // refresh starts one fetch of kind for r, unless one started less than
-// MinRefresh ago, and returns the fetch in flight, nil when there is none.
+// MinRefresh ago, and returns the fetch in flight, or the last one done.
 // The fetch runs detached from the caller, so one client giving up does not
 // fail the others.
 func (p *Providers) refresh(ctx context.Context, r *remote, kind string, do func(context.Context, *remote) error) *fetch {
@@ -234,7 +244,7 @@ func (p *Providers) refresh(ctx context.Context, r *remote, kind string, do func
 	f, running := r.inflight[kind]
 	if !running {
 		if last, ok := r.attempt[kind]; ok && p.now().Sub(last) < orDefault(p.MinRefresh, DefaultMinRefresh) {
-			return nil
+			return &fetch{done: finished, err: r.lastErr[kind]} // the last fetch's outcome stands until the next
 		}
 		f = &fetch{done: make(chan struct{})}
 		r.inflight[kind], r.attempt[kind] = f, p.now()
@@ -243,11 +253,8 @@ func (p *Providers) refresh(ctx context.Context, r *remote, kind string, do func
 	return f
 }
 
-// wait waits for the fetch f, if any, or until the caller gives up.
+// wait waits for the fetch f, or until the caller gives up.
 func (p *Providers) wait(ctx context.Context, r *remote, kind string, f *fetch) error {
-	if f == nil {
-		return nil
-	}
 	select {
 	case <-f.done:
 		return f.err
@@ -269,6 +276,7 @@ func (p *Providers) run(ctx context.Context, r *remote, kind string, f *fetch, d
 	}
 	r.mu.Lock()
 	delete(r.inflight, kind)
+	r.lastErr[kind] = f.err
 	r.mu.Unlock()
 	close(f.done)
 }
@@ -410,11 +418,17 @@ func refusePrivate(_, address string, _ syscall.RawConn) error {
 		return fmt.Errorf("authn: dial %s: %w", address, err)
 	}
 	ip := ap.Addr().Unmap()
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(ip) }) {
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || (ip.Is6() && !globalUnicast6.Contains(ip)) ||
+		slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(ip) }) {
 		return fmt.Errorf("authn: address %s is not allowed for an identity provider", ip)
 	}
 	return nil
 }
+
+// globalUnicast6 is the only IPv6 range allocated for global unicast
+// (RFC 4291): IPv4-compatible, site-local and discard addresses fall
+// outside it.
+var globalUnicast6 = netip.MustParsePrefix("2000::/3")
 
 // nonPublic are the special-purpose ranges (RFC 6890 and successors) that
 // IsGlobalUnicast and IsPrivate let through: shared address space (cloud
@@ -425,11 +439,16 @@ var nonPublic = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"),
 	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
 	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
 	netip.MustParsePrefix("240.0.0.0/4"),
 	netip.MustParsePrefix("64:ff9b::/96"),
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("2001::/32"),
+	netip.MustParsePrefix("2001:db8::/32"),
 	netip.MustParsePrefix("2002::/16"),
 }
 
