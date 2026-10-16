@@ -405,7 +405,9 @@ erDiagram
     bigint amount_lc
     bigint amount_gc
     uuid partner_id
-    text tax_code }
+    text tax_code
+    uuid purchase_order_id "GR/IR lines"
+    int po_item_no }
   clearing { uuid id PK
     uuid legal_entity_id
     date clearing_date
@@ -510,6 +512,19 @@ Rules enforced in the database:
   `Postings.Reserve`, which locks the entries exclusively and refuses items
   that are not open, reversed or held, and frees through `Postings.Release`;
   the ledger never reads the owner's tables.
+- A line may name the purchase order item it belongs to
+  (`purchase_order_id`, `po_item_no`; procurement context, no foreign key;
+  migration 000052, T33a): both or neither (`journal_line_order_item_pair`),
+  and with a quantity (`journal_line_order_item_quantity`). The ledger keeps
+  each order item's GR/IR position on these lines, as SAP's ACDOCA carries
+  EBELN/EBELP, so the positions add up to the GR/IR account's balance.
+- A line on the legal entity's GR/IR account (account determination
+  `gr_ir`) names its order item (trigger `ledger.check_gr_ir_line`,
+  constraint `journal_line_gr_ir_order_item`, 422 `ledger.automatic_account`):
+  only goods receipts and invoices post it, never a manual entry. Entries a
+  migration run loaded (`integration`) are exempt, as SAP's GR/IR lines
+  arrive without their order items. The ledger's `IsPostable` answers false
+  for the GR/IR account too, so no order or invoice item names it.
 - `period_balance` is maintained by an idempotent projector (ADR-0006).
 - `journal_line` is partitioned by `fiscal_year`.
 - `period_status` (one row per legal entity, ledger, year and period) has a
@@ -529,8 +544,10 @@ otherwise.
 Other ledger tables: `ledger` (leading 0L, parallel ledgers), `exchange_rate`
 (rate type `average | bank_buying | bank_selling | planning`, currency pair,
 `valid_from`; insert-only), `account_determination` (which account
-automatic postings use per legal entity and key), `tax_code` (rate, account,
-direction).
+automatic postings use per legal entity and key: `ap_reconciliation`,
+`input_tax`, `bank`, `fx_gain`, `fx_loss`, and for GR/IR clearing (T33)
+`gr_ir` and `price_difference`; the GR/IR account stays once activated),
+`tax_code` (rate, account, direction).
 
 ## 3.8 Procurement (`procurement`)
 
@@ -576,6 +593,7 @@ erDiagram
     uuid requisition_id
     uuid contract_id
     text status "draft | released | closed | cancelled"
+    text valuation "direct | gr_ir"
     int version }
   purchase_order_item { uuid purchase_order_id PK
     int item_no PK
@@ -586,7 +604,9 @@ erDiagram
   goods_movement { uuid id PK
     text movement_type "101 | 102"
     date posting_date
-    uuid reversal_of_id }
+    uuid reversal_of_id
+    uuid journal_entry_id "gr_ir orders"
+    smallint journal_entry_year }
   goods_movement_item { uuid goods_movement_id PK
     int item_no PK
     uuid purchase_order_id
@@ -599,6 +619,20 @@ counter updated in place). Received quantity per PO item is the sum of goods
 movement items (102 movements are negative). A materialized
 `po_item_receipt_summary` read model can be added for speed without changing
 the source of truth.
+
+An order's `valuation` (migration 000052, T33a) says how its receipts and
+invoices are booked: `direct` (invoices post the order item's account, goods
+receipts do not post) or `gr_ir` (goods receipts post Dr the order item's
+account / Cr GR/IR at the order price, invoices clear GR/IR). It is decided
+when the order is released, from the legal entity's `gr_ir` account
+determination, and fixed from then on (trigger
+`procurement.check_valuation_fixed`, constraint
+`purchase_order_valuation_fixed`); a draft is `direct`
+(`purchase_order_draft_direct`). Orders released before GR/IR was configured
+therefore keep the direct scheme to their end, and no posted invoice is
+migrated. A goods movement on a `gr_ir` order names the entry it posted
+(`journal_entry_id`, `journal_entry_year`: both or neither,
+`goods_movement_entry_pair`).
 
 ## 3.9 Accounts payable (`payables`)
 
