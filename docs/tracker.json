@@ -120,7 +120,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Manual journal entries with approval workflow",
       "r": "T35",
       "c": [
@@ -137,27 +137,27 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "People and agents park validated manual entries",
-        "r": "parked-journal-entries · T35c",
+        "r": "parked-journal-entries · ParkedJournalEntryChanged · T35c",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The owner edits or cancels a parked entry; agents only their own proposals",
-        "r": "T35d",
+        "r": "PATCH parked-journal-entries/{id} · :cancel · ledger.not_entry_owner · T35d",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Posting a parked entry posts within the limit or asks approval; an approval by someone else posts it",
         "r": ":post · ledger.ManualEntries · T35e",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Direct posts above the limit refused; agents never post or reverse",
-        "r": "x-agent: false · T35f",
+        "r": "409 ledger.approval_required · x-agent: false · TestManualEntriesExitCriterion · T35f",
         "c": []
        }
       ]
