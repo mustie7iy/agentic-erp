@@ -35,7 +35,7 @@ func TestAdmin(t *testing.T) {
 		h    http.Handler
 		path string
 		code int
-	}{{healthy, "/livez", 200}, {healthy, "/readyz", 200}, {sick, "/readyz", 503}, {sick, "/livez", 200}, {healthy, "/metrics", 200},
+	}{{healthy, "/livez", 200}, {healthy, "/readyz", 200}, {sick, "/readyz", 503}, {sick, "/livez", 200}, {healthy, "/metrics", 200}, {healthy, "/version", 200},
 		{healthy, "/dev/token", 404}, {sick, "/dev/token", 201}, {healthy, "/control/v1/tenants", 404}, {sick, "/control/v1/tenants", 201}} {
 		t.Run(fmt.Sprintf("%s=%d", c.path, c.code), func(t *testing.T) {
 			rec := httptest.NewRecorder()

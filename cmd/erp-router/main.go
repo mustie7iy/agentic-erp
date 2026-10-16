@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/globalplane"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
@@ -87,7 +88,9 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	for i, l := range []net.Listener{ln, adminLn} {
 		go func() { errc <- servers[i].Serve(l) }()
 	}
-	log.Info("erp-router started", "addr", ln.Addr().String(), "admin", adminLn.Addr().String(), "cache", cfg.CacheTTL.String())
+	build := buildinfo.Get()
+	log.Info("erp-router started", "addr", ln.Addr().String(), "admin", adminLn.Addr().String(), "cache", cfg.CacheTTL.String(),
+		"version", build.Version, "revision", build.Revision)
 	if started != nil {
 		started(ln, adminLn)
 	}
@@ -171,7 +174,8 @@ func peerOf(cfg router.Config) func(cell string) string {
 	return func(cell string) string { return tlsconf.ID(cfg.TrustDomain, cell, "erp-server") }
 }
 
-// adminMux is the admin listener's handler: liveness, metrics, and with
+// adminMux is the admin listener's handler: liveness, metrics, the build's
+// version, and with
 // operator issuers the global control plane (api/directory.yaml).
 func adminMux(ctx context.Context, cfg router.Config, dir *directory.Postgres, metrics *telemetry.Metrics, traced func(http.Handler) http.Handler, log *slog.Logger) (*http.ServeMux, error) {
 	admin := http.NewServeMux()
@@ -180,6 +184,7 @@ func adminMux(ctx context.Context, cfg router.Config, dir *directory.Postgres, m
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 	admin.Handle("GET /metrics", metrics.Handler())
+	admin.Handle("GET /version", buildinfo.Handler())
 	if len(cfg.OperatorIssuers) > 0 {
 		operators, err := authn.New(ctx, authn.Environment(cfg.Environment), cfg.OperatorIssuers, cfg.Static...)
 		if err != nil {

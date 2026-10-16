@@ -40,6 +40,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -620,7 +621,9 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 	for i, ln := range []net.Listener{apiLn, adminLn} {
 		go func() { errc <- servers[i].Serve(ln) }()
 	}
-	s.log.Info("erp-server started", "api", apiLn.Addr().String(), "admin", adminLn.Addr().String(), "env", s.cfg.Environment, "cell", s.cfg.Cell, "directory", s.cfg.DirectoryURL != "")
+	build := buildinfo.Get()
+	s.log.Info("erp-server started", "api", apiLn.Addr().String(), "admin", adminLn.Addr().String(), "env", s.cfg.Environment, "cell", s.cfg.Cell, "directory", s.cfg.DirectoryURL != "",
+		"version", build.Version, "revision", build.Revision)
 	if started != nil {
 		started(apiLn, adminLn)
 	}

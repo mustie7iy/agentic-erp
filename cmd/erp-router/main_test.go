@@ -87,7 +87,7 @@ func TestRoutesToTheCell(t *testing.T) {
 	if code := getStatus(t, base+"/livez"); code != 200 {
 		t.Fatalf("livez: got %d, want 200", code)
 	}
-	// The admin listener: liveness and metrics, and the global control plane for operators.
+	// The admin listener: liveness, metrics and the build's version, and the global control plane for operators.
 	var adminBase string
 	select {
 	case a := <-adminAddr:
@@ -95,7 +95,7 @@ func TestRoutesToTheCell(t *testing.T) {
 	default:
 		t.Fatal("no admin listener")
 	}
-	for _, path := range []string{"/livez", "/metrics"} {
+	for _, path := range []string{"/livez", "/metrics", "/version"} {
 		t.Run("admin "+path, func(t *testing.T) {
 			if code := getStatus(t, adminBase+path); code != 200 {
 				t.Fatalf("admin %s: got %d, want 200", path, code)

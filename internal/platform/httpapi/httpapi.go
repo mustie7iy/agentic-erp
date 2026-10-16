@@ -27,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
@@ -190,7 +191,7 @@ func missing(err error) bool {
 }
 
 // Admin serves the operational endpoints on the internal port: liveness,
-// readiness and metrics, the development issuer's token endpoint when dev is
+// readiness, metrics and the build's version, the development issuer's token endpoint when dev is
 // not nil, and the operators' control plane under /control/ when control is
 // not nil.
 func Admin(ready func(context.Context) error, m *telemetry.Metrics, dev, control http.Handler) http.Handler {
@@ -215,5 +216,6 @@ func Admin(ready func(context.Context) error, m *telemetry.Metrics, dev, control
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 	mux.Handle("GET /metrics", m.Handler())
+	mux.Handle("GET /version", buildinfo.Handler())
 	return mux
 }

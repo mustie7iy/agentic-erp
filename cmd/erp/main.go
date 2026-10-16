@@ -42,6 +42,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/sapconfig"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
@@ -125,6 +126,7 @@ func init() {
 		"config":       configCmd,
 		"token":        token,
 		"tenants":      tenantsCmd,
+		"version":      versionCmd,
 	}
 }
 
@@ -153,8 +155,19 @@ local preparation:
   config generate | validate   draft a configuration from SAP customizing, or check one
   token          mint a token from a server running with ERP_DEV_ISSUER (ERP_ADMIN_URL, default localhost:9090);
                  without -tenant it is an operator token
+  version        print this build's version and source revision
 
 run "erp <command> -h" for flags`)
+}
+
+// versionCmd prints the build (ADR-0032) as the servers serve it on their
+// admin listener's /version.
+func versionCmd(_ context.Context, args []string) error {
+	if len(args) > 0 {
+		return errors.New("version takes no arguments")
+	}
+	b, _ := json.Marshal(buildinfo.Get()) // strings and a bool always encode
+	return printf("version", "%s\n", b)
 }
 
 // client is an API client with the token in the named variable.
