@@ -174,6 +174,12 @@ func (v *Verifier) VerifyOperator(ctx context.Context, raw string) (reqctx.Claim
 	if s != "" {
 		return reqctx.Claims{}, problem.Unauthorized("An operator token must not name a tenant.")
 	}
+	// The control planes' listeners see no operator's certificate, so a
+	// bound token cannot be checked there: refused, not taken as a bearer
+	// token (ADR-0033).
+	if claims.CertThumbprint != "" {
+		return reqctx.Claims{}, problem.Unauthorized("Certificate-bound operator tokens are not accepted on the control planes.")
+	}
 	return claims, nil
 }
 
@@ -206,6 +212,9 @@ func (v *Verifier) verify(ctx context.Context, raw string) (reqctx.Claims, strin
 	}
 	c := reqctx.Claims{Issuer: iss, Subject: tok.Subject, Roles: rs}
 	facts(&c, tok, claims)
+	if err := confirmation(&c, claims); err != nil {
+		return reqctx.Claims{}, "", err
+	}
 	return c, s, nil
 }
 

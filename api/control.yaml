@@ -1333,7 +1333,7 @@ components:
           amr_values: ["mfa"]
     IdentityProviderUpdate:
       type: object
-      description: "Merge patch of an identity provider: absent fields are unchanged, `null` clears the tenant claim or empties a list."
+      description: "Merge patch of an identity provider: absent fields are unchanged, `null` clears the tenant claim or empties a list; `certificate_bound_tokens` is true or false, and `null` for it is 400 `request.invalid_body`."
       properties:
         tenant_claim:
           type: ["string", "null"]

@@ -129,6 +129,13 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		return err
 	}
 	ctx := r.Context()
+	// A bound token without its certificate is refused before its session
+	// is touched: replayed by whoever stole it, it would otherwise keep
+	// its owner's session alive (ADR-0033).
+	if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), false); err != nil {
+		m.Log.WarnContext(ctx, "certificate binding refused", "subject", claims.Subject, "bound", true)
+		return err
+	}
 	if m.Sessions != nil {
 		if err := m.Sessions.Check(ctx, claims); err != nil {
 			return err
@@ -153,9 +160,11 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 			return err
 		}
 	}
-	if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), m.RequireBoundAgents && principal.Kind == reqctx.KindAgent); err != nil {
-		m.Log.WarnContext(ctx, "certificate binding refused", "principal_id", principal.ID, "kind", principal.Kind, "bound", claims.CertThumbprint != "")
-		return err
+	if m.RequireBoundAgents && principal.Kind == reqctx.KindAgent {
+		if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), true); err != nil {
+			m.Log.WarnContext(ctx, "certificate binding refused", "principal_id", principal.ID, "kind", principal.Kind, "bound", claims.CertThumbprint != "")
+			return err
+		}
 	}
 	info := reqctx.InfoFrom(ctx)
 	info.TenantID, info.PrincipalID = principal.TenantID, principal.ID

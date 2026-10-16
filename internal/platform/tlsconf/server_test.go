@@ -192,3 +192,26 @@ func TestThumbprint(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// TestConnectionsKeptPerIdentity: a connection verified as one service is
+// not reused for a request expecting another at the same address.
+func TestConnectionsKeptPerIdentity(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	cellID := tlsconf.ID(domain, "eu1", "erp-server")
+	srv := peerServer(t, identity(t, ca, cellID), tls.NoClientCert)
+	client := identity(t, ca, tlsconf.ID(domain, "global", "erp-router")).InternalClient(5 * time.Second)
+	get := func(want string) error {
+		req, _ := http.NewRequestWithContext(tlsconf.ExpectPeer(t.Context(), want), http.MethodGet, srv.URL, nil)
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close() // the outcome is what is asserted
+		}
+		return err
+	}
+	if err := get(cellID); err != nil {
+		t.Fatalf("the expected cell: %v", err)
+	}
+	if err := get(tlsconf.ID(domain, "eu2", "erp-server")); err == nil {
+		t.Error("another cell at the same address: got served over the pooled connection, want refused")
+	}
+}

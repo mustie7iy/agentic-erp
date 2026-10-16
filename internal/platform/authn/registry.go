@@ -88,6 +88,9 @@ func (v *Verifier) verifyRegistered(ctx context.Context, raw, iss string, auds [
 		MFA:     reqctx.MFA{Required: reg.MFARequired, ACRValues: reg.ACRValues, AMRValues: reg.AMRValues},
 		Session: reqctx.SessionRule{MaxAge: reg.SessionMaxAge, Idle: reg.IdleTimeout}, CertificateBound: reg.CertificateBound}
 	facts(&c, tok, claims)
+	if err := confirmation(&c, claims); err != nil {
+		return reqctx.Claims{}, "", err
+	}
 	return c, reg.TenantID.String(), nil
 }
 
@@ -117,6 +120,25 @@ func plausible(iss string, auds []string) bool {
 
 // facts reads the token's facts that multi-factor and sessions are
 // decided on; absent or malformed claims leave them empty.
+// confirmation reads the token's cnf (RFC 7800): absent, the token is a
+// bearer token; a non-empty x5t#S256, it is bound to that certificate
+// (RFC 8705). Any other confirmation (DPoP's jkt, a malformed one) is
+// refused: taken as a bearer token, a stolen bound token would work
+// without its proof (ADR-0033).
+func confirmation(c *reqctx.Claims, claims map[string]any) error {
+	raw, present := claims["cnf"]
+	if !present {
+		return nil
+	}
+	cnf, _ := raw.(map[string]any)
+	thumb, _ := cnf["x5t#S256"].(string)
+	if thumb == "" {
+		return problem.Unauthorized("The token's confirmation (cnf) is not a certificate binding this API accepts.")
+	}
+	c.CertThumbprint = thumb
+	return nil
+}
+
 func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
 	c.IssuedAt, c.Expiry = tok.IssuedAt, tok.Expiry
 	var at struct {
@@ -128,9 +150,7 @@ func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
 	}
 	c.ACR, _ = claims["acr"].(string)
 	c.SessionID, _ = claims["sid"].(string)
-	if cnf, ok := claims["cnf"].(map[string]any); ok {
-		c.CertThumbprint, _ = cnf["x5t#S256"].(string)
-	}
+
 	if amr, ok := claims["amr"].([]any); ok {
 		for _, m := range amr {
 			s, ok := m.(string)

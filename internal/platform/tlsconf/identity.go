@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -53,41 +54,76 @@ func (s *Store) ServerConfig(minVersion uint16, clientAuth tls.ClientAuthType) *
 // the store's certificate presented, the server verified against the
 // bundle alone and accepted only when it presents the SPIFFE ID its
 // request's context names (ExpectPeer); a request naming none is refused.
-// Bundle and certificate are taken in one read per connection. It
-// connects directly, like HTTPClient.
+// Connections are kept apart per expected identity, so one verified as
+// one service never carries a request meant for another at the same
+// address. Bundle and certificate are taken in one read per connection.
+// It connects directly, like HTTPClient.
 func (s *Store) InternalClient(timeout time.Duration) *http.Client {
-	return s.client(timeout, func(ctx context.Context, host string) (*tls.Config, error) {
-		want, ok := ExpectedPeer(ctx)
-		if !ok {
-			return nil, errors.New("tlsconf: the request names no identity the server must present (ExpectPeer)")
+	return &http.Client{Timeout: timeout, Transport: &peerTransports{make: func(want string) http.RoundTripper {
+		return s.transport(timeout, func(context.Context, string) (*tls.Config, error) { return s.internalConfig(want) })
+	}}}
+}
+
+// internalConfig is a connection's configuration that accepts only want.
+func (s *Store) internalConfig(want string) (*tls.Config, error) {
+	m, err := s.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		MinVersion: Internal,
+		RootCAs:    m.bundle,
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			if m.cert == nil {
+				return &tls.Certificate{}, nil // none: the server decides whether it needs one
+			}
+			return m.cert, nil
+		},
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if id := spiffeID(cs.PeerCertificates[0].URIs); id != want {
+				return fmt.Errorf("tlsconf: the server presented %q, want %q", id, want)
+			}
+			return nil
+		},
+	}, nil
+}
+
+// peerTransports keeps one transport, and so one connection pool, per
+// expected identity.
+type peerTransports struct {
+	make func(want string) http.RoundTripper
+	mu   sync.Mutex
+	by   map[string]http.RoundTripper
+}
+
+func (p *peerTransports) RoundTrip(r *http.Request) (*http.Response, error) {
+	want, ok := ExpectedPeer(r.Context())
+	if !ok {
+		return nil, errors.New("tlsconf: the request names no identity the server must present (ExpectPeer)")
+	}
+	p.mu.Lock()
+	t, found := p.by[want]
+	if !found {
+		if p.by == nil {
+			p.by = map[string]http.RoundTripper{}
 		}
-		m, err := s.snapshot()
-		if err != nil {
-			return nil, err
-		}
-		return &tls.Config{
-			MinVersion: Internal,
-			ServerName: host,
-			RootCAs:    m.bundle,
-			GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-				if m.cert == nil {
-					return &tls.Certificate{}, nil // none: the server decides whether it needs one
-				}
-				return m.cert, nil
-			},
-			VerifyConnection: func(cs tls.ConnectionState) error {
-				if id := spiffeID(cs.PeerCertificates[0].URIs); id != want {
-					return fmt.Errorf("tlsconf: the server presented %q, want %q", id, want)
-				}
-				return nil
-			},
-		}, nil
-	})
+		t = p.make(want)
+		p.by[want] = t
+	}
+	p.mu.Unlock()
+	return t.RoundTrip(r) //nolint:wrapcheck // a transport passes its transport's errors on as they are
 }
 
 // client is a direct client whose every connection is made with the
 // configuration config returns for the host.
 func (s *Store) client(timeout time.Duration, config func(ctx context.Context, host string) (*tls.Config, error)) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: s.transport(timeout, config)}
+}
+
+// transport is a direct transport whose every connection is made with
+// the configuration config returns, its ServerName the host when config
+// names none.
+func (s *Store) transport(timeout time.Duration, config func(ctx context.Context, host string) (*tls.Config, error)) *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // the standard library's default is an *http.Transport
 	t.Proxy = nil
 	t.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -96,6 +132,9 @@ func (s *Store) client(timeout time.Duration, config func(ctx context.Context, h
 		cfg, err := config(ctx, host)
 		if err != nil {
 			return nil, err
+		}
+		if cfg.ServerName == "" {
+			cfg.ServerName = host
 		}
 		raw, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, network, addr)
 		if err != nil {
@@ -108,7 +147,7 @@ func (s *Store) client(timeout time.Duration, config func(ctx context.Context, h
 		}
 		return conn, nil
 	}
-	return &http.Client{Timeout: timeout, Transport: t}
+	return t
 }
 
 // ClientCertHeader carries, from the router to the cell, the RFC 8705

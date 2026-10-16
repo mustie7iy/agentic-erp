@@ -48,6 +48,10 @@ func TestCertificateBoundTokens(t *testing.T) {
 		{"a bound token outside production still needs its certificate", false, false, ten.Agent.Subject, bound, other, 401},
 		{"a person, unbound", true, true, ten.Human.Subject, nil, "", 200},
 		{"a service, unbound", true, true, ten.Service.Subject, nil, "", 200},
+		{"a person, bound, without the certificate", true, true, ten.Human.Subject, bound, "", 401},
+		{"a service, bound, with another certificate", true, true, ten.Service.Subject, bound, other, 401},
+		{"a person, bound, with the certificate", true, true, ten.Human.Subject, bound, thumb, 200},
+		{"a DPoP-bound token", true, true, ten.Human.Subject, map[string]any{"cnf": map[string]any{"jkt": "k1"}}, thumb, 401},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			reg := authn.Registration{TenantID: ten.ID, Issuer: is.URL, Audience: authntest.Audience, CertificateBound: c.binds}
@@ -56,7 +60,9 @@ func TestCertificateBoundTokens(t *testing.T) {
 				t.Fatal(err)
 			}
 			var logs bytes.Buffer
-			mw := &uow.Middleware{Pool: pgtest.Pool(t), Role: "erp_app", Log: slog.New(slog.NewTextHandler(&logs, nil)), Now: time.Now, RequireBoundAgents: c.require}
+			sessions := &sessionsSeen{}
+			mw := &uow.Middleware{Pool: pgtest.Pool(t), Role: "erp_app", Log: slog.New(slog.NewTextHandler(&logs, nil)), Now: time.Now, RequireBoundAgents: c.require,
+				Sessions: sessions}
 			handler := v.Middleware(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })))
 			r := httptest.NewRequest("GET", "/read", nil)
 			r.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, c.subject, c.claims))
@@ -68,7 +74,19 @@ func TestCertificateBoundTokens(t *testing.T) {
 			if rec.Code != c.status {
 				t.Fatalf("status: got %d %s, want %d", rec.Code, rec.Body, c.status)
 			}
-			if c.status == 401 && !strings.Contains(logs.String(), "certificate binding refused") {
+			if c.status != 401 {
+				return
+			}
+			if !strings.Contains(rec.Body.String(), "authn.invalid_token") {
+				t.Errorf("problem: got %s, want authn.invalid_token", rec.Body)
+			}
+			// A token refused for its binding touches no session: a stolen
+			// bound token, replayed without its certificate, keeps no
+			// victim's session alive.
+			if c.claims["cnf"] != nil && c.presented != thumb && len(sessions.subjects) != 0 {
+				t.Errorf("sessions checked: got %v, want none before the binding is", sessions.subjects)
+			}
+			if c.subject == ten.Agent.Subject && !strings.Contains(logs.String(), "certificate binding refused") {
 				t.Errorf("logs: got %s, want the refusal logged", logs.String())
 			}
 		})

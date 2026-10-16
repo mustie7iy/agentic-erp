@@ -175,7 +175,8 @@ func (h *handler) updateProvider(w http.ResponseWriter, r *http.Request, tenant,
 }
 
 // providerChange reads the IdentityProviderUpdate merge patch: null clears
-// the tenant claim or empties a list.
+// the tenant claim or empties a list; certificate_bound_tokens is true or
+// false, never null.
 func providerChange(body []byte) (identity.IdentityProviderChange, error) {
 	var patch struct {
 		TenantClaim json.RawMessage `json:"tenant_claim"`
@@ -196,8 +197,11 @@ func providerChange(body []byte) (identity.IdentityProviderChange, error) {
 	}
 	if patch.Bound != nil {
 		var bound *bool
-		if err := json.Unmarshal(patch.Bound, &bound); err != nil || bound == nil {
-			return ch, problem.BadRequest("request.invalid_body", "certificate_bound_tokens must be true or false.")
+		// null is refused rather than read as false: a security flag is
+		// set or cleared by name.
+		err := json.Unmarshal(patch.Bound, &bound)
+		if err != nil || bound == nil {
+			return ch, problem.BadRequest("request.invalid_body", "certificate_bound_tokens must be true or false.").WithCause(err)
 		}
 		ch.CertificateBound = bound
 	}

@@ -62,7 +62,10 @@ has the design.
 agent's client certificate (RFC 8705, `cnf.x5t#S256`). The router asks
 every public client for a certificate and forwards its thumbprint to the
 cell, which trusts it only from the router's SPIFFE identity. A bound
-token, anyone's, is accepted only with its certificate. In production an
+token, anyone's, is accepted only with its certificate, checked before
+its session is touched; a confirmation other than a certificate's
+(`cnf.jkt` of DPoP, a malformed `cnf`) is refused, and so is a bound
+operator token, whose control planes see no certificate. In production an
 agent's token is accepted only bound, from a provider registered with
 `certificate_bound_tokens`; otherwise it is 401, logged. People and
 services are not asked. The token remains the principal; the certificate
