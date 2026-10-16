@@ -5514,6 +5514,243 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}/changes":
+    get:
+      operationId: listPurchaseOrderChanges
+      tags:
+        - procurement
+      summary: List the changes of a purchase order
+      description: "The order changes of a released purchase order, newest first: its versions, each with the order as it was changed. Sortable by: `created_at`."
+      x-permission: procurement.order.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of order changes.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChangePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createPurchaseOrderChange
+      tags:
+        - procurement
+      summary: Draft a change of a released purchase order
+      description: "Drafts an order change of a released order: its payment terms, order date, extensions and complete items as they are to read, checked as an order's are (the supplier, currency, contract and requisition do not change). An item keeps its account, unit, material and contract item, is never below what was received (allowing its over-delivery tolerance) and, with receipts, is never removed (422 `procurement.invalid_change`). Nothing changes until the change is submitted (T47f). Requires status `released` and no other open change (409 `procurement.change_open`)."
+      x-permission: procurement.order.create
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The order change.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderChangeCreate"
+      responses:
+        "201":
+          description: "Created; the order change, a draft."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}/changes/{change_id}":
+    get:
+      operationId: getPurchaseOrderChange
+      tags:
+        - procurement
+      summary: Get a change of a purchase order
+      description: Returns one order change.
+      x-permission: procurement.order.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: The order change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updatePurchaseOrderChange
+      tags:
+        - procurement
+      summary: Change a drafted order change
+      description: "Changes an order change in status `draft` (409 `procurement.invalid_status` otherwise). JSON Merge Patch (RFC 7396): absent fields are unchanged, `items` replaces the items as a whole. The change is checked again as a new one is."
+      x-permission: procurement.order.create
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the order change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderChangeUpdate"
+      responses:
+        "200":
+          description: "The order change after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}/changes/{change_id}:cancel":
+    post:
+      operationId: cancelPurchaseOrderChange
+      tags:
+        - procurement
+      summary: Cancel a drafted order change
+      description: "Cancels an order change in status `draft` for good; the order is unchanged. A change waiting for approval is withdrawn by cancelling its approval request, which returns it to `draft`."
+      x-permission: procurement.order.create
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The order change after cancelPurchaseOrderChange."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/contracts:
     get:
       operationId: listContracts
@@ -9218,6 +9455,15 @@ components:
       in: path
       required: true
       description: Role permission grant identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d1f"
+    ChangeId:
+      name: change_id
+      in: path
+      required: true
+      description: Order change identifier (UUIDv7).
       schema:
         type: string
         format: uuid
@@ -14950,6 +15196,12 @@ components:
                 - closed
                 - cancelled
               readOnly: true
+            revision:
+              type: integer
+              format: int32
+              description: "The order's version: 1 as released, one more for each order change applied."
+              minimum: 1
+              readOnly: true
             release_request_id:
               type: string
               format: uuid
@@ -15120,6 +15372,190 @@ components:
       additionalProperties: false
       examples:
         - purchasing_org_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d75"
+    PurchaseOrderChange:
+      description: "A change of a released purchase order (T47): a version of the order with its reason. It moves `draft` -> `pending_approval` -> `applied` or `rejected`, back to `draft` when its approval request is withdrawn, straight to `applied` when it raises no total, or to `cancelled`; it changes only as a draft. Applied, it made the order's `revision`."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - purchase_order_id
+            - status
+            - reason
+            - base_revision
+            - order_date
+            - payment_term_code
+            - items
+            - total_before
+            - total_after
+          properties:
+            purchase_order_id:
+              type: string
+              format: uuid
+              description: The order it changes.
+              readOnly: true
+            status:
+              type: string
+              description: "Order change status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - draft
+                - pending_approval
+                - applied
+                - rejected
+                - cancelled
+              readOnly: true
+            reason:
+              type: string
+              description: Why the order changes.
+              readOnly: true
+            base_revision:
+              type: integer
+              format: int32
+              description: The order's revision the change is based on.
+              readOnly: true
+            revision:
+              type: integer
+              format: int32
+              description: "The order's revision the change made; set once `applied`."
+              readOnly: true
+            order_date:
+              type: string
+              format: date
+              description: The order date as changed.
+              readOnly: true
+            payment_term_code:
+              type: string
+              description: The payment terms as changed.
+              readOnly: true
+            extensions:
+              $ref: "#/components/schemas/Extensions"
+              description: The custom fields as changed.
+              readOnly: true
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/PurchaseOrderItem"
+              description: The complete items as changed.
+              readOnly: true
+            total_before:
+              $ref: "#/components/schemas/Money"
+              description: The order's total before the change.
+              readOnly: true
+            total_after:
+              $ref: "#/components/schemas/Money"
+              description: The order's total after it.
+              readOnly: true
+            approval_request_id:
+              type: string
+              format: uuid
+              description: "The `order_change` approval request (workflow context) the change waits for or was decided on."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          version: 1
+          created_at: "2026-10-12T09:30:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          updated_at: "2026-10-12T09:30:00Z"
+          purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
+          status: draft
+          reason: Supplier raised the price of the chairs
+          base_revision: 1
+          order_date: "2026-10-09"
+          payment_term_code: NT30
+          items:
+            - item_no: 1
+              description: Office chairs, ergonomic
+              quantity:
+                value: "12.5"
+                unit: KG
+              unit_price:
+                amount: "1100.00"
+                currency: EUR
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          total_before:
+            amount: "13500.00"
+            currency: EUR
+          total_after:
+            amount: "13750.00"
+            currency: EUR
+    PurchaseOrderChangeCreate:
+      type: object
+      description: A change of a released purchase order.
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          description: Why the order changes.
+          minLength: 1
+          maxLength: 2000
+        order_date:
+          type: string
+          format: date
+          description: "Order date; defaults to the order's."
+        payment_term_code:
+          type: string
+          description: "Payment terms; default to the order's."
+          pattern: "^[A-Z0-9_/]{1,10}$"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseOrderItem"
+          description: "Complete list of items as they are to read; defaults to the order's."
+          minItems: 1
+          maxItems: 10000
+        extensions:
+          $ref: "#/components/schemas/Extensions"
+          description: Custom fields, merged into the order's.
+      additionalProperties: false
+      examples:
+        - reason: Supplier raised the price of toner
+    PurchaseOrderChangeUpdate:
+      type: object
+      description: Merge patch of a drafted order change.
+      properties:
+        reason:
+          type: string
+          description: Why the order changes.
+          minLength: 1
+          maxLength: 2000
+        order_date:
+          type: string
+          format: date
+          description: Order date.
+        payment_term_code:
+          type: string
+          description: Payment terms.
+          pattern: "^[A-Z0-9_/]{1,10}$"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseOrderItem"
+          description: Complete list of items.
+          minItems: 1
+          maxItems: 10000
+        extensions:
+          $ref: "#/components/schemas/Extensions"
+          description: Custom fields.
+      additionalProperties: false
+      examples:
+        - reason: Supplier raised the price of toner and paper
+    PurchaseOrderChangePage:
+      type: object
+      description: One page of order changes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseOrderChange"
+          description: The order changes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     PurchaseOrderPage:
       type: object
       description: One page of purchase orders.

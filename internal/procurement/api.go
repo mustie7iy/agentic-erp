@@ -92,7 +92,7 @@ func orderToAPI(o PurchaseOrder) gen.PurchaseOrder {
 		UpdatedBy: gen.NewOptUUID(o.UpdatedBy), DocumentNumber: o.DocumentNumber, LegalEntityID: o.LegalEntityID,
 		PurchasingOrgID: apitypes.OptUUID(o.PurchasingOrgID), SupplierID: o.SupplierID, Currency: o.Currency, OrderDate: o.OrderDate,
 		PaymentTermCode: o.PaymentTermCode, RequisitionID: apitypes.OptUUID(o.RequisitionID), ContractID: apitypes.OptUUID(o.ContractID), Status: o.Status,
-		Valuation: gen.NewOptString(o.Valuation), ReleaseRequestID: apitypes.OptUUID(o.ReleaseRequestID),
+		Valuation: gen.NewOptString(o.Valuation), ReleaseRequestID: apitypes.OptUUID(o.ReleaseRequestID), Revision: gen.NewOptInt32(o.Revision),
 		TotalAmount: apitypes.Money(o.Total(), o.Currency, o.Exponent), Extensions: apitypes.EncodeObject(o.Extensions), Items: make([]gen.PurchaseOrderItem, len(o.Items))}
 	for i, it := range o.Items {
 		out.Items[i] = orderItemToAPI(it, o.Currency, o.Exponent)
@@ -112,6 +112,19 @@ func orderItemToAPI(it Item, currency string, exp int) gen.PurchaseOrderItem {
 		Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, currency, exp),
 		PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
 		TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: optInt(it.ContractItemNo)}
+}
+
+func changeToAPI(ch PurchaseOrderChange) gen.PurchaseOrderChange {
+	out := gen.PurchaseOrderChange{ID: ch.ID, Version: ch.Version, CreatedAt: ch.CreatedAt, CreatedBy: ch.CreatedBy, UpdatedAt: ch.UpdatedAt,
+		UpdatedBy: gen.NewOptUUID(ch.UpdatedBy), PurchaseOrderID: ch.PurchaseOrderID, Status: ch.Status, Reason: ch.Reason,
+		BaseRevision: ch.BaseRevision, Revision: optInt(ch.Revision), OrderDate: ch.Proposed.OrderDate, PaymentTermCode: ch.Proposed.PaymentTermCode,
+		Extensions: gen.NewOptExtensions(apitypes.EncodeObject(ch.Proposed.Extensions)), Items: make([]gen.PurchaseOrderItem, len(ch.Proposed.Items)),
+		TotalBefore: apitypes.Money(ch.TotalBefore, ch.Currency, ch.Exponent), TotalAfter: apitypes.Money(ch.TotalAfter, ch.Currency, ch.Exponent),
+		ApprovalRequestID: apitypes.OptUUID(ch.ApprovalRequestID)}
+	for i, it := range ch.Proposed.Items {
+		out.Items[i] = orderItemToAPI(it, ch.Currency, ch.Exponent)
+	}
+	return out
 }
 
 func contractToAPI(c Contract) gen.Contract {
@@ -514,6 +527,86 @@ func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPu
 		return nil, err
 	}
 	return orderOK(o), nil
+}
+
+// --- order changes ----------------------------------------------------------
+
+func changeOK(ch PurchaseOrderChange) *gen.UpdatePurchaseOrderChangeOKHeaders {
+	return &gen.UpdatePurchaseOrderChangeOKHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)), Response: changeToAPI(ch)}
+}
+
+func changeInput(reason gen.OptString, orderDate gen.OptDate, term gen.OptString, items []gen.PurchaseOrderItem, ext gen.OptExtensions) ChangeInput {
+	in := ChangeInput{Reason: apitypes.Ptr[string](reason), OrderDate: apitypes.Ptr[time.Time](orderDate), PaymentTermCode: apitypes.Ptr[string](term),
+		Extensions: apitypes.DecodeObject(ext.Value)}
+	if items != nil {
+		in.Items = orderInputs(items)
+	}
+	return in
+}
+
+// CreatePurchaseOrderChange implements POST /v1/purchase-orders/{id}/changes.
+func (e *Endpoints) CreatePurchaseOrderChange(ctx context.Context, req *gen.PurchaseOrderChangeCreate, params gen.CreatePurchaseOrderChangeParams) (gen.CreatePurchaseOrderChangeRes, error) {
+	ch, err := e.createChange(ctx, params.ID, changeInput(gen.NewOptString(req.Reason), req.OrderDate, req.PaymentTermCode, req.Items, req.Extensions))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PurchaseOrderChangeHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)),
+		Location: gen.NewOptString("/v1/purchase-orders/" + params.ID.String() + "/changes/" + ch.ID.String()), Response: changeToAPI(ch)}, nil
+}
+
+// GetPurchaseOrderChange implements GET /v1/purchase-orders/{id}/changes/{change_id}.
+func (e *Endpoints) GetPurchaseOrderChange(ctx context.Context, params gen.GetPurchaseOrderChangeParams) (gen.GetPurchaseOrderChangeRes, error) {
+	ch, err := GetOrderChange(ctx, params.ID, params.ChangeID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetPurchaseOrderChangeOKHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)), Response: changeToAPI(ch)}, nil
+}
+
+var changeSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
+	{Name: "created_at", Column: "ch.created_at", Type: "timestamptz"},
+}}
+
+// ListPurchaseOrderChanges implements GET /v1/purchase-orders/{id}/changes.
+func (e *Endpoints) ListPurchaseOrderChanges(ctx context.Context, params gen.ListPurchaseOrderChangesParams) (gen.ListPurchaseOrderChangesRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := getOrder(ctx, tx, params.ID, false); err != nil { // 404 for an order the caller cannot see
+		return nil, err
+	}
+	ks, err := e.Pages.Keyset(changeSort, "listPurchaseOrderChanges|"+params.ID.String(), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	q, args := ks.SQL(changeSelect+` WHERE ch.purchase_order_id = $1`, []any{params.ID})
+	rows, _ := tx.Query(ctx, q, args...)
+	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PurchaseOrderChange, error) { return scanChange(r) })
+	if err != nil {
+		return nil, fmt.Errorf("procurement: list changes of purchase order %s: %w", params.ID, err)
+	}
+	items, next := apitypes.PageOf(ks, list, func(ch PurchaseOrderChange) (string, uuid.UUID) { return timestamp(ch.CreatedAt), ch.ID }, changeToAPI)
+	return &gen.PurchaseOrderChangePageHeaders{Response: gen.PurchaseOrderChangePage{Items: items, NextPageToken: next}}, nil
+}
+
+// UpdatePurchaseOrderChange implements PATCH /v1/purchase-orders/{id}/changes/{change_id}.
+func (e *Endpoints) UpdatePurchaseOrderChange(ctx context.Context, req *gen.PurchaseOrderChangeUpdate, params gen.UpdatePurchaseOrderChangeParams) (gen.UpdatePurchaseOrderChangeRes, error) {
+	ch, err := e.updateChange(ctx, params.ID, params.ChangeID, etag.IfMatch(params.IfMatch),
+		changeInput(req.Reason, req.OrderDate, req.PaymentTermCode, req.Items, req.Extensions))
+	if err != nil {
+		return nil, err
+	}
+	return changeOK(ch), nil
+}
+
+// CancelPurchaseOrderChange implements POST /v1/purchase-orders/{id}/changes/{change_id}:cancel.
+func (e *Endpoints) CancelPurchaseOrderChange(ctx context.Context, params gen.CancelPurchaseOrderChangeParams) (gen.CancelPurchaseOrderChangeRes, error) {
+	ch, err := cancelChange(ctx, params.ID, params.ChangeID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return changeOK(ch), nil
 }
 
 // --- goods receipts ---------------------------------------------------------

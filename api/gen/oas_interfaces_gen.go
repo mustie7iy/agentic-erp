@@ -49,6 +49,10 @@ type CancelParkedJournalEntryRes interface {
 	cancelParkedJournalEntryRes()
 }
 
+type CancelPurchaseOrderChangeRes interface {
+	cancelPurchaseOrderChangeRes()
+}
+
 type CancelPurchaseOrderRes interface {
 	cancelPurchaseOrderRes()
 }
@@ -119,6 +123,10 @@ type CreatePartnerChangeRes interface {
 
 type CreatePrincipalRes interface {
 	createPrincipalRes()
+}
+
+type CreatePurchaseOrderChangeRes interface {
+	createPurchaseOrderChangeRes()
 }
 
 type CreatePurchaseOrderRes interface {
@@ -295,6 +303,10 @@ type GetPaymentRunRes interface {
 
 type GetPrincipalRes interface {
 	getPrincipalRes()
+}
+
+type GetPurchaseOrderChangeRes interface {
+	getPurchaseOrderChangeRes()
 }
 
 type GetPurchaseOrderRes interface {
@@ -479,6 +491,10 @@ type ListPaymentsRes interface {
 
 type ListPrincipalsRes interface {
 	listPrincipalsRes()
+}
+
+type ListPurchaseOrderChangesRes interface {
+	listPurchaseOrderChangesRes()
 }
 
 type ListPurchaseOrdersRes interface {
@@ -679,6 +695,10 @@ type UpdateParkedJournalEntryRes interface {
 
 type UpdatePrincipalRes interface {
 	updatePrincipalRes()
+}
+
+type UpdatePurchaseOrderChangeRes interface {
+	updatePurchaseOrderChangeRes()
 }
 
 type UpdatePurchaseOrderRes interface {

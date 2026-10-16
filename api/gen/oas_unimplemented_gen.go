@@ -149,6 +149,16 @@ func (UnimplementedHandler) CancelPurchaseOrder(ctx context.Context, params Canc
 	return r, ht.ErrNotImplemented
 }
 
+// CancelPurchaseOrderChange implements cancelPurchaseOrderChange operation.
+//
+// Cancels an order change in status `draft` for good; the order is unchanged. A change waiting for
+// approval is withdrawn by cancelling its approval request, which returns it to `draft`.
+//
+// POST /v1/purchase-orders/{id}/changes/{change_id}:cancel
+func (UnimplementedHandler) CancelPurchaseOrderChange(ctx context.Context, params CancelPurchaseOrderChangeParams) (r CancelPurchaseOrderChangeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelRequisition implements cancelRequisition operation.
 //
 // Cancels a requisition that is not yet ordered; a pending approval request is cancelled with it.
@@ -324,6 +334,20 @@ func (UnimplementedHandler) CreatePrincipal(ctx context.Context, req *PrincipalC
 //
 // POST /v1/purchase-orders
 func (UnimplementedHandler) CreatePurchaseOrder(ctx context.Context, req *PurchaseOrderCreate, params CreatePurchaseOrderParams) (r CreatePurchaseOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreatePurchaseOrderChange implements createPurchaseOrderChange operation.
+//
+// Drafts an order change of a released order: its payment terms, order date, extensions and complete
+// items as they are to read, checked as an order's are (the supplier, currency, contract and
+// requisition do not change). An item keeps its account, unit, material and contract item, is never
+// below what was received (allowing its over-delivery tolerance) and, with receipts, is never removed
+// (422 `procurement.invalid_change`). Nothing changes until the change is submitted (T47f). Requires
+// status `released` and no other open change (409 `procurement.change_open`).
+//
+// POST /v1/purchase-orders/{id}/changes
+func (UnimplementedHandler) CreatePurchaseOrderChange(ctx context.Context, req *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (r CreatePurchaseOrderChangeRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -742,6 +766,15 @@ func (UnimplementedHandler) GetPurchaseOrder(ctx context.Context, params GetPurc
 	return r, ht.ErrNotImplemented
 }
 
+// GetPurchaseOrderChange implements getPurchaseOrderChange operation.
+//
+// Returns one order change.
+//
+// GET /v1/purchase-orders/{id}/changes/{change_id}
+func (UnimplementedHandler) GetPurchaseOrderChange(ctx context.Context, params GetPurchaseOrderChangeParams) (r GetPurchaseOrderChangeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRecommendation implements getRecommendation operation.
 //
 // Returns one recommendation.
@@ -1157,6 +1190,16 @@ func (UnimplementedHandler) ListPayments(ctx context.Context, params ListPayment
 //
 // GET /v1/principals
 func (UnimplementedHandler) ListPrincipals(ctx context.Context, params ListPrincipalsParams) (r ListPrincipalsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListPurchaseOrderChanges implements listPurchaseOrderChanges operation.
+//
+// The order changes of a released purchase order, newest first: its versions, each with the order as
+// it was changed. Sortable by: `created_at`.
+//
+// GET /v1/purchase-orders/{id}/changes
+func (UnimplementedHandler) ListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (r ListPurchaseOrderChangesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1733,6 +1776,17 @@ func (UnimplementedHandler) UpdatePrincipal(ctx context.Context, req *PrincipalU
 //
 // PATCH /v1/purchase-orders/{id}
 func (UnimplementedHandler) UpdatePurchaseOrder(ctx context.Context, req *PurchaseOrderUpdate, params UpdatePurchaseOrderParams) (r UpdatePurchaseOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdatePurchaseOrderChange implements updatePurchaseOrderChange operation.
+//
+// Changes an order change in status `draft` (409 `procurement.invalid_status` otherwise). JSON Merge
+// Patch (RFC 7396): absent fields are unchanged, `items` replaces the items as a whole. The change is
+// checked again as a new one is.
+//
+// PATCH /v1/purchase-orders/{id}/changes/{change_id}
+func (UnimplementedHandler) UpdatePurchaseOrderChange(ctx context.Context, req *PurchaseOrderChangeUpdate, params UpdatePurchaseOrderChangeParams) (r UpdatePurchaseOrderChangeRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -80,6 +80,13 @@ func TestStoredTotalOutOfRange(t *testing.T) {
 	corrupt("purchase_order_item", "purchase_order_id", released)
 	e.Problem(422, "procurement.amount_too_large", "POST", "/v1/purchase-orders/"+id(released)+":cancel", "", "*")
 
+	// Drafting a change of a released order stored out of range is refused.
+	changed := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	e.act(t, "/v1/purchase-orders/"+id(changed), "release", "")
+	corrupt("purchase_order_item", "purchase_order_id", changed)
+	e.Problem(422, "procurement.amount_too_large", "POST", "/v1/purchase-orders/"+id(changed)+"/changes",
+		`{"reason": "r", "items": `+items(item(e.office, "1", "EA", "1.00", "EUR", ""))+`}`, "")
+
 	// Approving the release of an order stored out of range is refused.
 	waiting := e.order(t, items(item(e.office, "10", "EA", "150.00", "EUR", "")), "")
 	e.act(t, "/v1/purchase-orders/"+id(waiting), "release", "")

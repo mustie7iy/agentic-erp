@@ -827,7 +827,14 @@ and number never change once it left draft; an item of a released order
 is never active without its valuation price; an item keeps its account, unit,
 material and contract item, is never below what was received, nor removed
 with receipts (`purchase_order_item_received`), and its valuation price
-stays the one it was released at.
+stays the one it was released at. The API (`/v1/purchase-orders/{id}/changes`,
+T47f) drafts a change against the order as it reads, locked: its items
+are checked as an order's are, under the order's supplier, currency and
+contract, and against the same rules before anything is written (422
+`procurement.invalid_change`), checked again on every patch as receipts
+may have been posted since; a second open change is 409
+`procurement.change_open`. An agent may draft a change; deciding one is
+human (`procurement.order.approve`).
 
 Each item of a released order carries its `valuation_price` and
 `valuation_price_unit` (migration 000061, T47a): its price when it was

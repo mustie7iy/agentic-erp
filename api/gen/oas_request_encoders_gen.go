@@ -378,6 +378,20 @@ func encodeCreatePurchaseOrderRequest(
 	return nil
 }
 
+func encodeCreatePurchaseOrderChangeRequest(
+	req *PurchaseOrderChangeCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateRecommendationRequest(
 	req *RecommendationCreate,
 	r *http.Request,
@@ -1026,6 +1040,20 @@ func encodeUpdatePrincipalRequest(
 
 func encodeUpdatePurchaseOrderRequest(
 	req *PurchaseOrderUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdatePurchaseOrderChangeRequest(
+	req *PurchaseOrderChangeUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

@@ -105,6 +105,13 @@ type Handler interface {
 	//
 	// POST /v1/purchase-orders/{id}:cancel
 	CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (CancelPurchaseOrderRes, error)
+	// CancelPurchaseOrderChange implements cancelPurchaseOrderChange operation.
+	//
+	// Cancels an order change in status `draft` for good; the order is unchanged. A change waiting for
+	// approval is withdrawn by cancelling its approval request, which returns it to `draft`.
+	//
+	// POST /v1/purchase-orders/{id}/changes/{change_id}:cancel
+	CancelPurchaseOrderChange(ctx context.Context, params CancelPurchaseOrderChangeParams) (CancelPurchaseOrderChangeRes, error)
 	// CancelRequisition implements cancelRequisition operation.
 	//
 	// Cancels a requisition that is not yet ordered; a pending approval request is cancelled with it.
@@ -229,6 +236,17 @@ type Handler interface {
 	//
 	// POST /v1/purchase-orders
 	CreatePurchaseOrder(ctx context.Context, req *PurchaseOrderCreate, params CreatePurchaseOrderParams) (CreatePurchaseOrderRes, error)
+	// CreatePurchaseOrderChange implements createPurchaseOrderChange operation.
+	//
+	// Drafts an order change of a released order: its payment terms, order date, extensions and complete
+	// items as they are to read, checked as an order's are (the supplier, currency, contract and
+	// requisition do not change). An item keeps its account, unit, material and contract item, is never
+	// below what was received (allowing its over-delivery tolerance) and, with receipts, is never removed
+	// (422 `procurement.invalid_change`). Nothing changes until the change is submitted (T47f). Requires
+	// status `released` and no other open change (409 `procurement.change_open`).
+	//
+	// POST /v1/purchase-orders/{id}/changes
+	CreatePurchaseOrderChange(ctx context.Context, req *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (CreatePurchaseOrderChangeRes, error)
 	// CreateRecommendation implements createRecommendation operation.
 	//
 	// Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -512,6 +530,12 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders/{id}
 	GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error)
+	// GetPurchaseOrderChange implements getPurchaseOrderChange operation.
+	//
+	// Returns one order change.
+	//
+	// GET /v1/purchase-orders/{id}/changes/{change_id}
+	GetPurchaseOrderChange(ctx context.Context, params GetPurchaseOrderChangeParams) (GetPurchaseOrderChangeRes, error)
 	// GetRecommendation implements getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -795,6 +819,13 @@ type Handler interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListPurchaseOrderChanges implements listPurchaseOrderChanges operation.
+	//
+	// The order changes of a released purchase order, newest first: its versions, each with the order as
+	// it was changed. Sortable by: `created_at`.
+	//
+	// GET /v1/purchase-orders/{id}/changes
+	ListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (ListPurchaseOrderChangesRes, error)
 	// ListPurchaseOrders implements listPurchaseOrders operation.
 	//
 	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
@@ -1218,6 +1249,14 @@ type Handler interface {
 	//
 	// PATCH /v1/purchase-orders/{id}
 	UpdatePurchaseOrder(ctx context.Context, req *PurchaseOrderUpdate, params UpdatePurchaseOrderParams) (UpdatePurchaseOrderRes, error)
+	// UpdatePurchaseOrderChange implements updatePurchaseOrderChange operation.
+	//
+	// Changes an order change in status `draft` (409 `procurement.invalid_status` otherwise). JSON Merge
+	// Patch (RFC 7396): absent fields are unchanged, `items` replaces the items as a whole. The change is
+	// checked again as a new one is.
+	//
+	// PATCH /v1/purchase-orders/{id}/changes/{change_id}
+	UpdatePurchaseOrderChange(ctx context.Context, req *PurchaseOrderChangeUpdate, params UpdatePurchaseOrderChangeParams) (UpdatePurchaseOrderChangeRes, error)
 	// UpdateRequisition implements updateRequisition operation.
 	//
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
