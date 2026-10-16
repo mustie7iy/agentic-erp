@@ -15059,6 +15059,18 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PurchaseOrderID.Set {
+			e.FieldStart("purchase_order_id")
+			s.PurchaseOrderID.Encode(e)
+		}
+	}
+	{
+		if s.PoItemNo.Set {
+			e.FieldStart("po_item_no")
+			s.PoItemNo.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -15066,16 +15078,18 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLine = [9]string{
-	0: "line_no",
-	1: "account_id",
-	2: "amount",
-	3: "amount_lc",
-	4: "amount_gc",
-	5: "partner_id",
-	6: "tax_code",
-	7: "quantity",
-	8: "line_text",
+var jsonFieldsNameOfJournalLine = [11]string{
+	0:  "line_no",
+	1:  "account_id",
+	2:  "amount",
+	3:  "amount_lc",
+	4:  "amount_gc",
+	5:  "partner_id",
+	6:  "tax_code",
+	7:  "quantity",
+	8:  "purchase_order_id",
+	9:  "po_item_no",
+	10: "line_text",
 }
 
 // Decode decodes JournalLine from json.
@@ -15170,6 +15184,26 @@ func (s *JournalLine) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quantity\"")
+			}
+		case "purchase_order_id":
+			if err := func() error {
+				s.PurchaseOrderID.Reset()
+				if err := s.PurchaseOrderID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"purchase_order_id\"")
+			}
+		case "po_item_no":
+			if err := func() error {
+				s.PoItemNo.Reset()
+				if err := s.PoItemNo.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"po_item_no\"")
 			}
 		case "line_text":
 			if err := func() error {

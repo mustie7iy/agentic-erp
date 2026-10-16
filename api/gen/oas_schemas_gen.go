@@ -11540,6 +11540,11 @@ type JournalLine struct {
 	TaxCode OptString `json:"tax_code"`
 	// Quantity, where relevant.
 	Quantity OptQuantity `json:"quantity"`
+	// Purchase order whose item the line belongs to: set on GR/IR lines, which goods receipts and invoices
+	// post with the quantity they move.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// Item of the purchase order, set with `purchase_order_id`.
+	PoItemNo OptInt32 `json:"po_item_no"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -11582,6 +11587,16 @@ func (s *JournalLine) GetTaxCode() OptString {
 // GetQuantity returns the value of Quantity.
 func (s *JournalLine) GetQuantity() OptQuantity {
 	return s.Quantity
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *JournalLine) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *JournalLine) GetPoItemNo() OptInt32 {
+	return s.PoItemNo
 }
 
 // GetLineText returns the value of LineText.
@@ -11627,6 +11642,16 @@ func (s *JournalLine) SetTaxCode(val OptString) {
 // SetQuantity sets the value of Quantity.
 func (s *JournalLine) SetQuantity(val OptQuantity) {
 	s.Quantity = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *JournalLine) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *JournalLine) SetPoItemNo(val OptInt32) {
+	s.PoItemNo = val
 }
 
 // SetLineText sets the value of LineText.

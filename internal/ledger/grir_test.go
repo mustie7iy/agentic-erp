@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -168,4 +170,60 @@ func TestGRIRStartsUnposted(t *testing.T) {
 			t.Errorf("findings: got %q, want none", got)
 		}
 	})
+}
+
+// insertWithOrderItem writes, as a migration run would have, an entry whose
+// first line names an order item: Dr expense 4 EA of item 10, Cr bank.
+func (e env) insertWithOrderItem(t *testing.T, order uuid.UUID) uuid.UUID {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	ctx := context.Background()
+	if err := pgx.BeginFunc(ctx, pgtest.Admin(t), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+			document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+			SELECT $1, 2026, $2, $3, l.id, 3, 'SA', 'MIG1', '2026-03-10', '2026-03-10', 'EUR', 'EUR', 'EUR', 1, 1, 'integration', $4
+			FROM ledger.ledger l WHERE l.tenant_id = $1 AND l.is_leading`, e.ten.ID, id, e.de, e.ten.Human.ID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+			posting_date, account_id, amount_tc, amount_lc, amount_gc, quantity, uom_code, purchase_order_id, po_item_no)
+			SELECT $1, 2026, $2, n, $3, e.ledger_id, 3, '2026-03-10', a, amt, amt, amt, q, u, o, i
+			FROM ledger.journal_entry e, (VALUES (1, $4::uuid, 1000::bigint, 4::numeric, 'EA', $6::uuid, 10), (2, $5::uuid, -1000, NULL, NULL, NULL, NULL))
+				AS x(n, a, amt, q, u, o, i) WHERE e.id = $2`,
+			e.ten.ID, id, e.de, e.account(t, "2000", "520000"), e.account(t, "2000", "100000"), order)
+		return err
+	}); err != nil {
+		t.Fatalf("insert an entry with an order item: %v", err)
+	}
+	return id
+}
+
+// TestOrderItemsOnLines: a line's order item is part of the entry as the
+// API and its JournalEntryPosted show it, and a reversal's line names the
+// item of the line it reverses, with the quantity negated.
+func TestOrderItemsOnLines(t *testing.T) {
+	e := setup(t)
+	order := uuid.Must(uuid.NewV7())
+	id := e.insertWithOrderItem(t, order)
+	got, tag := e.Must(200, "GET", "/v1/journal-entries/"+id.String(), "", "")
+	first := got["lines"].([]any)[0].(map[string]any)
+	if first["purchase_order_id"] != order.String() || first["po_item_no"] != float64(10) {
+		t.Errorf("line 1: got order %v item %v, want %s item 10", first["purchase_order_id"], first["po_item_no"], order)
+	}
+	if second := got["lines"].([]any)[1].(map[string]any); second["purchase_order_id"] != nil || second["po_item_no"] != nil {
+		t.Errorf("line 2: got order %v item %v, want none", second["purchase_order_id"], second["po_item_no"])
+	}
+	rev, _ := e.Must(200, "POST", "/v1/journal-entries/"+id.String()+":reverse", "", tag)
+	reversed := rev["lines"].([]any)[0].(map[string]any)
+	if reversed["purchase_order_id"] != order.String() || reversed["po_item_no"] != float64(10) {
+		t.Errorf("reversal line 1: got order %v item %v, want %s item 10", reversed["purchase_order_id"], reversed["po_item_no"], order)
+	}
+	if q := reversed["quantity"].(map[string]any); q["value"] != "-4" {
+		t.Errorf("reversal line 1 quantity: got %v, want -4", q["value"])
+	}
+	posted := events(t, e.ten, "journal_entry_posted")
+	line := posted[len(posted)-1]["lines"].([]any)[0].(map[string]any)
+	if line["purchase_order_id"] != order.String() || line["po_item_no"] != float64(10) {
+		t.Errorf("JournalEntryPosted line 1: got order %v item %v, want %s item 10", line["purchase_order_id"], line["po_item_no"], order)
+	}
 }

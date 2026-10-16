@@ -81,6 +81,10 @@ type Line struct {
 	Quantity  *string     `json:"quantity"`
 	Unit      *string     `json:"unit"`
 	Text      *string     `json:"text"`
+	// The purchase order item a GR/IR line belongs to (T33), with the
+	// quantity it moves.
+	PurchaseOrderID *uuid.UUID `json:"purchase_order_id"`
+	POItemNo        *int32     `json:"po_item_no"`
 }
 
 const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
@@ -89,7 +93,7 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year,
 		e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
 		(SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount_tc, 'lc', l.amount_lc,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
-			'unit', l.uom_code, 'text', l.line_text) ORDER BY l.line_no)
+			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no) ORDER BY l.line_no)
 		 FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
 	FROM ledger.journal_entry e
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
@@ -224,18 +228,21 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 	nos, accounts, partners := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n)
 	tcs, lcs, gcs := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
+	orders, items := make([]*uuid.UUID, n), make([]*int32, n)
 	for i, l := range d.lines {
 		nos[i], accounts[i], partners[i] = int32(i+1), l.AccountID, l.PartnerID
 		tcs[i], lcs[i], gcs[i] = l.TC, l.LC, l.GC
 		taxes[i], quantities[i], units[i], texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
+		orders[i], items[i] = l.PurchaseOrderID, l.POItemNo
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
-			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text)
-		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t
-		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[])
-			AS x(n, a, tc, lc, gc, pa, tx, q, u, t)`,
+			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text,
+			purchase_order_id, po_item_no)
+		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i
+		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[],
+			$18::uuid[], $19::int[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i)`,
 		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.postingDate, nos, accounts, tcs, lcs, gcs, partners,
-		taxes, quantities, units, texts); err != nil {
+		taxes, quantities, units, texts, orders, items); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", id, err)
 	}
 	posted, err := getEntry(ctx, tx, id)
@@ -261,6 +268,9 @@ func postedEvent(e Entry) outbox.Event {
 			"amount_gc": money.EventAmount(l.GC, e.CurrencyGC, e.ExpGC)}
 		if l.Quantity != nil {
 			line["quantity"] = map[string]any{"value": *l.Quantity, "unit": *l.Unit}
+		}
+		if l.PurchaseOrderID != nil {
+			line["purchase_order_id"], line["po_item_no"] = *l.PurchaseOrderID, *l.POItemNo
 		}
 		lines[i] = line
 	}
@@ -823,12 +833,12 @@ func requireOwnEntry(orig Entry) error {
 }
 
 // reversalLines are the entry's lines with every amount and quantity
-// negated.
+// negated, each on the order item of the line it reverses.
 func reversalLines(orig Entry) []Line {
 	lines := make([]Line, len(orig.Lines))
 	for i, l := range orig.Lines {
 		lines[i] = Line{AccountID: l.AccountID, TC: -l.TC, LC: -l.LC, GC: -l.GC, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
-			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text}
+			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo}
 	}
 	return lines
 }

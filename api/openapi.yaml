@@ -12798,6 +12798,17 @@ components:
           $ref: "#/components/schemas/Quantity"
           description: Quantity, where relevant.
           readOnly: true
+        purchase_order_id:
+          type: string
+          format: uuid
+          description: "Purchase order whose item the line belongs to: set on GR/IR lines, which goods receipts and invoices post with the quantity they move."
+          readOnly: true
+        po_item_no:
+          type: integer
+          format: int32
+          description: Item of the purchase order, set with `purchase_order_id`.
+          minimum: 1
+          readOnly: true
         line_text:
           type: string
           description: Line text.
