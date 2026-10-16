@@ -69,7 +69,7 @@ type Suppliers interface {
 // Orders creates purchase orders and goods receipts (procurement).
 type Orders interface {
 	CreateOrder(ctx context.Context, in procurement.NewOrder) (procurement.PurchaseOrder, error)
-	ReleaseOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (procurement.PurchaseOrder, error)
+	ReleaseLoadedOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (procurement.PurchaseOrder, error)
 	PostReceipt(ctx context.Context, in procurement.ReceiptInput) (procurement.GoodsReceipt, error)
 }
 

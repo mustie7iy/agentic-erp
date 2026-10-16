@@ -10433,6 +10433,12 @@ type GoodsReceipt struct {
 	Reference OptString `json:"reference"`
 	// Receipt this one reverses (102 only).
 	ReversalOfID OptUUID `json:"reversal_of_id"`
+	// Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a
+	// receipt, the other way for a reversal. Only for items of orders valued `gr_ir`; absent when it has
+	// none.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// Fiscal year of the journal entry, set with `journal_entry_id`.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 	// Items.
 	Items []GoodsReceiptItem `json:"items"`
 }
@@ -10490,6 +10496,16 @@ func (s *GoodsReceipt) GetReference() OptString {
 // GetReversalOfID returns the value of ReversalOfID.
 func (s *GoodsReceipt) GetReversalOfID() OptUUID {
 	return s.ReversalOfID
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *GoodsReceipt) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *GoodsReceipt) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
 }
 
 // GetItems returns the value of Items.
@@ -10550,6 +10566,16 @@ func (s *GoodsReceipt) SetReference(val OptString) {
 // SetReversalOfID sets the value of ReversalOfID.
 func (s *GoodsReceipt) SetReversalOfID(val OptUUID) {
 	s.ReversalOfID = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *GoodsReceipt) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *GoodsReceipt) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
 }
 
 // SetItems sets the value of Items.
@@ -18282,6 +18308,12 @@ type PurchaseOrder struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
+	// How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post
+	// the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr
+	// GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a
+	// GR/IR account (account determination `gr_ir`) at release. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Valuation OptString `json:"valuation"`
 	// Items.
 	Items []PurchaseOrderItem `json:"items"`
 	// Derived total of the items.
@@ -18370,6 +18402,11 @@ func (s *PurchaseOrder) GetContractID() OptUUID {
 // GetStatus returns the value of Status.
 func (s *PurchaseOrder) GetStatus() string {
 	return s.Status
+}
+
+// GetValuation returns the value of Valuation.
+func (s *PurchaseOrder) GetValuation() OptString {
+	return s.Valuation
 }
 
 // GetItems returns the value of Items.
@@ -18470,6 +18507,11 @@ func (s *PurchaseOrder) SetContractID(val OptUUID) {
 // SetStatus sets the value of Status.
 func (s *PurchaseOrder) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetValuation sets the value of Valuation.
+func (s *PurchaseOrder) SetValuation(val OptString) {
+	s.Valuation = val
 }
 
 // SetItems sets the value of Items.

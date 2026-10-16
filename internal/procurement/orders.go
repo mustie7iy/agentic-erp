@@ -89,9 +89,10 @@ func (e *Endpoints) CreateOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	return e.createOrder(ctx, in)
 }
 
-// ReleaseOrder releases a draft purchase order.
-func (e *Endpoints) ReleaseOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (PurchaseOrder, error) {
-	return e.releaseOrder(ctx, id, ifMatch)
+// ReleaseLoadedOrder releases a draft purchase order a migration run
+// loaded.
+func (e *Endpoints) ReleaseLoadedOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (PurchaseOrder, error) {
+	return e.releaseOrder(ctx, id, ifMatch, true)
 }
 
 // PostReceipt posts a goods receipt, as POST /v1/goods-receipts does.

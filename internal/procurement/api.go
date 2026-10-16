@@ -92,6 +92,7 @@ func orderToAPI(o PurchaseOrder) gen.PurchaseOrder {
 		UpdatedBy: gen.NewOptUUID(o.UpdatedBy), DocumentNumber: o.DocumentNumber, LegalEntityID: o.LegalEntityID,
 		PurchasingOrgID: apitypes.OptUUID(o.PurchasingOrgID), SupplierID: o.SupplierID, Currency: o.Currency, OrderDate: o.OrderDate,
 		PaymentTermCode: o.PaymentTermCode, RequisitionID: apitypes.OptUUID(o.RequisitionID), ContractID: apitypes.OptUUID(o.ContractID), Status: o.Status,
+		Valuation:   gen.NewOptString(o.Valuation),
 		TotalAmount: apitypes.Money(o.Total(), o.Currency, o.Exponent), Extensions: apitypes.EncodeObject(o.Extensions), Items: make([]gen.PurchaseOrderItem, len(o.Items))}
 	for i, it := range o.Items {
 		out.Items[i] = gen.PurchaseOrderItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
@@ -475,7 +476,7 @@ func (e *Endpoints) UpdatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 
 // ReleasePurchaseOrder implements POST /v1/purchase-orders/{id}:release.
 func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.ReleasePurchaseOrderParams) (gen.ReleasePurchaseOrderRes, error) {
-	o, err := e.releaseOrder(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	o, err := e.releaseOrder(ctx, params.ID, etag.IfMatch(params.IfMatch), false)
 	if err != nil {
 		return nil, err
 	}

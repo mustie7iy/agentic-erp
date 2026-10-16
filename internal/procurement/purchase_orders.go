@@ -35,6 +35,7 @@ type PurchaseOrder struct {
 	RequisitionID   *uuid.UUID
 	ContractID      *uuid.UUID
 	Status          string
+	Valuation       string // ValuationDirect or ValuationGRIR, fixed at release
 	Extensions      map[string]any
 	Items           []Item
 	Version         int32
@@ -48,7 +49,7 @@ type PurchaseOrder struct {
 func (o PurchaseOrder) Total() money.Minor { return total(o.Items) }
 
 const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purchasing_org_id, o.supplier_id, o.currency, c.exponent, o.order_date,
-		o.payment_term_code, o.requisition_id, o.contract_id, o.status, o.extensions, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by,
+		o.payment_term_code, o.requisition_id, o.contract_id, o.status, o.valuation, o.extensions, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'over_delivery_pct', trim_scale(i.over_delivery_pct)::text, 'tax_code', i.tax_code,
@@ -61,7 +62,7 @@ const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purcha
 func scanOrder(row pgx.Row) (PurchaseOrder, error) {
 	var o PurchaseOrder
 	if err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.PurchasingOrgID, &o.SupplierID, &o.Currency, &o.Exponent, &o.OrderDate,
-		&o.PaymentTermCode, &o.RequisitionID, &o.ContractID, &o.Status, &o.Extensions, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt,
+		&o.PaymentTermCode, &o.RequisitionID, &o.ContractID, &o.Status, &o.Valuation, &o.Extensions, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt,
 		&o.UpdatedBy, &o.Items); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("scan purchase order: %w", err)
 	}
@@ -513,8 +514,10 @@ func orderEvent(o PurchaseOrder, extra map[string]any) map[string]any {
 
 // releaseOrder releases a draft order to the supplier. The supplier must
 // still be usable, and a contract must still be usable and cover the order
-// value, which the release consumes.
-func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (PurchaseOrder, error) {
+// value, which the release consumes. The order is valued through GR/IR when
+// its legal entity has a GR/IR account (T33), unless a migration run loaded
+// it: its accounting comes from the loaded journal.
+func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, loaded bool) (PurchaseOrder, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return PurchaseOrder{}, err
@@ -555,23 +558,48 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 			}
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'released', version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
+	valuation, err := e.valuation(ctx, o.LegalEntityID, loaded)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'released', valuation = $3, version = version + 1, updated_by = $2 WHERE id = $1`,
+		id, p.ID, valuation); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: release purchase order %s: %w", id, err)
 	}
 	released, err := getOrder(ctx, tx, id, false)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	return released, audit.Record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", id, map[string]any{"value": value},
+		event("purchase_order_released", "purchase_order", id, orderEvent(o, map[string]any{"purchasing_org_id": o.PurchasingOrgID,
+			"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
+			"contract_id": o.ContractID, "valuation": valuation, "total_amount": money.EventAmount(value, o.Currency, o.Exponent),
+			"items": releasedItems(o)})))
+}
+
+// valuation is how an order released now is valued: through GR/IR when
+// the legal entity has a GR/IR account, directly when it has none or a
+// migration run loaded the order.
+func (e *Endpoints) valuation(ctx context.Context, le uuid.UUID, loaded bool) (string, error) {
+	if loaded {
+		return ValuationDirect, nil
+	}
+	_, grir, err := e.Accounts.Determination(ctx, le, "gr_ir")
+	if err != nil || !grir {
+		return ValuationDirect, err
+	}
+	return ValuationGRIR, nil
+}
+
+// releasedItems are an order's items as PurchaseOrderReleased publishes them.
+func releasedItems(o PurchaseOrder) []map[string]any {
 	items := make([]map[string]any, len(o.Items))
 	for i, it := range o.Items {
 		items[i] = map[string]any{"item_no": it.No, "quantity": map[string]string{"value": it.Quantity, "unit": it.Unit},
 			"unit_price": money.EventAmount(it.UnitPrice, o.Currency, o.Exponent), "price_unit": it.PriceUnit, "account_id": it.AccountID,
 			"tax_code": it.TaxCode, "contract_item_no": it.ContractItemNo}
 	}
-	return released, audit.Record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", id, map[string]any{"value": value},
-		event("purchase_order_released", "purchase_order", id, orderEvent(o, map[string]any{"purchasing_org_id": o.PurchasingOrgID,
-			"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
-			"contract_id": o.ContractID, "total_amount": money.EventAmount(value, o.Currency, o.Exponent), "items": items})))
+	return items
 }
 
 // closeOrder closes a released order: no further receipts or invoices are

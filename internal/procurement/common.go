@@ -32,6 +32,13 @@ const (
 	Expired         = "expired"
 )
 
+// Valuations of a purchase order (T33): how its receipts and invoices are
+// booked, fixed when it is released.
+const (
+	ValuationDirect = "direct" // invoices post the order item's account; receipts do not post
+	ValuationGRIR   = "gr_ir"  // receipts post Dr the item's account / Cr GR/IR, invoices clear GR/IR
+)
+
 func init() {
 	problem.RegisterConstraint("purchase_order_one_per_requisition", func() *problem.Problem {
 		return problem.Conflict("procurement.requisition_ordered", "The requisition already has a live purchase order.")

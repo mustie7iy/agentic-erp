@@ -14175,6 +14175,13 @@ components:
                 - closed
                 - cancelled
               readOnly: true
+            valuation:
+              type: string
+              description: "How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a GR/IR account (account determination `gr_ir`) at release. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - direct
+                - gr_ir
+              readOnly: true
             items:
               type: array
               items:
@@ -14748,6 +14755,18 @@ components:
               type: string
               format: uuid
               description: Receipt this one reverses (102 only).
+              readOnly: true
+            journal_entry_id:
+              type: string
+              format: uuid
+              description: "Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a receipt, the other way for a reversal. Only for items of orders valued `gr_ir`; absent when it has none."
+              readOnly: true
+            journal_entry_year:
+              type: integer
+              format: int32
+              description: Fiscal year of the journal entry, set with `journal_entry_id`.
+              minimum: 1900
+              maximum: 2999
               readOnly: true
             items:
               type: array

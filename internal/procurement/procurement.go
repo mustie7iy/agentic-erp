@@ -32,8 +32,10 @@ type Suppliers interface {
 	PaymentTermExists(ctx context.Context, code string) (bool, error)
 }
 
-// Accounts is what procurement asks the ledger about accounts and tax codes.
+// Accounts is what procurement asks the ledger about accounts, the account
+// determination and tax codes.
 type Accounts interface {
+	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
 }

@@ -13168,6 +13168,18 @@ func (s *GoodsReceipt) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.JournalEntryID.Set {
+			e.FieldStart("journal_entry_id")
+			s.JournalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryYear.Set {
+			e.FieldStart("journal_entry_year")
+			s.JournalEntryYear.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -13177,7 +13189,7 @@ func (s *GoodsReceipt) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfGoodsReceipt = [12]string{
+var jsonFieldsNameOfGoodsReceipt = [14]string{
 	0:  "id",
 	1:  "created_at",
 	2:  "created_by",
@@ -13189,7 +13201,9 @@ var jsonFieldsNameOfGoodsReceipt = [12]string{
 	8:  "posting_date",
 	9:  "reference",
 	10: "reversal_of_id",
-	11: "items",
+	11: "journal_entry_id",
+	12: "journal_entry_year",
+	13: "items",
 }
 
 // Decode decodes GoodsReceipt from json.
@@ -13327,8 +13341,28 @@ func (s *GoodsReceipt) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reversal_of_id\"")
 			}
+		case "journal_entry_id":
+			if err := func() error {
+				s.JournalEntryID.Reset()
+				if err := s.JournalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "journal_entry_year":
+			if err := func() error {
+				s.JournalEntryYear.Reset()
+				if err := s.JournalEntryYear.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_year\"")
+			}
 		case "items":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				s.Items = make([]GoodsReceiptItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -13356,7 +13390,7 @@ func (s *GoodsReceipt) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11011111,
-		0b00001001,
+		0b00100001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -24424,6 +24458,12 @@ func (s *PurchaseOrder) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.Valuation.Set {
+			e.FieldStart("valuation")
+			s.Valuation.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -24447,7 +24487,7 @@ func (s *PurchaseOrder) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPurchaseOrder = [20]string{
+var jsonFieldsNameOfPurchaseOrder = [21]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -24464,10 +24504,11 @@ var jsonFieldsNameOfPurchaseOrder = [20]string{
 	13: "requisition_id",
 	14: "contract_id",
 	15: "status",
-	16: "items",
-	17: "total_amount",
-	18: "extensions",
-	19: "expanded",
+	16: "valuation",
+	17: "items",
+	18: "total_amount",
+	19: "extensions",
+	20: "expanded",
 }
 
 // Decode decodes PurchaseOrder from json.
@@ -24663,8 +24704,18 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "valuation":
+			if err := func() error {
+				s.Valuation.Reset()
+				if err := s.Valuation.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valuation\"")
+			}
 		case "items":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				s.Items = make([]PurchaseOrderItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -24682,7 +24733,7 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "total_amount":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				if err := s.TotalAmount.Decode(d); err != nil {
 					return err
@@ -24692,7 +24743,7 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"total_amount\"")
 			}
 		case "extensions":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -24723,7 +24774,7 @@ func (s *PurchaseOrder) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b10011110,
-		0b00000111,
+		0b00001110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
