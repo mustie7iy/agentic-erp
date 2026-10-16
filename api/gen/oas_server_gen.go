@@ -896,10 +896,11 @@ type Handler interface {
 	// Journal entries are insert-only; an entry that should wait, for a person to post it or for approval,
 	// is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal
 	// entity's currency at the average rate of its posting date, exceed the company's
-	// `manual_entry_approval_limit` is 409 `ledger.approval_required`: park it and post it with `:post`,
-	// which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account
-	// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
-	// Human-only: agents propose entries by parking them.
+	// `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
+	// closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
+	// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
+	// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only:
+	// agents propose entries by parking them.
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)

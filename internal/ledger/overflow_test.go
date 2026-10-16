@@ -30,12 +30,12 @@ func TestPostingTotalOutOfRange(t *testing.T) {
 	// context's posting. Posted by hand they are refused: a manual entry is
 	// measured by its debits, which here add up to more than can be posted
 	// (T35f).
-	const max = money.Minor(1<<63 - 1)
+	const largestMinor = money.Minor(1<<63 - 1)
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		_, err := postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-15"),
 			PostingDate: date("2026-03-15"), Currency: "EUR", SourceContext: "integration", SourceDocumentID: uuid.New(), Lines: []ledger.PostingLine{
-				{AccountID: uuid.MustParse(bank), Amount: max}, {AccountID: uuid.MustParse(revenue), Amount: max},
-				{AccountID: uuid.MustParse(bank), Amount: -max}, {AccountID: uuid.MustParse(revenue), Amount: -max}}})
+				{AccountID: uuid.MustParse(bank), Amount: largestMinor}, {AccountID: uuid.MustParse(revenue), Amount: largestMinor},
+				{AccountID: uuid.MustParse(bank), Amount: -largestMinor}, {AccountID: uuid.MustParse(revenue), Amount: -largestMinor}}})
 		return err
 	}); err != nil {
 		t.Errorf("terms netting to zero: got %v, want them posted", err)

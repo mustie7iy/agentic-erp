@@ -661,7 +661,7 @@ func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (Entry, error) 
 
 // postEntry validates and posts an entry; check, when set, may refuse it
 // once it is converted, before anything is written.
-func (e *Endpoints) postEntry(ctx context.Context, in NewEntry, check func(context.Context, prepared, NewEntry) error) (Entry, error) {
+func (e *Endpoints) postEntry(ctx context.Context, in NewEntry, check func(context.Context, pgx.Tx, prepared, NewEntry) error) (Entry, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Entry{}, err
@@ -677,7 +677,7 @@ func (e *Endpoints) postEntry(ctx context.Context, in NewEntry, check func(conte
 // converted at the average rates valid on the posting date, and rounding
 // differences go to the largest line.
 func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared, in NewEntry,
-	check func(context.Context, prepared, NewEntry) error) (Entry, error) {
+	check func(context.Context, pgx.Tx, prepared, NewEntry) error) (Entry, error) {
 	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, v.le.LocalCurrency, v.group, in.PostingDate)
 	if err != nil {
 		return Entry{}, err
@@ -686,7 +686,7 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		return Entry{}, err
 	}
 	if check != nil {
-		if err := check(ctx, v, in); err != nil {
+		if err := check(ctx, tx, v, in); err != nil {
 			return Entry{}, err
 		}
 	}

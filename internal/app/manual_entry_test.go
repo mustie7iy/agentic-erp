@@ -28,10 +28,7 @@ func newManualEntries(t *testing.T) manualEntries {
 // and returns its path.
 func (m manualEntries) park(t *testing.T, c apitest.Client, date, currency, amount string) string {
 	t.Helper()
-	body := fmt.Sprintf(`{"legal_entity_id": %q, "document_date": %q, "posting_date": %q, "currency": %q, "lines": [
-		{"account_id": %q, "amount": {"amount": %q, "currency": %q}}, {"account_id": %q, "amount": {"amount": "-%s", "currency": %q}}]}`,
-		m.DE, date, date, currency, m.bank, amount, currency, m.revenue, amount, currency)
-	pe, _ := c.Must(201, "POST", "/v1/parked-journal-entries", body, "")
+	pe, _ := c.Must(201, "POST", "/v1/parked-journal-entries", m.body(date, currency, amount), "")
 	return "/v1/parked-journal-entries/" + pe["id"].(string)
 }
 
@@ -180,11 +177,17 @@ func TestApproverWithoutTheCompany(t *testing.T) {
 	expect(t, "entry approved by an approver outside the company", got, map[string]any{"status": "posted"})
 }
 
-// direct is a journal entry body of legal entity 2000 for posting at once.
-func (m manualEntries) direct(currency, amount string) string {
-	return fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-15", "posting_date": "2026-03-15", "currency": %q, "lines": [
+// body is a two-line entry of legal entity 2000 of amount in currency,
+// dated date.
+func (m manualEntries) body(date, currency, amount string) string {
+	return fmt.Sprintf(`{"legal_entity_id": %q, "document_date": %q, "posting_date": %q, "currency": %q, "lines": [
 		{"account_id": %q, "amount": {"amount": %q, "currency": %q}}, {"account_id": %q, "amount": {"amount": "-%s", "currency": %q}}]}`,
-		m.DE, currency, m.bank, amount, currency, m.revenue, amount, currency)
+		m.DE, date, date, currency, m.bank, amount, currency, m.revenue, amount, currency)
+}
+
+// direct is a journal entry body for posting at once.
+func (m manualEntries) direct(currency, amount string) string {
+	return m.body("2026-03-15", currency, amount)
 }
 
 // TestManualEntriesExitCriterion is T35's (07 §7.6): people post manual
@@ -249,4 +252,15 @@ func atoi(t *testing.T, v any) int {
 		t.Fatalf("number %v: %v", v, err)
 	}
 	return n
+}
+
+// TestDirectPostingInAClosedPeriod: a period that is not open refuses a
+// direct posting before its amount is measured, so the person is not sent
+// to ask for an approval that could not post it.
+func TestDirectPostingInAClosedPeriod(t *testing.T) {
+	m := newManualEntries(t)
+	page, _ := m.Must(200, "GET", fmt.Sprintf("/v1/fiscal-periods?legal_entity_id=%s&fiscal_year=2026&order_by=period&page_size=3", m.DE), "", "")
+	period := page["items"].([]any)[2].(map[string]any)
+	m.Must(200, "POST", "/v1/fiscal-periods/"+period["id"].(string)+":close", "", fmt.Sprintf(`"%v"`, period["version"]))
+	m.Problem(409, "ledger.period_not_open", "POST", "/v1/journal-entries", m.direct("EUR", "20000.00"), "")
 }

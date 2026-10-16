@@ -200,7 +200,12 @@ func (e *Endpoints) postableEntity(ctx context.Context, id uuid.UUID) (tenancy.E
 // its company's manual_entry_approval_limit: it is parked and posted with
 // :post, which asks for someone else's approval. The policy is the one
 // :post asks (approvals.ManualEntry), so the two never disagree.
-func (e *Endpoints) withinLimit(ctx context.Context, v prepared, in NewEntry) error {
+func (e *Endpoints) withinLimit(ctx context.Context, tx pgx.Tx, v prepared, in NewEntry) error {
+	// A period that is not open refuses the posting first: an approval could
+	// not post it either. post reads the period again, FOR SHARE as here.
+	if _, _, err := postingPeriod(ctx, tx, v.le, v.ledger, in.PostingDate); err != nil {
+		return err
+	}
 	debits, err := debitTotal(v.lines)
 	if err != nil {
 		return err

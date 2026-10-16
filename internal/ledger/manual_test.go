@@ -176,10 +176,18 @@ func TestDirectPostingAsksThePolicy(t *testing.T) {
 	if got := problem.From(err).Code; got != "ledger.approval_required" {
 		t.Errorf("direct posting above the limit: got %v, want ledger.approval_required", err)
 	}
-	if *asked.Amount != 1250 {
-		t.Errorf("measured debits: got %d, want 1250", *asked.Amount)
+	if asked.Amount == nil {
+		t.Fatal("the policy was not asked")
 	}
-	if asked.Company != "2000" {
-		t.Errorf("measured against company: got %s, want 2000", asked.Company)
+	for field, c := range map[string][2]any{
+		"object type": {asked.ObjectType, approvals.ManualEntry},
+		"debits":      {*asked.Amount, money.Minor(1250)},
+		"currency":    {*asked.Currency, "EUR"},
+		"company":     {asked.Company, "2000"},
+		"date":        {asked.Date.Format(time.DateOnly), "2026-03-15"},
+	} {
+		if c[0] != c[1] {
+			t.Errorf("measured %s: got %v, want %v", field, c[0], c[1])
+		}
 	}
 }
