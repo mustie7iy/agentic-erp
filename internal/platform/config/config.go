@@ -541,25 +541,35 @@ func (l *loader) server(c *Config) {
 	if c.MigrateOnStart, err = strconv.ParseBool(get("ERP_MIGRATE_ON_START", "false")); err != nil {
 		l.errs = append(l.errs, errors.New("ERP_MIGRATE_ON_START must be true or false"))
 	}
-	if err := c.LogLevel.UnmarshalText([]byte(get("ERP_LOG_LEVEL", "info"))); err != nil {
-		l.errs = append(l.errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
-	}
+	l.logLevel(c)
 	if c.ShutdownTimeout, err = time.ParseDuration(get("ERP_SHUTDOWN_TIMEOUT", "20s")); err != nil || c.ShutdownTimeout <= 0 {
 		l.errs = append(l.errs, errors.New("ERP_SHUTDOWN_TIMEOUT must be a positive duration such as 20s"))
 	}
 	if c.RequestTimeout, err = time.ParseDuration(get("ERP_REQUEST_TIMEOUT", "30s")); err != nil || c.RequestTimeout <= 0 {
 		l.errs = append(l.errs, errors.New("ERP_REQUEST_TIMEOUT must be a positive duration such as 30s"))
 	}
-	if n, err := strconv.Atoi(get("ERP_DB_MAX_CONNS", "0")); err != nil || n < 0 || n > 10_000 {
-		l.errs = append(l.errs, errors.New("ERP_DB_MAX_CONNS must be a whole number of connections (0: the driver's default)"))
-	} else {
-		c.DBMaxConns = int32(n) // #nosec G109 -- a pool size, checked to be a small whole number
-	}
+	l.dbMaxConns(c)
 	if c.TenantQuota, err = ratelimit.ParseQuota(get("ERP_RATE_LIMIT_TENANT", "2000/10000")); err != nil {
 		l.errs = append(l.errs, fmt.Errorf("ERP_RATE_LIMIT_TENANT: %w", err))
 	}
 	if c.PrincipalQuota, err = ratelimit.ParseQuota(get("ERP_RATE_LIMIT_PRINCIPAL", "50/100")); err != nil {
 		l.errs = append(l.errs, fmt.Errorf("ERP_RATE_LIMIT_PRINCIPAL: %w", err))
+	}
+}
+
+// logLevel reads ERP_LOG_LEVEL.
+func (l *loader) logLevel(c *Config) {
+	if err := c.LogLevel.UnmarshalText([]byte(l.get("ERP_LOG_LEVEL", "info"))); err != nil {
+		l.errs = append(l.errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
+	}
+}
+
+// dbMaxConns reads ERP_DB_MAX_CONNS.
+func (l *loader) dbMaxConns(c *Config) {
+	if n, err := strconv.Atoi(l.get("ERP_DB_MAX_CONNS", "0")); err != nil || n < 0 || n > 10_000 {
+		l.errs = append(l.errs, errors.New("ERP_DB_MAX_CONNS must be a whole number of connections (0: the driver's default)"))
+	} else {
+		c.DBMaxConns = int32(n) // #nosec G109 -- a pool size, checked to be a small whole number
 	}
 }
 
