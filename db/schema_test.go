@@ -1739,3 +1739,139 @@ func TestGRIRAccountIsFixed(t *testing.T) {
 		})
 	}
 }
+
+// --- Identity providers (ADR-0031) -------------------------------------------
+
+// registerProvider inserts an identity provider of f's tenant.
+func registerProvider(f fixture, provider uuid.UUID, issuer, audience string) func(pgx.Tx) error {
+	return func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $5)`, f.tenant, provider, issuer, audience, f.actor)
+	}
+}
+
+// changeProvider updates provider p of f's tenant.
+func changeProvider(f fixture, p uuid.UUID, set string) func(pgx.Tx) error {
+	return func(tx pgx.Tx) error {
+		return exec(tx, "UPDATE identity.identity_provider SET "+set+", version = version + 1 WHERE tenant_id = $1 AND id = $2", f.tenant, p)
+	}
+}
+
+// TestIdentityProviders: an active issuer and audience decide one tenant,
+// so the pair is unique across tenants; a registration's issuer and
+// audience never change, and a retired one stays retired, freeing the
+// pair (ADR-0031).
+func TestIdentityProviders(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	p := id()
+	mustApp(t, a.tenant, registerProvider(a, p, "https://idp.example.com/a", "erp"))
+
+	t.Run("an active pair belongs to one tenant", func(t *testing.T) {
+		failsWith(t, asApp(t, b.tenant, registerProvider(b, id(), "https://idp.example.com/a", "erp")), "identity_provider_issuer_audience")
+	})
+	t.Run("another audience is another registration", func(t *testing.T) {
+		if err := asApp(t, b.tenant, registerProvider(b, id(), "https://idp.example.com/a", "erp-b")); err != nil {
+			t.Errorf("same issuer, another audience: got %v, want registered", err)
+		}
+	})
+	t.Run("an issuer is an http or https URL", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, registerProvider(a, id(), "ftp://idp.example.com", "erp")), "identity_provider_issuer_check")
+	})
+	t.Run("an audience is not empty", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, registerProvider(a, id(), "https://idp.example.com/e", "")), "identity_provider_audience_check")
+	})
+	t.Run("issuer and audience never change", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "issuer = 'https://other.example.com'")), "issuer and audience cannot change")
+		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "audience = 'other'")), "issuer and audience cannot change")
+	})
+	t.Run("retired_at goes with retired", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "status = 'retired'")), "identity_provider_retired_at")
+	})
+	t.Run("a retired registration frees its pair and stays retired", func(t *testing.T) {
+		mustApp(t, a.tenant, changeProvider(a, p, "status = 'retired', retired_at = now()"))
+		if err := asApp(t, b.tenant, registerProvider(b, id(), "https://idp.example.com/a", "erp")); err != nil {
+			t.Errorf("the retired pair registered by another tenant: got %v, want registered", err)
+		}
+		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "acr_values = '{x}'")), "is retired")
+	})
+}
+
+// TestAuthPolicy: a tenant's session lifetime and idle timeout stay within
+// their bounds, and the idle timeout never exceeds the lifetime.
+func TestAuthPolicy(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO identity.auth_policy (tenant_id) VALUES ($1)", f.tenant)
+	})
+	var mfa bool
+	var age, idle time.Duration
+	if err := testDB.QueryRow(context.Background(), `SELECT mfa_required, extract(epoch FROM session_max_age)::bigint * 1000000000,
+		extract(epoch FROM idle_timeout)::bigint * 1000000000 FROM identity.auth_policy WHERE tenant_id = $1`, f.tenant).Scan(&mfa, &age, &idle); err != nil {
+		t.Fatal(err)
+	}
+	if mfa {
+		t.Errorf("default mfa_required: got %v, want false", mfa)
+	}
+	if age != 12*time.Hour {
+		t.Errorf("default session_max_age: got %v, want 12h", age)
+	}
+	if idle != 30*time.Minute {
+		t.Errorf("default idle_timeout: got %v, want 30m", idle)
+	}
+	for _, c := range []struct{ name, set, fails string }{
+		{"lifetime too short", "session_max_age = '14 minutes', idle_timeout = '5 minutes'", "auth_policy_session_max_age_check"},
+		{"lifetime too long", "session_max_age = '25 hours'", "auth_policy_session_max_age_check"},
+		{"idle too short", "idle_timeout = '4 minutes'", "auth_policy_idle_timeout_check"},
+		{"idle too long", "session_max_age = '24 hours', idle_timeout = '9 hours'", "auth_policy_idle_timeout_check"},
+		{"idle beyond the lifetime", "session_max_age = '1 hour', idle_timeout = '2 hours'", "auth_policy_idle_within_age"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE identity.auth_policy SET "+c.set+", version = version + 1 WHERE tenant_id = $1", f.tenant)
+			}), c.fails)
+		})
+	}
+}
+
+// TestControlRoleReadsTheRegistry: the cell resolves a token's tenant
+// before it knows the tenant, as the control role across tenants; it reads
+// what decides the tenant and the policy, not who changed them.
+func TestControlRoleReadsTheRegistry(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	mustApp(t, f.tenant, registerProvider(f, id(), "https://idp.example.com/control", "erp"))
+	asControl := func(sql string) error {
+		ctx := context.Background()
+		tx, err := testDB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, "SET LOCAL ROLE erp_control"); err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(ctx, sql)
+		return err
+	}
+	for _, c := range []struct{ name, sql, fails string }{
+		{"providers", "SELECT tenant_id, id, issuer, audience, tenant_claim, acr_values, amr_values, status FROM identity.identity_provider", ""},
+		{"policies", "SELECT tenant_id, mfa_required, session_max_age, idle_timeout FROM identity.auth_policy", ""},
+		{"principals", "SELECT tenant_id, id, kind, external_issuer, external_subject, display_name, status, version FROM identity.principal", ""},
+		{"who registered", "SELECT created_by FROM identity.identity_provider", "permission denied"},
+		{"who changed the policy", "SELECT updated_by FROM identity.auth_policy", "permission denied"},
+		{"principals' email", "SELECT email FROM identity.principal", "permission denied"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asControl(c.sql)
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("read: got %v, want success", err)
+				}
+				return
+			}
+			failsWith(t, err, c.fails)
+		})
+	}
+}
