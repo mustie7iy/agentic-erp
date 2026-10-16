@@ -232,6 +232,25 @@ func Load(getenv func(string) string) (Config, error) {
 	return c, errors.Join(l.errs...)
 }
 
+// LoadSchema reads what preparing the schema needs and nothing else: the
+// database (DATABASE_URL, which may be a secret reference), ERP_ENV,
+// ERP_LOG_LEVEL and ERP_DB_MAX_CONNS. erp-server migrate runs with it as a
+// Helm hook Job (ADR-0035), before the release's other resources exist and
+// without the keys, issuers and stores a server needs.
+func LoadSchema(getenv func(string) string) (Config, error) {
+	l := newLoader(getenv)
+	c := Config{Vault: l.vault, Secrets: l.resolver, DatabaseURL: l.getenv("DATABASE_URL"), Environment: l.getenv("ERP_ENV")}
+	if c.DatabaseURL == "" {
+		l.errs = append(l.errs, errors.New("DATABASE_URL is required"))
+	}
+	if err := CheckEnvironment(c.Environment); err != nil {
+		l.errs = append(l.errs, err)
+	}
+	l.logLevel(&c)
+	l.dbMaxConns(&c)
+	return c, errors.Join(l.errs...)
+}
+
 // loader carries what every step of Load shares: the raw environment, the
 // environment with secret references resolved, and the problems found so
 // far, which Load reports together so that one start shows them all.

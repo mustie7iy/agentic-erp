@@ -158,7 +158,12 @@ lifetimes.
 Temporal) and an `erp-global` chart (the router); non-root, read-only root
 file system, network policies, disruption budgets. Migrations run once per
 release and cell: a `pre-install,pre-upgrade` hook Job runs
-`erp-server migrate`, the runner's lock serializing anything concurrent;
+`erp-server migrate`, the runner's lock serializing anything concurrent.
+The Job reads only the database, `ERP_ENV`, the log level and the pool
+size, so it holds no key, issuer or store and can run before the
+release's other resources exist; its `DATABASE_URL` is the database's
+writer itself, not PgBouncer, whose transaction pooling would break the
+runner's session lock and its statements outside a transaction;
 the server's pods keep `ERP_MIGRATE_ON_START=false` and become ready only on
 the schema they were built for. Kyverno admits only images signed with the
 release key, requiring a `cosign/sign/v1` signature (cosign alone takes an

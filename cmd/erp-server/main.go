@@ -75,6 +75,9 @@ func main() {
 // exit code: 2 for bad configuration or usage, 1 for a failure while
 // running, 0 after a clean shutdown or a completed command.
 func cli(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer, started func(api, admin net.Listener)) int {
+	if len(args) > 0 && args[0] == "migrate" {
+		return migrateCmd(ctx, args[1:], getenv, stderr)
+	}
 	cfg, err := config.Load(getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "erp-server: configuration:", err)
@@ -91,8 +94,6 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return importCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "register-provider":
 			return registerProviderCmd(ctx, args[1:], cfg, stdout, stderr)
-		case "migrate":
-			return migrateCmd(ctx, args[1:], cfg, log, stderr)
 		}
 		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server migrate applies the pending migrations)\n", args[0])
 		return 2
