@@ -1990,7 +1990,9 @@ func TestSupplierInvoiceKinds(t *testing.T) {
 		{"subsequent credit without an order", "subsequent_credit", nil, &invoice, 50, "supplier_invoice_subsequent_on_order"},
 		{"unknown kind", "debit_memo", nil, nil, 50, "supplier_invoice_kind_check"},
 		{"unknown reference", "credit_memo", nil, &order, 50, "supplier_invoice_reference_fkey"},
-		{"negative amount", "credit_memo", nil, nil, -300, "supplier_invoice_amounts_positive"},
+		{"negative amount", "credit_memo", nil, nil, -300, "supplier_invoice_amounts_not_negative"},
+		{"zero amount", "credit_memo", nil, nil, 0, ""},
+		{"invoice naming an invoice", "invoice", nil, &invoice, 300, "supplier_invoice_reference_corrects"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, ins := f.invoiceOf(c.kind, c.order, c.reference, c.gross)
@@ -2005,9 +2007,21 @@ func TestSupplierInvoiceKinds(t *testing.T) {
 		})
 	}
 	t.Run("its own reference", func(t *testing.T) {
+		memo, ins := f.invoiceOf("credit_memo", nil, nil, 100)
+		mustApp(t, f.tenant, ins)
 		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
-			return exec(tx, "UPDATE payables.supplier_invoice SET reference_invoice_id = id, version = version + 1 WHERE id = $1", invoice)
+			return exec(tx, "UPDATE payables.supplier_invoice SET reference_invoice_id = id, version = version + 1 WHERE id = $1", memo)
 		}), "supplier_invoice_not_its_own_reference")
+	})
+	t.Run("negative tax", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice SET tax_amount = -1, version = version + 1 WHERE id = $1", invoice)
+		}), "supplier_invoice_amounts_not_negative")
+	})
+	t.Run("kind set to itself", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice SET kind = kind, version = version + 1 WHERE id = $1", invoice)
+		})
 	})
 	t.Run("kind changed", func(t *testing.T) {
 		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
@@ -2017,40 +2031,51 @@ func TestSupplierInvoiceKinds(t *testing.T) {
 }
 
 // TestSupplierInvoiceItemQuantities: a subsequent debit or credit moves no
-// quantity, so its items have quantity 0; every other kind's items have a
-// positive quantity.
+// quantity, so its items are order items with quantity 0; every other
+// kind's items have a positive quantity; a removed item no longer counts,
+// and writing it back counts again.
 func TestSupplierInvoiceItemQuantities(t *testing.T) {
 	need(t)
 	f := newFixture(t)
 	order := id()
-	invoice, ins := f.invoiceOf("invoice", nil, nil, 1000)
-	mustApp(t, f.tenant, ins)
-	debit, ins := f.invoiceOf("subsequent_debit", &order, nil, 50)
-	mustApp(t, f.tenant, ins)
-	item := func(v uuid.UUID, no int, qty string) func(tx pgx.Tx) error {
+	documents := map[string]uuid.UUID{}
+	for _, kind := range []string{"invoice", "credit_memo", "subsequent_debit", "subsequent_credit"} {
+		v, ins := f.invoiceOf(kind, &order, nil, 50)
+		mustApp(t, f.tenant, ins)
+		documents[kind] = v
+	}
+	item := func(v uuid.UUID, qty string, onOrder, removed bool) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {
+			var o *uuid.UUID
+			var po *int
+			if onOrder {
+				ten := 10
+				o, po = &order, &ten
+			}
 			return exec(tx, `INSERT INTO payables.supplier_invoice_item (tenant_id, supplier_invoice_id, item_no, purchase_order_id, po_item_no, quantity, uom_code,
-				amount, account_id) VALUES ($1,$2,$3,$4,10,$5::numeric,'EA',50,$6)`, f.tenant, v, no, order, qty, f.expense)
+				amount, account_id, is_removed) SELECT $1, $2, coalesce(max(item_no), 0) + 1, $3, $4, $5::numeric, 'EA', 50, $6, $7
+				FROM payables.supplier_invoice_item WHERE supplier_invoice_id = $2`, f.tenant, v, o, po, qty, f.expense, removed)
 		}
 	}
 	for _, c := range []struct {
-		name    string
-		invoice uuid.UUID
-		qty     string
-		fails   string
+		name, kind, qty string
+		onOrder         bool
+		removed         bool
+		fails           string
 	}{
-		{"invoice item with a quantity", invoice, "2", ""},
-		{"invoice item without one", invoice, "0", "supplier_invoice_item_quantity_kind"},
-		{"subsequent debit item without a quantity", debit, "0", ""},
-		{"subsequent debit item with one", debit, "2", "supplier_invoice_item_quantity_kind"},
-		{"negative quantity", invoice, "-1", "supplier_invoice_item_quantity_check"},
+		{"invoice item with a quantity", "invoice", "2", true, false, ""},
+		{"invoice item without one", "invoice", "0", true, false, "supplier_invoice_item_quantity_kind"},
+		{"removed invoice item without one", "invoice", "0", true, true, ""},
+		{"credit memo item without a quantity", "credit_memo", "0", true, false, "supplier_invoice_item_quantity_kind"},
+		{"subsequent debit item without a quantity", "subsequent_debit", "0", true, false, ""},
+		{"subsequent debit item with one", "subsequent_debit", "2", true, false, "supplier_invoice_item_quantity_kind"},
+		{"subsequent debit item on an account", "subsequent_debit", "0", false, false, "supplier_invoice_item_quantity_kind"},
+		{"subsequent credit item without a quantity", "subsequent_credit", "0", true, false, ""},
+		{"subsequent credit item with one", "subsequent_credit", "2", true, false, "supplier_invoice_item_quantity_kind"},
+		{"negative quantity", "invoice", "-1", true, false, "supplier_invoice_item_quantity_check"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			var n int
-			if err := testDB.QueryRow(context.Background(), "SELECT count(*) + 1 FROM payables.supplier_invoice_item WHERE supplier_invoice_id = $1", c.invoice).Scan(&n); err != nil {
-				t.Fatal(err)
-			}
-			err := asApp(t, f.tenant, item(c.invoice, n, c.qty))
+			err := asApp(t, f.tenant, item(documents[c.kind], c.qty, c.onOrder, c.removed))
 			if c.fails == "" {
 				if err != nil {
 					t.Fatalf("insert: got %v, want success", err)
@@ -2060,4 +2085,17 @@ func TestSupplierInvoiceItemQuantities(t *testing.T) {
 			failsOn(t, err, c.fails)
 		})
 	}
+	update := func(set string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice_item SET "+set+" WHERE supplier_invoice_id = $1 AND item_no = 1", documents["invoice"])
+		})
+	}
+	t.Run("invoice item updated to no quantity", func(t *testing.T) {
+		failsOn(t, update("quantity = 0"), "supplier_invoice_item_quantity_kind")
+	})
+	t.Run("removed item written back", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice_item SET is_removed = false WHERE supplier_invoice_id = $1 AND item_no = 2", documents["invoice"])
+		}), "supplier_invoice_item_quantity_kind")
+	})
 }

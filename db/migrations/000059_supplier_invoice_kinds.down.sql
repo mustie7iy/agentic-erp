@@ -5,6 +5,6 @@ ALTER TABLE payables.supplier_invoice_item ADD CONSTRAINT supplier_invoice_item_
 DROP TRIGGER supplier_invoice_kind_fixed ON payables.supplier_invoice;
 DROP FUNCTION payables.check_kind_fixed();
 DROP INDEX payables.supplier_invoice_by_reference;
-ALTER TABLE payables.supplier_invoice DROP CONSTRAINT supplier_invoice_amounts_positive,
-  DROP CONSTRAINT supplier_invoice_subsequent_on_order, DROP CONSTRAINT supplier_invoice_not_its_own_reference,
+ALTER TABLE payables.supplier_invoice DROP CONSTRAINT supplier_invoice_amounts_not_negative,
+  DROP CONSTRAINT supplier_invoice_subsequent_on_order, DROP CONSTRAINT supplier_invoice_reference_corrects, DROP CONSTRAINT supplier_invoice_not_its_own_reference,
   DROP CONSTRAINT supplier_invoice_reference_fkey, DROP COLUMN reference_invoice_id, DROP COLUMN kind;

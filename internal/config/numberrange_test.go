@@ -10,7 +10,7 @@ import (
 func TestNumberRanges(t *testing.T) {
 	c := fixture(t)
 	good := NumberRange{Company: "1000", DocumentType: "supplier_invoice", FiscalYear: 2026, Prefix: "SI-", First: 1, Last: 999999, Gapless: true}
-	// Supplier invoices post credit memos as KG entries, which need their range.
+	// Supplier invoices post credit memos as KG entries, whose range would be warned about.
 	kg := NumberRange{Company: "1000", DocumentType: "journal_kg", FiscalYear: 2026, First: 1, Last: 999999}
 	c.NumberRanges = []NumberRange{good, kg}
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {

@@ -65,6 +65,9 @@ func init() {
 	problem.RegisterConstraint("supplier_invoice_no_duplicates", func() *problem.Problem {
 		return problem.Conflict("payables.duplicate_invoice", "This supplier reference is already entered for the supplier.")
 	})
+	problem.RegisterConstraint("supplier_invoice_amounts_not_negative", func() *problem.Problem {
+		return problem.Unprocessable("payables.negative_amount", "Gross and tax amounts are not negative; a credit memo is entered as one (kind credit_memo).")
+	})
 	problem.RegisterConstraint("supplier_invoice_capture_once", func() *problem.Problem {
 		return problem.Conflict("payables.already_captured", "This document has already been captured.")
 	})
@@ -333,6 +336,9 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if c.tax, err = v.parse(in.Tax, "tax_amount"); err != nil {
 		return checked{}, err
 	}
+	if err := notNegative(c.gross, c.tax); err != nil {
+		return checked{}, err
+	}
 	if c.purchaseOrder != nil {
 		if _, err := v.order(*c.purchaseOrder, "purchase_order_id"); err != nil {
 			return checked{}, err
@@ -370,6 +376,21 @@ func (e *Endpoints) invoiceParties(ctx context.Context, in Input) (tenancy.Entit
 		return tenancy.Entity{}, partner.Supplier{}, invalid("payables.supplier_not_usable", "supplier_id", "The supplier cannot be invoiced: "+why+".")
 	}
 	return le, sup, nil
+}
+
+// notNegative refuses a negative gross or tax amount: the amounts are not
+// negative whatever the kind, which gives the direction (T34).
+func notNegative(gross, tax money.Minor) error {
+	for _, a := range []struct {
+		field  string
+		amount money.Minor
+	}{{"gross_amount", gross}, {"tax_amount", tax}} {
+		if field := a.field; a.amount < 0 {
+			return problem.Unprocessable("payables.negative_amount", "Gross and tax amounts are not negative; a credit memo is entered as one (kind credit_memo).",
+				problem.FieldError{Field: field + ".amount", Code: "negative", Message: "an amount of 0 or more"})
+		}
+	}
+	return nil
 }
 
 // currencyExponent reads the minor-unit digits of the invoice currency.

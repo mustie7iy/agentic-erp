@@ -814,17 +814,21 @@ A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
 transactions are: `invoice`, `credit_memo`, `subsequent_debit` or
 `subsequent_credit`, fixed once entered (trigger
 `payables.check_kind_fixed`, constraint `supplier_invoice_kind_fixed`). Its
-amounts are positive whatever the kind (`supplier_invoice_amounts_positive`);
-the kind gives the direction when it posts (credit memos and subsequent
-credits as journal type KG, number range `journal_kg`, which configuration
-requires wherever a company numbers supplier invoices). A credit memo or
-subsequent debit/credit may name the invoice it corrects
-(`reference_invoice_id`, never itself:
-`supplier_invoice_not_its_own_reference`). A subsequent debit or credit
-revalues order items without quantity: it is on a purchase order
-(`supplier_invoice_subsequent_on_order`) and its items have quantity 0,
-every other kind's a positive one (trigger `payables.check_item_quantity`,
-constraint `supplier_invoice_item_quantity_kind`).
+gross and tax amounts are not negative whatever the kind
+(`supplier_invoice_amounts_not_negative`, 422 `payables.negative_amount` on
+entry); the kind gives the direction when it posts (credit memos and
+subsequent credits as journal type KG, number range `journal_kg`, which
+configuration asks for wherever a company numbers supplier invoices: a
+warning until KG entries post, T34c, as tenants' configurations predate
+it). A credit memo or subsequent debit/credit may name the invoice it
+corrects, an invoice none (`supplier_invoice_reference_corrects`), never
+itself (`supplier_invoice_not_its_own_reference`). A subsequent debit or
+credit revalues order items without quantity: it is on a purchase order
+(`supplier_invoice_subsequent_on_order`) and its items are order items of
+quantity 0, every other kind's items have a positive quantity; a removed
+item no longer counts (trigger `payables.check_item_quantity`, constraint
+`supplier_invoice_item_quantity_kind`). The checks on existing rows were
+added `NOT VALID` (migration 000059) and are validated by a later one.
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database

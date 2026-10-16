@@ -260,14 +260,19 @@ type journalRule struct {
 	documentType, journal string
 	applies               func(co *Company) bool
 	why                   string // what the documents post, for the message
+	// warn reports a missing range as a warning: a rule tenants' active
+	// configurations predate, which must not block their next change before
+	// anything posts with the range.
+	warn bool
 }
 
 // journalRules are the journal ranges document ranges need.
 var journalRules = []journalRule{
 	// Receipts on orders valued through GR/IR post WE entries (T33).
-	{"goods_receipt", "journal_we", func(co *Company) bool { return co.AccountDetermination.GRIR != "" }, "WE entries to GR/IR"},
-	// Credit memos and subsequent credits post KG entries (T34).
-	{"supplier_invoice", "journal_kg", func(*Company) bool { return true }, "credit memos as KG entries"},
+	{"goods_receipt", "journal_we", func(co *Company) bool { return co.AccountDetermination.GRIR != "" }, "WE entries to GR/IR", false},
+	// Credit memos and subsequent credits post KG entries (T34): a warning
+	// until they post (T34c), as existing configurations have no range.
+	{"supplier_invoice", "journal_kg", func(*Company) bool { return true }, "credit memos as KG entries", true},
 }
 
 // journalRanges requires the journal ranges each document range needs
@@ -284,10 +289,15 @@ func (v *validator) journalRanges(c *Config) {
 				continue
 			}
 			need := NumberRange{Company: n.Company, DocumentType: r.journal, FiscalYear: n.FiscalYear}
-			if !have[need.Key()] {
-				v.err("number_ranges["+need.Key()+"]", "%s of company %s post %s in fiscal year %d; add a %s range",
-					strings.ReplaceAll(r.documentType, "_", " ")+"s", n.Company, r.why, n.FiscalYear, r.journal)
+			if have[need.Key()] {
+				continue
 			}
+			report := v.err
+			if r.warn {
+				report = v.warn
+			}
+			report("number_ranges["+need.Key()+"]", "%s of company %s post %s in fiscal year %d; add a %s range",
+				strings.ReplaceAll(r.documentType, "_", " ")+"s", n.Company, r.why, n.FiscalYear, r.journal)
 		}
 	}
 }
