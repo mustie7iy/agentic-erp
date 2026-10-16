@@ -56,9 +56,12 @@ split_commits = false
 protect_breaking_commits = false
 tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
 sort_commits = "oldest"
-# The tracker item a subject names: "(T32a)", "(T30-T47)" or "(F7 follow-up, T31)".
+# The tracker item the subject (the first line, not the body) names at its
+# end: "(T32a)", "(T30-T47)", "(F7 follow-up, T31)" or "(T32a, T32b)" (the
+# first), also before a squash merge's "(#12)"; T steps and R refactoring
+# items. Items are listed in the order git-cliff groups them, as text.
 link_parsers = [
-  { pattern = "(?m)^[^\n]*\\((?:[^)]*, )?(T[0-9]+[a-z]?)(?:[-,][^)]*)?\\)$", text = "$1", href = "docs/design/07-transition.md" },
+  { pattern = "^[^\n]*?\\((?:[^)\n]*?, )??([TR][0-9]+[a-z]?)(?:[-,][^)\n]*)?\\)(?: \\(#[0-9]+\\))?(?:\n|$)", text = "$1", href = "docs/design/07-transition.md" },
 ]
 commit_parsers = [
   { message = "^Merge ", skip = true },

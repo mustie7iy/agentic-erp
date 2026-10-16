@@ -84,6 +84,42 @@ mkdir -p "$r/api" && printf '# only a comment\n' >"$r/api/breaking-accepted.txt"
 git -C "$r" add api/breaking-accepted.txt && git -C "$r" commit -q -m "Fix: note (T5)"
 expect "a comment in the accepted breaks is no break" "$r" v1.4.3
 
+r="$(repo addremove v1.4.2)"
+commit "$r" "Fix: the shape (T5)" api/breaking-accepted.txt
+git -C "$r" rm -q api/breaking-accepted.txt && git -C "$r" commit -q -m "Fix: main carries it now (T5)"
+expect "a break added and removed in one release is still a major" "$r" v2.0.0
+
+r="$(repo oldtest v0.6.0)"
+commit "$r" "Test: an older prefix (T6)"
+expect "the older Test: prefix is a patch" "$r" v0.6.1
+
+r="$(repo prerelease v0.6.0)"
+commit "$r" "Fix: something (T6)"
+git -C "$r" tag v0.7.0-rc.1
+commit "$r" "Fix: something else (T6)"
+expect "a pre-release tag is passed over" "$r" v0.6.1
+
+r="$(repo merges v0.6.0)"
+git -C "$r" switch -q -c side && commit "$r" "Fix: on a branch (T6)" && git -C "$r" switch -q main
+git -C "$r" merge -q --no-ff -m "Merge branch side" side
+expect "a merged branch counts by its commits" "$r" v0.6.1
+
+r="$(repo named v0.6.0)"
+commit "$r" "Fix: something (T6)"
+expect_named() {
+  local got
+  got="$(cd "$r" && "$next" --after "$2" 2>&1)" || got="error: $got"
+  if [ "$got" != "$3" ]; then
+    echo "FAIL $1: got $got, want $3" >&2
+    failed=1
+  else
+    echo "ok   $1: $got"
+  fi
+}
+expect_named "a named version after the last release" v0.8.0 v0.8.0
+expect_named "a named version not after the last release" v0.6.0 "error: next-version: v0.6.0 is not after the last release v0.6.0"
+expect_named "a named version that is not vX.Y.Z" 0.8 "error: next-version: 0.8 is not vX.Y.Z"
+
 r="$(repo override v1.4.2)"
 commit "$r" "Fix: something (T6)"
 ERP_RELEASE_BUMP=major expect "ERP_RELEASE_BUMP overrides" "$r" v2.0.0
@@ -100,13 +136,18 @@ if [ -n "${GIT_CLIFF:-}" ]; then
   commit "$r" "Tests: cover the lock (T32a)"
   commit "$r" "Plan: the next steps (T40)"
   commit "$r" "Something without an item"
+  git -C "$r" commit -q --allow-empty -m "A body names no item" -m "It was discussed under (T9)"
+  commit "$r" "Two items at once (T40a, T40b)"
+  commit "$r" "Squashed with its pull request (T41) (#12)"
+  commit "$r" "Refactor: a refactoring item (R70)"
   commit "$r" "Release: changelog for v0.1.0"
   notes="$(cd "$r" && $GIT_CLIFF --config cliff.toml --unreleased --tag v0.2.0 --strip header 2>/dev/null)"
+  notes_failed=0
   check() {
-    if printf '%s\n' "$notes" | grep -qF -- "$2"; then
-      [ "$1" = has ] || { echo "FAIL changelog: has \"$2\"" >&2; failed=1; }
+    if grep -qF -- "$2" <<<"$notes"; then
+      [ "$1" = has ] || { echo "FAIL changelog: has \"$2\"" >&2; notes_failed=1; }
     else
-      [ "$1" = lacks ] || { echo "FAIL changelog: lacks \"$2\"" >&2; failed=1; }
+      [ "$1" = lacks ] || { echo "FAIL changelog: lacks \"$2\"" >&2; notes_failed=1; }
     fi
   }
   check has "## v0.2.0"
@@ -123,7 +164,16 @@ if [ -n "${GIT_CLIFF:-}" ]; then
   check lacks "cover the lock"
   check lacks "the next steps"
   check lacks "changelog for"
-  [ "$failed" -ne 0 ] || echo "ok   changelog: grouped by kind and tracker item, tests and plans left out"
+  check lacks "#### T9"
+  check has "#### T40a"
+  check lacks "#### T40b"
+  check has "#### T41"
+  check has "#### R70"
+  if [ "$notes_failed" -eq 0 ]; then
+    echo "ok   changelog: grouped by kind and tracker item, tests and plans left out"
+  else
+    failed=1
+  fi
 
   # changelog.sh writes the notes and creates CHANGELOG.md, then adds the
   # next release's entry on top of it.

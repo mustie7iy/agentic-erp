@@ -80,8 +80,9 @@ another commit, a tag, a missing signature, attestations without a
 signature and provenance from uncommitted changes are refused.
 
 **Versions and changelog.** Semantic `vX.Y.Z` tags on `main`, `0.y.z` until
-the pilot and `1.0.0` at its go-live. Major: an accepted contract break
-(`api/breaking-accepted.txt` grew since the last tag), from 1.0 on; minor: a
+the pilot and `1.0.0` at its go-live. Major: an accepted contract break (a
+commit since the last tag added or changed an entry of
+`api/breaking-accepted.txt`, even if a later one removed it), from 1.0 on; minor: a
 migration, a contract change or any commit that is not a `Fix:`,
 `Refactor:`, `Tests:` (or the older `Test:`), `CI:`, `Plan:`, `Tracker:`,
 `Process:` or `Release:`; patch otherwise (`scripts/next-version.sh`; the
@@ -94,15 +95,21 @@ prefixes); §6.9 says so rather than Conventional Commits.
 
 **Who releases.** A manual dispatch of `.github/workflows/release.yml` from
 a green `main` commit, approved by a second person through the protected
-`release` environment, which also holds the signing key reference and the
-AWS role the workflow assumes to use it. The workflow builds the images at
-that commit with the version stamped in, scans, pushes, signs and attests
-them, verifies what it pushed, then tags the commit it built and publishes
-the GitHub Release with the generated notes, the image digests and the
-SBOMs. `CHANGELOG.md` gains the release's entry through a pull request
-(`Release: changelog for vX.Y.Z`), since `main` is protected and the tag
-already names the built commit. No release on every merge until T40's
-delivery and rollback exist.
+`release` environment (deployments from `main` only, "Prevent self-review"
+on), which also holds the signing key reference, the AWS role the workflow
+assumes to use it (its trust policy pinned to that environment) and a GitHub
+App for the changelog pull request. The workflow builds the images at that
+commit with the version stamped in and scans them, then pushes the same
+build (reproducible, so the same digests, which it checks) tagged with the
+version only, never a moving tag; signs and attests them, verifies what it
+pushed, then tags the commit it built and publishes the GitHub Release with
+the generated notes, the image digests and the SBOMs. `CHANGELOG.md` gains
+the release's entry through a pull request (`Release: changelog for
+vX.Y.Z`), since `main` is protected and the tag already names the built
+commit; the App opens it because pull requests opened with the workflow's
+own token start no CI. A run that failed after the tag is dispatched again
+with the same version and goes on from the tag. No release on every merge
+until T40's delivery and rollback exist.
 
 The work is split in T39a (this ADR, images, buildinfo, the reproducibility
 gate, the scan), T39b (signing, attestations, `verify-image.sh`) and T39c

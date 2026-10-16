@@ -108,10 +108,11 @@ jobs:
       - name: Install git-cliff
         run: |
           archive="git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          cd "$RUNNER_TEMP" # outside the checkout, as the release workflow does
           curl -sSfLO "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/${archive}"
           echo "${GIT_CLIFF_SHA512}  ${archive}" | sha512sum -c -
           tar xzf "${archive}"
-          echo "GIT_CLIFF=$PWD/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" >> "$GITHUB_ENV"
+          echo "GIT_CLIFF=$RUNNER_TEMP/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" >> "$GITHUB_ENV"
       - name: Version rules and changelog
         run: ./scripts/test-release-scripts.sh
 
