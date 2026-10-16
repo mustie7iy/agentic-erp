@@ -550,13 +550,21 @@ Rules enforced in the database:
   - an item posted in another currency than its position's is refused (422
     `ledger.gr_ir_currency_mismatch`), as is a legal entity without a
     `gr_ir` (422 `ledger.no_gr_ir_account`).
-  `GET /v1/gr-ir-balances` (T33e) lists the positions of a legal entity's
-  order items from these lines: received quantity (the procurement
-  context's lines, negated), invoiced quantity (the others'), balance in
-  the three currencies and last posting date, open ones by default, on a
-  key date with `posting_date_to`; together they are the leading ledger's
-  GR/IR balance from goods receipts and invoices (lines a migration run
-  loaded without an order item are on the account but in no position).
+  Each position is projected into `ledger.gr_ir_position` (migration
+  000054, T33f; RLS, key led by `tenant_id`), one row per legal entity and
+  order item: received quantity (the procurement context's lines, negated),
+  invoiced quantity (the payables context's), balance in the three
+  currencies, last posting date and `is_open`. The ledger adds each posted
+  entry's GR/IR lines to it in the posting's transaction, under the order's
+  GR/IR lock (`project`, after a GR/IR posting or a reversal), and reads
+  positions from it; the migration projected the lines posted before.
+  `GET /v1/gr-ir-balances` (T33e) pages the current positions from it by an
+  index range scan (partial indexes `WHERE is_open` for the default,
+  open-only listing); together they are the leading ledger's GR/IR balance
+  from goods receipts and invoices (lines a migration run loaded without an
+  order item are on the account but in no position). A key date
+  (`posting_date_to`) is a report summed from one order's lines, so it
+  needs `purchase_order_id`.
   A reversal mirrors its entry; where it brings an order item's quantity to
   zero and rounding leaves a balance (the item moved since), it adds a
   GR/IR line of quantity 0 that clears it against `price_difference`, so a

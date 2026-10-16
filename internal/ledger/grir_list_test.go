@@ -3,13 +3,17 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/nfr"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -107,6 +111,8 @@ func TestGRIRBalances(t *testing.T) {
 			t.Errorf("items: got %d, want none", n)
 		}
 	})
+	g.Problem(400, "request.invalid_parameter", "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&posting_date_to=2026-03-09", "", "")
+	g.checkProjected(t)
 	g.Problem(400, "request.invalid_order_by", "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&order_by=balance", "", "")
 }
 
@@ -156,5 +162,70 @@ func TestGRIRBalanceAmounts(t *testing.T) {
 				t.Errorf("received, invoiced, balances: got %s, want %s", got, c.want)
 			}
 		})
+	}
+}
+
+// TestGRIRBalancesBudget checks 01-requirements' list budget (p95 150 ms)
+// on a legal entity's GR/IR history: 20,000 order items received and
+// invoiced (60,000 lines, closed positions) and 50 open ones, listed by
+// order and by last posting date. The history's positions are projected
+// as migration 000054 projects them; a page reads only the open ones.
+func TestGRIRBalancesBudget(t *testing.T) {
+	if testing.Short() || raceDetector {
+		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
+	}
+	g := grirSetup(t)
+	// Item i: a receipt of 2 (entries 3i-2 and 3i-1: 1 each) and an invoice of
+	// 2 (entry 3i); items above 19,950 lack their invoice. One transaction:
+	// an entry is balanced when it commits.
+	keep := `NOT (n % 3 = 0 AND (n + 2) / 3 > 19950)`
+	if err := pgx.BeginFunc(context.Background(), pgtest.Admin(t), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(context.Background(), `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period,
+				document_type, document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+			SELECT $1, 2026, md5('e' || n)::uuid, $2, l.id, 3, 'SA', 'H' || n, '2026-03-02', '2026-03-02', 'EUR', 'EUR', 'EUR', 1, 1,
+				CASE WHEN n % 3 = 0 THEN 'payables' ELSE 'procurement' END, $3
+			FROM generate_series(1, 60000) n, ledger.ledger l WHERE l.tenant_id = $1 AND l.is_leading AND `+keep, g.ten.ID, g.de, g.ten.Human.ID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
+				fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, quantity, uom_code, purchase_order_id, po_item_no)
+			SELECT $1, 2026, md5('e' || n)::uuid, x.no, $2, l.id, 3, '2026-03-02', CASE x.no WHEN 1 THEN $3::uuid ELSE $4::uuid END,
+				x.sign * a.amt, x.sign * a.amt, x.sign * a.amt, CASE x.no WHEN 1 THEN a.amt / 500 END, CASE x.no WHEN 1 THEN 'EA' END,
+				CASE x.no WHEN 1 THEN md5('o' || ((n + 2) / 3))::uuid END, CASE x.no WHEN 1 THEN 1 END
+			FROM generate_series(1, 60000) n
+			CROSS JOIN LATERAL (SELECT CASE WHEN n % 3 = 0 THEN 1000 ELSE -500 END AS amt) a
+			CROSS JOIN (VALUES (1, 1), (2, -1)) AS x(no, sign), ledger.ledger l
+			WHERE l.tenant_id = $1 AND l.is_leading AND `+keep, g.ten.ID, g.de, g.grir, g.expense)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(context.Background(), `INSERT INTO ledger.gr_ir_position (tenant_id, legal_entity_id, purchase_order_id, po_item_no, account_id,
+				currency_tc, currency_lc, currency_gc, uom_code, received, invoiced, amount_tc, amount_lc, amount_gc, last_posting_date)
+			SELECT l.tenant_id, l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id, 'EUR', 'EUR', 'EUR', min(l.uom_code),
+				coalesce(-sum(l.quantity) FILTER (WHERE e.source_context = 'procurement'), 0), coalesce(sum(l.quantity) FILTER (WHERE e.source_context = 'payables'), 0),
+				sum(l.amount_tc), sum(l.amount_lc), sum(l.amount_gc), max(l.posting_date)
+			FROM ledger.journal_line l JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+			WHERE l.tenant_id = $1 AND l.purchase_order_id IS NOT NULL GROUP BY 1, 2, 3, 4, 5`, g.ten.ID)
+		return err
+	}); err != nil {
+		t.Fatalf("insert the history: %v", err)
+	}
+	pgtest.Exec(t, `ANALYZE ledger.journal_entry, ledger.journal_line, ledger.gr_ir_position`)
+	for _, order := range []string{"purchase_order_id", "last_posting_date%20desc"} {
+		var times []time.Duration
+		for range 10 {
+			start := time.Now()
+			page, _ := g.Must(200, "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&order_by="+order, "", "")
+			times = append(times, time.Since(start))
+			if n := len(page["items"].([]any)); n != 50 {
+				t.Fatalf("open positions: got %d, want 50", n)
+			}
+		}
+		slices.Sort(times)
+		p95 := times[len(times)*95/100]
+		t.Logf("GR/IR balances by %s over 20,000 positions: median %v, p95 %v", order, times[len(times)/2], p95)
+		if budget := nfr.Budget(150 * time.Millisecond); p95 > budget {
+			t.Errorf("GR/IR balances by %s: p95 %v exceeds the %v budget (150 ms scaled by ERP_BUDGET_SCALE)", order, p95, budget)
+		}
 	}
 }
