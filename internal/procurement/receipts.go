@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -254,7 +255,7 @@ func movementType(in ReceiptInput) (string, error) {
 	switch mt := cmp.Or(in.MovementType, Receipt); {
 	case mt != Receipt && mt != Return:
 		return "", invalid("procurement.invalid_movement_type", "movement_type", "101 to receive goods or 122 to return them")
-	case mt == Return && in.Reason == nil:
+	case mt == Return && (in.Reason == nil || strings.TrimSpace(*in.Reason) == ""):
 		return "", invalid("procurement.reason_required", "reason", "why the goods go back to the supplier")
 	case mt == Receipt && in.Reason != nil:
 		return "", invalid("procurement.reason_not_allowed", "reason", "a reason only on a return (122)")
@@ -317,6 +318,27 @@ func receivedWithin(oi orderItem, poItem int32, received *big.Rat, mt string) er
 	return nil
 }
 
+// reversedItems are a movement's items negated, checked to leave each
+// order item's received quantity within its bounds. Order status is not
+// checked: a mistaken receipt or return is undone on a closed order too.
+func reversedItems(orig []ReceiptItem, reversal string, current []orderItem) ([]ReceiptItem, error) {
+	left := map[[2]any]*big.Rat{}
+	items := make([]ReceiptItem, len(orig))
+	for i, it := range orig {
+		key := [2]any{it.PurchaseOrderID, it.POItemNo}
+		if left[key] == nil {
+			left[key] = money.ParseRat(current[i].received)
+		}
+		left[key].Sub(left[key], money.ParseRat(it.Quantity))
+		if err := receivedWithin(current[i], it.POItemNo, left[key], reversal); err != nil {
+			return nil, err
+		}
+		it.Quantity = new(big.Rat).Neg(money.ParseRat(it.Quantity)).FloatString(6)
+		items[i] = it
+	}
+	return items, nil
+}
+
 // recordMovement audits a receipt or return and publishes GoodsReceived or
 // GoodsReturned.
 func recordMovement(ctx context.Context, g GoodsReceipt) error {
@@ -362,19 +384,9 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	left := map[[2]any]*big.Rat{}
-	items := make([]ReceiptItem, len(orig.Items))
-	for i, it := range orig.Items {
-		key := [2]any{it.PurchaseOrderID, it.POItemNo}
-		if left[key] == nil {
-			left[key] = money.ParseRat(current[i].received)
-		}
-		left[key].Sub(left[key], money.ParseRat(it.Quantity))
-		if err := receivedWithin(current[i], it.POItemNo, left[key], reversal); err != nil {
-			return GoodsReceipt{}, err
-		}
-		it.Quantity = new(big.Rat).Neg(money.ParseRat(it.Quantity)).FloatString(6)
-		items[i] = it
+	items, err := reversedItems(orig.Items, reversal, current)
+	if err != nil {
+		return GoodsReceipt{}, err
 	}
 	date, err := database.Today(ctx, tx)
 	if err != nil {

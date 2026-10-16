@@ -1,6 +1,7 @@
 package db
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -45,6 +46,9 @@ func TestGoodsReturns(t *testing.T) {
 		{"a return reversing a receipt", "122", true, &reason, "-1", "does not reverse that movement"},
 		{"a 123 reversing a receipt", "123", true, nil, "1", "does not reverse that movement"},
 		{"a 123 reversing nothing", "123", false, nil, "1", "goods_movement_reversal_pair"},
+		{"an empty reason", "122", false, new(""), "-1", "goods_movement_reason_check"},
+		{"a reason of 201 characters", "122", false, new(strings.Repeat("r", 201)), "-1", "goods_movement_reason_check"},
+		{"a 102 taking goods in", "102", true, nil, "1", "moves its quantity the other way"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f, po, receipt := scene(t)
@@ -67,6 +71,7 @@ func TestGoodsReturns(t *testing.T) {
 		f, po, _ := scene(t)
 		var ret, rev uuid.UUID
 		mustApp(t, f.tenant, f.move(&ret, po, "122", nil, &reason, "-4"))
+		failsWith(t, asApp(t, f.tenant, f.move(&rev, po, "123", &ret, nil, "-4")), "moves its quantity the other way")
 		mustApp(t, f.tenant, f.move(&rev, po, "123", &ret, nil, "4"))
 		failsWith(t, asApp(t, f.tenant, f.move(&rev, po, "102", &ret, nil, "-4")), "does not reverse that movement")
 	})

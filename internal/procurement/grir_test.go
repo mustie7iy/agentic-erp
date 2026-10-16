@@ -405,6 +405,7 @@ func TestReturnsToTheSupplier(t *testing.T) {
 		"more than was received":    {"122", "5", `, "reason": "r"`, 409, "procurement.return_exceeds_receipts"},
 		"a reversal asked for":      {"102", "1", "", 422, "procurement.invalid_movement_type"},
 		"a receipt with a reason":   {"101", "1", `, "reason": "r"`, 422, "procurement.reason_not_allowed"},
+		"a blank reason":            {"122", "1", `, "reason": "  "`, 422, "procurement.reason_required"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			code, m := e.movement(t, c.mt, order, c.qty, c.extra)
@@ -442,8 +443,12 @@ func TestReturnsToTheSupplier(t *testing.T) {
 	}
 	// A draft received nothing to return.
 	draft := e.order(t, items(item(e.office, "10", "EA", "2.50", "EUR", "")), "")
-	if code, m := e.ret(t, id(draft), "1", `, "reason": "r"`); code != 409 || m["code"] != "procurement.order_not_released" {
-		t.Errorf("return on a draft: got %d %v, want 409 procurement.order_not_released", code, m["code"])
+	code, m := e.ret(t, id(draft), "1", `, "reason": "r"`)
+	if code != 409 {
+		t.Errorf("return on a draft: got %d, want 409", code)
+	}
+	if m["code"] != "procurement.order_not_released" {
+		t.Errorf("return on a draft: got %v, want procurement.order_not_released", m["code"])
 	}
 }
 

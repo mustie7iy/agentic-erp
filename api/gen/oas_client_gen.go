@@ -1062,8 +1062,9 @@ type Invoker interface {
 	// ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
-	// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. Returns
-	// the reversal.
+	// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A
+	// movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
+	// found. Returns the reversal.
 	//
 	// POST /v1/goods-receipts/{id}:reverse
 	ReverseGoodsReceipt(ctx context.Context, request OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)
@@ -26493,8 +26494,9 @@ func (c *Client) sendRequestBankAccountEnd(ctx context.Context, request *BankAcc
 // ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 //
 // Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
-// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. Returns
-// the reversal.
+// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A
+// movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
+// found. Returns the reversal.
 //
 // POST /v1/goods-receipts/{id}:reverse
 func (c *Client) ReverseGoodsReceipt(ctx context.Context, request OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error) {

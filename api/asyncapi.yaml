@@ -935,7 +935,7 @@ components:
       name: GoodsReceiptReversed
       title: Goods receipt reversed
       summary: A goods receipt was reversed by a movement of type 102, or a return by a 123.
-      description: Emitted by `goods-receipts/{id}:reverse` when the reversing movement (type `102`) is inserted. Quantities are the reversed quantities as stored, i.e. negative. Subject is the id of the original (reversed) goods receipt.
+      description: Emitted by `goods-receipts/{id}:reverse` when the reversing movement is inserted, a `102` reversing a receipt or a `123` reversing a return. Quantities are as stored, the original's negated (negative for a 102, positive for a 123). Subject is the id of the original (reversed) goods movement.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:

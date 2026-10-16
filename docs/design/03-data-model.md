@@ -779,7 +779,10 @@ received (409 `procurement.return_exceeds_receipts`) and a 123 never
 takes it beyond the tolerance. On a `gr_ir` order a return posts Dr GR/IR
 / Cr the order item's account at its valuation price: an item already
 invoiced is left with a debit GR/IR position, which the supplier's credit
-memo clears (T34).
+memo clears (T34); payables takes no invoice on a closed order
+(`order_not_open`), so a closed order's position waits for a GR/IR
+account clearing (SAP MR11), not yet built. Reversals do not check the order's status: a
+mistaken receipt or return is undone on a closed order too.
 
 Each item of a released order carries its `valuation_price` and
 `valuation_price_unit` (migration 000061, T47a): its price when it was
