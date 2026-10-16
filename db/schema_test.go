@@ -2143,3 +2143,54 @@ func TestPaymentTermDiscountTiers(t *testing.T) {
 		})
 	}
 }
+
+// TestTermsFrozenAtPosting: an open item and a posted supplier invoice keep
+// the payment terms they were posted with (T36b), by the rules of
+// partner.payment_term, and the terms never change.
+func TestTermsFrozenAtPosting(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var je uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		je, err = f.entry(tx, 4, "2026-04-02", line{account: f.expense, amount: 500}, line{account: f.ap, amount: -500, partner: &f.supplier})
+		return err
+	})
+	invoice, ins := f.invoiceOf("invoice", nil, nil, 500)
+	mustApp(t, f.tenant, ins)
+	tables := map[string]func(tx pgx.Tx, line int, tiers string) error{
+		"open_item_terms": func(tx pgx.Tx, line int, tiers string) error {
+			return exec(tx, `INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date, net_days,
+				discount_days, discount_pct, discount2_days, discount2_pct) VALUES ($1, 2026, $2, $3, 'ZB01', '2026-04-02', 45, `+tiers+`)`, f.tenant, je, line)
+		},
+		"supplier_invoice_terms": func(tx pgx.Tx, _ int, tiers string) error {
+			return exec(tx, `INSERT INTO payables.supplier_invoice_terms (tenant_id, supplier_invoice_id, payment_term_code, baseline_date, net_days,
+				discount_days, discount_pct, discount2_days, discount2_pct) VALUES ($1, $2, 'ZB01', '2026-04-02', 45, `+tiers+`)`, f.tenant, invoice)
+		},
+	}
+	for table, insert := range tables {
+		for _, c := range []struct {
+			name, tiers, fails string
+		}{
+			{"first tier without its percent", "14, NULL, NULL, NULL", "pairs"},
+			{"first tier at the net days", "45, 3, NULL, NULL", "tiers"},
+			{"second tier without the first", "NULL, NULL, 30, 2", "tiers"},
+			{"second tier not less", "14, 3, 30, 3", "tiers"},
+			{"second tier not later", "14, 3, 14, 2", "tiers"},
+			{"percent 100", "14, 100, NULL, NULL", "discount_pct_check"},
+		} {
+			t.Run(table+": "+c.name, func(t *testing.T) {
+				failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return insert(tx, 2, c.tiers) }), table+"_"+c.fails)
+			})
+		}
+		t.Run(table+": two tiers, then frozen", func(t *testing.T) {
+			mustApp(t, f.tenant, func(tx pgx.Tx) error { return insert(tx, 2, "14, 3, 30, 2") })
+			_, err := testDB.Exec(context.Background(), "UPDATE "+map[string]string{"open_item_terms": "ledger", "supplier_invoice_terms": "payables"}[table]+
+				"."+table+" SET net_days = 60 WHERE tenant_id = $1", f.tenant)
+			failsWith(t, err, "insert-only")
+		})
+	}
+	t.Run("terms of no line", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return tables["open_item_terms"](tx, 9, "NULL, NULL, NULL, NULL") }), "open_item_terms_line_fkey")
+	})
+}
