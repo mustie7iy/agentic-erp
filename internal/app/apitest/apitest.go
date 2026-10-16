@@ -5,7 +5,6 @@
 package apitest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,19 +40,7 @@ type API struct {
 	Handler http.Handler
 	Issuer  *authntest.Issuer
 	Metrics *telemetry.Metrics
-	logs    *syncBuffer
-}
-
-type syncBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.b.Write(p) // a bytes.Buffer write cannot fail
-	return len(p), nil
+	logs    *pgtest.SyncBuffer
 }
 
 // New builds the API; it is skipped without DATABASE_URL.
@@ -76,7 +63,7 @@ func NewWith(tb testing.TB, configure func(*app.Config)) *API {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	a := &API{t: tb, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &syncBuffer{}}
+	a := &API{t: tb, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &pgtest.SyncBuffer{}}
 	cfg := app.Config{
 		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(), UploadKey: []byte(strings.Repeat("u", 32)),
 		Log: telemetry.NewLogger(a.logs, -4), Metrics: a.Metrics,
@@ -129,9 +116,7 @@ func FieldKeys() *fieldcrypt.Keyring {
 
 // Logs returns everything logged so far.
 func (a *API) Logs() string {
-	a.logs.mu.Lock()
-	defer a.logs.mu.Unlock()
-	return a.logs.b.String()
+	return a.logs.String()
 }
 
 // Req is one API call.
