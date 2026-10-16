@@ -546,7 +546,10 @@ Other ledger tables: `ledger` (leading 0L, parallel ledgers), `exchange_rate`
 `valid_from`; insert-only), `account_determination` (which account
 automatic postings use per legal entity and key: `ap_reconciliation`,
 `input_tax`, `bank`, `fx_gain`, `fx_loss`, and for GR/IR clearing (T33)
-`gr_ir` and `price_difference`; the GR/IR account stays once activated),
+`gr_ir` and `price_difference`; the GR/IR account is a liability that no
+tax code posts, starts without postings other than a migration run's, and
+stays once activated (configuration validation, `ledger.Setup.Check`); order
+items that named it before stay as they are, and posting them is refused),
 `tax_code` (rate, account, direction).
 
 ## 3.8 Procurement (`procurement`)

@@ -108,3 +108,64 @@ func checkGRIRStays(t *testing.T, e env, s ledger.Setup, base *config.Config) {
 		})
 	}
 }
+
+// TestGRIRStartsUnposted: an account becomes the GR/IR account only while
+// nothing but a migration run has posted it in the legal entity, so its
+// balance is the order items' positions from the start; the activated
+// account itself passes.
+func TestGRIRStartsUnposted(t *testing.T) {
+	e := setup(t)
+	s := ledger.Setup{LegalEntities: tenancy.Directory{}}
+	base := withGRIR(t)
+	base.Companies[1].AccountDetermination.GRIR, base.Companies[1].AccountDetermination.PriceDifference = "", ""
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error { return s.Apply(ctx, base) }); err != nil {
+		t.Fatal(err)
+	}
+	bank := e.account(t, "2000", "100000")
+	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{e.account(t, "2000", "218000"), "10.00", ""}, line{bank, "-10.00", ""}), "")
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		_, err := postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-01"),
+			PostingDate: date("2026-03-02"), Currency: "EUR", SourceContext: "integration", SourceDocumentID: uuid.New(),
+			Lines: []ledger.PostingLine{{AccountID: uuid.MustParse(e.account(t, "2000", "219000")), Amount: -100}, {AccountID: uuid.MustParse(bank), Amount: 100}}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	check := func(t *testing.T, base *config.Config, grir string) []string {
+		t.Helper()
+		proposed := withGRIR(t)
+		proposed.Companies[1].AccountDetermination.GRIR = grir
+		var got []string
+		if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+			fs, err := s.Check(ctx, base, proposed)
+			for _, f := range fs {
+				got = append(got, f.Path+": "+f.Message)
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	t.Run("posted by a person", func(t *testing.T) {
+		want := "companies[2000].account_determination.gr_ir: account 218000 has postings other than a migration run's; the GR/IR account starts without any"
+		if got := strings.Join(check(t, base, "218000"), "\n"); got != want {
+			t.Errorf("findings: got %q, want %q", got, want)
+		}
+	})
+	t.Run("posted by a migration run only", func(t *testing.T) {
+		if got := check(t, base, "219000"); len(got) != 0 {
+			t.Errorf("findings: got %q, want none", got)
+		}
+	})
+	activated := withGRIR(t)
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error { return s.Apply(ctx, activated) }); err != nil {
+		t.Fatal(err)
+	}
+	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-16", "EUR", line{e.account(t, "2000", "590000"), "10.00", ""}, line{bank, "-10.00", ""}), "")
+	t.Run("the activated account", func(t *testing.T) {
+		if got := check(t, activated, "219000"); len(got) != 0 {
+			t.Errorf("findings: got %q, want none", got)
+		}
+	})
+}

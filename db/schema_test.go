@@ -1593,6 +1593,7 @@ func TestOrderValuation(t *testing.T) {
 			return exec(tx, "UPDATE procurement.purchase_order SET "+set+", version = version + 1 WHERE id = $1", draft)
 		})
 	}
+	// The cases run in order on one order: draft, released, closed.
 	for _, c := range []struct{ name, set, fails string }{
 		// Only the release decides it: a draft is not valued in advance.
 		{"valued on its draft", "valuation = 'gr_ir'", "purchase_order_valuation_fixed"},

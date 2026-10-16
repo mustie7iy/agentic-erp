@@ -277,6 +277,10 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 			_, err := setup.Check(ctx, document(t), document(t))
 			return err
 		},
+		"setup check GR/IR": func(ctx context.Context) error {
+			_, err := setup.Check(ctx, document(t), withGRIR(t))
+			return err
+		},
 		"setup apply": func(ctx context.Context) error { return setup.Apply(ctx, document(t)) },
 		"reconciliation account": func(ctx context.Context) error {
 			_, err := ledger.Accounts{}.IsReconciliationAccount(ctx, e.de, u(ap), "supplier")

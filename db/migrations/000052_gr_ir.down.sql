@@ -11,6 +11,9 @@ DROP INDEX ledger.journal_line_order_item;
 ALTER TABLE ledger.journal_line DROP CONSTRAINT journal_line_order_item_quantity, DROP CONSTRAINT journal_line_order_item_pair,
   DROP COLUMN po_item_no, DROP COLUMN purchase_order_id;
 
+-- Tenant rows: under a role that does not bypass row-level security this
+-- fails rather than delete nothing (06-engineering-process §6.4).
+SET LOCAL row_security = off;
 DELETE FROM ledger.account_determination WHERE key = 'price_difference';
 ALTER TABLE ledger.account_determination DROP CONSTRAINT account_determination_key_check;
 ALTER TABLE ledger.account_determination ADD CONSTRAINT account_determination_key_check

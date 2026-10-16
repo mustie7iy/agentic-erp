@@ -189,9 +189,9 @@ func (g *gen) company(t sap.T001) config.Company {
 		case "BNK":
 			co.AccountDetermination.Bank = sap.Alpha(r.KONTS)
 		case "WRX":
-			co.AccountDetermination.GRIR = sap.Alpha(r.KONTS)
+			co.AccountDetermination.GRIR = g.oneAccount(p+".account_determination.gr_ir", r, co.AccountDetermination.GRIR)
 		case "PRD":
-			co.AccountDetermination.PriceDifference = sap.Alpha(r.KONTS)
+			co.AccountDetermination.PriceDifference = g.oneAccount(p+".account_determination.price_difference", r, co.AccountDetermination.PriceDifference)
 		}
 	}
 	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)
@@ -230,6 +230,20 @@ func (g *gen) chartOfAccounts(p, company string) []config.Account {
 		out = append(out, config.Account{Number: num, Name: a.TXT50, Type: typ, VendorReconciliation: a.MITKZ == "K"})
 	}
 	return out
+}
+
+// oneAccount is the account of the first T030 row of a transaction key:
+// SAP keeps WRX and PRD per valuation modifier and class, the
+// configuration one per company, so rows naming another account are noted.
+func (g *gen) oneAccount(path string, r sap.T030, taken string) string {
+	account := sap.Alpha(r.KONTS)
+	if taken == "" {
+		return account
+	}
+	if account != taken {
+		g.note(path, fmt.Sprintf("T030 %s names accounts %s and %s; %s taken", r.KTOSL, taken, account, taken))
+	}
+	return taken
 }
 
 // apReconciliation is the account most vendors in this company post to.

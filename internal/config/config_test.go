@@ -314,6 +314,7 @@ func TestGRIRDetermination(t *testing.T) {
 		{"gr_ir a reconciliation account", func(c *Config) { c.Companies[0].AccountDetermination.GRIR = "211000" }, "companies[1000].account_determination.gr_ir"},
 		{"gr_ir without price difference", func(c *Config) { c.Companies[0].AccountDetermination.PriceDifference = "" }, "companies[1000].account_determination.price_difference"},
 		{"price difference a revenue", func(c *Config) { c.Companies[0].AccountDetermination.PriceDifference = "400000" }, "companies[1000].account_determination.price_difference"},
+		{"tax code on GR/IR", func(c *Config) { c.Companies[0].TaxCodes[0].Account = "219000" }, "companies[1000].tax_codes[V1].account"},
 		{"no WE journal range", func(c *Config) { c.NumberRanges = c.NumberRanges[:len(c.NumberRanges)-1] }, "number_ranges[1000/journal_we/2026]"},
 	}
 	for _, tc := range cases {

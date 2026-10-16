@@ -287,8 +287,11 @@ func (v *validator) taxCodes(p string, co *Company) {
 		if r, ok := v.amount(tp+".rate_percent", t.RatePercent, 3); ok && r > 100_000 {
 			v.err(tp+".rate_percent", "rate above 100%%")
 		}
-		if a := co.Account(t.Account); a == nil {
+		switch a := co.Account(t.Account); {
+		case a == nil:
 			v.err(tp+".account", "account %s is not in the chart of accounts", t.Account)
+		case t.Account == co.AccountDetermination.GRIR:
+			v.err(tp+".account", "account %s is the GR/IR account, which only goods receipts and invoices' order items post", t.Account)
 		}
 	}
 	if len(co.TaxCodes) == 0 {

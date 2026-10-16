@@ -237,3 +237,19 @@ func TestGRIRFromT030(t *testing.T) {
 		t.Fatalf("draft with GR/IR does not validate: %v", fs)
 	}
 }
+
+// TestGRIRRowsDisagree: SAP keeps WRX and PRD per valuation class; rows of
+// one company naming different accounts are noted, as only one is taken.
+func TestGRIRRowsDisagree(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.T030 = append(e.T030, sap.T030{BUKRS: "1000", KTOSL: "WRX", KONTS: "0000219000"}, sap.T030{BUKRS: "1000", KTOSL: "WRX", KONTS: "0000219100"},
+		sap.T030{BUKRS: "1000", KTOSL: "PRD", KONTS: "0000590000"}, sap.T030{BUKRS: "1000", KTOSL: "PRD", KONTS: "0000590000"})
+	_, notes := Generate(e, DefaultOptions())
+	all := notesText(notes)
+	if want := "companies[1000].account_determination.gr_ir: T030 WRX names accounts 219000 and 219100; 219000 taken"; !strings.Contains(all, want) {
+		t.Errorf("got notes without %q:\n%s", want, all)
+	}
+	if strings.Contains(all, "price_difference") {
+		t.Errorf("got a note on PRD rows that agree:\n%s", all)
+	}
+}
