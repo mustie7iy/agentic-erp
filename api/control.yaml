@@ -8,7 +8,7 @@ info:
   version: "1.0.0"
   summary: Operators' API for the tenants of a cell.
   description: |-
-    The control plane lets platform operators list the tenants of a cell, provision a tenant with its first administrator and configuration, and suspend, resume or offboard one. It is served on the admin listener (`ERP_ADMIN_ADDR`, default `:9090`), which is reachable only inside the platform, and follows the rules of the public API ([04-api-design.md](../docs/design/04-api-design.md)): RFC 9457 problems, cursor pagination, `Idempotency-Key` on creation, `If-Match` on transitions.
+    The control plane lets platform operators list the tenants of a cell, provision a tenant with its first administrator and configuration, suspend, resume or offboard one, and administer each tenant's identity providers and authentication policy (ADR-0031). It is served on the admin listener (`ERP_ADMIN_ADDR`, default `:9090`), which is reachable only inside the platform, and follows the rules of the public API ([04-api-design.md](../docs/design/04-api-design.md)): RFC 9457 problems, cursor pagination, `Idempotency-Key` on creation, `If-Match` on transitions.
 
     Operators are not principals of any tenant. They authenticate with bearer tokens from the operator identity providers (`ERP_OPERATOR_ISSUERS`); an operator token names no tenant, and a tenant's token is refused here. What an operator does to a tenant is recorded in that tenant's audit trail with actor kind `system` and an id derived from the operator's issuer and subject, and published as `TenantStatusChanged`.
 
@@ -31,6 +31,8 @@ security:
 tags:
   - name: tenants
     description: The tenants of the cell and their lifecycle.
+  - name: identity
+    description: "Each tenant's identity providers and authentication policy (ADR-0031)."
 paths:
   /control/v1/tenants:
     get:
@@ -317,6 +319,237 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/control/v1/tenants/{id}/identity-providers":
+    get:
+      operationId: listIdentityProviders
+      tags:
+        - identity
+      summary: List a tenant's identity providers
+      description: "Every identity provider registered for the tenant, retired ones too, in the order they were registered (ADR-0031). A tenant has a handful, so there are no pages."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The tenant's identity providers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityProviderList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: registerIdentityProvider
+      tags:
+        - identity
+      summary: Register an identity provider
+      description: "Registers an identity provider of the tenant: tokens of its issuer for its audience authenticate the tenant's principals bound to it (ADR-0031). An active issuer and audience belong to one tenant, across cells when the cell has a global directory: 409 `identity.provider_taken` when another registration holds them. With `ERP_ENV=production` the issuer must be https. When the tenant requires multi-factor authentication the provider must prove it by `acr_values` or `amr_values` (422 `identity.mfa_unprovable`). Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `IdentityProviderRegistered`. A retry with the same `Idempotency-Key` answers the provider the first request registered with `Idempotent-Replayed: true`. 503 while the cell's global directory cannot be reached, since the issuer could not be claimed."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The identity provider to register.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdentityProviderCreate"
+      responses:
+        "201":
+          description: Registered; the identity provider.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityProvider"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "503":
+          $ref: "#/components/responses/DirectoryUnavailable"
+  "/control/v1/tenants/{id}/identity-providers/{provider_id}":
+    get:
+      operationId: getIdentityProvider
+      tags:
+        - identity
+      summary: Get an identity provider
+      description: One identity provider of the tenant.
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ProviderId"
+      responses:
+        "200":
+          description: The identity provider.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityProvider"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateIdentityProvider
+      tags:
+        - identity
+      summary: Update an identity provider
+      description: "Changes an active provider's tenant claim and the values that prove multi-factor authentication; issuer and audience never change (register a new provider instead). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the tenant claim or empties a list. 409 `identity.provider_retired` for a retired provider; 422 `identity.mfa_unprovable` when the tenant requires multi-factor authentication and the provider would prove it by neither list. Needs the `erp:admin` role. Recorded in the tenant's audit trail."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ProviderId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        description: Merge patch for the identity provider.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/IdentityProviderUpdate"
+      responses:
+        "200":
+          description: Updated; the identity provider after the change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityProvider"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}/identity-providers/{provider_id}:retire":
+    post:
+      operationId: retireIdentityProvider
+      tags:
+        - identity
+      summary: Retire an identity provider
+      description: "Retires an active provider: its tokens authenticate no one from the next cache period on (30 s), and its issuer and audience may be registered again. A tenant keeps one active provider: 409 `identity.last_provider` for its last one (register the replacement first); 409 `identity.provider_retired` when it is retired already. Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `IdentityProviderRetired`."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ProviderId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The retired identity provider.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityProvider"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}/auth-policy":
+    get:
+      operationId: getAuthPolicy
+      tags:
+        - identity
+      summary: Get a tenant's authentication policy
+      description: "Whether the tenant's people must prove multi-factor authentication, and how long their sessions last (ADR-0031); a tenant whose policy was never changed has the defaults, version 1."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The authentication policy.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateAuthPolicy
+      tags:
+        - identity
+      summary: Update a tenant's authentication policy
+      description: "Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged. The session lifetime is 900 to 86400 seconds, the idle timeout 300 to 28800 and at most the lifetime (422 `identity.invalid_policy`). Requiring multi-factor authentication while an active provider would prove it by neither `acr_values` nor `amr_values` is 422 `identity.mfa_unprovable`. Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `AuthPolicyChanged`."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        description: Merge patch for the policy.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/AuthPolicyUpdate"
+      responses:
+        "200":
+          description: Updated; the policy after the change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
 components:
   securitySchemes:
     operator:
@@ -348,12 +581,21 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: "Operator-chosen key, unique per logical request (a UUID is recommended), kept for 7 days with the tenant it created. A repeat with the same body returns the tenant with `Idempotent-Replayed: true`; a different body or another operator returns 422. Missing returns 428."
+      description: "Operator-chosen key, unique per logical request (a UUID is recommended), kept for 7 days with what it created. A repeat with the same body returns the tenant (or identity provider) with `Idempotent-Replayed: true`; a different body or another operator returns 422. Missing returns 428."
       schema:
         type: string
         minLength: 8
         maxLength: 255
       example: "4f1c2a7e-8d55-4c3b-9a0e-6b2d1e3f4a5b"
+    ProviderId:
+      name: provider_id
+      in: path
+      required: true
+      description: Identity provider identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "0192a000-0000-7000-8000-000000000301"
     PageSize:
       name: page_size
       in: query
@@ -384,12 +626,12 @@ components:
       example: name asc
   headers:
     ETag:
-      description: "Strong entity tag of the tenant; equals `version`. Send it back in `If-Match`."
+      description: "Strong entity tag of the tenant, identity provider or policy; equals its `version`. Send it back in `If-Match`."
       schema:
         type: string
       example: "\"1\""
     Location:
-      description: URL of the created tenant.
+      description: URL of the created tenant or identity provider.
       schema:
         type: string
         format: uri-reference
@@ -955,6 +1197,236 @@ components:
           master_key_id: v2
           resealed: 42
           rotated_at: "2026-10-11T10:00:00Z"
+    IdentityProviderCreate:
+      type: object
+      description: "An identity provider to register (ADR-0031)."
+      required:
+        - issuer
+        - audience
+      properties:
+        issuer:
+          type: string
+          format: uri
+          maxLength: 512
+          description: "The OIDC issuer (`iss`) exactly as the provider's discovery document states it: https, without credentials, query or fragment (http only on loopback, outside production)."
+        audience:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "The audience (`aud`) the provider issues the ERP's tokens for; an active issuer and audience belong to one tenant."
+        tenant_claim:
+          type: ["string", "null"]
+          pattern: "^[A-Za-z_][A-Za-z0-9_.:/-]{0,63}$"
+          description: "Optional cross-check: a claim that must carry the tenant's id in every token."
+        acr_values:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
+          description: "`acr` values any one of which proves multi-factor authentication at this provider."
+        amr_values:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          description: "`amr` values (RFC 8176) any one of which proves multi-factor authentication, e.g. `mfa`, `otp`, `hwk`."
+      examples:
+        - issuer: "https://login.acme.example/"
+          audience: erp-api
+          amr_values: ["mfa"]
+    IdentityProviderUpdate:
+      type: object
+      description: "Merge patch of an identity provider: absent fields are unchanged, `null` clears the tenant claim or empties a list."
+      properties:
+        tenant_claim:
+          type: ["string", "null"]
+          pattern: "^[A-Za-z_][A-Za-z0-9_.:/-]{0,63}$"
+          description: A claim that must carry the tenant's id; null removes the check.
+        acr_values:
+          type: ["array", "null"]
+          maxItems: 16
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
+          description: "`acr` values that prove multi-factor authentication; replaced as a whole."
+        amr_values:
+          type: ["array", "null"]
+          maxItems: 16
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          description: "`amr` values that prove multi-factor authentication; replaced as a whole."
+      examples:
+        - acr_values: ["urn:acme:loa:2"]
+    IdentityProvider:
+      type: object
+      description: "A registered identity provider of a tenant (ADR-0031)."
+      required:
+        - id
+        - tenant_id
+        - issuer
+        - audience
+        - tenant_claim
+        - acr_values
+        - amr_values
+        - status
+        - created_at
+        - updated_at
+        - retired_at
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identity provider identifier.
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant.
+        issuer:
+          type: string
+          description: The OIDC issuer (`iss`).
+        audience:
+          type: string
+          description: The audience (`aud`).
+        tenant_claim:
+          type: ["string", "null"]
+          description: A claim that must carry the tenant's id; null when there is none.
+        acr_values:
+          type: array
+          items:
+            type: string
+          description: "`acr` values that prove multi-factor authentication."
+        amr_values:
+          type: array
+          items:
+            type: string
+          description: "`amr` values that prove multi-factor authentication."
+        status:
+          type: string
+          enum: ["active", "retired"]
+          description: "`active` authenticates; `retired` is final."
+        created_at:
+          type: string
+          format: date-time
+          description: When it was registered.
+        updated_at:
+          type: string
+          format: date-time
+          description: When it last changed.
+        retired_at:
+          type: ["string", "null"]
+          format: date-time
+          description: When it was retired; null while active.
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          issuer: "https://login.acme.example/"
+          audience: erp-api
+          tenant_claim: null
+          acr_values: []
+          amr_values: ["mfa"]
+          status: active
+          created_at: "2026-10-16T09:00:00Z"
+          updated_at: "2026-10-16T09:00:00Z"
+          retired_at: null
+          version: 1
+    IdentityProviderList:
+      type: object
+      description: A tenant's identity providers.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/IdentityProvider"
+          description: The providers, in the order they were registered.
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000301"
+              tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              issuer: "https://login.acme.example/"
+              audience: erp-api
+              tenant_claim: null
+              acr_values: []
+              amr_values: ["mfa"]
+              status: active
+              created_at: "2026-10-16T09:00:00Z"
+              updated_at: "2026-10-16T09:00:00Z"
+              retired_at: null
+              version: 1
+    AuthPolicy:
+      type: object
+      description: "A tenant's authentication policy (ADR-0031)."
+      required:
+        - tenant_id
+        - mfa_required
+        - session_max_age_seconds
+        - idle_timeout_seconds
+        - version
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant.
+        mfa_required:
+          type: boolean
+          description: "Whether people must prove multi-factor authentication (services and agents never)."
+        session_max_age_seconds:
+          type: integer
+          format: int32
+          minimum: 900
+          maximum: 86400
+          description: "How long a session lasts from the person's authentication at the provider."
+        idle_timeout_seconds:
+          type: integer
+          format: int32
+          minimum: 300
+          maximum: 28800
+          description: "How long a session lasts without a request; at most the lifetime."
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag. 1 for the defaults."
+      examples:
+        - tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          mfa_required: false
+          session_max_age_seconds: 43200
+          idle_timeout_seconds: 1800
+          version: 1
+    AuthPolicyUpdate:
+      type: object
+      description: "Merge patch of the policy: absent fields are unchanged."
+      properties:
+        mfa_required:
+          type: boolean
+          description: Whether people must prove multi-factor authentication.
+        session_max_age_seconds:
+          type: integer
+          format: int32
+          minimum: 900
+          maximum: 86400
+          description: Session lifetime in seconds.
+        idle_timeout_seconds:
+          type: integer
+          format: int32
+          minimum: 300
+          maximum: 28800
+          description: Idle timeout in seconds; at most the lifetime.
+      examples:
+        - mfa_required: true
+          idle_timeout_seconds: 900
     TenantPage:
       type: object
       description: One page of tenants.
@@ -1184,4 +1656,18 @@ components:
             code: platform.unavailable
             detail: Key rotation is not configured on this server.
             instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01:rotateKey"
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+    DirectoryUnavailable:
+      description: "The cell's global directory cannot be reached, so the issuer cannot be claimed; retry later."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "https://errors.example.com/platform/unavailable"
+            title: Service unavailable
+            status: 503
+            code: platform.unavailable
+            detail: The global directory could not be reached; try again shortly.
+            instance: "/control/v1/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01/identity-providers"
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"

@@ -365,6 +365,10 @@ which is reachable only inside the platform (ADR-0015).
 | `rotateTenantKey` | `POST /control/v1/tenants/{id}:rotateKey` | `If-Match` required; a new field-encryption key, every sensitive field re-sealed (ADR-0018) |
 | `eraseTenant` | `POST /control/v1/tenants/{id}:erase` | `If-Match` required; an offboarded, exported tenant's data erased before its grace period ends (ADR-0021); `offboarding` on the tenant shows the stages |
 | `getTenantFingerprint` | `GET /control/v1/tenants/{id}/fingerprint` | The tenant with its fingerprint: rows per table (outboxes left out) and the audit chain head in one snapshot (ADR-0030); read role; `ETag` = version |
+| `listIdentityProviders`, `registerIdentityProvider` | `GET`, `POST /control/v1/tenants/{id}/identity-providers` | The tenant's identity providers (ADR-0031); registering needs `erp:admin` and an `Idempotency-Key`, claims the issuer and audience in the global directory first (409 `identity.provider_taken`, 503 while it cannot be reached), and publishes `IdentityProviderRegistered` |
+| `getIdentityProvider`, `updateIdentityProvider` | `GET`, `PATCH /control/v1/tenants/{id}/identity-providers/{provider_id}` | Merge patch of the tenant claim and the `acr`/`amr` values; issuer and audience never change; `If-Match` required; `erp:admin` |
+| `retireIdentityProvider` | `POST /control/v1/tenants/{id}/identity-providers/{provider_id}:retire` | `If-Match` required; 409 `identity.last_provider` for the tenant's last active one; publishes `IdentityProviderRetired`; `erp:admin` |
+| `getAuthPolicy`, `updateAuthPolicy` | `GET`, `PATCH /control/v1/tenants/{id}/auth-policy` | Multi-factor requirement, session lifetime and idle timeout; merge patch with `If-Match`; publishes `AuthPolicyChanged`; `erp:admin` |
 
 The control plane follows this document's rules (problems, pagination,
 idempotency, concurrency) with these differences:

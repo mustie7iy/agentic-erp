@@ -292,7 +292,7 @@ func (s *server) controlPlane(ctx context.Context) error {
 	}
 	service := &controlplane.Service{Pool: s.pool, AppRole: s.cfg.AppRole, ControlRole: s.cfg.ControlRole, Pages: s.pages,
 		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Issuers: s.cfg.TenantIssuers(), Configuration: app.Configuration(app.Config{FieldKeys: s.keys})},
-		Offboarding: s.offboarder, Directory: s.sync}
+		Offboarding: s.offboarder, Directory: s.sync, Production: s.cfg.Environment == config.Production}
 	s.control = controlplane.Handler(service, operators, s.log)
 	s.log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(s.cfg.OperatorIssuers), "dev_issuer", s.cfg.DevIssuer)
 	return nil

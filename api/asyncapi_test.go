@@ -383,6 +383,7 @@ func TestAsyncAPIRequiredEvents(t *testing.T) {
 		"PartnerChangeRejected", "PartnerChangeCancelled", "BusinessPartnerUpdated", "PrincipalCreated",
 		"PrincipalBlocked", "PrincipalDeprovisioned", "AgentProfileChanged", "RoleCreated", "RoleDeactivated",
 		"RolePermissionGranted", "RolePermissionEnded", "TenantStatusChanged", "RecommendationDecided",
+		"IdentityProviderRegistered", "IdentityProviderRetired", "AuthPolicyChanged",
 	} {
 		if _, ok := messages[name]; !ok {
 			t.Errorf("missing event %s", name)

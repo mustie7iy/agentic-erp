@@ -126,6 +126,7 @@ type Service struct {
 	Offboarding *offboarding.Worker // erases exported tenants on request; nil: erasure answers 503
 	Directory   *directory.Sync     // records tenants in the global directory after a change; nil: a single cell
 	Pages       *pagination.Codec
+	Production  bool // ERP_ENV=production: identity providers' issuers are https (ADR-0031)
 	Now         func() time.Time
 	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
 	// inject database failures.

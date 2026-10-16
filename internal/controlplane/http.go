@@ -38,6 +38,9 @@ func Handler(s *Service, v *authn.Verifier, log *slog.Logger) http.Handler {
 	mux.HandleFunc(Base+"/tenants", h.collection)
 	mux.HandleFunc(Base+"/tenants/{rest}", h.item)
 	mux.HandleFunc(Base+"/tenants/{id}/fingerprint", h.fingerprintItem)
+	mux.HandleFunc(Base+"/tenants/{id}/identity-providers", h.providers)
+	mux.HandleFunc(Base+"/tenants/{id}/identity-providers/{rest}", h.provider)
+	mux.HandleFunc(Base+"/tenants/{id}/auth-policy", h.policy)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, r, problem.NotFound("No such endpoint."))
 	})
@@ -51,7 +54,11 @@ type handler struct {
 
 // Roles maps each operation to the operator role it needs (ADR-0027); any
 // other needs authn.RoleOperate.
-var Roles = map[string]string{"listTenants": authn.RoleRead, "getTenant": authn.RoleRead, "getTenantFingerprint": authn.RoleRead, "createTenant": authn.RoleProvision}
+var Roles = map[string]string{"listTenants": authn.RoleRead, "getTenant": authn.RoleRead, "getTenantFingerprint": authn.RoleRead, "createTenant": authn.RoleProvision,
+	// A tenant's identity providers and policy decide who signs in as its
+	// principals: changing them needs erp:admin (ADR-0027 as amended by ADR-0031).
+	"listIdentityProviders": authn.RoleRead, "getIdentityProvider": authn.RoleRead, "getAuthPolicy": authn.RoleRead,
+	"registerIdentityProvider": authn.RoleAdmin, "updateIdentityProvider": authn.RoleAdmin, "retireIdentityProvider": authn.RoleAdmin, "updateAuthPolicy": authn.RoleAdmin}
 
 func (h *handler) collection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
