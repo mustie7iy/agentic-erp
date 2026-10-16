@@ -154,6 +154,25 @@ type listResult struct {
 	NextContinuationToken string `xml:"NextContinuationToken"`
 }
 
+// bucketGet is a signed GET of the bucket itself with query q; what names
+// the call in errors.
+func (s S3) bucketGet(ctx context.Context, q url.Values, what string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.Endpoint, "/")+"/"+s.Bucket+"?"+q.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("blobstore: %w", err)
+	}
+	creds, err := s.creds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sigv4.SignWith(req, creds, s.Region, "s3", sigv4.PayloadHash(nil), s.now())
+	resp, err := s.client().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("blobstore: %s: %w", what, err)
+	}
+	return resp, nil
+}
+
 // List implements Eraser with ListObjectsV2, following continuation tokens.
 func (s S3) List(ctx context.Context, prefix string) ([]string, error) {
 	if err := checkKey(strings.TrimSuffix(prefix, "/")); err != nil {
@@ -166,18 +185,9 @@ func (s S3) List(ctx context.Context, prefix string) ([]string, error) {
 		if token != "" {
 			q.Set("continuation-token", token)
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.Endpoint, "/")+"/"+s.Bucket+"?"+q.Encode(), nil)
-		if err != nil {
-			return nil, fmt.Errorf("blobstore: %w", err)
-		}
-		creds, err := s.creds(ctx)
+		resp, err := s.bucketGet(ctx, q, "LIST "+prefix)
 		if err != nil {
 			return nil, err
-		}
-		sigv4.SignWith(req, creds, s.Region, "s3", sigv4.PayloadHash(nil), s.now())
-		resp, err := s.client().Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("blobstore: LIST %s: %w", prefix, err)
 		}
 		var page listResult
 		if resp.StatusCode >= 300 {
