@@ -69,3 +69,11 @@ export's and the erasure's own entries are its last. The outbox events
 - Large tenants export table by table in memory; streaming exports and
   multipart uploads are for when a tenant's table exceeds a replica's
   memory.
+
+## Amendment (2026-10-16, ADR-0031)
+
+A tenant's identity providers and authentication policy are tenant data and
+are exported, imported and fingerprinted with it. Its sessions
+(`identity.session`) are not: they are ephemeral, end when the tenant moves,
+and their idle-time writes would change the fingerprint while a move is
+verified (ADR-0030). They are skipped like the outboxes.

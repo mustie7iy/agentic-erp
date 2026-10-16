@@ -44,3 +44,16 @@ a principal created through the API is bound to the issuer its creating
 administrator signed in with, and a new tenant's first administrator to
 the cell's only tenant issuer; a cell that trusts several refuses to
 provision. (03-data-model §3.4 has the schema and the backfill.)
+
+## Amendment (2026-10-16, ADR-0031)
+
+Trust in an identity provider is per tenant: a tenant's providers are
+registered in its identity schema, and a token's tenant is the tenant whose
+active registration holds the token's issuer and audience, not whichever
+tenant a claim names. Multi-factor authentication is required where the
+tenant's policy demands it, proven by the provider's `acr`/`amr` values, and
+people's sessions have a lifetime and an idle timeout. Outside development
+`ERP_OIDC_ISSUERS`, which trusts an issuer for every tenant, is refused. An
+operator binds a principal whose issuer is not an active provider of its
+tenant (such as `erp-dev` after 000046) to a registered provider. ADR-0031
+has the design.

@@ -53,3 +53,11 @@ This supersedes the Decision's "a token without the claim does everything"
 for production, and closes the consequence noted above (a lost claim
 widening access) there. `ERP_ENV` itself is now required, with no default,
 so a production replica cannot fall back to development's rule.
+
+## Amendment (2026-10-16, ADR-0031)
+
+Registering, changing and retiring a tenant's identity providers, changing
+its authentication policy and binding a principal to a provider need
+`erp:admin`, not `erp:operate`: binding a principal to a new subject hands
+its access to whoever holds that subject. Listing and reading providers,
+the policy and the unbound principals need `erp:read`.
