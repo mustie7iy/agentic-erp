@@ -266,6 +266,8 @@ type journalRule struct {
 var journalRules = []journalRule{
 	// Receipts on orders valued through GR/IR post WE entries (T33).
 	{"goods_receipt", "journal_we", func(co *Company) bool { return co.AccountDetermination.GRIR != "" }, "WE entries to GR/IR"},
+	// Credit memos and subsequent credits post KG entries (T34).
+	{"supplier_invoice", "journal_kg", func(*Company) bool { return true }, "credit memos as KG entries"},
 }
 
 // journalRanges requires the journal ranges each document range needs

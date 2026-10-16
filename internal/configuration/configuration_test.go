@@ -33,7 +33,8 @@ func document(t *testing.T) *config.Config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.NumberRanges = []config.NumberRange{{Company: "1000", DocumentType: "supplier_invoice", FiscalYear: 2026, Prefix: "SI-", First: 1, Last: 99999, Gapless: true}}
+	c.NumberRanges = []config.NumberRange{{Company: "1000", DocumentType: "supplier_invoice", FiscalYear: 2026, Prefix: "SI-", First: 1, Last: 99999, Gapless: true},
+		{Company: "1000", DocumentType: "journal_kg", FiscalYear: 2026, First: 1, Last: 99999}}
 	return c
 }
 
@@ -138,7 +139,7 @@ func TestBootstrap(t *testing.T) {
 		t.Errorf("get version tag: got %q, want at least 10 characters", tag)
 	}
 	e.Problem(404, "request.not_found", "GET", "/v1/config-versions/"+uuid.NewString(), "", "")
-	ranges, _ := e.Must(200, "GET", "/v1/number-ranges", "", "")
+	ranges, _ := e.Must(200, "GET", "/v1/number-ranges?document_type=supplier_invoice", "", "")
 	r := ranges["items"].([]any)[0].(map[string]any)
 	for field, want := range map[string]any{"legal_entity_id": e.le.String(), "prefix": "SI-", "next_value": float64(1), "is_gapless": true} {
 		if r[field] != want {
@@ -241,7 +242,7 @@ func TestNumberRangeChange(t *testing.T) {
 	// Raising the limit of a range keeps its issued numbers.
 	pgtest.Exec(t, `SELECT config.next_document_number($1, $2, 'supplier_invoice', 2026::smallint)`, e.ten.ID, e.le)
 	raised := document(t)
-	raised.NumberRanges = append(raised.NumberRanges, doc.NumberRanges[1])
+	raised.NumberRanges = append(raised.NumberRanges, doc.NumberRanges[len(doc.NumberRanges)-1]) // the payment range
 	raised.NumberRanges[0].Last = 199999
 	cr2 := e.propose(t, 2, raised)
 	if code, m := e.transition(t, cr2, "submit"); code != 200 {
@@ -550,15 +551,15 @@ func TestVersionAndRangeLists(t *testing.T) {
 	if byYear[0] != "payment/2027" {
 		t.Fatalf("by year: %v", byYear)
 	}
-	if rest := years("?order_by=fiscal_year%20desc&page_token=" + byYear[1]); len(rest) != 2 {
+	if rest := years("?order_by=fiscal_year%20desc&page_token=" + byYear[1]); len(rest) != 3 { // payment, journal_kg and supplier_invoice of 2026
 		t.Fatalf("by year, rest: %v", rest)
 	}
 	byType := years("?page_size=2")
-	if strings.Join(byType[:2], ",") != "payment/2026,payment/2027" && strings.Join(byType[:2], ",") != "payment/2027,payment/2026" {
-		t.Fatalf("by type: %v", byType)
+	if byType[0] != "journal_kg/2026" || !strings.HasPrefix(byType[1], "payment/") {
+		t.Fatalf("by type: got %v, want journal_kg/2026 and a payment range", byType)
 	}
-	if rest := years("?page_size=2&page_token=" + byType[2]); fmt.Sprint(rest) != "[supplier_invoice/2026]" {
-		t.Fatalf("by type, rest: %v", rest)
+	if rest := years("?page_size=2&page_token=" + byType[2]); len(rest) != 2 || !strings.HasPrefix(rest[0], "payment/") || rest[1] != "supplier_invoice/2026" {
+		t.Fatalf("by type, rest: got %v, want the other payment range and supplier_invoice/2026", rest)
 	}
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/number-ranges?order_by=prefix", "", "")
 
