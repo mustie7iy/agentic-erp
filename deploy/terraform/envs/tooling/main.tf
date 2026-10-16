@@ -108,3 +108,8 @@ output "root_ca_arn" {
   description = "The root CA the environments' subordinate CAs are signed by."
   value       = module.private_ca.root_ca_arn
 }
+
+output "root_certificate" {
+  description = "The root certificate (PEM): the chain of the subordinate CAs and every cell's trust anchor."
+  value       = module.private_ca.root_certificate
+}
