@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -45,10 +46,15 @@ func (f fixture) orderChange(t *testing.T, po uuid.UUID, base int) uuid.UUID {
 	return change
 }
 
+// previous is what an applied change records the order read before, as
+// T47f writes it; an empty object is refused.
+const previous = `'{"order_date": "2026-03-10", "payment_term_code": "NT30", "items": []}'`
+
 // applying runs sql (with $1 the order) inside the application of change,
-// as T47f applies one: the order names it, the items and header are
-// written, the change is applied, and the order moves on clearing the name.
-func applying(po, change uuid.UUID, sql string) func(tx pgx.Tx) error {
+// which makes the order's revision: the order names it, the items and
+// header are written, the change is applied, and the order moves on
+// clearing the name.
+func applying(po, change uuid.UUID, revision int, sql string) func(tx pgx.Tx) error {
 	return func(tx pgx.Tx) error {
 		if err := exec(tx, `UPDATE procurement.purchase_order SET applying_change_id = $2, version = version + 1 WHERE id = $1`, po, change); err != nil {
 			return err
@@ -56,8 +62,8 @@ func applying(po, change uuid.UUID, sql string) func(tx pgx.Tx) error {
 		if err := exec(tx, sql, po); err != nil {
 			return err
 		}
-		if err := exec(tx, `UPDATE procurement.purchase_order_change SET status = 'applied', revision = 2, previous = '{}', version = version + 1
-			WHERE id = $1`, change); err != nil {
+		if err := exec(tx, `UPDATE procurement.purchase_order_change SET status = 'applied', revision = $2, previous = `+previous+`, version = version + 1
+			WHERE id = $1`, change, revision); err != nil {
 			return err
 		}
 		return exec(tx, `UPDATE procurement.purchase_order SET applying_change_id = NULL, revision = revision + 1, version = version + 1 WHERE id = $1`, po)
@@ -112,7 +118,7 @@ func TestOrderChangeApplication(t *testing.T) {
 			po, change := f.released(t)
 			fn := func(tx pgx.Tx) error { return exec(tx, c.sql, po) }
 			if c.apply {
-				fn = applying(po, change, c.sql)
+				fn = applying(po, change, 2, c.sql)
 			}
 			err := asApp(t, f.tenant, fn)
 			if c.want != "" {
@@ -226,7 +232,7 @@ func TestOrderChangeNaming(t *testing.T) {
 		reason := "Faulty"
 		var ret uuid.UUID
 		mustApp(t, f.tenant, f.move(&ret, po, "122", nil, &reason, "-4"))
-		mustApp(t, f.tenant, applying(po, change, `UPDATE procurement.purchase_order_item SET is_removed = true WHERE purchase_order_id = $1`))
+		mustApp(t, f.tenant, applying(po, change, 2, `UPDATE procurement.purchase_order_item SET is_removed = true WHERE purchase_order_id = $1`))
 	})
 	t.Run("an unvalued item restored", func(t *testing.T) {
 		f := newFixture(t)
@@ -245,7 +251,7 @@ func TestOrderChangeNaming(t *testing.T) {
 			return exec(tx, `UPDATE procurement.purchase_order SET status = 'released', version = version + 1 WHERE id = $1`, po)
 		})
 		change := f.orderChange(t, po, 1)
-		failsWith(t, asApp(t, f.tenant, applying(po, change,
+		failsWith(t, asApp(t, f.tenant, applying(po, change, 2,
 			`UPDATE procurement.purchase_order_item SET is_removed = false WHERE purchase_order_id = $1 AND item_no = 2`)), "with its valuation price")
 	})
 	t.Run("a released order cancelled", func(t *testing.T) {
@@ -267,7 +273,7 @@ func TestOrderChangeNaming(t *testing.T) {
 func TestOrderChangeLifecycle(t *testing.T) {
 	need(t)
 	const submit = "status = 'pending_approval', approval_request_id = gen_random_uuid()"
-	const applied = "status = 'applied', revision = 2, previous = '{}'"
+	const applied = "status = 'applied', revision = 2, previous = " + previous
 	for _, c := range []struct {
 		name   string
 		after  []string
@@ -287,7 +293,9 @@ func TestOrderChangeLifecycle(t *testing.T) {
 		{"edited while pending", []string{submit}, "reason = 'More toner'", false, "cannot go from pending_approval to pending_approval"},
 		{"changed as it is submitted", nil, submit + ", total_after = 1", false, "changes only while it is a draft"},
 		{"applied on another request", []string{submit}, applied + ", approval_request_id = gen_random_uuid()", true, "decided only on the request it names"},
-		{"applied as another revision", nil, "status = 'applied', revision = 3, previous = '{}'", true, "purchase_order_change_revision"},
+		{"applied as another revision", nil, "status = 'applied', revision = 3, previous = " + previous, true, "purchase_order_change_revision"},
+		{"applied with nothing it replaced", nil, "status = 'applied', revision = 2, previous = '{}'", true, "purchase_order_change_previous"},
+		{"applied with what it replaced not an object", nil, "status = 'applied', revision = 2, previous = '[1]'", true, "purchase_order_change_previous"},
 		{"applied without what it replaced", nil, "status = 'applied', revision = 2", true, "purchase_order_change_applied"},
 		{"pending without a request", nil, "status = 'pending_approval'", false, "purchase_order_change_request"},
 		{"rejected reopened", []string{submit, "status = 'rejected'"}, "status = 'draft'", false, "cannot go from rejected to draft"},
@@ -331,10 +339,24 @@ func TestOrderChangeLifecycle(t *testing.T) {
 	t.Run("an applied change reopened", func(t *testing.T) {
 		f := newFixture(t)
 		po, change := f.released(t)
-		mustApp(t, f.tenant, applying(po, change, `UPDATE procurement.purchase_order SET payment_term_code = 'NT60', version = version + 1 WHERE id = $1`))
+		mustApp(t, f.tenant, applying(po, change, 2, `UPDATE procurement.purchase_order SET payment_term_code = 'NT60', version = version + 1 WHERE id = $1`))
 		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `UPDATE procurement.purchase_order_change SET status = 'draft', revision = NULL, previous = NULL, version = version + 1 WHERE id = $1`, change)
 		}), "cannot go from applied to draft")
+	})
+	t.Run("a second change makes the next revision", func(t *testing.T) {
+		f := newFixture(t)
+		po, change := f.released(t)
+		mustApp(t, f.tenant, applying(po, change, 2, `UPDATE procurement.purchase_order SET payment_term_code = 'NT60', version = version + 1 WHERE id = $1`))
+		second := f.orderChange(t, po, 2)
+		mustApp(t, f.tenant, applying(po, second, 3, `UPDATE procurement.purchase_order SET payment_term_code = 'NT30', version = version + 1 WHERE id = $1`))
+		var revision int
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `SELECT revision FROM procurement.purchase_order WHERE id = $1`, po).Scan(&revision)
+		})
+		if revision != 3 {
+			t.Errorf("revision after two changes: got %d, want 3", revision)
+		}
 	})
 	t.Run("one open change per order", func(t *testing.T) {
 		f := newFixture(t)
@@ -352,7 +374,7 @@ func TestOrderChangeLifecycle(t *testing.T) {
 		})
 		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO procurement.purchase_order_change (tenant_id, id, purchase_order_id, status, reason, base_revision, revision,
-				previous, proposed, total_before, total_after, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, 'applied', 'r', 1, 2, '{}', '{}',
+				previous, proposed, total_before, total_after, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, 'applied', 'r', 1, 2, `+previous+`, '{}',
 				1, 1, $3, $3)`, f.tenant, po, f.actor)
 		}), "an order change starts as a draft")
 	})

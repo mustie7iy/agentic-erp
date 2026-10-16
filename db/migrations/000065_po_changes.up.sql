@@ -36,6 +36,8 @@ CREATE TABLE procurement.purchase_order_change (
   FOREIGN KEY (tenant_id, purchase_order_id) REFERENCES procurement.purchase_order (tenant_id, id),
   UNIQUE (tenant_id, purchase_order_id, revision),
   CONSTRAINT purchase_order_change_applied CHECK ((status = 'applied') = (revision IS NOT NULL AND previous IS NOT NULL)),
+  -- what the order read is an object of its fields, never empty
+  CONSTRAINT purchase_order_change_previous CHECK (previous IS NULL OR (jsonb_typeof(previous) = 'object' AND previous <> '{}'::jsonb)),
   CONSTRAINT purchase_order_change_request CHECK (status NOT IN ('pending_approval', 'rejected') OR approval_request_id IS NOT NULL),
   CONSTRAINT purchase_order_change_revision CHECK (status <> 'applied' OR revision = base_revision + 1)
 );
