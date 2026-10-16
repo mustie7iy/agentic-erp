@@ -123,6 +123,19 @@ func (UnimplementedHandler) CancelOperation(ctx context.Context, params CancelOp
 	return r, ht.ErrNotImplemented
 }
 
+// CancelParkedJournalEntry implements cancelParkedJournalEntry operation.
+//
+// Cancels a parked journal entry in status `parked` for good (status `cancelled`,
+// `ParkedJournalEntryChanged`); nothing was posted, so nothing is reversed. An entry waiting for
+// approval is withdrawn first by cancelling its approval request, which returns it to `parked`. Only
+// its owner cancels it (403 `ledger.not_entry_owner`): the person who parked it, a person taking on an
+// agent's entry no person owns, or the agent that parked an entry no person has taken on.
+//
+// POST /v1/parked-journal-entries/{id}:cancel
+func (UnimplementedHandler) CancelParkedJournalEntry(ctx context.Context, req *ReasonInput, params CancelParkedJournalEntryParams) (r CancelParkedJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelPurchaseOrder implements cancelPurchaseOrder operation.
 //
 // Cancels an order without receipts or invoices and returns its contract consumption.
@@ -1645,6 +1658,21 @@ func (UnimplementedHandler) UpdateLegalEntity(ctx context.Context, req *LegalEnt
 //
 // PATCH /v1/org-units/{id}
 func (UnimplementedHandler) UpdateOrgUnit(ctx context.Context, req *OrgUnitUpdate, params UpdateOrgUnitParams) (r UpdateOrgUnitRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateParkedJournalEntry implements updateParkedJournalEntry operation.
+//
+// Changes a parked journal entry in status `parked` (409 `ledger.invalid_parked_status` otherwise).
+// JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference` or
+// `header_text`, and `lines` replaces the lines as a whole. The legal entity does not change. The
+// entry is checked again as parking checks it. Only its owner changes it (403
+// `ledger.not_entry_owner`): the person who parked it; a person who changes an agent's entry no person
+// owns takes it on and becomes its owner; an agent changes only an entry it parked that no person has
+// taken on.
+//
+// PATCH /v1/parked-journal-entries/{id}
+func (UnimplementedHandler) UpdateParkedJournalEntry(ctx context.Context, req *ParkedJournalEntryUpdate, params UpdateParkedJournalEntryParams) (r UpdateParkedJournalEntryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

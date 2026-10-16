@@ -4221,6 +4221,119 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateParkedJournalEntry
+      tags:
+        - ledger
+      summary: Change a parked journal entry
+      description: "Changes a parked journal entry in status `parked` (409 `ledger.invalid_parked_status` otherwise). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference` or `header_text`, and `lines` replaces the lines as a whole. The legal entity does not change. The entry is checked again as parking checks it. Only its owner changes it (403 `ledger.not_entry_owner`): the person who parked it; a person who changes an agent's entry no person owns takes it on and becomes its owner; an agent changes only an entry it parked that no person has taken on."
+      x-permission: ledger.entry.park
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the parked journal entry.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/ParkedJournalEntryUpdate"
+      responses:
+        "200":
+          description: The parked journal entry after the change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParkedJournalEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/parked-journal-entries/{id}:cancel":
+    post:
+      operationId: cancelParkedJournalEntry
+      tags:
+        - ledger
+      summary: Cancel a parked journal entry
+      description: "Cancels a parked journal entry in status `parked` for good (status `cancelled`, `ParkedJournalEntryChanged`); nothing was posted, so nothing is reversed. An entry waiting for approval is withdrawn first by cancelling its approval request, which returns it to `parked`. Only its owner cancels it (403 `ledger.not_entry_owner`): the person who parked it, a person taking on an agent's entry no person owns, or the agent that parked an entry no person has taken on."
+      x-permission: ledger.entry.park
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of cancelParkedJournalEntry.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: The parked journal entry after cancelParkedJournalEntry.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParkedJournalEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/open-items:
     get:
       operationId: listOpenItems
@@ -13593,6 +13706,48 @@ components:
               amount:
                 amount: "-1200.00"
                 currency: EUR
+    ParkedJournalEntryUpdate:
+      type: object
+      description: Merge patch of a parked journal entry.
+      properties:
+        document_type:
+          type: string
+          description: Document type.
+          pattern: "^[A-Z0-9]{2}$"
+        document_date:
+          type: string
+          format: date
+          description: Document date.
+        posting_date:
+          type: string
+          format: date
+          description: Posting date.
+        currency:
+          type: string
+          description: "Transaction currency; every line amount must use it, so a change of currency comes with the lines."
+          pattern: "^[A-Z]{3}$"
+        reference:
+          type:
+            - string
+            - "null"
+          description: External reference. Send null to clear.
+          maxLength: 40
+        header_text:
+          type:
+            - string
+            - "null"
+          description: Header text. Send null to clear.
+          maxLength: 200
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalLineInput"
+          description: "Complete list of lines; they must balance to zero."
+          minItems: 2
+          maxItems: 10000
+      additionalProperties: false
+      examples:
+        - header_text: October consulting accrual, corrected
     ParkedJournalEntryPage:
       type: object
       description: One page of parked journal entries.

@@ -2057,6 +2057,7 @@ func (*BadRequestHeaders) blockPrincipalRes()             {}
 func (*BadRequestHeaders) cancelApprovalRequestRes()      {}
 func (*BadRequestHeaders) cancelContractRes()             {}
 func (*BadRequestHeaders) cancelOperationRes()            {}
+func (*BadRequestHeaders) cancelParkedJournalEntryRes()   {}
 func (*BadRequestHeaders) cancelPurchaseOrderRes()        {}
 func (*BadRequestHeaders) cancelRequisitionRes()          {}
 func (*BadRequestHeaders) cancelSupplierInvoiceRes()      {}
@@ -2212,6 +2213,7 @@ func (*BadRequestHeaders) updateConnectorRes()            {}
 func (*BadRequestHeaders) updateContractRes()             {}
 func (*BadRequestHeaders) updateLegalEntityRes()          {}
 func (*BadRequestHeaders) updateOrgUnitRes()              {}
+func (*BadRequestHeaders) updateParkedJournalEntryRes()   {}
 func (*BadRequestHeaders) updatePrincipalRes()            {}
 func (*BadRequestHeaders) updatePurchaseOrderRes()        {}
 func (*BadRequestHeaders) updateRequisitionRes()          {}
@@ -5845,6 +5847,7 @@ func (*ConflictHeaders) blockPrincipalRes()           {}
 func (*ConflictHeaders) cancelApprovalRequestRes()    {}
 func (*ConflictHeaders) cancelContractRes()           {}
 func (*ConflictHeaders) cancelOperationRes()          {}
+func (*ConflictHeaders) cancelParkedJournalEntryRes() {}
 func (*ConflictHeaders) cancelPurchaseOrderRes()      {}
 func (*ConflictHeaders) cancelRequisitionRes()        {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()    {}
@@ -5920,6 +5923,7 @@ func (*ConflictHeaders) updateConnectorRes()          {}
 func (*ConflictHeaders) updateContractRes()           {}
 func (*ConflictHeaders) updateLegalEntityRes()        {}
 func (*ConflictHeaders) updateOrgUnitRes()            {}
+func (*ConflictHeaders) updateParkedJournalEntryRes() {}
 func (*ConflictHeaders) updatePrincipalRes()          {}
 func (*ConflictHeaders) updatePurchaseOrderRes()      {}
 func (*ConflictHeaders) updateRequisitionRes()        {}
@@ -8537,6 +8541,7 @@ func (*ForbiddenHeaders) blockPrincipalRes()             {}
 func (*ForbiddenHeaders) cancelApprovalRequestRes()      {}
 func (*ForbiddenHeaders) cancelContractRes()             {}
 func (*ForbiddenHeaders) cancelOperationRes()            {}
+func (*ForbiddenHeaders) cancelParkedJournalEntryRes()   {}
 func (*ForbiddenHeaders) cancelPurchaseOrderRes()        {}
 func (*ForbiddenHeaders) cancelRequisitionRes()          {}
 func (*ForbiddenHeaders) cancelSupplierInvoiceRes()      {}
@@ -8692,6 +8697,7 @@ func (*ForbiddenHeaders) updateConnectorRes()            {}
 func (*ForbiddenHeaders) updateContractRes()             {}
 func (*ForbiddenHeaders) updateLegalEntityRes()          {}
 func (*ForbiddenHeaders) updateOrgUnitRes()              {}
+func (*ForbiddenHeaders) updateParkedJournalEntryRes()   {}
 func (*ForbiddenHeaders) updatePrincipalRes()            {}
 func (*ForbiddenHeaders) updatePurchaseOrderRes()        {}
 func (*ForbiddenHeaders) updateRequisitionRes()          {}
@@ -13552,6 +13558,7 @@ func (*NotFoundHeaders) blockPrincipalRes()             {}
 func (*NotFoundHeaders) cancelApprovalRequestRes()      {}
 func (*NotFoundHeaders) cancelContractRes()             {}
 func (*NotFoundHeaders) cancelOperationRes()            {}
+func (*NotFoundHeaders) cancelParkedJournalEntryRes()   {}
 func (*NotFoundHeaders) cancelPurchaseOrderRes()        {}
 func (*NotFoundHeaders) cancelRequisitionRes()          {}
 func (*NotFoundHeaders) cancelSupplierInvoiceRes()      {}
@@ -13644,6 +13651,7 @@ func (*NotFoundHeaders) updateConnectorRes()            {}
 func (*NotFoundHeaders) updateContractRes()             {}
 func (*NotFoundHeaders) updateLegalEntityRes()          {}
 func (*NotFoundHeaders) updateOrgUnitRes()              {}
+func (*NotFoundHeaders) updateParkedJournalEntryRes()   {}
 func (*NotFoundHeaders) updatePrincipalRes()            {}
 func (*NotFoundHeaders) updatePurchaseOrderRes()        {}
 func (*NotFoundHeaders) updateRequisitionRes()          {}
@@ -16748,6 +16756,95 @@ func (s *ParkedJournalEntryPageHeaders) SetResponse(val ParkedJournalEntryPage) 
 
 func (*ParkedJournalEntryPageHeaders) listParkedJournalEntriesRes() {}
 
+// Merge patch of a parked journal entry.
+// Ref: #/components/schemas/ParkedJournalEntryUpdate
+type ParkedJournalEntryUpdate struct {
+	// Document type.
+	DocumentType OptString `json:"document_type"`
+	// Document date.
+	DocumentDate OptDate `json:"document_date"`
+	// Posting date.
+	PostingDate OptDate `json:"posting_date"`
+	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.
+	Currency OptString `json:"currency"`
+	// External reference. Send null to clear.
+	Reference OptNilString `json:"reference"`
+	// Header text. Send null to clear.
+	HeaderText OptNilString `json:"header_text"`
+	// Complete list of lines; they must balance to zero.
+	Lines []JournalLineInput `json:"lines"`
+}
+
+// GetDocumentType returns the value of DocumentType.
+func (s *ParkedJournalEntryUpdate) GetDocumentType() OptString {
+	return s.DocumentType
+}
+
+// GetDocumentDate returns the value of DocumentDate.
+func (s *ParkedJournalEntryUpdate) GetDocumentDate() OptDate {
+	return s.DocumentDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *ParkedJournalEntryUpdate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ParkedJournalEntryUpdate) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetReference returns the value of Reference.
+func (s *ParkedJournalEntryUpdate) GetReference() OptNilString {
+	return s.Reference
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *ParkedJournalEntryUpdate) GetHeaderText() OptNilString {
+	return s.HeaderText
+}
+
+// GetLines returns the value of Lines.
+func (s *ParkedJournalEntryUpdate) GetLines() []JournalLineInput {
+	return s.Lines
+}
+
+// SetDocumentType sets the value of DocumentType.
+func (s *ParkedJournalEntryUpdate) SetDocumentType(val OptString) {
+	s.DocumentType = val
+}
+
+// SetDocumentDate sets the value of DocumentDate.
+func (s *ParkedJournalEntryUpdate) SetDocumentDate(val OptDate) {
+	s.DocumentDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *ParkedJournalEntryUpdate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ParkedJournalEntryUpdate) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetReference sets the value of Reference.
+func (s *ParkedJournalEntryUpdate) SetReference(val OptNilString) {
+	s.Reference = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *ParkedJournalEntryUpdate) SetHeaderText(val OptNilString) {
+	s.HeaderText = val
+}
+
+// SetLines sets the value of Lines.
+func (s *ParkedJournalEntryUpdate) SetLines(val []JournalLineInput) {
+	s.Lines = val
+}
+
 // One line of a parked journal entry, in transaction currency.
 // Ref: #/components/schemas/ParkedJournalLine
 type ParkedJournalLine struct {
@@ -18281,68 +18378,70 @@ func (s *PreconditionFailedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*PreconditionFailedHeaders) activateChangeRequestRes()  {}
-func (*PreconditionFailedHeaders) activateLegalEntityRes()    {}
-func (*PreconditionFailedHeaders) activateOrgUnitRes()        {}
-func (*PreconditionFailedHeaders) approveApprovalRequestRes() {}
-func (*PreconditionFailedHeaders) blockBusinessPartnerRes()   {}
-func (*PreconditionFailedHeaders) blockLegalEntityRes()       {}
-func (*PreconditionFailedHeaders) blockOrgUnitRes()           {}
-func (*PreconditionFailedHeaders) blockPrincipalRes()         {}
-func (*PreconditionFailedHeaders) cancelApprovalRequestRes()  {}
-func (*PreconditionFailedHeaders) cancelContractRes()         {}
-func (*PreconditionFailedHeaders) cancelOperationRes()        {}
-func (*PreconditionFailedHeaders) cancelPurchaseOrderRes()    {}
-func (*PreconditionFailedHeaders) cancelRequisitionRes()      {}
-func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()  {}
-func (*PreconditionFailedHeaders) closeFiscalPeriodRes()      {}
-func (*PreconditionFailedHeaders) closePurchaseOrderRes()     {}
-func (*PreconditionFailedHeaders) decideRecommendationRes()   {}
-func (*PreconditionFailedHeaders) disableConnectorRes()       {}
-func (*PreconditionFailedHeaders) enableConnectorRes()        {}
-func (*PreconditionFailedHeaders) endAgentSessionRes()        {}
-func (*PreconditionFailedHeaders) endCompanyAccessRes()       {}
-func (*PreconditionFailedHeaders) endRoleAssignmentRes()      {}
-func (*PreconditionFailedHeaders) endRolePermissionRes()      {}
-func (*PreconditionFailedHeaders) endSodRuleRes()             {}
-func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()    {}
-func (*PreconditionFailedHeaders) lockFiscalPeriodRes()       {}
-func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()   {}
-func (*PreconditionFailedHeaders) openFiscalPeriodRes()       {}
-func (*PreconditionFailedHeaders) postSupplierInvoiceRes()    {}
-func (*PreconditionFailedHeaders) reconcileMigrationRunRes()  {}
-func (*PreconditionFailedHeaders) rejectApprovalRequestRes()  {}
-func (*PreconditionFailedHeaders) rejectPaymentRunRes()       {}
-func (*PreconditionFailedHeaders) releaseContractRes()        {}
-func (*PreconditionFailedHeaders) releasePaymentRunRes()      {}
-func (*PreconditionFailedHeaders) releasePurchaseOrderRes()   {}
-func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes() {}
-func (*PreconditionFailedHeaders) reportBankFileStatusRes()   {}
-func (*PreconditionFailedHeaders) requestBankAccountEndRes()  {}
-func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()    {}
-func (*PreconditionFailedHeaders) reverseJournalEntryRes()    {}
-func (*PreconditionFailedHeaders) reverseSupplierInvoiceRes() {}
-func (*PreconditionFailedHeaders) simulateChangeRequestRes()  {}
-func (*PreconditionFailedHeaders) startMigrationRunRes()      {}
-func (*PreconditionFailedHeaders) submitChangeRequestRes()    {}
-func (*PreconditionFailedHeaders) submitRequisitionRes()      {}
-func (*PreconditionFailedHeaders) terminateContractRes()      {}
-func (*PreconditionFailedHeaders) transmitBankFileRes()       {}
-func (*PreconditionFailedHeaders) unblockBusinessPartnerRes() {}
-func (*PreconditionFailedHeaders) unblockLegalEntityRes()     {}
-func (*PreconditionFailedHeaders) unblockOrgUnitRes()         {}
-func (*PreconditionFailedHeaders) unlockFiscalPeriodRes()     {}
-func (*PreconditionFailedHeaders) updateChangeRequestRes()    {}
-func (*PreconditionFailedHeaders) updateConnectorRes()        {}
-func (*PreconditionFailedHeaders) updateContractRes()         {}
-func (*PreconditionFailedHeaders) updateLegalEntityRes()      {}
-func (*PreconditionFailedHeaders) updateOrgUnitRes()          {}
-func (*PreconditionFailedHeaders) updatePrincipalRes()        {}
-func (*PreconditionFailedHeaders) updatePurchaseOrderRes()    {}
-func (*PreconditionFailedHeaders) updateRequisitionRes()      {}
-func (*PreconditionFailedHeaders) updateRoleRes()             {}
-func (*PreconditionFailedHeaders) updateSupplierInvoiceRes()  {}
-func (*PreconditionFailedHeaders) withdrawChangeRequestRes()  {}
+func (*PreconditionFailedHeaders) activateChangeRequestRes()    {}
+func (*PreconditionFailedHeaders) activateLegalEntityRes()      {}
+func (*PreconditionFailedHeaders) activateOrgUnitRes()          {}
+func (*PreconditionFailedHeaders) approveApprovalRequestRes()   {}
+func (*PreconditionFailedHeaders) blockBusinessPartnerRes()     {}
+func (*PreconditionFailedHeaders) blockLegalEntityRes()         {}
+func (*PreconditionFailedHeaders) blockOrgUnitRes()             {}
+func (*PreconditionFailedHeaders) blockPrincipalRes()           {}
+func (*PreconditionFailedHeaders) cancelApprovalRequestRes()    {}
+func (*PreconditionFailedHeaders) cancelContractRes()           {}
+func (*PreconditionFailedHeaders) cancelOperationRes()          {}
+func (*PreconditionFailedHeaders) cancelParkedJournalEntryRes() {}
+func (*PreconditionFailedHeaders) cancelPurchaseOrderRes()      {}
+func (*PreconditionFailedHeaders) cancelRequisitionRes()        {}
+func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()    {}
+func (*PreconditionFailedHeaders) closeFiscalPeriodRes()        {}
+func (*PreconditionFailedHeaders) closePurchaseOrderRes()       {}
+func (*PreconditionFailedHeaders) decideRecommendationRes()     {}
+func (*PreconditionFailedHeaders) disableConnectorRes()         {}
+func (*PreconditionFailedHeaders) enableConnectorRes()          {}
+func (*PreconditionFailedHeaders) endAgentSessionRes()          {}
+func (*PreconditionFailedHeaders) endCompanyAccessRes()         {}
+func (*PreconditionFailedHeaders) endRoleAssignmentRes()        {}
+func (*PreconditionFailedHeaders) endRolePermissionRes()        {}
+func (*PreconditionFailedHeaders) endSodRuleRes()               {}
+func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()      {}
+func (*PreconditionFailedHeaders) lockFiscalPeriodRes()         {}
+func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()     {}
+func (*PreconditionFailedHeaders) openFiscalPeriodRes()         {}
+func (*PreconditionFailedHeaders) postSupplierInvoiceRes()      {}
+func (*PreconditionFailedHeaders) reconcileMigrationRunRes()    {}
+func (*PreconditionFailedHeaders) rejectApprovalRequestRes()    {}
+func (*PreconditionFailedHeaders) rejectPaymentRunRes()         {}
+func (*PreconditionFailedHeaders) releaseContractRes()          {}
+func (*PreconditionFailedHeaders) releasePaymentRunRes()        {}
+func (*PreconditionFailedHeaders) releasePurchaseOrderRes()     {}
+func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes()   {}
+func (*PreconditionFailedHeaders) reportBankFileStatusRes()     {}
+func (*PreconditionFailedHeaders) requestBankAccountEndRes()    {}
+func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()      {}
+func (*PreconditionFailedHeaders) reverseJournalEntryRes()      {}
+func (*PreconditionFailedHeaders) reverseSupplierInvoiceRes()   {}
+func (*PreconditionFailedHeaders) simulateChangeRequestRes()    {}
+func (*PreconditionFailedHeaders) startMigrationRunRes()        {}
+func (*PreconditionFailedHeaders) submitChangeRequestRes()      {}
+func (*PreconditionFailedHeaders) submitRequisitionRes()        {}
+func (*PreconditionFailedHeaders) terminateContractRes()        {}
+func (*PreconditionFailedHeaders) transmitBankFileRes()         {}
+func (*PreconditionFailedHeaders) unblockBusinessPartnerRes()   {}
+func (*PreconditionFailedHeaders) unblockLegalEntityRes()       {}
+func (*PreconditionFailedHeaders) unblockOrgUnitRes()           {}
+func (*PreconditionFailedHeaders) unlockFiscalPeriodRes()       {}
+func (*PreconditionFailedHeaders) updateChangeRequestRes()      {}
+func (*PreconditionFailedHeaders) updateConnectorRes()          {}
+func (*PreconditionFailedHeaders) updateContractRes()           {}
+func (*PreconditionFailedHeaders) updateLegalEntityRes()        {}
+func (*PreconditionFailedHeaders) updateOrgUnitRes()            {}
+func (*PreconditionFailedHeaders) updateParkedJournalEntryRes() {}
+func (*PreconditionFailedHeaders) updatePrincipalRes()          {}
+func (*PreconditionFailedHeaders) updatePurchaseOrderRes()      {}
+func (*PreconditionFailedHeaders) updateRequisitionRes()        {}
+func (*PreconditionFailedHeaders) updateRoleRes()               {}
+func (*PreconditionFailedHeaders) updateSupplierInvoiceRes()    {}
+func (*PreconditionFailedHeaders) withdrawChangeRequestRes()    {}
 
 // PreconditionRequiredHeaders wraps Problem with response headers.
 type PreconditionRequiredHeaders struct {
@@ -18403,6 +18502,7 @@ func (*PreconditionRequiredHeaders) blockPrincipalRes()           {}
 func (*PreconditionRequiredHeaders) cancelApprovalRequestRes()    {}
 func (*PreconditionRequiredHeaders) cancelContractRes()           {}
 func (*PreconditionRequiredHeaders) cancelOperationRes()          {}
+func (*PreconditionRequiredHeaders) cancelParkedJournalEntryRes() {}
 func (*PreconditionRequiredHeaders) cancelPurchaseOrderRes()      {}
 func (*PreconditionRequiredHeaders) cancelRequisitionRes()        {}
 func (*PreconditionRequiredHeaders) cancelSupplierInvoiceRes()    {}
@@ -18478,6 +18578,7 @@ func (*PreconditionRequiredHeaders) updateConnectorRes()          {}
 func (*PreconditionRequiredHeaders) updateContractRes()           {}
 func (*PreconditionRequiredHeaders) updateLegalEntityRes()        {}
 func (*PreconditionRequiredHeaders) updateOrgUnitRes()            {}
+func (*PreconditionRequiredHeaders) updateParkedJournalEntryRes() {}
 func (*PreconditionRequiredHeaders) updatePrincipalRes()          {}
 func (*PreconditionRequiredHeaders) updatePurchaseOrderRes()      {}
 func (*PreconditionRequiredHeaders) updateRequisitionRes()        {}
@@ -22934,6 +23035,7 @@ func (*ServiceUnavailableHeaders) blockPrincipalRes()             {}
 func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()      {}
 func (*ServiceUnavailableHeaders) cancelContractRes()             {}
 func (*ServiceUnavailableHeaders) cancelOperationRes()            {}
+func (*ServiceUnavailableHeaders) cancelParkedJournalEntryRes()   {}
 func (*ServiceUnavailableHeaders) cancelPurchaseOrderRes()        {}
 func (*ServiceUnavailableHeaders) cancelRequisitionRes()          {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()      {}
@@ -23010,6 +23112,7 @@ func (*ServiceUnavailableHeaders) updateConnectorRes()            {}
 func (*ServiceUnavailableHeaders) updateContractRes()             {}
 func (*ServiceUnavailableHeaders) updateLegalEntityRes()          {}
 func (*ServiceUnavailableHeaders) updateOrgUnitRes()              {}
+func (*ServiceUnavailableHeaders) updateParkedJournalEntryRes()   {}
 func (*ServiceUnavailableHeaders) updatePrincipalRes()            {}
 func (*ServiceUnavailableHeaders) updatePurchaseOrderRes()        {}
 func (*ServiceUnavailableHeaders) updateRequisitionRes()          {}
@@ -24521,6 +24624,7 @@ func (*TooManyRequestsHeaders) blockPrincipalRes()             {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()      {}
 func (*TooManyRequestsHeaders) cancelContractRes()             {}
 func (*TooManyRequestsHeaders) cancelOperationRes()            {}
+func (*TooManyRequestsHeaders) cancelParkedJournalEntryRes()   {}
 func (*TooManyRequestsHeaders) cancelPurchaseOrderRes()        {}
 func (*TooManyRequestsHeaders) cancelRequisitionRes()          {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()      {}
@@ -24676,6 +24780,7 @@ func (*TooManyRequestsHeaders) updateConnectorRes()            {}
 func (*TooManyRequestsHeaders) updateContractRes()             {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()          {}
 func (*TooManyRequestsHeaders) updateOrgUnitRes()              {}
+func (*TooManyRequestsHeaders) updateParkedJournalEntryRes()   {}
 func (*TooManyRequestsHeaders) updatePrincipalRes()            {}
 func (*TooManyRequestsHeaders) updatePurchaseOrderRes()        {}
 func (*TooManyRequestsHeaders) updateRequisitionRes()          {}
@@ -24754,6 +24859,7 @@ func (*UnauthorizedHeaders) blockPrincipalRes()             {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()      {}
 func (*UnauthorizedHeaders) cancelContractRes()             {}
 func (*UnauthorizedHeaders) cancelOperationRes()            {}
+func (*UnauthorizedHeaders) cancelParkedJournalEntryRes()   {}
 func (*UnauthorizedHeaders) cancelPurchaseOrderRes()        {}
 func (*UnauthorizedHeaders) cancelRequisitionRes()          {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()      {}
@@ -24909,6 +25015,7 @@ func (*UnauthorizedHeaders) updateConnectorRes()            {}
 func (*UnauthorizedHeaders) updateContractRes()             {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()          {}
 func (*UnauthorizedHeaders) updateOrgUnitRes()              {}
+func (*UnauthorizedHeaders) updateParkedJournalEntryRes()   {}
 func (*UnauthorizedHeaders) updatePrincipalRes()            {}
 func (*UnauthorizedHeaders) updatePurchaseOrderRes()        {}
 func (*UnauthorizedHeaders) updateRequisitionRes()          {}
@@ -24976,6 +25083,7 @@ func (*UnprocessableHeaders) blockPrincipalRes()           {}
 func (*UnprocessableHeaders) cancelApprovalRequestRes()    {}
 func (*UnprocessableHeaders) cancelContractRes()           {}
 func (*UnprocessableHeaders) cancelOperationRes()          {}
+func (*UnprocessableHeaders) cancelParkedJournalEntryRes() {}
 func (*UnprocessableHeaders) cancelPurchaseOrderRes()      {}
 func (*UnprocessableHeaders) cancelRequisitionRes()        {}
 func (*UnprocessableHeaders) cancelSupplierInvoiceRes()    {}
@@ -25051,6 +25159,7 @@ func (*UnprocessableHeaders) updateConnectorRes()          {}
 func (*UnprocessableHeaders) updateContractRes()           {}
 func (*UnprocessableHeaders) updateLegalEntityRes()        {}
 func (*UnprocessableHeaders) updateOrgUnitRes()            {}
+func (*UnprocessableHeaders) updateParkedJournalEntryRes() {}
 func (*UnprocessableHeaders) updatePrincipalRes()          {}
 func (*UnprocessableHeaders) updatePurchaseOrderRes()      {}
 func (*UnprocessableHeaders) updateRequisitionRes()        {}
@@ -25432,6 +25541,79 @@ func (*UpdateOrgUnitOKHeaders) activateOrgUnitRes() {}
 func (*UpdateOrgUnitOKHeaders) blockOrgUnitRes()    {}
 func (*UpdateOrgUnitOKHeaders) unblockOrgUnitRes()  {}
 func (*UpdateOrgUnitOKHeaders) updateOrgUnitRes()   {}
+
+// UpdateParkedJournalEntryOKHeaders wraps ParkedJournalEntry with response headers.
+type UpdateParkedJournalEntryOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ParkedJournalEntry
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateParkedJournalEntryOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateParkedJournalEntryOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *UpdateParkedJournalEntryOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *UpdateParkedJournalEntryOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *UpdateParkedJournalEntryOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateParkedJournalEntryOKHeaders) GetResponse() ParkedJournalEntry {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateParkedJournalEntryOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateParkedJournalEntryOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *UpdateParkedJournalEntryOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *UpdateParkedJournalEntryOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *UpdateParkedJournalEntryOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateParkedJournalEntryOKHeaders) SetResponse(val ParkedJournalEntry) {
+	s.Response = val
+}
+
+func (*UpdateParkedJournalEntryOKHeaders) cancelParkedJournalEntryRes() {}
+func (*UpdateParkedJournalEntryOKHeaders) updateParkedJournalEntryRes() {}
 
 // UpdatePrincipalOKHeaders wraps Principal with response headers.
 type UpdatePrincipalOKHeaders struct {

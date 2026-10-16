@@ -106,6 +106,16 @@ type Invoker interface {
 	//
 	// POST /v1/operations/{id}:cancel
 	CancelOperation(ctx context.Context, params CancelOperationParams) (CancelOperationRes, error)
+	// CancelParkedJournalEntry invokes cancelParkedJournalEntry operation.
+	//
+	// Cancels a parked journal entry in status `parked` for good (status `cancelled`,
+	// `ParkedJournalEntryChanged`); nothing was posted, so nothing is reversed. An entry waiting for
+	// approval is withdrawn first by cancelling its approval request, which returns it to `parked`. Only
+	// its owner cancels it (403 `ledger.not_entry_owner`): the person who parked it, a person taking on an
+	// agent's entry no person owns, or the agent that parked an entry no person has taken on.
+	//
+	// POST /v1/parked-journal-entries/{id}:cancel
+	CancelParkedJournalEntry(ctx context.Context, request *ReasonInput, params CancelParkedJournalEntryParams) (CancelParkedJournalEntryRes, error)
 	// CancelPurchaseOrder invokes cancelPurchaseOrder operation.
 	//
 	// Cancels an order without receipts or invoices and returns its contract consumption.
@@ -1166,6 +1176,18 @@ type Invoker interface {
 	//
 	// PATCH /v1/org-units/{id}
 	UpdateOrgUnit(ctx context.Context, request *OrgUnitUpdate, params UpdateOrgUnitParams) (UpdateOrgUnitRes, error)
+	// UpdateParkedJournalEntry invokes updateParkedJournalEntry operation.
+	//
+	// Changes a parked journal entry in status `parked` (409 `ledger.invalid_parked_status` otherwise).
+	// JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference` or
+	// `header_text`, and `lines` replaces the lines as a whole. The legal entity does not change. The
+	// entry is checked again as parking checks it. Only its owner changes it (403
+	// `ledger.not_entry_owner`): the person who parked it; a person who changes an agent's entry no person
+	// owns takes it on and becomes its owner; an agent changes only an entry it parked that no person has
+	// taken on.
+	//
+	// PATCH /v1/parked-journal-entries/{id}
+	UpdateParkedJournalEntry(ctx context.Context, request *ParkedJournalEntryUpdate, params UpdateParkedJournalEntryParams) (UpdateParkedJournalEntryRes, error)
 	// UpdatePrincipal invokes updatePrincipal operation.
 	//
 	// Changes a principal. Identity administration is human-only. JSON Merge Patch (RFC 7396): absent
@@ -3009,6 +3031,170 @@ func (c *Client) sendCancelOperation(ctx context.Context, params CancelOperation
 
 	stage = "DecodeResponse"
 	result, err := decodeCancelOperationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CancelParkedJournalEntry invokes cancelParkedJournalEntry operation.
+//
+// Cancels a parked journal entry in status `parked` for good (status `cancelled`,
+// `ParkedJournalEntryChanged`); nothing was posted, so nothing is reversed. An entry waiting for
+// approval is withdrawn first by cancelling its approval request, which returns it to `parked`. Only
+// its owner cancels it (403 `ledger.not_entry_owner`): the person who parked it, a person taking on an
+// agent's entry no person owns, or the agent that parked an entry no person has taken on.
+//
+// POST /v1/parked-journal-entries/{id}:cancel
+func (c *Client) CancelParkedJournalEntry(ctx context.Context, request *ReasonInput, params CancelParkedJournalEntryParams) (CancelParkedJournalEntryRes, error) {
+	res, err := c.sendCancelParkedJournalEntry(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCancelParkedJournalEntry(ctx context.Context, request *ReasonInput, params CancelParkedJournalEntryParams) (res CancelParkedJournalEntryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelParkedJournalEntry"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/parked-journal-entries/{id}:cancel"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CancelParkedJournalEntryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/parked-journal-entries/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":cancel"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCancelParkedJournalEntryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CancelParkedJournalEntryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCancelParkedJournalEntryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -29087,6 +29273,171 @@ func (c *Client) sendUpdateOrgUnit(ctx context.Context, request *OrgUnitUpdate, 
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateOrgUnitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateParkedJournalEntry invokes updateParkedJournalEntry operation.
+//
+// Changes a parked journal entry in status `parked` (409 `ledger.invalid_parked_status` otherwise).
+// JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference` or
+// `header_text`, and `lines` replaces the lines as a whole. The legal entity does not change. The
+// entry is checked again as parking checks it. Only its owner changes it (403
+// `ledger.not_entry_owner`): the person who parked it; a person who changes an agent's entry no person
+// owns takes it on and becomes its owner; an agent changes only an entry it parked that no person has
+// taken on.
+//
+// PATCH /v1/parked-journal-entries/{id}
+func (c *Client) UpdateParkedJournalEntry(ctx context.Context, request *ParkedJournalEntryUpdate, params UpdateParkedJournalEntryParams) (UpdateParkedJournalEntryRes, error) {
+	res, err := c.sendUpdateParkedJournalEntry(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateParkedJournalEntry(ctx context.Context, request *ParkedJournalEntryUpdate, params UpdateParkedJournalEntryParams) (res UpdateParkedJournalEntryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateParkedJournalEntry"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/parked-journal-entries/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateParkedJournalEntryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/parked-journal-entries/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateParkedJournalEntryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateParkedJournalEntryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateParkedJournalEntryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

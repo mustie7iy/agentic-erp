@@ -223,6 +223,17 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 			_, err := h.GetParkedJournalEntry(ctx, gen.GetParkedJournalEntryParams{ID: id(d.parked)})
 			return err
 		},
+		"change parked": func(ctx context.Context) error {
+			_, err := h.UpdateParkedJournalEntry(ctx, &gen.ParkedJournalEntryUpdate{HeaderText: gen.NewOptNilString("x"), Lines: []gen.JournalLineInput{
+				{AccountID: u(bank), Amount: gen.Money{Amount: "2.00", Currency: "EUR"}},
+				{AccountID: u(ap), Amount: gen.Money{Amount: "-2.00", Currency: "EUR"}, PartnerID: gen.NewOptUUID(e.supplier)}}},
+				gen.UpdateParkedJournalEntryParams{ID: id(d.parked), IfMatch: "*"})
+			return err
+		},
+		"cancel parked": func(ctx context.Context) error {
+			_, err := h.CancelParkedJournalEntry(ctx, &gen.ReasonInput{Reason: "r"}, gen.CancelParkedJournalEntryParams{ID: id(d.parked), IfMatch: "*"})
+			return err
+		},
 		"list parked": func(ctx context.Context) error {
 			_, err := h.ListParkedJournalEntries(ctx, gen.ListParkedJournalEntriesParams{})
 			return err

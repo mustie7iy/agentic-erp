@@ -477,7 +477,10 @@ Rules enforced in the database:
   `parked-journal-entries` (T35c), checked as a posting is except for the
   open period and the rates; nothing is posted and no number is drawn
   until the entry is posted, so cancelled and rejected entries leave no
-  gaps in the journal's number ranges. Agents may hold `ledger.entry.park`;
+  gaps in the journal's number ranges. The owner changes a parked entry
+  (`PATCH`, lines replaced as a whole) or cancels it (`:cancel`) while it
+  is parked (T35d); a person who changes or cancels an agent's proposal
+  takes it on, and an agent acts only on its own unowned proposals. Agents may hold `ledger.entry.park`;
   `ledger.entry.approve` is an approval permission (agents never hold it).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger

@@ -93,3 +93,29 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 	}, parkedToAPI)
 	return &gen.ParkedJournalEntryPageHeaders{Response: gen.ParkedJournalEntryPage{Items: items, NextPageToken: next}}, nil
 }
+
+// UpdateParkedJournalEntry implements PATCH /v1/parked-journal-entries/{id}.
+func (e *Endpoints) UpdateParkedJournalEntry(ctx context.Context, req *gen.ParkedJournalEntryUpdate,
+	params gen.UpdateParkedJournalEntryParams) (gen.UpdateParkedJournalEntryRes, error) {
+	ch := EntryChange{DocumentType: apitypes.Ptr[string](req.DocumentType), DocumentDate: apitypes.Ptr[time.Time](req.DocumentDate),
+		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Currency: apitypes.Ptr[string](req.Currency),
+		Reference: apitypes.OptNilString(req.Reference), HeaderText: apitypes.OptNilString(req.HeaderText)}
+	if req.Lines != nil {
+		ch.Lines = newEntry(&gen.JournalEntryCreate{Lines: req.Lines}).Lines
+	}
+	pe, err := e.changeEntry(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: parkedToAPI(pe)}, nil
+}
+
+// CancelParkedJournalEntry implements POST /v1/parked-journal-entries/{id}:cancel.
+func (e *Endpoints) CancelParkedJournalEntry(ctx context.Context, req *gen.ReasonInput,
+	params gen.CancelParkedJournalEntryParams) (gen.CancelParkedJournalEntryRes, error) {
+	pe, err := cancelEntry(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: parkedToAPI(pe)}, nil
+}

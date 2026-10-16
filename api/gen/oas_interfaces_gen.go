@@ -45,6 +45,10 @@ type CancelOperationRes interface {
 	cancelOperationRes()
 }
 
+type CancelParkedJournalEntryRes interface {
+	cancelParkedJournalEntryRes()
+}
+
 type CancelPurchaseOrderRes interface {
 	cancelPurchaseOrderRes()
 }
@@ -663,6 +667,10 @@ type UpdateLegalEntityRes interface {
 
 type UpdateOrgUnitRes interface {
 	updateOrgUnitRes()
+}
+
+type UpdateParkedJournalEntryRes interface {
+	updateParkedJournalEntryRes()
 }
 
 type UpdatePrincipalRes interface {

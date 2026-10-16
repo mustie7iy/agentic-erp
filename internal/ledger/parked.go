@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,6 +47,7 @@ type ParkedEntry struct {
 	JournalFiscalYear *int16
 	JournalEntryID    *uuid.UUID
 	Lines             []Line
+	Debits            money.Minor // the debit total of Lines
 	Version           int32
 	CreatedAt         time.Time
 	CreatedBy         uuid.UUID
@@ -59,14 +61,16 @@ const parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_ty
 		coalesce((SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount, 'lc', 0, 'gc', 0,
 			'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text, 'unit', l.uom_code, 'text', l.line_text)
 			ORDER BY l.line_no)
-		 FROM ledger.parked_entry_line l WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed), '[]')
+		 FROM ledger.parked_entry_line l WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed), '[]'),
+		(SELECT coalesce(sum(l.amount) FILTER (WHERE l.amount > 0), 0)::bigint
+		 FROM ledger.parked_entry_line l WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed)
 	FROM ledger.parked_entry p JOIN ref.currency c ON c.code = p.currency`
 
 func scanParked(row pgx.Row) (ParkedEntry, error) {
 	var pe ParkedEntry
 	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.Currency, &pe.Exp,
 		&pe.Reference, &pe.HeaderText, &pe.Status, &pe.CreatedByKind, &pe.OwnerID, &pe.ApprovalRequestID, &pe.JournalFiscalYear, &pe.JournalEntryID,
-		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.Lines)
+		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.Lines, &pe.Debits)
 	return pe, errs.Wrapf(err, "scan parked entry")
 }
 
@@ -105,11 +109,7 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	if err != nil {
 		return ParkedEntry{}, err
 	}
-	if err := refuseAutomatic(ctx, v.le.ID, v.lines); err != nil {
-		return ParkedEntry{}, err
-	}
-	total, err := debitTotal(v.lines)
-	if err != nil {
+	if err := parkable(ctx, v); err != nil {
 		return ParkedEntry{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
@@ -124,14 +124,24 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 		p.Kind, owner, p.ID); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: park entry %s: %w", id, err)
 	}
-	if err := insertParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
+	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
 		return ParkedEntry{}, err
 	}
 	pe, err := getParked(ctx, tx, id)
 	if err != nil {
 		return ParkedEntry{}, err
 	}
-	return pe, parkedChanged(ctx, pe, total, nil, "park")
+	return pe, parkedChanged(ctx, pe, nil, "park", nil)
+}
+
+// parkable refuses, before anything is written, a prepared entry that
+// could never be posted (refuseAutomatic) or whose debits are out of range.
+func parkable(ctx context.Context, v prepared) error {
+	if err := refuseAutomatic(ctx, v.le.ID, v.lines); err != nil {
+		return err
+	}
+	_, err := debitTotal(v.lines)
+	return err
 }
 
 // refuseAutomatic refuses a line on the legal entity's GR/IR account, which
@@ -152,8 +162,10 @@ func refuseAutomatic(ctx context.Context, le uuid.UUID, lines []Line) error {
 	return nil
 }
 
-// insertParkedLines writes the lines of a parked entry, numbered 1..n.
-func insertParkedLines(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, lines []Line) error {
+// putParkedLines makes the entry's live lines the given ones, numbered
+// 1..n: existing numbers are updated, new ones inserted and the rest marked
+// removed, as the application deletes nothing (000015).
+func putParkedLines(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, lines []Line) error {
 	n := len(lines)
 	nos, accounts, partners, amounts := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
@@ -164,9 +176,16 @@ func insertParkedLines(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, lin
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry_line (tenant_id, parked_entry_id, line_no, account_id, amount, partner_id,
 			tax_code, quantity, uom_code, line_text)
 		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t
-		FROM unnest($3::int[], $4::uuid[], $5::bigint[], $6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[]) AS x(n, a, m, pa, tx, q, u, t)`,
+		FROM unnest($3::int[], $4::uuid[], $5::bigint[], $6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[]) AS x(n, a, m, pa, tx, q, u, t)
+		ON CONFLICT (tenant_id, parked_entry_id, line_no) DO UPDATE SET account_id = EXCLUDED.account_id, amount = EXCLUDED.amount,
+			partner_id = EXCLUDED.partner_id, tax_code = EXCLUDED.tax_code, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
+			line_text = EXCLUDED.line_text, is_removed = false`,
 		tenant, id, nos, accounts, amounts, partners, taxes, quantities, units, texts); err != nil {
-		return fmt.Errorf("ledger: park entry %s: lines: %w", id, err)
+		return fmt.Errorf("ledger: write lines of parked entry %s: %w", id, err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry_line SET is_removed = true WHERE parked_entry_id = $1 AND line_no > $2 AND NOT is_removed`,
+		id, n); err != nil {
+		return fmt.Errorf("ledger: remove lines of parked entry %s: %w", id, err)
 	}
 	return nil
 }
@@ -187,15 +206,148 @@ func debitTotal(lines []Line) (money.Minor, error) {
 	return total, nil
 }
 
-// parkedChanged records a change of a parked entry: the audit record of
-// the action and ParkedJournalEntryChanged with its debit total and its
-// status before (previous; nil when it was just parked).
-func parkedChanged(ctx context.Context, pe ParkedEntry, total money.Minor, previous *string, action string) error {
-	return audit.Record(ctx, "ledger.parked_entry."+action, "ledger.parked_entry", pe.ID,
-		map[string]any{"status": pe.Status, "previous_status": previous, "lines": len(pe.Lines)},
+// parkedChanged records a change of status of a parked entry: the audit
+// record of the action, with extra detail, and ParkedJournalEntryChanged
+// with its status before (previous; nil when it was just parked).
+func parkedChanged(ctx context.Context, pe ParkedEntry, previous *string, action string, extra map[string]any) error {
+	detail := map[string]any{"status": pe.Status, "previous_status": previous, "lines": len(pe.Lines)}
+	maps.Copy(detail, extra)
+	return audit.Record(ctx, "ledger.parked_entry."+action, "ledger.parked_entry", pe.ID, detail,
 		outbox.Event{Context: "ledger", Name: "parked_journal_entry_changed", AggregateType: "ledger.parked_entry", AggregateID: pe.ID,
 			Payload: map[string]any{"parked_entry_id": pe.ID, "legal_entity_id": pe.LegalEntityID, "posting_date": pe.PostingDate.Format(time.DateOnly),
-				"amount": money.EventAmount(total, pe.Currency, pe.Exp), "status": pe.Status, "previous_status": previous,
+				"amount": money.EventAmount(pe.Debits, pe.Currency, pe.Exp), "status": pe.Status, "previous_status": previous,
 				"created_by_kind": pe.CreatedByKind, "owner_id": pe.OwnerID, "approval_request_id": pe.ApprovalRequestID,
 				"journal_entry_id": pe.JournalEntryID}})
+}
+
+// EntryChange is a merge patch of a parked entry: nil fields are
+// unchanged, a nil *string in Reference or HeaderText clears it, and Lines
+// replaces the lines as a whole.
+type EntryChange struct {
+	DocumentType              *string
+	DocumentDate, PostingDate *time.Time
+	Currency                  *string
+	Reference, HeaderText     **string
+	Lines                     []NewLine
+}
+
+// editable locks a parked entry and returns it with the owner it has after
+// the caller changes or cancels it. Read FOR UPDATE (ADR-0008): the
+// database refuses line changes of an entry no longer parked, but reads its
+// status unlocked. Only the owner acts on an entry (ownerAfter).
+func editable(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, ifMatch func(int32) error) (ParkedEntry, *uuid.UUID, error) {
+	if _, err := tx.Exec(ctx, `SELECT FROM ledger.parked_entry WHERE id = $1 FOR UPDATE`, id); err != nil {
+		return ParkedEntry{}, nil, fmt.Errorf("ledger: lock parked entry %s: %w", id, err)
+	}
+	pe, err := getParked(ctx, tx, id)
+	if err != nil {
+		return ParkedEntry{}, nil, err
+	}
+	if err := ifMatch(pe.Version); err != nil {
+		return ParkedEntry{}, nil, err
+	}
+	if pe.Status != EntryParked {
+		return ParkedEntry{}, nil, problem.Conflict("ledger.invalid_parked_status", "The parked entry is "+pe.Status+"; this requires status "+EntryParked+".")
+	}
+	owner, err := ownerAfter(pe, p)
+	return pe, owner, err
+}
+
+// ownerAfter is the owner of a parked entry once the caller acts on it:
+// its owner, alone; a person taking on an entry no person owns (an
+// agent's proposal), who becomes its owner; or the agent or service that
+// parked an entry no person owns, which stays unowned. So the requester an
+// approval excludes is the one person who wrote the entry (T35).
+func ownerAfter(pe ParkedEntry, p reqctx.Principal) (*uuid.UUID, error) {
+	switch {
+	case pe.OwnerID != nil && *pe.OwnerID == p.ID:
+		return pe.OwnerID, nil
+	case pe.OwnerID == nil && p.Kind == reqctx.KindHuman:
+		return &p.ID, nil
+	case pe.OwnerID == nil && pe.CreatedBy == p.ID:
+		return nil, nil
+	}
+	return nil, problem.Forbidden("ledger.not_entry_owner", "Only the owner of a parked entry changes, posts or cancels it: the person who parked it or took it on.")
+}
+
+// changed is the parked entry as a manual entry with the change applied.
+func changed(pe ParkedEntry, ch EntryChange) NewEntry {
+	in := NewEntry{LegalEntityID: pe.LegalEntityID, LedgerID: &pe.LedgerID, DocumentType: pe.DocumentType, DocumentDate: pe.DocumentDate,
+		PostingDate: pe.PostingDate, Currency: pe.Currency, Reference: pe.Reference, HeaderText: pe.HeaderText, Lines: ch.Lines}
+	if in.Lines == nil {
+		in.Lines = make([]NewLine, len(pe.Lines))
+		for i, l := range pe.Lines {
+			in.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.TC.Plain(pe.Exp), Currency: pe.Currency, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
+				Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
+		}
+	}
+	in.DocumentType = deref(ch.DocumentType, in.DocumentType)
+	in.DocumentDate, in.PostingDate = deref(ch.DocumentDate, in.DocumentDate), deref(ch.PostingDate, in.PostingDate)
+	in.Currency = deref(ch.Currency, in.Currency)
+	in.Reference, in.HeaderText = deref(ch.Reference, in.Reference), deref(ch.HeaderText, in.HeaderText)
+	return in
+}
+
+// deref is *v, or otherwise when v is nil.
+func deref[T any](v *T, otherwise T) T {
+	if v == nil {
+		return otherwise
+	}
+	return *v
+}
+
+// changeEntry changes a parked entry and checks it again as parking does.
+// A change is no change of status, so it is audited but publishes nothing.
+func (e *Endpoints) changeEntry(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch EntryChange) (ParkedEntry, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return ParkedEntry{}, err
+	}
+	pe, owner, err := editable(ctx, tx, p, id, ifMatch)
+	if err != nil {
+		return ParkedEntry{}, err
+	}
+	in := changed(pe, ch)
+	v, err := e.prepare(ctx, tx, in)
+	if err != nil {
+		return ParkedEntry{}, err
+	}
+	if err := parkable(ctx, v); err != nil {
+		return ParkedEntry{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry SET ledger_id = $2, document_type = $3, document_date = $4, posting_date = $5, currency = $6,
+			reference = $7, header_text = $8, owner_id = $9, version = version + 1, updated_by = $10 WHERE id = $1`,
+		id, v.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID); err != nil {
+		return ParkedEntry{}, fmt.Errorf("ledger: change parked entry %s: %w", id, err)
+	}
+	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
+		return ParkedEntry{}, err
+	}
+	updated, err := getParked(ctx, tx, id)
+	if err != nil {
+		return ParkedEntry{}, err
+	}
+	return updated, audit.Add(ctx, audit.Entry{Action: "ledger.parked_entry.update", ObjectType: "ledger.parked_entry", ObjectID: id, Outcome: "succeeded",
+		Detail: map[string]any{"lines": len(v.lines), "owner_id": owner, "taken_on": pe.OwnerID == nil && owner != nil}})
+}
+
+// cancelEntry cancels a parked entry for good; nothing was posted.
+func cancelEntry(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (ParkedEntry, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return ParkedEntry{}, err
+	}
+	pe, owner, err := editable(ctx, tx, p, id, ifMatch)
+	if err != nil {
+		return ParkedEntry{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry SET status = 'cancelled', owner_id = $2, version = version + 1, updated_by = $3 WHERE id = $1`,
+		id, owner, p.ID); err != nil {
+		return ParkedEntry{}, fmt.Errorf("ledger: cancel parked entry %s: %w", id, err)
+	}
+	cancelled, err := getParked(ctx, tx, id)
+	if err != nil {
+		return ParkedEntry{}, err
+	}
+	return cancelled, parkedChanged(ctx, cancelled, &pe.Status, "cancel", map[string]any{"reason": reason})
 }
