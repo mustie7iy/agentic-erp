@@ -717,6 +717,24 @@ func TestRegistry(t *testing.T) {
 	if got.ProviderID != p.ID || got.TenantID != r.tenant || got.Issuer != p.Issuer || got.Audience != "erp" || got.TenantClaim == nil || *got.TenantClaim != claim {
 		t.Errorf("registration: got %+v, want provider %s of tenant %s with claim %s", got, p.ID, r.tenant, claim)
 	}
+	if got.MFARequired {
+		t.Errorf("multi-factor: got required, want the default policy's not required")
+	}
+	mfa := r.mustRegister(issuer("mfa"), "erp", "mfa")
+	if _, err := r.update(p.ID, "*", identity.IdentityProviderChange{AMRValues: &[]string{"otp"}}); err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	if _, err := r.updatePolicy("*", identity.AuthPolicyChange{MFARequired: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	withMFA, err := reg.Resolve(ctx, mfa.Issuer, []string{"erp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !withMFA.MFARequired || strings.Join(withMFA.AMRValues, ",") != "mfa" || len(withMFA.ACRValues) != 0 {
+		t.Errorf("multi-factor rule: got required %v, acr %v, amr %v, want required, none, mfa", withMFA.MFARequired, withMFA.ACRValues, withMFA.AMRValues)
+	}
 	if _, err := reg.Resolve(ctx, issuer("nobody"), []string{"erp"}); !errors.Is(err, authn.ErrUnknownIssuer) {
 		t.Errorf("unknown: got %v, want ErrUnknownIssuer", err)
 	}

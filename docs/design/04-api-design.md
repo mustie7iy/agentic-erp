@@ -229,6 +229,13 @@ at most one bank file.
   `platform.identity_provider_unavailable` (keys) or `platform.unavailable`
   (registry). Issuers configured for every tenant (`ERP_OIDC_ISSUERS`) are
   optional and keep the tenant claim.
+- Where the tenant requires multi-factor authentication (its policy on
+  the control plane), a person's token must prove it by the provider's
+  `acr` or `amr` values; otherwise the answer is 401
+  `identity.mfa_required` with the step-up challenge of RFC 9470
+  (`WWW-Authenticate: Bearer error="insufficient_user_authentication",
+  acr_values="…"`). Services and agents are not asked: the unit of work
+  applies the rule once it knows the principal is a person.
 - Every operation in the spec declares its permission with
   `x-permission: payables.invoice.post`. The generated router refuses to start
   if a handler has no permission, and a test checks that every permission in

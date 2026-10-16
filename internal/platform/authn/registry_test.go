@@ -218,7 +218,7 @@ func TestRegistryCache(t *testing.T) {
 	inner := &registry{}
 	known := authn.Registration{TenantID: uuid.New(), Issuer: "https://known.example.com", Audience: "erp"}
 	inner.add(known)
-	cache := &authn.RegistryCache{Registry: inner, TTL: 30 * time.Second, Now: c.Now, MaxEntries: 3}
+	cache := &authn.RegistryCache{Registry: inner, TTL: 30 * time.Second, Now: c.Now, MaxEntries: 3, MaxMisses: 3}
 	ctx := context.Background()
 	resolve := func(issuer string, auds ...string) error {
 		_, err := cache.Resolve(ctx, issuer, auds)
@@ -257,8 +257,8 @@ func TestRegistryCache(t *testing.T) {
 		for i := range 10 {
 			_ = resolve("https://spray-"+strings.Repeat("x", i)+".example.com", "erp")
 		}
-		if n := cache.Len(); n > 3 {
-			t.Errorf("entries: got %d, want at most 3", n)
+		if n := cache.Len(); n > 6 {
+			t.Errorf("entries: got %d, want at most 3 registrations and 3 misses", n)
 		}
 	})
 	t.Run("defaults", func(t *testing.T) {
@@ -340,7 +340,7 @@ func TestRegistryCacheKeysAreUnambiguous(t *testing.T) {
 // answers before it drops live ones.
 func TestRegistryCacheEvictsExpiredFirst(t *testing.T) {
 	c := newClock()
-	cache := &authn.RegistryCache{Registry: &registry{}, TTL: time.Minute, Now: c.Now, MaxEntries: 2}
+	cache := &authn.RegistryCache{Registry: &registry{}, TTL: time.Minute, Now: c.Now, MaxMisses: 2}
 	ctx := context.Background()
 	_, _ = cache.Resolve(ctx, "https://old.example.com", []string{"erp"})
 	c.Advance(45 * time.Second)

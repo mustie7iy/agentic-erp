@@ -41,6 +41,17 @@ type Claims struct {
 	ACR       string
 	AMR       []string
 	SessionID string
+	// MFA is the registered provider's multi-factor rule (ADR-0031), which
+	// the unit of work applies once it knows the principal is a person.
+	MFA MFA
+}
+
+// MFA is whether the tenant requires multi-factor authentication of
+// people, and the acr and amr values by which their provider proves it.
+type MFA struct {
+	Required  bool
+	ACRValues []string
+	AMRValues []string
 }
 
 // Principal is the authenticated actor resolved in the tenant's identity data.

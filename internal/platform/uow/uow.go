@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -123,6 +124,13 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	principal, err := resolve(ctx, tx, claims)
 	if err != nil {
 		return err
+	}
+	// Multi-factor is asked of people only: services and agents use their
+	// own credentials, which prove no second factor (ADR-0031).
+	if principal.Kind == reqctx.KindHuman {
+		if err := authn.CheckMFA(claims); err != nil {
+			return err
+		}
 	}
 	info := reqctx.InfoFrom(ctx)
 	info.TenantID, info.PrincipalID = principal.TenantID, principal.ID

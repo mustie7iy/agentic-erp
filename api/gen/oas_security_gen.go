@@ -18,7 +18,14 @@ type SecurityHandler interface {
 	// signature, issuer and audience at the gateway and again in the service (ADR-0010). Agents and
 	// services use client-credentials tokens tied to their own principal. Authorization (permission, legal
 	// entity access, segregation of duties) is checked per operation; the required permission is the
-	// operation's `x-permission`.
+	// operation's `x-permission`. The identity provider the tenant registered decides the token's tenant
+	// (ADR-0031); a token of an issuer no tenant registered is 401 `authn.invalid_token`, and while the
+	// provider's keys or the registry cannot be read the answer is 503
+	// (`platform.identity_provider_unavailable`, `platform.unavailable`). Where the tenant requires
+	// multi-factor authentication, a person's token must prove it by the provider's `acr` or `amr` values,
+	// or is answered 401 `identity.mfa_required` with the step-up challenge of RFC 9470
+	// (`WWW-Authenticate: Bearer error="insufficient_user_authentication"` with the `acr_values` to ask
+	// the provider for); service and agent tokens are not asked.
 	HandleOidc(ctx context.Context, operationName OperationName, t Oidc) (context.Context, error)
 }
 
@@ -262,7 +269,14 @@ type SecuritySource interface {
 	// signature, issuer and audience at the gateway and again in the service (ADR-0010). Agents and
 	// services use client-credentials tokens tied to their own principal. Authorization (permission, legal
 	// entity access, segregation of duties) is checked per operation; the required permission is the
-	// operation's `x-permission`.
+	// operation's `x-permission`. The identity provider the tenant registered decides the token's tenant
+	// (ADR-0031); a token of an issuer no tenant registered is 401 `authn.invalid_token`, and while the
+	// provider's keys or the registry cannot be read the answer is 503
+	// (`platform.identity_provider_unavailable`, `platform.unavailable`). Where the tenant requires
+	// multi-factor authentication, a person's token must prove it by the provider's `acr` or `amr` values,
+	// or is answered 401 `identity.mfa_required` with the step-up challenge of RFC 9470
+	// (`WWW-Authenticate: Bearer error="insufficient_user_authentication"` with the `acr_values` to ask
+	// the provider for); service and agent tokens are not asked.
 	Oidc(ctx context.Context, operationName OperationName) (Oidc, error)
 }
 

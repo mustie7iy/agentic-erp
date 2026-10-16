@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
@@ -27,6 +28,11 @@ type Registration struct {
 	Issuer      string
 	Audience    string
 	TenantClaim *string // a claim that must carry the tenant's id; nil: none
+	// The tenant's multi-factor rule for people (the cell's registry
+	// knows it; the router's does not, and the cell applies it).
+	MFARequired bool
+	ACRValues   []string
+	AMRValues   []string
 }
 
 // The registry's answers for a token no registration, or more than one,
@@ -71,7 +77,8 @@ func (v *Verifier) verifyRegistered(ctx context.Context, raw, iss string, auds [
 	}
 	// A registered provider's tokens are a tenant's principals', never an
 	// operator's: they hold no operator role.
-	c := reqctx.Claims{Issuer: reg.Issuer, Subject: tok.Subject, ProviderID: reg.ProviderID, Roles: []string{}}
+	c := reqctx.Claims{Issuer: reg.Issuer, Subject: tok.Subject, ProviderID: reg.ProviderID, Roles: []string{},
+		MFA: reqctx.MFA{Required: reg.MFARequired, ACRValues: reg.ACRValues, AMRValues: reg.AMRValues}}
 	facts(&c, tok, claims)
 	return c, reg.TenantID.String(), nil
 }
@@ -128,25 +135,31 @@ func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
 // RegistryCache keeps a registry's answers for TTL, registrations and
 // unknown issuers alike, so a token costs a lookup per issuer and cache
 // period; failures to answer are not kept. A retired provider may thus
-// authenticate for up to TTL (ADR-0031). Issuers and audiences come from
-// tokens not yet verified (bounded in size before the lookup), so the cache
-// holds at most MaxEntries: when full it drops its expired answers, and
-// empties itself if that is not enough, rather than growing with what a
-// client sends.
+// authenticate for up to TTL (ADR-0031). Concurrent requests for the same
+// answer share one lookup. Issuers and audiences come from tokens not yet
+// verified (bounded in size before the lookup), so the registrations held
+// are at most MaxEntries and the unknown issuers, which any client can
+// send, at most MaxMisses, kept apart so a spray of them never pushes a
+// registration out: a full map drops its expired answers, and empties
+// itself if that is not enough.
 type RegistryCache struct {
 	Registry   Registry
 	TTL        time.Duration    // 0: DefaultRegistryTTL
 	MaxEntries int              // 0: DefaultRegistryEntries
+	MaxMisses  int              // 0: DefaultRegistryMisses
 	Now        func() time.Time // nil: the wall clock
 
-	mu      sync.Mutex
-	entries map[string]registryEntry
+	mu       sync.Mutex
+	hits     map[string]registryEntry
+	misses   map[string]registryEntry
+	inflight map[string]*lookup
 }
 
 // The cache's defaults.
 const (
 	DefaultRegistryTTL     = 30 * time.Second
 	DefaultRegistryEntries = 10000
+	DefaultRegistryMisses  = 1000
 )
 
 type registryEntry struct {
@@ -155,46 +168,104 @@ type registryEntry struct {
 	until time.Time
 }
 
+// lookup is one registry lookup that concurrent requests wait on.
+type lookup struct {
+	done chan struct{}
+	reg  Registration
+	err  error
+}
+
 // Resolve implements Registry.
 func (c *RegistryCache) Resolve(ctx context.Context, issuer string, audiences []string) (Registration, error) {
-	// Each part is length-prefixed, so no audience can pass for two.
+	key := cacheKey(issuer, audiences)
+	c.mu.Lock()
+	if e, ok := c.cached(key); ok {
+		c.mu.Unlock()
+		return e.reg, e.err
+	}
+	l, running := c.inflight[key]
+	if !running {
+		l = &lookup{done: make(chan struct{})}
+		if c.inflight == nil {
+			c.inflight = map[string]*lookup{}
+		}
+		c.inflight[key] = l
+	}
+	c.mu.Unlock()
+	if !running {
+		// Detached from this request: the others waiting on it must not
+		// fail because this one's client gave up.
+		go c.run(context.WithoutCancel(ctx), key, issuer, audiences, l)
+	}
+	select {
+	case <-l.done:
+		return l.reg, l.err
+	case <-ctx.Done():
+		return Registration{}, fmt.Errorf("authn: wait for the registry: %w", ctx.Err())
+	}
+}
+
+// cacheKey is the issuer and the sorted audiences, each part
+// length-prefixed, so no audience can pass for two.
+func cacheKey(issuer string, audiences []string) string {
 	var key strings.Builder
 	for _, part := range append([]string{issuer}, slices.Sorted(slices.Values(audiences))...) {
 		key.WriteString(strconv.Itoa(len(part)) + ":" + part)
 	}
+	return key.String()
+}
+
+// cached returns a live answer; c.mu is held.
+func (c *RegistryCache) cached(key string) (registryEntry, bool) {
 	now := clock.Now(c.Now)
-	c.mu.Lock()
-	e, ok := c.entries[key.String()]
-	c.mu.Unlock()
-	if ok && now.Before(e.until) {
-		return e.reg, e.err
+	for _, m := range []map[string]registryEntry{c.hits, c.misses} {
+		if e, ok := m[key]; ok && now.Before(e.until) {
+			return e, true
+		}
 	}
-	reg, err := c.Registry.Resolve(ctx, issuer, audiences)
-	if err != nil && !errors.Is(err, ErrUnknownIssuer) && !errors.Is(err, ErrAmbiguousIssuer) {
-		return reg, err
-	}
+	return registryEntry{}, false
+}
+
+// run looks the answer up, keeps it unless the registry failed to answer,
+// and hands it to every request waiting on l.
+func (c *RegistryCache) run(ctx context.Context, key, issuer string, audiences []string, l *lookup) {
+	l.reg, l.err = c.Registry.Resolve(ctx, issuer, audiences)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	limit := orDefaultInt(c.MaxEntries, DefaultRegistryEntries)
-	if len(c.entries) >= limit {
-		for k, e := range c.entries {
-			if !now.Before(e.until) {
-				delete(c.entries, k)
+	delete(c.inflight, key)
+	defer close(l.done)
+	now := clock.Now(c.Now)
+	e := registryEntry{reg: l.reg, err: l.err, until: now.Add(orDefault(c.TTL, DefaultRegistryTTL))}
+	switch {
+	case l.err == nil:
+		c.hits = keep(c.hits, key, e, now, orDefaultInt(c.MaxEntries, DefaultRegistryEntries))
+	case errors.Is(l.err, ErrUnknownIssuer), errors.Is(l.err, ErrAmbiguousIssuer):
+		c.misses = keep(c.misses, key, e, now, orDefaultInt(c.MaxMisses, DefaultRegistryMisses))
+	}
+}
+
+// keep stores e in m, which holds at most limit answers: when full it
+// drops the expired ones, and starts afresh if that is not enough.
+func keep(m map[string]registryEntry, key string, e registryEntry, now time.Time, limit int) map[string]registryEntry {
+	if len(m) >= limit {
+		for k, old := range m {
+			if !now.Before(old.until) {
+				delete(m, k)
 			}
 		}
 	}
-	if c.entries == nil || len(c.entries) >= limit {
-		c.entries = map[string]registryEntry{}
+	if m == nil || len(m) >= limit {
+		m = map[string]registryEntry{}
 	}
-	c.entries[key.String()] = registryEntry{reg: reg, err: err, until: now.Add(orDefault(c.TTL, DefaultRegistryTTL))}
-	return reg, err
+	m[key] = e
+	return m
 }
 
 // Len is how many answers the cache holds.
 func (c *RegistryCache) Len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.entries)
+	return len(c.hits) + len(c.misses)
 }
 
 func orDefaultInt(n, def int) int {
