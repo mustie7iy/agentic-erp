@@ -82,6 +82,10 @@ func TestOrderTransitions(t *testing.T) {
 		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `UPDATE procurement.purchase_order_item SET quantity = 5 WHERE purchase_order_id = $1`, po)
 		}), "cannot change")
+		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE procurement.purchase_order_item SET valuation_price = 250, valuation_price_unit = 1, quantity = 5
+				WHERE purchase_order_id = $1`, po)
+		}), "cannot change")
 		set(`UPDATE procurement.purchase_order SET status = 'draft', release_request_id = NULL, version = version + 1 WHERE id = $1`)
 		set(`UPDATE procurement.purchase_order_item SET unit_price = 100 WHERE purchase_order_id = $1`)
 		set(`UPDATE procurement.purchase_order SET ` + submit + `, version = version + 1 WHERE id = $1`)

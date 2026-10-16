@@ -47,7 +47,7 @@ LANGUAGE plpgsql AS $$
 DECLARE st text;
 BEGIN
   SELECT status INTO st FROM procurement.purchase_order WHERE tenant_id = NEW.tenant_id AND id = NEW.purchase_order_id;
-  IF st = 'draft' OR (OLD.valuation_price IS NULL AND NEW.valuation_price IS NOT NULL
+  IF st = 'draft' OR (st = 'pending_approval' AND OLD.valuation_price IS NULL AND NEW.valuation_price IS NOT NULL
       AND to_jsonb(NEW) - 'valuation_price' - 'valuation_price_unit' = to_jsonb(OLD) - 'valuation_price' - 'valuation_price_unit') THEN
     RETURN NEW;
   END IF;
