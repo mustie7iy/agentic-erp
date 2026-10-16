@@ -319,6 +319,9 @@ func (l *loader) tls(c *Config) {
 	if c.TrustDomain = l.getenv("ERP_TRUST_DOMAIN"); !ValidTrustDomain(c.TrustDomain) {
 		l.errs = append(l.errs, ErrTrustDomain)
 	}
+	if c.TrustDomain != "" && c.TLS.Cert == "" {
+		l.errs = append(l.errs, errors.New("ERP_TRUST_DOMAIN needs ERP_TLS_CERT and ERP_TLS_KEY: the API and /control serve the router by its certificate, over TLS (ADR-0033)"))
+	}
 	switch {
 	case (c.TLS.Cert == "") != (c.TLS.Key == ""):
 		l.errs = append(l.errs, errors.New("ERP_TLS_CERT and ERP_TLS_KEY go together: the certificate the cell presents and its key"))

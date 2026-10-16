@@ -1,11 +1,14 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
@@ -20,7 +23,8 @@ func TestRequirePeer(t *testing.T) {
 		u, _ := url.Parse(id)
 		return &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{URIs: []*url.URL{u}}}}}
 	}
-	h := httpapi.RequirePeer(router, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	var logged bytes.Buffer
+	h := httpapi.RequirePeer(router, slog.New(slog.NewTextHandler(&logged, nil)), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	for _, c := range []struct {
 		name string
 		tls  *tls.ConnectionState
@@ -39,6 +43,10 @@ func TestRequirePeer(t *testing.T) {
 			if rec.Code != c.want {
 				t.Errorf("status: got %d, want %d", rec.Code, c.want)
 			}
+			if refused := strings.Contains(logged.String(), "peer not allowed"); refused != (c.want == http.StatusForbidden) {
+				t.Errorf("logged a refusal: got %v, want %v", refused, c.want == http.StatusForbidden)
+			}
+			logged.Reset()
 		})
 	}
 }

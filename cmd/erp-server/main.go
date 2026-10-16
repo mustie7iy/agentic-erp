@@ -664,9 +664,9 @@ func (s *server) peers(api, control http.Handler) (http.Handler, http.Handler) {
 	}
 	router := tlsconf.ID(s.cfg.TrustDomain, "global", "erp-router")
 	if control != nil {
-		control = httpapi.RequirePeer(router, control)
+		control = httpapi.RequirePeer(router, s.log, control)
 	}
-	return httpapi.RequirePeer(router, api), control
+	return httpapi.RequirePeer(router, s.log, api), control
 }
 
 // listen opens the API and admin listeners; when the second fails the

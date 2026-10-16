@@ -27,44 +27,53 @@ func PeerID(cs *tls.ConnectionState) string {
 }
 
 // ServerConfig serves with the material read last, taken on each
-// handshake: the store's certificate, and clients verified against the
-// bundle alone as clientAuth says.
+// handshake in one read: the store's certificate, and clients verified
+// against the bundle alone as clientAuth says. It issues no session
+// tickets, so a client whose authority leaves the bundle is verified again
+// on its next connection rather than resumed.
 func (s *Store) ServerConfig(minVersion uint16, clientAuth tls.ClientAuthType) *tls.Config {
 	return &tls.Config{MinVersion: minVersion, GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
-		bundle, err := s.Bundle()
+		m, err := s.snapshot()
 		if err != nil {
 			return nil, err
 		}
-		cert, err := s.Certificate()
-		if err != nil {
-			return nil, err
+		if m.cert == nil {
+			return nil, ErrNoCertificate
 		}
-		return &tls.Config{MinVersion: minVersion, Certificates: []tls.Certificate{cert}, ClientAuth: clientAuth, ClientCAs: bundle}, nil
+		return &tls.Config{MinVersion: minVersion, Certificates: []tls.Certificate{*m.cert}, ClientAuth: clientAuth, ClientCAs: m.bundle,
+			SessionTicketsDisabled: true}, nil
 	}}
 }
 
 // InternalClient is a client to the deployment's own services: TLS 1.3,
 // the store's certificate presented, the server verified against the
-// bundle alone and accepted only when allow accepts its SPIFFE ID. It
-// connects directly, like HTTPClient.
+// bundle alone and accepted only when allow accepts its SPIFFE ID; bundle
+// and certificate taken in one read per connection. It connects directly,
+// like HTTPClient.
 func (s *Store) InternalClient(timeout time.Duration, allow func(id string) bool) *http.Client {
 	return s.client(timeout, func(host string) (*tls.Config, error) {
-		bundle, err := s.Bundle()
+		m, err := s.snapshot()
 		if err != nil {
 			return nil, err
 		}
-		// ClientConfig fails only before the store read, which Bundle has
-		// just ruled out: a store never unreads.
-		cfg, _ := s.ClientConfig(Internal, host)
-		cfg.RootCAs = bundle
-		cfg.VerifyConnection = func(cs tls.ConnectionState) error {
-			id := spiffeID(cs.PeerCertificates[0].URIs)
-			if !allow(id) {
-				return fmt.Errorf("tlsconf: the server's identity %q is not one this client may reach", id)
-			}
-			return nil
-		}
-		return cfg, nil
+		return &tls.Config{
+			MinVersion: Internal,
+			ServerName: host,
+			RootCAs:    m.bundle,
+			GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+				if m.cert == nil {
+					return &tls.Certificate{}, nil // none: the server decides whether it needs one
+				}
+				return m.cert, nil
+			},
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				id := spiffeID(cs.PeerCertificates[0].URIs)
+				if !allow(id) {
+					return fmt.Errorf("tlsconf: the server's identity %q is not one this client may reach", id)
+				}
+				return nil
+			},
+		}, nil
 	})
 }
 

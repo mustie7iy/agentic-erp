@@ -378,7 +378,8 @@ func TestLoadConfigTLS(t *testing.T) {
 		{"production without a public certificate", map[string]string{"ERP_ROUTER_PUBLIC_CERT": "", "ERP_ROUTER_PUBLIC_KEY": ""}, "ERP_ROUTER_PUBLIC_CERT and ERP_ROUTER_PUBLIC_KEY are required with ERP_ENV=production"},
 		{"production without a trust domain", map[string]string{"ERP_TRUST_DOMAIN": ""}, "ERP_TRUST_DOMAIN is required with ERP_ENV=production"},
 		{"a bad trust domain", map[string]string{"ERP_TRUST_DOMAIN": "Erp"}, "ERP_TRUST_DOMAIN must be"},
-		{"an identity without a trust domain", map[string]string{"ERP_ENV": "development", "ERP_TRUST_DOMAIN": ""}, "ERP_TLS_CERT needs ERP_TRUST_DOMAIN"},
+		{"an identity without a trust domain", map[string]string{"ERP_ENV": "development", "ERP_TRUST_DOMAIN": ""}, "ERP_TLS_* needs ERP_TRUST_DOMAIN"},
+		{"a bundle without a trust domain", map[string]string{"ERP_ENV": "development", "ERP_TRUST_DOMAIN": "", "ERP_TLS_CERT": "", "ERP_TLS_KEY": ""}, "ERP_TLS_* needs ERP_TRUST_DOMAIN"},
 		{"an unreadable identity", map[string]string{"ERP_TLS_CA": "file:/nonexistent/ca.crt"}, "ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: tlsconf: CA bundle"},
 		{"a public key without its certificate", map[string]string{"ERP_ROUTER_PUBLIC_CERT": ""}, "ERP_ROUTER_PUBLIC_CERT, ERP_ROUTER_PUBLIC_KEY: tlsconf: the certificate and key go together"},
 	} {

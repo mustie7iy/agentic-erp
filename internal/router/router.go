@@ -118,8 +118,8 @@ func (c *Config) loadTLS(getenv func(string) string) []error {
 	}
 	c.Identity = read("ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY", tlsconf.Source{CA: getenv("ERP_TLS_CA"), Cert: getenv("ERP_TLS_CERT"), Key: getenv("ERP_TLS_KEY")})
 	c.Public = read("ERP_ROUTER_PUBLIC_CERT, ERP_ROUTER_PUBLIC_KEY", tlsconf.Source{Cert: getenv("ERP_ROUTER_PUBLIC_CERT"), Key: getenv("ERP_ROUTER_PUBLIC_KEY")})
-	if c.Identity != nil && c.Identity.HasCertificate() && c.TrustDomain == "" {
-		errs = append(errs, errors.New("ERP_TLS_CERT needs ERP_TRUST_DOMAIN: the router accepts only cells' identities in it (ADR-0033)"))
+	if c.Identity != nil && c.TrustDomain == "" {
+		errs = append(errs, errors.New("ERP_TLS_* needs ERP_TRUST_DOMAIN: with them the router reaches cells over TLS only, accepting only cells' identities in the trust domain (ADR-0033)"))
 	}
 	if c.Environment != config.Production {
 		return errs

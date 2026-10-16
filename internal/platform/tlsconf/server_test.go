@@ -157,3 +157,17 @@ func TestInternalClientBeforeRefresh(t *testing.T) {
 		t.Errorf("got %v, want refused before the material is read", err)
 	}
 }
+
+// TestServerConfigHasNoTickets: internal servers resume no sessions, so a
+// client whose authority left the bundle is verified again on its next
+// connection rather than resumed (ADR-0033).
+func TestServerConfigHasNoTickets(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	cfg, err := identity(t, ca, "none").ServerConfig(tlsconf.Internal, tls.RequireAndVerifyClientCert).GetConfigForClient(&tls.ClientHelloInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SessionTicketsDisabled {
+		t.Error("SessionTicketsDisabled: got false, want true")
+	}
+}

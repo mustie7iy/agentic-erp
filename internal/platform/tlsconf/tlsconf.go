@@ -145,15 +145,21 @@ func (s *Store) RootCAs() (*x509.CertPool, error) {
 	return s.roots, nil
 }
 
-// Bundle is the CA bundle alone, the deployment's own authority: what
-// clients' and internal servers' certificates are verified against.
-func (s *Store) Bundle() (*x509.CertPool, error) {
+// material is what one read of the store found, taken together so a
+// handshake never pairs a new certificate with an old bundle.
+type material struct {
+	bundle *x509.CertPool
+	cert   *tls.Certificate // nil: none configured
+}
+
+// snapshot is the material read last, in one read.
+func (s *Store) snapshot() (material, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if !s.loaded {
-		return nil, ErrNotLoaded
+		return material{}, ErrNotLoaded
 	}
-	return s.bundle, nil
+	return material{bundle: s.bundle, cert: s.cert}, nil
 }
 
 // Certificate is the certificate the process presents.

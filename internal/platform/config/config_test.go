@@ -800,13 +800,17 @@ func TestTrustDomain(t *testing.T) {
 		name, value, wantErr string
 	}{
 		{"none", "", ""},
-		{"a domain", "erp.example.com", ""},
+		{"a domain", "erp.example.com", ""}, // with the certificate set below
 		{"upper case", "ERP.example", "ERP_TRUST_DOMAIN must be"},
 		{"a URL", "spiffe://erp.example", "ERP_TRUST_DOMAIN must be"},
+		{"without a certificate", "erp.example", "ERP_TRUST_DOMAIN needs ERP_TLS_CERT"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			m := valid()
 			m["ERP_TRUST_DOMAIN"] = c.value
+			if c.name != "without a certificate" {
+				maps.Copy(m, tlsFiles(t))
+			}
 			cfg, err := Load(env(m))
 			if c.wantErr != "" {
 				pgtest.CheckErr(t, err, c.wantErr)

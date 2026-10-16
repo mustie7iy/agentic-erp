@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
@@ -176,7 +177,7 @@ func short(hash string) string {
 // whole; the cell not answering is reported as 502, a control URL that
 // cannot be used, or one not https with RequireTLS, as 503.
 func (s *Service) call(ctx context.Context, cell directory.Cell, method, path string, body []byte, headers map[string]string) (int, []byte, http.Header, error) {
-	if s.RequireTLS && !strings.HasPrefix(cell.ControlURL, "https://") {
+	if u, err := url.Parse(cell.ControlURL); s.RequireTLS && (err != nil || u.Scheme != "https") {
 		return 0, nil, nil, problem.Unavailable("Cell "+cell.Name+" has no https control URL.", 60)
 	}
 	var reader io.Reader

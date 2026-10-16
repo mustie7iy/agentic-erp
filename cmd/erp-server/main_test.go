@@ -742,10 +742,12 @@ func checkAPIPeers(t *testing.T, ca *tlstest.CA, addr string) {
 		{tlsconf.ID(trustDomain, "eu2", "erp-server"), http.StatusForbidden},
 		{tlsconf.ID(trustDomain, "global", "erp-router"), http.StatusUnauthorized},
 	} {
-		req, _ := http.NewRequestWithContext(t.Context(), "GET", url, nil)
-		if got := statusWith(t, peerClient(t, ca, c.id), req); got != c.want {
-			t.Errorf("API from %s: got %d, want %d", c.id, got, c.want)
-		}
+		t.Run("API from "+c.id, func(t *testing.T) {
+			req, _ := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+			if got := statusWith(t, peerClient(t, ca, c.id), req); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
 	}
 }
 
@@ -803,11 +805,13 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 		t.Errorf("a probe without a certificate: got %d, want 200", got)
 	}
 	for name, client := range map[string]*http.Client{"no certificate": peerClient(t, ca, ""), "another service": peerClient(t, ca, tlsconf.ID(trustDomain, "eu2", "erp-server"))} {
-		req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
-		req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil, "roles": []string{"erp:read"}}))
-		if got := statusWith(t, client, req); got != http.StatusForbidden {
-			t.Errorf("/control from %s: got %d, want 403", name, got)
-		}
+		t.Run("/control from "+name, func(t *testing.T) {
+			req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
+			req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil, "roles": []string{"erp:read"}}))
+			if got := statusWith(t, client, req); got != http.StatusForbidden {
+				t.Errorf("got %d, want 403", got)
+			}
+		})
 	}
 	if got := get(map[string]any{"tenant_id": nil}); got != http.StatusForbidden {
 		t.Errorf("no roles claim: got %d, want 403", got)
