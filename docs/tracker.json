@@ -5461,9 +5461,34 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Fix the soak's drift: since 2026-10-13 the nightly two-hour soak fails, p95 rising from about 0.2 s to 1.5-2.6 s, throughput halving and the heap growing from 24 to 148 MB; after T32",
-      "r": "internal/nfr/soak_test.go · nightly run 38865752187",
+      "s": "P",
+      "t": "Fix the soak's drift: the two-hour soak has never passed. Its heap growth was the test API's own log (fixed); its latency drift comes from list queries that read every row (generic plans over catch-all filters, no index for the sort)",
+      "r": "internal/nfr/soak_test.go · apitest log limit · list-plans (index + custom plans at the list helper)",
+      "c": [
+       {
+        "s": "D",
+        "t": "The test API keeps only its latest logs, so a soak's heap measures the server",
+        "r": "internal/app/apitest · pgtest.SyncBuffer.Limit",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Journal and approvals lists read a page, not the table: an index for the sort and plans made for the filters given, with a rows-read regression test",
+        "r": "db/migrations · internal/platform/pagination · list-plans",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Sweep the remaining catch-all filter lists (68 sites in 26 files) onto the list helper",
+        "r": "",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
+      "t": "TestConcurrentRetryWaitsThenGets409 waits for its first request in the handler: its old wait matched its own query and could hang CI",
+      "r": "internal/platform/uow/uow_test.go",
       "c": []
      },
      {

@@ -5,7 +5,6 @@
 package apitest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,20 +40,15 @@ type API struct {
 	Handler http.Handler
 	Issuer  *authntest.Issuer
 	Metrics *telemetry.Metrics
-	logs    *syncBuffer
+	logs    *pgtest.SyncBuffer
 }
 
-type syncBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.b.Write(p) // a bytes.Buffer write cannot fail
-	return len(p), nil
-}
+// logLimit bounds the logs an API keeps. It logs every request at debug
+// level: a two-hour soak wrote hundreds of megabytes, which the soak's heap
+// check then counted against the server. Tests read what they just did, so
+// the latest megabytes are enough (the buffer holds at most twice logLimit,
+// in about four times as much memory).
+const logLimit = 8 << 20
 
 // New builds the API; it is skipped without DATABASE_URL.
 func New(tb testing.TB) *API {
@@ -76,7 +70,7 @@ func NewWith(tb testing.TB, configure func(*app.Config)) *API {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	a := &API{t: tb, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &syncBuffer{}}
+	a := &API{t: tb, Issuer: is, Metrics: telemetry.NewMetrics(), logs: &pgtest.SyncBuffer{Limit: logLimit}}
 	cfg := app.Config{
 		Pool: pool, AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: FieldKeys(), UploadKey: []byte(strings.Repeat("u", 32)),
 		Log: telemetry.NewLogger(a.logs, -4), Metrics: a.Metrics,
@@ -127,11 +121,10 @@ func FieldKeys() *fieldcrypt.Keyring {
 	return &fieldcrypt.Keyring{Masters: []fieldcrypt.Master{master}, Legacy: legacy, AppRole: "erp_app"}
 }
 
-// Logs returns everything logged so far.
+// Logs returns what was logged so far: roughly the latest logLimit bytes, at
+// most twice that.
 func (a *API) Logs() string {
-	a.logs.mu.Lock()
-	defer a.logs.mu.Unlock()
-	return a.logs.b.String()
+	return a.logs.String()
 }
 
 // Req is one API call.
