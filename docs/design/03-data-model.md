@@ -1266,7 +1266,12 @@ type `purchase_order`) and a change that raises a released order's total
 its company's currency, through `purchasing.order_release_approval` tiers,
 as requisitions are through theirs (T47c), decided by holders of the
 tier's roles with `procurement.order.approve`. A document without those
-tiers routes nothing and refuses the order (422 `workflow.no_policy`).
+tiers routes nothing and refuses the order (422 `workflow.no_policy`). The key
+is required from T47c on: a tenant whose active document predates it has
+its next change request refused (422 `config.validation_failed`, field
+`proposed.purchasing.order_release_approval`) until the proposal adds the
+tiers, an operational-tier change; change requests approved before still
+activate, and orders under them are refused.
 
 ## 3.12 Audit (`audit`)
 

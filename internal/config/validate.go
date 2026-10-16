@@ -367,8 +367,9 @@ func (v *validator) tiers(path string, tiers []ApprovalTier, c *Config) {
 	}
 }
 
-// threshold reads a requisition approval limit. A limit applies to
-// requisitions in every company's currency, so it must read with the
+// threshold reads an approval tier's limit (requisitions, order
+// releases). A limit applies to documents in every company's currency, so
+// it must read with the
 // digits of each (ref.currency): the approval routing then never meets a
 // limit it cannot parse. Its value, for the order of the tiers, is read
 // with the most digits.

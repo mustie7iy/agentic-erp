@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // inCompany is a company whose currency has exp digits and is the
@@ -307,5 +308,11 @@ func TestOrderSteps(t *testing.T) {
 		amount := money.Minor(1)
 		_, err := steps(context.Background(), inCompany{2}, &config.Config{}, NewRequest{ObjectType: PurchaseOrder, Amount: &amount, Currency: &eur})
 		pgtest.WantErr(t, err, "purchasing.order_release_approval")
+		if p := problem.From(err); p.Code != "workflow.no_policy" {
+			t.Errorf("problem: got %s, want workflow.no_policy", p.Code)
+		}
+		if p := problem.From(err); p.Status != 422 {
+			t.Errorf("status: got %d, want 422", p.Status)
+		}
 	})
 }
