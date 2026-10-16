@@ -63,6 +63,7 @@ flowchart LR
   configuration --> partner
   configuration --> ledger
   partner --> procurement
+  ledger --> procurement
   ledger --> payables
   procurement --> payables
   payables --> payments
