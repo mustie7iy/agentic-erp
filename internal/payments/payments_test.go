@@ -55,9 +55,18 @@ type env struct {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	f := fixture.New(t, perms...)
+	return setupWith(t, nil, func(*app.Config) {})
+}
+
+// setupWith is setup with more permissions and API wiring.
+func setupWith(t *testing.T, more []string, configure func(*app.Config)) env {
+	t.Helper()
+	f := fixture.New(t, append(append([]string{}, perms...), more...)...)
 	c := &connector{}
-	f.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Connector = c })
+	f.API = apitest.NewWith(t, func(cfg *app.Config) {
+		cfg.Connector = c
+		configure(cfg)
+	})
 	e := env{Env: f, expense: f.Account(t, "2000", "520000"), connector: c}
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id FROM payments.house_bank WHERE legal_entity_id = $1`, f.DE).Scan(&e.bank); err != nil {
 		t.Fatal(err)
