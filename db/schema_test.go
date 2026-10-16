@@ -1876,3 +1876,64 @@ func TestControlRoleReadsTheRegistry(t *testing.T) {
 		})
 	}
 }
+
+// TestSessions: a session's key is unique per principal, only its last
+// sighting and its end change, and an ended session never resumes
+// (ADR-0031); the sweeper's role may delete them, the application may not.
+func TestSessions(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	principal := id()
+	key := make([]byte, 32)
+	start := func(tx pgx.Tx, s uuid.UUID) error {
+		return exec(tx, `INSERT INTO identity.session (tenant_id, id, principal_id, session_key, started_at, last_seen_at) VALUES ($1, $2, $3, $4, now(), now())`,
+			f.tenant, s, principal, key)
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','https://s.example.com','s|1','S','active',$2,$2)",
+			f.tenant, principal)
+	})
+	s := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return start(tx, s) })
+	update := func(set string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE identity.session SET "+set+", version = version + 1 WHERE id = $1", s)
+		})
+	}
+	t.Run("one session per key", func(t *testing.T) {
+		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return start(tx, id()) }), "session_principal_key")
+	})
+	t.Run("a key is a sha256", func(t *testing.T) {
+		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO identity.session (tenant_id, id, principal_id, session_key, started_at, last_seen_at) VALUES ($1, $2, $3, '\x00', now(), now())`, f.tenant, id(), principal)
+		}), "session_session_key_check")
+	})
+	t.Run("only the last sighting and the end change", func(t *testing.T) {
+		if err := update("last_seen_at = now()"); err != nil {
+			t.Errorf("last sighting: got %v, want updated", err)
+		}
+		failsWith(t, update("started_at = now() - interval '1 day'"), "only last_seen_at and its end change")
+		failsWith(t, update("ended_at = now()"), "session_end_reason")
+	})
+	t.Run("an ended session never resumes", func(t *testing.T) {
+		if err := update("ended_at = now(), end_reason = 'idle'"); err != nil {
+			t.Fatal(err)
+		}
+		failsWith(t, update("last_seen_at = now()"), "has ended")
+	})
+	t.Run("the sweeper's role deletes, the application's does not", func(t *testing.T) {
+		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, "DELETE FROM identity.session WHERE id = $1", s) }), "permission denied")
+		ctx := context.Background()
+		tx, err := testDB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, "SET LOCAL ROLE erp_worker"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, "DELETE FROM identity.session WHERE id = $1", s); err != nil {
+			t.Errorf("sweeper delete: got %v, want deleted", err)
+		}
+	})
+}
