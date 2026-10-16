@@ -463,6 +463,7 @@ func (s *server) newAPI() error {
 		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
+		RequireBoundAgents: cfg.Environment == config.Production,
 	}
 	var err error
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {
@@ -656,17 +657,19 @@ func (s *server) secure(apiLn, adminLn net.Listener) (net.Listener, net.Listener
 
 // peers restricts, with a trust domain, the API and the control plane to
 // the router's identity, which is also the global plane's: the router
-// forwards every public request, the global plane calls /control, and
-// the operator's token is still required there (ADR-0033).
+// forwards every public request, with the thumbprint of the client's
+// certificate the cell then trusts, the global plane calls /control, and
+// the operator's token is still required there (ADR-0033). Without a
+// trust domain the thumbprint is not trusted.
 func (s *server) peers(api, control http.Handler) (http.Handler, http.Handler) {
 	if s.cfg.TrustDomain == "" {
-		return api, control
+		return httpapi.ClientCertificate(false, api), control
 	}
 	router := tlsconf.ID(s.cfg.TrustDomain, "global", "erp-router")
 	if control != nil {
 		control = httpapi.RequirePeer(router, s.log, control)
 	}
-	return httpapi.RequirePeer(router, s.log, api), control
+	return httpapi.RequirePeer(router, s.log, httpapi.ClientCertificate(true, api)), control
 }
 
 // listen opens the API and admin listeners; when the second fails the

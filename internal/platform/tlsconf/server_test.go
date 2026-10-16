@@ -2,7 +2,10 @@ package tlsconf_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -178,5 +181,14 @@ func TestServerConfigHasNoTickets(t *testing.T) {
 	}
 	if !cfg.SessionTicketsDisabled {
 		t.Error("SessionTicketsDisabled: got false, want true")
+	}
+}
+
+// TestThumbprint: RFC 8705's x5t#S256 is the base64url SHA-256 of the DER.
+func TestThumbprint(t *testing.T) {
+	cert := &x509.Certificate{Raw: []byte("der")}
+	sum := sha256.Sum256([]byte("der"))
+	if got, want := tlsconf.Thumbprint(cert), base64.RawURLEncoding.EncodeToString(sum[:]); got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

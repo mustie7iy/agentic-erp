@@ -130,3 +130,8 @@ Provisioning claims the issuer in the global directory last, right before
 its commit, so the claim grace (5 minutes) covers it. Production refuses
 `ERP_OIDC_ISSUERS`, requires `ERP_OPERATOR_ISSUERS`, and refuses to start
 while an active tenant has no active identity provider, naming them.
+
+**Amended 2026-10-16 (T38d, ADR-0033).** A registration says whether the
+provider binds its tokens to the client's certificate
+(`certificate_bound_tokens`, migration 000058, false by default); in
+production agents are accepted only from a provider that does.

@@ -37,6 +37,9 @@ type Registration struct {
 	// The tenant's session rule for people (the cell's registry).
 	SessionMaxAge time.Duration
 	IdleTimeout   time.Duration
+	// CertificateBound says the provider binds its tokens to the client's
+	// certificate (RFC 8705, ADR-0033; the cell's registry).
+	CertificateBound bool
 }
 
 // The registry's answers for a token no registration, or more than one,
@@ -83,7 +86,7 @@ func (v *Verifier) verifyRegistered(ctx context.Context, raw, iss string, auds [
 	// operator's: they hold no operator role.
 	c := reqctx.Claims{Issuer: reg.Issuer, Subject: tok.Subject, ProviderID: reg.ProviderID, Roles: []string{},
 		MFA:     reqctx.MFA{Required: reg.MFARequired, ACRValues: reg.ACRValues, AMRValues: reg.AMRValues},
-		Session: reqctx.SessionRule{MaxAge: reg.SessionMaxAge, Idle: reg.IdleTimeout}}
+		Session: reqctx.SessionRule{MaxAge: reg.SessionMaxAge, Idle: reg.IdleTimeout}, CertificateBound: reg.CertificateBound}
 	facts(&c, tok, claims)
 	return c, reg.TenantID.String(), nil
 }
@@ -125,6 +128,9 @@ func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
 	}
 	c.ACR, _ = claims["acr"].(string)
 	c.SessionID, _ = claims["sid"].(string)
+	if cnf, ok := claims["cnf"].(map[string]any); ok {
+		c.CertThumbprint, _ = cnf["x5t#S256"].(string)
+	}
 	if amr, ok := claims["amr"].([]any); ok {
 		for _, m := range amr {
 			s, ok := m.(string)

@@ -57,3 +57,13 @@ people's sessions have a lifetime and an idle timeout. Outside development
 operator binds a principal whose issuer is not an active provider of its
 tenant (such as `erp-dev` after 000046) to a registered provider. ADR-0031
 has the design.
+
+**Amended 2026-10-16 (T38d, ADR-0033).** Agents' tokens are bound to the
+agent's client certificate (RFC 8705, `cnf.x5t#S256`). The router asks
+every public client for a certificate and forwards its thumbprint to the
+cell, which trusts it only from the router's SPIFFE identity. A bound
+token, anyone's, is accepted only with its certificate. In production an
+agent's token is accepted only bound, from a provider registered with
+`certificate_bound_tokens`; otherwise it is 401, logged. People and
+services are not asked. The token remains the principal; the certificate
+only proves the token's holder.

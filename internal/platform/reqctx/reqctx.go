@@ -48,6 +48,13 @@ type Claims struct {
 	// Session is the tenant's session rule for people; zero for a token
 	// of a deployment's own issuer, which no tenant's policy covers.
 	Session SessionRule
+	// CertThumbprint is the token's cnf.x5t#S256: the SHA-256 thumbprint
+	// of the client certificate it is bound to (RFC 8705); empty when the
+	// token is not bound.
+	CertThumbprint string
+	// CertificateBound says the token's registered provider binds its
+	// tokens to certificates (ADR-0033).
+	CertificateBound bool
 }
 
 // SessionRule is how long a person's session lasts from the
@@ -79,7 +86,20 @@ const (
 	principalKey
 	txKey
 	traceKey
+	clientCertKey
 )
+
+// WithClientCert records the thumbprint (RFC 8705 x5t#S256) of the client
+// certificate the request was made with, as the router forwarded it.
+func WithClientCert(ctx context.Context, thumbprint string) context.Context {
+	return context.WithValue(ctx, clientCertKey, thumbprint)
+}
+
+// ClientCertFrom is the request's client certificate thumbprint, or "".
+func ClientCertFrom(ctx context.Context) string {
+	t, _ := ctx.Value(clientCertKey).(string)
+	return t
+}
 
 func WithClaims(ctx context.Context, c Claims) context.Context {
 	return context.WithValue(ctx, claimsKey, c)

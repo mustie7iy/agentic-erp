@@ -2,7 +2,10 @@ package tlsconf
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -106,6 +109,19 @@ func (s *Store) client(timeout time.Duration, config func(ctx context.Context, h
 		return conn, nil
 	}
 	return &http.Client{Timeout: timeout, Transport: t}
+}
+
+// ClientCertHeader carries, from the router to the cell, the RFC 8705
+// thumbprint (x5t#S256) of the client certificate a public request was
+// made with; the cell trusts it from the router's identity only
+// (ADR-0033).
+const ClientCertHeader = "Erp-Client-Cert-Thumbprint"
+
+// Thumbprint is a certificate's RFC 8705 x5t#S256: the base64url SHA-256
+// of its DER encoding, what a bound token's cnf names.
+func Thumbprint(cert *x509.Certificate) string {
+	sum := sha256.Sum256(cert.Raw)
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // peerKey keys the SPIFFE ID a request's connection must present.

@@ -50,6 +50,9 @@ type Middleware struct {
 	// Sessions checks a person's session (identity.Sessions, ADR-0031);
 	// nil checks none.
 	Sessions Sessions
+	// RequireBoundAgents accepts an agent's token only bound to its client
+	// certificate by a provider that binds tokens (production, ADR-0033).
+	RequireBoundAgents bool
 }
 
 // Sessions checks a person's session: its lifetime and idle timeout. It
@@ -149,6 +152,10 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		if err := authn.CheckMFA(claims); err != nil {
 			return err
 		}
+	}
+	if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), m.RequireBoundAgents && principal.Kind == reqctx.KindAgent); err != nil {
+		m.Log.WarnContext(ctx, "certificate binding refused", "principal_id", principal.ID, "kind", principal.Kind, "bound", claims.CertThumbprint != "")
+		return err
 	}
 	info := reqctx.InfoFrom(ctx)
 	info.TenantID, info.PrincipalID = principal.TenantID, principal.ID
