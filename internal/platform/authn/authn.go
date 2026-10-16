@@ -81,10 +81,14 @@ const (
 	Production  Environment = "production"
 )
 
-// Verifier checks bearer tokens from the trusted issuers.
+// Verifier checks bearer tokens from the trusted issuers: the static ones
+// configured for the deployment, and, with a registry, the identity
+// providers tenants registered (ADR-0031).
 type Verifier struct {
-	issuers map[string]issuer
-	env     Environment
+	issuers   map[string]issuer
+	env       Environment
+	registry  Registry
+	providers *Providers
 }
 
 // Static is an issuer trusted with known keys instead of discovery (the
@@ -100,7 +104,22 @@ func New(ctx context.Context, env Environment, issuers []Issuer, static ...Stati
 	if len(issuers)+len(static) == 0 {
 		return nil, errors.New("authn: at least one trusted issuer is required")
 	}
-	v := &Verifier{issuers: map[string]issuer{}, env: env}
+	return build(ctx, &Verifier{issuers: map[string]issuer{}, env: env}, issuers, static)
+}
+
+// NewRegistered is New with a registry of tenants' identity providers: a
+// token of an issuer the deployment does not configure is trusted when the
+// registry resolves its issuer and audience, for the registration's tenant,
+// and verified with the keys providers fetches (ADR-0031). It may configure
+// no issuer of its own.
+func NewRegistered(ctx context.Context, env Environment, registry Registry, providers *Providers, issuers []Issuer, static ...Static) (*Verifier, error) {
+	if registry == nil || providers == nil {
+		return nil, errors.New("authn: a registry needs its identity providers' keys (Providers)")
+	}
+	return build(ctx, &Verifier{issuers: map[string]issuer{}, env: env, registry: registry, providers: providers}, issuers, static)
+}
+
+func build(ctx context.Context, v *Verifier, issuers []Issuer, static []Static) (*Verifier, error) {
 	for _, s := range static {
 		v.issuers[s.Issuer.URL] = issuer{verifier: oidc.NewVerifier(s.Issuer.URL, s.Keys, &oidc.Config{ClientID: s.Issuer.Audience}), tenantClaim: DefaultTenantClaim, rolesClaim: DefaultRolesClaim}
 	}
@@ -161,13 +180,13 @@ func (v *Verifier) VerifyOperator(ctx context.Context, raw string) (reqctx.Claim
 // verify checks signature, issuer, audience and expiry, and returns the
 // claims without a tenant and the tenant claim as the token carries it.
 func (v *Verifier) verify(ctx context.Context, raw string) (reqctx.Claims, string, error) {
-	iss, err := unverifiedIssuer(raw)
+	iss, auds, err := unverified(raw)
 	if err != nil {
 		return reqctx.Claims{}, "", problem.Unauthorized("The bearer token is malformed.").WithCause(err)
 	}
 	is, ok := v.issuers[iss]
 	if !ok {
-		return reqctx.Claims{}, "", problem.Unauthorized("The token's issuer is not trusted.")
+		return v.verifyRegistered(ctx, raw, iss, auds)
 	}
 	tok, err := is.verifier.Verify(ctx, raw)
 	if err != nil {
@@ -185,7 +204,9 @@ func (v *Verifier) verify(ctx context.Context, raw string) (reqctx.Claims, strin
 		// widen access. Nil, every role, is development's alone.
 		rs = []string{}
 	}
-	return reqctx.Claims{Issuer: iss, Subject: tok.Subject, Roles: rs}, s, nil
+	c := reqctx.Claims{Issuer: iss, Subject: tok.Subject, Roles: rs}
+	facts(&c, tok, claims)
+	return c, s, nil
 }
 
 // roles reads a present roles claim: a JSON array of strings, or one string
@@ -212,24 +233,33 @@ func roles(v any) []string {
 	return out
 }
 
-// unverifiedIssuer reads `iss` to choose the verifier; nothing else is
-// trusted before the signature is checked.
-func unverifiedIssuer(raw string) (string, error) {
+// unverified reads `iss` and `aud` to choose the verifier or the
+// registration; nothing else is trusted before the signature is checked.
+func unverified(raw string) (string, []string, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
-		return "", errors.New("not a JWS compact token")
+		return "", nil, errors.New("not a JWS compact token")
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", fmt.Errorf("authn: decode token payload: %w", err)
+		return "", nil, fmt.Errorf("authn: decode token payload: %w", err)
 	}
 	var c struct {
-		Iss string `json:"iss"`
+		Iss string          `json:"iss"`
+		Aud json.RawMessage `json:"aud"`
 	}
 	if err := json.Unmarshal(payload, &c); err != nil {
-		return "", fmt.Errorf("authn: parse token payload: %w", err)
+		return "", nil, fmt.Errorf("authn: parse token payload: %w", err)
 	}
-	return c.Iss, nil
+	var one string
+	if json.Unmarshal(c.Aud, &one) == nil {
+		return c.Iss, []string{one}, nil
+	}
+	var many []string
+	if err := json.Unmarshal(c.Aud, &many); err != nil {
+		return "", nil, fmt.Errorf("authn: token audience: %w", err)
+	}
+	return c.Iss, many, nil
 }
 
 // Middleware authenticates every request as a tenant's principal and puts

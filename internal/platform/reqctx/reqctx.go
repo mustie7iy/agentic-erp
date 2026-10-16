@@ -7,6 +7,7 @@ package reqctx
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -28,6 +29,18 @@ type Claims struct {
 	// Roles are an operator token's roles (ADR-0027): nil when the token
 	// carries no roles claim, which the control planes treat as every role.
 	Roles []string
+	// ProviderID is the registered identity provider whose registration
+	// decided the tenant (ADR-0031); zero for a token of a static issuer.
+	ProviderID uuid.UUID
+	// The token's facts multi-factor and sessions are decided on: when the
+	// person authenticated at the provider (auth_time; zero when absent),
+	// when the token was issued, how (acr, amr) and in which provider
+	// session (sid). Absent or malformed claims leave them empty.
+	AuthTime  time.Time
+	IssuedAt  time.Time
+	ACR       string
+	AMR       []string
+	SessionID string
 }
 
 // Principal is the authenticated actor resolved in the tenant's identity data.
