@@ -286,3 +286,68 @@ func TestNewRegisteredNeedsARegistry(t *testing.T) {
 		t.Errorf("an issuer without an audience: got %v (%v), want refused", err, p)
 	}
 }
+
+// TestImplausibleIssuersAreNeverLookedUp: a token's issuer and audiences
+// are not yet verified when they are looked up, so ones no registration
+// could hold (the database's own bounds) are refused before the registry.
+func TestImplausibleIssuersAreNeverLookedUp(t *testing.T) {
+	is := authntest.NewSeparate(t)
+	reg := &registry{}
+	v := registered(t, reg)
+	many := make([]string, 9)
+	for i := range many {
+		many[i] = "aud-" + strings.Repeat("x", i+1)
+	}
+	for _, c := range []struct {
+		name  string
+		extra map[string]any
+	}{
+		{"a long issuer", map[string]any{"iss": "https://idp.example.com/" + strings.Repeat("a", 600)}},
+		{"an issuer that is not a URL", map[string]any{"iss": "idp"}},
+		{"an issuer with a query", map[string]any{"iss": "https://idp.example.com/?x=1"}},
+		{"too many audiences", map[string]any{"aud": many}},
+		{"a long audience", map[string]any{"aud": strings.Repeat("a", 256)}},
+		{"an empty audience", map[string]any{"aud": ""}},
+		{"no audience", map[string]any{"aud": []string{}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			before := reg.calls
+			_, err := v.Verify(context.Background(), is.Token(t, uuid.Nil, "mallory", c.extra))
+			wantStatus(t, err, 401)
+			if reg.calls != before {
+				t.Errorf("registry calls: got %d, want none", reg.calls-before)
+			}
+		})
+	}
+}
+
+// TestRegistryCacheKeysAreUnambiguous: an audience holding the separator
+// of another token's two audiences does not share its answer.
+func TestRegistryCacheKeysAreUnambiguous(t *testing.T) {
+	inner := &registry{}
+	inner.add(authn.Registration{TenantID: uuid.New(), Issuer: "https://x.example.com", Audience: "a"})
+	cache := &authn.RegistryCache{Registry: inner}
+	ctx := context.Background()
+	if _, err := cache.Resolve(ctx, "https://x.example.com", []string{"a\nb"}); !errors.Is(err, authn.ErrUnknownIssuer) {
+		t.Fatalf("got %v, want ErrUnknownIssuer", err)
+	}
+	if _, err := cache.Resolve(ctx, "https://x.example.com", []string{"a", "b"}); err != nil {
+		t.Errorf("a real token's audiences: got %v, want resolved", err)
+	}
+}
+
+// TestRegistryCacheEvictsExpiredFirst: a full cache drops its expired
+// answers before it drops live ones.
+func TestRegistryCacheEvictsExpiredFirst(t *testing.T) {
+	c := newClock()
+	cache := &authn.RegistryCache{Registry: &registry{}, TTL: time.Minute, Now: c.Now, MaxEntries: 2}
+	ctx := context.Background()
+	_, _ = cache.Resolve(ctx, "https://old.example.com", []string{"erp"})
+	c.Advance(45 * time.Second)
+	_, _ = cache.Resolve(ctx, "https://live.example.com", []string{"erp"})
+	c.Advance(30 * time.Second) // the first answer has expired, the second has not
+	_, _ = cache.Resolve(ctx, "https://new.example.com", []string{"erp"})
+	if got := cache.Len(); got != 2 {
+		t.Errorf("entries: got %d, want 2 (the live one and the new one)", got)
+	}
+}

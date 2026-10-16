@@ -527,7 +527,41 @@ func TestRegistrationsAreBoundedInTime(t *testing.T) {
 	if !slices.ContainsFunc(seen, func(sql string) bool { return strings.Contains(sql, "transaction_timeout") }) {
 		t.Errorf("statements: got %q, want a transaction_timeout set", seen)
 	}
-	if controlplane.WriteTimeout >= directory.ClaimGrace {
-		t.Errorf("write timeout %v: want it below the claim grace %v", controlplane.WriteTimeout, directory.ClaimGrace)
+	if controlplane.DefaultWriteTimeout >= directory.ClaimGrace {
+		t.Errorf("write timeout %v: want it below the claim grace %v", controlplane.DefaultWriteTimeout, directory.ClaimGrace)
+	}
+}
+
+// sleepyCommit sleeps in the transaction before committing it.
+type sleepyCommit struct{ pgx.Tx }
+
+func (s sleepyCommit) Commit(ctx context.Context) error {
+	if _, err := s.Exec(ctx, `SELECT pg_sleep(2)`); err != nil {
+		return err
+	}
+	return s.Tx.Commit(ctx)
+}
+
+// TestWriteTimeoutEndsALongRegistration: a registration whose transaction
+// outlives the write timeout is ended by the database and commits nothing,
+// so its claim in the directory is given up by the next round past the
+// grace, never kept for a provider that does not exist.
+func TestWriteTimeoutEndsALongRegistration(t *testing.T) {
+	s := service(t)
+	s.WriteTimeout = 300 * time.Millisecond
+	s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+		tx, err := s.Pool.Begin(ctx, scope)
+		return sleepyCommit{tx}, err
+	}
+	ten := pgtest.NewTenant(t)
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	in := identity.NewIdentityProvider{Issuer: "https://slow-" + uuid.NewString() + ".example.com", Audience: "erp"}
+	if _, _, err := s.RegisterProvider(context.Background(), op, ten.ID, in, nil); err == nil {
+		t.Fatal("a registration outliving the write timeout: got registered, want it ended")
+	}
+	var n int
+	pgtest.Scan(t, `SELECT count(*) FROM identity.identity_provider WHERE issuer = $1`, []any{in.Issuer}, &n)
+	if n != 0 {
+		t.Errorf("providers registered: got %d, want 0", n)
 	}
 }

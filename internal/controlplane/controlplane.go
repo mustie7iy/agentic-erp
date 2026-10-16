@@ -127,7 +127,10 @@ type Service struct {
 	Directory   *directory.Sync     // records tenants in the global directory after a change; nil: a single cell
 	Pages       *pagination.Codec
 	Production  bool // ERP_ENV=production: identity providers' issuers are https (ADR-0031)
-	Now         func() time.Time
+	// WriteTimeout bounds a registry or policy write's transaction; 0:
+	// DefaultWriteTimeout, which must stay below directory.ClaimGrace.
+	WriteTimeout time.Duration
+	Now          func() time.Time
 	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
 	// inject database failures.
 	Begin database.BeginFunc

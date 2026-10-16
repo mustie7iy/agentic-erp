@@ -102,7 +102,7 @@ func (p *Postgres) ReleaseIssuer(ctx context.Context, is Issuer) error {
 // it up: a claim is made before its registration commits, so a round that
 // read the cell's providers just before the commit would otherwise drop
 // it, and another cell could then take the pair. A registration's
-// transaction is bounded by controlplane.WriteTimeout (one minute, as
+// transaction is bounded by controlplane.DefaultWriteTimeout (one minute, as
 // PostgreSQL's transaction_timeout), so it commits or fails well within
 // the grace.
 const ClaimGrace = 5 * time.Minute

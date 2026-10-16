@@ -82,3 +82,15 @@ cannot be re-bound (T37).
   and their roles), ADR-0021 (sessions not exported) and ADR-0022 (the
   router resolves the tenant by issuer).
 - Built in steps T37a–T37h (07-transition §7.6).
+
+## Amendment (2026-10-16, T37d)
+
+A token's issuer and audiences are looked up before its signature is
+checked, so the verifier first refuses (401, no lookup) any that no
+registration could hold: an issuer that is not an http(s) URL of at most
+512 characters, or other than one to eight audiences of 1 to 255
+characters. The cell resolves the rest against its registrations and the
+router against the directory's claims, each behind a cache of 30 s that
+holds at most 10,000 answers (expired ones dropped first). An issuer no
+tenant registered still costs one lookup per cache period, where it cost
+none before; the rate limits apply only after authentication.

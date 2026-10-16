@@ -160,6 +160,10 @@ func TestIssuerStatementFailures(t *testing.T) {
 	for name, op := range map[string]func() error{
 		"claim":   func() error { return dir.ClaimIssuer(ctx, is) },
 		"release": func() error { return dir.ReleaseIssuer(ctx, is) },
+		"lookup": func() error {
+			_, err := dir.LookupIssuer(ctx, is.Issuer, []string{is.Audience})
+			return err
+		},
 		"sync": func() error {
 			_, err := dir.SyncIssuers(ctx, is.Cell, []directory.Issuer{is})
 			return err

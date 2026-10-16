@@ -67,16 +67,23 @@ func policyView(tenant uuid.UUID, p identity.AuthPolicy) AuthPolicy {
 		IdleTimeout: int64(p.IdleTimeout / time.Second), Version: p.Version}
 }
 
-// WriteTimeout bounds a write's transaction (PostgreSQL's
+// DefaultWriteTimeout bounds a write's transaction (PostgreSQL's
 // transaction_timeout): a registration claims its issuer in the directory
 // before it commits, and a round leaves a claim alone for
 // directory.ClaimGrace, so the registration must commit or fail well
 // within it.
-const WriteTimeout = time.Minute
+const DefaultWriteTimeout = time.Minute
+
+func (s *Service) writeTimeout() time.Duration {
+	if s.WriteTimeout > 0 {
+		return s.WriteTimeout
+	}
+	return DefaultWriteTimeout
+}
 
 // inTenant runs fn in the tenant's scope as the application role; a tenant
 // the cell does not have is 404. Without an operator the call reads and
-// commits nothing. With one it writes as the operator, within WriteTimeout,
+// commits nothing. With one it writes as the operator, within the write timeout,
 // holding the tenant's row so offboarding cannot start meanwhile; once
 // offboarding has started the registry and policy no longer change (409
 // tenancy.invalid_transition), while a suspended tenant's still do.
@@ -96,7 +103,7 @@ func (s *Service) inTenant(ctx context.Context, tenant uuid.UUID, op *Operator, 
 	if t.Status == Offboarded {
 		return problem.Conflict("tenancy.invalid_transition", "The tenant is offboarded; its identity providers and authentication policy no longer change.")
 	}
-	if _, err := tx.Exec(ctx, `SELECT set_config('transaction_timeout', $1, true)`, fmt.Sprintf("%dms", WriteTimeout.Milliseconds())); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('transaction_timeout', $1, true)`, fmt.Sprintf("%dms", s.writeTimeout().Milliseconds())); err != nil {
 		return fmt.Errorf("controlplane: bound the transaction in tenant %s: %w", tenant, err)
 	}
 	if err := database.SetActor(ctx, tx, op.ID); err != nil {

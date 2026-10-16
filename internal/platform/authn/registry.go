@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -47,7 +48,7 @@ type Registry interface {
 // the tenant, its provider's keys the signature, and a registered tenant
 // claim must name that tenant. Only a resolved issuer is ever fetched.
 func (v *Verifier) verifyRegistered(ctx context.Context, raw, iss string, auds []string) (reqctx.Claims, string, error) {
-	if v.registry == nil {
+	if v.registry == nil || !plausible(iss, auds) {
 		return reqctx.Claims{}, "", problem.Unauthorized("The token's issuer is not trusted.")
 	}
 	reg, err := v.registry.Resolve(ctx, iss, auds)
@@ -73,6 +74,30 @@ func (v *Verifier) verifyRegistered(ctx context.Context, raw, iss string, auds [
 	c := reqctx.Claims{Issuer: reg.Issuer, Subject: tok.Subject, ProviderID: reg.ProviderID, Roles: []string{}}
 	facts(&c, tok, claims)
 	return c, reg.TenantID.String(), nil
+}
+
+// The bounds of what a registration can hold (migration 000056): a token
+// whose issuer or audiences exceed them is refused before any lookup, since
+// they are not yet verified and a client could otherwise have the server
+// look up, and cache, whatever it sends.
+var registrableIssuer = regexp.MustCompile(`^https?://[^\s/?#]+(/[^\s?#]*)?$`)
+
+const (
+	maxIssuer         = 512
+	maxAudience       = 255
+	maxTokenAudiences = 8
+)
+
+func plausible(iss string, auds []string) bool {
+	if len(iss) > maxIssuer || !registrableIssuer.MatchString(iss) || len(auds) == 0 || len(auds) > maxTokenAudiences {
+		return false
+	}
+	for _, a := range auds {
+		if a == "" || len(a) > maxAudience {
+			return false
+		}
+	}
+	return true
 }
 
 // facts reads the token's facts that multi-factor and sessions are
@@ -104,8 +129,10 @@ func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
 // unknown issuers alike, so a token costs a lookup per issuer and cache
 // period; failures to answer are not kept. A retired provider may thus
 // authenticate for up to TTL (ADR-0031). Issuers and audiences come from
-// tokens not yet verified, so the cache holds at most MaxEntries and is
-// emptied when full rather than growing with what a client sends.
+// tokens not yet verified (bounded in size before the lookup), so the cache
+// holds at most MaxEntries: when full it drops its expired answers, and
+// empties itself if that is not enough, rather than growing with what a
+// client sends.
 type RegistryCache struct {
 	Registry   Registry
 	TTL        time.Duration    // 0: DefaultRegistryTTL
@@ -130,11 +157,14 @@ type registryEntry struct {
 
 // Resolve implements Registry.
 func (c *RegistryCache) Resolve(ctx context.Context, issuer string, audiences []string) (Registration, error) {
-	auds := slices.Sorted(slices.Values(audiences))
-	key := issuer + "\n" + strings.Join(auds, "\n")
+	// Each part is length-prefixed, so no audience can pass for two.
+	var key strings.Builder
+	for _, part := range append([]string{issuer}, slices.Sorted(slices.Values(audiences))...) {
+		key.WriteString(strconv.Itoa(len(part)) + ":" + part)
+	}
 	now := clock.Now(c.Now)
 	c.mu.Lock()
-	e, ok := c.entries[key]
+	e, ok := c.entries[key.String()]
 	c.mu.Unlock()
 	if ok && now.Before(e.until) {
 		return e.reg, e.err
@@ -145,10 +175,18 @@ func (c *RegistryCache) Resolve(ctx context.Context, issuer string, audiences []
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.entries == nil || len(c.entries) >= orDefaultInt(c.MaxEntries, DefaultRegistryEntries) {
+	limit := orDefaultInt(c.MaxEntries, DefaultRegistryEntries)
+	if len(c.entries) >= limit {
+		for k, e := range c.entries {
+			if !now.Before(e.until) {
+				delete(c.entries, k)
+			}
+		}
+	}
+	if c.entries == nil || len(c.entries) >= limit {
 		c.entries = map[string]registryEntry{}
 	}
-	c.entries[key] = registryEntry{reg: reg, err: err, until: now.Add(orDefault(c.TTL, DefaultRegistryTTL))}
+	c.entries[key.String()] = registryEntry{reg: reg, err: err, until: now.Add(orDefault(c.TTL, DefaultRegistryTTL))}
 	return reg, err
 }
 
