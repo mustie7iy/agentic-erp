@@ -19,6 +19,9 @@ import (
 func TestObjectHistoryReadsOnlyItsEvents(t *testing.T) {
 	c := setup(t)
 	object := uuid.New()
+	// The seeded events are not a hash chain: the chain verifier would find
+	// this tenant's trail broken. No test here verifies this tenant's chain,
+	// and the scheduled verifier's test only asserts that some chain is good.
 	pgtest.Exec(t, `INSERT INTO audit.audit_event (tenant_id, seq, actor_id, actor_kind, action, object_type, object_id, outcome, hash)
 		SELECT $1::uuid, 1000 + g, $2::uuid, 'human', 'test.thing.do', 'test.thing', CASE WHEN g = 1 THEN $3::uuid ELSE gen_random_uuid() END,
 			'succeeded', sha256(g::text::bytea)
@@ -41,7 +44,11 @@ func TestObjectHistoryReadsOnlyItsEvents(t *testing.T) {
 		if got := pgtest.RowsRead(t, ctx, tx, "audit", `audit\_event\_%`) - before; got != 1 {
 			t.Errorf("events read for an object with one event: got %d, want 1", got)
 		}
-		if got := len(res.(*gen.AuditEventPageHeaders).Response.Items); got != 1 {
+		page, ok := res.(*gen.AuditEventPageHeaders)
+		if !ok {
+			t.Fatalf("list answer: got %T, want *gen.AuditEventPageHeaders", res)
+		}
+		if got := len(page.Response.Items); got != 1 {
 			t.Errorf("events of the object: got %d, want 1", got)
 		}
 		return nil
