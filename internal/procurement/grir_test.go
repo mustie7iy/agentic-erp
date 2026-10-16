@@ -241,3 +241,67 @@ func TestGoodsReceiptBudget(t *testing.T) {
 		t.Fatalf("goods receipt p95 %v exceeds the %v budget (200 ms scaled by ERP_BUDGET_SCALE)", p95, budget)
 	}
 }
+
+// TestReceiptRepeatingAnItem: a receipt may list one order item twice; the
+// item's position moves once per line from where the last left it, so it
+// is the order price of what is received (0.025 at 1.00 per 3: -0.01), and
+// reversing every receipt leaves it zero.
+func TestReceiptRepeatingAnItem(t *testing.T) {
+	e := setup(t)
+	e.GRIR(t)
+	o, _ := e.Must(201, "POST", "/v1/purchase-orders", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "order_date": "2026-03-10",
+		"items": %s}`, e.DE, e.Supplier, items(item(e.office, "10", "EA", "1.00", "EUR", `, "price_unit": 3`))), "")
+	order := id(e.act(t, "/v1/purchase-orders/"+id(o), "release", ""))
+	position := func() [3]int64 {
+		var p [3]int64
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT coalesce(sum(amount_tc), 0)::bigint, coalesce(sum(amount_lc), 0)::bigint,
+			coalesce(sum(amount_gc), 0)::bigint FROM ledger.journal_line WHERE purchase_order_id = $1 AND account_id = $2`, order, e.Account(t, "2000", "219000")).
+			Scan(&p[0], &p[1], &p[2]); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	_, first := e.receipt(t, order, "1:0.015:EA")
+	code, second := e.receipt(t, order, "1:0.005:EA", "1:0.005:EA")
+	if code != 201 {
+		t.Fatalf("receipt repeating the item: got %d %v, want 201", code, second)
+	}
+	if got := position(); got != [3]int64{-1, -1, -1} {
+		t.Errorf("position after 0.025 received: got %v, want -0.01 in every currency", got)
+	}
+	e.act(t, "/v1/goods-receipts/"+id(second), "reverse", "")
+	e.act(t, "/v1/goods-receipts/"+id(first), "reverse", "")
+	if got := position(); got != [3]int64{} {
+		t.Errorf("position after reversing both: got %v, want zero", got)
+	}
+}
+
+// TestReceiptsForeignAndMixed: a receipt on a USD order of a EUR company
+// posts its WE entry in USD with local amounts at the receipt date's rate;
+// a movement with items of a direct and of a GR/IR order posts only the
+// GR/IR order's.
+func TestReceiptsForeignAndMixed(t *testing.T) {
+	e := setup(t)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	direct := e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", "")), "")
+	e.act(t, "/v1/purchase-orders/"+id(direct), "release", "")
+	e.GRIR(t)
+	grir, office := e.Account(t, "2000", "219000"), uuid.MustParse(e.office)
+	usd := e.grirOrder(t, "USD")
+	_, gr := e.receipt(t, usd, "1:4:EA")
+	_, _, _, lines := e.entryOf(t, gr["journal_entry_id"])
+	o, minus4 := uuid.MustParse(usd), "-4"
+	if want := []entryLine{{grir, -1000, -900, &minus4, &o}, {office, 1000, 900, nil, nil}}; !reflect.DeepEqual(lines, want) {
+		t.Errorf("USD receipt lines: got %+v, want %+v", lines, want)
+	}
+	eur := e.grirOrder(t, "EUR")
+	parts := fmt.Sprintf(`{"purchase_order_id": %q, "po_item_no": 1, "quantity": {"value": "1", "unit": "EA"}}, {"purchase_order_id": %q, "po_item_no": 1, "quantity": {"value": "2", "unit": "EA"}}`, id(direct), eur)
+	mixed, _ := e.Must(201, "POST", "/v1/goods-receipts", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-15", "posting_date": "2026-03-15",
+		"items": [%s]}`, e.DE, parts), "")
+	_, _, _, lines = e.entryOf(t, mixed["journal_entry_id"])
+	o, minus2 := uuid.MustParse(eur), "-2"
+	if want := []entryLine{{grir, -500, -500, &minus2, &o}, {office, 500, 500, nil, nil}}; !reflect.DeepEqual(lines, want) {
+		t.Errorf("mixed receipt lines: got %+v, want only the GR/IR order's %+v", lines, want)
+	}
+}

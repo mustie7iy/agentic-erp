@@ -585,10 +585,13 @@ func (e *Endpoints) valuation(ctx context.Context, le uuid.UUID, loaded bool) (s
 		return ValuationDirect, nil
 	}
 	_, grir, err := e.Accounts.Determination(ctx, le, "gr_ir")
-	if err != nil || !grir {
-		return ValuationDirect, err
+	switch {
+	case err != nil:
+		return "", err
+	case grir:
+		return ValuationGRIR, nil
 	}
-	return ValuationGRIR, nil
+	return ValuationDirect, nil
 }
 
 // releasedItems are an order's items as PurchaseOrderReleased publishes them.

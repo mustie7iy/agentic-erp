@@ -834,7 +834,7 @@ func requireOwnEntry(orig Entry) error {
 			"; reverse it with POST /v1/supplier-invoices/"+orig.SourceDocumentID.String()+":reverse.")
 	case orig.SourceContext == "procurement" && orig.SourceDocumentID != nil:
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for goods movement "+orig.SourceDocumentID.String()+
-			"; a goods receipt is reversed with POST /v1/goods-receipts/"+orig.SourceDocumentID.String()+":reverse, which posts its own entry.")
+			"; goods receipts are reversed with POST /v1/goods-receipts/{receipt id}:reverse, which posts its own entry.")
 	}
 	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
 		" context, and no reversal path exists yet for that context's entries, so it cannot be reversed.")

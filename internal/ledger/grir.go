@@ -73,6 +73,9 @@ func positions(ctx context.Context, tx pgx.Tx, le, ledgerID, grir uuid.UUID, tc 
 	if err := lockOrders(ctx, tx, keys); err != nil {
 		return nil, err
 	}
+	// Once per item: an item listed twice would join its lines twice and
+	// read its position doubled. The caller moves it once per listing.
+	keys = slices.Compact(slices.SortedFunc(slices.Values(keys), compareOrderItems))
 	orders, items := make([]uuid.UUID, len(keys)), make([]int32, len(keys))
 	for i, k := range keys {
 		orders[i], items[i] = k.order, k.item
