@@ -565,6 +565,11 @@ func TestProductionFailsClosed(t *testing.T) {
 	// Production speaks to NATS over TLS only, as the cell's certificate.
 	const natsPlain, natsIdentity = "ERP_NATS_URL must name tls:// servers only", "ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY"
 	identity := tlsFiles(t)
+	// The engine is reached as the cell's certificate; providers' endpoints
+	// over https only, but for the instance metadata service, which is
+	// link-local (ADR-0033).
+	const engineIdentity = "ERP_TEMPORAL_ADDRESS needs ERP_TLS_CERT and ERP_TLS_KEY"
+	const imdsOnly = "ERP_AWS_IMDS_ENDPOINT must be http://169.254.169.254 or http://[fd00:ec2::254]"
 	directory := map[string]string{"ERP_DIRECTORY_URL": verified, "ERP_CELL_API_URL": "https://eu1.example.com", "ERP_CELL_REGION": "eu-west", "ERP_CELL_CONTROL_URL": "https://eu1-admin.example.com"}
 	with := func(base map[string]string, set map[string]string) map[string]string {
 		m := maps.Clone(base)
@@ -588,7 +593,19 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"development dev issuer", map[string]string{"ERP_ENV": "development", "ERP_DEV_ISSUER": "true"}, nil},
 		{"development engine without codec", map[string]string{"ERP_ENV": "development", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
 		{"development without verification", map[string]string{"ERP_ENV": "development", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
-		{"production", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_TEMPORAL_CODEC_KEY": codec}), nil},
+		{"production", prod(with(identity, map[string]string{"ERP_TEMPORAL_ADDRESS": "temporal:7233", "ERP_TEMPORAL_CODEC_KEY": codec})), nil},
+		{"production engine without a certificate", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "temporal:7233", "ERP_TEMPORAL_CODEC_KEY": codec}), []string{engineIdentity}},
+		{"production plaintext object store", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "http://minio:9000"}), []string{"ERP_OBJECT_S3_ENDPOINT must be an https:// URL"}},
+		{"production plaintext KMS", prod(map[string]string{"ERP_FIELD_KMS_KEY": "alias/erp", "ERP_FIELD_KMS_ENDPOINT": "http://kms.internal"}), []string{"ERP_FIELD_KMS_ENDPOINT must be an https:// URL"}},
+		{"production KMS by default", prod(map[string]string{"ERP_FIELD_KMS_KEY": "alias/erp"}), nil},
+		{"production plaintext vault", prod(map[string]string{"ERP_VAULT_ADDR": "http://vault:8200", "ERP_VAULT_TOKEN": "t"}), []string{"ERP_VAULT_ADDR must be an https:// URL"}},
+		{"production vault", prod(map[string]string{"ERP_VAULT_ADDR": "https://vault:8200", "ERP_VAULT_TOKEN": "t"}), nil},
+		{"production plaintext STS", prod(map[string]string{"ERP_AWS_STS_ENDPOINT": "http://sts.internal"}), []string{"ERP_AWS_STS_ENDPOINT must be an https:// URL"}},
+		{"production instance metadata over IPv6", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://[fd00:ec2::254]"}), nil},
+		{"production instance metadata elsewhere", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://imds.example.com"}), []string{imdsOnly}},
+		{"production instance metadata on another port", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://169.254.169.254:8080"}), []string{imdsOnly}},
+		{"development plaintext endpoints", map[string]string{"ERP_ENV": "development", "ERP_OBJECT_S3_ENDPOINT": "http://localhost:9000", "ERP_OBJECT_S3_BUCKET": "erp",
+			"ERP_AWS_IMDS_ENDPOINT": "http://localhost:1338", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
 		{"production without an engine", prod(nil), nil},
 		{"production with an object directory", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": "", "ERP_OBJECT_DIR": t.TempDir()}), nil},
 		{"production issuers for every tenant", prod(map[string]string{"ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}), []string{sharedRefused}},

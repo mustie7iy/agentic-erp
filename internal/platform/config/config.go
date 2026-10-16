@@ -567,9 +567,20 @@ func checkTransport(c Config) []error {
 			errs = append(errs, err)
 		}
 	}
-	if c.NATSURL == "" {
-		return errs
+	errs = append(errs, checkNATS(c)...)
+	if c.Temporal.Address != "" && c.TLS.Cert == "" {
+		errs = append(errs, errors.New("ERP_TEMPORAL_ADDRESS needs ERP_TLS_CERT and ERP_TLS_KEY with ERP_ENV=production: the cell reaches the engine over TLS as its certificate's identity (ADR-0033)"))
 	}
+	return append(errs, checkEndpoints(c)...)
+}
+
+// checkNATS refuses a NATS server named without TLS, and NATS without the
+// certificate the cell connects as.
+func checkNATS(c Config) []error {
+	if c.NATSURL == "" {
+		return nil
+	}
+	var errs []error
 	// The servers are named as nats.go splits them; the URLs may carry
 	// credentials, so the errors do not repeat them.
 	for _, server := range strings.Split(c.NATSURL, ",") {
@@ -580,6 +591,30 @@ func checkTransport(c Config) []error {
 	}
 	if c.TLS.Cert == "" {
 		errs = append(errs, errors.New("ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY with ERP_ENV=production: the cell connects as its certificate's identity (ADR-0033)"))
+	}
+	return errs
+}
+
+// imdsHosts are the instance metadata service's link-local addresses, the
+// one endpoint reached without TLS: its traffic never leaves the host.
+var imdsHosts = map[string]bool{"169.254.169.254": true, "fd00:ec2::254": true}
+
+// checkEndpoints refuses providers' endpoints (S3, KMS, Vault, STS) that
+// are not https, and an instance metadata endpoint other than the
+// service's own addresses.
+func checkEndpoints(c Config) []error {
+	var errs []error
+	endpoints := []setting{{"ERP_OBJECT_S3_ENDPOINT", c.Objects.Endpoint}, {"ERP_VAULT_ADDR", c.Vault.Address}, {"ERP_AWS_STS_ENDPOINT", c.AWS.STSEndpoint}}
+	if c.KMS.Enabled() {
+		endpoints = append(endpoints, setting{"ERP_FIELD_KMS_ENDPOINT", c.KMS.Endpoint})
+	}
+	for _, s := range endpoints {
+		if u, err := url.Parse(s.value); s.value != "" && (err != nil || u.Scheme != "https") {
+			errs = append(errs, fmt.Errorf("%s must be an https:// URL with ERP_ENV=production (ADR-0033)", s.name))
+		}
+	}
+	if u, err := url.Parse(c.AWS.IMDSEndpoint); err != nil || u.Scheme != "http" || !imdsHosts[u.Hostname()] || u.Port() != "" || strings.Trim(u.Path, "/") != "" {
+		errs = append(errs, errors.New("ERP_AWS_IMDS_ENDPOINT must be http://169.254.169.254 or http://[fd00:ec2::254] with ERP_ENV=production: the one endpoint reached without TLS is the link-local instance metadata service (ADR-0033)"))
 	}
 	return errs
 }
