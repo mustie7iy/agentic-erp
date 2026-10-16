@@ -601,3 +601,37 @@ func TestSweeperRunsAgainOnAFullBatch(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// TestSweeperIsFairToTenants: a round takes every tenant's oldest idle
+// session before any tenant's second, so one tenant with many (say, ones
+// that keep failing to end) cannot keep the others' from being ended.
+func TestSweeperIsFairToTenants(t *testing.T) {
+	past := time.Now().Add(-30 * 24 * time.Hour).Truncate(time.Second) // older than every other test's sessions
+	busy, quiet := newSessions(t), newSessions(t)
+	busy.clock.now, quiet.clock.now = past, past
+	// Earlier runs' sessions from their own past are ended first, so this
+	// round sees only this test's.
+	clear := busy.sweeperAt()
+	clear.Batch = 100000
+	if _, err := clear.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		if err := busy.check(busy.claims("sid-busy-" + strconv.Itoa(i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	quiet.clock.Advance(time.Minute) // its session is the newest of the four
+	if err := quiet.check(quiet.claims("sid-quiet")); err != nil {
+		t.Fatal(err)
+	}
+	quiet.clock.Advance(identity.MaxIdleTimeout + time.Hour)
+	sw := quiet.sweeperAt()
+	sw.Batch = 2
+	if _, err := sw.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ended, _ := quiet.row("sid-quiet"); ended == nil {
+		t.Error("the other tenant's idle session: got not ended, want ended in the first round")
+	}
+}

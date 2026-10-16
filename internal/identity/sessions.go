@@ -414,8 +414,13 @@ func (s *SessionSweeper) idle(ctx context.Context, now time.Time) (map[uuid.UUID
 	if s.Batch > 0 {
 		batch = s.Batch
 	}
-	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM identity.session WHERE ended_at IS NULL AND last_seen_at < $1 ORDER BY last_seen_at LIMIT $2`,
-		now.Add(-MaxIdleTimeout), batch)
+	// Every tenant's oldest idle session before any tenant's second: one
+	// tenant with many, say ones that keep failing to end, cannot keep the
+	// others' from being ended.
+	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM (
+			SELECT tenant_id, id, last_seen_at, row_number() OVER (PARTITION BY tenant_id ORDER BY last_seen_at) AS turn
+			FROM identity.session WHERE ended_at IS NULL AND last_seen_at < $1) s
+		ORDER BY turn, last_seen_at LIMIT $2`, now.Add(-MaxIdleTimeout), batch)
 	out := map[uuid.UUID][]uuid.UUID{}
 	var tenant, id uuid.UUID
 	found := 0
