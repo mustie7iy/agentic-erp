@@ -95,17 +95,23 @@ func orderToAPI(o PurchaseOrder) gen.PurchaseOrder {
 		Valuation: gen.NewOptString(o.Valuation), ReleaseRequestID: apitypes.OptUUID(o.ReleaseRequestID),
 		TotalAmount: apitypes.Money(o.Total(), o.Currency, o.Exponent), Extensions: apitypes.EncodeObject(o.Extensions), Items: make([]gen.PurchaseOrderItem, len(o.Items))}
 	for i, it := range o.Items {
-		out.Items[i] = gen.PurchaseOrderItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
-			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, o.Currency, o.Exponent),
-			PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
-			TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: optInt(it.ContractItemNo),
-			ReceivedQuantity: gen.NewOptQuantity(gen.Quantity{Value: it.Received, Unit: it.Unit})}
+		out.Items[i] = orderItemToAPI(it, o.Currency, o.Exponent)
+		out.Items[i].ReceivedQuantity = gen.NewOptQuantity(gen.Quantity{Value: it.Received, Unit: it.Unit})
 		if it.ValuationPrice != nil {
 			out.Items[i].ValuationPrice.SetTo(apitypes.Money(*it.ValuationPrice, o.Currency, o.Exponent))
 			out.Items[i].ValuationPriceUnit.SetTo(*it.ValuationPriceUnit)
 		}
 	}
 	return out
+}
+
+// orderItemToAPI is an order item as ordered, without what was received
+// and valued, which an order change's items do not carry.
+func orderItemToAPI(it Item, currency string, exp int) gen.PurchaseOrderItem {
+	return gen.PurchaseOrderItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
+		Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, currency, exp),
+		PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
+		TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: optInt(it.ContractItemNo)}
 }
 
 func contractToAPI(c Contract) gen.Contract {
