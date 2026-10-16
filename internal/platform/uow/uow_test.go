@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,6 +39,8 @@ type app struct {
 	handler http.Handler
 	mw      *uow.Middleware
 	release chan struct{} // closed to let /slow finish
+	entered chan struct{} // closed when a request enters /slow: it holds its idempotency key
+	slow    atomic.Int32  // requests that entered /slow
 }
 
 func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
@@ -50,7 +54,7 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{t: t, issuer: is, release: make(chan struct{})}
+	a := &app{t: t, issuer: is, release: make(chan struct{}), entered: make(chan struct{})}
 	mux := http.NewServeMux()
 	create := func(w http.ResponseWriter, r *http.Request) (uuid.UUID, error) {
 		tx, _ := reqctx.TxFrom(r.Context())
@@ -89,6 +93,14 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		problem.Write(w, r, problem.Internal(errors.New("boom")))
 	})
 	mux.HandleFunc("POST /slow", func(w http.ResponseWriter, r *http.Request) {
+		// One request per app may wait here. A second means the key did not
+		// hold it off; waiting for release would hang the test, so it fails.
+		if n := a.slow.Add(1); n > 1 {
+			a.check(fmt.Errorf("/slow: request %d ran the handler while the key should hold it off", n))
+			w.WriteHeader(500)
+			return
+		}
+		close(a.entered)
 		<-a.release
 		w.WriteHeader(204)
 	})
@@ -450,10 +462,15 @@ func TestConcurrentRetryWaitsThenGets409(t *testing.T) {
 	// does not leave it holding its connection while pool.Close waits.
 	finish := sync.OnceFunc(func() { close(a.release); wg.Wait() })
 	defer finish()
-	// Wait until the first request holds the key.
-	pgtest.Eventually(t, 10*time.Second, func() bool {
-		return count(t, "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity s USING (pid) WHERE s.query LIKE '%SAVEPOINT uow%'") > 0
-	}, "the first request never held the key")
+	// The unit of work claims the key before it runs the handler, so the
+	// first request holds the key once it is in /slow. (A wait on
+	// pg_stat_activity matched its own query text and other databases'
+	// sessions, and ended at once.)
+	select {
+	case <-a.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first request never reached the handler")
+	}
 	second := a.do(c)
 	if second.Code != 409 {
 		t.Fatalf("concurrent retry status: got %d, want 409", second.Code)
@@ -463,7 +480,7 @@ func TestConcurrentRetryWaitsThenGets409(t *testing.T) {
 	}
 	finish()
 	if first.Code != 204 {
-		t.Fatal(first.Code)
+		t.Fatalf("first request status: got %d, want 204", first.Code)
 	}
 	third := a.do(c)
 	if third.Code != 204 {
