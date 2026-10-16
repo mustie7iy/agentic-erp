@@ -439,6 +439,30 @@ func TestPostingPeriods(t *testing.T) {
 	failsWith(t, err, "outside period")
 }
 
+// TestPostingHoldsItsPeriod: inserting an entry holds its period's status
+// row FOR SHARE until the transaction ends (F8b, 000043), as the ledger's
+// postingPeriod does, so a close, which locks the row FOR UPDATE, waits for
+// any posting under way rather than commit beneath it.
+func TestPostingHoldsItsPeriod(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	ctx := context.Background()
+	closer, err := pgx.ConnectConfig(ctx, testDB.Config().Copy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = closer.Close(ctx) }() // a close error leaves nothing to undo: the session ends either way
+	err = asApp(t, f.tenant, func(tx pgx.Tx) error {
+		if _, err := f.entry(tx, 7, "2026-07-02", line{account: f.expense, amount: 1}, line{account: f.bank, amount: -1}); err != nil {
+			return fmt.Errorf("post: %w", err)
+		}
+		_, err := closer.Exec(ctx, `SELECT FROM ledger.period_status WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = 2026 AND period = 7
+			FOR UPDATE NOWAIT`, f.tenant, f.entity)
+		return err
+	})
+	failsWith(t, err, "could not obtain lock on row in relation \"period_status\"")
+}
+
 func TestReconciliationAccountsNeedPartner(t *testing.T) {
 	need(t)
 	f := newFixture(t)

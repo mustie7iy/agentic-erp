@@ -732,12 +732,11 @@ waits for the load (and fails after `lock_timeout` with 409
 `FOR SHARE` does not queue behind a waiting `FOR UPDATE`, so under steady
 overlapping postings in one period a close may keep failing with 409 and
 be retried; closes come after posting stops, so this is accepted. The
-trigger `ledger.check_entry_period` still reads the status without a lock:
-it runs after `postingPeriod` took the share lock in the same transaction,
-so no close can commit in between, and the only insert into
-`journal_entry` is the one after `postingPeriod`. Hardening the trigger with
-`FOR SHARE` is left for a migration of its own if another insert path
-appears.
+trigger `ledger.check_entry_period` reads the status `FOR SHARE` too
+(migration 000043, F8b), so an insert into `journal_entry` that did not go
+through `postingPeriod` would still hold its period against a close. On the
+one insert path there is, the lock is already held by `postingPeriod` in the
+same transaction, so the trigger adds no step to the lock order.
 
 A transaction that would otherwise lock in several
 steps or after posting, the migration load (it posts every document, then
