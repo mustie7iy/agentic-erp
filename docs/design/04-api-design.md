@@ -113,6 +113,13 @@ release step, not a multi-step approval. The requester, human or agent, may
   `posting_date_to`). Each one is backed by an index that leads with
   `tenant_id`; filters without an index are not offered.
 - Sorting is restricted to documented fields: `?order_by=posting_date desc`.
+  List queries are planned for their arguments on every call (the keyset
+  helper runs them as unnamed statements): a cached generic plan cannot
+  drop the filters a request leaves out, and so reads the whole table on
+  every page. The target is that each sort is backed by an index ending in
+  the sort column and `id`, after the filters it serves; the journal entry
+  list has one (migration 000055), and indexing the other lists' sorts is
+  tracked.
 - Bulk reads and exports (more than about 10,000 rows) use an export
   operation that writes a file to object storage, not deep pagination.
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -104,6 +105,18 @@ func (k *Keyset) Field() string { return k.field.Name }
 // SQL completes a query whose WHERE clause is where (args numbered from $1)
 // with the cursor condition, the order and the limit. It fetches one row
 // more than the page so Page can tell whether another page follows.
+//
+// The arguments it returns start with pgx.QueryExecModeCacheDescribe, which
+// pgx's Query takes as the mode of that call: the query runs as an unnamed
+// statement, planned for its arguments every time. Listings filter with
+// optional conditions ($n IS NULL OR column = $n). Run as a cached prepared
+// statement, PostgreSQL switches to a generic plan after five runs; that
+// plan cannot drop the conditions that do not apply nor use the index of
+// the sort, so every page read the whole table (the nightly soak's drift).
+// Planning each call costs far less than that. So the returned arguments
+// are only for pgx's Query (a Batch does not read the mode), and the pool
+// keeps pgx's description cache (description_cache_capacity above zero),
+// which the mode needs.
 func (k *Keyset) SQL(query string, args []any) (string, []any) {
 	cmp, dir := ">", "ASC"
 	if k.desc {
@@ -115,7 +128,7 @@ func (k *Keyset) SQL(query string, args []any) (string, []any) {
 		query += fmt.Sprintf(" AND (%s, id) %s (CAST($%d::text AS %s), $%d)", col, cmp, len(args)-1, k.field.Type, len(args))
 	}
 	args = append(args, k.size+1)
-	return query + fmt.Sprintf(" ORDER BY %s %s, id %s LIMIT $%d", col, dir, dir, len(args)), args
+	return query + fmt.Sprintf(" ORDER BY %s %s, id %s LIMIT $%d", col, dir, dir, len(args)), append([]any{pgx.QueryExecModeCacheDescribe}, args...)
 }
 
 // Page trims rows to the page and returns the token of the next page, or ""
