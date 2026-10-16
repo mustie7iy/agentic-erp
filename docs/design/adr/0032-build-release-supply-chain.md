@@ -44,9 +44,16 @@ on `main`.
 (`cosign sign --key awskms:///<key ARN>`), not keyless signing: keyless
 signing would record the repository and workflow identity in Sigstore's
 public transparency log, and this repository is private; KMS keeps the
-signing key with the deployment's other keys (ADR-0018, ADR-0019). The SBOM
-and the build provenance are attached as signed attestations. The key is
-configuration, not code:
+signing key with the deployment's other keys (ADR-0018, ADR-0019). Nothing
+is written to a transparency log: `release/signing-config.json` names no
+Sigstore service. Every image, each multi-platform index and each
+per-platform image, carries a signature and two attestations signed by the
+same key: its SPDX SBOM, and SLSA v1 build provenance written by
+`scripts/provenance.sh` (the commit, the workflow run, the base image and ko
+version). GitHub's own artifact attestations are not used: for a private
+repository they need GitHub Enterprise Cloud, and they would sign with
+another key than the one deployment trusts. `scripts/sign-images.sh` does
+all three. The key is configuration, not code:
 
 | Setting | Where | Value |
 |---|---|---|
@@ -58,11 +65,15 @@ delivery role only `kms:GetPublicKey`. The key comes with T40's
 infrastructure; until then the signing tests use a cosign key pair made for
 the test.
 
-**Checked before deployment.** `scripts/verify-image.sh` runs
-`cosign verify` and `cosign verify-attestation --type spdxjson` against the
-public key; the release workflow runs it on what it pushed, delivery runs it
-again before a rollout (T40), and the clusters admit only images signed with
-the key.
+**Checked before deployment.** `scripts/verify-image.sh` accepts an image
+only by digest, with a signature, an SBOM attestation and a provenance
+attestation by the release key, and, given `ERP_EXPECTED_COMMIT`, provenance
+naming that commit. The release workflow runs it on what it pushed, delivery
+runs it again before a rollout (T40), and the clusters admit only images
+signed with the key. CI's signing job proves the round trip on every push
+against a registry made for the job, with a key pair made for the run:
+signed images pass, and another key, another commit, a tag or a missing
+signature are refused.
 
 **Versions and changelog.** Semantic `vX.Y.Z` tags on `main`, `0.y.z` until
 the pilot and `1.0.0` at its go-live. Major: an accepted contract break

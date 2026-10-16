@@ -99,6 +99,7 @@ Every change passes, before it is merged:
 | Performance budgets | `-run Budget`, `-run Perf` |
 | Coverage gate | `scripts/coverage.sh`, 100% of production statements |
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
+| Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature) (ADR-0032) |
 | Build and container images | `make build`; `make images-reproducible`: the three images built with ko twice, with private caches, and their digests compared; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability (ADR-0032) |
 
 The checks are split between the author's machine and GitHub (the hybrid

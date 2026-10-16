@@ -1,4 +1,4 @@
-.PHONY: generate run-server build images images-reproducible image-scan lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
+.PHONY: generate run-server build images images-reproducible image-scan signing-roundtrip lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -17,6 +17,14 @@ images-reproducible:
 
 image-scan:
 	./scripts/image-scan.sh dist/images
+
+# Signing round trip against a throwaway registry (SIGNING_REGISTRY): push,
+# sign and attest with a key pair made for the run, verify, and check the
+# refusals (scripts/signing-roundtrip.sh). Releases sign with the KMS key:
+# scripts/sign-images.sh and scripts/verify-image.sh (ADR-0032).
+SIGNING_REGISTRY ?= localhost:5000/erp
+signing-roundtrip:
+	./scripts/signing-roundtrip.sh $(SIGNING_REGISTRY)
 
 # Structural lint (.golangci.yml). lint checks code changed since LINT_BASE,
 # the merge base with main: the fast local loop. lint-all checks the whole

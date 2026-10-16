@@ -71,6 +71,27 @@ jobs:
         shell: bash
         run: ./scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
 
+  signing:
+    # The signing round trip of ADR-0032 against a registry made for the
+    # job: images pushed, signed and attested (SBOM, provenance) with a key
+    # pair made for the run, standing in for the release KMS key; verified;
+    # and refused with another key, another commit, a tag or no signature.
+    needs: changes
+    if: needs.changes.outputs.run != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      registry:
+        image: registry:2.8.3
+        ports: ["5000:5000"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Signing round trip
+        run: make signing-roundtrip SIGNING_REGISTRY=localhost:5000/erp
+
   test:
     needs: changes
     if: needs.changes.outputs.run != 'false'
@@ -231,7 +252,7 @@ jobs:
     # `changes` (a leaked secret, a broken skip rule) skip the suite and
     # pass: this job fails unless `changes` succeeded and nothing it gates
     # failed or was cancelled.
-    needs: [changes, test, fuzz]
+    needs: [changes, test, fuzz, signing]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
