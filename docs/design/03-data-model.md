@@ -867,6 +867,20 @@ Each kind is matched and posted by its kind (T34c):
     are (409 `payables.invoice_has_corrections`);
   - the reversal locks the invoice `FOR UPDATE` and does not lock the
     corrections, so the two never wait for each other in a cycle.
+- **Capture** (T34e) reads a document as an `invoice` or a `credit_memo`
+  (the extraction's `document_kind`); subsequent debits and credits are
+  entered by hand, since a document does not say reliably that it
+  revalues without quantity. Amounts are entered unsigned: a credit memo
+  may print them negative, as many do, and is entered with their
+  magnitudes; an invoice printing a negative amount, a credit memo
+  printing both signs, or another kind of document is not captured (422
+  `payables.unreadable_document`). The number of the invoice a credit memo
+  prints (`credited_invoice_number`) names, as its reference, the posted
+  invoice of the supplier with that supplier reference in the legal entity
+  and currency; a memo printing none corrects none; one whose number is no
+  such invoice is entered `on_hold` with the reason, for the reference to
+  be entered by hand rather than dropped; an invoice printing one is not
+  captured.
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database

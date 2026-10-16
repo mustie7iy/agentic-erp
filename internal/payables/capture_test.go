@@ -59,7 +59,7 @@ func endpoints(x capture.Extractor) *payables.Endpoints {
 }
 
 func extraction() *capture.Extraction {
-	return &capture.Extraction{VendorName: "Supplier", InvoiceNumber: "CAP-1", InvoiceDate: "2026-03-10", PurchaseOrder: "PO-1", Currency: "EUR",
+	return &capture.Extraction{DocumentKind: "invoice", VendorName: "Supplier", InvoiceNumber: "CAP-1", InvoiceDate: "2026-03-10", PurchaseOrder: "PO-1", Currency: "EUR",
 		Lines:     []capture.Line{{Description: "Paper", Quantity: "10", Amount: "120"}, {Description: "Toner", Quantity: "5", Amount: "15.00"}},
 		TaxAmount: "22.8", GrossAmount: "157.80", Confidence: "high"}
 }
@@ -150,6 +150,8 @@ func TestCapture(t *testing.T) {
 		"line amount":    {func(x *capture.Extraction) { x.Lines[0].Amount = "x" }, unreadable},
 		"unknown line":   {func(x *capture.Extraction) { x.Lines = x.Lines[:1] }, unreadable},
 		"validation":     {func(x *capture.Extraction) { x.Lines[0].Quantity = "-1" }, "payables.invalid_quantity"},
+		"document kind":  {func(x *capture.Extraction) { x.DocumentKind = "statement" }, unreadable},
+		"negative":       {func(x *capture.Extraction) { x.GrossAmount = "-157.80" }, unreadable},
 		"extraction err": {nil, unreadable},
 	}
 	for name, r := range refusals {
