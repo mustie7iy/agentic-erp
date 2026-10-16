@@ -114,3 +114,38 @@ dynamodb_kms_encrypted(body) if {
 	some sse in body.server_side_encryption
 	sse.enabled == true
 }
+
+# The resources the cells bring (T40b).
+
+deny contains msg if {
+	some ["aws_launch_template", name, body] in resources
+	some mapping in object.get(body, "block_device_mappings", [])
+	some ebs in object.get(mapping, "ebs", [])
+	object.get(ebs, "encrypted", false) != true
+	msg := sprintf("aws_launch_template.%s: every EBS volume it maps must set encrypted = true", [name])
+}
+
+deny contains msg if {
+	some [type, name, body] in resources
+	type in {"aws_cloudwatch_log_group", "aws_secretsmanager_secret"}
+	object.get(body, "kms_key_id", "") == ""
+	msg := sprintf("%s.%s: needs kms_key_id (a key of the platform's)", [type, name])
+}
+
+deny contains msg if {
+	some ["aws_ebs_encryption_by_default", name, body] in resources
+	object.get(body, "enabled", true) != true
+	msg := sprintf("aws_ebs_encryption_by_default.%s: must stay enabled", [name])
+}
+
+deny contains msg if {
+	some ["aws_efs_file_system", name, body] in resources
+	object.get(body, "encrypted", false) != true
+	msg := sprintf("aws_efs_file_system.%s: encrypted must be true", [name])
+}
+
+deny contains msg if {
+	some ["aws_elasticache_replication_group", name, body] in resources
+	object.get(body, "at_rest_encryption_enabled", false) != true
+	msg := sprintf("aws_elasticache_replication_group.%s: at_rest_encryption_enabled must be true", [name])
+}

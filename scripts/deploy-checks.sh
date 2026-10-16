@@ -8,8 +8,8 @@
 #   - tflint on every module and root;
 #   - the encryption-at-rest policy (deploy/policy) unit-tested with
 #     `conftest verify`, then applied to every root and module, which must
-#     pass, and to deploy/policy/testdata/unencrypted, which must be refused
-#     on each of its resources.
+#     pass, and to the fixtures under deploy/policy/testdata, which must be refused
+#     on each of their resources (encryption at rest, VPC endpoints).
 # TERRAFORM, TFLINT and CONFTEST name the binaries.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -40,16 +40,21 @@ for dir in deploy/terraform/modules/* deploy/terraform/envs/*; do
 done
 
 echo "== policy on resources that must be refused"
-want=11
-if out="$($CONFTEST test --parser hcl2 --combine --policy deploy/policy --no-color deploy/policy/testdata/unencrypted/*.tf 2>&1)"; then
-  echo "$out"
-  echo "deploy-checks: the encryption policy accepted deploy/policy/testdata/unencrypted" >&2
-  exit 1
-fi
-got="$(grep -c '^FAIL' <<<"$out" || true)"
-if [ "$got" -ne "$want" ]; then
-  echo "$out"
-  echo "deploy-checks: the encryption policy refused $got resources of the fixture, want $want" >&2
-  exit 1
-fi
-echo "deploy-checks: the encryption policy refused all $want unencrypted resources of the fixture"
+# Each fixture and the number of refusals it must draw: one per resource
+# left unencrypted, one per endpoint a VPC lacks.
+for fixture in unencrypted:17 no-endpoints:3; do
+  dir="deploy/policy/testdata/${fixture%%:*}"
+  want="${fixture##*:}"
+  if out="$($CONFTEST test --parser hcl2 --combine --policy deploy/policy --no-color "$dir"/*.tf 2>&1)"; then
+    echo "$out"
+    echo "deploy-checks: the policy accepted $dir" >&2
+    exit 1
+  fi
+  got="$(grep -c '^FAIL' <<<"$out" || true)"
+  if [ "$got" -ne "$want" ]; then
+    echo "$out"
+    echo "deploy-checks: the policy refused $got times in $dir, want $want" >&2
+    exit 1
+  fi
+  echo "deploy-checks: the policy refused all $want in $dir"
+done

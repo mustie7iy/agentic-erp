@@ -117,3 +117,15 @@ test_a_data_source_does_not_encrypt_a_resource if {
 test_a_key_spec_from_a_variable_must_rotate if {
 	deny["aws_kms_key.k: a symmetric key must rotate (enable_key_rotation = true)"] with input as file({"aws_kms_key": {"k": [{"customer_master_key_spec": "${var.spec}"}]}})
 }
+
+test_cell_resources if {
+	deny["aws_launch_template.t: every EBS volume it maps must set encrypted = true"] with input as file({"aws_launch_template": {"t": [{"block_device_mappings": [{"ebs": [{"volume_size": 20}]}]}]}})
+	count(deny) == 0 with input as file({"aws_launch_template": {"t": [{"block_device_mappings": [{"ebs": [{"encrypted": true}]}]}]}})
+	deny["aws_cloudwatch_log_group.l: needs kms_key_id (a key of the platform's)"] with input as file({"aws_cloudwatch_log_group": {"l": [{}]}})
+	deny["aws_secretsmanager_secret.s: needs kms_key_id (a key of the platform's)"] with input as file({"aws_secretsmanager_secret": {"s": [{}]}})
+	count(deny) == 0 with input as file({"aws_secretsmanager_secret": {"s": [{"kms_key_id": "${aws_kms_key.secrets.arn}"}]}})
+	deny["aws_ebs_encryption_by_default.d: must stay enabled"] with input as file({"aws_ebs_encryption_by_default": {"d": [{"enabled": false}]}})
+	count(deny) == 0 with input as file({"aws_ebs_encryption_by_default": {"d": [{}]}})
+	deny["aws_efs_file_system.f: encrypted must be true"] with input as file({"aws_efs_file_system": {"f": [{}]}})
+	deny["aws_elasticache_replication_group.r: at_rest_encryption_enabled must be true"] with input as file({"aws_elasticache_replication_group": {"r": [{}]}})
+}

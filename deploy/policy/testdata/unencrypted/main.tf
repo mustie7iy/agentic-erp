@@ -69,6 +69,37 @@ resource "aws_eks_cluster" "plain" {
   }
 }
 
+resource "aws_launch_template" "plain" {
+  name = "erp-policy-fixture"
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size = 20
+    }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "plain" {
+  name = "erp-policy-fixture"
+}
+
+resource "aws_secretsmanager_secret" "plain" {
+  name = "erp-policy-fixture"
+}
+
+resource "aws_ebs_encryption_by_default" "off" {
+  enabled = false
+}
+
+resource "aws_efs_file_system" "plain" {
+  creation_token = "erp-policy-fixture"
+}
+
+resource "aws_elasticache_replication_group" "plain" {
+  replication_group_id = "erp-policy-fixture"
+  description          = "fixture"
+}
+
 resource "aws_dynamodb_table" "plain" {
   name     = "erp-policy-fixture"
   hash_key = "id"
