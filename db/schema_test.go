@@ -148,66 +148,73 @@ type fixture struct {
 
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	f := fixture{tenant: id(), actor: id(), entity: id(), ledger: id(), calendar: id(), chart: id(),
+	f := fixtureIDs()
+	mustApp(t, f.tenant, f.seed)
+	return f
+}
+
+func fixtureIDs() fixture {
+	return fixture{tenant: id(), actor: id(), entity: id(), ledger: id(), calendar: id(), chart: id(),
 		bank: id(), ap: id(), expense: id(), tax: id(), supplier: id(), otherSupplier: id()}
-	mustApp(t, f.tenant, func(tx pgx.Tx) error {
-		steps := []struct {
-			sql  string
-			args []any
-		}{
-			{"INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", []any{f.tenant}},
-			{"INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by) VALUES ($1,$2,'1000','Acme US','US','USD',$3,'active',$4,$4)", []any{f.tenant, f.entity, f.calendar, f.actor}},
-			{"INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1,$2,'0L','Leading',true,'IFRS',$3)", []any{f.tenant, f.ledger, f.actor}},
-			{"INSERT INTO ledger.fiscal_calendar (tenant_id, id, code, name, normal_periods, special_periods, created_by) VALUES ($1,$2,'K4','Calendar year',12,4,$3)", []any{f.tenant, f.calendar, f.actor}},
-			{"INSERT INTO ledger.chart_of_accounts (tenant_id, id, code, name, created_by) VALUES ($1,$2,'INT','International',$3)", []any{f.tenant, f.chart, f.actor}},
+}
+
+// seed writes the fixture's rows in tx, the tenant's scope already set.
+func (f fixture) seed(tx pgx.Tx) error {
+	steps := []struct {
+		sql  string
+		args []any
+	}{
+		{"INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", []any{f.tenant}},
+		{"INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by) VALUES ($1,$2,'1000','Acme US','US','USD',$3,'active',$4,$4)", []any{f.tenant, f.entity, f.calendar, f.actor}},
+		{"INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1,$2,'0L','Leading',true,'IFRS',$3)", []any{f.tenant, f.ledger, f.actor}},
+		{"INSERT INTO ledger.fiscal_calendar (tenant_id, id, code, name, normal_periods, special_periods, created_by) VALUES ($1,$2,'K4','Calendar year',12,4,$3)", []any{f.tenant, f.calendar, f.actor}},
+		{"INSERT INTO ledger.chart_of_accounts (tenant_id, id, code, name, created_by) VALUES ($1,$2,'INT','International',$3)", []any{f.tenant, f.chart, f.actor}},
+	}
+	for _, s := range steps {
+		if err := exec(tx, s.sql, s.args...); err != nil {
+			return fmt.Errorf("%s: %w", s.sql[:40], err)
 		}
-		for _, s := range steps {
-			if err := exec(tx, s.sql, s.args...); err != nil {
-				return fmt.Errorf("%s: %w", s.sql[:40], err)
-			}
-		}
-		for m := 1; m <= 12; m++ {
-			start := time.Date(2026, time.Month(m), 1, 0, 0, 0, 0, time.UTC)
-			end := start.AddDate(0, 1, -1)
-			if err := exec(tx, "INSERT INTO ledger.fiscal_period VALUES ($1,$2,2026,$3,$4,$5,false)", f.tenant, f.calendar, m, start, end); err != nil {
-				return err
-			}
-			status := "open"
-			if m == 1 {
-				status = "closed"
-			}
-			if err := exec(tx, "INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by) VALUES ($1,gen_random_uuid(),$2,$3,$4,2026,$5,$6,$7)",
-				f.tenant, f.entity, f.ledger, f.calendar, m, status, f.actor); err != nil {
-				return err
-			}
-		}
-		for _, a := range []struct {
-			id           uuid.UUID
-			num, typ, rk string
-		}{{f.bank, "100000", "asset", "none"}, {f.ap, "211000", "liability", "supplier"}, {f.expense, "520000", "expense", "none"}, {f.tax, "140000", "asset", "none"}} {
-			if err := exec(tx, "INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by) VALUES ($1,$2,$3,$4,$4,$5,$6,'active',$7,$7)",
-				f.tenant, a.id, f.chart, a.num, a.typ, a.rk, f.actor); err != nil {
-				return err
-			}
-			if err := exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)", f.tenant, f.entity, a.id, f.actor); err != nil {
-				return err
-			}
-		}
-		if err := exec(tx, "INSERT INTO partner.payment_term (tenant_id, code, description, net_days, created_by, updated_by) VALUES ($1,'NT30','Net 30',30,$2,$2)", f.tenant, f.actor); err != nil {
+	}
+	for m := 1; m <= 12; m++ {
+		start := time.Date(2026, time.Month(m), 1, 0, 0, 0, 0, time.UTC)
+		end := start.AddDate(0, 1, -1)
+		if err := exec(tx, "INSERT INTO ledger.fiscal_period VALUES ($1,$2,2026,$3,$4,$5,false)", f.tenant, f.calendar, m, start, end); err != nil {
 			return err
 		}
-		for i, p := range []uuid.UUID{f.supplier, f.otherSupplier} {
-			if err := exec(tx, "INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by) VALUES ($1,$2,$3,'organization',$4,'US','active',$5,$5)",
-				f.tenant, p, fmt.Sprintf("S%04d", i+1), fmt.Sprintf("Supplier %d", i+1), f.actor); err != nil {
-				return err
-			}
-			if err := exec(tx, "INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1,$2,'supplier',$3)", f.tenant, p, f.actor); err != nil {
-				return err
-			}
+		status := "open"
+		if m == 1 {
+			status = "closed"
 		}
-		return nil
-	})
-	return f
+		if err := exec(tx, "INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by) VALUES ($1,gen_random_uuid(),$2,$3,$4,2026,$5,$6,$7)",
+			f.tenant, f.entity, f.ledger, f.calendar, m, status, f.actor); err != nil {
+			return err
+		}
+	}
+	for _, a := range []struct {
+		id           uuid.UUID
+		num, typ, rk string
+	}{{f.bank, "100000", "asset", "none"}, {f.ap, "211000", "liability", "supplier"}, {f.expense, "520000", "expense", "none"}, {f.tax, "140000", "asset", "none"}} {
+		if err := exec(tx, "INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by) VALUES ($1,$2,$3,$4,$4,$5,$6,'active',$7,$7)",
+			f.tenant, a.id, f.chart, a.num, a.typ, a.rk, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)", f.tenant, f.entity, a.id, f.actor); err != nil {
+			return err
+		}
+	}
+	if err := exec(tx, "INSERT INTO partner.payment_term (tenant_id, code, description, net_days, created_by, updated_by) VALUES ($1,'NT30','Net 30',30,$2,$2)", f.tenant, f.actor); err != nil {
+		return err
+	}
+	for i, p := range []uuid.UUID{f.supplier, f.otherSupplier} {
+		if err := exec(tx, "INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by) VALUES ($1,$2,$3,'organization',$4,'US','active',$5,$5)",
+			f.tenant, p, fmt.Sprintf("S%04d", i+1), fmt.Sprintf("Supplier %d", i+1), f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1,$2,'supplier',$3)", f.tenant, p, f.actor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // entry posts a journal entry with the given (account, amount) lines in USD.
