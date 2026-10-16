@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -106,7 +105,7 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	if err != nil {
 		return ParkedEntry{}, err
 	}
-	if err := refuseAutomatic(ctx, tx, v.le.ID, v.lines); err != nil {
+	if err := refuseAutomatic(ctx, v.le.ID, v.lines); err != nil {
 		return ParkedEntry{}, err
 	}
 	total, err := debitTotal(v.lines)
@@ -139,14 +138,10 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 // only goods receipts and invoices post (T33): parked, it could never be
 // posted. Posting is refused by the database (journal_line_gr_ir_order_item)
 // with the same problem.
-func refuseAutomatic(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line) error {
-	var grir uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT account_id FROM ledger.account_determination WHERE legal_entity_id = $1 AND key = 'gr_ir'`, le).Scan(&grir)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("ledger: GR/IR account of %s: %w", le, err)
+func refuseAutomatic(ctx context.Context, le uuid.UUID, lines []Line) error {
+	grir, ok, err := Accounts{}.Determination(ctx, le, "gr_ir")
+	if err != nil || !ok {
+		return err
 	}
 	for i, l := range lines {
 		if l.AccountID == grir {
