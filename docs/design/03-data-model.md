@@ -379,6 +379,8 @@ erDiagram
   journal_line ||--o| clearing_item : "cleared by"
   gl_account ||--o{ journal_line : posted_to
   ledger ||--o{ journal_entry : in
+  parked_entry ||--|{ parked_entry_line : contains
+  parked_entry |o--o| journal_entry : "posted as"
   journal_entry { uuid id PK
     uuid legal_entity_id
     uuid ledger_id
@@ -441,6 +443,29 @@ Rules enforced in the database:
   stays within the ledger's schema (02-architecture, boundary rule 1). The
   request needs one approval by the role `controller` holding
   `ledger.period.unlock.approve`, whatever the configuration says.
+- A manual entry waits in `parked_entry` (with `parked_entry_line`,
+  amounts in minor units of the entry's currency, debit positive, never
+  zero) until it is posted; the journal stays insert-only (ADR-0006).
+  Migration 000052 (T35a) keeps its lifecycle in the trigger
+  `ledger.check_parked_entry_change`: an entry is inserted `parked` and
+  moves only parked -> parked (edits), pending_approval, posted (within the
+  approval limit) or cancelled, and pending_approval -> posted, rejected or
+  back to parked (the request withdrawn, clearing `approval_request_id`);
+  posted, rejected and cancelled are final. Its content, and its lines
+  (`platform.check_editable_parent`), change only while it is parked, so
+  what is approved is what is posted. A pending or rejected entry names its
+  `manual_entry` approval request (workflow context, no foreign key), an
+  entry posted on approval keeps it, and it is posted or rejected only on
+  the request it names; that the request was approved is checked by the
+  ledger's approvals callback, as for period unlocks. A posted entry names
+  the journal entry posted for it (`source_context` `ledger`,
+  `source_document_id` the parked entry, not its reversal), and only a
+  posted one does. A person owns what they park (`owner_id` =
+  `created_by`); an agent's entry has no owner until a person changes or
+  posts it, an entry is submitted or posted only with an owner, and the
+  owner never changes: the requester an approval excludes is the one person
+  who wrote the entry. Agents may hold `ledger.entry.park`;
+  `ledger.entry.approve` is an approval permission (agents never hold it).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger
   (trigger `ledger.check_clearing_period`, migration 000049, T32), as a
