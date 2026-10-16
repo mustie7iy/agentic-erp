@@ -236,7 +236,9 @@ func Load(getenv func(string) string) (Config, error) {
 // database (DATABASE_URL, which may be a secret reference), ERP_ENV,
 // ERP_LOG_LEVEL and ERP_DB_MAX_CONNS. erp-server migrate runs with it as a
 // Helm hook Job (ADR-0035), before the release's other resources exist and
-// without the keys, issuers and stores a server needs.
+// without the keys, issuers and stores a server needs. ERP_MIGRATE_ON_START
+// is not read: the Job migrates whatever it says, and the pods keep it
+// false.
 func LoadSchema(getenv func(string) string) (Config, error) {
 	l := newLoader(getenv)
 	c := Config{Vault: l.vault, Secrets: l.resolver, DatabaseURL: l.getenv("DATABASE_URL"), Environment: l.getenv("ERP_ENV")}

@@ -39,7 +39,7 @@ func TestMigrateCommand(t *testing.T) {
 			code   int
 			want   string
 		}{
-			"help":        {[]string{"migrate", "-h"}, getenv, 0, "Usage of erp-server migrate"},
+			"help":        {[]string{"migrate", "-h"}, func(string) string { return "" }, 0, "Usage of erp-server migrate"},
 			"bad flag":    {[]string{"migrate", "-x"}, getenv, 2, "flag provided"},
 			"argument":    {[]string{"migrate", "now"}, getenv, 2, "takes no arguments"},
 			"no database": {[]string{"migrate"}, with("DATABASE_URL", ""), 2, "DATABASE_URL is required"},

@@ -32,12 +32,6 @@ import (
 // CONCURRENTLY outside a transaction may leave an invalid index that the
 // retry refuses, dropped by hand as that migration says.
 func migrateCmd(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer) int {
-	cfg, err := platformconfig.LoadSchema(getenv)
-	if err != nil {
-		fmt.Fprintln(stderr, "erp-server migrate: configuration:", err)
-		return 2
-	}
-	log := telemetry.NewLogger(stderr, cfg.LogLevel)
 	fs := flag.NewFlagSet("erp-server migrate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	if err := fs.Parse(args); err != nil {
@@ -50,6 +44,12 @@ func migrateCmd(ctx context.Context, args []string, getenv func(string) string, 
 		fmt.Fprintf(stderr, "erp-server migrate: takes no arguments, got %q\n", fs.Args())
 		return 2
 	}
+	cfg, err := platformconfig.LoadSchema(getenv)
+	if err != nil {
+		fmt.Fprintln(stderr, "erp-server migrate: configuration:", err)
+		return 2
+	}
+	log := telemetry.NewLogger(stderr, cfg.LogLevel)
 	if err := migrateOnce(ctx, cfg, log); err != nil {
 		fmt.Fprintln(stderr, "erp-server migrate:", err)
 		return 1
