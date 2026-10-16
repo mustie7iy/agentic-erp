@@ -50,13 +50,13 @@ func (e env) order(t *testing.T, supplier uuid.UUID, number string) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
-		payment_term_code, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 'EUR', '2026-03-01', 'NT30', 'released', $6, $6)`,
+		payment_term_code, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 'EUR', '2026-03-01', 'NT30', 'draft', $6, $6)`,
 		e.Tenant.ID, id, number, e.DE, supplier, e.Tenant.Human.ID)
-	// Items of an order inserted released, as only an order change adds them (T47e).
-	pgtest.Unguarded(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
+	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
 		price_unit, account_id, tax_code, valuation_price, valuation_price_unit)
 		VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3, 'V1', 1200, 1), ($1, $2, 2, 'Toner', 5, 'KG', 300, 1, $3, NULL, 300, 1)`,
 		e.Tenant.ID, id, e.expense)
+	pgtest.Exec(t, `UPDATE procurement.purchase_order SET status = 'released', version = version + 1 WHERE id = $1`, id)
 	return id
 }
 

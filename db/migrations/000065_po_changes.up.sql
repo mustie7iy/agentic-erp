@@ -36,7 +36,8 @@ CREATE TABLE procurement.purchase_order_change (
   FOREIGN KEY (tenant_id, purchase_order_id) REFERENCES procurement.purchase_order (tenant_id, id),
   UNIQUE (tenant_id, purchase_order_id, revision),
   CONSTRAINT purchase_order_change_applied CHECK ((status = 'applied') = (revision IS NOT NULL AND previous IS NOT NULL)),
-  CONSTRAINT purchase_order_change_request CHECK (status NOT IN ('pending_approval', 'rejected') OR approval_request_id IS NOT NULL)
+  CONSTRAINT purchase_order_change_request CHECK (status NOT IN ('pending_approval', 'rejected') OR approval_request_id IS NOT NULL),
+  CONSTRAINT purchase_order_change_revision CHECK (status <> 'applied' OR revision = base_revision + 1)
 );
 CREATE UNIQUE INDEX purchase_order_one_open_change ON procurement.purchase_order_change (tenant_id, purchase_order_id)
   WHERE status IN ('draft', 'pending_approval');
@@ -52,6 +53,13 @@ ALTER TABLE procurement.purchase_order ADD CONSTRAINT purchase_order_applying_ch
 CREATE FUNCTION procurement.check_order_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'draft' THEN
+      RAISE EXCEPTION 'an order change starts as a draft, not %', NEW.status
+        USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_change_transition';
+    END IF;
+    RETURN NEW;
+  END IF;
   IF (OLD.status, NEW.status) NOT IN (('draft', 'draft'), ('draft', 'pending_approval'), ('draft', 'applied'), ('draft', 'cancelled'),
       ('pending_approval', 'applied'), ('pending_approval', 'rejected'), ('pending_approval', 'draft')) THEN
     RAISE EXCEPTION 'order change % cannot go from % to %', OLD.id, OLD.status, NEW.status
@@ -66,26 +74,32 @@ BEGIN
     RAISE EXCEPTION 'order change % is decided only on the request it names', OLD.id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_change_request_named';
   END IF;
-  IF NEW.status = 'applied' AND NEW.revision <> NEW.base_revision + 1 THEN
-    RAISE EXCEPTION 'order change % makes revision % of the order', OLD.id, NEW.base_revision + 1
-      USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_change_revision';
+  IF NEW.status = 'applied' AND OLD.status <> 'applied' AND NOT EXISTS (SELECT FROM procurement.purchase_order
+      WHERE tenant_id = NEW.tenant_id AND id = NEW.purchase_order_id AND applying_change_id = NEW.id) THEN
+    RAISE EXCEPTION 'order change % is applied only as its order applies it', OLD.id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_change_applying';
   END IF;
   RETURN NEW;
 END $$;
 ALTER FUNCTION procurement.check_order_change() OWNER TO erp_owner;
-CREATE TRIGGER purchase_order_change_transition BEFORE UPDATE ON procurement.purchase_order_change
+CREATE TRIGGER purchase_order_change_transition BEFORE INSERT OR UPDATE ON procurement.purchase_order_change
   FOR EACH ROW EXECUTE FUNCTION procurement.check_order_change();
 
 -- A released order's header changes only while it names the change being
--- applied, an open change of its own revision, and its revision moves on
--- by one exactly as the name is cleared. Its supplier, currency, legal entity, contract
+-- applied, an open change of its own revision; its revision, a draft's
+-- too, moves on by one exactly as the name is cleared, once the change
+-- reads applied at that revision. A change is applied only while its
+-- order names it, so the two move together. The application locks the
+-- change FOR UPDATE before naming it (T47f): the check below reads it
+-- unlocked. Its supplier, currency, legal entity, contract
 -- and requisition never change once it left draft.
 CREATE FUNCTION procurement.check_order_revision() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF OLD.status <> 'draft' AND (NEW.supplier_id, NEW.currency, NEW.legal_entity_id, NEW.contract_id, NEW.requisition_id)
-     IS DISTINCT FROM (OLD.supplier_id, OLD.currency, OLD.legal_entity_id, OLD.contract_id, OLD.requisition_id) THEN
-    RAISE EXCEPTION 'purchase order % keeps its supplier, currency, legal entity, contract and requisition', OLD.document_number
+  IF OLD.status <> 'draft' AND (NEW.supplier_id, NEW.currency, NEW.legal_entity_id, NEW.contract_id, NEW.requisition_id, NEW.purchasing_org_id,
+      NEW.document_number) IS DISTINCT FROM (OLD.supplier_id, OLD.currency, OLD.legal_entity_id, OLD.contract_id, OLD.requisition_id,
+      OLD.purchasing_org_id, OLD.document_number) THEN
+    RAISE EXCEPTION 'purchase order % keeps its supplier, currency, legal entity, contract, requisition, purchasing org and number', OLD.document_number
       USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_identity';
   END IF;
   IF NEW.applying_change_id IS NOT NULL AND NEW.applying_change_id IS DISTINCT FROM OLD.applying_change_id AND NOT EXISTS (
@@ -94,12 +108,16 @@ BEGIN
     RAISE EXCEPTION 'purchase order % applies an open change of its own revision', OLD.document_number
       USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_revision';
   END IF;
-  IF OLD.status <> 'draft' AND (
-      ((NEW.payment_term_code, NEW.order_date, NEW.extensions) IS DISTINCT FROM (OLD.payment_term_code, OLD.order_date, OLD.extensions)
+  IF (OLD.status <> 'draft' AND (NEW.payment_term_code, NEW.order_date, NEW.extensions) IS DISTINCT FROM (OLD.payment_term_code, OLD.order_date, OLD.extensions)
         AND OLD.applying_change_id IS NULL)
       OR (NEW.revision <> OLD.revision AND NOT (OLD.applying_change_id IS NOT NULL AND NEW.applying_change_id IS NULL))
-      OR (OLD.applying_change_id IS NOT NULL AND NEW.applying_change_id IS NULL AND NEW.revision <> OLD.revision + 1)) THEN
+      OR (OLD.applying_change_id IS NOT NULL AND NEW.applying_change_id IS NULL AND NEW.revision <> OLD.revision + 1) THEN
     RAISE EXCEPTION 'released purchase order % changes only through an order change', OLD.document_number
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_revision';
+  END IF;
+  IF OLD.applying_change_id IS NOT NULL AND NEW.applying_change_id IS NULL AND NOT EXISTS (SELECT FROM procurement.purchase_order_change
+      WHERE tenant_id = NEW.tenant_id AND id = OLD.applying_change_id AND status = 'applied' AND revision = NEW.revision) THEN
+    RAISE EXCEPTION 'purchase order % clears the change it applied only once the change made its revision', OLD.document_number
       USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_revision';
   END IF;
   RETURN NEW;
@@ -127,6 +145,10 @@ BEGIN
   END IF;
   IF st <> 'released' OR applying IS NULL THEN
     RAISE EXCEPTION 'items of a % procurement.purchase_order cannot change', st USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT NEW.is_removed AND NEW.valuation_price IS NULL THEN
+    RAISE EXCEPTION 'item % is added to released purchase order % with its valuation price', NEW.item_no, NEW.purchase_order_id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_item_valued';
   END IF;
   IF TG_OP = 'UPDATE' AND (NEW.account_id, NEW.uom_code, NEW.material_id, NEW.contract_item_no)
      IS DISTINCT FROM (OLD.account_id, OLD.uom_code, OLD.material_id, OLD.contract_item_no) THEN

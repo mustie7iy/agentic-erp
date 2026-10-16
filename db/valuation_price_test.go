@@ -44,8 +44,8 @@ func TestValuationPrices(t *testing.T) {
 		mustApp(t, f.tenant, func(tx pgx.Tx) (err error) { po, err = f.order(tx, &price); return err })
 		mustApp(t, f.tenant, release(po))
 	})
-	// Whatever else lets an item change: today only a draft's items do,
-	// an order change will (T47e).
+	// Whatever lets an item change: a draft's edit, or an order change's
+	// application (T47e).
 	t.Run("a valued item's price changed", func(t *testing.T) {
 		f := newFixture(t)
 		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {

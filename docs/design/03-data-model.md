@@ -817,9 +817,13 @@ read before (`previous`). It is applied in one transaction: the order names
 it (`applying_change_id`, an open change of its own revision, only on a
 released order), its items are written, and its header changes and its
 revision moves on by one as the name is cleared (trigger
-`purchase_order_revision`). Outside that, a released order's items and
-header do not change; its supplier, currency, legal entity, contract and
-requisition never do once it left draft; an item keeps its account, unit,
+`purchase_order_revision`), which needs the change to read applied at that
+revision, and a change is applied only while its order names it, so the
+two move together; a change starts as a draft. Outside that, a released
+order's items and header do not change, nor any order's revision; its
+supplier, currency, legal entity, contract, requisition, purchasing org
+and number never change once it left draft; an item of a released order
+is never active without its valuation price; an item keeps its account, unit,
 material and contract item, is never below what was received, nor removed
 with receipts (`purchase_order_item_received`), and its valuation price
 stays the one it was released at.
