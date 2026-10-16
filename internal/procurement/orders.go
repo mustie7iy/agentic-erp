@@ -57,7 +57,7 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	err = tx.QueryRow(ctx, `SELECT po.document_number, po.legal_entity_id, po.supplier_id, po.currency, po.payment_term_code, po.status, po.valuation,
 			coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code,
 				'unit_price', i.unit_price, 'price_unit', i.price_unit, 'account_id', i.account_id, 'tax_code', i.tax_code,
-				-- a draft's items are not valued yet, a released order's always are
+				-- an order's items are valued as it is released, a released one's always
 				-- (value_released_items, purchase_order_item_valued): payables posts
 				-- only on released orders
 				'valuation_price', coalesce(i.valuation_price, 0), 'valuation_price_unit', coalesce(i.valuation_price_unit, 1),

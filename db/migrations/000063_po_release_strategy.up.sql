@@ -26,17 +26,37 @@ BEGIN
   RETURN NEW;
 END $$;
 
--- The items are valued as the order leaves draft, while they may still be
--- written: an order waiting for approval can change no item (000015).
+-- The items are valued as the order is released, from draft or after its
+-- approval: a release rejected returns the order to draft to be changed,
+-- and its items are valued at the price released. The release writes
+-- them while the order still reads pending_approval, whose items may not
+-- otherwise change: an item of an order that is no draft changes only by
+-- being valued for the first time.
 CREATE OR REPLACE FUNCTION procurement.value_released_items() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF OLD.status = 'draft' AND NEW.status IN ('pending_approval', 'released') THEN
+  IF NEW.status = 'released' AND OLD.status IN ('draft', 'pending_approval') THEN
     UPDATE procurement.purchase_order_item SET valuation_price = unit_price, valuation_price_unit = price_unit
     WHERE tenant_id = NEW.tenant_id AND purchase_order_id = NEW.id AND NOT is_removed AND valuation_price IS NULL;
   END IF;
   RETURN NEW;
 END $$;
+
+CREATE FUNCTION procurement.check_order_item_editable() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE st text;
+BEGIN
+  SELECT status INTO st FROM procurement.purchase_order WHERE tenant_id = NEW.tenant_id AND id = NEW.purchase_order_id;
+  IF st = 'draft' OR (OLD.valuation_price IS NULL AND NEW.valuation_price IS NOT NULL
+      AND to_jsonb(NEW) - 'valuation_price' - 'valuation_price_unit' = to_jsonb(OLD) - 'valuation_price' - 'valuation_price_unit') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'items of a % procurement.purchase_order cannot change', st USING ERRCODE = 'check_violation';
+END $$;
+ALTER FUNCTION procurement.check_order_item_editable() OWNER TO erp_owner;
+DROP TRIGGER purchase_order_item_editable ON procurement.purchase_order_item;
+CREATE TRIGGER purchase_order_item_editable BEFORE UPDATE ON procurement.purchase_order_item
+  FOR EACH ROW EXECUTE FUNCTION procurement.check_order_item_editable();
 
 CREATE FUNCTION procurement.check_order_transition() RETURNS trigger
 LANGUAGE plpgsql AS $$

@@ -5173,6 +5173,7 @@ paths:
             description: "Purchase orders status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - draft
+              - pending_approval
               - released
               - closed
               - cancelled

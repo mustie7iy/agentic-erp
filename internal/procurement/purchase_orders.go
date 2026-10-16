@@ -118,16 +118,22 @@ func usableContract(ctx context.Context, tx pgx.Tx, id uuid.UUID, le, supplier u
 	if err != nil {
 		return Contract{}, err
 	}
+	return c, contractUsable(c, le, supplier, currency, on)
+}
+
+// contractUsable requires a contract to be active, of the legal entity,
+// supplier and currency, and valid on the date.
+func contractUsable(c Contract, le, supplier uuid.UUID, currency string, on time.Time) error {
 	switch {
 	case c.Status != Active:
-		return Contract{}, invalid("procurement.invalid_contract", "contract_id", "the contract is "+c.Status)
+		return invalid("procurement.invalid_contract", "contract_id", "the contract is "+c.Status)
 	case c.LegalEntityID != le || c.SupplierID != supplier || c.Currency != currency:
-		return Contract{}, invalid("procurement.invalid_contract", "contract_id", "a contract of the legal entity with the order's supplier and currency")
+		return invalid("procurement.invalid_contract", "contract_id", "a contract of the legal entity with the order's supplier and currency")
 	case on.Before(c.ValidFrom) || on.After(c.ValidTo):
-		return Contract{}, invalid("procurement.invalid_contract", "contract_id",
+		return invalid("procurement.invalid_contract", "contract_id",
 			fmt.Sprintf("the contract is valid from %s to %s", c.ValidFrom.Format(time.DateOnly), c.ValidTo.Format(time.DateOnly)))
 	}
-	return c, nil
+	return nil
 }
 
 // orderHeader is what order items are checked against.
@@ -556,13 +562,19 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		return PurchaseOrder{}, err
 	}
 	strategy, err := releaseStrategy(ctx, tx, o, value, loaded)
-	if err != nil || !strategy {
-		return e.releaseNow(ctx, tx, p, o, value, loaded, err)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
+	if !strategy {
+		return e.release(ctx, tx, p, o, value, loaded)
 	}
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.PurchaseOrder, ObjectID: id,
 		Title: "Purchase order " + o.DocumentNumber, Amount: &value, Currency: &o.Currency, LegalEntityID: o.LegalEntityID, Date: o.OrderDate})
-	if err != nil || !needed {
-		return e.releaseNow(ctx, tx, p, o, value, loaded, err)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
+	if !needed {
+		return e.release(ctx, tx, p, o, value, loaded)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'pending_approval', release_request_id = $2, version = version + 1,
 			updated_by = $3 WHERE id = $1`, id, request, p.ID); err != nil {
@@ -578,8 +590,8 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 
 // releaseStrategy reports whether an order is released by the release
 // strategy: one without an approved requisition, or above its
-// requisition's total (in the order's currency, which is the
-// requisition's), unless a migration run loaded it.
+// requisition's total, or in another currency than it, unless a migration
+// run loaded it.
 func releaseStrategy(ctx context.Context, tx pgx.Tx, o PurchaseOrder, value money.Minor, loaded bool) (bool, error) {
 	if loaded {
 		return false, nil
@@ -592,16 +604,9 @@ func releaseStrategy(ctx context.Context, tx pgx.Tx, o PurchaseOrder, value mone
 		return false, err
 	}
 	approved, err := documentTotal(r.Items)
-	return value > approved, err
-}
-
-// releaseNow releases the order, unless err (passed through) refused it.
-func (e *Endpoints) releaseNow(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseOrder, value money.Minor, loaded bool,
-	err error) (PurchaseOrder, error) {
-	if err != nil {
-		return PurchaseOrder{}, err
-	}
-	return e.release(ctx, tx, p, o, value, loaded)
+	// An order whose currency changed since its requisition cannot be
+	// compared with it.
+	return o.Currency != r.Currency || value > approved, err
 }
 
 // release releases an order: it consumes its contract, decides its
@@ -659,8 +664,13 @@ func coveringContract(ctx context.Context, tx pgx.Tx, o PurchaseOrder, value mon
 	if _, err := tx.Exec(ctx, `SELECT FROM procurement.contract WHERE id = $1 FOR UPDATE`, *o.ContractID); err != nil {
 		return nil, fmt.Errorf("procurement: release purchase order %s: lock contract %s: %w", o.ID, *o.ContractID, err)
 	}
-	c, err := usableContract(ctx, tx, *o.ContractID, o.LegalEntityID, o.SupplierID, o.Currency, o.OrderDate)
+	// Without the caller's company filter: the order is the caller's, or
+	// an approval of its release authorises it.
+	c, err := scanContract(tx.QueryRow(ctx, contractSelect+` WHERE c.id = $1`, *o.ContractID))
 	if err != nil {
+		return nil, fmt.Errorf("procurement: read contract %s of purchase order %s: %w", *o.ContractID, o.ID, err)
+	}
+	if err := contractUsable(c, o.LegalEntityID, o.SupplierID, o.Currency, o.OrderDate); err != nil {
 		return nil, err
 	}
 	// Against the remainder: consumed plus the order can be out of range.
@@ -741,7 +751,7 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		return PurchaseOrder{}, err
 	}
 	if o.Status == PendingApproval {
-		if err := e.Approvals.Withdraw(ctx, approvals.PurchaseOrder, id, "the purchase order was cancelled"); err != nil {
+		if err := e.Approvals.Withdraw(ctx, approvals.PurchaseOrder, id, "The purchase order was cancelled."); err != nil {
 			return PurchaseOrder{}, err
 		}
 	}

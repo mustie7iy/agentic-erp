@@ -58,24 +58,37 @@ func TestOrderTransitions(t *testing.T) {
 			}
 		})
 	}
-	t.Run("valued as it is submitted", func(t *testing.T) {
+	// Items are valued as the order is released, not as it is submitted: a
+	// release rejected and the order changed is valued at its new price.
+	t.Run("valued as it is released", func(t *testing.T) {
 		f := newFixture(t)
 		var po uuid.UUID
 		mustApp(t, f.tenant, func(tx pgx.Tx) (err error) { po, err = f.order(tx, nil); return err })
-		mustApp(t, f.tenant, func(tx pgx.Tx) error {
-			return exec(tx, `UPDATE procurement.purchase_order SET `+submit+`, version = version + 1 WHERE id = $1`, po)
-		})
-		var valued *int64
-		if err := testDB.QueryRow(context.Background(), `SELECT valuation_price FROM procurement.purchase_order_item WHERE purchase_order_id = $1`, po).
-			Scan(&valued); err != nil {
-			t.Fatal(err)
+		valuation := func() *int64 {
+			var valued *int64
+			if err := testDB.QueryRow(context.Background(), `SELECT valuation_price FROM procurement.purchase_order_item WHERE purchase_order_id = $1`, po).
+				Scan(&valued); err != nil {
+				t.Fatal(err)
+			}
+			return valued
 		}
-		if valued == nil || *valued != 250 {
-			t.Errorf("valuation price once submitted: got %v, want 250", deref(valued))
+		set := func(sql string) {
+			mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, sql, po) })
+		}
+		set(`UPDATE procurement.purchase_order SET ` + submit + `, version = version + 1 WHERE id = $1`)
+		if v := valuation(); v != nil {
+			t.Errorf("valuation price once submitted: got %v, want none", *v)
 		}
 		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `UPDATE procurement.purchase_order_item SET quantity = 5 WHERE purchase_order_id = $1`, po)
 		}), "cannot change")
+		set(`UPDATE procurement.purchase_order SET status = 'draft', release_request_id = NULL, version = version + 1 WHERE id = $1`)
+		set(`UPDATE procurement.purchase_order_item SET unit_price = 100 WHERE purchase_order_id = $1`)
+		set(`UPDATE procurement.purchase_order SET ` + submit + `, version = version + 1 WHERE id = $1`)
+		set(`UPDATE procurement.purchase_order SET status = 'released', release_request_id = NULL, version = version + 1 WHERE id = $1`)
+		if v := valuation(); v == nil || *v != 100 {
+			t.Errorf("valuation price once released: got %v, want 100", deref(v))
+		}
 	})
 	t.Run("pending valued through GR/IR", func(t *testing.T) {
 		f := newFixture(t)

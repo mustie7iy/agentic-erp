@@ -1,5 +1,9 @@
 DROP TRIGGER purchase_order_transition ON procurement.purchase_order;
 DROP FUNCTION procurement.check_order_transition();
+DROP TRIGGER purchase_order_item_editable ON procurement.purchase_order_item;
+DROP FUNCTION procurement.check_order_item_editable();
+CREATE TRIGGER purchase_order_item_editable BEFORE UPDATE ON procurement.purchase_order_item
+  FOR EACH ROW EXECUTE FUNCTION platform.check_editable_parent('procurement.purchase_order', 'purchase_order_id', 'draft');
 CREATE OR REPLACE FUNCTION procurement.value_released_items() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

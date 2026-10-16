@@ -875,7 +875,7 @@ components:
       name: PurchaseOrderReleased
       title: Purchase order released
       summary: A purchase order was released to the supplier.
-      description: Emitted by `purchase-orders/{id}:release` when the order moves to `released`. Integration sends the order output; payables can match invoices against it from then on. Subject is the purchase order id.
+      description: Emitted when the order moves to `released`, by `purchase-orders/{id}:release` or, for an order waiting for its release approval, by `approval-requests/{id}:approve` in the deciding transaction. Integration sends the order output; payables can match invoices against it from then on. Subject is the purchase order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2935,7 +2935,7 @@ components:
         requisition_id: {"$ref": "#/components/schemas/NullableUuid"}
         contract_id: {"$ref": "#/components/schemas/NullableUuid"}
         released_value: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Contract consumption given back; null when not contract-based."}
-        previous_status: {"type": "string", "description": "Open enum: draft, released."}
+        previous_status: {"type": "string", "description": "Open enum: draft, pending_approval, released."}
         status: {"type": "string", "description": "Open enum; cancelled in v1."}
     ContractActivatedV1:
       type: object

@@ -192,3 +192,63 @@ func TestReleaseFailures(t *testing.T) {
 		pgtest.WantErr(t, err, "does not wait for request")
 	})
 }
+
+// TestReleaseValuedAtRelease: items are valued when the order is
+// released, so a release rejected and the price changed values them at
+// the price released.
+func TestReleaseValuedAtRelease(t *testing.T) {
+	e := setup(t)
+	order := e.big(t, "150.00")
+	path := "/v1/purchase-orders/" + order
+	e.act(t, path, "release", "")
+	r := e.Pending(t, order)
+	e.As(e.Approver).Must(200, "POST", "/v1/approval-requests/"+id(r)+":reject", `{"comment": "Too dear"}`, fmt.Sprintf(`"%v"`, r["version"]))
+	_, tag := e.Must(200, "GET", path, "", "")
+	e.Must(200, "PATCH", path, `{"items": `+items(item(e.office, "10", "EA", "100.00", "EUR", ""))+`}`, tag)
+	released := e.act(t, path, "release", "") // 1000.00: within the first tier
+	if released["status"] != "released" {
+		t.Fatalf("released at 100.00: got %v, want released", released["status"])
+	}
+	it := released["items"].([]any)[0].(map[string]any)
+	want(t, "valuation price", it["valuation_price"].(map[string]any), map[string]any{"amount": "100.00", "currency": "EUR"})
+}
+
+// TestReleaseInAnotherCurrencyThanTheRequisition: an order whose currency
+// changed since its requisition is released by the strategy, as their
+// totals cannot be compared.
+func TestReleaseInAnotherCurrencyThanTheRequisition(t *testing.T) {
+	e := setup(t)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	r := e.requisition(t, items(item(e.office, "10", "EA", "150.00", "EUR", "")), fmt.Sprintf(`, "supplier_id": %q`, e.Supplier))
+	e.act(t, "/v1/requisitions/"+id(r), "submit", "")
+	e.Approve(t, id(r))
+	o := e.order(t, items(item(e.office, "10", "EA", "150.00", "EUR", "")), fmt.Sprintf(`, "requisition_id": %q`, id(r)))
+	path := "/v1/purchase-orders/" + id(o)
+	_, tag := e.Must(200, "GET", path, "", "")
+	e.Must(200, "PATCH", path, `{"currency": "USD", "items": `+items(item(e.office, "10", "EA", "150.00", "USD", ""))+`}`, tag)
+	if got := e.act(t, path, "release", ""); got["status"] != "pending_approval" {
+		t.Errorf("released in USD from a EUR requisition: got %v, want pending_approval", got["status"])
+	}
+}
+
+// TestReleaseApprovedOutsideTheCompany: the request authorises the
+// release, so an approver who may not act in the order's legal entity
+// releases a contract order too.
+func TestReleaseApprovedOutsideTheCompany(t *testing.T) {
+	e := setup(t)
+	c, _ := e.Must(201, "POST", "/v1/contracts", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "valid_from": "2026-01-01",
+		"valid_to": "2026-12-31", "target_value": {"amount": "100000.00", "currency": "EUR"}, "items": [
+		{"material_key": "A", "description": "Paper", "unit_price": {"amount": "150.00", "currency": "EUR"}, "uom_code": "EA", "account_id": %q}]}`,
+		e.DE, e.Supplier, e.office), "")
+	e.act(t, "/v1/contracts/"+id(c), "release", "")
+	o := e.order(t, items(item(e.office, "10", "EA", "150.00", "EUR", `, "contract_item_no": 1`)), fmt.Sprintf(`, "contract_id": %q`, id(c)))
+	e.act(t, "/v1/purchase-orders/"+id(o), "release", "")
+	pgtest.Exec(t, `UPDATE identity.principal SET all_companies = false, version = version + 1 WHERE id = $1`, e.Approver.ID)
+	r := e.Pending(t, id(o))
+	e.As(e.Approver).Must(200, "POST", "/v1/approval-requests/"+id(r)+":approve", `{"comment": "ok"}`, fmt.Sprintf(`"%v"`, r["version"]))
+	got, _ := e.Must(200, "GET", "/v1/purchase-orders/"+id(o), "", "")
+	if got["status"] != "released" {
+		t.Errorf("approved outside the company: got %v, want released", got["status"])
+	}
+}
