@@ -2102,3 +2102,39 @@ func TestSupplierInvoiceItemQuantities(t *testing.T) {
 		}), "supplier_invoice_item_quantity_kind")
 	})
 }
+
+// TestPaymentTermDiscountTiers: a payment term has up to two cash discount
+// tiers (SAP T052 ZTAG1/ZPRZ1, ZTAG2/ZPRZ2), each of days and percent; the
+// second only after the first, both within the net days, and the later
+// tier gives less.
+func TestPaymentTermDiscountTiers(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	for i, c := range []struct {
+		name, tiers, fails string
+	}{
+		{"net only", "NULL, NULL, NULL, NULL", ""},
+		{"one tier", "14, 3, NULL, NULL", ""},
+		{"two tiers", "14, 3, 30, 2", ""},
+		{"second tier without days", "14, 3, NULL, 2", "payment_term_discount2_pair"},
+		{"second tier without the first", "NULL, NULL, 30, 2", "payment_term_discount2_tiers"},
+		{"second tier not later", "14, 3, 14, 2", "payment_term_discount2_tiers"},
+		{"second tier at the net days", "14, 3, 45, 2", "payment_term_discount2_tiers"},
+		{"second tier not less", "14, 3, 30, 3", "payment_term_discount2_tiers"},
+		{"second tier percent", "14, 3, 30, 0", "payment_term_discount2_pct_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `INSERT INTO partner.payment_term (tenant_id, code, description, net_days, discount_days, discount_pct, discount2_days, discount2_pct,
+					created_by, updated_by) VALUES ($1, $2, 'Terms', 45, `+c.tiers+`, $3, $3)`, f.tenant, fmt.Sprintf("T%d", i), f.actor)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+}

@@ -67,6 +67,8 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
 	{rx(`^payment_terms\[\*\]\.description$`), TierCosmetic},
+	// Discounts change what payments post (cash discount and tax).
+	{rx(`^payment_terms\[\*\]\.discounts`), TierPostingRelated},
 	{rx(`^payment_terms`), TierOperational},
 	{rx(`^purchasing\.`), TierOperational},
 	{rx(`^payments\.bank_change_hold_days$`), TierOperational},

@@ -73,19 +73,33 @@ func (PaymentTerms) Check(_ context.Context, base, proposed *config.Config) ([]c
 	return out, nil
 }
 
-// Apply creates new payment terms and updates changed ones.
+// Apply creates new payment terms and updates changed ones, with their
+// cash discount tiers (validated in the document: at most two, later
+// tiers smaller, all within the net days).
 func (PaymentTerms) Apply(ctx context.Context, doc *config.Config) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
 	for _, t := range doc.PaymentTerms {
-		if _, err := tx.Exec(ctx, `INSERT INTO partner.payment_term AS t (tenant_id, code, description, net_days, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, $5, $5)
+		if len(t.Discounts) > 2 {
+			return fmt.Errorf("partner: apply payment term %s: %d discount tiers, the table holds two", t.Key, len(t.Discounts))
+		}
+		var days [2]*int
+		var pct [2]*string
+		for i, d := range t.Discounts {
+			days[i], pct[i] = &d.Days, &d.Percent
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO partner.payment_term AS t (tenant_id, code, description, net_days, discount_days, discount_pct,
+				discount2_days, discount2_pct, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, $8::numeric, $9, $9)
 			ON CONFLICT (tenant_id, code) DO UPDATE SET description = EXCLUDED.description, net_days = EXCLUDED.net_days,
-				version = t.version + 1, updated_by = EXCLUDED.updated_by
-			WHERE (t.description, t.net_days) IS DISTINCT FROM (EXCLUDED.description, EXCLUDED.net_days)`,
-			p.TenantID, t.Key, t.Description, t.NetDays, p.ID); err != nil {
+				discount_days = EXCLUDED.discount_days, discount_pct = EXCLUDED.discount_pct, discount2_days = EXCLUDED.discount2_days,
+				discount2_pct = EXCLUDED.discount2_pct, version = t.version + 1, updated_by = EXCLUDED.updated_by
+			WHERE (t.description, t.net_days, t.discount_days, t.discount_pct, t.discount2_days, t.discount2_pct)
+				IS DISTINCT FROM (EXCLUDED.description, EXCLUDED.net_days, EXCLUDED.discount_days, EXCLUDED.discount_pct,
+					EXCLUDED.discount2_days, EXCLUDED.discount2_pct)`,
+			p.TenantID, t.Key, t.Description, t.NetDays, days[0], pct[0], days[1], pct[1], p.ID); err != nil {
 			return fmt.Errorf("partner: apply payment term %s: %w", t.Key, err)
 		}
 	}

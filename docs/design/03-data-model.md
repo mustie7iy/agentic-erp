@@ -416,7 +416,11 @@ erDiagram
     text status
     uuid workflow_request_id }
   payment_term { text code PK
-    smallint net_days }
+    smallint net_days
+    smallint discount_days "tier 1"
+    numeric discount_pct
+    smallint discount2_days "tier 2"
+    numeric discount2_pct }
 ```
 
 One business partner can be both supplier and customer (SAP business partner
@@ -424,6 +428,22 @@ model). Company-specific supplier data lives in `supplier_company`. Bank
 accounts are effective-dated; a change creates a new row with `valid_from`,
 which drives the payment hold after bank changes. Fingerprints detect
 duplicate tax numbers and bank accounts across partners without decrypting.
+
+A payment term grants up to two cash discount tiers before its net days,
+as SAP's T052 does (ZTAG1/ZPRZ1, ZTAG2/ZPRZ2, ZTAG3; migration 000065,
+T36a): a percent off for payment within so many days of the baseline date,
+the second tier later and smaller than the first and both within the net
+days (`payment_term_discount2_tiers`). The configuration document carries
+them as `payment_terms[].discounts` (`{days, percent}`, percent a decimal
+of at most three places), validated the same way; a change to them is
+posting-related, since it changes what payments post. Once any term grants
+a discount, every company names its cash discount account
+(`account_determination.cash_discount`, a revenue account, SAP's SKE),
+which payments post the discounts they take to. The SAP load reads a T052
+position with a percent as a tier and the first without one as the net
+days; a term whose last discount runs to its net due date ("within 14 days
+2%"), which the configuration cannot hold, is drafted to fail validation
+with a note until a reviewer sets its net days.
 
 ## 3.7 General ledger (`ledger`)
 
@@ -670,8 +690,8 @@ Other ledger tables: `ledger` (leading 0L, parallel ledgers), `exchange_rate`
 (rate type `average | bank_buying | bank_selling | planning`, currency pair,
 `valid_from`; insert-only), `account_determination` (which account
 automatic postings use per legal entity and key: `ap_reconciliation`,
-`input_tax`, `bank`, `fx_gain`, `fx_loss`, and for GR/IR clearing (T33)
-`gr_ir` and `price_difference`; the GR/IR account is a liability that no
+`input_tax`, `bank`, `fx_gain`, `fx_loss`, `cash_discount` (T36a), and for
+GR/IR clearing (T33) `gr_ir` and `price_difference`; the GR/IR account is a liability that no
 tax code posts, starts without postings other than a migration run's, and
 stays once activated (configuration validation, `ledger.Setup.Check`); order
 items that named it before stay as they are, and posting them is refused),
@@ -1436,6 +1456,6 @@ activate, and orders under them are refused.
 | T012K | `payments.house_bank` |
 | T052 | `partner.payment_term` |
 | T007A | `ledger.tax_code` |
-| T030 | `ledger.account_determination` |
+| T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |

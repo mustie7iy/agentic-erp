@@ -129,7 +129,14 @@ type ACDOCA struct {
 // T052 - payment terms.
 type T052 struct {
 	ZTERM string `json:"ZTERM"`
-	ZTAG1 string `json:"ZTAG1"` // days net
+	// ZTAG1/ZPRZ1 and ZTAG2/ZPRZ2 are the cash discount tiers (days,
+	// percent) and ZTAG3 the net days; a position without a percent holds
+	// the net days, so a net-only term has them in ZTAG1.
+	ZTAG1 string `json:"ZTAG1"`
+	ZPRZ1 string `json:"ZPRZ1,omitempty"`
+	ZTAG2 string `json:"ZTAG2,omitempty"`
+	ZPRZ2 string `json:"ZPRZ2,omitempty"`
+	ZTAG3 string `json:"ZTAG3,omitempty"`
 	TEXT1 string `json:"TEXT1"`
 }
 
