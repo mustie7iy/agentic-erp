@@ -70,19 +70,46 @@ func TestChangeParkedEntry(t *testing.T) {
 	if got := amounts(t, got, "amount"); got != "7.00,-7.00" {
 		t.Errorf("shortened lines: got %s, want 7.00,-7.00", got)
 	}
-	got, _ = e.Must(200, "PATCH", path, `{"posting_date": "2026-04-01", "document_date": "2026-03-31", "document_type": "AB"}`, `"3"`)
+	// More lines bring removed numbers back, with what they now say.
+	grown := `{"lines": [{"account_id": "` + bank + `", "amount": {"amount": "4.00", "currency": "EUR"}},
+		{"account_id": "` + revenue + `", "amount": {"amount": "-1.00", "currency": "EUR"}},
+		{"account_id": "` + bank + `", "amount": {"amount": "-3.00", "currency": "EUR"}, "quantity": {"value": "2", "unit": "EA"}}]}`
+	got, _ = e.Must(200, "PATCH", path, grown, `"3"`)
+	if got := amounts(t, got, "amount"); got != "4.00,-1.00,-3.00" {
+		t.Errorf("grown lines: got %s, want 4.00,-1.00,-3.00", got)
+	}
+	var live int
+	pgtest.Scan(t, `SELECT count(*) FROM ledger.parked_entry_line WHERE parked_entry_id = $1 AND NOT is_removed`,
+		[]any{uuid.MustParse(got["id"].(string))}, &live)
+	if live != 3 {
+		t.Errorf("live lines: got %d, want 3", live)
+	}
+	got, _ = e.Must(200, "PATCH", path, `{`+lines(bank, revenue, "7.00", "-7.00")+`}`, `"4"`)
+	if got := amounts(t, got, "amount"); got != "7.00,-7.00" {
+		t.Errorf("shortened again: got %s, want 7.00,-7.00", got)
+	}
+	got, _ = e.Must(200, "PATCH", path, `{"posting_date": "2026-04-01", "document_date": "2026-03-31", "document_type": "AB"}`, `"5"`)
 	want(t, "redated", got, map[string]any{"posting_date": "2026-04-01", "document_date": "2026-03-31", "document_type": "AB"})
 	if got := amounts(t, got, "amount"); got != "7.00,-7.00" {
 		t.Errorf("lines kept: got %s, want 7.00,-7.00", got)
 	}
 	e.Problem(412, "request.version_mismatch", "PATCH", path, `{"header_text": "x"}`, `"1"`)
-	e.Problem(422, "ledger.currency_mismatch", "PATCH", path, `{"currency": "USD"}`, `"4"`)
-	e.Problem(422, "ledger.unbalanced", "PATCH", path, `{`+lines(bank, revenue, "7.00", "-6.00")+`}`, `"4"`)
+	e.Problem(422, "ledger.currency_mismatch", "PATCH", path, `{"currency": "USD"}`, `"6"`)
+	e.Problem(422, "ledger.unbalanced", "PATCH", path, `{`+lines(bank, revenue, "7.00", "-6.00")+`}`, `"6"`)
 	e.Problem(404, "request.not_found", "PATCH", "/v1/parked-journal-entries/"+uuid.NewString(), `{"header_text": "x"}`, `"1"`)
+	stranger := e.Client // the agent, without company access here
+	stranger.As = e.ten.Agent
+	stranger.Problem(404, "request.not_found", "PATCH", path, `{"header_text": "x"}`, `"6"`)
 	var audited int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.parked_entry.update'`, []any{e.ten.ID}, &audited)
-	if audited != 3 {
-		t.Errorf("audit records of changes: got %d, want 3", audited)
+	if audited != 5 {
+		t.Errorf("audit records of changes: got %d, want 5", audited)
+	}
+	var fields string
+	pgtest.Scan(t, `SELECT detail->>'fields' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.parked_entry.update' ORDER BY occurred_at, seq LIMIT 1`,
+		[]any{e.ten.ID}, &fields)
+	if fields != `["reference", "header_text", "lines"]` {
+		t.Errorf("first change's fields: got %s, want reference, header_text and lines", fields)
 	}
 	// A change is not a status change: only parking published.
 	if changed := events(t, e.ten, "parked_journal_entry_changed"); len(changed) != 1 {
@@ -93,8 +120,15 @@ func TestChangeParkedEntry(t *testing.T) {
 func TestCancelParkedEntry(t *testing.T) {
 	e := setup(t)
 	path := e.parked(t)
-	got, tag := e.Must(200, "POST", path+":cancel", `{"reason": "Duplicate"}`, `"1"`)
-	want(t, "cancelled entry", got, map[string]any{"status": "cancelled", "version": float64(2)})
+	bank, revenue := e.account(t, "2000", "100000"), e.account(t, "2000", "400000")
+	e.Must(200, "PATCH", path, `{`+lines(bank, revenue, "25.00", "-25.00")+`}`, `"1"`)
+	got, tag := e.Must(200, "POST", path+":cancel", `{"reason": "Duplicate"}`, `"2"`)
+	want(t, "cancelled entry", got, map[string]any{"status": "cancelled", "version": float64(3)})
+	var reason string
+	pgtest.Scan(t, `SELECT detail->>'reason' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.parked_entry.cancel'`, []any{e.ten.ID}, &reason)
+	if reason != "Duplicate" {
+		t.Errorf("cancel reason audited: got %q, want Duplicate", reason)
+	}
 	e.Problem(409, "ledger.invalid_parked_status", "POST", path+":cancel", `{"reason": "Again"}`, tag)
 	e.Problem(409, "ledger.invalid_parked_status", "PATCH", path, `{"header_text": "x"}`, tag)
 	changed := events(t, e.ten, "parked_journal_entry_changed")
@@ -102,6 +136,7 @@ func TestCancelParkedEntry(t *testing.T) {
 		t.Fatalf("parked events: got %d, want 2", len(changed))
 	}
 	want(t, "cancel event", changed[1], map[string]any{"status": "cancelled", "previous_status": "parked"})
+	want(t, "cancel event amount", changed[1]["amount"].(map[string]any), map[string]any{"amount": "25.00", "currency": "EUR"})
 }
 
 // TestParkedEntryOwners: a person's entry is theirs alone; an agent's
@@ -127,6 +162,12 @@ func TestParkedEntryOwners(t *testing.T) {
 	other.Problem(403, "ledger.not_entry_owner", "PATCH", proposal, `{"header_text": "x"}`, `"2"`)
 	got, _ = e.Must(200, "PATCH", proposal, `{"header_text": "Taken on"}`, `"2"`)
 	want(t, "taken on", got, map[string]any{"owner_id": e.ten.Human.ID.String(), "created_by_kind": "agent"})
+	var takenOn string
+	pgtest.Scan(t, `SELECT detail->>'taken_on' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.parked_entry.update'
+		AND object_id = $2 AND actor_id = $3`, []any{e.ten.ID, uuid.MustParse(proposal[len("/v1/parked-journal-entries/"):]), e.ten.Human.ID}, &takenOn)
+	if takenOn != "true" {
+		t.Errorf("taking on audited: got %q, want true", takenOn)
+	}
 	agent.Problem(403, "ledger.not_entry_owner", "PATCH", proposal, `{"header_text": "x"}`, `"3"`)
 	colleague.Problem(403, "ledger.not_entry_owner", "POST", proposal+":cancel", `{"reason": "r"}`, `"3"`)
 	// A person cancelling a proposal takes it on too.

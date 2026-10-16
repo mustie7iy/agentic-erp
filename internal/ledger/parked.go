@@ -236,7 +236,14 @@ type EntryChange struct {
 // database refuses line changes of an entry no longer parked, but reads its
 // status unlocked. Only the owner acts on an entry (ownerAfter).
 func editable(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, ifMatch func(int32) error) (ParkedEntry, *uuid.UUID, error) {
-	if _, err := tx.Exec(ctx, `SELECT FROM ledger.parked_entry WHERE id = $1 FOR UPDATE`, id); err != nil {
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return ParkedEntry{}, nil, err
+	}
+	// Only an entry of a company the caller may see: one it may not is
+	// refused below as not found and must not stay locked until rollback.
+	if _, err := tx.Exec(ctx, `SELECT FROM ledger.parked_entry WHERE id = $1 AND ($2 OR legal_entity_id = ANY($3)) FOR UPDATE`,
+		id, access.All, access.IDs); err != nil {
 		return ParkedEntry{}, nil, fmt.Errorf("ledger: lock parked entry %s: %w", id, err)
 	}
 	pe, err := getParked(ctx, tx, id)
@@ -328,7 +335,23 @@ func (e *Endpoints) changeEntry(ctx context.Context, id uuid.UUID, ifMatch func(
 		return ParkedEntry{}, err
 	}
 	return updated, audit.Add(ctx, audit.Entry{Action: "ledger.parked_entry.update", ObjectType: "ledger.parked_entry", ObjectID: id, Outcome: "succeeded",
-		Detail: map[string]any{"lines": len(v.lines), "owner_id": owner, "taken_on": pe.OwnerID == nil && owner != nil}})
+		Detail: map[string]any{"fields": ch.fields(), "lines": len(v.lines), "owner_id": owner, "taken_on": pe.OwnerID == nil && owner != nil}})
+}
+
+// fields names what a change sets, for the audit trail: once a person
+// takes on an agent's proposal, it shows what the person changed.
+func (ch EntryChange) fields() []string {
+	out := []string{}
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{{"document_type", ch.DocumentType != nil}, {"document_date", ch.DocumentDate != nil}, {"posting_date", ch.PostingDate != nil},
+		{"currency", ch.Currency != nil}, {"reference", ch.Reference != nil}, {"header_text", ch.HeaderText != nil}, {"lines", ch.Lines != nil}} {
+		if f.set {
+			out = append(out, f.name)
+		}
+	}
+	return out
 }
 
 // cancelEntry cancels a parked entry for good; nothing was posted.
