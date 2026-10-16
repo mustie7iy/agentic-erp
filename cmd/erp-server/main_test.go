@@ -1339,8 +1339,9 @@ func TestCellIssuers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := directory.Issuer{Issuer: issuer, Audience: "erp", TenantID: ten.ID}
-	if !slices.Contains(got, want) {
-		t.Errorf("issuers: got %d without %+v, want it listed", len(got), want)
+	if !slices.ContainsFunc(got, func(is directory.Issuer) bool {
+		return is.Issuer == issuer && is.Audience == "erp" && is.TenantID == ten.ID && is.ProviderID != uuid.Nil
+	}) {
+		t.Errorf("issuers: got %d without %s of the tenant, want it listed with its provider", len(got), issuer)
 	}
 }

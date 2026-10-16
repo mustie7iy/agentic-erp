@@ -3,11 +3,16 @@ package controlplane_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
@@ -19,6 +24,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 )
+
+// mergePatch is the media type of the contract's PATCH bodies (RFC 7396).
+const mergePatch = "application/merge-patch+json"
 
 // providerBody is a registration of a fresh issuer.
 func providerBody(name string) (body, issuer string) {
@@ -79,18 +87,18 @@ func TestIdentityProvidersThroughTheControlPlane(t *testing.T) {
 		}
 	})
 	t.Run("changed", func(t *testing.T) {
-		got, h := p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"tenant_claim": "tid", "acr_values": ["urn:loa:2"]}`, "If-Match", `"1"`)
+		got, h := p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"tenant_claim": "tid", "acr_values": ["urn:loa:2"]}`, "If-Match", `"1"`, "Content-Type", mergePatch)
 		if got["tenant_claim"] != "tid" || h.Get("ETag") != `"2"` {
 			t.Errorf("patch: got %v, ETag %s, want tenant claim tid, \"2\"", got, h.Get("ETag"))
 		}
-		got, _ = p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"tenant_claim": null, "amr_values": null}`, "If-Match", `"2"`)
+		got, _ = p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"tenant_claim": null, "amr_values": null}`, "If-Match", `"2"`, "Content-Type", mergePatch)
 		if got["tenant_claim"] != nil || len(got["amr_values"].([]any)) != 0 {
 			t.Errorf("patch with nulls: got %v, want no tenant claim, no amr values", got)
 		}
 		if _, op := auditAction(t, ten.ID, "identity.identity_provider.update"); op != "ops|alice" {
 			t.Errorf("audit: got operator %q, want ops|alice", op)
 		}
-		p.in(t).problem(412, "request.version_mismatch", "ops|alice", "PATCH", providers+"/"+id, `{}`, "If-Match", `"1"`)
+		p.in(t).problem(412, "request.version_mismatch", "ops|alice", "PATCH", providers+"/"+id, `{}`, "If-Match", `"1"`, "Content-Type", mergePatch)
 	})
 	t.Run("retired", func(t *testing.T) {
 		p.in(t).problem(409, "identity.last_provider", "ops|alice", "POST", providers+"/"+id+":retire", "", "If-Match", "*")
@@ -115,11 +123,11 @@ func TestAuthPolicyThroughTheControlPlane(t *testing.T) {
 	if got["mfa_required"] != false || got["session_max_age_seconds"] != float64(43200) || got["idle_timeout_seconds"] != float64(1800) || h.Get("ETag") != `"1"` {
 		t.Errorf("defaults: got %v, ETag %s", got, h.Get("ETag"))
 	}
-	invalid := p.problem(422, "identity.invalid_policy", "ops|alice", "PATCH", policy, `{"idle_timeout_seconds": 60}`, "If-Match", "*")
+	invalid := p.problem(422, "identity.invalid_policy", "ops|alice", "PATCH", policy, `{"idle_timeout_seconds": 60}`, "If-Match", "*", "Content-Type", mergePatch)
 	if errs, _ := invalid["errors"].([]any); len(errs) != 1 || errs[0].(map[string]any)["field"] != "idle_timeout_seconds" {
 		t.Errorf("field errors: got %v, want one on idle_timeout_seconds, the field the request names", invalid["errors"])
 	}
-	got, h = p.must(200, "ops|alice", "PATCH", policy, `{"mfa_required": true, "idle_timeout_seconds": 900}`, "If-Match", `"1"`)
+	got, h = p.must(200, "ops|alice", "PATCH", policy, `{"mfa_required": true, "idle_timeout_seconds": 900}`, "If-Match", `"1"`, "Content-Type", mergePatch)
 	if got["mfa_required"] != true || got["idle_timeout_seconds"] != float64(900) || h.Get("ETag") != `"2"` {
 		t.Errorf("changed: got %v, ETag %s", got, h.Get("ETag"))
 	}
@@ -172,7 +180,11 @@ func TestIdentityRequestsRefused(t *testing.T) {
 		{"an unknown method", "POST", base + "/identity-providers/" + uuid.NewString() + ":promote", "", 404, "request.not_found", nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			p.in(t).problem(c.status, c.code, "ops|alice", c.method, c.path, c.body, c.extra...)
+			extra := c.extra
+			if c.method == "PATCH" {
+				extra = append(extra, "Content-Type", mergePatch)
+			}
+			p.in(t).problem(c.status, c.code, "ops|alice", c.method, c.path, c.body, extra...)
 		})
 	}
 	for _, c := range []struct{ method, path, allow string }{
@@ -213,7 +225,7 @@ func TestIdentityOperationsNeedTheirRoles(t *testing.T) {
 		{"admin registers", "POST", providers, body, with("erp:admin"), 201},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			status, m, _ := p.in(t).do(c.method, c.path, c.body, map[string]string{"Authorization": c.auth, "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString()})
+			status, m, _ := p.in(t).do(c.method, c.path, c.body, map[string]string{"Authorization": c.auth, "If-Match": "*", "Idempotency-Key": "key-" + uuid.NewString(), "Content-Type": mergePatch})
 			if status != c.code {
 				t.Errorf("status: got %d, want %d: %v", status, c.code, m)
 			}
@@ -247,7 +259,7 @@ func TestRegistrationClaimsTheIssuer(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
 	in := identity.NewIdentityProvider{Issuer: "https://claimed-" + uuid.NewString() + ".example.com", Audience: "erp"}
-	elsewhere := directory.Issuer{Issuer: in.Issuer, Audience: in.Audience, TenantID: uuid.New(), Cell: "elsewhere"}
+	elsewhere := directory.Issuer{Issuer: in.Issuer, Audience: in.Audience, TenantID: uuid.New(), Cell: "elsewhere", ProviderID: uuid.New()}
 	if err := dir.ClaimIssuer(ctx, elsewhere); err != nil {
 		t.Fatal(err)
 	}
@@ -345,5 +357,177 @@ func TestIdentityDatabaseFailures(t *testing.T) {
 	pgtest.Scan(t, `SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND key = $2`, []any{ten.ID, "control|" + lost.Key}, &n)
 	if n != 0 {
 		t.Errorf("keys stored by the failed commit: got %d, want 0", n)
+	}
+}
+
+// TestPatchesAreMergePatches: the PATCH operations take
+// application/merge-patch+json only, as the public API's do.
+func TestPatchesAreMergePatches(t *testing.T) {
+	p := newPlane(t)
+	ten := pgtest.NewTenant(t)
+	base := tenants + "/" + ten.ID.String()
+	for _, path := range []string{base + "/auth-policy", base + "/identity-providers/" + uuid.NewString()} {
+		for _, ct := range []string{"application/json", "", "text/plain"} {
+			t.Run(path+" "+ct, func(t *testing.T) {
+				p.in(t).problem(400, "request.invalid_body", "ops|alice", "PATCH", path, `{}`, "If-Match", "*", "Content-Type", ct)
+			})
+		}
+	}
+	p.must(200, "ops|alice", "PATCH", base+"/auth-policy", `{}`, "If-Match", "*", "Content-Type", mergePatch+"; charset=utf-8")
+}
+
+// TestIdentityWritesOnOffboardedTenants: a suspended tenant's registry and
+// policy can still be changed; once offboarding has started they cannot
+// (409 tenancy.invalid_transition), and they can still be read.
+func TestIdentityWritesOnOffboardedTenants(t *testing.T) {
+	p := newPlane(t)
+	ten := pgtest.NewTenant(t)
+	base := tenants + "/" + ten.ID.String()
+	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'suspended', version = version + 1 WHERE id = $1`, ten.ID)
+	body, _ := providerBody("suspended")
+	created, _ := p.must(201, "ops|alice", "POST", base+"/identity-providers", body, "Idempotency-Key", "key-"+uuid.NewString())
+	provider := base + "/identity-providers/" + created["id"].(string)
+	p.must(200, "ops|alice", "PATCH", base+"/auth-policy", `{"idle_timeout_seconds": 600}`, "If-Match", "*", "Content-Type", mergePatch)
+	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', version = version + 1 WHERE id = $1`, ten.ID)
+	again, _ := providerBody("offboarded")
+	for _, c := range []struct{ name, method, path, body string }{
+		{"register", "POST", base + "/identity-providers", again},
+		{"update", "PATCH", provider, `{"acr_values": ["x"]}`},
+		{"retire", "POST", provider + ":retire", ""},
+		{"change the policy", "PATCH", base + "/auth-policy", `{"idle_timeout_seconds": 900}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p.in(t).problem(409, "tenancy.invalid_transition", "ops|alice", c.method, c.path, c.body,
+				"If-Match", "*", "Idempotency-Key", "key-"+uuid.NewString(), "Content-Type", mergePatch)
+		})
+	}
+	p.must(200, "ops|alice", "GET", provider, "")
+	p.must(200, "ops|alice", "GET", base+"/auth-policy", "")
+}
+
+// TestRegistrationKeysExpire: a key past its expiry is not replayed, as
+// for provisioning; the registration runs afresh.
+func TestRegistrationKeysExpire(t *testing.T) {
+	s := service(t)
+	ten := pgtest.NewTenant(t)
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	key := &provisioning.Idempotency{Key: "key-" + uuid.NewString(), RequestHash: []byte("h")}
+	stale := uuid.New()
+	pgtest.Exec(t, `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, response_code, response_body, expires_at)
+		VALUES ($1, $2, $3, $4, 'completed', 201, $5, now() - interval '1 minute')`, ten.ID, provisioning.KeyPrefix+key.Key, op.ID, key.RequestHash, `{"id": "`+stale.String()+`"}`)
+	got, replayed, err := s.RegisterProvider(context.Background(), op, ten.ID, identity.NewIdentityProvider{Issuer: "https://expired-" + uuid.NewString() + ".example.com", Audience: "erp"}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed || got.ID == stale {
+		t.Errorf("an expired key: got %s (replayed %v), want a new registration", got.ID, replayed)
+	}
+}
+
+// pausedCommit is a transaction whose commit waits until release is
+// closed, after announcing it on reached.
+type pausedCommit struct {
+	pgx.Tx
+	reached chan<- int32
+	release <-chan struct{}
+	pid     int32
+}
+
+func (p *pausedCommit) Commit(ctx context.Context) error {
+	p.reached <- p.pid
+	<-p.release
+	return p.Tx.Commit(ctx)
+}
+
+// TestConcurrentRegistrationsWithOneKey: two registrations with the same
+// key at once register once; the second waits for the first and replays
+// it, rather than answering that the issuer is taken.
+func TestConcurrentRegistrationsWithOneKey(t *testing.T) {
+	s := service(t)
+	ten := pgtest.NewTenant(t)
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	key := &provisioning.Idempotency{Key: "key-" + uuid.NewString(), RequestHash: []byte("h")}
+	in := identity.NewIdentityProvider{Issuer: "https://race-" + uuid.NewString() + ".example.com", Audience: "erp"}
+	reached, release := make(chan int32, 1), make(chan struct{})
+	var once atomic.Bool
+	s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+		tx, err := s.Pool.Begin(ctx, scope)
+		if err != nil || !once.CompareAndSwap(false, true) {
+			return tx, err
+		}
+		var pid int32
+		if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+			return nil, err
+		}
+		return &pausedCommit{Tx: tx, reached: reached, release: release, pid: pid}, nil
+	}
+	type result struct {
+		p        controlplane.IdentityProvider
+		replayed bool
+		err      error
+	}
+	first, second := make(chan result, 1), make(chan result, 1)
+	ctx := context.Background()
+	go func() {
+		p, r, err := s.RegisterProvider(ctx, op, ten.ID, in, key)
+		first <- result{p, r, err}
+	}()
+	pid := <-reached
+	go func() {
+		p, r, err := s.RegisterProvider(ctx, op, ten.ID, in, key)
+		second <- result{p, r, err}
+	}()
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var n int
+		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))`, []any{pid}, &n)
+		return n > 0
+	}, "the second registration does not wait for the first")
+	close(release)
+	a, b := <-first, <-second
+	if a.err != nil || a.replayed {
+		t.Fatalf("first: got %v (replayed %v), want registered", a.err, a.replayed)
+	}
+	if b.err != nil || !b.replayed || b.p.ID != a.p.ID {
+		t.Errorf("second: got %s, %v (replayed %v), want %s replayed", b.p.ID, b.err, b.replayed, a.p.ID)
+	}
+}
+
+// recordingTx records the statements it runs.
+type recordingTx struct {
+	pgx.Tx
+	mu   *sync.Mutex
+	seen *[]string
+}
+
+func (r recordingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	r.mu.Lock()
+	*r.seen = append(*r.seen, sql)
+	r.mu.Unlock()
+	return r.Tx.Exec(ctx, sql, args...)
+}
+
+// TestRegistrationsAreBoundedInTime: a registration's transaction has a
+// transaction timeout, so its directory claim, made before the commit, is
+// never older than the grace a round gives a claim (directory.ClaimGrace).
+func TestRegistrationsAreBoundedInTime(t *testing.T) {
+	s := service(t)
+	ten := pgtest.NewTenant(t)
+	var mu sync.Mutex
+	var seen []string
+	s.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+		tx, err := s.Pool.Begin(ctx, scope)
+		return recordingTx{Tx: tx, mu: &mu, seen: &seen}, err
+	}
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	if _, _, err := s.RegisterProvider(context.Background(), op, ten.ID, identity.NewIdentityProvider{Issuer: "https://timed-" + uuid.NewString() + ".example.com", Audience: "erp"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.ContainsFunc(seen, func(sql string) bool { return strings.Contains(sql, "transaction_timeout") }) {
+		t.Errorf("statements: got %q, want a transaction_timeout set", seen)
+	}
+	if controlplane.WriteTimeout >= directory.ClaimGrace {
+		t.Errorf("write timeout %v: want it below the claim grace %v", controlplane.WriteTimeout, directory.ClaimGrace)
 	}
 }

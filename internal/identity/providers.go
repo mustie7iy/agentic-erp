@@ -506,6 +506,7 @@ func validPolicy(p AuthPolicy) error {
 // ProviderKey is what decides a token's tenant: an active provider's issuer
 // and audience, and its tenant.
 type ProviderKey struct {
+	ID       uuid.UUID
 	TenantID uuid.UUID
 	Issuer   string
 	Audience string
@@ -515,7 +516,7 @@ type ProviderKey struct {
 // tenants: tx runs as the control role, for the cell's claims in the global
 // directory (ADR-0031).
 func ActiveIdentityProviders(ctx context.Context, tx pgx.Tx) ([]ProviderKey, error) {
-	rows, _ := tx.Query(ctx, `SELECT tenant_id, issuer, audience FROM identity.identity_provider WHERE status = 'active' ORDER BY tenant_id, issuer, audience`)
+	rows, _ := tx.Query(ctx, `SELECT id, tenant_id, issuer, audience FROM identity.identity_provider WHERE status = 'active' ORDER BY tenant_id, issuer, audience`)
 	keys, err := pgx.CollectRows(rows, pgx.RowToStructByPos[ProviderKey])
 	if err != nil {
 		return nil, fmt.Errorf("identity: list active identity providers: %w", err)

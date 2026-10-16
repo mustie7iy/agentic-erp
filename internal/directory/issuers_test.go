@@ -50,7 +50,7 @@ func cellProviders(ctx context.Context, tx pgx.Tx) ([]directory.Issuer, error) {
 	keys, err := identity.ActiveIdentityProviders(ctx, tx)
 	out := make([]directory.Issuer, len(keys))
 	for i, k := range keys {
-		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID}
+		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID, ProviderID: k.ID}
 	}
 	return out, err
 }
@@ -70,7 +70,7 @@ func TestIssuerClaims(t *testing.T) {
 	}
 	defer dir.Close()
 	a, b := uuid.New(), uuid.New()
-	x := directory.Issuer{Issuer: "https://x.example.com", Audience: "erp", TenantID: a, Cell: "c1"}
+	x := directory.Issuer{Issuer: "https://x.example.com", Audience: "erp", TenantID: a, Cell: "c1", ProviderID: uuid.New()}
 	if err := dir.ClaimIssuer(ctx, x); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestIssuerClaims(t *testing.T) {
 	})
 	t.Run("another tenant may not", func(t *testing.T) {
 		taken := x
-		taken.TenantID = b
+		taken.TenantID, taken.ProviderID = b, uuid.New()
 		if err := dir.ClaimIssuer(ctx, taken); !errors.Is(err, directory.ErrIssuerTaken) {
 			t.Errorf("claim of another tenant: got %v, want ErrIssuerTaken", err)
 		}
@@ -102,7 +102,7 @@ func TestIssuerClaims(t *testing.T) {
 			t.Fatal(err)
 		}
 		taken := x
-		taken.TenantID, taken.Cell = b, "c2"
+		taken.TenantID, taken.Cell, taken.ProviderID = b, "c2", uuid.New()
 		if err := dir.ClaimIssuer(ctx, taken); err != nil {
 			t.Errorf("claim after the release: got %v, want claimed", err)
 		}
@@ -210,20 +210,23 @@ func TestSyncClaimsIssuers(t *testing.T) {
 	})
 	t.Run("a registration claims at once; another tenant's is refused", func(t *testing.T) {
 		fresh := "https://fresh-" + uuid.NewString() + ".example.com"
-		if err := s.ClaimIssuer(ctx, ten.ID, fresh, "erp"); err != nil {
+		provider := uuid.New()
+		if err := s.ClaimIssuer(ctx, ten.ID, provider, fresh, "erp"); err != nil {
 			t.Fatal(err)
 		}
-		err := s.ClaimIssuer(ctx, uuid.New(), fresh, "erp")
+		err := s.ClaimIssuer(ctx, uuid.New(), uuid.New(), fresh, "erp")
 		if got := problem.From(err).Code; got != "identity.provider_taken" {
 			t.Errorf("claim of another tenant: got %q (%v), want identity.provider_taken", got, err)
 		}
-		s.ReleaseIssuer(ctx, ten.ID, fresh, "erp")
+		s.ReleaseIssuer(ctx, ten.ID, provider, fresh, "erp")
 		if got := claims(t, dir); slices.ContainsFunc(got, func(c string) bool { return strings.HasPrefix(c, fresh) }) {
 			t.Errorf("claims after the release: got %v, want %s gone", got, fresh)
 		}
 	})
 	t.Run("a round reports claims another tenant holds", func(t *testing.T) {
-		s.ReleaseIssuer(ctx, ten.ID, active, "erp")
+		var provider uuid.UUID
+		pgtest.Scan(t, `SELECT id FROM identity.identity_provider WHERE issuer = $1`, []any{active}, &provider)
+		s.ReleaseIssuer(ctx, ten.ID, provider, active, "erp")
 		if err := dir.ClaimIssuer(ctx, directory.Issuer{Issuer: active, Audience: "erp", TenantID: uuid.New(), Cell: "other"}); err != nil {
 			t.Fatal(err)
 		}
@@ -239,10 +242,10 @@ func TestSyncClaimsIssuers(t *testing.T) {
 		broken.Close()
 		b := *s
 		b.Directory = broken
-		if got := problem.From(b.ClaimIssuer(ctx, ten.ID, "https://down.example.com", "erp")).Status; got != 503 {
+		if got := problem.From(b.ClaimIssuer(ctx, ten.ID, uuid.New(), "https://down.example.com", "erp")).Status; got != 503 {
 			t.Errorf("claim: got status %d, want 503", got)
 		}
-		b.ReleaseIssuer(ctx, ten.ID, "https://down.example.com", "erp")
+		b.ReleaseIssuer(ctx, ten.ID, uuid.New(), "https://down.example.com", "erp")
 		if !strings.Contains(logs.String(), "directory release of an issuer failed") {
 			t.Errorf("logs: got %s, want the failed release logged", logs.String())
 		}
@@ -273,10 +276,10 @@ func TestSyncClaimsIssuers(t *testing.T) {
 	t.Run("a directory without issuers", func(t *testing.T) {
 		m := *s
 		m.Directory = &memory{}
-		if err := m.ClaimIssuer(ctx, ten.ID, "https://memory.example.com", "erp"); err != nil {
+		if err := m.ClaimIssuer(ctx, ten.ID, uuid.New(), "https://memory.example.com", "erp"); err != nil {
 			t.Errorf("claim: got %v, want nothing to claim", err)
 		}
-		m.ReleaseIssuer(ctx, ten.ID, "https://memory.example.com", "erp")
+		m.ReleaseIssuer(ctx, ten.ID, uuid.New(), "https://memory.example.com", "erp")
 	})
 }
 
@@ -289,4 +292,38 @@ func (*failingIssuers) ClaimIssuer(context.Context, directory.Issuer) error   { 
 func (*failingIssuers) ReleaseIssuer(context.Context, directory.Issuer) error { return errIssuersDown }
 func (*failingIssuers) SyncIssuers(context.Context, string, []directory.Issuer) (int, error) {
 	return 0, errIssuersDown
+}
+
+// TestReleaseGivesUpOnlyItsClaim: a tenant retiring a provider while it
+// registers the same issuer and audience again gives up the old
+// registration's claim only, never the new one's.
+func TestReleaseGivesUpOnlyItsClaim(t *testing.T) {
+	ctx := context.Background()
+	dir, err := directory.Open(ctx, pgtest.EmptyDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	tenant := uuid.New()
+	old := directory.Issuer{Issuer: "https://again.example.com", Audience: "erp", TenantID: tenant, Cell: "c1", ProviderID: uuid.New()}
+	again := old
+	again.ProviderID = uuid.New()
+	if err := dir.ClaimIssuer(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.ClaimIssuer(ctx, again); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.ReleaseIssuer(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if got := claims(t, dir); len(got) != 1 {
+		t.Errorf("claims after the old registration's release: got %v, want the new one's kept", got)
+	}
+	if err := dir.ReleaseIssuer(ctx, again); err != nil {
+		t.Fatal(err)
+	}
+	if got := claims(t, dir); len(got) != 0 {
+		t.Errorf("claims after the new registration's release: got %v, want none", got)
+	}
 }

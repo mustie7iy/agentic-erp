@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -98,8 +99,13 @@ func strictJSON(body []byte, v any) error {
 	return nil
 }
 
-// patchBody reads a merge-patch body of at most uow.MaxBody bytes.
+// patchBody reads a merge-patch body of at most uow.MaxBody bytes. Like
+// the public API, a PATCH body is application/merge-patch+json (RFC 7396)
+// and nothing else.
 func patchBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	if media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || media != "application/merge-patch+json" {
+		return nil, problem.BadRequest("request.invalid_body", "The body must be application/merge-patch+json.")
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, uow.MaxBody))
 	if err != nil {
 		return nil, problem.New(http.StatusRequestEntityTooLarge, "request.body_too_large", "Request body too large",

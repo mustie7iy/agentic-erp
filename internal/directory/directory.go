@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS directory.issuer (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (issuer, audience)
 );
+ALTER TABLE directory.issuer ADD COLUMN IF NOT EXISTS provider_id uuid;
 CREATE TABLE IF NOT EXISTS directory.placement (
   idempotency_key text PRIMARY KEY,
   cell            text NOT NULL,

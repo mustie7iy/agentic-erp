@@ -346,7 +346,7 @@ paths:
       tags:
         - identity
       summary: Register an identity provider
-      description: "Registers an identity provider of the tenant: tokens of its issuer for its audience authenticate the tenant's principals bound to it (ADR-0031). An active issuer and audience belong to one tenant, across cells when the cell has a global directory: 409 `identity.provider_taken` when another registration holds them. With `ERP_ENV=production` the issuer must be https. When the tenant requires multi-factor authentication the provider must prove it by `acr_values` or `amr_values` (422 `identity.mfa_unprovable`). Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `IdentityProviderRegistered`. A retry with the same `Idempotency-Key` answers the provider the first request registered with `Idempotent-Replayed: true`. 503 while the cell's global directory cannot be reached, since the issuer could not be claimed."
+      description: "Registers an identity provider of the tenant: tokens of its issuer for its audience authenticate the tenant's principals bound to it (ADR-0031). An active issuer and audience belong to one tenant, across cells when the cell has a global directory: 409 `identity.provider_taken` when another registration holds them. With `ERP_ENV=production` the issuer must be https. When the tenant requires multi-factor authentication the provider must prove it by `acr_values` or `amr_values` (422 `identity.mfa_unprovable`). Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `IdentityProviderRegistered`. A retry with the same `Idempotency-Key` answers the provider the first request registered with `Idempotent-Replayed: true`; a concurrent request with the key waits for the first and replays it. 503 while the cell's global directory cannot be reached, since the issuer could not be claimed. Refused with 409 `tenancy.invalid_transition` once the tenant's offboarding has started; a suspended tenant's can still be changed."
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -418,7 +418,7 @@ paths:
       tags:
         - identity
       summary: Update an identity provider
-      description: "Changes an active provider's tenant claim and the values that prove multi-factor authentication; issuer and audience never change (register a new provider instead). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the tenant claim or empties a list. 409 `identity.provider_retired` for a retired provider; 422 `identity.mfa_unprovable` when the tenant requires multi-factor authentication and the provider would prove it by neither list. Needs the `erp:admin` role. Recorded in the tenant's audit trail."
+      description: "Changes an active provider's tenant claim and the values that prove multi-factor authentication; issuer and audience never change (register a new provider instead). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the tenant claim or empties a list. 409 `identity.provider_retired` for a retired provider; 422 `identity.mfa_unprovable` when the tenant requires multi-factor authentication and the provider would prove it by neither list. Needs the `erp:admin` role. Recorded in the tenant's audit trail. Refused with 409 `tenancy.invalid_transition` once the tenant's offboarding has started; a suspended tenant's can still be changed."
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/ProviderId"
@@ -460,7 +460,7 @@ paths:
       tags:
         - identity
       summary: Retire an identity provider
-      description: "Retires an active provider: its tokens authenticate no one from the next cache period on (30 s), and its issuer and audience may be registered again. A tenant keeps one active provider: 409 `identity.last_provider` for its last one (register the replacement first); 409 `identity.provider_retired` when it is retired already. Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `IdentityProviderRetired`."
+      description: "Retires an active provider: its tokens authenticate no one from the next cache period on (30 s), and its issuer and audience may be registered again. A tenant keeps one active provider: 409 `identity.last_provider` for its last one (register the replacement first); 409 `identity.provider_retired` when it is retired already. Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `IdentityProviderRetired`. Refused with 409 `tenancy.invalid_transition` once the tenant's offboarding has started; a suspended tenant's can still be changed."
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/ProviderId"
@@ -517,7 +517,7 @@ paths:
       tags:
         - identity
       summary: Update a tenant's authentication policy
-      description: "Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged. The session lifetime is 900 to 86400 seconds, the idle timeout 300 to 28800 and at most the lifetime (422 `identity.invalid_policy`). Requiring multi-factor authentication while an active provider would prove it by neither `acr_values` nor `amr_values` is 422 `identity.mfa_unprovable`. Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `AuthPolicyChanged`."
+      description: "Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged. The session lifetime is 900 to 86400 seconds, the idle timeout 300 to 28800 and at most the lifetime (422 `identity.invalid_policy`). Requiring multi-factor authentication while an active provider would prove it by neither `acr_values` nor `amr_values` is 422 `identity.mfa_unprovable`. Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `AuthPolicyChanged`. Refused with 409 `tenancy.invalid_transition` once the tenant's offboarding has started; a suspended tenant's can still be changed."
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"

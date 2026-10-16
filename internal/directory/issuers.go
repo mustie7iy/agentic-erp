@@ -34,6 +34,9 @@ type Issuer struct {
 	Audience string
 	TenantID uuid.UUID
 	Cell     string
+	// ProviderID is the registration that claims the pair: a release gives
+	// up only its own registration's claim.
+	ProviderID uuid.UUID
 }
 
 // Issuers is a directory that keeps issuers (the Postgres one).
@@ -45,14 +48,14 @@ type Issuers interface {
 
 // claimSQL takes the pair for the tenant, or refreshes the tenant's own
 // claim; another tenant's claim is left alone and nothing is returned.
-const claimSQL = `INSERT INTO directory.issuer (issuer, audience, tenant_id, cell) VALUES ($1, $2, $3, $4)
-	ON CONFLICT (issuer, audience) DO UPDATE SET cell = EXCLUDED.cell, updated_at = now()
+const claimSQL = `INSERT INTO directory.issuer (issuer, audience, tenant_id, cell, provider_id) VALUES ($1, $2, $3, $4, $5)
+	ON CONFLICT (issuer, audience) DO UPDATE SET cell = EXCLUDED.cell, provider_id = EXCLUDED.provider_id, updated_at = now()
 	WHERE directory.issuer.tenant_id = EXCLUDED.tenant_id
 	RETURNING true`
 
 func claimIn(ctx context.Context, tx pgx.Tx, is Issuer) (bool, error) {
 	var ok bool
-	err := tx.QueryRow(ctx, claimSQL, is.Issuer, is.Audience, is.TenantID, is.Cell).Scan(&ok)
+	err := tx.QueryRow(ctx, claimSQL, is.Issuer, is.Audience, is.TenantID, is.Cell, is.ProviderID).Scan(&ok)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -78,11 +81,12 @@ func (p *Postgres) ClaimIssuer(ctx context.Context, is Issuer) error {
 	return err
 }
 
-// ReleaseIssuer gives up the tenant's claim of the issuer with the
-// audience; another tenant's claim stays.
+// ReleaseIssuer gives up the registration's claim of the issuer with the
+// audience; a claim another registration made since (another tenant's, or
+// the same tenant's registering the pair again) stays.
 func (p *Postgres) ReleaseIssuer(ctx context.Context, is Issuer) error {
 	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `DELETE FROM directory.issuer WHERE issuer = $1 AND audience = $2 AND tenant_id = $3`, is.Issuer, is.Audience, is.TenantID); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM directory.issuer WHERE issuer = $1 AND audience = $2 AND provider_id = $3`, is.Issuer, is.Audience, is.ProviderID); err != nil {
 			return fmt.Errorf("release issuer %s %s: %w", is.Issuer, is.Audience, err)
 		}
 		return nil
@@ -96,9 +100,10 @@ func (p *Postgres) ReleaseIssuer(ctx context.Context, is Issuer) error {
 // ClaimGrace is how old a claim must be before a round of its cell may give
 // it up: a claim is made before its registration commits, so a round that
 // read the cell's providers just before the commit would otherwise drop
-// it, and another cell could then take the pair. A registration runs a
-// handful of statements, each bounded by the pool's statement timeout
-// (database.DefaultSettings, 30 s), so it commits well within the grace.
+// it, and another cell could then take the pair. A registration's
+// transaction is bounded by controlplane.WriteTimeout (one minute, as
+// PostgreSQL's transaction_timeout), so it commits or fails well within
+// the grace.
 const ClaimGrace = 5 * time.Minute
 
 // SyncIssuers makes the cell's claims the given ones: each is claimed, and
@@ -135,12 +140,12 @@ func (p *Postgres) SyncIssuers(ctx context.Context, cell string, issuers []Issue
 // holds them, 503 when the directory cannot be reached, since the pair
 // could not be checked across cells. Without a directory that keeps
 // issuers (a single cell) there is nothing to claim.
-func (s *Sync) ClaimIssuer(ctx context.Context, tenant uuid.UUID, issuer, audience string) error {
+func (s *Sync) ClaimIssuer(ctx context.Context, tenant, provider uuid.UUID, issuer, audience string) error {
 	dir, ok := s.Directory.(Issuers)
 	if !ok {
 		return nil
 	}
-	err := dir.ClaimIssuer(ctx, Issuer{Issuer: issuer, Audience: audience, TenantID: tenant, Cell: s.Cell})
+	err := dir.ClaimIssuer(ctx, Issuer{Issuer: issuer, Audience: audience, TenantID: tenant, Cell: s.Cell, ProviderID: provider})
 	switch {
 	case errors.Is(err, ErrIssuerTaken):
 		return problem.Conflict("identity.provider_taken", "This issuer is already registered with this audience, by another tenant.").WithCause(err)
@@ -150,14 +155,14 @@ func (s *Sync) ClaimIssuer(ctx context.Context, tenant uuid.UUID, issuer, audien
 	return nil
 }
 
-// ReleaseIssuer gives up the tenant's claim after its provider was
-// retired. Failures are logged: the next round gives it up.
-func (s *Sync) ReleaseIssuer(ctx context.Context, tenant uuid.UUID, issuer, audience string) {
+// ReleaseIssuer gives up the provider's claim after it was retired.
+// Failures are logged: the next round gives it up.
+func (s *Sync) ReleaseIssuer(ctx context.Context, tenant, provider uuid.UUID, issuer, audience string) {
 	dir, ok := s.Directory.(Issuers)
 	if !ok {
 		return
 	}
-	if err := dir.ReleaseIssuer(ctx, Issuer{Issuer: issuer, Audience: audience, TenantID: tenant, Cell: s.Cell}); err != nil {
+	if err := dir.ReleaseIssuer(ctx, Issuer{Issuer: issuer, Audience: audience, TenantID: tenant, Cell: s.Cell, ProviderID: provider}); err != nil {
 		s.Log.ErrorContext(ctx, "directory release of an issuer failed; the next round retries", "tenant_id", tenant, "issuer", issuer, "error", err)
 	}
 }

@@ -686,7 +686,7 @@ func TestActiveIdentityProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := identity.ProviderKey{TenantID: r.tenant, Issuer: a.Issuer, Audience: "erp"}
+	want := identity.ProviderKey{ID: a.ID, TenantID: r.tenant, Issuer: a.Issuer, Audience: "erp"}
 	if !slices.Contains(keys, want) {
 		t.Errorf("active providers: got %d without %+v, want it listed", len(keys), want)
 	}

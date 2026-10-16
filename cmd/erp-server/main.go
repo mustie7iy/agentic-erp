@@ -287,7 +287,7 @@ func cellIssuers(ctx context.Context, tx pgx.Tx) ([]directory.Issuer, error) {
 	keys, err := identity.ActiveIdentityProviders(ctx, tx)
 	out := make([]directory.Issuer, len(keys))
 	for i, k := range keys {
-		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID}
+		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID, ProviderID: k.ID}
 	}
 	return out, err
 }

@@ -67,18 +67,42 @@ func policyView(tenant uuid.UUID, p identity.AuthPolicy) AuthPolicy {
 		IdleTimeout: int64(p.IdleTimeout / time.Second), Version: p.Version}
 }
 
+// WriteTimeout bounds a write's transaction (PostgreSQL's
+// transaction_timeout): a registration claims its issuer in the directory
+// before it commits, and a round leaves a claim alone for
+// directory.ClaimGrace, so the registration must commit or fail well
+// within it.
+const WriteTimeout = time.Minute
+
 // inTenant runs fn in the tenant's scope as the application role; a tenant
-// the cell does not have is 404. A read-only call commits nothing.
-func (s *Service) inTenant(ctx context.Context, tenant uuid.UUID, readOnly bool, fn func(ctx context.Context, tx pgx.Tx) error) error {
-	tx, err := s.begin(ctx, database.Scope{Role: s.AppRole, TenantID: tenant, ReadOnly: readOnly})
+// the cell does not have is 404. Without an operator the call reads and
+// commits nothing. With one it writes as the operator, within WriteTimeout,
+// holding the tenant's row so offboarding cannot start meanwhile; once
+// offboarding has started the registry and policy no longer change (409
+// tenancy.invalid_transition), while a suspended tenant's still do.
+func (s *Service) inTenant(ctx context.Context, tenant uuid.UUID, op *Operator, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	tx, err := s.begin(ctx, database.Scope{Role: s.AppRole, TenantID: tenant, ReadOnly: op == nil})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	if _, err := read(ctx, tx, tenant, false); err != nil {
+	t, err := read(ctx, tx, tenant, op != nil)
+	if err != nil {
 		return err
 	}
-	if err := fn(ctx, tx); err != nil || readOnly {
+	if op == nil {
+		return fn(ctx, tx)
+	}
+	if t.Status == Offboarded {
+		return problem.Conflict("tenancy.invalid_transition", "The tenant is offboarded; its identity providers and authentication policy no longer change.")
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('transaction_timeout', $1, true)`, fmt.Sprintf("%dms", WriteTimeout.Milliseconds())); err != nil {
+		return fmt.Errorf("controlplane: bound the transaction in tenant %s: %w", tenant, err)
+	}
+	if err := database.SetActor(ctx, tx, op.ID); err != nil {
+		return err
+	}
+	if err := fn(ctx, tx); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -111,7 +135,7 @@ func (s *Service) record(ctx context.Context, tx pgx.Tx, op Operator, tenant uui
 // ListProviders lists the tenant's identity providers.
 func (s *Service) ListProviders(ctx context.Context, tenant uuid.UUID) ([]IdentityProvider, error) {
 	out := []IdentityProvider{}
-	err := s.inTenant(ctx, tenant, true, func(ctx context.Context, tx pgx.Tx) error {
+	err := s.inTenant(ctx, tenant, nil, func(ctx context.Context, tx pgx.Tx) error {
 		ps, err := identity.ListIdentityProviders(ctx, tx)
 		for _, p := range ps {
 			out = append(out, providerView(p))
@@ -124,7 +148,7 @@ func (s *Service) ListProviders(ctx context.Context, tenant uuid.UUID) ([]Identi
 // GetProvider reads one identity provider of the tenant.
 func (s *Service) GetProvider(ctx context.Context, tenant, id uuid.UUID) (IdentityProvider, error) {
 	var out IdentityProvider
-	err := s.inTenant(ctx, tenant, true, func(ctx context.Context, tx pgx.Tx) error {
+	err := s.inTenant(ctx, tenant, nil, func(ctx context.Context, tx pgx.Tx) error {
 		p, err := identity.GetIdentityProvider(ctx, tx, id)
 		out = providerView(p)
 		return err
@@ -142,13 +166,10 @@ func (s *Service) RegisterProvider(ctx context.Context, op Operator, tenant uuid
 	}
 	var out IdentityProvider
 	replayed := false
-	err := s.inTenant(ctx, tenant, false, func(ctx context.Context, tx pgx.Tx) error {
-		stored, found, err := storedProvider(ctx, tx, op, tenant, key)
+	err := s.inTenant(ctx, tenant, &op, func(ctx context.Context, tx pgx.Tx) error {
+		stored, found, err := s.claimKey(ctx, tx, op, tenant, key)
 		if err != nil || found {
 			out, replayed = stored, found
-			return err
-		}
-		if err := database.SetActor(ctx, tx, op.ID); err != nil {
 			return err
 		}
 		p, err := identity.RegisterIdentityProvider(ctx, tx, op.ID, in)
@@ -164,7 +185,7 @@ func (s *Service) RegisterProvider(ctx context.Context, op Operator, tenant uuid
 		if err := s.record(ctx, tx, op, tenant, change{event: &event, entry: providerEntry("register", p)}); err != nil {
 			return err
 		}
-		return s.storeProvider(ctx, tx, op, tenant, key, out)
+		return s.storeProvider(ctx, tx, tenant, key, out)
 	})
 	return out, replayed, err
 }
@@ -173,7 +194,7 @@ func (s *Service) claim(ctx context.Context, tenant uuid.UUID, p identity.Identi
 	if s.Directory == nil {
 		return nil
 	}
-	return s.Directory.ClaimIssuer(ctx, tenant, p.Issuer, p.Audience)
+	return s.Directory.ClaimIssuer(ctx, tenant, p.ID, p.Issuer, p.Audience)
 }
 
 func providerEntry(verb string, p identity.IdentityProvider) audit.Entry {
@@ -181,21 +202,33 @@ func providerEntry(verb string, p identity.IdentityProvider) audit.Entry {
 		Detail: map[string]any{"issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues}}
 }
 
-// storedProvider answers a registration retried with its key: the provider
-// the first request registered, found. The key is the operator's, for the
-// same request; anything else is 422.
-func storedProvider(ctx context.Context, tx pgx.Tx, op Operator, tenant uuid.UUID, key *provisioning.Idempotency) (IdentityProvider, bool, error) {
+// claimKey claims the registration's key before anything else, as the unit
+// of work does (uow): a concurrent request with the same key waits for this
+// one, then replays it. A key past its expiry is claimed afresh, as for
+// provisioning. found reports a key already holding an answer: the provider
+// the first request registered. The key is the operator's, for the same
+// request; anything else is 422.
+func (s *Service) claimKey(ctx context.Context, tx pgx.Tx, op Operator, tenant uuid.UUID, key *provisioning.Idempotency) (IdentityProvider, bool, error) {
 	if key == nil {
 		return IdentityProvider{}, false, nil
 	}
-	var owner uuid.UUID
-	var hash, body []byte
-	err := tx.QueryRow(ctx, `SELECT principal_id, request_hash, response_body::text FROM platform.idempotency_key WHERE tenant_id = $1 AND key = $2`,
-		tenant, provisioning.KeyPrefix+key.Key).Scan(&owner, &hash, &body)
-	if errors.Is(err, pgx.ErrNoRows) {
+	var fresh bool
+	err := tx.QueryRow(ctx, `INSERT INTO platform.idempotency_key AS k (tenant_id, key, principal_id, request_hash, status, expires_at)
+		VALUES ($1, $2, $3, $4, 'in_progress', $5)
+		ON CONFLICT (tenant_id, key) DO UPDATE SET principal_id = EXCLUDED.principal_id, request_hash = EXCLUDED.request_hash,
+			status = 'in_progress', response_code = NULL, response_body = NULL, response_headers = '{}', created_at = now(), expires_at = EXCLUDED.expires_at
+		WHERE k.expires_at < now()
+		RETURNING true`, tenant, provisioning.KeyPrefix+key.Key, op.ID, key.RequestHash, s.now().Add(uow.Retention)).Scan(&fresh)
+	if err == nil {
 		return IdentityProvider{}, false, nil
 	}
-	if err != nil {
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return IdentityProvider{}, false, fmt.Errorf("controlplane: claim idempotency key of tenant %s: %w", tenant, err)
+	}
+	var owner uuid.UUID
+	var hash, body []byte
+	if err := tx.QueryRow(ctx, `SELECT principal_id, request_hash, response_body::text FROM platform.idempotency_key WHERE tenant_id = $1 AND key = $2`,
+		tenant, provisioning.KeyPrefix+key.Key).Scan(&owner, &hash, &body); err != nil {
 		return IdentityProvider{}, false, fmt.Errorf("controlplane: read idempotency key of tenant %s: %w", tenant, err)
 	}
 	if owner != op.ID || !bytes.Equal(hash, key.RequestHash) {
@@ -208,13 +241,13 @@ func storedProvider(ctx context.Context, tx pgx.Tx, op Operator, tenant uuid.UUI
 
 // storeProvider keeps the registration's answer with its key, in its
 // transaction, for a retry to replay.
-func (s *Service) storeProvider(ctx context.Context, tx pgx.Tx, op Operator, tenant uuid.UUID, key *provisioning.Idempotency, p IdentityProvider) error {
+func (s *Service) storeProvider(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, key *provisioning.Idempotency, p IdentityProvider) error {
 	if key == nil {
 		return nil
 	}
 	body, _ := json.Marshal(p) // ids, strings, lists and times
-	if _, err := tx.Exec(ctx, `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, response_code, response_body, expires_at)
-		VALUES ($1, $2, $3, $4, 'completed', 201, $5, $6)`, tenant, provisioning.KeyPrefix+key.Key, op.ID, key.RequestHash, body, s.now().Add(uow.Retention)); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE platform.idempotency_key SET status = 'completed', response_code = 201, response_body = $3
+		WHERE tenant_id = $1 AND key = $2`, tenant, provisioning.KeyPrefix+key.Key, body); err != nil {
 		return fmt.Errorf("controlplane: store idempotency key of tenant %s: %w", tenant, err)
 	}
 	return nil
@@ -223,10 +256,7 @@ func (s *Service) storeProvider(ctx context.Context, tx pgx.Tx, op Operator, ten
 // UpdateProvider changes an active provider, guarded by If-Match.
 func (s *Service) UpdateProvider(ctx context.Context, op Operator, tenant, id uuid.UUID, ifMatch string, ch identity.IdentityProviderChange) (IdentityProvider, error) {
 	var out IdentityProvider
-	err := s.inTenant(ctx, tenant, false, func(ctx context.Context, tx pgx.Tx) error {
-		if err := database.SetActor(ctx, tx, op.ID); err != nil {
-			return err
-		}
+	err := s.inTenant(ctx, tenant, &op, func(ctx context.Context, tx pgx.Tx) error {
 		p, err := identity.UpdateIdentityProvider(ctx, tx, op.ID, id, etag.IfMatch(ifMatch), ch)
 		if err != nil {
 			return err
@@ -241,10 +271,7 @@ func (s *Service) UpdateProvider(ctx context.Context, op Operator, tenant, id uu
 // gives its claim in the directory up.
 func (s *Service) RetireProvider(ctx context.Context, op Operator, tenant, id uuid.UUID, ifMatch string) (IdentityProvider, error) {
 	var out IdentityProvider
-	err := s.inTenant(ctx, tenant, false, func(ctx context.Context, tx pgx.Tx) error {
-		if err := database.SetActor(ctx, tx, op.ID); err != nil {
-			return err
-		}
+	err := s.inTenant(ctx, tenant, &op, func(ctx context.Context, tx pgx.Tx) error {
 		p, err := identity.RetireIdentityProvider(ctx, tx, op.ID, id, etag.IfMatch(ifMatch))
 		if err != nil {
 			return err
@@ -255,7 +282,7 @@ func (s *Service) RetireProvider(ctx context.Context, op Operator, tenant, id uu
 		return s.record(ctx, tx, op, tenant, change{event: &event, entry: providerEntry("retire", p)})
 	})
 	if err == nil && s.Directory != nil {
-		s.Directory.ReleaseIssuer(ctx, tenant, out.Issuer, out.Audience)
+		s.Directory.ReleaseIssuer(ctx, tenant, out.ID, out.Issuer, out.Audience)
 	}
 	return out, err
 }
@@ -263,7 +290,7 @@ func (s *Service) RetireProvider(ctx context.Context, op Operator, tenant, id uu
 // AuthPolicy reads the tenant's authentication policy.
 func (s *Service) AuthPolicy(ctx context.Context, tenant uuid.UUID) (AuthPolicy, error) {
 	var out AuthPolicy
-	err := s.inTenant(ctx, tenant, true, func(ctx context.Context, tx pgx.Tx) error {
+	err := s.inTenant(ctx, tenant, nil, func(ctx context.Context, tx pgx.Tx) error {
 		p, err := identity.ReadAuthPolicy(ctx, tx)
 		out = policyView(tenant, p)
 		return err
@@ -275,10 +302,7 @@ func (s *Service) AuthPolicy(ctx context.Context, tenant uuid.UUID) (AuthPolicy,
 // If-Match.
 func (s *Service) UpdateAuthPolicy(ctx context.Context, op Operator, tenant uuid.UUID, ifMatch string, ch identity.AuthPolicyChange) (AuthPolicy, error) {
 	var out AuthPolicy
-	err := s.inTenant(ctx, tenant, false, func(ctx context.Context, tx pgx.Tx) error {
-		if err := database.SetActor(ctx, tx, op.ID); err != nil {
-			return err
-		}
+	err := s.inTenant(ctx, tenant, &op, func(ctx context.Context, tx pgx.Tx) error {
 		p, err := identity.UpdateAuthPolicy(ctx, tx, op.ID, etag.IfMatch(ifMatch), ch)
 		if err != nil {
 			return err
