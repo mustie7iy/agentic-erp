@@ -324,20 +324,7 @@ func TestReceiptsAtTheValuationPrice(t *testing.T) {
 		t.Errorf("valuation price unit: got %v, want 1", v)
 	}
 	// The price changes after the release, as an order change will (T47f).
-	ctx := context.Background()
-	tx, err := pgtest.Admin(t).Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, sql := range []string{`SET LOCAL session_replication_role = replica`,
-		`UPDATE procurement.purchase_order_item SET unit_price = 400 WHERE purchase_order_id = '` + order + `'`} {
-		if _, err := tx.Exec(ctx, sql); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
+	pgtest.Unguarded(t, `UPDATE procurement.purchase_order_item SET unit_price = 400 WHERE purchase_order_id = $1`, order)
 	code, gr := e.receipt(t, order, "1:4:EA")
 	if code != 201 {
 		t.Fatalf("receipt: got %d %v, want 201", code, gr)

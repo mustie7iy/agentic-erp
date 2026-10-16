@@ -540,12 +540,8 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	// Its items are valued at their price as it is released (T47a), while
-	// the order is still a draft whose items may change.
-	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order_item SET valuation_price = unit_price, valuation_price_unit = price_unit
-		WHERE purchase_order_id = $1 AND NOT is_removed`, id); err != nil {
-		return PurchaseOrder{}, fmt.Errorf("procurement: value the items of purchase order %s: %w", id, err)
-	}
+	// The release values its items at their price (T47a): the database
+	// does it as the status changes (procurement.value_released_items).
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'released', valuation = $3, version = version + 1, updated_by = $2 WHERE id = $1`,
 		id, p.ID, valuation); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: release purchase order %s: %w", id, err)

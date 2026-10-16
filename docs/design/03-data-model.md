@@ -775,8 +775,10 @@ from it on `price_difference`; its `unit_price` is what invoices are matched
 against. The GR/IR engine values an item's whole open position at the price
 a posting gives it, so a later change of the item's price must not reach
 GR/IR: the valuation price never changes once set
-(`purchase_order_item_valuation_fixed`), a released order's items are
-valued (`purchase_order_items_valued`, on release and on adding an item),
+(`purchase_order_item_valuation_fixed`); the release values the items it
+releases (trigger `purchase_order_items_valued`, so an application that does
+not value them yet still releases during an upgrade); an item added to a
+released order carries its valuation price (`purchase_order_item_valued`);
 and items of orders released before T47a were valued at their price, which
 could not change after the release.
 

@@ -148,6 +148,31 @@ func Exec(tb testing.TB, sql string, args ...any) {
 	}
 }
 
+// Unguarded runs fixture SQL as superuser with the database's triggers
+// off (session_replication_role replica), for a state the rules no longer
+// let the application reach: a price changed on a released order, as an
+// order change will change it.
+func Unguarded(tb testing.TB, sql string, args ...any) {
+	tb.Helper()
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, URL(tb))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	defer func() { _ = c.Close(ctx) }() // the work on it is done or has failed; closing loses nothing
+	if err := pgx.BeginFunc(ctx, c, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+			return fmt.Errorf("turn triggers off: %w", err)
+		}
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			return fmt.Errorf("run: %w", err)
+		}
+		return nil
+	}); err != nil {
+		tb.Fatalf("pgtest: %v\n%s", err, sql)
+	}
+}
+
 // EmptyDatabase creates a database with nothing in it, dropped when the test
 // ends, and returns its URL. A test that needs a database to itself uses
 // one: the package database holds what every earlier test, and every

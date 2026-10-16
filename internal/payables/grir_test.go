@@ -210,19 +210,7 @@ func TestInvoiceAtTheValuationPrice(t *testing.T) {
 	e.Must(201, "POST", "/v1/goods-receipts", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-05", "posting_date": "2026-03-05",
 		"items": [{"purchase_order_id": %q, "po_item_no": 2, "quantity": {"value": "5", "unit": "KG"}}]}`, e.DE, po), "")
 	// The price changes after the release, as an order change will (T47f).
-	tx, err := pgtest.Admin(t).Begin(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, sql := range []string{`SET LOCAL session_replication_role = replica`,
-		`UPDATE procurement.purchase_order_item SET unit_price = 320 WHERE item_no = 2 AND purchase_order_id = '` + po.String() + `'`} {
-		if _, err := tx.Exec(t.Context(), sql); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tx.Commit(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	pgtest.Unguarded(t, `UPDATE procurement.purchase_order_item SET unit_price = 320 WHERE purchase_order_id = $1 AND item_no = 2`, po)
 	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-1", "6.40", "0.00", poItem(po, 2, "2", "KG", "6.40")), "")
 	if m := e.act(t, 200, id(inv), "match", ""); m["is_clean"] != true {
 		t.Fatalf("match: got %v, want clean", m["issues"])

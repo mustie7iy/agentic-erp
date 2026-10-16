@@ -56,11 +56,22 @@ func TestValuationPrices(t *testing.T) {
 			return exec(tx, `UPDATE procurement.purchase_order_item SET valuation_price = 300 WHERE purchase_order_id = $1`, po)
 		}), "valued at the price it was released at")
 	})
+	// An application that does not value the items yet (one released
+	// before T47a, during a rolling upgrade) still releases: the release
+	// values them at their price.
 	t.Run("released with an item not valued", func(t *testing.T) {
 		f := newFixture(t)
 		var po uuid.UUID
 		mustApp(t, f.tenant, func(tx pgx.Tx) (err error) { po, err = f.order(tx, nil); return err })
-		failsWith(t, asApp(t, f.tenant, release(po)), "is released with its items valued")
+		mustApp(t, f.tenant, release(po))
+		var valued, unit int64
+		if err := testDB.QueryRow(context.Background(), `SELECT valuation_price, valuation_price_unit FROM procurement.purchase_order_item
+			WHERE purchase_order_id = $1`, po).Scan(&valued, &unit); err != nil {
+			t.Fatal(err)
+		}
+		if valued != 250 || unit != 1 {
+			t.Errorf("valued on release: got %d per %d, want 250 per 1", valued, unit)
+		}
 	})
 	t.Run("an item added to a released order unvalued", func(t *testing.T) {
 		f := newFixture(t)
@@ -70,8 +81,38 @@ func TestValuationPrices(t *testing.T) {
 		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code,
 				unit_price, account_id) VALUES ($1,$2,2,'Toner',1,'EA',100,$3)`, f.tenant, po, f.expense)
-		}), "is released with its items valued")
+		}), "is added to released purchase order")
 	})
+	for _, c := range []struct {
+		name   string
+		valued *int64 // the item's valuation price before the change
+		set    string
+		want   string // empty: allowed
+	}{
+		{"a negative price", nil, "valuation_price = -1, valuation_price_unit = 1", "purchase_order_item_valuation_price_check"},
+		{"a zero price unit", nil, "valuation_price = 1, valuation_price_unit = 0", "purchase_order_item_valuation_price_unit_check"},
+		{"the unit of a valued price", &price, "valuation_price_unit = 10", "valued at the price it was released at"},
+		{"a valued price cleared", &price, "valuation_price = NULL, valuation_price_unit = NULL", "valued at the price it was released at"},
+		{"a valued price set as it is", &price, "valuation_price = 250, valuation_price_unit = 1", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				po, err := f.order(tx, c.valued)
+				if err != nil {
+					return err
+				}
+				return exec(tx, `UPDATE procurement.purchase_order_item SET `+c.set+` WHERE purchase_order_id = $1`, po)
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Errorf("got %v, want no error", err)
+			}
+		})
+	}
 	t.Run("a price without its unit", func(t *testing.T) {
 		f := newFixture(t)
 		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {

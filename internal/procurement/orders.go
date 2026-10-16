@@ -57,7 +57,9 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	err = tx.QueryRow(ctx, `SELECT po.document_number, po.legal_entity_id, po.supplier_id, po.currency, po.payment_term_code, po.status, po.valuation,
 			coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code,
 				'unit_price', i.unit_price, 'price_unit', i.price_unit, 'account_id', i.account_id, 'tax_code', i.tax_code,
-				-- a draft's items are not valued yet; payables posts only on released orders
+				-- a draft's items are not valued yet, a released order's always are
+				-- (value_released_items, purchase_order_item_valued): payables posts
+				-- only on released orders
 				'valuation_price', coalesce(i.valuation_price, 0), 'valuation_price_unit', coalesce(i.valuation_price_unit, 1),
 				'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 					AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
