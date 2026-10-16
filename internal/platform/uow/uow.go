@@ -52,9 +52,12 @@ type Middleware struct {
 	Sessions Sessions
 }
 
-// Sessions checks a person's session: its lifetime and idle timeout.
+// Sessions checks a person's session: its lifetime and idle timeout. It
+// runs before the request's transaction begins and reads what it needs in
+// its own, so a request never holds one connection while it waits for
+// another.
 type Sessions interface {
-	Check(ctx context.Context, c reqctx.Claims, p reqctx.Principal) error
+	Check(ctx context.Context, c reqctx.Claims) error
 }
 
 func (m *Middleware) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -123,6 +126,11 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		return err
 	}
 	ctx := r.Context()
+	if m.Sessions != nil {
+		if err := m.Sessions.Check(ctx, claims); err != nil {
+			return err
+		}
+	}
 	tx, err := m.begin(ctx, database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: req == nil})
 	if err != nil {
 		return err
@@ -138,11 +146,6 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	if principal.Kind == reqctx.KindHuman {
 		if err := authn.CheckMFA(claims); err != nil {
 			return err
-		}
-		if m.Sessions != nil {
-			if err := m.Sessions.Check(ctx, claims, principal); err != nil {
-				return err
-			}
 		}
 	}
 	info := reqctx.InfoFrom(ctx)

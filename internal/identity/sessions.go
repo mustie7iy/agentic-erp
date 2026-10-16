@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -36,7 +37,6 @@ import (
 const (
 	DefaultTouchEvery     = time.Minute
 	DefaultCachedSessions = 100000
-	SessionRetention      = 7 * 24 * time.Hour
 )
 
 // Sessions checks people's sessions in the unit of work.
@@ -54,9 +54,13 @@ type Sessions struct {
 	seen map[[32]byte]sighting
 }
 
-// sighting is when this replica last recorded a session, and when the
-// session started.
-type sighting struct{ started, touched time.Time }
+// sighting is when this replica last recorded a token's principal: a
+// person's session and when it started, or a principal no session is kept
+// for (a service, an agent).
+type sighting struct {
+	person           bool
+	started, touched time.Time
+}
 
 // session is a row of identity.session.
 type session struct {
@@ -81,33 +85,30 @@ var (
 	}
 )
 
-// Check applies the tenant's session rule to a person's token. A token of
-// a deployment's own issuer carries no rule and is not checked.
-func (s *Sessions) Check(ctx context.Context, c reqctx.Claims, p reqctx.Principal) error {
+// Check applies the tenant's session rule to a person's token, before the
+// request's own transaction begins: it holds no connection while it waits
+// for one (uow). It reads the token's principal itself; a principal no
+// session is kept for, one not provisioned, and a person whose token fails
+// the multi-factor rule are left to the unit of work, which answers them.
+// A token of a deployment's own issuer carries no rule and is not checked.
+func (s *Sessions) Check(ctx context.Context, c reqctx.Claims) error {
 	rule := c.Session
 	if rule.MaxAge <= 0 {
 		return nil
 	}
-	if !c.Expiry.IsZero() && c.Expiry.Sub(c.IssuedAt) > rule.MaxAge {
-		return sessionProblem("identity.session_expired", "The token outlives the tenant's session lifetime.")
-	}
-	key, ok := sessionKey(c)
-	if !ok {
-		return sessionProblem("identity.session_unknown", "A person's token must carry auth_time or sid, which the session is tracked by.")
-	}
+	key, keyed := sessionKey(c)
 	now := clock.Now(s.Now)
-	start := now
-	if !c.AuthTime.IsZero() {
-		start = c.AuthTime
-	}
-	if s.recent(key, now, rule) {
+	cacheKey := sha256.Sum256(append([]byte(c.TenantID.String()+"\n"+c.Issuer+"\n"+c.Subject+"\n"), key[:]...))
+	if s.recent(cacheKey, now, rule) {
 		return nil
 	}
-	started, err := s.touch(ctx, p, key, start, now, rule)
+	seen, err := s.touch(ctx, c, key, keyed, now)
 	if err != nil {
 		return err
 	}
-	s.remember(key, sighting{started: started, touched: now})
+	if seen != nil {
+		s.remember(cacheKey, *seen)
+	}
 	return nil
 }
 
@@ -123,8 +124,9 @@ func sessionKey(c reqctx.Claims) ([32]byte, bool) {
 	return [32]byte{}, false
 }
 
-// recent reports a session this replica recorded less than TouchEvery ago
-// that is still within its lifetime.
+// recent reports a principal this replica recorded less than TouchEvery
+// ago (and, for a person, less than the idle timeout ago) whose session is
+// still within its lifetime.
 func (s *Sessions) recent(key [32]byte, now time.Time, rule reqctx.SessionRule) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -133,7 +135,8 @@ func (s *Sessions) recent(key [32]byte, now time.Time, rule reqctx.SessionRule) 
 	if s.TouchEvery > 0 {
 		every = s.TouchEvery
 	}
-	return ok && now.Sub(seen.touched) < every && now.Sub(seen.started) < rule.MaxAge
+	since := now.Sub(seen.touched)
+	return ok && since < every && (!seen.person || (since < rule.Idle && now.Sub(seen.started) < rule.MaxAge))
 }
 
 func (s *Sessions) remember(key [32]byte, seen sighting) {
@@ -149,43 +152,85 @@ func (s *Sessions) remember(key [32]byte, seen sighting) {
 	s.seen[key] = seen
 }
 
-// Cached is how many sessions this replica remembers.
+// Cached is how many principals this replica remembers.
 func (s *Sessions) Cached() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.seen)
 }
 
-// touch records the sighting in a transaction of its own, starting the
-// session or ending it past its lifetime or idle timeout; an ending is
-// committed before the request is refused.
-func (s *Sessions) touch(ctx context.Context, p reqctx.Principal, key [32]byte, start, now time.Time, rule reqctx.SessionRule) (time.Time, error) {
-	tx, err := database.BeginOr(ctx, s.Pool, s.Begin, database.Scope{Role: s.AppRole, TenantID: p.TenantID})
+// touch records the sighting in a transaction of its own: it finds the
+// token's principal, and for a person starts the session or ends it past
+// its lifetime or idle timeout; an ending is committed before the request
+// is refused. It returns what to remember, nil for nothing.
+func (s *Sessions) touch(ctx context.Context, c reqctx.Claims, key [32]byte, keyed bool, now time.Time) (*sighting, error) {
+	tx, err := database.BeginOr(ctx, s.Pool, s.Begin, database.Scope{Role: s.AppRole, TenantID: c.TenantID})
 	if err != nil {
-		return time.Time{}, fmt.Errorf("identity: session of principal %s: %w", p.ID, err)
+		return nil, fmt.Errorf("identity: session of %s: %w", c.Subject, err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	row, found, err := s.lockOrStart(ctx, tx, p, key, start, now, rule)
-	if err != nil {
-		return time.Time{}, err
+	p, person, err := sessionPrincipal(ctx, tx, c)
+	if err != nil || !person {
+		if err == nil && p.ID != uuid.Nil {
+			return &sighting{touched: now}, nil
+		}
+		return nil, err
 	}
-	answer := s.judge(row, found, now, rule)
+	if err := s.personsToken(c, keyed); err != nil {
+		return nil, err
+	}
+	row, found, err := s.lockOrStart(ctx, tx, p, key, c, now)
+	if err != nil {
+		return nil, err
+	}
+	answer := s.judge(row, found, now, c.Session)
 	switch {
 	case row.ended:
-		return time.Time{}, answer
+		return nil, answer
 	case answer != nil:
 		if err := s.end(ctx, tx, p, row, now, answer); err != nil {
-			return time.Time{}, err
+			return nil, err
 		}
 	case found:
 		if _, err := tx.Exec(ctx, `UPDATE identity.session SET last_seen_at = $2, version = version + 1 WHERE id = $1`, row.id, now); err != nil {
-			return time.Time{}, fmt.Errorf("identity: touch session %s: %w", row.id, err)
+			return nil, fmt.Errorf("identity: touch session %s: %w", row.id, err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return time.Time{}, fmt.Errorf("identity: commit session %s: %w", row.id, err)
+		return nil, fmt.Errorf("identity: commit session %s: %w", row.id, err)
 	}
-	return row.started, answer
+	if answer != nil {
+		return nil, answer
+	}
+	return &sighting{person: true, started: row.started, touched: now}, nil
+}
+
+// sessionPrincipal finds the token's active principal and whether it is a
+// person whose token passes the multi-factor rule: sessions are people's,
+// and a token the unit of work refuses starts none.
+func sessionPrincipal(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal, bool, error) {
+	p := reqctx.Principal{TenantID: c.TenantID}
+	err := tx.QueryRow(ctx, `SELECT id, kind FROM identity.principal WHERE external_issuer = $1 AND external_subject = $2 AND status = 'active'`,
+		c.Issuer, c.Subject).Scan(&p.ID, &p.Kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p, false, nil
+	}
+	if err != nil {
+		return p, false, fmt.Errorf("identity: principal of session of %s: %w", c.Subject, err)
+	}
+	return p, p.Kind == Human && authn.CheckMFA(c) == nil, nil
+}
+
+// personsToken refuses a person's token the session cannot be told by, or
+// that outlives the session lifetime.
+func (s *Sessions) personsToken(c reqctx.Claims, keyed bool) error {
+	if !keyed {
+		return sessionProblem("identity.session_unknown", "A person's token must carry auth_time or sid, which the session is tracked by.")
+	}
+	if !c.Expiry.IsZero() && c.Expiry.Sub(c.IssuedAt) > c.Session.MaxAge {
+		return sessionProblem("identity.session_expired", "The token outlives the tenant's session lifetime.")
+	}
+	return nil
 }
 
 // judge is the answer for a session: its end's, nil while it lasts.
@@ -217,7 +262,7 @@ func scanSession(row pgx.Row) (session, error) {
 // recording the start in the audit trail; an authentication already older
 // than the lifetime starts nothing and is refused. Two first sightings at
 // once start it once: the second reads the first's row.
-func (s *Sessions) lockOrStart(ctx context.Context, tx pgx.Tx, p reqctx.Principal, key [32]byte, start, now time.Time, rule reqctx.SessionRule) (session, bool, error) {
+func (s *Sessions) lockOrStart(ctx context.Context, tx pgx.Tx, p reqctx.Principal, key [32]byte, c reqctx.Claims, now time.Time) (session, bool, error) {
 	read := func() (session, error) {
 		return scanSession(tx.QueryRow(ctx, `SELECT `+sessionColumns+` FROM identity.session WHERE principal_id = $1 AND session_key = $2 FOR UPDATE`, p.ID, key[:]))
 	}
@@ -228,12 +273,22 @@ func (s *Sessions) lockOrStart(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return row, false, readFailed(p, err)
 	}
-	if now.Sub(start) >= rule.MaxAge {
+	// The session starts at the authentication, never later than now (a
+	// provider's clock running ahead must not lengthen it), or at its first
+	// sighting when the token has no auth_time.
+	start, authenticated := now, (*time.Time)(nil)
+	if !c.AuthTime.IsZero() {
+		start, authenticated = c.AuthTime, &c.AuthTime
+		if start.After(now) {
+			start = now
+		}
+	}
+	if now.Sub(start) >= c.Session.MaxAge {
 		return row, false, errExpired()
 	}
-	row, err = scanSession(tx.QueryRow(ctx, `INSERT INTO identity.session (tenant_id, id, principal_id, session_key, started_at, last_seen_at)
-		VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (tenant_id, principal_id, session_key) DO NOTHING RETURNING `+sessionColumns,
-		p.TenantID, uuid.Must(uuid.NewV7()), p.ID, key[:], start, now))
+	row, err = scanSession(tx.QueryRow(ctx, `INSERT INTO identity.session (tenant_id, id, principal_id, session_key, started_at, authenticated_at, last_seen_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (tenant_id, principal_id, session_key) DO NOTHING RETURNING `+sessionColumns,
+		p.TenantID, uuid.Must(uuid.NewV7()), p.ID, key[:], start, authenticated, now))
 	if errors.Is(err, pgx.ErrNoRows) { // started by a concurrent first sighting
 		row, err = read()
 		return row, err == nil, readFailed(p, err)
@@ -271,25 +326,52 @@ func (s *Sessions) audit(ctx context.Context, tx pgx.Tx, p reqctx.Principal, now
 	return audit.Write(ctx, tx, p, reqctx.TraceID(ctx), now, audit.Entry{Action: "identity.session." + verb, ObjectType: "identity.session", ObjectID: id, Outcome: "succeeded", Detail: detail})
 }
 
-// SessionSweeper deletes the sessions that ended, or went idle, more than
-// SessionRetention ago, across tenants, in rounds.
+// SessionSweeper ends, in rounds, the sessions idle longer than any tenant
+// allows (MaxIdleTimeout), each audited in its tenant's trail, so a session
+// nobody comes back to is recorded as ended too; and it deletes sessions
+// that ended a week ago. A session keyed by sid alone is kept 90 days: a
+// token refreshed at the provider carries the same sid and no auth_time to
+// tell it is old, so the ended row is what refuses it.
 type SessionSweeper struct {
 	Pool       *database.Pool
-	WorkerRole string        // erp_worker
+	AppRole    string        // erp_app: sessions are ended in their tenant's scope
+	WorkerRole string        // erp_worker: finds and deletes them across tenants
 	Interval   time.Duration // between rounds; default one hour
+	Batch      int           // sessions ended per round; 0: 500
+	Now        func() time.Time
 	Log        *slog.Logger
 	Begin      database.BeginFunc
 }
 
-// RunOnce deletes the old sessions and returns how many. Running it twice
-// deletes nothing more.
+// Retention of ended sessions.
+const (
+	SessionRetention        = 7 * 24 * time.Hour
+	SidOnlySessionRetention = 90 * 24 * time.Hour
+)
+
+// SweepActor is the actor the sweeper ends sessions as.
+var SweepActor = uuid.MustParse("6f1d0a5e-3c2b-4a89-9e7d-5e55105e0e01")
+
+// RunOnce ends idle sessions and deletes old ended ones; it returns how
+// many it deleted. Running it twice changes nothing more.
 func (s *SessionSweeper) RunOnce(ctx context.Context) (int64, error) {
+	now := clock.Now(s.Now)
+	idle, err := s.idle(ctx, now)
+	if err != nil {
+		return 0, err
+	}
+	for tenant, ids := range idle {
+		if err := s.endIdle(ctx, tenant, ids, now); err != nil {
+			return 0, err
+		}
+	}
 	tx, err := database.BeginOr(ctx, s.Pool, s.Begin, database.Scope{Role: s.WorkerRole})
 	if err != nil {
 		return 0, fmt.Errorf("identity: sweep sessions: %w", err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	tag, err := tx.Exec(ctx, `DELETE FROM identity.session WHERE coalesce(ended_at, last_seen_at) < now() - make_interval(secs => $1)`, SessionRetention.Seconds())
+	tag, err := tx.Exec(ctx, `DELETE FROM identity.session WHERE ended_at < $1 AND (authenticated_at IS NOT NULL OR ended_at < $2)`,
+		now.Add(-SessionRetention), now.Add(-SidOnlySessionRetention))
 	if err != nil {
 		return 0, fmt.Errorf("identity: sweep sessions: %w", err)
 	}
@@ -297,6 +379,61 @@ func (s *SessionSweeper) RunOnce(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("identity: commit the session sweep: %w", err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// idle finds sessions not ended and idle longer than any tenant allows, by
+// tenant.
+func (s *SessionSweeper) idle(ctx context.Context, now time.Time) (map[uuid.UUID][]uuid.UUID, error) {
+	tx, err := database.BeginOr(ctx, s.Pool, s.Begin, database.Scope{Role: s.WorkerRole, ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("identity: find idle sessions: %w", err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	batch := 500
+	if s.Batch > 0 {
+		batch = s.Batch
+	}
+	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM identity.session WHERE ended_at IS NULL AND last_seen_at < $1 ORDER BY last_seen_at LIMIT $2`,
+		now.Add(-MaxIdleTimeout), batch)
+	out := map[uuid.UUID][]uuid.UUID{}
+	var tenant, id uuid.UUID
+	if _, err := pgx.ForEachRow(rows, []any{&tenant, &id}, func() error {
+		out[tenant] = append(out[tenant], id)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("identity: find idle sessions: %w", err)
+	}
+	return out, nil
+}
+
+// endIdle ends a tenant's idle sessions as idle, each audited.
+func (s *SessionSweeper) endIdle(ctx context.Context, tenant uuid.UUID, ids []uuid.UUID, now time.Time) error {
+	tx, err := database.BeginOr(ctx, s.Pool, s.Begin, database.Scope{Role: s.AppRole, TenantID: tenant})
+	if err != nil {
+		return fmt.Errorf("identity: end idle sessions of tenant %s: %w", tenant, err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	rows, _ := tx.Query(ctx, `UPDATE identity.session SET ended_at = $2, end_reason = 'idle', version = version + 1
+		WHERE id = ANY($1) AND ended_at IS NULL AND last_seen_at < $3 RETURNING id, started_at, last_seen_at`, ids, now, now.Add(-MaxIdleTimeout))
+	var entries []audit.Entry
+	var id uuid.UUID
+	var started, lastSeen time.Time
+	if _, err := pgx.ForEachRow(rows, []any{&id, &started, &lastSeen}, func() error {
+		entries = append(entries, audit.Entry{Action: "identity.session.end", ObjectType: "identity.session", ObjectID: id, Outcome: "succeeded",
+			Detail: map[string]any{"reason": "idle", "started_at": started, "last_seen_at": lastSeen, "swept": true}})
+		return nil
+	}); err != nil {
+		return fmt.Errorf("identity: end idle sessions of tenant %s: %w", tenant, err)
+	}
+	if len(entries) > 0 { // another round ended them meanwhile otherwise
+		if err := audit.Write(ctx, tx, reqctx.Principal{ID: SweepActor, Kind: reqctx.KindSystem, TenantID: tenant}, "", now, entries...); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("identity: commit the idle sessions of tenant %s: %w", tenant, err)
+	}
+	return nil
 }
 
 // Run sweeps until ctx ends, logging failures.

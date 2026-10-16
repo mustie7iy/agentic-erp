@@ -1913,6 +1913,9 @@ func TestSessions(t *testing.T) {
 			t.Errorf("last sighting: got %v, want updated", err)
 		}
 		failsWith(t, update("started_at = now() - interval '1 day'"), "only last_seen_at and its end change")
+		failsWith(t, update("id = gen_random_uuid()"), "only last_seen_at and its end change")
+		failsWith(t, update("authenticated_at = now()"), "only last_seen_at and its end change")
+		failsWith(t, update("last_seen_at = now() - interval '1 day'"), "only moves on")
 		failsWith(t, update("ended_at = now()"), "session_end_reason")
 	})
 	t.Run("an ended session never resumes", func(t *testing.T) {

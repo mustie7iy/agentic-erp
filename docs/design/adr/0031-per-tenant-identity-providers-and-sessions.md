@@ -104,3 +104,18 @@ replica), like a retirement. A shared lookup of the registry is bounded by
 its own deadline (5 s), so a lookup stuck on a connection fails the
 requests waiting on it in time. `acr` and `amr` values are printable ASCII
 without spaces, since `acr_values` is a space-separated list (RFC 9470).
+
+## Amendment (2026-10-16, T37f)
+
+The session check runs before the request's transaction and finds the
+token's principal in a transaction of its own, so a request never holds
+one connection while it waits for another; a replica remembers a sighting
+per tenant, principal and session, never per session key alone. A session
+nobody returns to is ended by the sweeper once it is idle longer than any
+tenant allows (8 hours), audited, so every session's end is recorded.
+Ended sessions are deleted after a week, except those keyed by `sid`
+alone: a token refreshed at the provider carries the same `sid` and no
+`auth_time` to tell it is old, so the ended row, kept 90 days, is what
+refuses it. A provider that keeps a `sid` alive longer must put
+`auth_time` in its tokens. An `auth_time` ahead of the cell's clock starts
+the session no later than now.

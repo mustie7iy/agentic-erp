@@ -13,8 +13,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -87,35 +89,73 @@ func TestMultiFactorForPeople(t *testing.T) {
 	}
 }
 
-// sessionsSeen records the principals whose sessions were checked, and
-// answers with err.
+// sessionsSeen records the tokens whose sessions were checked, and answers
+// with err.
 type sessionsSeen struct {
-	kinds []string
-	err   error
+	subjects []string
+	err      error
 }
 
-func (s *sessionsSeen) Check(_ context.Context, _ reqctx.Claims, p reqctx.Principal) error {
-	s.kinds = append(s.kinds, p.Kind)
+func (s *sessionsSeen) Check(_ context.Context, c reqctx.Claims) error {
+	s.subjects = append(s.subjects, c.Subject)
 	return s.err
 }
 
-// TestSessionsForPeople: the unit of work checks a person's session, never
-// a service's or an agent's, and a session's refusal is the request's.
-func TestSessionsForPeople(t *testing.T) {
+// TestSessionsBeforeTheTransaction: the unit of work asks for the session
+// check before its transaction, for every token (the check tells people
+// from the rest), and a session's refusal is the request's.
+func TestSessionsBeforeTheTransaction(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	a := newApp(t, pgtest.Pool(t))
 	seen := &sessionsSeen{}
 	a.mw.Sessions = seen
-	for _, subject := range []string{ten.Human.Subject, ten.Service.Subject, ten.Agent.Subject} {
-		if code := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: subject}).Code; code != 200 {
-			t.Fatalf("%s: got %d, want 200", subject, code)
-		}
+	if code := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: ten.Human.Subject}).Code; code != 200 {
+		t.Fatalf("got %d, want 200", code)
 	}
-	if strings.Join(seen.kinds, ",") != "human" {
-		t.Errorf("sessions checked: got %v, want the person's only", seen.kinds)
+	if strings.Join(seen.subjects, ",") != ten.Human.Subject {
+		t.Errorf("sessions checked: got %v, want the token's", seen.subjects)
 	}
 	seen.err = problem.New(401, "identity.session_idle", "Session ended", "idle")
 	if code := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: ten.Human.Subject}).Code; code != 401 {
 		t.Errorf("an ended session: got %d, want 401", code)
+	}
+}
+
+// TestSessionsOnOneConnection: a person's request is served by a pool of
+// one connection: the session is checked before the request's transaction
+// takes it, so the request never holds one connection while it waits for
+// another.
+func TestSessionsOnOneConnection(t *testing.T) {
+	is := authntest.NewSeparate(t)
+	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `UPDATE identity.principal SET external_issuer = $2, version = version + 1 WHERE tenant_id = $1`, ten.ID, is.URL)
+	reg := authn.Registration{TenantID: ten.ID, Issuer: is.URL, Audience: authntest.Audience, SessionMaxAge: time.Hour, IdleTimeout: 10 * time.Minute}
+	v, err := authn.NewRegistered(context.Background(), authn.Development, oneProvider{reg}, &authn.Providers{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := database.DefaultSettings
+	settings.MaxConns = 1
+	pool, err := database.Open(context.Background(), pgtest.URL(t), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	mw := &uow.Middleware{Pool: pool, Role: "erp_app", Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: time.Now,
+		Sessions: &identity.Sessions{Pool: pool, AppRole: "erp_app"}}
+	handler := v.Middleware(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	r := httptest.NewRequestWithContext(ctx, "GET", "/read", nil)
+	r.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, ten.Human.Subject, map[string]any{"sid": "s-1", "auth_time": time.Now().Unix()}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+	if rec.Code != 204 {
+		t.Errorf("a person's request on one connection: got %d %s, want 204", rec.Code, rec.Body)
+	}
+	var n int
+	pgtest.Scan(t, `SELECT count(*) FROM identity.session WHERE tenant_id = $1`, []any{ten.ID}, &n)
+	if n != 1 {
+		t.Errorf("sessions: got %d, want 1", n)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -63,7 +64,7 @@ func (f *sessionFixture) claims(sid string) reqctx.Claims {
 }
 
 func (f *sessionFixture) check(c reqctx.Claims) error {
-	return f.s.Check(context.Background(), c, f.person)
+	return f.s.Check(context.Background(), c)
 }
 
 func (f *sessionFixture) row(sid string) (lastSeen time.Time, ended *time.Time, reason *string) {
@@ -246,9 +247,9 @@ func TestSessionFirstSightingsAtOnce(t *testing.T) {
 		return &heldCommit{Tx: tx, reached: reached, release: release, pid: pid}, nil
 	}}
 	errs := make(chan error, 2)
-	go func() { errs <- first.Check(context.Background(), c, f.person) }()
+	go func() { errs <- first.Check(context.Background(), c) }()
 	pid := <-reached
-	go func() { errs <- f.s.Check(context.Background(), c, f.person) }()
+	go func() { errs <- f.s.Check(context.Background(), c) }()
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var n int
 		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))`, []any{pid}, &n)
@@ -293,7 +294,7 @@ func TestSessionDatabaseFailures(t *testing.T) {
 		"start": func() reqctx.Claims { return f.claims("sid-" + uuid.NewString()) },
 		"touch": func() reqctx.Claims {
 			c := f.claims("sid-" + uuid.NewString())
-			if err := (&identity.Sessions{Pool: pool, AppRole: "erp_app", Now: f.clock.Now}).Check(context.Background(), c, f.person); err != nil {
+			if err := (&identity.Sessions{Pool: pool, AppRole: "erp_app", Now: f.clock.Now}).Check(context.Background(), c); err != nil {
 				t.Fatal(err)
 			}
 			f.clock.Advance(2 * time.Minute)
@@ -301,7 +302,7 @@ func TestSessionDatabaseFailures(t *testing.T) {
 		},
 		"end": func() reqctx.Claims {
 			c := f.claims("sid-" + uuid.NewString())
-			if err := (&identity.Sessions{Pool: pool, AppRole: "erp_app", Now: f.clock.Now}).Check(context.Background(), c, f.person); err != nil {
+			if err := (&identity.Sessions{Pool: pool, AppRole: "erp_app", Now: f.clock.Now}).Check(context.Background(), c); err != nil {
 				t.Fatal(err)
 			}
 			f.clock.Advance(11 * time.Minute)
@@ -315,7 +316,7 @@ func TestSessionDatabaseFailures(t *testing.T) {
 					tx, err := pool.Begin(ctx, scope)
 					return &pgtest.FailingTx{Tx: tx, FailAt: n}, err
 				}}
-				err := s.Check(context.Background(), c, f.person)
+				err := s.Check(context.Background(), c)
 				if !errors.Is(err, pgtest.ErrInjected) {
 					if p := problem.From(err); err != nil && p.Status == 401 {
 						return // every statement before the answer has failed once
@@ -332,65 +333,206 @@ func TestSessionDatabaseFailures(t *testing.T) {
 		s := &identity.Sessions{Pool: pool, AppRole: "erp_app", Now: f.clock.Now, Begin: func(context.Context, database.Scope) (pgx.Tx, error) {
 			return nil, errors.New("database down")
 		}}
-		pgtest.WantErr(t, s.Check(context.Background(), f.claims("sid-down"), f.person), "database down")
+		pgtest.WantErr(t, s.Check(context.Background(), f.claims("sid-down")), "database down")
 	})
 	t.Run("a failed commit", func(t *testing.T) {
 		s := &identity.Sessions{Pool: pool, AppRole: "erp_app", Now: f.clock.Now, Begin: func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 			tx, err := pool.Begin(ctx, scope)
 			return &pgtest.FailingTx{Tx: tx, FailCommit: true}, err
 		}}
-		if err := s.Check(context.Background(), f.claims("sid-commit"), f.person); !errors.Is(err, pgtest.ErrInjected) {
+		if err := s.Check(context.Background(), f.claims("sid-commit")); !errors.Is(err, pgtest.ErrInjected) {
 			t.Errorf("got %v, want the injected failure", err)
 		}
 	})
 }
 
-func TestSessionSweeper(t *testing.T) {
+// sweeperAt is the sweeper as it runs at the clock's time.
+func (f *sessionFixture) sweeperAt() *identity.SessionSweeper {
+	return &identity.SessionSweeper{Pool: f.s.Pool, AppRole: "erp_app", WorkerRole: "erp_worker", Now: f.clock.Now, Log: slog.New(slog.DiscardHandler)}
+}
+
+func (f *sessionFixture) sessions() int {
+	f.t.Helper()
+	var n int
+	pgtest.Scan(f.t, `SELECT count(*) FROM identity.session WHERE tenant_id = $1`, []any{f.ten.ID}, &n)
+	return n
+}
+
+// TestSweeperEndsSessionsNobodyReturnsTo: a session idle longer than any
+// tenant allows is ended by the sweeper, audited, and deleted a week
+// later; running a round twice changes nothing more.
+func TestSweeperEndsSessionsNobodyReturnsTo(t *testing.T) {
 	f := newSessions(t)
-	fresh, stale := f.claims("sid-fresh"), f.claims("sid-stale")
-	for _, c := range []reqctx.Claims{fresh, stale} {
+	if err := f.check(f.claims("sid-silent")); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.Advance(identity.MaxIdleTimeout + time.Minute)
+	for range 2 {
+		if _, err := f.sweeperAt().RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ended, reason := f.row("sid-silent"); ended == nil || reason == nil || *reason != "idle" {
+		t.Errorf("session: got ended %v (%v), want ended idle", ended, reason)
+	}
+	if n := auditCount(t, f.ten.ID, "identity.session.end"); n != 1 {
+		t.Errorf("session ends audited: got %d, want 1", n)
+	}
+	f.clock.Advance(identity.SessionRetention + time.Minute)
+	if _, err := f.sweeperAt().RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.sessions(); n != 0 {
+		t.Errorf("sessions a week after their end: got %d, want 0", n)
+	}
+}
+
+// TestSidOnlySessionsStayEnded: a session keyed by sid alone ended stays
+// recorded for 90 days, so a token refreshed at the provider, carrying the
+// same sid and no auth_time, is still refused after a week.
+func TestSidOnlySessionsStayEnded(t *testing.T) {
+	f := newSessions(t)
+	c := f.claims("sid-only")
+	c.AuthTime = time.Time{}
+	if err := f.check(c); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.Advance(11 * time.Minute)
+	wantCode(t, f.check(c), "identity.session_idle")
+	f.clock.Advance(identity.SessionRetention + time.Hour)
+	if _, err := f.sweeperAt().RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	refreshed := f.claims("sid-only")
+	refreshed.AuthTime = time.Time{}
+	wantCode(t, f.check(refreshed), "identity.session_idle")
+	f.clock.Advance(identity.SidOnlySessionRetention)
+	if _, err := f.sweeperAt().RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.sessions(); n != 0 {
+		t.Errorf("sessions after 90 days: got %d, want 0", n)
+	}
+}
+
+// TestSessionsArePerPrincipal: two tenants' people signed in through one
+// identity provider's session (one sid) have a session each; one ending
+// never answers for the other, on the same replica.
+func TestSessionsArePerPrincipal(t *testing.T) {
+	f := newSessions(t)
+	other := pgtest.NewTenant(t)
+	pgtest.Exec(t, `UPDATE identity.principal SET external_subject = $2, version = version + 1 WHERE tenant_id = $1 AND id = $3`,
+		other.ID, f.ten.Human.Subject, other.Human.ID)
+	inA, inB := f.claims("sid-shared"), f.claims("sid-shared")
+	inB.TenantID, inB.Session.Idle = other.ID, 5*time.Minute
+	for _, c := range []reqctx.Claims{inA, inB} {
 		if err := f.check(c); err != nil {
 			t.Fatal(err)
 		}
 	}
-	pgtest.Exec(t, `UPDATE identity.session SET last_seen_at = now() - interval '8 days', version = version + 1
-		WHERE tenant_id = $1 AND session_key = (SELECT session_key FROM identity.session WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 1)`, f.ten.ID)
-	sw := &identity.SessionSweeper{Pool: f.s.Pool, WorkerRole: "erp_worker", Log: slog.New(slog.DiscardHandler)}
-	for round := range 2 {
-		if _, err := sw.RunOnce(context.Background()); err != nil {
-			t.Fatalf("round %d: %v", round, err)
-		}
-		var n int
-		pgtest.Scan(t, `SELECT count(*) FROM identity.session WHERE tenant_id = $1`, []any{f.ten.ID}, &n)
-		if n != 1 {
-			t.Errorf("round %d: sessions left: got %d, want the fresh one", round, n)
+	for range 6 { // A stays busy, B goes idle
+		f.clock.Advance(time.Minute)
+		if err := f.check(inA); err != nil {
+			t.Fatal(err)
 		}
 	}
-	failing := &identity.SessionSweeper{Pool: f.s.Pool, WorkerRole: "erp_worker", Begin: func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
-		tx, err := f.s.Pool.Begin(ctx, scope)
-		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, err
-	}}
-	if _, err := failing.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
-		t.Errorf("failing round: got %v, want the injected failure", err)
+	wantCode(t, f.check(inB), "identity.session_idle")
+	if err := f.check(inA); err != nil {
+		t.Errorf("the other tenant's session: got %v, want it kept", err)
 	}
-	lost := &identity.SessionSweeper{Pool: f.s.Pool, WorkerRole: "erp_worker", Begin: func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
-		tx, err := f.s.Pool.Begin(ctx, scope)
-		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, err
-	}}
-	if _, err := lost.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
-		t.Errorf("a failed commit: got %v, want the injected failure", err)
+}
+
+// TestSessionsArePeoples: services, agents, principals not provisioned and
+// people whose token fails the multi-factor rule start no session; the
+// unit of work answers them.
+func TestSessionsArePeoples(t *testing.T) {
+	f := newSessions(t)
+	service := f.claims("")
+	service.Subject, service.AuthTime = f.ten.Service.Subject, time.Time{}
+	unknown := f.claims("sid-unknown")
+	unknown.Subject = "nobody"
+	mfa := f.claims("sid-mfa")
+	mfa.MFA = reqctx.MFA{Required: true, AMRValues: []string{"mfa"}}
+	for name, c := range map[string]reqctx.Claims{"service": service, "unknown": unknown, "without multi-factor": mfa} {
+		t.Run(name, func(t *testing.T) {
+			if err := f.check(c); err != nil {
+				t.Errorf("got %v, want no session check", err)
+			}
+		})
 	}
-	quiet := &identity.SessionSweeper{Pool: f.s.Pool, WorkerRole: "erp_worker"}
-	stopped, stop := context.WithCancel(context.Background())
-	stop()
-	quiet.Run(stopped) // without a logger
-	down := &identity.SessionSweeper{Pool: f.s.Pool, WorkerRole: "erp_worker", Begin: func(context.Context, database.Scope) (pgx.Tx, error) {
-		return nil, errors.New("database down")
-	}}
-	if _, err := down.RunOnce(context.Background()); err == nil {
-		t.Error("no transaction: got success, want the failure")
+	if n := f.sessions(); n != 0 {
+		t.Errorf("sessions: got %d, want none", n)
+	}
+	if err := f.check(service); err != nil { // remembered as no person
+		t.Errorf("the service again: %v", err)
+	}
+}
+
+// TestSessionStartsNoLaterThanNow: an auth_time ahead of the cell's clock
+// (the provider's clock running fast) does not lengthen the session.
+func TestSessionStartsNoLaterThanNow(t *testing.T) {
+	f := newSessions(t)
+	c := f.claims("sid-ahead")
+	c.AuthTime = f.clock.Now().Add(10 * time.Minute)
+	if err := f.check(c); err != nil {
+		t.Fatal(err)
+	}
+	f.s.TouchEvery = time.Second
+	for range 12 {
+		f.clock.Advance(5 * time.Minute)
+		_ = f.check(c) // the hour runs out on the last
+	}
+	wantCode(t, f.check(c), "identity.session_expired")
+}
+
+// TestSessionSweeperFailures fails each of a round's transactions, chosen
+// by what it runs as (the package database holds other tests' sessions, so
+// counting transactions would not say which is which): its first
+// statement, its commit, or its start.
+func TestSessionSweeperFailures(t *testing.T) {
+	f := newSessions(t)
+	pool := f.s.Pool
+	kinds := map[string]func(database.Scope) bool{
+		"finding":  func(s database.Scope) bool { return s.Role == "erp_worker" && s.ReadOnly },
+		"ending":   func(s database.Scope) bool { return s.Role == "erp_app" },
+		"deleting": func(s database.Scope) bool { return s.Role == "erp_worker" && !s.ReadOnly },
+	}
+	for kind, is := range kinds {
+		for name, fail := range map[string]func(pgx.Tx) (pgx.Tx, error){
+			"statement": func(tx pgx.Tx) (pgx.Tx, error) { return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil },
+			"commit":    func(tx pgx.Tx) (pgx.Tx, error) { return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil },
+			"no transaction": func(tx pgx.Tx) (pgx.Tx, error) {
+				_ = tx.Rollback(context.Background())
+				return nil, errors.New("database down")
+			},
+			"audit": func(tx pgx.Tx) (pgx.Tx, error) { return &pgtest.FailingTx{Tx: tx, FailAt: 2}, nil },
+		} {
+			if (kind == "finding" && name == "commit") || (kind != "ending" && name == "audit") {
+				continue // a read-only round commits nothing; only the ending audits
+			}
+			t.Run(kind+" "+name, func(t *testing.T) {
+				if err := f.check(f.claims("sid-" + uuid.NewString())); err != nil {
+					t.Fatal(err)
+				}
+				f.clock.Advance(identity.MaxIdleTimeout + time.Minute)
+				sw := f.sweeperAt()
+				sw.Batch = 1000
+				sw.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+					tx, err := pool.Begin(ctx, scope)
+					if err != nil || !is(scope) {
+						return tx, err
+					}
+					return fail(tx)
+				}
+				_, err := sw.RunOnce(context.Background())
+				if !errors.Is(err, pgtest.ErrInjected) && (err == nil || !strings.Contains(err.Error(), "database down")) {
+					t.Errorf("got %v, want the injected failure", err)
+				}
+			})
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	sw.Run(ctx) // one round, then the stop
+	f.sweeperAt().Run(ctx)
+	(&identity.SessionSweeper{Pool: pool, AppRole: "erp_app", WorkerRole: "erp_worker"}).Run(ctx) // without a logger
 }

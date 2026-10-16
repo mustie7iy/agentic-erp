@@ -253,9 +253,13 @@ sighting) and is touched at most once a minute per replica, in a
 transaction of its own; past the tenant's session lifetime or idle timeout
 it is ended (`ended_at`, `end_reason` expired, idle or revoked) and never
 resumes (`check_session_update`: only `last_seen_at` and the end change).
-Starts and ends are audited. Sessions are ephemeral: not exported,
-imported or fingerprinted; `erp_worker` deletes those ended or idle for a
-week.
+Starts and ends are audited; a session nobody returns to is ended (idle,
+audited) by the sweeper once idle longer than any tenant allows. The check
+runs before the request's transaction. Sessions are ephemeral: not
+exported, imported or fingerprinted; `erp_worker` deletes those ended a
+week ago, or 90 days ago for one keyed by `sid` alone
+(`authenticated_at` NULL), whose ended row is what refuses a refreshed
+token.
 
 Role permissions, role assignments, company access and SoD rules are
 **effective-dated assignments**: each has its own id, a validity range that

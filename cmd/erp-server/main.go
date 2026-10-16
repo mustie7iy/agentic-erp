@@ -452,7 +452,7 @@ func (s *server) startAudit(runCtx context.Context) {
 	s.spawn("expirer", func() { expirer.Run(runCtx) })
 	// People's sessions ended or idle for a week are deleted in rounds
 	// (ADR-0031).
-	sweeper := &identity.SessionSweeper{Pool: pool, WorkerRole: cfg.WorkerRole, Interval: sweepInterval, Log: log}
+	sweeper := &identity.SessionSweeper{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: sweepInterval, Log: log}
 	s.spawn("session sweeper", func() { sweeper.Run(runCtx) })
 	// Every tenant's audit chain is verified against its anchors in rounds
 	// (ADR-0011); a chain that stops verifying is an alarm.
