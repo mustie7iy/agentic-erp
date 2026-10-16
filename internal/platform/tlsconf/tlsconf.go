@@ -60,13 +60,14 @@ type Store struct {
 	mu     sync.RWMutex
 	loaded bool
 	roots  *x509.CertPool
+	bundle *x509.CertPool   // the CA bundle alone: the deployment's own authority
 	cert   *tls.Certificate // nil: none configured
 }
 
 // Refresh reads the material. On an error the store keeps what it read
 // before, so a renewal caught half-written is retried, not served.
 func (s *Store) Refresh(ctx context.Context) error {
-	roots, err := s.readRoots(ctx)
+	roots, bundle, err := s.readRoots(ctx)
 	if err != nil {
 		return err
 	}
@@ -76,30 +77,32 @@ func (s *Store) Refresh(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.loaded, s.roots, s.cert = true, roots, cert
+	s.loaded, s.roots, s.bundle, s.cert = true, roots, bundle, cert
 	return nil
 }
 
-func (s *Store) readRoots(ctx context.Context) (*x509.CertPool, error) {
+// readRoots reads the system roots with the bundle added, and the bundle
+// alone (empty without one).
+func (s *Store) readRoots(ctx context.Context) (roots, bundle *x509.CertPool, err error) {
 	system := s.SystemRoots
 	if system == nil {
 		system = x509.SystemCertPool
 	}
-	roots, err := system()
-	if err != nil {
-		return nil, fmt.Errorf("tlsconf: system roots: %w", err)
+	if roots, err = system(); err != nil {
+		return nil, nil, fmt.Errorf("tlsconf: system roots: %w", err)
 	}
+	bundle = x509.NewCertPool()
 	if s.Source.CA == "" {
-		return roots, nil
+		return roots, bundle, nil
 	}
-	bundle, err := secrets.Value(ctx, s.Resolver, s.Source.CA)
+	pem, err := secrets.Value(ctx, s.Resolver, s.Source.CA)
 	if err != nil {
-		return nil, fmt.Errorf("tlsconf: CA bundle: %w", err)
+		return nil, nil, fmt.Errorf("tlsconf: CA bundle: %w", err)
 	}
-	if !roots.AppendCertsFromPEM([]byte(bundle)) {
-		return nil, errors.New("tlsconf: the CA bundle holds no PEM certificate")
+	if !roots.AppendCertsFromPEM([]byte(pem)) || !bundle.AppendCertsFromPEM([]byte(pem)) {
+		return nil, nil, errors.New("tlsconf: the CA bundle holds no PEM certificate")
 	}
-	return roots, nil
+	return roots, bundle, nil
 }
 
 func (s *Store) readCertificate(ctx context.Context) (*tls.Certificate, error) {
@@ -140,6 +143,17 @@ func (s *Store) RootCAs() (*x509.CertPool, error) {
 		return nil, ErrNotLoaded
 	}
 	return s.roots, nil
+}
+
+// Bundle is the CA bundle alone, the deployment's own authority: what
+// clients' and internal servers' certificates are verified against.
+func (s *Store) Bundle() (*x509.CertPool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.loaded {
+		return nil, ErrNotLoaded
+	}
+	return s.bundle, nil
 }
 
 // Certificate is the certificate the process presents.

@@ -1,10 +1,7 @@
 package tlsconf
 
 import (
-	"context"
 	"crypto/tls"
-	"fmt"
-	"net"
 	"net/http"
 	"time"
 )
@@ -42,26 +39,12 @@ func (s *Store) ClientConfig(minVersion uint16, serverName string) (*tls.Config,
 // proxy net/http would handshake with its own configuration, without the
 // material (ADR-0033).
 func (s *Store) HTTPClient(timeout time.Duration) *http.Client {
-	t := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // the standard library's default is an *http.Transport
-	t.Proxy = nil
-	t.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		// The transport dials host:port, always with a port.
-		host, _, _ := net.SplitHostPort(addr)
+	return s.client(timeout, func(host string) (*tls.Config, error) {
 		cfg, err := s.ClientConfig(External, host)
 		if err != nil {
 			return nil, err
 		}
 		cfg.GetClientCertificate = nil
-		raw, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, network, addr)
-		if err != nil {
-			return nil, fmt.Errorf("tlsconf: %w", err)
-		}
-		conn := tls.Client(raw, cfg)
-		if err := conn.HandshakeContext(ctx); err != nil {
-			_ = raw.Close() // the handshake failed; its error is the one reported
-			return nil, fmt.Errorf("tlsconf: handshake with %s: %w", addr, err)
-		}
-		return conn, nil
-	}
-	return &http.Client{Timeout: timeout, Transport: t}
+		return cfg, nil
+	})
 }
