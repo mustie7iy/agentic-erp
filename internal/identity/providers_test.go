@@ -528,3 +528,108 @@ func TestIdentityProviderDatabaseFailures(t *testing.T) {
 		}
 	})
 }
+
+// begin opens a transaction of the registry's tenant that the test commits
+// or rolls back itself, to interleave two of them.
+func (r registry) begin() pgx.Tx {
+	r.t.Helper()
+	tx, err := r.pool.Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: r.tenant})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	r.t.Cleanup(func() { _ = tx.Rollback(context.Background()) }) // a no-op once committed
+	return tx
+}
+
+// interleave runs first in a transaction left open, then second in another,
+// which waits for it on a lock (or, if it does not, finishes first), commits
+// the first and returns the second's result.
+func interleave(t *testing.T, r registry, first, second func(ctx context.Context, tx pgx.Tx) error) error {
+	t.Helper()
+	ctx := context.Background()
+	tx1 := r.begin()
+	if err := first(ctx, tx1); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		tx2 := r.begin()
+		err := second(ctx, tx2)
+		if err == nil {
+			err = tx2.Commit(ctx)
+		}
+		done <- err
+	}()
+	var early error
+	finished := false
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		select {
+		case early = <-done:
+			finished = true
+			return true
+		default:
+		}
+		var n int
+		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`, nil, &n)
+		return n > 0
+	}, "the second transaction neither waits on a lock nor finishes")
+	if err := tx1.Commit(ctx); err != nil {
+		t.Fatalf("commit first: %v", err)
+	}
+	if finished {
+		return early
+	}
+	return <-done
+}
+
+// TestMultiFactorRuleUnderConcurrency: requiring multi-factor and adding a
+// provider that cannot prove it, in two transactions at once, never both
+// succeed, whichever comes first (ADR-0031).
+func TestMultiFactorRuleUnderConcurrency(t *testing.T) {
+	yes := true
+	requireMFA := func(r registry) func(ctx context.Context, tx pgx.Tx) error {
+		return func(ctx context.Context, tx pgx.Tx) error {
+			_, err := identity.UpdateAuthPolicy(ctx, tx, r.actor, etag.IfMatch("*"), identity.AuthPolicyChange{MFARequired: &yes})
+			return err
+		}
+	}
+	addPlain := func(r registry) func(ctx context.Context, tx pgx.Tx) error {
+		return func(ctx context.Context, tx pgx.Tx) error {
+			_, err := identity.RegisterIdentityProvider(ctx, tx, r.actor, identity.NewIdentityProvider{Issuer: issuer("plain"), Audience: "erp"})
+			return err
+		}
+	}
+	t.Run("policy first", func(t *testing.T) {
+		r := newRegistry(t)
+		r.mustRegister(issuer("mfa"), "erp", "mfa")
+		wantProblem(t, interleave(t, r, requireMFA(r), addPlain(r)), "identity.mfa_unprovable")
+	})
+	t.Run("provider first", func(t *testing.T) {
+		r := newRegistry(t)
+		r.mustRegister(issuer("mfa"), "erp", "mfa")
+		wantProblem(t, interleave(t, r, addPlain(r), requireMFA(r)), "identity.mfa_unprovable")
+	})
+	t.Run("values cleared first", func(t *testing.T) {
+		r := newRegistry(t)
+		p := r.mustRegister(issuer("mfa"), "erp", "mfa")
+		clear := func(ctx context.Context, tx pgx.Tx) error {
+			_, err := identity.UpdateIdentityProvider(ctx, tx, r.actor, p.ID, etag.IfMatch("*"), identity.IdentityProviderChange{AMRValues: &[]string{}})
+			return err
+		}
+		wantProblem(t, interleave(t, r, clear, requireMFA(r)), "identity.mfa_unprovable")
+	})
+}
+
+// TestConcurrentRetirementsKeepOneProvider: two retirements at once cannot
+// each leave the other's provider as the last and retire both.
+func TestConcurrentRetirementsKeepOneProvider(t *testing.T) {
+	r := newRegistry(t)
+	a, b := r.mustRegister(issuer("a"), "erp"), r.mustRegister(issuer("b"), "erp")
+	retire := func(id uuid.UUID) func(ctx context.Context, tx pgx.Tx) error {
+		return func(ctx context.Context, tx pgx.Tx) error {
+			_, err := identity.RetireIdentityProvider(ctx, tx, r.actor, id, etag.IfMatch("*"))
+			return err
+		}
+	}
+	wantProblem(t, interleave(t, r, retire(a.ID), retire(b.ID)), "identity.last_provider")
+}

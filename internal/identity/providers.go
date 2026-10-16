@@ -28,7 +28,7 @@ import (
 
 func init() {
 	problem.RegisterConstraint("identity_provider_issuer_audience", func() *problem.Problem {
-		return problem.Conflict("identity.provider_taken", "Another tenant has registered this issuer with this audience.")
+		return problem.Conflict("identity.provider_taken", "This issuer is already registered with this audience, by this tenant or another.")
 	})
 }
 
@@ -277,12 +277,11 @@ func readPolicy(ctx context.Context, tx pgx.Tx, lock bool) (AuthPolicy, error) {
 	return p, nil
 }
 
-// UpdateAuthPolicy changes the tenant's policy, guarded by ifMatch. The
-// defaults are version 1, as the row they become is: the row is created
-// with them first, so a concurrent first change waits on it.
+// UpdateAuthPolicy changes the tenant's policy, guarded by ifMatch, holding
+// its row FOR UPDATE (see provable).
 func UpdateAuthPolicy(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(int32) error, ch AuthPolicyChange) (AuthPolicy, error) {
-	if _, err := tx.Exec(ctx, `INSERT INTO identity.auth_policy (tenant_id) VALUES (platform.current_tenant()) ON CONFLICT DO NOTHING`); err != nil {
-		return AuthPolicy{}, fmt.Errorf("identity: create authentication policy: %w", err)
+	if err := ensurePolicy(ctx, tx); err != nil {
+		return AuthPolicy{}, err
 	}
 	p, err := readPolicy(ctx, tx, true)
 	if err != nil {
@@ -312,6 +311,16 @@ func UpdateAuthPolicy(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch f
 	return p, nil
 }
 
+// ensurePolicy creates the tenant's policy row with the defaults when it has
+// none, so there is a row to lock; a concurrent creation waits on it. The
+// defaults are version 1, as the row they become is.
+func ensurePolicy(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO identity.auth_policy (tenant_id) VALUES (platform.current_tenant()) ON CONFLICT DO NOTHING`); err != nil {
+		return fmt.Errorf("identity: create authentication policy: %w", err)
+	}
+	return nil
+}
+
 func changed(p AuthPolicy, ch AuthPolicyChange) AuthPolicy {
 	if ch.MFARequired != nil {
 		p.MFARequired = *ch.MFARequired
@@ -326,14 +335,19 @@ func changed(p AuthPolicy, ch AuthPolicyChange) AuthPolicy {
 }
 
 // provable refuses a provider that can prove multi-factor by neither acr
-// nor amr values while the tenant's policy requires it.
+// nor amr values while the tenant's policy requires it. It holds the policy
+// row FOR SHARE until commit, so the check and UpdateAuthPolicy's, which
+// holds it FOR UPDATE, never both pass on what the other has not yet
+// committed: whichever comes second waits and sees the first's change.
 func provable(ctx context.Context, tx pgx.Tx, acr, amr []string) error {
 	if len(acr)+len(amr) > 0 {
 		return nil
 	}
+	if err := ensurePolicy(ctx, tx); err != nil {
+		return err
+	}
 	var required bool
-	err := tx.QueryRow(ctx, `SELECT mfa_required FROM identity.auth_policy`).Scan(&required)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `SELECT mfa_required FROM identity.auth_policy FOR SHARE`).Scan(&required); err != nil {
 		return fmt.Errorf("identity: read authentication policy: %w", err)
 	}
 	if required {
@@ -363,7 +377,10 @@ func mfaUnprovable() *problem.Problem {
 
 // ResolveIdentityProvider finds the active registration holding the issuer
 // with one of the token's audiences, across tenants, with its tenant's
-// policy. tx runs as the control role (ADR-0031).
+// policy. tx runs as the control role (ADR-0031). A token whose audiences
+// name two registrations is refused even when both are one tenant's: the
+// registrations may require different proofs, and a token must say which
+// one it is for.
 func ResolveIdentityProvider(ctx context.Context, tx pgx.Tx, issuer string, audiences []string) (Registration, error) {
 	rows, _ := tx.Query(ctx, `SELECT p.id, p.tenant_id, p.issuer, p.audience, p.tenant_claim, p.acr_values, p.amr_values,
 			coalesce(a.mfa_required, false), coalesce(extract(epoch FROM a.session_max_age)::bigint, $3),
@@ -403,7 +420,9 @@ var tenantClaim = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:/-]{0,63}$`)
 // validProvider checks a registration as the database does, answering 422
 // with the field instead of a constraint violation, and what the database
 // cannot tell: an http issuer is allowed on loopback only, for a provider
-// on a developer's machine.
+// on a developer's machine. In production such an issuer is never fetched
+// (authn.Providers allows https only and no loopback address, T37b), and
+// the control plane refuses to register it there (T37c).
 func validProvider(in NewIdentityProvider) error {
 	invalid := func(field, msg string) error {
 		return problem.Unprocessable("identity.invalid_provider", "The identity provider is invalid.",

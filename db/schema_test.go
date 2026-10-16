@@ -1760,7 +1760,8 @@ func changeProvider(f fixture, p uuid.UUID, set string) func(pgx.Tx) error {
 // TestIdentityProviders: an active issuer and audience decide one tenant,
 // so the pair is unique across tenants; a registration's issuer and
 // audience never change, and a retired one stays retired, freeing the
-// pair (ADR-0031).
+// pair (ADR-0031). The subtests share the registration p and run in order:
+// the last one retires it.
 func TestIdentityProviders(t *testing.T) {
 	need(t)
 	a, b := newFixture(t), newFixture(t)
