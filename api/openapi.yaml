@@ -14306,6 +14306,10 @@ components:
           type: string
           description: External reference.
           readOnly: true
+        payment_terms:
+          $ref: "#/components/schemas/ItemPaymentTerms"
+          description: The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others, which are due by their supplier's current terms.
+          readOnly: true
       examples:
         - fiscal_year: 2026
           journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
@@ -14320,6 +14324,66 @@ components:
             amount: "1080.00"
             currency: EUR
           document_number: "5100000123"
+    ItemPaymentTerms:
+      type: object
+      description: "Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a later change to the payment term changes neither the net due date nor the discounts."
+      required:
+        - code
+        - baseline_date
+        - net_due_date
+        - discounts
+      properties:
+        code:
+          type: string
+          description: The payment term the terms were taken from.
+          pattern: "^[A-Z0-9_/]{1,10}$"
+          readOnly: true
+        baseline_date:
+          type: string
+          format: date
+          description: The date the days count from (the invoice date).
+          readOnly: true
+        net_due_date:
+          type: string
+          format: date
+          description: When the item is due without discount.
+          readOnly: true
+        discounts:
+          type: array
+          description: Cash discount tiers, earliest first.
+          maxItems: 2
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/CashDiscountTier"
+      additionalProperties: false
+      example:
+        code: ZB01
+        baseline_date: "2026-03-01"
+        net_due_date: "2026-04-15"
+        discounts:
+          - until: "2026-03-15"
+            percent: "3"
+    CashDiscountTier:
+      type: object
+      description: A cash discount for payment by a date.
+      required:
+        - until
+        - percent
+      properties:
+        until:
+          type: string
+          format: date
+          description: The last day a payment earns the discount.
+          readOnly: true
+        percent:
+          type: string
+          description: Percent off, a decimal of up to three places.
+          pattern: "^[0-9]{1,2}(\\.[0-9]{1,3})?$"
+          readOnly: true
+      additionalProperties: false
+      example:
+        until: "2026-03-15"
+        percent: "3"
     GrIrBalance:
       type: object
       description: "The GR/IR position of one purchase order item: identified by (purchase_order_id, po_item_no)."

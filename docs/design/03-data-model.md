@@ -700,6 +700,17 @@ stays once activated (configuration validation, `ledger.Setup.Check`); order
 items that named it before stay as they are, and posting them is refused),
 `tax_code` (rate, account, direction).
 
+An open item on a supplier reconciliation account keeps the payment terms
+it was posted with (`open_item_terms`, migration 000066, T36b), as SAP
+copies ZTERM, ZFBDT and ZBD1T..ZBD3T into the vendor line: the term's
+code, the baseline date, the net days and up to two discount tiers, with
+`partner.payment_term`'s rules, insert-only. The posting context passes
+them with the entry (`ledger.Posting.Terms`; terms for an entry without a
+supplier open item are refused). The payable items and `GET
+/v1/open-items` show them, with the net due date and each discount's last
+day (`payment_terms`); an item posted without them (before T36, manual,
+migrated) has none and is due by its supplier's current terms.
+
 ## 3.8 Procurement (`procurement`)
 
 ```mermaid

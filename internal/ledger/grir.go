@@ -391,6 +391,9 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err := project(ctx, tx, posted); err != nil {
 		return Entry{}, err
 	}
+	if err := keepTerms(ctx, tx, posted, in.Terms); err != nil {
+		return Entry{}, err
+	}
 	return posted, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: posted.ID,
 		Outcome: "succeeded", Detail: map[string]any{"document_number": posted.DocumentNumber, "fiscal_year": posted.FiscalYear, "lines": len(lines),
 			"source_context": posted.SourceContext}})

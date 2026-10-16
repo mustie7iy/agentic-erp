@@ -92,13 +92,16 @@ type OpenItem struct {
 	ExpTC, ExpLC   int
 	DocumentNumber string
 	Reference      *string
+	Terms          *ItemTerms // the payment terms it was posted with, or nil
 }
 
 // openItemSelect takes the caller's company access as $1 and $2.
 const openItemSelect = `SELECT * FROM (SELECT l.fiscal_year, l.journal_entry_id, l.line_no, md5(l.journal_entry_id::text || '/' || l.line_no)::uuid AS id,
 		l.legal_entity_id, l.account_id, l.partner_id, l.posting_date, l.amount_tc, l.amount_lc, e.currency_tc, e.currency_lc,
-		ctc.exponent AS exp_tc, clc.exponent AS exp_lc, e.document_number, e.reference
+		ctc.exponent AS exp_tc, clc.exponent AS exp_lc, e.document_number, e.reference, ` + termsColumns + `
 	FROM ledger.journal_line l
+	LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
+		AND t.line_no = l.line_no
 	JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind IN ('supplier', 'customer')
 	JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
@@ -108,8 +111,10 @@ const openItemSelect = `SELECT * FROM (SELECT l.fiscal_year, l.journal_entry_id,
 
 func scanOpenItem(row pgx.Row) (OpenItem, error) {
 	var o OpenItem
-	err := errs.Wrapf(row.Scan(&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate, &o.TC, &o.LC,
-		&o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference), "scan open item")
+	var t storedTerms
+	err := errs.Wrapf(row.Scan(append([]any{&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate,
+		&o.TC, &o.LC, &o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference}, t.fields()...)...), "scan open item")
+	o.Terms = t.terms()
 	return o, err
 }
 

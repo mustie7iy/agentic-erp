@@ -54,6 +54,96 @@ type Posting struct {
 	// GRIR moves purchase order items' GR/IR positions (T33): the ledger
 	// books each item's GR/IR line and its counter line next to Lines.
 	GRIR []GRIRItem
+	// Terms are the payment terms of the entry's supplier open items, kept
+	// with them (ledger.open_item_terms, T36b); nil for none.
+	Terms *ItemTerms
+}
+
+// ItemTerms are the payment terms an open item was posted with, as SAP
+// keeps ZTERM, ZFBDT and ZBD1T..ZBD3T in the vendor line: the payment
+// term's code, the baseline date the days count from, the net days and
+// up to two cash discount tiers, earliest first.
+type ItemTerms struct {
+	PaymentTermCode string
+	BaselineDate    time.Time
+	NetDays         int
+	Discounts       []Discount
+}
+
+// Discount is a cash discount tier: Percent (a plain decimal) off for
+// payment within Days of the baseline date.
+type Discount struct {
+	Days    int
+	Percent string
+}
+
+// NetDueDate is when the item is due without discount.
+func (t ItemTerms) NetDueDate() time.Time { return t.BaselineDate.AddDate(0, 0, t.NetDays) }
+
+// Until is the last day a payment earns the discount.
+func (t ItemTerms) Until(d Discount) time.Time { return t.BaselineDate.AddDate(0, 0, d.Days) }
+
+// termsColumns are an open item's terms as storedTerms scans them, from
+// ledger.open_item_terms joined as t.
+const termsColumns = `t.payment_term_code, t.baseline_date, t.net_days, t.discount_days, trim_scale(t.discount_pct)::text, t.discount2_days,
+	trim_scale(t.discount2_pct)::text`
+
+// storedTerms are the terms columns of an item, null when it has none.
+type storedTerms struct {
+	code         *string
+	baseline     *time.Time
+	netDays      *int
+	days1, days2 *int
+	pct1, pct2   *string
+}
+
+func (s *storedTerms) fields() []any {
+	return []any{&s.code, &s.baseline, &s.netDays, &s.days1, &s.pct1, &s.days2, &s.pct2}
+}
+
+// terms are the stored terms, or nil without them.
+func (s storedTerms) terms() *ItemTerms {
+	if s.code == nil {
+		return nil
+	}
+	t := &ItemTerms{PaymentTermCode: *s.code, BaselineDate: *s.baseline, NetDays: *s.netDays}
+	if s.days1 != nil { // a tier's days and percent are null together (open_item_terms_pairs)
+		t.Discounts = append(t.Discounts, Discount{Days: *s.days1, Percent: *s.pct1})
+	}
+	if s.days2 != nil {
+		t.Discounts = append(t.Discounts, Discount{Days: *s.days2, Percent: *s.pct2})
+	}
+	return t
+}
+
+// keepTerms keeps the terms with the entry's supplier open items: each
+// line on a supplier reconciliation account. Terms for an entry without
+// one are refused, rather than kept for nothing.
+func keepTerms(ctx context.Context, tx pgx.Tx, entry Entry, terms *ItemTerms) error {
+	if terms == nil {
+		return nil
+	}
+	if len(terms.Discounts) > 2 {
+		return fmt.Errorf("ledger: terms of entry %s: %d discount tiers, an item holds two", entry.ID, len(terms.Discounts))
+	}
+	var days [2]*int
+	var pct [2]*string
+	for i, d := range terms.Discounts {
+		days[i], pct[i] = &d.Days, &d.Percent
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date,
+			net_days, discount_days, discount_pct, discount2_days, discount2_pct)
+		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, $3, $4, $5, $6, $7::numeric, $8, $9::numeric
+		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
+		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2`,
+		entry.FiscalYear, entry.ID, terms.PaymentTermCode, terms.BaselineDate, terms.NetDays, days[0], pct[0], days[1], pct[1])
+	if err != nil {
+		return fmt.Errorf("ledger: keep the terms of entry %s: %w", entry.ID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("ledger: terms of entry %s, which has no supplier open item", entry.ID)
+	}
+	return nil
 }
 
 // GRIRItem moves one purchase order item's GR/IR position (T33). The
@@ -101,7 +191,11 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
 	}
-	return p.endpoints().postJournalEntry(ctx, entry)
+	posted, err := p.endpoints().postJournalEntry(ctx, entry)
+	if err != nil {
+		return Entry{}, err
+	}
+	return posted, keepTerms(ctx, tx, posted, in.Terms)
 }
 
 // Reverse posts the reversal of an entry, on the given date or the

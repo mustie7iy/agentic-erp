@@ -31,6 +31,9 @@ type PayableItem struct {
 	PartnerID    uuid.UUID
 	DocumentDate time.Time
 	Amount       money.Minor
+	// Terms are the payment terms the item was posted with (T36b), or nil
+	// for an item posted without (before T36, manual or migrated).
+	Terms *ItemTerms
 }
 
 // Payable returns the legal entity's open supplier items in the currency
@@ -47,8 +50,11 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.amount_tc
+	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.amount_tc,
+			`+termsColumns+`
 		FROM ledger.journal_line l
+		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
+			AND t.line_no = l.line_no
 		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
@@ -61,7 +67,10 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, currency, documentDateTo)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem
-		err := errs.Wrapf(r.Scan(&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount), "scan payable item")
+		var t storedTerms
+		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount},
+			t.fields()...)...), "scan payable item")
+		p.Terms = t.terms()
 		return p, err
 	})
 	if err != nil {
