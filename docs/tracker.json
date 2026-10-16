@@ -1416,9 +1416,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "GR 101/102 post Dr item account / Cr GR/IR at the order price",
-        "r": "T33c",
+        "s": "D",
+        "t": "GR 101/102 post Dr item account / Cr GR/IR at the order price; order valuation (direct | gr_ir) fixed at release",
+        "r": "procurement.releaseOrder/ReleaseLoadedOrder · procurement.postMovement · ledger.Postings · T33c",
         "c": []
        }
       ]
@@ -1497,9 +1497,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Invoice clears GR/IR at the order price; price difference and FX on their own lines",
-      "r": "T33d",
+      "r": "payables.invoiceLines/grirItem · T33d",
       "c": []
      }
     ]
