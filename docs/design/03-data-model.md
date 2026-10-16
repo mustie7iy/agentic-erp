@@ -728,7 +728,7 @@ erDiagram
     int price_unit
     numeric over_delivery_pct }
   goods_movement { uuid id PK
-    text movement_type "101 | 102"
+    text movement_type "101 | 102 | 122 | 123"
     date posting_date
     uuid reversal_of_id
     uuid journal_entry_id "gr_ir orders"
@@ -766,6 +766,20 @@ leaves none; the items of `gr_ir` orders in one movement share its one
 entry and so its currency (422 `procurement.mixed_currencies`). A 102
 posts its own WE entry the other way; the ledger's `:reverse` refuses a
 WE entry.
+
+A 122 returns goods received on a released or closed order to the
+supplier, with its `reason` (required on a 122 and only there,
+`goods_movement_return_reason`), and a 123 reverses a 122 as a 102
+reverses a 101 (migration 000064, T47b): each reverses only its own kind
+(trigger `goods_movement_reversal_type`), and each moves its quantity its
+own way, 101 and 123 in, 102 and 122 out (`goods_movement_item_sign`).
+`check_receipt` keeps the received quantity, the net of every movement,
+between zero and the tolerance, so a return never exceeds what was
+received (409 `procurement.return_exceeds_receipts`) and a 123 never
+takes it beyond the tolerance. On a `gr_ir` order a return posts Dr GR/IR
+/ Cr the order item's account at its valuation price: an item already
+invoiced is left with a debit GR/IR position, which the supplier's credit
+memo clears (T34).
 
 Each item of a released order carries its `valuation_price` and
 `valuation_price_unit` (migration 000061, T47a): its price when it was

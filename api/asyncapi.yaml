@@ -217,6 +217,7 @@ channels:
       PurchaseOrderReleased: {$ref: '#/components/messages/PurchaseOrderReleased'}
       GoodsReceived: {$ref: '#/components/messages/GoodsReceived'}
       GoodsReceiptReversed: {$ref: '#/components/messages/GoodsReceiptReversed'}
+      GoodsReturned: {$ref: '#/components/messages/GoodsReturned'}
       RequisitionCancelled: {$ref: '#/components/messages/RequisitionCancelled'}
       PurchaseOrderCancelled: {$ref: '#/components/messages/PurchaseOrderCancelled'}
       ContractActivated: {$ref: '#/components/messages/ContractActivated'}
@@ -382,6 +383,7 @@ operations:
       - $ref: '#/channels/procurement/messages/PurchaseOrderReleased'
       - $ref: '#/channels/procurement/messages/GoodsReceived'
       - $ref: '#/channels/procurement/messages/GoodsReceiptReversed'
+      - $ref: '#/channels/procurement/messages/GoodsReturned'
       - $ref: '#/channels/procurement/messages/RequisitionCancelled'
       - $ref: '#/channels/procurement/messages/PurchaseOrderCancelled'
       - $ref: '#/channels/procurement/messages/ContractActivated'
@@ -913,10 +915,26 @@ components:
         - name: gr
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000012, source: /erp/eu-1/procurement, type: com.example.erp.procurement.goods_received.v1, subject: 0192a000-0000-7000-8000-000000000603, time: '2026-10-04T13:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {goods_receipt_id: 0192a000-0000-7000-8000-000000000603, document_number: '5000000877', legal_entity_id: 0192a000-0000-7000-8000-000000000201, plant_id: 0192a000-0000-7000-8000-000000000606, movement_type: '101', document_date: '2026-10-04', posting_date: '2026-10-04', reference: DN-88812, items: [{item_no: 1, purchase_order_id: 0192a000-0000-7000-8000-000000000602, po_item_no: 1, quantity: {value: '2', unit: EA}}]}
+    GoodsReturned:
+      name: GoodsReturned
+      title: Goods returned to the supplier
+      summary: Goods received on purchase order items were returned to the supplier (movement type 122).
+      description: Emitted when a goods movement of type `122` is inserted. Its items' quantities are negative, and the received quantity of each order item falls by them; on orders valued gr_ir the return posts Dr GR/IR / Cr the order item's account at its valuation price, leaving an invoiced item's GR/IR position for a credit memo to clear. Subject is the goods movement id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.goods_returned.v1}
+      payload: {$ref: '#/components/schemas/GoodsReturnedV1'}
+      examples:
+        - name: damaged
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000013, source: /erp/eu-1/procurement, type: com.example.erp.procurement.goods_returned.v1, subject: 0192a000-0000-7000-8000-000000000604, time: '2026-10-06T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {goods_receipt_id: 0192a000-0000-7000-8000-000000000604, document_number: '5000000878', legal_entity_id: 0192a000-0000-7000-8000-000000000201, plant_id: null, movement_type: '122', document_date: '2026-10-06', posting_date: '2026-10-06', reference: null, reason: Damaged in transit, journal_entry_id: null, journal_entry_year: null, items: [{item_no: 1, purchase_order_id: 0192a000-0000-7000-8000-000000000602, po_item_no: 1, quantity: {value: '-1', unit: EA}}]}
     GoodsReceiptReversed:
       name: GoodsReceiptReversed
       title: Goods receipt reversed
-      summary: A goods receipt was reversed by a movement of type 102.
+      summary: A goods receipt was reversed by a movement of type 102, or a return by a 123.
       description: Emitted by `goods-receipts/{id}:reverse` when the reversing movement (type `102`) is inserted. Quantities are the reversed quantities as stored, i.e. negative. Subject is the id of the original (reversed) goods receipt.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
@@ -2465,6 +2483,22 @@ components:
         journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the receipt posted (items of orders valued gr_ir), else null.'}
         journal_entry_year: {type: [integer, 'null'], description: 'Fiscal year of journal_entry_id.'}
         items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/GoodsMovementItem'}}
+    GoodsReturnedV1:
+      type: object
+      required: [goods_receipt_id, document_number, legal_entity_id, movement_type, document_date, posting_date, reason, items]
+      properties:
+        goods_receipt_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.goods_movement.id` of the return.'}
+        document_number: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        plant_id: {$ref: '#/components/schemas/NullableUuid'}
+        movement_type: {type: string, description: '122 (return to the supplier).'}
+        document_date: {$ref: '#/components/schemas/Date'}
+        posting_date: {$ref: '#/components/schemas/Date'}
+        reference: {type: [string, 'null'], description: Return delivery note.}
+        reason: {type: string, description: Why the goods went back.}
+        journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the return posted (items of orders valued gr_ir), else null.'}
+        journal_entry_year: {type: [integer, 'null'], description: 'Fiscal year of journal_entry_id.'}
+        items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/GoodsMovementItem'}}
     GoodsReceiptReversedV1:
       type: object
       required: [goods_receipt_id, reversal_id, document_number, legal_entity_id, movement_type, posting_date, items]
@@ -2473,7 +2507,7 @@ components:
         reversal_id: {$ref: '#/components/schemas/Uuid', description: The reversing goods movement.}
         document_number: {type: string, description: Document number of the reversing movement.}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
-        movement_type: {type: string, description: '102 (reversal of 101).'}
+        movement_type: {type: string, description: '102 (reversal of a 101) or 123 (reversal of a 122).'}
         posting_date: {$ref: '#/components/schemas/Date'}
         journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the reversal posted (items of orders valued gr_ir), else null.'}
         journal_entry_year: {type: [integer, 'null'], description: 'Fiscal year of journal_entry_id.'}

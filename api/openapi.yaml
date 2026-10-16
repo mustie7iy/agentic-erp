@@ -5915,7 +5915,7 @@ paths:
       tags:
         - procurement
       summary: Post a goods receipt
-      description: "Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals."
+      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals."
       x-permission: procurement.receipt.post
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -6004,7 +6004,7 @@ paths:
       tags:
         - procurement
       summary: Reverse a goods receipt
-      description: Posts a 102 movement that reverses the receipt. Refused (409) if it would make the received quantity negative. Returns the reversal.
+      description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. Returns the reversal."
       x-permission: procurement.receipt.post
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -15499,10 +15499,12 @@ components:
               readOnly: true
             movement_type:
               type: string
-              description: "Movement type: 101 receipt, 102 reversal of a receipt (SAP codes). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Movement type (SAP codes): 101 receipt, 102 reversal of a receipt, 122 return to the supplier, 123 reversal of a return. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - "101"
                 - "102"
+                - "122"
+                - "123"
               readOnly: true
             document_date:
               type: string
@@ -15521,12 +15523,16 @@ components:
             reversal_of_id:
               type: string
               format: uuid
-              description: Receipt this one reverses (102 only).
+              description: Movement this one reverses (102 a 101, 123 a 122).
+              readOnly: true
+            reason:
+              type: string
+              description: Why goods are returned to the supplier (122 only).
               readOnly: true
             journal_entry_id:
               type: string
               format: uuid
-              description: "Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a receipt, the other way for a reversal. Only for items of orders valued `gr_ir`; absent when it has none."
+              description: "Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a receipt (101) or a return's reversal (123), the other way for a receipt's reversal (102) or a return (122). Only for items of orders valued `gr_ir`; absent when it has none."
               readOnly: true
             journal_entry_year:
               type: integer
@@ -15586,7 +15592,7 @@ components:
             unit: KG
     GoodsReceiptCreate:
       type: object
-      description: Post a goods receipt (movement type 101).
+      description: "Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive either way: a return's are stored negative."
       required:
         - legal_entity_id
         - document_date
@@ -15613,6 +15619,18 @@ components:
           type: string
           description: Delivery note or other reference.
           maxLength: 40
+        movement_type:
+          type: string
+          description: "101 (default) receives goods; 122 returns received goods to the supplier. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - "101"
+            - "122"
+          default: "101"
+        reason:
+          type: string
+          description: "Why the goods go back; required for a return (122), refused otherwise."
+          minLength: 1
+          maxLength: 200
         items:
           type: array
           items:

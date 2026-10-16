@@ -10501,8 +10501,9 @@ type GoodsReceipt struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// Plant (org unit).
 	PlantID OptUUID `json:"plant_id"`
-	// Movement type: 101 receipt, 102 reversal of a receipt (SAP codes). Open enumeration: clients must
-	// accept and preserve values not listed here; values may be added within /v1.
+	// Movement type (SAP codes): 101 receipt, 102 reversal of a receipt, 122 return to the supplier, 123
+	// reversal of a return. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
 	MovementType string `json:"movement_type"`
 	// Document date.
 	DocumentDate time.Time `json:"document_date"`
@@ -10510,11 +10511,13 @@ type GoodsReceipt struct {
 	PostingDate time.Time `json:"posting_date"`
 	// Delivery note or other reference.
 	Reference OptString `json:"reference"`
-	// Receipt this one reverses (102 only).
+	// Movement this one reverses (102 a 101, 123 a 122).
 	ReversalOfID OptUUID `json:"reversal_of_id"`
+	// Why goods are returned to the supplier (122 only).
+	Reason OptString `json:"reason"`
 	// Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a
-	// receipt, the other way for a reversal. Only for items of orders valued `gr_ir`; absent when it has
-	// none.
+	// receipt (101) or a return's reversal (123), the other way for a receipt's reversal (102) or a return
+	// (122). Only for items of orders valued `gr_ir`; absent when it has none.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// Fiscal year of the journal entry, set with `journal_entry_id`.
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
@@ -10575,6 +10578,11 @@ func (s *GoodsReceipt) GetReference() OptString {
 // GetReversalOfID returns the value of ReversalOfID.
 func (s *GoodsReceipt) GetReversalOfID() OptUUID {
 	return s.ReversalOfID
+}
+
+// GetReason returns the value of Reason.
+func (s *GoodsReceipt) GetReason() OptString {
+	return s.Reason
 }
 
 // GetJournalEntryID returns the value of JournalEntryID.
@@ -10647,6 +10655,11 @@ func (s *GoodsReceipt) SetReversalOfID(val OptUUID) {
 	s.ReversalOfID = val
 }
 
+// SetReason sets the value of Reason.
+func (s *GoodsReceipt) SetReason(val OptString) {
+	s.Reason = val
+}
+
 // SetJournalEntryID sets the value of JournalEntryID.
 func (s *GoodsReceipt) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
@@ -10662,7 +10675,8 @@ func (s *GoodsReceipt) SetItems(val []GoodsReceiptItem) {
 	s.Items = val
 }
 
-// Post a goods receipt (movement type 101).
+// Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive
+// either way: a return's are stored negative.
 // Ref: #/components/schemas/GoodsReceiptCreate
 type GoodsReceiptCreate struct {
 	// Legal entity.
@@ -10675,6 +10689,11 @@ type GoodsReceiptCreate struct {
 	PostingDate time.Time `json:"posting_date"`
 	// Delivery note or other reference.
 	Reference OptString `json:"reference"`
+	// 101 (default) receives goods; 122 returns received goods to the supplier. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	MovementType OptString `json:"movement_type"`
+	// Why the goods go back; required for a return (122), refused otherwise.
+	Reason OptString `json:"reason"`
 	// Items.
 	Items []GoodsReceiptItemInput `json:"items"`
 }
@@ -10702,6 +10721,16 @@ func (s *GoodsReceiptCreate) GetPostingDate() time.Time {
 // GetReference returns the value of Reference.
 func (s *GoodsReceiptCreate) GetReference() OptString {
 	return s.Reference
+}
+
+// GetMovementType returns the value of MovementType.
+func (s *GoodsReceiptCreate) GetMovementType() OptString {
+	return s.MovementType
+}
+
+// GetReason returns the value of Reason.
+func (s *GoodsReceiptCreate) GetReason() OptString {
+	return s.Reason
 }
 
 // GetItems returns the value of Items.
@@ -10732,6 +10761,16 @@ func (s *GoodsReceiptCreate) SetPostingDate(val time.Time) {
 // SetReference sets the value of Reference.
 func (s *GoodsReceiptCreate) SetReference(val OptString) {
 	s.Reference = val
+}
+
+// SetMovementType sets the value of MovementType.
+func (s *GoodsReceiptCreate) SetMovementType(val OptString) {
+	s.MovementType = val
+}
+
+// SetReason sets the value of Reason.
+func (s *GoodsReceiptCreate) SetReason(val OptString) {
+	s.Reason = val
 }
 
 // SetItems sets the value of Items.

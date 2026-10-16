@@ -885,7 +885,11 @@ type Handler interface {
 	ParkJournalEntry(ctx context.Context, req *JournalEntryCreate, params ParkJournalEntryParams) (ParkJournalEntryRes, error)
 	// PostGoodsReceipt implements postGoodsReceipt operation.
 	//
-	// Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals.
+	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
+	// with `reason`) of goods received on released or closed orders: never more than was received (409
+	// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
+	// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
+	// are reversals.
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, req *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -1036,8 +1040,9 @@ type Handler interface {
 	RequestBankAccountEnd(ctx context.Context, req *BankAccountEnd, params RequestBankAccountEndParams) (RequestBankAccountEndRes, error)
 	// ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 	//
-	// Posts a 102 movement that reverses the receipt. Refused (409) if it would make the received quantity
-	// negative. Returns the reversal.
+	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
+	// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. Returns
+	// the reversal.
 	//
 	// POST /v1/goods-receipts/{id}:reverse
 	ReverseGoodsReceipt(ctx context.Context, req OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)

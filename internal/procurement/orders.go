@@ -26,7 +26,7 @@ type OrderItem struct {
 	PriceUnit int32       `json:"price_unit"`
 	AccountID uuid.UUID   `json:"account_id"`
 	TaxCode   *string     `json:"tax_code"`
-	Received  string      `json:"received"` // 101 receipts minus 102 reversals
+	Received  string      `json:"received"` // net of every goods movement: 101 and 123 in, 102 and 122 out
 	// ValuationPrice per ValuationPriceUnit is what the item's GR/IR
 	// position is valued at, fixed at its release (T47a); UnitPrice is the
 	// price an invoice is matched against.

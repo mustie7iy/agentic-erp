@@ -1,6 +1,7 @@
 package procurement
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/big"
@@ -26,9 +27,14 @@ func init() {
 
 // Movement types (SAP codes).
 const (
-	Receipt  = "101"
-	Reversal = "102"
+	Receipt        = "101"
+	Reversal       = "102" // of a receipt
+	Return         = "122" // to the supplier (T47b)
+	ReturnReversal = "123" // of a return
 )
+
+// reversals is the movement type that reverses each reversible one.
+var reversals = map[string]string{Receipt: Reversal, Return: ReturnReversal}
 
 // ReceiptItem is one item of a goods movement; reversals have negative
 // quantities.
@@ -52,6 +58,7 @@ type GoodsReceipt struct {
 	Reference      *string
 	ReversalOfID   *uuid.UUID
 	ReversedByID   *uuid.UUID
+	Reason         *string // why goods go back (122)
 	// The WE entry the movement posted for its items of orders valued
 	// through GR/IR (T33), or nil when it has none.
 	JournalEntryYear *int16
@@ -63,7 +70,7 @@ type GoodsReceipt struct {
 
 const receiptSelect = `SELECT m.id, m.document_number, m.legal_entity_id, m.plant_id, m.movement_type, m.document_date, m.posting_date, m.reference,
 		m.reversal_of_id, (SELECT r.id FROM procurement.goods_movement r WHERE r.tenant_id = m.tenant_id AND r.reversal_of_id = m.id LIMIT 1) AS reversed_by,
-		m.posted_at, m.posted_by, m.journal_entry_year, m.journal_entry_id,
+		m.posted_at, m.posted_by, m.journal_entry_year, m.journal_entry_id, m.reason,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'purchase_order_id', i.purchase_order_id, 'po_item_no', i.po_item_no,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code) ORDER BY i.item_no)
 		 FROM procurement.goods_movement_item i WHERE i.tenant_id = m.tenant_id AND i.goods_movement_id = m.id)
@@ -72,7 +79,7 @@ const receiptSelect = `SELECT m.id, m.document_number, m.legal_entity_id, m.plan
 func scanReceipt(row pgx.Row) (GoodsReceipt, error) {
 	var g GoodsReceipt
 	if err := row.Scan(&g.ID, &g.DocumentNumber, &g.LegalEntityID, &g.PlantID, &g.MovementType, &g.DocumentDate, &g.PostingDate, &g.Reference,
-		&g.ReversalOfID, &g.ReversedByID, &g.PostedAt, &g.PostedBy, &g.JournalEntryYear, &g.JournalEntryID, &g.Items); err != nil {
+		&g.ReversalOfID, &g.ReversedByID, &g.PostedAt, &g.PostedBy, &g.JournalEntryYear, &g.JournalEntryID, &g.Reason, &g.Items); err != nil {
 		return GoodsReceipt{}, fmt.Errorf("scan goods receipt: %w", err)
 	}
 	return g, nil
@@ -161,9 +168,9 @@ func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 		return GoodsReceipt{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, plant_id, movement_type,
-			document_date, posting_date, reference, reversal_of_id, posted_by, journal_entry_year, journal_entry_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, p.TenantID, id, number, g.LegalEntityID, g.PlantID, g.MovementType,
-		g.DocumentDate, g.PostingDate, g.Reference, g.ReversalOfID, p.ID, year, entry); err != nil {
+			document_date, posting_date, reference, reversal_of_id, posted_by, journal_entry_year, journal_entry_id, reason)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`, p.TenantID, id, number, g.LegalEntityID, g.PlantID, g.MovementType,
+		g.DocumentDate, g.PostingDate, g.Reference, g.ReversalOfID, p.ID, year, entry, g.Reason); err != nil {
 		return GoodsReceipt{}, fmt.Errorf("procurement: insert goods movement %s: %w", number, err)
 	}
 	n := len(g.Items)
@@ -192,16 +199,24 @@ func movementItems(g GoodsReceipt) []map[string]any {
 type ReceiptInput struct {
 	LegalEntityID             uuid.UUID
 	PlantID                   *uuid.UUID
+	MovementType              string // Receipt (the default) or Return
 	DocumentDate, PostingDate time.Time
 	Reference                 *string
-	Items                     []ReceiptItem // quantities with the PO items' units
+	Reason                    *string       // why goods go back, for a Return
+	Items                     []ReceiptItem // positive quantities with the PO items' units
 }
 
 // postReceipt posts a goods receipt (101) against released purchase order
-// items of the legal entity. The received quantity of an item may exceed
-// the ordered quantity by its over-delivery tolerance, no more.
+// items of the legal entity, or a return to the supplier (122, T47b) of
+// goods received on released or closed ones. The received quantity of an
+// item stays between zero and the ordered quantity plus its over-delivery
+// tolerance.
 func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsReceipt, error) {
 	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return GoodsReceipt{}, err
+	}
+	mt, err := movementType(in)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
@@ -221,43 +236,104 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	added := map[[2]any]*big.Rat{}
-	for i, it := range in.Items {
-		field := fmt.Sprintf("items[%d]", i)
-		oi := current[i]
-		switch {
-		case !oi.found || oi.legalEntity != le.ID:
-			return GoodsReceipt{}, invalid("procurement.unknown_order_item", field, "an item of a purchase order of the legal entity")
-		case oi.status != Released:
-			return GoodsReceipt{}, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are received only on released orders.")
-		case it.Unit != oi.unit:
-			return GoodsReceipt{}, invalid("procurement.unit_mismatch", field+".quantity.unit", "the purchase order item's unit "+oi.unit)
-		}
-		key := [2]any{it.PurchaseOrderID, it.POItemNo}
-		if added[key] == nil {
-			added[key] = money.ParseRat(oi.received)
-		}
-		added[key].Add(added[key], money.ParseRat(it.Quantity))
-		limit := new(big.Rat).Mul(money.ParseRat(oi.ordered), new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).Quo(money.ParseRat(oi.tolerance), big.NewRat(100, 1))))
-		if added[key].Cmp(limit) > 0 {
-			return GoodsReceipt{}, problem.Conflict("procurement.over_delivery", fmt.Sprintf("Item %d of order %s would receive %s of %s ordered (tolerance %s%%).",
-				it.POItemNo, oi.documentNumber, added[key].FloatString(6), oi.ordered, oi.tolerance))
-		}
-	}
-	g, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: le.ID, PlantID: in.PlantID, MovementType: Receipt, DocumentDate: in.DocumentDate,
-		PostingDate: in.PostingDate, Reference: in.Reference, Items: in.Items}, current)
+	items, err := movedItems(in.Items, mt, le.ID, current)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	return g, audit.Record(ctx, "procurement.goods_receipt.post", "procurement.goods_movement", g.ID, map[string]any{"document_number": g.DocumentNumber,
-		"items": len(g.Items)}, event("goods_received", "goods_movement", g.ID, map[string]any{"goods_receipt_id": g.ID,
-		"document_number": g.DocumentNumber, "legal_entity_id": g.LegalEntityID, "plant_id": g.PlantID, "movement_type": Receipt,
-		"document_date": g.DocumentDate.Format(time.DateOnly), "posting_date": g.PostingDate.Format(time.DateOnly), "reference": g.Reference,
-		"journal_entry_id": g.JournalEntryID, "journal_entry_year": g.JournalEntryYear, "items": movementItems(g)}))
+	g, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: le.ID, PlantID: in.PlantID, MovementType: mt, DocumentDate: in.DocumentDate,
+		PostingDate: in.PostingDate, Reference: in.Reference, Reason: in.Reason, Items: items}, current)
+	if err != nil {
+		return GoodsReceipt{}, err
+	}
+	return g, recordMovement(ctx, g)
 }
 
-// reverseReceipt posts a 102 that reverses a receipt, on the given date or
-// today. A receipt is reversed once, and never below the quantity received.
+// movementType is the type of the movement asked for: a receipt, or a
+// return with its reason.
+func movementType(in ReceiptInput) (string, error) {
+	switch mt := cmp.Or(in.MovementType, Receipt); {
+	case mt != Receipt && mt != Return:
+		return "", invalid("procurement.invalid_movement_type", "movement_type", "101 to receive goods or 122 to return them")
+	case mt == Return && in.Reason == nil:
+		return "", invalid("procurement.reason_required", "reason", "why the goods go back to the supplier")
+	case mt == Receipt && in.Reason != nil:
+		return "", invalid("procurement.reason_not_allowed", "reason", "a reason only on a return (122)")
+	default:
+		return mt, nil
+	}
+}
+
+// movedItems checks a receipt's or return's items against the order
+// items they move and returns them as stored: a return's quantities
+// negated, as it sends goods out.
+func movedItems(in []ReceiptItem, mt string, le uuid.UUID, current []orderItem) ([]ReceiptItem, error) {
+	moved := map[[2]any]*big.Rat{}
+	out := make([]ReceiptItem, len(in))
+	for i, it := range in {
+		field := fmt.Sprintf("items[%d]", i)
+		oi := current[i]
+		switch {
+		case !oi.found || oi.legalEntity != le:
+			return nil, invalid("procurement.unknown_order_item", field, "an item of a purchase order of the legal entity")
+		case mt == Receipt && oi.status != Released:
+			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are received only on released orders.")
+		case mt == Return && oi.status != Released && oi.status != Closed:
+			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are returned only on released or closed orders.")
+		case it.Unit != oi.unit:
+			return nil, invalid("procurement.unit_mismatch", field+".quantity.unit", "the purchase order item's unit "+oi.unit)
+		}
+		if mt == Return {
+			it.Quantity = negated(it.Quantity)
+		}
+		key := [2]any{it.PurchaseOrderID, it.POItemNo}
+		if moved[key] == nil {
+			moved[key] = money.ParseRat(oi.received)
+		}
+		moved[key].Add(moved[key], money.ParseRat(it.Quantity))
+		if err := receivedWithin(oi, it.POItemNo, moved[key], mt); err != nil {
+			return nil, err
+		}
+		out[i] = it
+	}
+	return out, nil
+}
+
+// receivedWithin refuses a movement of type mt that would leave an order
+// item's received quantity below zero or above the ordered quantity plus
+// its over-delivery tolerance (as check_receipt does in the database).
+func receivedWithin(oi orderItem, poItem int32, received *big.Rat, mt string) error {
+	if received.Sign() < 0 {
+		code, what := "procurement.reversal_exceeds_receipts", "Reversing"
+		if mt == Return {
+			code, what = "procurement.return_exceeds_receipts", "Returning"
+		}
+		return problem.Conflict(code, fmt.Sprintf("%s would make the received quantity of item %d of order %s negative.", what, poItem, oi.documentNumber))
+	}
+	limit := new(big.Rat).Mul(money.ParseRat(oi.ordered), new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).Quo(money.ParseRat(oi.tolerance), big.NewRat(100, 1))))
+	if received.Cmp(limit) > 0 {
+		return problem.Conflict("procurement.over_delivery", fmt.Sprintf("Item %d of order %s would receive %s of %s ordered (tolerance %s%%).",
+			poItem, oi.documentNumber, received.FloatString(6), oi.ordered, oi.tolerance))
+	}
+	return nil
+}
+
+// recordMovement audits a receipt or return and publishes GoodsReceived or
+// GoodsReturned.
+func recordMovement(ctx context.Context, g GoodsReceipt) error {
+	action, name := "procurement.goods_receipt.post", "goods_received"
+	payload := map[string]any{"goods_receipt_id": g.ID, "document_number": g.DocumentNumber, "legal_entity_id": g.LegalEntityID, "plant_id": g.PlantID,
+		"movement_type": g.MovementType, "document_date": g.DocumentDate.Format(time.DateOnly), "posting_date": g.PostingDate.Format(time.DateOnly),
+		"reference": g.Reference, "journal_entry_id": g.JournalEntryID, "journal_entry_year": g.JournalEntryYear, "items": movementItems(g)}
+	if g.MovementType == Return {
+		action, name, payload["reason"] = "procurement.goods_return.post", "goods_returned", *g.Reason
+	}
+	return audit.Record(ctx, action, "procurement.goods_movement", g.ID, map[string]any{"document_number": g.DocumentNumber, "items": len(g.Items)},
+		event(name, "goods_movement", g.ID, payload))
+}
+
+// reverseReceipt posts the movement that reverses a receipt (102) or a
+// return (123), on the given date or today. A movement is reversed once,
+// and never so that the received quantity leaves its bounds.
 func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch func(GoodsReceipt) error, postingDate *time.Time) (GoodsReceipt, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -275,11 +351,12 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := ifMatch(orig); err != nil {
 		return GoodsReceipt{}, err
 	}
+	reversal, reversible := reversals[orig.MovementType]
 	switch {
-	case orig.MovementType != Receipt:
+	case !reversible:
 		return GoodsReceipt{}, problem.Conflict("procurement.cannot_reverse_reversal", "The movement is itself a reversal.")
 	case orig.ReversedByID != nil:
-		return GoodsReceipt{}, problem.Conflict("procurement.already_reversed", "The goods receipt has already been reversed.")
+		return GoodsReceipt{}, problem.Conflict("procurement.already_reversed", "The goods movement has already been reversed.")
 	}
 	current, err := lockItems(ctx, tx, orig.Items)
 	if err != nil {
@@ -293,9 +370,8 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 			left[key] = money.ParseRat(current[i].received)
 		}
 		left[key].Sub(left[key], money.ParseRat(it.Quantity))
-		if left[key].Sign() < 0 {
-			return GoodsReceipt{}, problem.Conflict("procurement.reversal_exceeds_receipts",
-				fmt.Sprintf("Reversing would make the received quantity of item %d of order %s negative.", it.POItemNo, current[i].documentNumber))
+		if err := receivedWithin(current[i], it.POItemNo, left[key], reversal); err != nil {
+			return GoodsReceipt{}, err
 		}
 		it.Quantity = new(big.Rat).Neg(money.ParseRat(it.Quantity)).FloatString(6)
 		items[i] = it
@@ -307,14 +383,14 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	if postingDate != nil {
 		date = *postingDate
 	}
-	rev, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: orig.LegalEntityID, PlantID: orig.PlantID, MovementType: Reversal,
+	rev, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: orig.LegalEntityID, PlantID: orig.PlantID, MovementType: reversal,
 		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items}, current)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
 	return rev, audit.Record(ctx, "procurement.goods_receipt.reverse", "procurement.goods_movement", orig.ID, map[string]any{"reversal_id": rev.ID},
 		event("goods_receipt_reversed", "goods_movement", orig.ID, map[string]any{"goods_receipt_id": orig.ID, "reversal_id": rev.ID,
-			"document_number": rev.DocumentNumber, "legal_entity_id": rev.LegalEntityID, "movement_type": Reversal,
+			"document_number": rev.DocumentNumber, "legal_entity_id": rev.LegalEntityID, "movement_type": reversal,
 			"posting_date": rev.PostingDate.Format(time.DateOnly), "journal_entry_id": rev.JournalEntryID, "journal_entry_year": rev.JournalEntryYear,
 			"items": movementItems(rev)}))
 }

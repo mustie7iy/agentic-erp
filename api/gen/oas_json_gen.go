@@ -13168,6 +13168,12 @@ func (s *GoodsReceipt) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Reason.Set {
+			e.FieldStart("reason")
+			s.Reason.Encode(e)
+		}
+	}
+	{
 		if s.JournalEntryID.Set {
 			e.FieldStart("journal_entry_id")
 			s.JournalEntryID.Encode(e)
@@ -13189,7 +13195,7 @@ func (s *GoodsReceipt) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfGoodsReceipt = [14]string{
+var jsonFieldsNameOfGoodsReceipt = [15]string{
 	0:  "id",
 	1:  "created_at",
 	2:  "created_by",
@@ -13201,9 +13207,10 @@ var jsonFieldsNameOfGoodsReceipt = [14]string{
 	8:  "posting_date",
 	9:  "reference",
 	10: "reversal_of_id",
-	11: "journal_entry_id",
-	12: "journal_entry_year",
-	13: "items",
+	11: "reason",
+	12: "journal_entry_id",
+	13: "journal_entry_year",
+	14: "items",
 }
 
 // Decode decodes GoodsReceipt from json.
@@ -13341,6 +13348,16 @@ func (s *GoodsReceipt) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reversal_of_id\"")
 			}
+		case "reason":
+			if err := func() error {
+				s.Reason.Reset()
+				if err := s.Reason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
 		case "journal_entry_id":
 			if err := func() error {
 				s.JournalEntryID.Reset()
@@ -13362,7 +13379,7 @@ func (s *GoodsReceipt) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_year\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				s.Items = make([]GoodsReceiptItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -13390,7 +13407,7 @@ func (s *GoodsReceipt) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11011111,
-		0b00100001,
+		0b01000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -13470,6 +13487,18 @@ func (s *GoodsReceiptCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.MovementType.Set {
+			e.FieldStart("movement_type")
+			s.MovementType.Encode(e)
+		}
+	}
+	{
+		if s.Reason.Set {
+			e.FieldStart("reason")
+			s.Reason.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -13479,13 +13508,15 @@ func (s *GoodsReceiptCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfGoodsReceiptCreate = [6]string{
+var jsonFieldsNameOfGoodsReceiptCreate = [8]string{
 	0: "legal_entity_id",
 	1: "plant_id",
 	2: "document_date",
 	3: "posting_date",
 	4: "reference",
-	5: "items",
+	5: "movement_type",
+	6: "reason",
+	7: "items",
 }
 
 // Decode decodes GoodsReceiptCreate from json.
@@ -13494,6 +13525,7 @@ func (s *GoodsReceiptCreate) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode GoodsReceiptCreate to nil")
 	}
 	var requiredBitSet [1]uint8
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -13553,8 +13585,28 @@ func (s *GoodsReceiptCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reference\"")
 			}
+		case "movement_type":
+			if err := func() error {
+				s.MovementType.Reset()
+				if err := s.MovementType.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"movement_type\"")
+			}
+		case "reason":
+			if err := func() error {
+				s.Reason.Reset()
+				if err := s.Reason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
 		case "items":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				s.Items = make([]GoodsReceiptItemInput, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -13581,7 +13633,7 @@ func (s *GoodsReceiptCreate) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00101101,
+		0b10001101,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

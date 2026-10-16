@@ -16,9 +16,10 @@ const WEDocumentType = "WE"
 
 // postMovement posts a goods movement's WE entry (T33): for each item of
 // an order valued through GR/IR, Dr the order item's account / Cr GR/IR at
-// the order price, which the ledger books as the item's GR/IR position
-// moves (ledger.GRIRItem). The GR/IR line's quantity is the movement's
-// negated: a receipt credits GR/IR, its reversal debits it. A movement
+// the item's valuation price, which the ledger books as the item's GR/IR
+// position moves (ledger.GRIRItem). The GR/IR line's quantity is the
+// movement's negated: a receipt (101) and a return's reversal (123) credit
+// GR/IR, a receipt's reversal (102) and a return (122) debit it. A movement
 // without such items posts nothing (nil year and entry); one whose items
 // are of orders in several currencies cannot share one entry.
 func (e *Endpoints) postMovement(ctx context.Context, id uuid.UUID, number string, g GoodsReceipt, current []orderItem) (*int16, *uuid.UUID, error) {
@@ -40,10 +41,7 @@ func (e *Endpoints) postMovement(ctx context.Context, id uuid.UUID, number strin
 	if len(items) == 0 {
 		return nil, nil, nil
 	}
-	text := "Goods receipt " + number
-	if g.MovementType == Reversal {
-		text = "Reversal of a goods receipt, " + number
-	}
+	text := movementTexts[g.MovementType] + number
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: g.LegalEntityID, DocumentType: WEDocumentType, DocumentDate: g.DocumentDate,
 		PostingDate: g.PostingDate, Currency: currency, Reference: &number, HeaderText: &text, SourceContext: "procurement", SourceDocumentID: id,
 		GRIR: items})
@@ -52,6 +50,10 @@ func (e *Endpoints) postMovement(ctx context.Context, id uuid.UUID, number strin
 	}
 	return &entry.FiscalYear, &entry.ID, nil
 }
+
+// movementTexts start the header text of each movement type's WE entry.
+var movementTexts = map[string]string{Receipt: "Goods receipt ", Reversal: "Reversal of a goods receipt, ", Return: "Return to the supplier ",
+	ReturnReversal: "Reversal of a return to the supplier, "}
 
 // negated flips the sign of a plain decimal quantity.
 func negated(q string) string {

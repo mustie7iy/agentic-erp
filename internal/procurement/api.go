@@ -125,7 +125,8 @@ func receiptToAPI(g GoodsReceipt) gen.GoodsReceipt {
 	out := gen.GoodsReceipt{ID: g.ID, CreatedAt: g.PostedAt, CreatedBy: g.PostedBy, DocumentNumber: g.DocumentNumber, LegalEntityID: g.LegalEntityID,
 		PlantID: apitypes.OptUUID(g.PlantID), MovementType: g.MovementType, DocumentDate: g.DocumentDate, PostingDate: g.PostingDate,
 		Reference: apitypes.OptString(g.Reference), ReversalOfID: apitypes.OptUUID(g.ReversalOfID), JournalEntryID: apitypes.OptUUID(g.JournalEntryID),
-		Items: make([]gen.GoodsReceiptItem, len(g.Items))}
+		Reason: apitypes.OptString(g.Reason),
+		Items:  make([]gen.GoodsReceiptItem, len(g.Items))}
 	if g.JournalEntryYear != nil {
 		out.JournalEntryYear.SetTo(int32(*g.JournalEntryYear))
 	}
@@ -514,7 +515,8 @@ func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPu
 // PostGoodsReceipt implements POST /v1/goods-receipts.
 func (e *Endpoints) PostGoodsReceipt(ctx context.Context, req *gen.GoodsReceiptCreate, _ gen.PostGoodsReceiptParams) (gen.PostGoodsReceiptRes, error) {
 	in := ReceiptInput{LegalEntityID: req.LegalEntityID, PlantID: apitypes.Ptr[uuid.UUID](req.PlantID), DocumentDate: req.DocumentDate, PostingDate: req.PostingDate,
-		Reference: apitypes.Ptr[string](req.Reference), Items: make([]ReceiptItem, len(req.Items))}
+		Reference: apitypes.Ptr[string](req.Reference), MovementType: req.MovementType.Value, Reason: apitypes.Ptr[string](req.Reason),
+		Items: make([]ReceiptItem, len(req.Items))}
 	for i, it := range req.Items {
 		in.Items[i] = ReceiptItem{No: int32(i + 1), PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.PoItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
 	}

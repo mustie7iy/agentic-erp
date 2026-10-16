@@ -336,3 +336,128 @@ func TestReceiptsAtTheValuationPrice(t *testing.T) {
 		t.Errorf("receipt after a price change: got %+v, want %+v (4 at 2.50)", lines, want)
 	}
 }
+
+// movement posts a goods movement of type mt of qty EA of item 1 of order
+// with the body's extra fields, as the API answers it.
+func (e env) movement(t *testing.T, mt, order, qty, extra string) (int, map[string]any) {
+	t.Helper()
+	code, m, _ := e.Do("POST", "/v1/goods-receipts", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-20", "posting_date": "2026-03-20",
+		"movement_type": %q%s, "items": [{"purchase_order_id": %q, "po_item_no": 1, "quantity": {"value": %q, "unit": "EA"}}]}`, e.DE, mt, extra, order, qty), "")
+	return code, m
+}
+
+// ret posts a return (122) of qty EA of item 1 of order.
+func (e env) ret(t *testing.T, order, qty, extra string) (int, map[string]any) {
+	t.Helper()
+	return e.movement(t, "122", order, qty, extra)
+}
+
+// received is the quantity received on item 1 of an order.
+func (e env) received(t *testing.T, order string) any {
+	t.Helper()
+	o, _ := e.Must(200, "GET", "/v1/purchase-orders/"+order, "", "")
+	return o["items"].([]any)[0].(map[string]any)["received_quantity"].(map[string]any)["value"]
+}
+
+// TestReturnsToTheSupplier: a 122 sends received goods back with its
+// reason, posting Dr GR/IR / Cr the item's account at the valuation price,
+// on released and closed orders, never more than was received; a 123
+// reverses it, never beyond the tolerance (T47b).
+func TestReturnsToTheSupplier(t *testing.T) {
+	e := setup(t)
+	e.GRIR(t)
+	grir, office := e.Account(t, "2000", "219000"), uuid.MustParse(e.office)
+	order := e.grirOrder(t, "EUR")
+	if code, gr := e.receipt(t, order, "1:6:EA"); code != 201 {
+		t.Fatalf("receipt: got %d %v, want 201", code, gr)
+	}
+	code, ret := e.ret(t, order, "2", `, "reason": "Damaged in transit"`)
+	if code != 201 {
+		t.Fatalf("return: got %d %v, want 201", code, ret)
+	}
+	if ret["movement_type"] != "122" {
+		t.Errorf("return movement type: got %v, want 122", ret["movement_type"])
+	}
+	if ret["reason"] != "Damaged in transit" {
+		t.Errorf("return reason: got %v, want Damaged in transit", ret["reason"])
+	}
+	if got := e.received(t, order); got != "4" {
+		t.Errorf("received after the return: got %v, want 4", got)
+	}
+	_, _, _, lines := e.entryOf(t, ret["journal_entry_id"])
+	o, plus2, minus2 := uuid.MustParse(order), "2", "-2"
+	if want := []entryLine{{grir, 500, 500, &plus2, &o}, {office, -500, -500, nil, nil}}; !reflect.DeepEqual(lines, want) {
+		t.Errorf("return lines: got %+v, want %+v", lines, want)
+	}
+	returned := events(t, e, "goods_returned")
+	if len(returned) != 1 {
+		t.Fatalf("GoodsReturned events: got %d, want 1", len(returned))
+	}
+	if returned[0]["reason"] != "Damaged in transit" {
+		t.Errorf("GoodsReturned reason: got %v, want Damaged in transit", returned[0]["reason"])
+	}
+	for name, c := range map[string]struct {
+		mt, qty, extra string
+		code           int
+		problem        string
+	}{
+		"a return without a reason": {"122", "1", "", 422, "procurement.reason_required"},
+		"more than was received":    {"122", "5", `, "reason": "r"`, 409, "procurement.return_exceeds_receipts"},
+		"a reversal asked for":      {"102", "1", "", 422, "procurement.invalid_movement_type"},
+		"a receipt with a reason":   {"101", "1", `, "reason": "r"`, 422, "procurement.reason_not_allowed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, m := e.movement(t, c.mt, order, c.qty, c.extra)
+			if code != c.code {
+				t.Errorf("status: got %d, want %d", code, c.code)
+			}
+			if m["code"] != c.problem {
+				t.Errorf("problem: got %v, want %s", m["code"], c.problem)
+			}
+		})
+	}
+	// Its reversal, a 123, takes the goods back in.
+	rev := e.act(t, "/v1/goods-receipts/"+id(ret), "reverse", "")
+	if rev["movement_type"] != "123" {
+		t.Errorf("reversal of a return: got type %v, want 123", rev["movement_type"])
+	}
+	_, _, _, lines = e.entryOf(t, rev["journal_entry_id"])
+	if want := []entryLine{{grir, -500, -500, &minus2, &o}, {office, 500, 500, nil, nil}}; !reflect.DeepEqual(lines, want) {
+		t.Errorf("123 lines: got %+v, want %+v", lines, want)
+	}
+	if got := e.received(t, order); got != "6" {
+		t.Errorf("received after the 123: got %v, want 6", got)
+	}
+	_, tag := e.Must(200, "GET", "/v1/goods-receipts/"+id(rev), "", "")
+	e.Problem(409, "procurement.cannot_reverse_reversal", "POST", "/v1/goods-receipts/"+id(rev)+":reverse", "", tag)
+	_, tag = e.Must(200, "GET", "/v1/goods-receipts/"+id(ret), "", "")
+	e.Problem(409, "procurement.already_reversed", "POST", "/v1/goods-receipts/"+id(ret)+":reverse", "", tag)
+	// Closed orders take returns, as goods found faulty later go back.
+	e.act(t, "/v1/purchase-orders/"+order, "close", "")
+	if code, m := e.ret(t, order, "1", `, "reason": "Faulty"`); code != 201 {
+		t.Errorf("return on a closed order: got %d %v, want 201", code, m)
+	}
+	if code, m := e.receipt(t, order, "1:1:EA"); code != 409 {
+		t.Errorf("receipt on a closed order: got %d %v, want 409", code, m)
+	}
+	// A draft received nothing to return.
+	draft := e.order(t, items(item(e.office, "10", "EA", "2.50", "EUR", "")), "")
+	if code, m := e.ret(t, id(draft), "1", `, "reason": "r"`); code != 409 || m["code"] != "procurement.order_not_released" {
+		t.Errorf("return on a draft: got %d %v, want 409 procurement.order_not_released", code, m["code"])
+	}
+}
+
+// TestReturnReversalWithinTheTolerance: a 123 takes goods back in only
+// within the order's over-delivery tolerance.
+func TestReturnReversalWithinTheTolerance(t *testing.T) {
+	e := setup(t)
+	e.GRIR(t)
+	order := e.grirOrder(t, "EUR")
+	e.receipt(t, order, "1:10:EA")
+	_, ret := e.ret(t, order, "2", `, "reason": "Damaged"`)
+	if code, m := e.receipt(t, order, "1:2:EA"); code != 201 {
+		t.Fatalf("replacement receipt: got %d %v, want 201", code, m)
+	}
+	_, tag := e.Must(200, "GET", "/v1/goods-receipts/"+id(ret), "", "")
+	e.Problem(409, "procurement.over_delivery", "POST", "/v1/goods-receipts/"+id(ret)+":reverse", "", tag)
+}

@@ -26799,7 +26799,11 @@ func (s *Server) handleParkJournalEntryRequest(args [0]string, argsEscaped bool,
 
 // handlePostGoodsReceiptRequest handles postGoodsReceipt operation.
 //
-// Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals.
+// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
+// with `reason`) of goods received on released or closed orders: never more than was received (409
+// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
+// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
+// are reversals.
 //
 // POST /v1/goods-receipts
 func (s *Server) handlePostGoodsReceiptRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -30126,8 +30130,9 @@ func (s *Server) handleRequestBankAccountEndRequest(args [2]string, argsEscaped 
 
 // handleReverseGoodsReceiptRequest handles reverseGoodsReceipt operation.
 //
-// Posts a 102 movement that reverses the receipt. Refused (409) if it would make the received quantity
-// negative. Returns the reversal.
+// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
+// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. Returns
+// the reversal.
 //
 // POST /v1/goods-receipts/{id}:reverse
 func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
