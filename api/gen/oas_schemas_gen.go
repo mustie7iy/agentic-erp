@@ -19340,7 +19340,8 @@ type PurchaseOrder struct {
 	// (`release_request_id`). Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
-	// The order's version: 1 as released, one more for each order change applied.
+	// The order's version: 1 until an order change is applied to it, then one more for each change
+	// applied.
 	Revision OptInt32 `json:"revision"`
 	// The `purchase_order` approval request (workflow context) the order waits for while
 	// `pending_approval`; absent otherwise.

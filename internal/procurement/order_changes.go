@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -201,6 +202,10 @@ func cancelChange(ctx context.Context, order, id uuid.UUID, ifMatch func(int32) 
 	if err != nil {
 		return PurchaseOrderChange{}, err
 	}
+	// The order first, as every write of a change takes the two locks.
+	if _, err := getOrder(ctx, tx, order, true); err != nil {
+		return PurchaseOrderChange{}, err
+	}
 	if _, err := loadChange(ctx, tx, order, id, ifMatch, "cancel"); err != nil {
 		return PurchaseOrderChange{}, err
 	}
@@ -259,7 +264,7 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	if err != nil {
 		return ChangeProposal{}, 0, err
 	}
-	if pr.Items, err = e.orderItems(ctx, h, in.Items); err != nil {
+	if pr.Items, err = e.orderItems(ctx, h, keptTolerance(o.Items, in.Items)); err != nil {
 		return ChangeProposal{}, 0, err
 	}
 	if err := keptItems(o.Items, pr.Items); err != nil {
@@ -267,6 +272,20 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	}
 	after, err := documentTotal(pr.Items)
 	return pr, after, err
+}
+
+// keptTolerance gives an item the change keeps the tolerance it has when
+// the change leaves it out, rather than the company default a new item
+// takes: a change of price alone does not move the tolerance, nor refuse
+// an item over-delivered within it.
+func keptTolerance(current []Item, in []ItemInput) []ItemInput {
+	out := slices.Clone(in)
+	for i := range out {
+		if i < len(current) && out[i].OverDelivery == nil {
+			out[i].OverDelivery = &current[i].OverDelivery
+		}
+	}
+	return out
 }
 
 // keptItems refuses changed items that do not keep what a released

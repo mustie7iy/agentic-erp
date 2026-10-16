@@ -15199,7 +15199,7 @@ components:
             revision:
               type: integer
               format: int32
-              description: "The order's version: 1 as released, one more for each order change applied."
+              description: "The order's version: 1 until an order change is applied to it, then one more for each change applied."
               minimum: 1
               readOnly: true
             release_request_id:

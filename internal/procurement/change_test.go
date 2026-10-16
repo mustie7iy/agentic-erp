@@ -95,7 +95,9 @@ func TestOrderChangesChecked(t *testing.T) {
 	other := e.order(t, items(item(e.office, "10", "EA", "2.50", "EUR", ""), item(e.office, "5", "EA", "1.00", "EUR", "")), "")
 	opath := "/v1/purchase-orders/" + id(other)
 	e.act(t, opath, "release", "")
-	e.receipt(t, id(other), "2:1:EA")
+	if code, gr := e.receipt(t, id(other), "2:1:EA"); code != 201 {
+		t.Fatalf("receipt: got %d %v, want 201", code, gr)
+	}
 	e.Problem(422, "procurement.invalid_change", "POST", opath+"/changes", `{"reason": "r", "items": `+items(item(e.office, "10", "EA", "2.50", "EUR", ""))+`}`, "")
 	// Only a released order changes this way.
 	draft := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
@@ -110,6 +112,36 @@ func TestAgentsDraftChanges(t *testing.T) {
 	ch, _ := e.As(e.Tenant.Agent).Must(201, "POST", path+"/changes", fmt.Sprintf(`{"reason": "Proposed by the agent", "items": %s}`,
 		items(item(e.office, "11", "EA", "2.50", "EUR", ""))), "")
 	want(t, "agent's change", ch, map[string]any{"created_by": e.Tenant.Agent.ID.String(), "status": "draft"})
+}
+
+// TestOrderChangesOutsideTheCompany: a caller without access to the
+// order's company cannot see its changes, nor change them.
+func TestOrderChangesOutsideTheCompany(t *testing.T) {
+	e := setup(t)
+	path := e.releasedOrder(t)
+	ch, _ := e.Must(201, "POST", path+"/changes", `{"reason": "r"}`, "")
+	cpath := path + "/changes/" + id(ch)
+	outsider := e.As(e.Tenant.Agent) // the agent acts in no company here
+	outsider.Problem(404, "request.not_found", "GET", cpath, "", "")
+	outsider.Problem(404, "request.not_found", "GET", path+"/changes", "", "")
+	outsider.Problem(404, "request.not_found", "PATCH", cpath, `{"reason": "x"}`, `"1"`)
+	outsider.Problem(404, "request.not_found", "POST", cpath+":cancel", "", `"1"`)
+}
+
+// TestChangeKeepsTolerance: an item the change leaves the tolerance out of
+// keeps its own, so an item over-delivered within it can be repriced.
+func TestChangeKeepsTolerance(t *testing.T) {
+	e := setup(t)
+	o := e.order(t, items(item(e.office, "10", "EA", "2.50", "EUR", `, "over_delivery_pct": "50"`)), "")
+	path := "/v1/purchase-orders/" + id(o)
+	e.act(t, path, "release", "")
+	if code, gr := e.receipt(t, id(o), "1:14:EA"); code != 201 {
+		t.Fatalf("receipt: got %d %v, want 201", code, gr)
+	}
+	ch, _ := e.Must(201, "POST", path+"/changes", `{"reason": "New price", "items": `+items(item(e.office, "10", "EA", "2.40", "EUR", ""))+`}`, "")
+	if got := ch["items"].([]any)[0].(map[string]any)["over_delivery_pct"]; got != "50" {
+		t.Errorf("tolerance of the kept item: got %v, want 50", got)
+	}
 }
 
 // TestOrderChangeEdges: what a change may give besides its items, and
