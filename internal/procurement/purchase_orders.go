@@ -533,30 +533,8 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	if o.ContractID != nil {
-		if _, err := tx.Exec(ctx, `SELECT FROM procurement.contract WHERE id = $1 FOR UPDATE`, *o.ContractID); err != nil {
-			return PurchaseOrder{}, fmt.Errorf("procurement: release purchase order %s: lock contract %s: %w", id, *o.ContractID, err)
-		}
-		c, err := usableContract(ctx, tx, *o.ContractID, o.LegalEntityID, o.SupplierID, o.Currency, o.OrderDate)
-		if err != nil {
-			return PurchaseOrder{}, err
-		}
-		// Against the remainder: consumed plus the order can be out of range.
-		// The target is positive (a schema check) and the consumed value, the
-		// sum of releases, is not negative (a cancellation only reverses an
-		// order's own release), so the remainder is in range; were it not,
-		// the order is refused rather than checked against a wrapped value.
-		remaining, err := money.Diff(c.TargetValue, c.ConsumedValue)
-		if err != nil || value > remaining {
-			return PurchaseOrder{}, problem.Conflict("procurement.contract_exceeded", fmt.Sprintf("The order (%s) exceeds what remains of contract %s (%s).",
-				value.Plain(o.Exponent), c.DocumentNumber, remaining.Plain(c.Exponent)))
-		}
-		if value != 0 {
-			if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract_release (tenant_id, contract_id, purchase_order_id, value, released_at, released_by)
-				VALUES ($1, $2, $3, $4, clock_timestamp(), $5)`, p.TenantID, c.ID, id, value, p.ID); err != nil {
-				return PurchaseOrder{}, fmt.Errorf("procurement: release purchase order %s: consume contract %s: %w", id, c.ID, err)
-			}
-		}
+	if err := consumeContract(ctx, tx, p, o, value); err != nil {
+		return PurchaseOrder{}, err
 	}
 	valuation, err := e.valuation(ctx, o.LegalEntityID, loaded)
 	if err != nil {
@@ -575,6 +553,38 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 			"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
 			"contract_id": o.ContractID, "valuation": valuation, "total_amount": money.EventAmount(value, o.Currency, o.Exponent),
 			"items": releasedItems(o)})))
+}
+
+// consumeContract records the release's consumption of the order's
+// contract, which must still be usable and cover the order value.
+func consumeContract(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseOrder, value money.Minor) error {
+	if o.ContractID == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `SELECT FROM procurement.contract WHERE id = $1 FOR UPDATE`, *o.ContractID); err != nil {
+		return fmt.Errorf("procurement: release purchase order %s: lock contract %s: %w", o.ID, *o.ContractID, err)
+	}
+	c, err := usableContract(ctx, tx, *o.ContractID, o.LegalEntityID, o.SupplierID, o.Currency, o.OrderDate)
+	if err != nil {
+		return err
+	}
+	// Against the remainder: consumed plus the order can be out of range.
+	// The target is positive (a schema check) and the consumed value, the
+	// sum of releases, is not negative (a cancellation only reverses an
+	// order's own release), so the remainder is in range; were it not,
+	// the order is refused rather than checked against a wrapped value.
+	remaining, err := money.Diff(c.TargetValue, c.ConsumedValue)
+	if err != nil || value > remaining {
+		return problem.Conflict("procurement.contract_exceeded", fmt.Sprintf("The order (%s) exceeds what remains of contract %s (%s).",
+			value.Plain(o.Exponent), c.DocumentNumber, remaining.Plain(c.Exponent)))
+	}
+	if value != 0 {
+		if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract_release (tenant_id, contract_id, purchase_order_id, value, released_at, released_by)
+			VALUES ($1, $2, $3, $4, clock_timestamp(), $5)`, p.TenantID, c.ID, o.ID, value, p.ID); err != nil {
+			return fmt.Errorf("procurement: release purchase order %s: consume contract %s: %w", o.ID, c.ID, err)
+		}
+	}
+	return nil
 }
 
 // valuation is how an order released now is valued: through GR/IR when
