@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
@@ -90,6 +91,17 @@ func provision(ctx context.Context, cfg platformconfig.Config, req provisioning.
 	}
 	deps := app.Configuration(app.Config{FieldKeys: keys})
 	production := cfg.Environment == platformconfig.Production
-	return (&provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Issuers: cfg.TenantIssuers(), Configuration: deps,
-		Production: production, Discover: (&authn.Providers{Production: production}).Probe}).Provision(ctx, req)
+	p := &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Issuers: cfg.TenantIssuers(), Configuration: deps,
+		Production: production, Discover: (&authn.Providers{Production: production}).Probe}
+	// With a global directory the provider's issuer is claimed there before
+	// the commit, as the control plane does (ADR-0031).
+	if cfg.DirectoryURL != "" {
+		dir, err := directory.Open(ctx, cfg.DirectoryURL)
+		if err != nil {
+			return provisioning.Result{}, err
+		}
+		defer dir.Close()
+		p.Claim = (&directory.Sync{Directory: dir, Cell: cfg.Cell}).ClaimIssuer
+	}
+	return p.Provision(ctx, req)
 }

@@ -167,13 +167,15 @@ func (s *Service) GetProvider(ctx context.Context, tenant, id uuid.UUID) (Identi
 // a retry answers the provider the first request registered (replayed).
 // In production the issuer is https.
 func (s *Service) RegisterProvider(ctx context.Context, op Operator, tenant uuid.UUID, in identity.NewIdentityProvider, key *provisioning.Idempotency) (IdentityProvider, bool, error) {
+	// Checked before anything else, and before the issuer is fetched: the
+	// cell requests only an issuer a registration could hold.
+	if err := identity.ValidateProvider(in); err != nil {
+		return IdentityProvider{}, false, err
+	}
 	if s.Production {
 		if err := identity.ProductionIssuer(in.Issuer); err != nil {
 			return IdentityProvider{}, false, err
 		}
-	}
-	if err := s.probe(ctx, in.Issuer); err != nil {
-		return IdentityProvider{}, false, err
 	}
 	var out IdentityProvider
 	replayed := false
@@ -181,6 +183,12 @@ func (s *Service) RegisterProvider(ctx context.Context, op Operator, tenant uuid
 		stored, found, err := s.claimKey(ctx, tx, op, tenant, key)
 		if err != nil || found {
 			out, replayed = stored, found
+			return err
+		}
+		// Probed on a fresh registration only: a retry replays the first
+		// answer whatever the provider says now. The probe's timeout is well
+		// within the write's.
+		if err := s.probe(ctx, in.Issuer); err != nil {
 			return err
 		}
 		p, err := identity.RegisterIdentityProvider(ctx, tx, op.ID, in)
@@ -359,6 +367,9 @@ func (s *Service) ListPrincipals(ctx context.Context, tenant uuid.UUID, binding 
 	if binding != "" && binding != "unbound" && binding != "all" {
 		return nil, "", problem.BadRequest("request.invalid_parameter", "Parameter binding is invalid.",
 			problem.FieldError{Field: "binding", Code: "invalid", Message: "unbound or all"})
+	}
+	if binding == "" {
+		binding = "unbound"
 	}
 	ks, err := s.Pages.Keyset(identity.PrincipalSort, "listTenantPrincipals|"+tenant.String()+"|"+binding, page)
 	if err != nil {

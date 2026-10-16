@@ -121,3 +121,17 @@ func TestProvisioningProviderRefusals(t *testing.T) {
 		}
 	})
 }
+
+// TestProvisioningChecksTheProviderBeforeProbing: an invalid issuer is
+// refused before it is fetched.
+func TestProvisioningChecksTheProviderBeforeProbing(t *testing.T) {
+	p := provisioner(t)
+	var probed []string
+	p.Discover = func(_ context.Context, issuer string) error { probed = append(probed, issuer); return nil }
+	r := request(t)
+	r.IdentityProvider = &identity.NewIdentityProvider{Issuer: "http://169.254.169.254/x?a=", Audience: "erp-api"}
+	_, err := p.Provision(context.Background(), r)
+	if got := problem.From(err).Code; got != "identity.invalid_provider" || len(probed) != 0 {
+		t.Errorf("got %q (%v), probed %v, want identity.invalid_provider and nothing probed", got, err, probed)
+	}
+}

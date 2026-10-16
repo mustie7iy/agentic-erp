@@ -136,7 +136,7 @@ func scanProvider(row pgx.Row) (IdentityProvider, error) {
 
 // RegisterIdentityProvider registers a provider of the transaction's tenant.
 func RegisterIdentityProvider(ctx context.Context, tx pgx.Tx, actor uuid.UUID, in NewIdentityProvider) (IdentityProvider, error) {
-	if err := validProvider(in); err != nil {
+	if err := ValidateProvider(in); err != nil {
 		return IdentityProvider{}, err
 	}
 	if err := provable(ctx, tx, in.ACRValues, in.AMRValues); err != nil {
@@ -201,7 +201,7 @@ func UpdateIdentityProvider(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID,
 	if ch.AMRValues != nil {
 		in.AMRValues = *ch.AMRValues
 	}
-	if err := validProvider(in); err != nil {
+	if err := ValidateProvider(in); err != nil {
 		return p, err
 	}
 	if err := provable(ctx, tx, in.ACRValues, in.AMRValues); err != nil {
@@ -423,13 +423,13 @@ func values(v []string) []string {
 
 var tenantClaim = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:/-]{0,63}$`)
 
-// validProvider checks a registration as the database does, answering 422
+// ValidateProvider checks a registration as the database does, answering 422
 // with the field instead of a constraint violation, and what the database
 // cannot tell: an http issuer is allowed on loopback only, for a provider
 // on a developer's machine. In production such an issuer is never fetched
 // (authn.Providers allows https only and no loopback address, T37b), and
 // the control plane refuses to register it there (T37c).
-func validProvider(in NewIdentityProvider) error {
+func ValidateProvider(in NewIdentityProvider) error {
 	invalid := func(field, msg string) error {
 		return problem.Unprocessable("identity.invalid_provider", "The identity provider is invalid.",
 			problem.FieldError{Field: field, Code: "invalid", Message: msg})

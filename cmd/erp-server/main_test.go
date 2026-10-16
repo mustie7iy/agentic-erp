@@ -1457,3 +1457,34 @@ func TestRegisteredProviderEndToEnd(t *testing.T) {
 		t.Errorf("an issuer the tenant did not register: got %d, want 401", code)
 	}
 }
+
+// TestProvisionClaimsInTheDirectory: erp-server provision on a cell with a
+// global directory claims the provider's issuer there before it commits,
+// as the control plane does.
+func TestProvisionClaimsInTheDirectory(t *testing.T) {
+	idp := authntest.NewSeparate(t)
+	env := environment(t, authntest.New(t), "")
+	delete(env, "ERP_OIDC_ISSUERS")
+	directoryURL := pgtest.EmptyDatabase(t)
+	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada",
+		"-config", configFile(t), "-idp-issuer", idp.URL, "-idp-audience", authntest.Audience}
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	dir, err := directory.Open(context.Background(), directoryURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	claims, err := dir.LookupIssuer(context.Background(), idp.URL, []string{authntest.Audience})
+	if err != nil || len(claims) != 1 || claims[0].Cell != "test" {
+		t.Errorf("claims: got %v, %v, want the provider's, by this cell", claims, err)
+	}
+	env["ERP_DIRECTORY_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	stderr.Reset()
+	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code == 0 {
+		t.Error("a directory that cannot be reached: got provisioned, want refused")
+	}
+}

@@ -556,7 +556,7 @@ paths:
       tags:
         - identity
       summary: List a tenant's principals and their binding
-      description: "The tenant's principals with the identity provider their subject belongs to (ADR-0031), oldest first. `binding=unbound` (the default) lists those whose issuer is no active registered provider of the tenant, such as the development issuer `erp-dev` migration 000046 bound some to: their tokens are refused until an operator binds them (`bindPrincipal`). `binding=all` lists every principal."
+      description: "The tenant's principals with the identity provider their subject belongs to (ADR-0031), oldest first. `binding=unbound` (the default) lists those whose issuer is no active registered provider of the tenant, such as the development issuer `erp-dev` migration 000046 bound some to: their tokens are refused until an operator binds them (`bindPrincipal`). Outside production a principal of an issuer the deployment configures for every tenant (`ERP_OIDC_ISSUERS`) is listed too, though its tokens sign in; production refuses such issuers. `binding=all` lists every principal."
       parameters:
         - $ref: "#/components/parameters/Id"
         - name: binding

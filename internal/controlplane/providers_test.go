@@ -708,3 +708,48 @@ func TestBindingDatabaseFailures(t *testing.T) {
 		t.Errorf("a bad page token: got %d (%v), want 400", got, err)
 	}
 }
+
+// TestAnInvalidIssuerIsNeverProbed: a registration is checked before its
+// issuer is fetched, so an issuer no registration could hold (a query, an
+// http host off loopback) is never requested from the cell.
+func TestAnInvalidIssuerIsNeverProbed(t *testing.T) {
+	s := service(t)
+	var probed []string
+	s.Discover = func(_ context.Context, issuer string) error { probed = append(probed, issuer); return nil }
+	ten := pgtest.NewTenant(t)
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	for _, issuer := range []string{"http://169.254.169.254/latest/meta-data/x?a=", "ftp://idp.example.com"} {
+		_, _, err := s.RegisterProvider(context.Background(), op, ten.ID, identity.NewIdentityProvider{Issuer: issuer, Audience: "erp"}, nil)
+		pgtest.CheckErr(t, err, "identity.invalid_provider")
+	}
+	if len(probed) != 0 {
+		t.Errorf("probed: got %v, want nothing", probed)
+	}
+}
+
+// TestARetryReplaysWithoutProbing: a registration retried with its key
+// replays the first answer even when the provider has stopped answering
+// since.
+func TestARetryReplaysWithoutProbing(t *testing.T) {
+	s := service(t)
+	down := false
+	s.Discover = func(context.Context, string) error {
+		if down {
+			return errors.New("connection refused")
+		}
+		return nil
+	}
+	ten := pgtest.NewTenant(t)
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	key := &provisioning.Idempotency{Key: "key-" + uuid.NewString(), RequestHash: []byte("h")}
+	in := identity.NewIdentityProvider{Issuer: "https://flaps-" + uuid.NewString() + ".example.com", Audience: "erp"}
+	first, _, err := s.RegisterProvider(context.Background(), op, ten.ID, in, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	down = true
+	again, replayed, err := s.RegisterProvider(context.Background(), op, ten.ID, in, key)
+	if err != nil || !replayed || again.ID != first.ID {
+		t.Errorf("retry: got %s (replayed %v), %v, want %s replayed", again.ID, replayed, err, first.ID)
+	}
+}

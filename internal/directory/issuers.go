@@ -104,7 +104,7 @@ func (p *Postgres) ReleaseIssuer(ctx context.Context, is Issuer) error {
 // it, and another cell could then take the pair. A registration's
 // transaction is bounded by controlplane.DefaultWriteTimeout (one minute, as
 // PostgreSQL's transaction_timeout), so it commits or fails well within
-// the grace.
+// the grace; provisioning claims last, right before its commit.
 const ClaimGrace = 5 * time.Minute
 
 // SyncIssuers makes the cell's claims the given ones: each is claimed, and

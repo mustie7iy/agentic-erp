@@ -75,7 +75,7 @@ func BindPrincipal(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID, ifMatch 
 		return Binding{}, outbox.Event{}, audit.Entry{}, problem.Unprocessable("identity.invalid_subject", "The subject is invalid.",
 			problem.FieldError{Field: "subject", Code: "invalid", Message: "1 to 255 characters"})
 	}
-	prov, err := getProvider(ctx, tx, providerID, false)
+	prov, err := getProvider(ctx, tx, providerID, true) // held: a concurrent retirement waits for the binding
 	if err != nil {
 		return Binding{}, outbox.Event{}, audit.Entry{}, problem.Reference(err, "identity_provider_id", "identity provider", "an active identity provider of the tenant")
 	}
@@ -83,9 +83,9 @@ func BindPrincipal(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID, ifMatch 
 		return Binding{}, outbox.Event{}, audit.Entry{}, problem.Unprocessable("identity.provider_retired", "The identity provider is retired.",
 			problem.FieldError{Field: "identity_provider_id", Code: "retired", Message: "an active identity provider of the tenant"})
 	}
-	var previous *string
+	var previous, previousSubject *string
 	var version int32
-	err = tx.QueryRow(ctx, `SELECT external_issuer, version FROM identity.principal WHERE id = $1 FOR UPDATE`, id).Scan(&previous, &version)
+	err = tx.QueryRow(ctx, `SELECT external_issuer, external_subject, version FROM identity.principal WHERE id = $1 FOR UPDATE`, id).Scan(&previous, &previousSubject, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Binding{}, outbox.Event{}, audit.Entry{}, problem.NotFoundOf("principal")
 	}
@@ -107,6 +107,6 @@ func BindPrincipal(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID, ifMatch 
 	event := outbox.Event{Context: "identity", Name: "principal_bound", AggregateType: "identity.principal", AggregateID: id,
 		Payload: map[string]any{"principal_id": id, "previous_issuer": previous, "external_issuer": prov.Issuer}}
 	entry := audit.Entry{Action: "identity.principal.bind", ObjectType: "identity.principal", ObjectID: id,
-		Detail: map[string]any{"previous_issuer": previous, "external_issuer": prov.Issuer, "external_subject": subject, "provider_id": prov.ID}}
+		Detail: map[string]any{"previous_issuer": previous, "previous_subject": previousSubject, "external_issuer": prov.Issuer, "external_subject": subject, "provider_id": prov.ID}}
 	return Binding{Principal: p, PreviousIssuer: previous}, event, entry, nil
 }
