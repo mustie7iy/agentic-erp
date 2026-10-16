@@ -47,6 +47,14 @@ type Middleware struct {
 	// Begin starts the request transaction; nil means Pool.Begin. Tests
 	// replace it to inject database failures.
 	Begin database.BeginFunc
+	// Sessions checks a person's session (identity.Sessions, ADR-0031);
+	// nil checks none.
+	Sessions Sessions
+}
+
+// Sessions checks a person's session: its lifetime and idle timeout.
+type Sessions interface {
+	Check(ctx context.Context, c reqctx.Claims, p reqctx.Principal) error
 }
 
 func (m *Middleware) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -130,6 +138,11 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	if principal.Kind == reqctx.KindHuman {
 		if err := authn.CheckMFA(claims); err != nil {
 			return err
+		}
+		if m.Sessions != nil {
+			if err := m.Sessions.Check(ctx, claims, principal); err != nil {
+				return err
+			}
 		}
 	}
 	info := reqctx.InfoFrom(ctx)

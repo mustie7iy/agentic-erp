@@ -450,6 +450,10 @@ func (s *server) startAudit(runCtx context.Context) {
 	// contract's ContractExpired is the job's).
 	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log}
 	s.spawn("expirer", func() { expirer.Run(runCtx) })
+	// People's sessions ended or idle for a week are deleted in rounds
+	// (ADR-0031).
+	sweeper := &identity.SessionSweeper{Pool: pool, WorkerRole: cfg.WorkerRole, Interval: sweepInterval, Log: log}
+	s.spawn("session sweeper", func() { sweeper.Run(runCtx) })
 	// Every tenant's audit chain is verified against its anchors in rounds
 	// (ADR-0011); a chain that stops verifying is an alarm.
 	if cfg.AuditVerify == 0 {
@@ -604,6 +608,7 @@ var (
 	directoryInterval   = time.Minute
 	rotationInterval    = time.Hour
 	expiryInterval      = time.Hour
+	sweepInterval       = time.Hour
 	dispatchInterval    = time.Second
 )
 

@@ -238,3 +238,18 @@ func waitFor(t *testing.T, cond func() bool) {
 		<-time.After(time.Millisecond)
 	}
 }
+
+// TestRegisteredSessionRule: the verifier carries the tenant's session
+// rule and the token's expiry to the claims, for the unit of work.
+func TestRegisteredSessionRule(t *testing.T) {
+	is := authntest.NewSeparate(t)
+	reg := &registry{}
+	reg.add(authn.Registration{TenantID: uuid.New(), Issuer: is.URL, Audience: authntest.Audience, SessionMaxAge: 8 * time.Hour, IdleTimeout: 15 * time.Minute})
+	c, err := registered(t, reg).Verify(context.Background(), is.Token(t, uuid.Nil, "ada", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Session.MaxAge != 8*time.Hour || c.Session.Idle != 15*time.Minute || c.Expiry.IsZero() {
+		t.Errorf("rule and expiry: got %+v, %v, want 8h, 15m and the token's expiry", c.Session, c.Expiry)
+	}
+}

@@ -143,6 +143,8 @@ func New(cfg Config) (http.Handler, error) {
 		// idempotent work; the capture that consumes it is).
 		Routes: map[string]http.Handler{"PUT /v1/uploads/{id}/content": upload},
 		Log:    cfg.Log, Metrics: cfg.Metrics, Tracer: cfg.Tracer, Meter: cfg.Meter, Now: cfg.Now,
+		// People's sessions, recorded per replica (ADR-0031).
+		Sessions: &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now},
 	})
 }
 

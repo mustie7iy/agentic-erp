@@ -38,12 +38,23 @@ type Claims struct {
 	// session (sid). Absent or malformed claims leave them empty.
 	AuthTime  time.Time
 	IssuedAt  time.Time
+	Expiry    time.Time
 	ACR       string
 	AMR       []string
 	SessionID string
 	// MFA is the registered provider's multi-factor rule (ADR-0031), which
 	// the unit of work applies once it knows the principal is a person.
 	MFA MFA
+	// Session is the tenant's session rule for people; zero for a token
+	// of a deployment's own issuer, which no tenant's policy covers.
+	Session SessionRule
+}
+
+// SessionRule is how long a person's session lasts from the
+// authentication at the provider, and without a request.
+type SessionRule struct {
+	MaxAge time.Duration
+	Idle   time.Duration
 }
 
 // MFA is whether the tenant requires multi-factor authentication of

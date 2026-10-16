@@ -25,7 +25,12 @@ type SecurityHandler interface {
 	// multi-factor authentication, a person's token must prove it by the provider's `acr` or `amr` values,
 	// or is answered 401 `identity.mfa_required` with the step-up challenge of RFC 9470
 	// (`WWW-Authenticate: Bearer error="insufficient_user_authentication"` with the `acr_values` to ask
-	// the provider for); service and agent tokens are not asked.
+	// the provider for); service and agent tokens are not asked. A person's session (one authentication at
+	// the provider: its `sid`, or the subject's `auth_time`) lasts the tenant's session lifetime from that
+	// authentication and ends after its idle timeout without a request: 401 `identity.session_expired` or
+	// `identity.session_idle`, and an ended session never resumes, even with a refreshed token. A person's
+	// token with neither `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer
+	// than the session lifetime (`exp` − `iat`) 401 `identity.session_expired`.
 	HandleOidc(ctx context.Context, operationName OperationName, t Oidc) (context.Context, error)
 }
 
@@ -276,7 +281,12 @@ type SecuritySource interface {
 	// multi-factor authentication, a person's token must prove it by the provider's `acr` or `amr` values,
 	// or is answered 401 `identity.mfa_required` with the step-up challenge of RFC 9470
 	// (`WWW-Authenticate: Bearer error="insufficient_user_authentication"` with the `acr_values` to ask
-	// the provider for); service and agent tokens are not asked.
+	// the provider for); service and agent tokens are not asked. A person's session (one authentication at
+	// the provider: its `sid`, or the subject's `auth_time`) lasts the tenant's session lifetime from that
+	// authentication and ends after its idle timeout without a request: 401 `identity.session_expired` or
+	// `identity.session_idle`, and an ended session never resumes, even with a refreshed token. A person's
+	// token with neither `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer
+	// than the session lifetime (`exp` − `iat`) 401 `identity.session_expired`.
 	Oidc(ctx context.Context, operationName OperationName) (Oidc, error)
 }
 

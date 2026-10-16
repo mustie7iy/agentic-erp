@@ -34,6 +34,9 @@ type Registration struct {
 	MFARequired bool
 	ACRValues   []string
 	AMRValues   []string
+	// The tenant's session rule for people (the cell's registry).
+	SessionMaxAge time.Duration
+	IdleTimeout   time.Duration
 }
 
 // The registry's answers for a token no registration, or more than one,
@@ -79,7 +82,8 @@ func (v *Verifier) verifyRegistered(ctx context.Context, raw, iss string, auds [
 	// A registered provider's tokens are a tenant's principals', never an
 	// operator's: they hold no operator role.
 	c := reqctx.Claims{Issuer: reg.Issuer, Subject: tok.Subject, ProviderID: reg.ProviderID, Roles: []string{},
-		MFA: reqctx.MFA{Required: reg.MFARequired, ACRValues: reg.ACRValues, AMRValues: reg.AMRValues}}
+		MFA:     reqctx.MFA{Required: reg.MFARequired, ACRValues: reg.ACRValues, AMRValues: reg.AMRValues},
+		Session: reqctx.SessionRule{MaxAge: reg.SessionMaxAge, Idle: reg.IdleTimeout}}
 	facts(&c, tok, claims)
 	return c, reg.TenantID.String(), nil
 }
@@ -111,7 +115,7 @@ func plausible(iss string, auds []string) bool {
 // facts reads the token's facts that multi-factor and sessions are
 // decided on; absent or malformed claims leave them empty.
 func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
-	c.IssuedAt = tok.IssuedAt
+	c.IssuedAt, c.Expiry = tok.IssuedAt, tok.Expiry
 	var at struct {
 		AuthTime json.RawMessage `json:"auth_time"`
 	}

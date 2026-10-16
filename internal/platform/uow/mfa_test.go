@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
@@ -83,5 +84,38 @@ func TestMultiFactorForPeople(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// sessionsSeen records the principals whose sessions were checked, and
+// answers with err.
+type sessionsSeen struct {
+	kinds []string
+	err   error
+}
+
+func (s *sessionsSeen) Check(_ context.Context, _ reqctx.Claims, p reqctx.Principal) error {
+	s.kinds = append(s.kinds, p.Kind)
+	return s.err
+}
+
+// TestSessionsForPeople: the unit of work checks a person's session, never
+// a service's or an agent's, and a session's refusal is the request's.
+func TestSessionsForPeople(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	a := newApp(t, pgtest.Pool(t))
+	seen := &sessionsSeen{}
+	a.mw.Sessions = seen
+	for _, subject := range []string{ten.Human.Subject, ten.Service.Subject, ten.Agent.Subject} {
+		if code := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: subject}).Code; code != 200 {
+			t.Fatalf("%s: got %d, want 200", subject, code)
+		}
+	}
+	if strings.Join(seen.kinds, ",") != "human" {
+		t.Errorf("sessions checked: got %v, want the person's only", seen.kinds)
+	}
+	seen.err = problem.New(401, "identity.session_idle", "Session ended", "idle")
+	if code := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: ten.Human.Subject}).Code; code != 401 {
+		t.Errorf("an ended session: got %d, want 401", code)
 	}
 }

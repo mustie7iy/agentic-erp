@@ -55,7 +55,12 @@ type Imported struct {
 
 // skipped tables: an outbox's events were delivered in the cell they
 // happened in; importing them would publish them again.
-func skipped(table string) bool { return strings.HasSuffix(table, ".outbox") }
+func skipped(table string) bool { return strings.HasSuffix(table, ".outbox") || Ephemeral(table) }
+
+// Ephemeral reports a tenant table that is neither exported, imported nor
+// fingerprinted: people's sessions (ADR-0021 as amended by ADR-0031), which
+// end when the tenant moves and change with every request.
+func Ephemeral(table string) bool { return table == "identity.session" }
 
 // Import reads the manifest at ref and writes the tenant into the cell, in
 // one transaction. The tenant's rows must not be there already (a tenant

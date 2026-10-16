@@ -554,5 +554,6 @@ func (r Registry) Resolve(ctx context.Context, issuer string, audiences []string
 		return authn.Registration{}, err
 	}
 	return authn.Registration{ProviderID: reg.ProviderID, TenantID: reg.TenantID, Issuer: reg.Issuer, Audience: reg.Audience, TenantClaim: reg.TenantClaim,
-		MFARequired: reg.Policy.MFARequired, ACRValues: reg.ACRValues, AMRValues: reg.AMRValues}, nil
+		MFARequired: reg.Policy.MFARequired, ACRValues: reg.ACRValues, AMRValues: reg.AMRValues,
+		SessionMaxAge: reg.Policy.SessionMaxAge, IdleTimeout: reg.Policy.IdleTimeout}, nil
 }

@@ -735,6 +735,9 @@ func TestRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if withMFA.SessionMaxAge != 12*time.Hour || withMFA.IdleTimeout != 30*time.Minute {
+		t.Errorf("session rule: got %v, %v, want the defaults 12h, 30m", withMFA.SessionMaxAge, withMFA.IdleTimeout)
+	}
 	if !withMFA.MFARequired || strings.Join(withMFA.AMRValues, ",") != "mfa" || len(withMFA.ACRValues) != 0 {
 		t.Errorf("multi-factor rule: got required %v, acr %v, amr %v, want required, none, mfa", withMFA.MFARequired, withMFA.ACRValues, withMFA.AMRValues)
 	}

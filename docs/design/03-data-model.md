@@ -245,6 +245,18 @@ across tenants, the columns that resolve a token (issuer, audience, tenant
 claim, the values, status and policy) and the principals' bindings, never who
 changed them nor e-mails. Migration 000056 adds both tables.
 
+People's **sessions** are kept in `session` (T37f, migration 000057): one
+row per authentication at the identity provider, keyed per principal by a
+sha256 of the issuer and `sid`, or of the issuer, subject and
+`auth_time` (`session_principal_key`). It starts at `auth_time` (or its first
+sighting) and is touched at most once a minute per replica, in a
+transaction of its own; past the tenant's session lifetime or idle timeout
+it is ended (`ended_at`, `end_reason` expired, idle or revoked) and never
+resumes (`check_session_update`: only `last_seen_at` and the end change).
+Starts and ends are audited. Sessions are ephemeral: not exported,
+imported or fingerprinted; `erp_worker` deletes those ended or idle for a
+week.
+
 Role permissions, role assignments, company access and SoD rules are
 **effective-dated assignments**: each has its own id, a validity range that
 cannot overlap another for the same pair (exclusion constraint), and is
