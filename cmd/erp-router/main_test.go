@@ -263,10 +263,12 @@ func TestRoutesOverMutualTLS(t *testing.T) {
 	// is production's: with an identity the router reaches cells over TLS
 	// only.
 	env["ERP_OIDC_ISSUERS"], env["ERP_ENV"] = issuers, "development"
+	var forwarded atomic.Value
 	cell := func(id string) (*httptest.Server, *atomic.Value) {
 		var peer atomic.Value
 		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			peer.Store(tlsconf.PeerID(r.TLS))
+			forwarded.Store(r.Header.Get(tlsconf.ClientCertHeader))
 			w.Write([]byte(`{}`))
 		}))
 		srv.TLS = &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{ca.Issue(t, tlstest.Options{URIs: []string{id}}).Pair(t)},
@@ -311,7 +313,10 @@ func TestRoutesOverMutualTLS(t *testing.T) {
 		done <- code // the deferred stop reads the exit code again
 		t.Fatalf("stopped before serving: %d %s", code, logs.String())
 	}
-	client := trusting(ca)
+	// An agent's own certificate, from no authority the router knows: the
+	// handshake proves it holds the key, and the cell gets its thumbprint.
+	agent := tlstest.NewCA(t).Issue(t, tlstest.Options{}).Pair(t)
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: ca.Pool(), Certificates: []tls.Certificate{agent}}}}
 	for _, c := range []struct {
 		name   string
 		tenant uuid.UUID
@@ -338,8 +343,11 @@ func TestRoutesOverMutualTLS(t *testing.T) {
 	if got, want := peer.Load(), tlsconf.ID(trustDomain, "global", "erp-router"); got != want {
 		t.Errorf("the cell's peer: got %v, want %s", got, want)
 	}
+	if got, want := forwarded.Load(), tlsconf.Thumbprint(agent.Leaf); got != want {
+		t.Errorf("forwarded thumbprint: got %v, want the agent's certificate's %s", got, want)
+	}
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "https://"+a[1]+"/livez", nil)
-	resp, err := client.Do(req)
+	resp, err := trusting(ca).Do(req)
 	if err != nil {
 		t.Fatalf("admin probe over TLS without a certificate: %v", err)
 	}

@@ -256,7 +256,10 @@ URLs are https and whose certificates name the cell the directory names,
 `spiffe://<domain>/<cell>/erp-server`,
 and serves its admin listener over TLS; with `ERP_ROUTER_PUBLIC_CERT` and
 `ERP_ROUTER_PUBLIC_KEY` its public listener serves TLS with a public CA's
-certificate. Production requires all of them
+certificate, asking every client for its own certificate and forwarding
+its thumbprint to the cell, which checks agents' certificate-bound tokens
+against it (RFC 8705; in production an agent's token must be bound, by a
+provider registered with `certificate_bound_tokens`). Production requires all of them
 ([ADR-0033](docs/design/adr/0033-transport-encryption-and-service-identity.md)).
 Each cell registers itself with `ERP_CELL_REGION`, `ERP_CELL_CONTROL_URL`
 and `ERP_CELL_ACCEPTING`. Tokens must

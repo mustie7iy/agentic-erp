@@ -2,6 +2,8 @@ package router_test
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -423,5 +425,45 @@ func TestPeerOfTheNamedCell(t *testing.T) {
 	rt.ServeHTTP(httptest.NewRecorder(), req)
 	if named != "spiffe://erp.example/eu-1/erp-server" {
 		t.Errorf("named peer: got %q, want the directory's cell eu-1", named)
+	}
+}
+
+// TestForwardsTheClientCertificate: the router forwards the thumbprint of
+// the client certificate a request was made with, and never one the
+// client sent itself (ADR-0033).
+func TestForwardsTheClientCertificate(t *testing.T) {
+	is := authntest.New(t)
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := uuid.New()
+	m := &memory{entries: map[uuid.UUID]directory.Entry{tenant: {TenantID: tenant, Cell: "eu-1", APIURL: "https://eu1.internal", Status: directory.Active}}}
+	var forwarded string
+	transport := roundTrip(func(r *http.Request) (*http.Response, error) {
+		forwarded = r.Header.Get(tlsconf.ClientCertHeader)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Header: http.Header{}}, nil
+	})
+	rt := &router.Router{Verifier: v, Directory: lookup{m}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Transport: transport}
+	cert := &x509.Certificate{Raw: []byte("the agent's certificate")}
+	for _, c := range []struct {
+		name string
+		tls  *tls.ConnectionState
+		want string
+	}{
+		{"with a client certificate", &tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}, tlsconf.Thumbprint(cert)},
+		{"without one", &tls.ConnectionState{}, ""},
+		{"over plaintext", nil, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/balances", nil)
+			req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
+			req.Header.Set(tlsconf.ClientCertHeader, "forged")
+			req.TLS = c.tls
+			rt.ServeHTTP(httptest.NewRecorder(), req)
+			if forwarded != c.want {
+				t.Errorf("forwarded thumbprint: got %q, want %q", forwarded, c.want)
+			}
+		})
 	}
 }

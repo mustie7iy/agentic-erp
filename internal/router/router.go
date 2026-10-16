@@ -168,6 +168,7 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			pr.SetURL(target.url)
 			pr.Out.Host = target.url.Host
 			pr.SetXForwarded()
+			forwardClientCert(pr)
 		},
 		Transport: rt.Transport,
 		ModifyResponse: func(resp *http.Response) error {
@@ -184,6 +185,17 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tlsconf.ExpectPeer(r.Context(), rt.PeerOf(target.cell)))
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// forwardClientCert tells the cell the thumbprint of the client
+// certificate the request was made with (the TLS handshake proved the
+// client holds its key), and never one the client sent itself: the cell
+// checks a certificate-bound token against it (RFC 8705, ADR-0033).
+func forwardClientCert(pr *httputil.ProxyRequest) {
+	pr.Out.Header.Del(tlsconf.ClientCertHeader)
+	if cs := pr.In.TLS; cs != nil && len(cs.PeerCertificates) > 0 {
+		pr.Out.Header.Set(tlsconf.ClientCertHeader, tlsconf.Thumbprint(cs.PeerCertificates[0]))
+	}
 }
 
 type target struct {

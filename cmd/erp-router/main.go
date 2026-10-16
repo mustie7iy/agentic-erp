@@ -124,7 +124,10 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 func secure(ctx context.Context, cfg router.Config, log *slog.Logger, ln, adminLn net.Listener) (net.Listener, net.Listener) {
 	if cfg.Public != nil {
 		go cfg.Public.Run(ctx, tlsconf.RefreshInterval, log)
-		ln = tls.NewListener(ln, cfg.Public.ServerConfig(tlsconf.External, tls.NoClientCert))
+		// Agents present client certificates, self-signed or not: the
+		// handshake proves they hold the key, and the cell checks a
+		// certificate-bound token against it (RFC 8705, ADR-0033).
+		ln = tls.NewListener(ln, cfg.Public.ServerConfig(tlsconf.External, tls.RequestClientCert))
 	}
 	if cfg.Identity != nil {
 		go cfg.Identity.Run(ctx, tlsconf.RefreshInterval, log)
