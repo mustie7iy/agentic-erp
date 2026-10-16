@@ -132,31 +132,37 @@ func TestCapture(t *testing.T) {
 		t.Errorf("low confidence items: got %d, want 1", got)
 	}
 
-	refusals := map[string]func(*capture.Extraction){
-		"no order":       func(x *capture.Extraction) { x.PurchaseOrder = "" },
-		"unknown order":  func(x *capture.Extraction) { x.PurchaseOrder = "PO-9" },
-		"date":           func(x *capture.Extraction) { x.InvoiceDate = "10.03.2026" },
-		"number":         func(x *capture.Extraction) { x.InvoiceNumber = "" },
-		"currency":       func(x *capture.Extraction) { x.Currency = "USD" },
-		"gross":          func(x *capture.Extraction) { x.GrossAmount = "lots" },
-		"tax":            func(x *capture.Extraction) { x.TaxAmount = "1.234" },
-		"no lines":       func(x *capture.Extraction) { x.Lines = nil },
-		"line amount":    func(x *capture.Extraction) { x.Lines[0].Amount = "x" },
-		"unknown line":   func(x *capture.Extraction) { x.Lines = x.Lines[:1] },
-		"validation":     func(x *capture.Extraction) { x.Lines[0].Quantity = "-1" },
-		"extraction err": nil,
+	// Each refusal is of a document not captured before, so it is refused
+	// for its own reason rather than as a duplicate.
+	unreadable := "payables.unreadable_document"
+	refusals := map[string]struct {
+		change func(*capture.Extraction)
+		code   string
+	}{
+		"no order":       {func(x *capture.Extraction) { x.PurchaseOrder = "" }, "payables.capture_needs_order"},
+		"unknown order":  {func(x *capture.Extraction) { x.PurchaseOrder = "PO-9" }, unreadable},
+		"date":           {func(x *capture.Extraction) { x.InvoiceDate = "10.03.2026" }, unreadable},
+		"number":         {func(x *capture.Extraction) { x.InvoiceNumber = "" }, unreadable},
+		"currency":       {func(x *capture.Extraction) { x.Currency = "USD" }, unreadable},
+		"gross":          {func(x *capture.Extraction) { x.GrossAmount = "lots" }, unreadable},
+		"tax":            {func(x *capture.Extraction) { x.TaxAmount = "1.234" }, unreadable},
+		"no lines":       {func(x *capture.Extraction) { x.Lines = nil }, unreadable},
+		"line amount":    {func(x *capture.Extraction) { x.Lines[0].Amount = "x" }, unreadable},
+		"unknown line":   {func(x *capture.Extraction) { x.Lines = x.Lines[:1] }, unreadable},
+		"validation":     {func(x *capture.Extraction) { x.Lines[0].Quantity = "-1" }, "payables.invalid_quantity"},
+		"extraction err": {nil, unreadable},
 	}
-	for name, change := range refusals {
+	for name, r := range refusals {
 		t.Run(name, func(t *testing.T) {
 			x := extractor{e: extraction()}
-			if change == nil {
+			x.e.InvoiceNumber = "CAP-" + name
+			if r.change == nil {
 				x = extractor{err: errors.New("model unavailable")}
 			} else {
-				change(x.e)
+				r.change(x.e)
 			}
-			if _, err := run(x, "%PDF-1 "+name); err == nil {
-				t.Error("got a captured invoice, want a refusal")
-			}
+			_, err := run(x, "%PDF-1 "+name)
+			pgtest.WantErr(t, err, r.code)
 		})
 	}
 	_, err = run(nil, "%PDF")
