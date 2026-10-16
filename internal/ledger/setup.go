@@ -130,8 +130,8 @@ func checkTaxCodesChangedToday(ctx context.Context, tx pgx.Tx, p string, le uuid
 }
 
 // checkActivated reports changes the ledger cannot make to what is
-// activated: removing a company, or changing an account's type or
-// reconciliation kind.
+// activated: removing a company, changing an account's type or
+// reconciliation kind, or changing the GR/IR account.
 func checkActivated(base, proposed *config.Config, out *findings) {
 	for _, old := range base.Companies {
 		p := "companies[" + old.Code + "]"
@@ -139,6 +139,12 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 		if co == nil {
 			out.add(p, "a company cannot be removed once activated")
 			continue
+		}
+		// The open GR/IR positions are lines on the activated account, and
+		// orders released since are valued through it (T33): another
+		// account, or none, would strand them.
+		if was := old.AccountDetermination.GRIR; was != "" && co.AccountDetermination.GRIR != was {
+			out.add(p+".account_determination.gr_ir", "the GR/IR account cannot change once activated")
 		}
 		for _, was := range old.ChartOfAccounts {
 			a := co.Account(was.Number)
@@ -198,8 +204,8 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		SELECT $1, $2, k, g.id, $4 FROM unnest($5::text[], $6::text[]) AS x(k, n) JOIN ledger.gl_account g ON g.chart_id = $3 AND g.number = x.n
 		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
 		WHERE d.account_id <> EXCLUDED.account_id`,
-		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss"},
-		[]string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss}); err != nil {
+		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference"},
+		[]string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference}); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
 	if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {

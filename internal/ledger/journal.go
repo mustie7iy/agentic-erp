@@ -27,6 +27,10 @@ func init() {
 	problem.RegisterConstraint("reversal_pkey", func() *problem.Problem {
 		return problem.Conflict("ledger.already_reversed", "The journal entry has already been reversed.")
 	})
+	problem.RegisterConstraint("journal_line_gr_ir_order_item", func() *problem.Problem {
+		return problem.Unprocessable("ledger.automatic_account", "The GR/IR account is posted only by goods receipts and invoices, which name the order item of each line.",
+			problem.FieldError{Field: "lines.account_id", Code: "automatic", Message: "an account other than the legal entity's GR/IR account"})
+	})
 	problem.RegisterConstraint("journal_line_uom_code_fkey", func() *problem.Problem {
 		return problem.Unprocessable("ledger.unknown_unit", "A quantity's unit of measure is not known.",
 			problem.FieldError{Field: "lines.quantity.unit", Code: "unknown", Message: "a unit of measure code from the reference data"})

@@ -113,8 +113,9 @@ func (Accounts) Determination(ctx context.Context, legalEntity uuid.UUID, key st
 }
 
 // IsPostable reports whether the account is active, set up and not blocked
-// for posting in the legal entity, and not a reconciliation account (those
-// are posted only through their subledger).
+// for posting in the legal entity, and neither a reconciliation account
+// (those are posted only through their subledger) nor the legal entity's
+// GR/IR account (posted only by goods receipts and invoices, T33).
 func (Accounts) IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -123,7 +124,9 @@ func (Accounts) IsPostable(ctx context.Context, legalEntity, account uuid.UUID) 
 	var ok bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
-		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none')`, legalEntity, account).Scan(&ok)
+		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none'
+			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
+				AND d.key = 'gr_ir' AND d.account_id = a.id))`, legalEntity, account).Scan(&ok)
 	if err != nil {
 		return ok, fmt.Errorf("ledger: is account %s postable in %s: %w", account, legalEntity, err)
 	}

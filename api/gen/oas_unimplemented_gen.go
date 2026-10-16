@@ -1235,7 +1235,9 @@ func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsRece
 //
 // Posts a manual journal entry. Journal entries are insert-only and have no draft state, so creating
 // an entry is posting it: the request is validated (balance in every currency, open period, postable
-// accounts, partner on reconciliation lines) and either fully posted or rejected.
+// accounts, partner on reconciliation lines) and either fully posted or rejected. A line on the legal
+// entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods
+// receipts and invoices post it.
 //
 // POST /v1/journal-entries
 func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (r PostJournalEntryRes, _ error) {
