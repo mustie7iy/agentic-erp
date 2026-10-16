@@ -60,7 +60,7 @@ var schema = json.RawMessage(`{
     "credited_invoice_number": {"type": "string", "description": "on a credit memo, the number of the supplier's invoice it credits if printed, else empty"},
     "vendor_name": {"type": "string"},
     "vendor_tax_id": {"type": "string"},
-    "invoice_number": {"type": "string"},
+    "invoice_number": {"type": "string", "description": "the document's own number (of the invoice or of the credit memo)"},
     "invoice_date": {"type": "string", "description": "YYYY-MM-DD"},
     "purchase_order": {"type": "string", "description": "the buyer's purchase order number, empty if none"},
     "currency": {"type": "string", "description": "ISO 4217 code"},

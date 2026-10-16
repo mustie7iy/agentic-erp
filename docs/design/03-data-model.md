@@ -871,8 +871,8 @@ Each kind is matched and posted by its kind (T34c):
   (the extraction's `document_kind`); subsequent debits and credits are
   entered by hand, since a document does not say reliably that it
   revalues without quantity. Amounts are entered unsigned: a credit memo
-  may print them negative, as many do, and is entered with their
-  magnitudes; an invoice printing a negative amount, a credit memo
+  may print them, and its quantities, negative, as many do, and is entered
+  with their magnitudes; an invoice printing a negative amount, a credit memo
   printing both signs, or another kind of document is not captured (422
   `payables.unreadable_document`). The number of the invoice a credit memo
   prints (`credited_invoice_number`) names, as its reference, the posted

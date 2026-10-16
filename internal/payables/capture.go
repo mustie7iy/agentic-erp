@@ -131,23 +131,23 @@ func (e *Endpoints) storeDocument(ctx context.Context, tenant uuid.UUID, sum [sh
 // It returns, as the reason to hold the document, a credited invoice that
 // cannot be named (creditedInvoice).
 func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, ext *capture.Extraction) (Input, string, error) {
-	po, order, err := e.capturedOrder(ctx, legalEntity, ext.PurchaseOrder)
-	if err != nil {
-		return Input{}, "", err
-	}
 	kind, ok := capturedKinds[ext.DocumentKind]
 	if !ok {
 		return Input{}, "", unreadable("the document is a " + ext.DocumentKind + ", not an invoice or a credit memo")
 	}
+	po, order, err := e.capturedOrder(ctx, legalEntity, ext.PurchaseOrder)
+	if err != nil {
+		return Input{}, "", err
+	}
 	date, err := time.Parse(time.DateOnly, ext.InvoiceDate)
 	if err != nil {
-		return Input{}, "", unreadable("the invoice date " + ext.InvoiceDate + " is not a date")
+		return Input{}, "", unreadable("the document date " + ext.InvoiceDate + " is not a date")
 	}
 	if ext.InvoiceNumber == "" {
-		return Input{}, "", unreadable("there is no invoice number")
+		return Input{}, "", unreadable("there is no document number")
 	}
 	if ext.Currency != order.Currency {
-		return Input{}, "", unreadable("the invoice is in " + ext.Currency + " but the order in " + order.Currency)
+		return Input{}, "", unreadable("the document is in " + ext.Currency + " but the order in " + order.Currency)
 	}
 	exp, err := currency.Exponent(ctx, tx, order.Currency, nil) // the order's currency is in the reference data
 	if err != nil {
@@ -161,7 +161,7 @@ func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uu
 	if in.Tax, err = a.amount(ext.TaxAmount, "tax amount"); err != nil {
 		return Input{}, "", err
 	}
-	if in.Items, err = capturedItems(ext.Lines, order, a.amount); err != nil {
+	if in.Items, err = capturedItems(ext.Lines, order, a); err != nil {
 		return Input{}, "", err
 	}
 	if a.negative && a.positive {
@@ -221,6 +221,17 @@ func (p *printed) amount(s, what string) (Amount, error) {
 	return Amount{Value: m.Plain(p.exp), Currency: p.currency}, nil
 }
 
+// quantity is a line's quantity as entered: a credit memo's printed
+// negative is its magnitude, whether or not the memo prints its amounts
+// negative too (both layouts are common, so quantities do not count
+// towards the signs of a memo); an invoice's is left for entry to refuse.
+func (p *printed) quantity(s string) string {
+	if p.credit {
+		return strings.TrimPrefix(s, "-")
+	}
+	return s
+}
+
 // creditedInvoice names, as the reference of a credit memo, the posted
 // invoice of the supplier whose number the memo prints (supplier
 // references are unique per supplier). A memo printing no number corrects
@@ -250,7 +261,7 @@ func creditedInvoice(ctx context.Context, tx pgx.Tx, in *Input, number string) (
 
 // capturedItems maps the document's lines to items of the order: by the
 // order line printed on them, or by position when the counts agree.
-func capturedItems(lines []capture.Line, order procurement.Order, amountOf func(s, what string) (Amount, error)) ([]ItemInput, error) {
+func capturedItems(lines []capture.Line, order procurement.Order, p *printed) ([]ItemInput, error) {
 	if len(lines) == 0 {
 		return nil, unreadable("there are no invoice lines")
 	}
@@ -269,12 +280,12 @@ func capturedItems(lines []capture.Line, order procurement.Order, amountOf func(
 		if unit == "" {
 			return nil, unreadable("a line names no item of the order")
 		}
-		a, err := amountOf(l.Amount, "a line amount")
+		a, err := p.amount(l.Amount, "a line amount")
 		if err != nil {
 			return nil, err
 		}
 		description := l.Description
-		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: l.Quantity, Unit: unit, Amount: a})
+		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: p.quantity(l.Quantity), Unit: unit, Amount: a})
 	}
 	return items, nil
 }

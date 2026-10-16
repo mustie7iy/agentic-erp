@@ -66,7 +66,8 @@ func TestCreditMemoExitCriterion(t *testing.T) {
 	}
 	posted := e.matchedAndPosted(t, first, "2026-03-12")
 	e.entry(t, "credit memo", posted["journal_entry_id"], "KG", map[string]string{grir: "-24.00", tax: "-4.56", ap: "28.56"})
-	e.reversed(t, posted, "2026-03-12")
+	reversal := e.reversed(t, posted, "2026-03-12")
+	e.entry(t, "credit memo reversal", reversal["reversal_entry_id"], "KG", map[string]string{grir: "24.00", tax: "4.56", ap: "-28.56"})
 	second := e.matchedAndPosted(t, e.captured(t, "%PDF memo 2"), "2026-03-12")
 
 	debit, _ := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": "SD-1",
@@ -75,7 +76,8 @@ func TestCreditMemoExitCriterion(t *testing.T) {
 		e.DE, e.Supplier, id(invoice), po, orderItem(po, "0", "5.00")), "")
 	posted = e.matchedAndPosted(t, debit, "2026-03-14")
 	e.entry(t, "subsequent debit", posted["journal_entry_id"], "KR", map[string]string{grir: "0.00", diff: "5.00", ap: "-5.00"})
-	e.reversed(t, posted, "2026-03-14")
+	reversal = e.reversed(t, posted, "2026-03-14")
+	e.entry(t, "subsequent debit reversal", reversal["reversal_entry_id"], "KR", map[string]string{grir: "0.00", diff: "-5.00", ap: "5.00"})
 
 	_, tag := e.Must(200, "GET", "/v1/supplier-invoices/"+id(invoice), "", "")
 	e.Problem(409, "payables.invoice_has_corrections", "POST", "/v1/supplier-invoices/"+id(invoice)+":reverse", `{"reason": "wrong"}`, tag)
@@ -155,14 +157,15 @@ func (e env) matchedAndPosted(t *testing.T, v map[string]any, date string) map[s
 	return posted
 }
 
-// reversed reverses the posted document on the date.
-func (e env) reversed(t *testing.T, v map[string]any, date string) {
+// reversed reverses the posted document on the date and returns it.
+func (e env) reversed(t *testing.T, v map[string]any, date string) map[string]any {
 	t.Helper()
 	_, tag := e.Must(200, "GET", "/v1/supplier-invoices/"+id(v), "", "")
 	r, _ := e.Must(200, "POST", "/v1/supplier-invoices/"+id(v)+":reverse", fmt.Sprintf(`{"reason": "Wrong document", "posting_date": %q}`, date), tag)
 	if r["status"] != "reversed" {
 		t.Errorf("reversal of %v %v: got status %v, want reversed", v["kind"], v["supplier_reference"], r["status"])
 	}
+	return r
 }
 
 // entry checks a journal entry's document type and its amount per account.
