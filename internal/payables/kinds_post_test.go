@@ -47,11 +47,16 @@ func TestCreditMemosAndSubsequentDebitsPost(t *testing.T) {
 	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
 		t.Errorf("credit memo lines: got %v, want %v", got, want)
 	}
-	for _, name := range []string{"supplier_invoice_posted"} {
-		evs := events(t, e.Tenant, name)
-		if got := evs[len(evs)-1]["gross_amount"].(map[string]any)["amount"]; got != "-28.56" {
-			t.Errorf("%s gross: got %v, want -28.56", name, got)
-		}
+	postedEvents := events(t, e.Tenant, "supplier_invoice_posted")
+	last := postedEvents[len(postedEvents)-1]
+	if last["kind"] != "credit_memo" {
+		t.Errorf("SupplierInvoicePosted kind: got %v, want credit_memo", last["kind"])
+	}
+	if got := last["gross_amount"].(map[string]any)["amount"]; got != "-28.56" {
+		t.Errorf("SupplierInvoicePosted gross: got %v, want -28.56", got)
+	}
+	if got := last["tax_amount"].(map[string]any)["amount"]; got != "-4.56" {
+		t.Errorf("SupplierInvoicePosted tax: got %v, want -4.56", got)
 	}
 	debit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_debit", "SD-1", "5.00", "0.00",
 		fmt.Sprintf(`, "purchase_order_id": %q`, po), poItem(po, 1, "0", "EA", "5.00")), "")
@@ -60,6 +65,18 @@ func TestCreditMemosAndSubsequentDebitsPost(t *testing.T) {
 	want = []line{{e.expense.String(), "5.00", nil}, {e.ap.String(), "-5.00", nil}}
 	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
 		t.Errorf("subsequent debit lines: got %v, want %v", got, want)
+	}
+	credit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_credit", "SC-0", "2.00", "0.00",
+		fmt.Sprintf(`, "purchase_order_id": %q`, po), poItem(po, 1, "0", "EA", "2.00")), "")
+	posted = e.posted(t, credit)
+	je, _ = e.Must(200, "GET", fmt.Sprintf("/v1/journal-entries/%v", posted["journal_entry_id"]), "", "")
+	if je["document_type"] != "KG" {
+		t.Errorf("subsequent credit document type: got %v, want KG", je["document_type"])
+	}
+	got = e.entryLines(t, posted["journal_entry_id"])
+	want = []line{{e.expense.String(), "-2.00", nil}, {e.ap.String(), "2.00", nil}}
+	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
+		t.Errorf("subsequent credit lines: got %v, want %v", got, want)
 	}
 	for name, c := range map[string]struct{ body, issue string }{
 		"credit beyond the invoiced": {e.document("credit_memo", "CM-2", "108.00", "0.00", "", poItem(po, 1, "9", "EA", "108.00")), "quantity_exceeds_invoiced"},
@@ -82,8 +99,8 @@ func TestCreditMemosAndSubsequentDebitsPost(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := sim.Detail["invoices"]; got != 5 {
-			t.Errorf("simulated documents: got %v, want every kind's 5", got)
+		if got := sim.Detail["invoices"]; got != 6 {
+			t.Errorf("simulated documents: got %v, want every kind's 6", got)
 		}
 	})
 }
@@ -141,12 +158,26 @@ func TestCreditMemoOnGRIR(t *testing.T) {
 	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
 		t.Errorf("subsequent debit lines: got %v, want %v", got, want)
 	}
-	page, _ := e.Must(200, "GET", "/v1/gr-ir-balances?legal_entity_id="+e.DE.String()+"&purchase_order_id="+po.String(), "", "")
-	b := page["items"].([]any)[0].(map[string]any)
-	if got := fmt.Sprint(b["received_quantity"].(map[string]any)["value"], " ", b["invoiced_quantity"].(map[string]any)["value"], " ",
-		b["balance"].(map[string]any)["amount"]); got != "10 8 -24.00" {
-		t.Errorf("position: got %s, want received 10, invoiced 8, -24.00", got)
+	credit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_credit", "SC-1", "4.00", "0.00",
+		fmt.Sprintf(`, "purchase_order_id": %q`, po), poItem(po, 1, "0", "EA", "4.00")), "")
+	got = e.entryLines(t, e.posted(t, credit)["journal_entry_id"])
+	want = []line{{grir, "0.00", po.String()}, {diff, "-4.00", nil}, {e.ap.String(), "4.00", nil}}
+	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
+		t.Errorf("subsequent credit lines: got %v, want %v", got, want)
 	}
+	position := func(t *testing.T, want string) {
+		t.Helper()
+		page, _ := e.Must(200, "GET", "/v1/gr-ir-balances?open_only=false&legal_entity_id="+e.DE.String()+"&purchase_order_id="+po.String(), "", "")
+		b := page["items"].([]any)[0].(map[string]any)
+		got := fmt.Sprint(b["received_quantity"].(map[string]any)["value"], " ", b["invoiced_quantity"].(map[string]any)["value"], " ",
+			b["balance"].(map[string]any)["amount"])
+		if got != want {
+			t.Errorf("position (received, invoiced, balance): got %s, want %s", got, want)
+		}
+	}
+	position(t, "10 8 -24.00")
+	e.act(t, 200, id(memo), "reverse", `{"reason": "wrong"}`)
+	position(t, "10 10 0.00")
 }
 
 // TestCorrectionPostingFailures: every statement of posting a correction

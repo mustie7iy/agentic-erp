@@ -857,7 +857,9 @@ Each kind is matched and posted by its kind (T34c):
   - on an order valued through GR/IR, a credit memo credits GR/IR at the
     order price of the quantity it credits;
   - a subsequent debit or credit moves no quantity, so its amount goes to
-    `price_difference` whole.
+    `price_difference` whole; its GR/IR line of 0.00 (quantity 0) is
+    kept, deliberately, so the order item's position history shows the
+    revaluation.
 - **Corrections and their invoice**:
   - a correction naming an invoice posts only while that invoice is
     posted, read `FOR SHARE` at `:post` (409 `payables.reference_not_posted`);

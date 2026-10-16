@@ -71,7 +71,8 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	text := "Supplier invoice " + v.DocumentNumber
+	text := map[string]string{KindInvoice: "Supplier invoice ", KindCreditMemo: "Supplier credit memo ", KindSubsequentDebit: "Subsequent debit ",
+		KindSubsequentCredit: "Subsequent credit "}[v.Kind] + v.DocumentNumber
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: documentType(v.Kind), DocumentDate: v.InvoiceDate,
 		PostingDate: *date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
 		SourceDocumentID: id, Lines: lines, GRIR: grir})
@@ -120,7 +121,6 @@ func requireReference(ctx context.Context, tx pgx.Tx, v Invoice) error {
 // corrections name: they are reversed first, so none stands against an
 // invoice that no longer does (T34).
 func requireNoCorrections(ctx context.Context, tx pgx.Tx, v Invoice) error {
-
 	rows, _ := tx.Query(ctx, `SELECT document_number FROM payables.supplier_invoice WHERE reference_invoice_id = $1 AND status = 'posted' ORDER BY 1`, v.ID)
 	numbers, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
