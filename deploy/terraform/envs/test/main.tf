@@ -77,15 +77,25 @@ module "subordinate_ca" {
   root_certificate = var.root_certificate
 }
 
+# The account's Auto Scaling service-linked role, which launches the
+# nodes' encrypted volumes. AWS creates it with the first Auto Scaling
+# group, but the cell's key names it before that, and KMS refuses a policy
+# naming a role that does not exist. In an account that already has it,
+# import it first (ADR-0035, bootstrap step 5).
+resource "aws_iam_service_linked_role" "autoscaling" {
+  aws_service_name = "autoscaling.amazonaws.com"
+}
+
 module "cell" {
-  source             = "../../modules/cell"
-  name               = "test-1"
-  cidr               = "10.32.0.0/16"
-  availability_zones = var.availability_zones
-  admin_role_arns    = var.admin_role_arns
-  subordinate_ca_arn = module.subordinate_ca.ca_arn
-  public_api_cidrs   = var.public_api_cidrs
-  node_scaling       = { min = 2, desired = 2, max = 4 }
+  source               = "../../modules/cell"
+  name                 = "test-1"
+  autoscaling_role_arn = aws_iam_service_linked_role.autoscaling.arn
+  cidr                 = "10.32.0.0/16"
+  availability_zones   = var.availability_zones
+  admin_role_arns      = var.admin_role_arns
+  subordinate_ca_arn   = module.subordinate_ca.ca_arn
+  public_api_cidrs     = var.public_api_cidrs
+  node_scaling         = { min = 2, desired = 2, max = 4 }
 }
 
 module "global" {
@@ -110,6 +120,7 @@ output "cell" {
     field_kms_key_arn          = module.cell.field_kms_key_arn
     cluster_kms_key_arn        = module.cell.cluster_kms_key_arn
     workload_role_arns         = module.cell.workload_role_arns
+    aws_endpoints              = module.cell.aws_endpoints
   }
 }
 

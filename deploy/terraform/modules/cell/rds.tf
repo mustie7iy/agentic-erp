@@ -60,7 +60,7 @@ resource "aws_rds_cluster" "cell" {
   db_cluster_instance_class       = var.database_instance_class
   storage_type                    = "gp3"
   allocated_storage               = var.database_storage_gb
-  iops                            = 3000
+  iops                            = var.database_iops
   database_name                   = "erp"
   master_username                 = "erp_admin"
   manage_master_user_password     = true

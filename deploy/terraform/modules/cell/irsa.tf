@@ -5,22 +5,27 @@
 locals {
   oidc_host = replace(aws_iam_openid_connect_provider.cluster.url, "https://", "")
 
+  # Who each role trusts, apart from what it may do: the field key's policy
+  # names the server's role, and the server's permissions name the key.
+  service_accounts = {
+    server           = { namespace = "erp", name = "erp-server" }
+    external_secrets = { namespace = "external-secrets", name = "external-secrets" }
+    cert_manager     = { namespace = "cert-manager", name = "aws-privateca-issuer" }
+    ebs_csi          = { namespace = "kube-system", name = "ebs-csi-controller-sa" }
+  }
+
   workloads = {
     # The API server and its workers: objects, field-key wrapping.
     server = {
-      namespace       = "erp"
-      service_account = "erp-server"
       statements = [
         { Sid = "Objects", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"], Resource = "${aws_s3_bucket.objects.arn}/*" },
         { Sid = "ListObjects", Effect = "Allow", Action = "s3:ListBucket", Resource = aws_s3_bucket.objects.arn },
         { Sid = "ObjectKey", Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.data.arn },
-        { Sid = "FieldMaster", Effect = "Allow", Action = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"], Resource = aws_kms_key.fields.arn },
+        { Sid = "FieldMaster", Effect = "Allow", Action = ["kms:Encrypt", "kms:Decrypt", "kms:DescribeKey"], Resource = aws_kms_key.fields.arn },
       ]
     }
     # The External Secrets Operator: the cell's secrets, read only.
     external_secrets = {
-      namespace       = "external-secrets"
-      service_account = "external-secrets"
       statements = [
         { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = [for secret in aws_secretsmanager_secret.cell : secret.arn] },
         { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = aws_kms_key.data.arn },
@@ -29,17 +34,16 @@ locals {
     # cert-manager's aws-privateca-issuer: certificates from the
     # environment's subordinate CA (T38).
     cert_manager = {
-      namespace       = "cert-manager"
-      service_account = "aws-privateca-issuer"
       statements = [
-        { Sid = "Issue", Effect = "Allow", Action = ["acm-pca:IssueCertificate", "acm-pca:GetCertificate", "acm-pca:DescribeCertificateAuthority"], Resource = var.subordinate_ca_arn },
+        # End-entity templates only: path length 0 aside, the role cannot
+        # ask for a CA certificate.
+        { Sid = "Issue", Effect = "Allow", Action = "acm-pca:IssueCertificate", Resource = var.subordinate_ca_arn, Condition = { StringLike = { "acm-pca:TemplateArn" = "arn:${data.aws_partition.current.partition}:acm-pca:::template/EndEntity*" } } },
+        { Sid = "Read", Effect = "Allow", Action = ["acm-pca:GetCertificate", "acm-pca:DescribeCertificateAuthority"], Resource = var.subordinate_ca_arn },
       ]
     }
     # The EBS CSI driver: the volumes of NATS JetStream and the like,
     # encrypted with the cluster key.
     ebs_csi = {
-      namespace       = "kube-system"
-      service_account = "ebs-csi-controller-sa"
       statements = [
         { Sid = "VolumeKey", Effect = "Allow", Action = ["kms:CreateGrant", "kms:ListGrants", "kms:RevokeGrant", "kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"], Resource = aws_kms_key.cluster.arn },
       ]
@@ -48,7 +52,7 @@ locals {
 }
 
 resource "aws_iam_role" "workload" {
-  for_each = local.workloads
+  for_each = local.service_accounts
   name     = "${local.prefix}-${replace(each.key, "_", "-")}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -59,7 +63,7 @@ resource "aws_iam_role" "workload" {
       Condition = {
         StringEquals = {
           "${local.oidc_host}:aud" = "sts.amazonaws.com"
-          "${local.oidc_host}:sub" = "system:serviceaccount:${each.value.namespace}:${each.value.service_account}"
+          "${local.oidc_host}:sub" = "system:serviceaccount:${each.value.namespace}:${each.value.name}"
         }
       }
     }]

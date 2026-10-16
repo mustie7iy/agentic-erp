@@ -3,8 +3,8 @@
 # cert-manager's aws-privateca-issuer issues the short-lived certificates
 # of TLS inside a cell and of mTLS between services. The root signs nothing
 # else, lives in the tooling account and is kept from deletion. It publishes
-# no revocation list yet: whether to revoke a subordinate by CRL or OCSP is
-# decided with the subordinates in T40b.
+# no revocation list yet: whether certificates are revoked by CRL or OCSP is
+# decided with cert-manager's certificate lifetimes in T40c (ADR-0035).
 
 variable "common_name" {
   description = "The root's common name."

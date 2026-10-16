@@ -41,11 +41,12 @@ mock_provider "aws" {
 }
 
 variables {
-  name               = "dev-1"
-  cidr               = "10.10.0.0/16"
-  availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
-  admin_role_arns    = ["arn:aws:iam::222222222222:role/platform-admin"]
-  subordinate_ca_arn = "arn:aws:acm-pca:eu-central-1:222222222222:certificate-authority/1111"
+  name                 = "dev-1"
+  cidr                 = "10.10.0.0/16"
+  availability_zones   = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
+  admin_role_arns      = ["arn:aws:iam::222222222222:role/platform-admin"]
+  subordinate_ca_arn   = "arn:aws:acm-pca:eu-central-1:222222222222:certificate-authority/1111"
+  autoscaling_role_arn = "arn:aws:iam::222222222222:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
 }
 
 run "the_database_requires_tls_1_3_and_survives_a_zone" {
@@ -124,6 +125,53 @@ run "each_workload_role_trusts_its_service_account_only" {
     ])
     error_message = "the External Secrets Operator only reads"
   }
+}
+
+run "only_the_server_unwraps_tenant_keys" {
+  command = apply
+
+  assert {
+    condition = alltrue([
+      for st in jsondecode(aws_kms_key.fields.policy).Statement :
+      !anytrue([for a in flatten([st.Action]) : contains(["kms:*", "kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:CreateGrant"], a)])
+      if st.Sid != "ServerWrapsTenantKeys"
+    ])
+    error_message = "administrators and the account manage the field key but cannot use it (ADR-0019)"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_kms_key.fields.policy).Statement : st.Principal.AWS if st.Sid == "ServerWrapsTenantKeys"][0] == aws_iam_role.workload["server"].arn
+    error_message = "the server's role wraps and unwraps tenant keys"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_kms_key.fields.policy).Statement : st.Condition if st.Sid == "ServerWrapsTenantKeys"][0]["ForAllValues:StringEquals"]["kms:EncryptionContextKeys"] == ["tenant"]
+    error_message = "only with a tenant encryption context"
+  }
+}
+
+run "the_volume_key_names_the_auto_scaling_role_it_is_given" {
+  command = apply
+
+  assert {
+    condition     = [for st in jsondecode(aws_kms_key.cluster.policy).Statement : st.Condition if st.Sid == "AutoScalingVolumeGrants"][0].Bool["kms:GrantIsForAWSResource"] == "true"
+    error_message = "Auto Scaling creates grants for AWS resources only"
+  }
+}
+
+run "the_issuer_asks_for_end_entity_certificates_only" {
+  command = apply
+
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["cert_manager"].policy).Statement[0].Condition.StringLike["acm-pca:TemplateArn"] == "arn:aws:acm-pca:::template/EndEntity*"
+    error_message = "cert-manager's role cannot request a CA certificate"
+  }
+}
+
+run "a_database_too_small_for_provisioned_iops_is_refused" {
+  command = plan
+  variables {
+    database_storage_gb = 100
+  }
+  expect_failures = [var.database_storage_gb]
 }
 
 run "secrets_and_objects_are_encrypted_with_the_data_key" {

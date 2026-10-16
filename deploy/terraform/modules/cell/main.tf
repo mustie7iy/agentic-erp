@@ -45,6 +45,15 @@ variable "subordinate_ca_arn" {
   type        = string
 }
 
+variable "autoscaling_role_arn" {
+  description = "The account's Auto Scaling service-linked role, which launches the encrypted node volumes; it must exist before the cluster key names it (the environment root creates it)."
+  type        = string
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling$", var.autoscaling_role_arn))
+    error_message = "the AWSServiceRoleForAutoScaling role's ARN"
+  }
+}
+
 variable "kubernetes_version" {
   description = "EKS's Kubernetes version."
   type        = string
@@ -80,9 +89,19 @@ variable "database_instance_class" {
 }
 
 variable "database_storage_gb" {
-  description = "Allocated storage of the DB cluster."
+  description = "Allocated storage of the DB cluster; gp3 takes provisioned IOPS from 400 GiB, which a Multi-AZ DB cluster requires."
   type        = number
-  default     = 100
+  default     = 400
+  validation {
+    condition     = var.database_storage_gb >= 400
+    error_message = "at least 400 GiB: below it gp3 refuses the provisioned IOPS a Multi-AZ DB cluster needs"
+  }
+}
+
+variable "database_iops" {
+  description = "Provisioned IOPS of the DB cluster's gp3 storage (12000 is gp3's baseline from 400 GiB)."
+  type        = number
+  default     = 12000
 }
 
 variable "log_retention_days" {

@@ -32,6 +32,9 @@ mock_provider "aws" {
       url = "https://oidc.eks.eu-central-1.amazonaws.com/id/ABC"
     }
   }
+  mock_resource "aws_iam_service_linked_role" {
+    defaults = { arn = "arn:aws:iam::222222222222:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling" }
+  }
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::222222222222:role/mock" }
   }
@@ -84,6 +87,10 @@ run "the_dev_environment_plans_and_wires_its_parts" {
   assert {
     condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi"])
     error_message = "every workload of the cell has its role"
+  }
+  assert {
+    condition     = output.cell.aws_endpoints.sts == "https://sts.eu-central-1.amazonaws.com"
+    error_message = "workloads get the regional STS endpoint, which the VPC endpoint answers"
   }
   assert {
     condition     = output.global.router_target_group_arn == "arn:aws:elasticloadbalancing:eu-central-1:222222222222:targetgroup/erp-dev-router/0"

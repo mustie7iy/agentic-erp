@@ -63,6 +63,15 @@ output "cluster_kms_key_arn" {
   value       = aws_kms_key.cluster.arn
 }
 
+output "aws_endpoints" {
+  description = "The regional endpoints the workloads must use (ERP_AWS_STS_ENDPOINT, ERP_FIELD_KMS_ENDPOINT, ERP_OBJECT_S3_ENDPOINT, T40c): the VPC endpoints' private DNS answers for regional names only, and the global sts.amazonaws.com would leave through the NAT gateway."
+  value = {
+    sts = "https://sts.${data.aws_region.current.region}.amazonaws.com"
+    kms = "https://kms.${data.aws_region.current.region}.amazonaws.com"
+    s3  = "https://s3.${data.aws_region.current.region}.amazonaws.com"
+  }
+}
+
 output "workload_role_arns" {
   description = "IRSA roles by workload, for the service accounts' eks.amazonaws.com/role-arn annotation (T40c)."
   value       = { for name, role in aws_iam_role.workload : name => role.arn }
