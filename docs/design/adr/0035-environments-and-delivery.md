@@ -24,8 +24,9 @@ a VPC and an EKS cluster in its environment's account and region; a
 dedicated cell may get an account of its own.
 
 **Terraform.** `deploy/terraform/` holds modules (`state`, `accounts`,
-`signing-key`, `release-roles`, `ecr`, `private-ca`; from T40b `cell` and
-`global`) and one root per environment, region and cell under `envs/`.
+`signing-key`, `release-roles`, `ecr`, `private-ca`; from T40b `network`,
+`cell`, `global` and `subordinate-ca`) and one root per environment, region
+and cell under `envs/` (T40b: `dev` and `test`, one cell each).
 State lives in one S3 bucket in tooling, versioned (superseded versions
 kept a year), encrypted with a key of its own, which the bucket enforces on
 every write, TLS-only, with S3's own locking (`use_lockfile`), one key per
@@ -53,18 +54,27 @@ kept and never untagged manifests, which may be signatures stored as OCI
 referrers.
 
 **Certificates (from T38).** A root CA in AWS Private CA in tooling (EC
-P-384, kept from deletion) signs one subordinate CA per environment (T40b);
+P-384, kept from deletion) signs one subordinate CA per environment (T40b:
+EC P-256 in the environment's account, path length 0, general-purpose mode;
+the environment's root signs it through a provider for tooling);
 cert-manager with the `aws-privateca-issuer` issues the short-lived
 certificates of TLS inside a cell and of mTLS between services. A Network
 Load Balancer passes TLS through to the router (layer 4), which terminates
-it. PostgreSQL requires TLS 1.3 (`ssl_min_protocol_version`,
+it; it therefore has no access logs (they cover TLS listeners only, and
+their bucket must use SSE-S3, which the policy refuses) and the router logs
+every request. PostgreSQL requires TLS 1.3 (`ssl_min_protocol_version`,
 `rds.force_ssl`).
 
 **Encryption at rest, checked.** `deploy/policy/encryption.rego` refuses
 any S3 bucket without KMS encryption and a full public access block, any
 symmetric KMS key that does not rotate, any ECR repository or replication
 template not encrypted with KMS, any RDS instance or cluster, EBS volume,
-EKS cluster (secrets) or DynamoDB table not encrypted. conftest applies it
+EKS cluster (secrets) or DynamoDB table not encrypted; from T40b also a
+launch template's volumes, a log group or secret without a KMS key, EBS
+encryption by default turned off, an EFS file system or ElastiCache
+replication group not encrypted. `deploy/policy/endpoints.rego` refuses a
+VPC without endpoints for S3, KMS and STS (T38b: providers are never
+proxied). conftest applies it
 to every module and root in CI, with unit tests, and checks that it refuses
 each resource of an unencrypted fixture. It reads the Terraform source, so
 it sees resources declared in the directory, not inside a called module:
@@ -82,6 +92,33 @@ residency. Secrets come from AWS Secrets Manager through the External
 Secrets Operator into Kubernetes secrets mounted as files, which the
 platform reads with `file:` references (ADR-0017). Workloads reach AWS with
 their service account's role (IRSA, ADR-0024).
+
+T40b builds a cell as one module: a VPC over three zones (public subnets
+for load balancers, private ones for nodes and databases, a NAT gateway per
+zone) with a gateway endpoint for S3 and interface endpoints with private
+DNS for KMS and STS, so calls to the providers never leave AWS's network
+or pass a proxy, plus ECR, Secrets Manager, CloudWatch Logs, EC2 and ELB;
+three KMS keys (data, cluster, fields of ADR-0019); EKS with a private API
+unless operator CIDRs are given, access entries instead of the creator's
+implicit administrator, secrets encrypted, IMDSv2 with a hop limit of one
+so pods use IRSA, encrypted gp3 node volumes on Graviton; the RDS cluster
+(`db.m6gd.large` by default) with a parameter group setting
+`rds.force_ssl=1` and `ssl_min_protocol_version=TLSv1.3`, its master
+password managed by RDS in Secrets Manager; the object bucket (ADR-0016);
+empty Secrets Manager entries under `erp/<cell>/` that operators fill, so
+no secret value is in Terraform state; and IRSA roles for the server,
+External Secrets (read only), cert-manager's issuer (the environment's
+subordinate only) and the EBS CSI driver. NATS and Temporal run on the
+cluster (T40c) on volumes encrypted with the cluster key; Temporal's
+databases live on the cell's RDS cluster. The role of the AWS Load
+Balancer Controller comes with its chart (T40c).
+
+**Global (T40b).** Per environment, in its home cell's VPC: the directory
+(05 §5.4, ADR-0022) on its own RDS for PostgreSQL 17 instance, Multi-AZ,
+TLS 1.3 only, with a key of its own; and the internet-facing Network Load
+Balancer, TCP 443 to the router's pods as IP targets (registered by the
+`erp-global` chart's TargetGroupBinding, T40c), health-checked over TCP,
+protected from deletion.
 
 **Helm (T40c).** An `erp-cell` chart (the server, PgBouncer, NATS,
 Temporal) and an `erp-global` chart (the router); non-root, read-only root
@@ -131,6 +168,14 @@ which the state bucket refuses.
    keep more than one administrator role, since if every one were deleted
    only AWS Support could restore access. Set the release environment's
    variables from the outputs (`cosign_key`, `release_role_arn`, `region`).
+5. Apply each environment root (`envs/dev`, `envs/test`) in its account,
+   with `root_ca_arn` and `root_certificate` from tooling's outputs and
+   `tooling_role_arn` naming a role in tooling the applying principal may
+   assume that may issue from the root CA (`acm-pca:IssueCertificate`,
+   `acm-pca:GetCertificate`). `admin_role_arns` must include the applying
+   role, as in step 4. A second cell in the same account and region sets
+   `manage_ebs_defaults = false`: EBS encryption by default is a setting of
+   the account and region, which only one cell owns.
 
 ## Alternatives
 - **One account for everything, environments by VPC.** Cheaper and simpler,
