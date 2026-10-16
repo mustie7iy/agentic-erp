@@ -1345,3 +1345,18 @@ func TestCellIssuers(t *testing.T) {
 		t.Errorf("issuers: got %d without %s of the tenant, want it listed with its provider", len(got), issuer)
 	}
 }
+
+// TestCellIssuersFailing: a failed read hands the round nothing, with the
+// error.
+func TestCellIssuersFailing(t *testing.T) {
+	ctx := context.Background()
+	tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_control", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	got, err := cellIssuers(ctx, &pgtest.FailingTx{Tx: tx, FailAt: 1})
+	if !errors.Is(err, pgtest.ErrInjected) || got != nil {
+		t.Errorf("got %v, %v, want nil and the injected failure", got, err)
+	}
+}

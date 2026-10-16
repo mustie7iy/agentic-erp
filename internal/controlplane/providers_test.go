@@ -442,6 +442,9 @@ func (p *pausedCommit) Commit(ctx context.Context) error {
 // TestConcurrentRegistrationsWithOneKey: two registrations with the same
 // key at once register once; the second waits for the first and replays
 // it, rather than answering that the issuer is taken.
+// The second waits on the tenant's row, which every registry write holds
+// (inTenant); the key claimed first (claimKey) is what makes it replay
+// rather than register again once the first has committed.
 func TestConcurrentRegistrationsWithOneKey(t *testing.T) {
 	s := service(t)
 	ten := pgtest.NewTenant(t)
@@ -556,8 +559,9 @@ func TestWriteTimeoutEndsALongRegistration(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
 	in := identity.NewIdentityProvider{Issuer: "https://slow-" + uuid.NewString() + ".example.com", Audience: "erp"}
-	if _, _, err := s.RegisterProvider(context.Background(), op, ten.ID, in, nil); err == nil {
-		t.Fatal("a registration outliving the write timeout: got registered, want it ended")
+	_, _, err := s.RegisterProvider(context.Background(), op, ten.ID, in, nil)
+	if err == nil || !strings.Contains(err.Error(), "transaction timeout") {
+		t.Fatalf("a registration outliving the write timeout: got %v, want it ended by the transaction timeout", err)
 	}
 	var n int
 	pgtest.Scan(t, `SELECT count(*) FROM identity.identity_provider WHERE issuer = $1`, []any{in.Issuer}, &n)

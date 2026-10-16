@@ -290,11 +290,14 @@ func (s *server) openDirectory(ctx context.Context) (*directory.Postgres, error)
 // the directory, so neither imports the other.
 func cellIssuers(ctx context.Context, tx pgx.Tx) ([]directory.Issuer, error) {
 	keys, err := identity.ActiveIdentityProviders(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]directory.Issuer, len(keys))
 	for i, k := range keys {
 		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID, ProviderID: k.ID}
 	}
-	return out, err
+	return out, nil
 }
 
 // controlPlane builds the operators' API, served when there is an issuer
