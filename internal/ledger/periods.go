@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -127,12 +128,20 @@ func changePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, 
 	if err != nil {
 		return Period{}, err
 	}
-	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: event, AggregateType: "ledger.period_status", AggregateID: id,
-		Payload: map[string]any{"period_id": id, "legal_entity_id": p.LegalEntityID, "ledger_id": p.LedgerID, "calendar_id": p.CalendarID,
+	return updated, periodChanged(ctx, p, to, action, event, nil)
+}
+
+// periodChanged publishes the event of a period's change of status from
+// p.Status to to and records it in the audit trail with detail.
+func periodChanged(ctx context.Context, p Period, to, action, event string, detail map[string]any) error {
+	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: event, AggregateType: "ledger.period_status", AggregateID: p.ID,
+		Payload: map[string]any{"period_id": p.ID, "legal_entity_id": p.LegalEntityID, "ledger_id": p.LedgerID, "calendar_id": p.CalendarID,
 			"fiscal_year": p.FiscalYear, "period": p.Period, "start_date": p.StartDate.Format(time.DateOnly), "end_date": p.EndDate.Format(time.DateOnly),
-			"status": to, "previous_status": from}}); err != nil {
-		return Period{}, err
+			"status": to, "previous_status": p.Status}}); err != nil {
+		return err
 	}
-	return updated, audit.Add(ctx, audit.Entry{Action: "ledger.fiscal_period." + action, ObjectType: "ledger.period_status", ObjectID: id,
-		Outcome: "succeeded", Detail: map[string]any{"fiscal_year": p.FiscalYear, "period": p.Period, "from_status": from}})
+	d := map[string]any{"fiscal_year": p.FiscalYear, "period": p.Period, "from_status": p.Status}
+	maps.Copy(d, detail)
+	return audit.Add(ctx, audit.Entry{Action: "ledger.fiscal_period." + action, ObjectType: "ledger.period_status", ObjectID: p.ID,
+		Outcome: "succeeded", Detail: d})
 }

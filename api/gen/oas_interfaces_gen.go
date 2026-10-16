@@ -625,6 +625,10 @@ type UnblockOrgUnitRes interface {
 	unblockOrgUnitRes()
 }
 
+type UnlockFiscalPeriodRes interface {
+	unlockFiscalPeriodRes()
+}
+
 type UpdateChangeRequestRes interface {
 	updateChangeRequestRes()
 }

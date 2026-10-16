@@ -2202,6 +2202,7 @@ func (*BadRequestHeaders) transmitBankFileRes()           {}
 func (*BadRequestHeaders) unblockBusinessPartnerRes()     {}
 func (*BadRequestHeaders) unblockLegalEntityRes()         {}
 func (*BadRequestHeaders) unblockOrgUnitRes()             {}
+func (*BadRequestHeaders) unlockFiscalPeriodRes()         {}
 func (*BadRequestHeaders) updateChangeRequestRes()        {}
 func (*BadRequestHeaders) updateConnectorRes()            {}
 func (*BadRequestHeaders) updateContractRes()             {}
@@ -5085,9 +5086,10 @@ func (s *CloseFiscalPeriodOKHeaders) SetResponse(val FiscalPeriod) {
 	s.Response = val
 }
 
-func (*CloseFiscalPeriodOKHeaders) closeFiscalPeriodRes() {}
-func (*CloseFiscalPeriodOKHeaders) lockFiscalPeriodRes()  {}
-func (*CloseFiscalPeriodOKHeaders) openFiscalPeriodRes()  {}
+func (*CloseFiscalPeriodOKHeaders) closeFiscalPeriodRes()  {}
+func (*CloseFiscalPeriodOKHeaders) lockFiscalPeriodRes()   {}
+func (*CloseFiscalPeriodOKHeaders) openFiscalPeriodRes()   {}
+func (*CloseFiscalPeriodOKHeaders) unlockFiscalPeriodRes() {}
 
 // Body of a rejection or cancellation decision.
 // Ref: #/components/schemas/CommentRequiredInput
@@ -5907,6 +5909,7 @@ func (*ConflictHeaders) transmitBankFileRes()         {}
 func (*ConflictHeaders) unblockBusinessPartnerRes()   {}
 func (*ConflictHeaders) unblockLegalEntityRes()       {}
 func (*ConflictHeaders) unblockOrgUnitRes()           {}
+func (*ConflictHeaders) unlockFiscalPeriodRes()       {}
 func (*ConflictHeaders) updateChangeRequestRes()      {}
 func (*ConflictHeaders) updateConnectorRes()          {}
 func (*ConflictHeaders) updateContractRes()           {}
@@ -8674,6 +8677,7 @@ func (*ForbiddenHeaders) transmitBankFileRes()           {}
 func (*ForbiddenHeaders) unblockBusinessPartnerRes()     {}
 func (*ForbiddenHeaders) unblockLegalEntityRes()         {}
 func (*ForbiddenHeaders) unblockOrgUnitRes()             {}
+func (*ForbiddenHeaders) unlockFiscalPeriodRes()         {}
 func (*ForbiddenHeaders) updateChangeRequestRes()        {}
 func (*ForbiddenHeaders) updateConnectorRes()            {}
 func (*ForbiddenHeaders) updateContractRes()             {}
@@ -13295,6 +13299,7 @@ func (*NotFoundHeaders) transmitBankFileRes()           {}
 func (*NotFoundHeaders) unblockBusinessPartnerRes()     {}
 func (*NotFoundHeaders) unblockLegalEntityRes()         {}
 func (*NotFoundHeaders) unblockOrgUnitRes()             {}
+func (*NotFoundHeaders) unlockFiscalPeriodRes()         {}
 func (*NotFoundHeaders) updateChangeRequestRes()        {}
 func (*NotFoundHeaders) updateConnectorRes()            {}
 func (*NotFoundHeaders) updateContractRes()             {}
@@ -17475,6 +17480,7 @@ func (*PreconditionFailedHeaders) transmitBankFileRes()       {}
 func (*PreconditionFailedHeaders) unblockBusinessPartnerRes() {}
 func (*PreconditionFailedHeaders) unblockLegalEntityRes()     {}
 func (*PreconditionFailedHeaders) unblockOrgUnitRes()         {}
+func (*PreconditionFailedHeaders) unlockFiscalPeriodRes()     {}
 func (*PreconditionFailedHeaders) updateChangeRequestRes()    {}
 func (*PreconditionFailedHeaders) updateConnectorRes()        {}
 func (*PreconditionFailedHeaders) updateContractRes()         {}
@@ -17614,6 +17620,7 @@ func (*PreconditionRequiredHeaders) transmitBankFileRes()         {}
 func (*PreconditionRequiredHeaders) unblockBusinessPartnerRes()   {}
 func (*PreconditionRequiredHeaders) unblockLegalEntityRes()       {}
 func (*PreconditionRequiredHeaders) unblockOrgUnitRes()           {}
+func (*PreconditionRequiredHeaders) unlockFiscalPeriodRes()       {}
 func (*PreconditionRequiredHeaders) updateChangeRequestRes()      {}
 func (*PreconditionRequiredHeaders) updateConnectorRes()          {}
 func (*PreconditionRequiredHeaders) updateContractRes()           {}
@@ -22128,6 +22135,7 @@ func (*ServiceUnavailableHeaders) transmitBankFileRes()           {}
 func (*ServiceUnavailableHeaders) unblockBusinessPartnerRes()     {}
 func (*ServiceUnavailableHeaders) unblockLegalEntityRes()         {}
 func (*ServiceUnavailableHeaders) unblockOrgUnitRes()             {}
+func (*ServiceUnavailableHeaders) unlockFiscalPeriodRes()         {}
 func (*ServiceUnavailableHeaders) updateChangeRequestRes()        {}
 func (*ServiceUnavailableHeaders) updateConnectorRes()            {}
 func (*ServiceUnavailableHeaders) updateContractRes()             {}
@@ -23789,6 +23797,7 @@ func (*TooManyRequestsHeaders) transmitBankFileRes()           {}
 func (*TooManyRequestsHeaders) unblockBusinessPartnerRes()     {}
 func (*TooManyRequestsHeaders) unblockLegalEntityRes()         {}
 func (*TooManyRequestsHeaders) unblockOrgUnitRes()             {}
+func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()         {}
 func (*TooManyRequestsHeaders) updateChangeRequestRes()        {}
 func (*TooManyRequestsHeaders) updateConnectorRes()            {}
 func (*TooManyRequestsHeaders) updateContractRes()             {}
@@ -24017,6 +24026,7 @@ func (*UnauthorizedHeaders) transmitBankFileRes()           {}
 func (*UnauthorizedHeaders) unblockBusinessPartnerRes()     {}
 func (*UnauthorizedHeaders) unblockLegalEntityRes()         {}
 func (*UnauthorizedHeaders) unblockOrgUnitRes()             {}
+func (*UnauthorizedHeaders) unlockFiscalPeriodRes()         {}
 func (*UnauthorizedHeaders) updateChangeRequestRes()        {}
 func (*UnauthorizedHeaders) updateConnectorRes()            {}
 func (*UnauthorizedHeaders) updateContractRes()             {}
@@ -24157,6 +24167,7 @@ func (*UnprocessableHeaders) transmitBankFileRes()         {}
 func (*UnprocessableHeaders) unblockBusinessPartnerRes()   {}
 func (*UnprocessableHeaders) unblockLegalEntityRes()       {}
 func (*UnprocessableHeaders) unblockOrgUnitRes()           {}
+func (*UnprocessableHeaders) unlockFiscalPeriodRes()       {}
 func (*UnprocessableHeaders) updateChangeRequestRes()      {}
 func (*UnprocessableHeaders) updateConnectorRes()          {}
 func (*UnprocessableHeaders) updateContractRes()           {}

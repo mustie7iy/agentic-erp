@@ -4,6 +4,10 @@
 // table, posting periods per legal entity and ledger, exchange rates, and
 // period balances derived by a projector.
 //
+// A locked period returns to closed only through an approved period_unlock
+// approval request (T32): the ledger opens it (RequestUnlock) and is called
+// back when it completes (PeriodUnlocks).
+//
 // Accounts, fiscal calendars and periods are master data of the
 // configuration document: the configuration context hands an activated
 // document to Setup, which applies it here. Postings take their document
@@ -47,4 +51,5 @@ type Endpoints struct {
 	LegalEntities LegalEntities
 	Partners      Partners
 	Numbers       Numbers
+	Approvals     Opener // opens the unlock requests of locked periods
 }

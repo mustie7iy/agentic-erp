@@ -199,6 +199,7 @@ channels:
       PeriodOpened: {$ref: '#/components/messages/PeriodOpened'}
       PeriodClosed: {$ref: '#/components/messages/PeriodClosed'}
       PeriodLocked: {$ref: '#/components/messages/PeriodLocked'}
+      PeriodUnlocked: {$ref: '#/components/messages/PeriodUnlocked'}
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
   procurement:
     address: 'erp.{cell}.procurement.{tenant}.{event}'
@@ -360,6 +361,7 @@ operations:
       - $ref: '#/channels/ledger/messages/PeriodOpened'
       - $ref: '#/channels/ledger/messages/PeriodClosed'
       - $ref: '#/channels/ledger/messages/PeriodLocked'
+      - $ref: '#/channels/ledger/messages/PeriodUnlocked'
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
   publishProcurementEvents:
     action: send
@@ -793,6 +795,28 @@ components:
         - name: sep-2026
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000082, source: /erp/eu-1/ledger, type: com.example.erp.ledger.period_locked.v1, subject: 0192a000-0000-7000-8000-000000000205, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: locked, previous_status: closed}
+
+    PeriodUnlocked:
+      name: PeriodUnlocked
+      title: Posting period unlocked
+      summary: A locked fiscal period returned to closed on an approved unlock request.
+      description: |
+        Emitted when the `period_unlock` approval request named by a locked
+        period is approved (`approval-requests/{id}:approve`, in the same
+        transaction as the decision): `ledger.period_status` goes from
+        `locked` to `closed`. The period still refuses postings until it is
+        opened (`:open`). Subject is the period status id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.period_unlocked.v1}
+      payload: {$ref: '#/components/schemas/PeriodStatusChangedV1'}
+      examples:
+        - name: sep-2026
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000083, source: /erp/eu-1/ledger, type: com.example.erp.ledger.period_unlocked.v1, subject: 0192a000-0000-7000-8000-000000000205, time: '2026-10-22T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: closed, previous_status: locked}
 
     # ------------------------------------------------------------ procurement
     RequisitionSubmitted:

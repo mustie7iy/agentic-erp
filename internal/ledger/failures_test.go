@@ -66,6 +66,40 @@ func TestDatabaseFailures(t *testing.T) {
 			t.Error("lock period outside a unit of work")
 		}
 	})
+	t.Run("unlocking a period", func(t *testing.T) {
+		// Each call closes and locks the period, asks for its unlock and
+		// ends the request; every step fails like closing.
+		request := uuid.New()
+		unlock := func(ctx context.Context) error {
+			if _, err := h.CloseFiscalPeriod(ctx, gen.CloseFiscalPeriodParams{ID: d.period, IfMatch: "*"}); err != nil {
+				return err
+			}
+			if _, err := h.LockFiscalPeriod(ctx, gen.LockFiscalPeriodParams{ID: d.period, IfMatch: "*"}); err != nil {
+				return err
+			}
+			u := *h
+			u.Approvals = opener{request, true}
+			_, err := u.UnlockFiscalPeriod(ctx, &gen.ReasonInput{Reason: "r"}, gen.UnlockFiscalPeriodParams{ID: d.period, IfMatch: "*"})
+			return err
+		}
+		for name, end := range map[string]func(ctx context.Context) error{
+			"reject unlock":  func(ctx context.Context) error { return ledger.PeriodUnlocks{}.Rejected(ctx, d.period, request, "c") },
+			"approve unlock": func(ctx context.Context) error { return ledger.PeriodUnlocks{}.Approved(ctx, d.period, request) },
+		} {
+			if err := end(context.Background()); err == nil {
+				t.Errorf("%s outside a unit of work: got no error, want one", name)
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, func(ctx context.Context) error {
+				if err := unlock(ctx); err != nil {
+					return err
+				}
+				return end(ctx)
+			})
+		}
+		if _, err := h.UnlockFiscalPeriod(context.Background(), &gen.ReasonInput{Reason: "r"}, gen.UnlockFiscalPeriodParams{ID: d.period, IfMatch: "*"}); err == nil {
+			t.Error("unlock period outside a unit of work")
+		}
+	})
 	t.Run("page sizes and list rules", func(t *testing.T) {
 		// Handlers check page sizes and list rules for callers other than the generated router.
 		zero := gen.NewOptInt32(0)
