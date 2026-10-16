@@ -80,4 +80,24 @@ expect "a push changing CI itself, though its tree was tested" true \
   EVENT=push BASE="$merged" HEAD="$ci" FAKE_PR_HEAD=abc FAKE_RUN=42 FAKE_TREE="$citree"
 expect "a pull request is never skipped for a tested tree" true \
   EVENT=pull_request BASE="$tracker" HEAD="$merged" FAKE_PR_HEAD=abc FAKE_RUN=42 FAKE_TREE="$tree"
+
+# code= tells fuzzing on main whether code changed, skipped suite or not.
+code_out() {
+  (cd "$repo" && env PATH="$work/bin:$PATH" GH=gh GITHUB_REPOSITORY=o/r "$@" "$root/scripts/ci-changes.sh") | sed -n 's/^code=//p'
+}
+got="$(code_out EVENT=push BASE="$tracker" HEAD="$merged" FAKE_PR_HEAD=abc FAKE_RUN=42 FAKE_TREE="$tree")"
+if [ "$got" = true ]; then echo "ok   a tested tree still counts as changed code: code=$got"; else
+  echo "FAIL a tested tree still counts as changed code: got code=$got, want true" >&2; failed=1; fi
+got="$(code_out EVENT=push BASE="$code" HEAD="$tracker")"
+if [ "$got" = false ]; then echo "ok   documentation is no code: code=$got"; else
+  echo "FAIL documentation is no code: got code=$got, want false" >&2; failed=1; fi
+
+# A comparison git cannot make fails the script, so the step fails and the
+# gate (run != 'false') does not skip anything.
+if (cd "$repo" && EVENT=pull_request BASE="$base" HEAD=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef "$root/scripts/ci-changes.sh") >/dev/null 2>&1; then
+  echo "FAIL a comparison git cannot make: the script succeeded" >&2
+  failed=1
+else
+  echo "ok   a comparison git cannot make fails the script"
+fi
 exit "$failed"

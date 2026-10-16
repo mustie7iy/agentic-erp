@@ -6,7 +6,10 @@
 #   - a push to main brings exactly the tree that the merged pull request's
 #     last green run tested (that run saved the tree it tested as the
 #     artifact "tested-tree"), so running it again proves nothing new.
-# Anything it cannot establish runs the suite.
+# Anything it cannot establish runs the suite. It also writes code=false
+# when only documentation changed, true otherwise: work that is not part
+# of the suite (fuzzing on main) runs whenever code changed, even on a
+# tree a pull request already tested.
 #
 # EVENT is pull_request or push, BASE the commit to compare with (the pull
 # request's base, or the commit main was at before the push), HEAD the
@@ -18,9 +21,11 @@ head="${HEAD:-$(git rev-parse HEAD)}"
 base="${BASE:-}"
 GH="${GH:-gh}"
 
+code_changed=true
 decide() {
   echo "run=$1"
   echo "reason=$2"
+  echo "code=$code_changed"
   exit 0
 }
 
@@ -49,6 +54,7 @@ else
 fi
 code="$(grep -Ev '^docs/|\.md$' <<<"$files" || true)"
 if [ -n "$files" ] && [ -z "$code" ]; then
+  code_changed=false
   decide false "only documentation changed"
 fi
 if [ "$event" = push ]; then

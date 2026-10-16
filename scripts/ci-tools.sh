@@ -10,8 +10,11 @@ DIR="${1:-$HOME/.cache/ci-tools/bin}"
 mkdir -p "$DIR"
 while read -r name module; do
   [ -n "$name" ] || continue
-  if [ ! -x "$DIR/$name" ]; then
+  # A stamp beside each binary names the module and version it was built
+  # from, so a version changed here rebuilds it even in a warm directory.
+  if [ ! -x "$DIR/$name" ] || [ "$(cat "$DIR/.$name.version" 2>/dev/null || true)" != "$module" ]; then
     GOBIN="$DIR" go install "$module"
+    echo "$module" >"$DIR/.$name.version"
   fi
 done <<'EOF'
 golangci-lint github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0

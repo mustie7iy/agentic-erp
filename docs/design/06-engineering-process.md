@@ -105,8 +105,17 @@ What runs when, to keep runner time to what proves something:
   `scripts/ci-changes.sh` finds it would prove nothing new: a change to
   documentation alone (`docs/`, Markdown), or a push to `main` that brings
   exactly the tree the merged pull request's last green run tested (that
-  run saves the tree as an artifact). A push that changes CI itself always
-  runs. A skipped suite counts as passed for a required check.
+  run saves the tree as an artifact, kept 14 days). A push that changes CI
+  itself always runs. Whatever the script cannot establish (the pull
+  request not yet listed for the commit, an expired artifact, a failed
+  comparison) runs the suite. A documentation-only push to `main` is judged
+  against the commit before it, which is assumed green.
+- Branch protection requires one check, `ci-ok`: it fails unless the
+  `changes` job (the secret scan and the skip decision) succeeded and no
+  job failed or was cancelled. Jobs skipped on purpose pass; requiring
+  them directly would let a failed `changes` skip them into a pass.
+- Fuzzing runs on pushes to `main` whenever code changed, even when the
+  suite was skipped for a tested tree.
 - A newer push to a pull request cancels its running check.
 - The tools run at pinned versions (`scripts/ci-tools.sh`), built once and
   cached until that file or the Go version changes.

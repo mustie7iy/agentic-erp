@@ -29,11 +29,13 @@ jobs:
       pull-requests: read
     outputs:
       run: ${{ steps.decide.outputs.run }}
+      code: ${{ steps.decide.outputs.code }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the comparisons and the secret scan read the commit range
-      - uses: actions/setup-go@v7
+      - id: go
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false # only the tools are needed here, and they have their own cache
@@ -41,7 +43,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ci-tools/bin
-          key: ci-tools-${{ runner.os }}-${{ hashFiles('scripts/ci-tools.sh', 'go.mod') }}
+          key: ci-tools-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('scripts/ci-tools.sh') }}
       - name: Install CI tools
         run: ./scripts/ci-tools.sh >> "$GITHUB_PATH"
       - name: Secret scanning
@@ -65,11 +67,14 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           GH_TOKEN: ${{ github.token }}
+        # bash with pipefail, so a failing script fails the step rather than
+        # tee hiding it; the gates below also run on anything but "false".
+        shell: bash
         run: ./scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
 
   test:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: needs.changes.outputs.run != 'false'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -85,14 +90,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the breaking-change check reads main
-      - uses: actions/setup-go@v7
+      - id: go
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: CI tools (pinned, cached)
         uses: actions/cache@v4
         with:
           path: ~/.cache/ci-tools/bin
-          key: ci-tools-${{ runner.os }}-${{ hashFiles('scripts/ci-tools.sh', 'go.mod') }}
+          key: ci-tools-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('scripts/ci-tools.sh') }}
       - name: Install CI tools
         run: ./scripts/ci-tools.sh >> "$GITHUB_PATH"
       - name: Install the Temporal CLI
@@ -172,11 +178,6 @@ jobs:
           df -h / | tail -1
           ./scripts/coverage.sh
           df -h / | tail -1
-      - name: Fuzz (30s per target)
-        # On main only: a pull request's tests already run every target's seed
-        # corpus, and the weekly run fuzzes 5 minutes per target.
-        if: github.event_name == 'push'
-        run: make fuzz FUZZTIME=30s
       - name: Build
         run: make build
       - name: The tree this run tested
@@ -194,3 +195,50 @@ jobs:
           name: tested-tree
           path: tested-tree/tree
           retention-days: 14
+          overwrite: true # a re-run of the job saves it again
+
+  fuzz:
+    # On main, whenever code changed, even when the suite was skipped for a
+    # tree the pull request already tested: fuzzing finds new inputs each
+    # run. A pull request's tests already run every target's seed corpus,
+    # and the weekly run fuzzes 5 minutes per target.
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Fuzz (30s per target)
+        run: make fuzz FUZZTIME=30s
+
+  ci-ok:
+    # The one check branch protection requires. A job skipped by an `if`
+    # reports success, so requiring the jobs themselves would let a failed
+    # `changes` (a leaked secret, a broken skip rule) skip the suite and
+    # pass: this job fails unless `changes` succeeded and nothing it gates
+    # failed or was cancelled.
+    needs: [changes, test, fuzz]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was rightly skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e '.changes.result == "success"
+            and ([.[] | .result] | all(. == "success" or . == "skipped"))' >/dev/null
