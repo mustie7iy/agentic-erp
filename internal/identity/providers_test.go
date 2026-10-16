@@ -542,18 +542,23 @@ func (r registry) begin() pgx.Tx {
 }
 
 // interleave runs first in a transaction left open, then second in another,
-// which waits for it on a lock (or, if it does not, finishes first), commits
-// the first and returns the second's result.
+// which waits on a lock first holds (or, if it does not, finishes first),
+// commits the first and returns the second's result. The wait is read off
+// the first's backend, so another package's test waiting on a lock in the
+// same server cannot pass for it.
 func interleave(t *testing.T, r registry, first, second func(ctx context.Context, tx pgx.Tx) error) error {
 	t.Helper()
 	ctx := context.Background()
-	tx1 := r.begin()
+	tx1, tx2 := r.begin(), r.begin()
+	var pid int32
+	if err := tx1.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
 	if err := first(ctx, tx1); err != nil {
 		t.Fatalf("first: %v", err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		tx2 := r.begin()
 		err := second(ctx, tx2)
 		if err == nil {
 			err = tx2.Commit(ctx)
@@ -570,9 +575,9 @@ func interleave(t *testing.T, r registry, first, second func(ctx context.Context
 		default:
 		}
 		var n int
-		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`, nil, &n)
+		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid))`, []any{pid}, &n)
 		return n > 0
-	}, "the second transaction neither waits on a lock nor finishes")
+	}, "the second transaction neither waits on the first nor finishes")
 	if err := tx1.Commit(ctx); err != nil {
 		t.Fatalf("commit first: %v", err)
 	}
@@ -584,7 +589,9 @@ func interleave(t *testing.T, r registry, first, second func(ctx context.Context
 
 // TestMultiFactorRuleUnderConcurrency: requiring multi-factor and adding a
 // provider that cannot prove it, in two transactions at once, never both
-// succeed, whichever comes first (ADR-0031).
+// succeed, whichever comes first (ADR-0031): with the tenant's policy row
+// still to be created, and with it there, when only its row locks order
+// the two.
 func TestMultiFactorRuleUnderConcurrency(t *testing.T) {
 	yes := true
 	requireMFA := func(r registry) func(ctx context.Context, tx pgx.Tx) error {
@@ -599,25 +606,43 @@ func TestMultiFactorRuleUnderConcurrency(t *testing.T) {
 			return err
 		}
 	}
-	t.Run("policy first", func(t *testing.T) {
-		r := newRegistry(t)
-		r.mustRegister(issuer("mfa"), "erp", "mfa")
-		wantProblem(t, interleave(t, r, requireMFA(r), addPlain(r)), "identity.mfa_unprovable")
-	})
-	t.Run("provider first", func(t *testing.T) {
-		r := newRegistry(t)
-		r.mustRegister(issuer("mfa"), "erp", "mfa")
-		wantProblem(t, interleave(t, r, addPlain(r), requireMFA(r)), "identity.mfa_unprovable")
-	})
-	t.Run("values cleared first", func(t *testing.T) {
-		r := newRegistry(t)
-		p := r.mustRegister(issuer("mfa"), "erp", "mfa")
-		clear := func(ctx context.Context, tx pgx.Tx) error {
+	clearValues := func(r registry, p identity.IdentityProvider) func(ctx context.Context, tx pgx.Tx) error {
+		return func(ctx context.Context, tx pgx.Tx) error {
 			_, err := identity.UpdateIdentityProvider(ctx, tx, r.actor, p.ID, etag.IfMatch("*"), identity.IdentityProviderChange{AMRValues: &[]string{}})
 			return err
 		}
-		wantProblem(t, interleave(t, r, clear, requireMFA(r)), "identity.mfa_unprovable")
-	})
+	}
+	for _, policyRow := range []bool{false, true} {
+		setup := func(t *testing.T) (registry, identity.IdentityProvider) {
+			t.Helper()
+			r := newRegistry(t)
+			p := r.mustRegister(issuer("mfa"), "erp", "mfa")
+			if policyRow {
+				age := 10 * time.Hour
+				if _, err := r.updatePolicy("*", identity.AuthPolicyChange{SessionMaxAge: &age}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return r, p
+		}
+		name := map[bool]string{false: "no policy row", true: "policy row"}[policyRow]
+		t.Run(name+", policy first", func(t *testing.T) {
+			r, _ := setup(t)
+			wantProblem(t, interleave(t, r, requireMFA(r), addPlain(r)), "identity.mfa_unprovable")
+		})
+		t.Run(name+", provider first", func(t *testing.T) {
+			r, _ := setup(t)
+			wantProblem(t, interleave(t, r, addPlain(r), requireMFA(r)), "identity.mfa_unprovable")
+		})
+		t.Run(name+", values cleared first", func(t *testing.T) {
+			r, p := setup(t)
+			wantProblem(t, interleave(t, r, clearValues(r, p), requireMFA(r)), "identity.mfa_unprovable")
+		})
+		t.Run(name+", policy before values cleared", func(t *testing.T) {
+			r, p := setup(t)
+			wantProblem(t, interleave(t, r, requireMFA(r), clearValues(r, p)), "identity.mfa_unprovable")
+		})
+	}
 }
 
 // TestConcurrentRetirementsKeepOneProvider: two retirements at once cannot

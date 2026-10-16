@@ -339,6 +339,8 @@ func changed(p AuthPolicy, ch AuthPolicyChange) AuthPolicy {
 // row FOR SHARE until commit, so the check and UpdateAuthPolicy's, which
 // holds it FOR UPDATE, never both pass on what the other has not yet
 // committed: whichever comes second waits and sees the first's change.
+// Registering such a provider therefore creates the tenant's policy row
+// with the defaults if it has none (updated_by NULL: never changed).
 func provable(ctx context.Context, tx pgx.Tx, acr, amr []string) error {
 	if len(acr)+len(amr) > 0 {
 		return nil
