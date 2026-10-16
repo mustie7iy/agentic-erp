@@ -79,7 +79,7 @@ func (n Note) String() string { return n.Path + ": " + n.Message }
 
 // documentTypes get number ranges in every company and fiscal year of the
 // extract, besides one journal range per SAP document type it holds.
-var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_zp": "", "journal_ob": "",
+var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_we": "", "journal_zp": "", "journal_ob": "",
 	"requisition": "PR", "purchase_order": "PO", "contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "payment_run": "PY",
 	"partner_change": ""}
 
@@ -188,6 +188,10 @@ func (g *gen) company(t sap.T001) config.Company {
 			co.AccountDetermination.InputTax = sap.Alpha(r.KONTS)
 		case "BNK":
 			co.AccountDetermination.Bank = sap.Alpha(r.KONTS)
+		case "WRX":
+			co.AccountDetermination.GRIR = sap.Alpha(r.KONTS)
+		case "PRD":
+			co.AccountDetermination.PriceDifference = sap.Alpha(r.KONTS)
 		}
 	}
 	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)

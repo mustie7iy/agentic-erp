@@ -216,3 +216,24 @@ func TestUnparseableNumbersAreNoted(t *testing.T) {
 		})
 	}
 }
+
+// TestGRIRFromT030: SAP's GR/IR clearing account (T030 WRX) and price
+// difference account (PRD) become the company's gr_ir and price_difference,
+// and the draft numbers the WE entries its receipts will post.
+func TestGRIRFromT030(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000219000", TXT50: "GR/IR clearing"},
+		sap.SKB1{BUKRS: "1000", SAKNR: "0000590000", TXT50: "Price differences"})
+	e.T030 = append(e.T030, sap.T030{BUKRS: "1000", KTOSL: "WRX", KONTS: "0000219000"}, sap.T030{BUKRS: "1000", KTOSL: "PRD", KONTS: "0000590000"})
+	c, _ := Generate(e, DefaultOptions())
+	ad := c.Company("1000").AccountDetermination
+	if ad.GRIR != "219000" {
+		t.Errorf("gr_ir from T030 WRX: got %q, want 219000", ad.GRIR)
+	}
+	if ad.PriceDifference != "590000" {
+		t.Errorf("price_difference from T030 PRD: got %q, want 590000", ad.PriceDifference)
+	}
+	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+		t.Fatalf("draft with GR/IR does not validate: %v", fs)
+	}
+}

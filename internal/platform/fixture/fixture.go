@@ -46,7 +46,7 @@ func Years() []int {
 }
 
 // DocumentTypes get a number range per company and year.
-var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "requisition": "PR", "purchase_order": "PO",
+var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_we": "", "requisition": "PR", "purchase_order": "PO",
 	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": "", "payment_run": "PR", "journal_zp": "",
 	"journal_re": "", "journal_kz": "", "journal_ob": ""}
 
