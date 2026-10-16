@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -71,6 +72,7 @@ type Config struct {
 	Vault           Vault           // ERP_VAULT_*: where vault: references are resolved
 	AWS             AWS             // ambient AWS credentials for S3 and KMS when no access keys are set (ADR-0024)
 	TLS             tlsconf.Source  // ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: secret references to the CA bundle and the cell's certificate, read again while it runs (ADR-0033)
+	TLSMaterial     *tlsconf.Store  // TLS read when the configuration loads; nil without it (development)
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
 	Secrets secrets.Resolver
@@ -111,6 +113,17 @@ func (c Config) TenantIssuers() []string {
 
 // Enabled reports whether a KMS master is configured.
 func (k KMS) Enabled() bool { return k.Key != "" }
+
+// HTTPClient is the client to providers' HTTPS endpoints (S3, KMS, STS):
+// the TLS material's, which also trusts ERP_TLS_CA and makes each
+// connection with the material read last (ADR-0033); nil without
+// material, which leaves each client its default.
+func (c Config) HTTPClient() *http.Client {
+	if c.TLSMaterial == nil {
+		return nil
+	}
+	return c.TLSMaterial.HTTPClient(10 * time.Second)
+}
 
 // AWS is where ambient credentials come from when the S3 store or the KMS
 // master has no access keys of its own: the AWS_* environment, a web
@@ -179,6 +192,7 @@ type Temporal struct {
 func Load(getenv func(string) string) (Config, error) {
 	l := newLoader(getenv)
 	c := l.basics()
+	l.tls(&c)
 	l.issuers(&c)
 	l.fieldKeys(&c)
 	l.kms(&c)
@@ -260,12 +274,6 @@ func (l *loader) basics() Config {
 		LLMEnabled:    getenv("ANTHROPIC_API_KEY") != "",
 		BankOutboxDir: getenv("ERP_BANK_OUTBOX_DIR"),
 		ExtractDir:    getenv("ERP_EXTRACT_DIR"),
-		// The references themselves: tlsconf.Store resolves them again
-		// while the server runs, to pick up renewed certificates.
-		TLS: tlsconf.Source{CA: l.raw("ERP_TLS_CA"), Cert: l.raw("ERP_TLS_CERT"), Key: l.raw("ERP_TLS_KEY")},
-	}
-	if (c.TLS.Cert == "") != (c.TLS.Key == "") {
-		l.errs = append(l.errs, errors.New("ERP_TLS_CERT and ERP_TLS_KEY go together: the certificate the cell presents and its key"))
 	}
 	if c.DatabaseURL == "" {
 		l.errs = append(l.errs, errors.New("DATABASE_URL is required"))
@@ -274,6 +282,25 @@ func (l *loader) basics() Config {
 		l.errs = append(l.errs, fmt.Errorf("ERP_CELL %q must be 1-20 lower-case letters or digits", c.Cell))
 	}
 	return c
+}
+
+// tls reads the TLS material (ADR-0033). The references are kept, for the
+// server to read them again while it runs; the material is read now too,
+// so that material that cannot be read stops every command at start, the
+// server's subcommands included.
+func (l *loader) tls(c *Config) {
+	c.TLS = tlsconf.Source{CA: l.raw("ERP_TLS_CA"), Cert: l.raw("ERP_TLS_CERT"), Key: l.raw("ERP_TLS_KEY")}
+	switch {
+	case (c.TLS.Cert == "") != (c.TLS.Key == ""):
+		l.errs = append(l.errs, errors.New("ERP_TLS_CERT and ERP_TLS_KEY go together: the certificate the cell presents and its key"))
+	case c.TLS.Enabled():
+		store := &tlsconf.Store{Source: c.TLS, Resolver: l.resolver}
+		if err := store.Refresh(context.Background()); err != nil {
+			l.errs = append(l.errs, fmt.Errorf("ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: %w", err))
+			return
+		}
+		c.TLSMaterial = store
+	}
 }
 
 // issuers reads who may sign tokens: the development issuer, the

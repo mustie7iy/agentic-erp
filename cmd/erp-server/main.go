@@ -114,10 +114,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	// OTEL_GO_X_OBSERVABILITY instruments aside, which are not enabled);
 	// spans the last export loses are reported through otel's error handler.
 	defer func() { _ = tp.Shutdown(context.WithoutCancel(ctx)) }()
-	s := &server{cfg: cfg, log: log, tp: tp, failed: make(chan struct{})}
-	if s.tls, err = loadTLS(ctx, cfg); err != nil {
-		return err
-	}
+	s := &server{cfg: cfg, log: log, tp: tp, tls: cfg.TLSMaterial, failed: make(chan struct{})}
 	if s.pool, err = openPool(ctx, cfg); err != nil {
 		return err
 	}
@@ -220,20 +217,6 @@ type server struct {
 	failed   chan struct{}
 	failOnce sync.Once
 	failure  error
-}
-
-// loadTLS reads the cell's TLS material, or returns nil when none is
-// configured (development): a bundle that cannot be read, a certificate
-// without its key or an expired one stops the start (ADR-0033).
-func loadTLS(ctx context.Context, cfg config.Config) (*tlsconf.Store, error) {
-	if !cfg.TLS.Enabled() {
-		return nil, nil
-	}
-	store := &tlsconf.Store{Source: cfg.TLS, Resolver: cfg.Secrets}
-	if err := store.Refresh(ctx); err != nil {
-		return nil, fmt.Errorf("erp-server: %w", err)
-	}
-	return store, nil
 }
 
 // openPool opens the database pool with the configured size.

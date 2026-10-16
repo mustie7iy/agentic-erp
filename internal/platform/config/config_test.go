@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -563,7 +564,7 @@ func TestProductionFailsClosed(t *testing.T) {
 	const dbRefused, dirRefused = "DATABASE_URL: sslmode must be verify-full", "ERP_DIRECTORY_URL: sslmode must be verify-full"
 	// Production speaks to NATS over TLS only, as the cell's certificate.
 	const natsPlain, natsIdentity = "ERP_NATS_URL must name tls:// servers only", "ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY"
-	identity := map[string]string{"ERP_TLS_CERT": "file:/etc/erp/tls/tls.crt", "ERP_TLS_KEY": "file:/etc/erp/tls/tls.key"}
+	identity := tlsFiles(t)
 	directory := map[string]string{"ERP_DIRECTORY_URL": verified, "ERP_CELL_API_URL": "https://eu1.example.com", "ERP_CELL_REGION": "eu-west", "ERP_CELL_CONTROL_URL": "https://eu1-admin.example.com"}
 	with := func(base map[string]string, set map[string]string) map[string]string {
 		m := maps.Clone(base)
@@ -662,15 +663,37 @@ func TestTenantIssuers(t *testing.T) {
 	}
 }
 
-// TestTLSSettings: the TLS material stays as the references name it, to be
-// read again while the server runs (ADR-0033); certificate and key go
-// together.
+// tlsFiles are TLS settings naming an authority, a certificate and its
+// key written to files of the test.
+func tlsFiles(t *testing.T) map[string]string {
+	t.Helper()
+	ca, dir := tlstest.NewCA(t), t.TempDir()
+	leaf := ca.Issue(t, tlstest.Options{})
+	return map[string]string{
+		"ERP_TLS_CA":   "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM),
+		"ERP_TLS_CERT": "file:" + tlstest.WriteFile(t, dir, "tls.crt", leaf.CertPEM),
+		"ERP_TLS_KEY":  "file:" + tlstest.WriteFile(t, dir, "tls.key", leaf.KeyPEM),
+	}
+}
+
+// TestTLSSettings: the TLS material is read with the configuration, so a
+// bundle or certificate that cannot be read stops every command at start,
+// and the references are kept for the server to read again while it runs
+// (ADR-0033); certificate and key go together. Without material there is
+// no store and no client of its own.
 func TestTLSSettings(t *testing.T) {
 	m := valid()
-	m["ERP_TLS_CA"], m["ERP_TLS_CERT"], m["ERP_TLS_KEY"] = "file:/etc/erp/tls/ca.crt", "vault:secret/erp/tls#crt", "vault:secret/erp/tls#key"
+	files := tlsFiles(t)
+	maps.Copy(m, files)
 	c := mustLoad(t, m)
-	if want := (tlsconf.Source{CA: "file:/etc/erp/tls/ca.crt", Cert: "vault:secret/erp/tls#crt", Key: "vault:secret/erp/tls#key"}); c.TLS != want {
+	if want := (tlsconf.Source{CA: files["ERP_TLS_CA"], Cert: files["ERP_TLS_CERT"], Key: files["ERP_TLS_KEY"]}); c.TLS != want {
 		t.Errorf("TLS: got %+v, want %+v", c.TLS, want)
+	}
+	if c.TLSMaterial == nil || !c.TLSMaterial.HasCertificate() {
+		t.Errorf("TLSMaterial: got %v, want the certificate read", c.TLSMaterial)
+	}
+	if c.HTTPClient() == nil {
+		t.Error("HTTPClient: got nil, want the material's client")
 	}
 	for _, missing := range []string{"ERP_TLS_CERT", "ERP_TLS_KEY"} {
 		t.Run("without "+missing, func(t *testing.T) {
@@ -680,4 +703,16 @@ func TestTLSSettings(t *testing.T) {
 			pgtest.CheckErr(t, err, "ERP_TLS_CERT and ERP_TLS_KEY go together")
 		})
 	}
+	t.Run("unreadable bundle", func(t *testing.T) {
+		mm := copyOf(m)
+		mm["ERP_TLS_CA"] = "file:/nonexistent/ca.crt"
+		_, err := Load(env(mm))
+		pgtest.CheckErr(t, err, "ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: tlsconf: CA bundle")
+	})
+	t.Run("none", func(t *testing.T) {
+		c := mustLoad(t, valid())
+		if c.TLSMaterial != nil || c.HTTPClient() != nil {
+			t.Errorf("without material: got %v, %v, want no store and no client", c.TLSMaterial, c.HTTPClient())
+		}
+	})
 }

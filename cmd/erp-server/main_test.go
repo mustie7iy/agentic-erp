@@ -41,9 +41,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
-	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
-	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 )
@@ -299,7 +298,6 @@ func TestStartupFailures(t *testing.T) {
 		"master key": func(_ *testing.T, c *config.Config) {
 			c.FieldKeys = []config.MasterKey{{ID: "k", Secret: []byte("short")}}
 		},
-		"tls material":      func(_ *testing.T, c *config.Config) { c.TLS = tlsconf.Source{CA: "file:/nonexistent/ca.crt"} },
 		"nats":              func(_ *testing.T, c *config.Config) { c.NATSURL = "nats://127.0.0.1:1" },
 		"jetstream missing": func(t *testing.T, c *config.Config) { t.Helper(); c.NATSURL = natstest.Plain(t) },
 		"api port":          func(_ *testing.T, c *config.Config) { c.HTTPAddr = busy.Addr().String() },
