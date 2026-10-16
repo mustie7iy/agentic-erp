@@ -35,6 +35,11 @@ type Importer struct {
 	AppRole string // erp_app: writes in the tenant's scope
 	// InTx runs the import's transaction; nil: Pool.InTx. Tests inject failures.
 	InTx func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error
+	// Check runs on the imported tenant before the commit, in its scope;
+	// an error refuses the import. A production cell refuses a tenant
+	// without an active identity provider (identity.RequireActiveProvider,
+	// ADR-0031). Nil checks nothing.
+	Check func(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error
 }
 
 func (im *Importer) inTx(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
@@ -136,6 +141,11 @@ func (im *Importer) importTenant(ctx context.Context, tx pgx.Tx, m manifest, ord
 	}
 	if err := im.insertInPasses(ctx, tx, order, idents, cols, rows, out); err != nil {
 		return err
+	}
+	if im.Check != nil {
+		if err := im.Check(ctx, tx, m.TenantID); err != nil {
+			return err
+		}
 	}
 	return checkChainHead(ctx, tx, m)
 }

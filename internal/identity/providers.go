@@ -596,3 +596,18 @@ func ProviderUnreachable(err error) error {
 	return problem.Unprocessable("identity.provider_unreachable", "The identity provider's discovery document could not be read.",
 		problem.FieldError{Field: "issuer", Code: "unreachable", Message: "an issuer whose /.well-known/openid-configuration the cell can read"}).WithCause(err)
 }
+
+// RequireActiveProvider refuses a tenant without an active identity
+// provider, in tx in the tenant's scope: its people could not sign in. A
+// production cell checks it before a tenant comes in by an import.
+func RequireActiveProvider(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {
+	var has bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM identity.identity_provider WHERE tenant_id = $1 AND status = 'active')`, tenant).Scan(&has); err != nil {
+		return fmt.Errorf("identity: read the identity providers of tenant %s: %w", tenant, err)
+	}
+	if !has {
+		return problem.Unprocessable("identity.provider_required",
+			"The tenant has no active identity provider, so its people could not sign in; register one where it comes from first.")
+	}
+	return nil
+}

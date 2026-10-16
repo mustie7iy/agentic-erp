@@ -882,6 +882,22 @@ func TestImportCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	wipeTrail(t, created.TenantID)
+	// In production a tenant whose export holds no active identity provider
+	// (one provisioned in development) is not imported: its people could not
+	// sign in, and the cell would refuse its next start (ADR-0031).
+	prod := map[string]string{}
+	for k, v := range env {
+		prod[k] = v
+	}
+	prod["ERP_ENV"], prod["ERP_OPERATOR_ISSUERS"] = "production", env["ERP_OIDC_ISSUERS"]
+	delete(prod, "ERP_OIDC_ISSUERS")
+	stderr.Reset()
+	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, func(k string) string { return prod[k] }, &stdout, &stderr, nil); code == 0 {
+		t.Fatalf("a production import without a provider: got imported, want refused")
+	}
+	if !strings.Contains(stderr.String(), "identity provider") {
+		t.Errorf("refusal: got %s, want the missing identity provider named", stderr.String())
+	}
 	stdout.Reset()
 	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, getenv, &stdout, &stderr, nil); code != 0 || !strings.Contains(stdout.String(), `"identity.principal"`) {
 		t.Fatalf("import: %d %s %s", code, stdout.String(), stderr.String())
@@ -1525,8 +1541,14 @@ func TestProductionRequiresProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, logs := start()
-	if code == 0 || !strings.Contains(logs, tenant.String()) || !strings.Contains(logs, "identity provider") {
-		t.Fatalf("an active tenant without a provider: exit %d, want a refusal naming %s\n%s", code, tenant, logs)
+	if code == 0 {
+		t.Fatalf("an active tenant without a provider: exit 0, want a refusal\n%s", logs)
+	}
+	if !strings.Contains(logs, tenant.String()) {
+		t.Errorf("refusal: got %s, want the tenant %s named", logs, tenant)
+	}
+	if !strings.Contains(logs, "erp-server register-provider") {
+		t.Errorf("refusal: got %s, want the command that registers a provider named", logs)
 	}
 	if _, err := conn.Exec(context.Background(), `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by)
 		VALUES ($1, gen_random_uuid(), 'https://bare.example.com', 'erp', $1, $1)`, tenant); err != nil {
@@ -1563,5 +1585,74 @@ func TestRequireProvidersFailures(t *testing.T) {
 				t.Error("got started, want the failure")
 			}
 		})
+	}
+}
+
+// TestRegisterProviderCommand: erp-server register-provider registers a
+// tenant's identity provider without the server, as the control plane
+// does (audited, published): the remedy a production cell names when it
+// refuses to start for a tenant without one.
+func TestRegisterProviderCommand(t *testing.T) {
+	idp := authntest.NewSeparate(t)
+	env := environment(t, authntest.New(t), "")
+	getenv := func(k string) string { return env[k] }
+	ten := pgtest.NewTenant(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", idp.URL, "-audience", authntest.Audience, "-amr", "mfa,otp"}
+	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("register-provider: %d %s", code, stderr.String())
+	}
+	var registered struct {
+		ID        string   `json:"id"`
+		AMRValues []string `json:"amr_values"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &registered); err != nil || registered.ID == "" || strings.Join(registered.AMRValues, ",") != "mfa,otp" {
+		t.Fatalf("output: %v %s", err, stdout.String())
+	}
+	var audited int
+	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'identity.identity_provider.register'`, []any{ten.ID}, &audited)
+	if audited != 1 {
+		t.Errorf("registrations audited: got %d, want 1", audited)
+	}
+	for name, c := range map[string]struct {
+		args []string
+		code int
+	}{
+		"no tenant":      {[]string{"register-provider", "-issuer", idp.URL, "-audience", "a"}, 2},
+		"bad flag":       {[]string{"register-provider", "-colour", "red"}, 2},
+		"help":           {[]string{"register-provider", "-h"}, 0},
+		"unknown tenant": {[]string{"register-provider", "-tenant", uuid.NewString(), "-issuer", idp.URL, "-audience", "a"}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if code := cli(context.Background(), c.args, getenv, io.Discard, io.Discard, nil); code != c.code {
+				t.Errorf("exit: got %d, want %d", code, c.code)
+			}
+		})
+	}
+	t.Run("with a global directory", func(t *testing.T) {
+		other := authntest.NewSeparate(t)
+		directoryURL := pgtest.EmptyDatabase(t)
+		env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+		defer delete(env, "ERP_DIRECTORY_URL")
+		withDir := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", other.URL, "-audience", authntest.Audience}
+		if code := cli(context.Background(), withDir, getenv, io.Discard, &stderr, nil); code != 0 {
+			t.Fatalf("register-provider: %d %s", code, stderr.String())
+		}
+		dir, err := directory.Open(context.Background(), directoryURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer dir.Close()
+		if claims, err := dir.LookupIssuer(context.Background(), other.URL, []string{authntest.Audience}); err != nil || len(claims) != 1 {
+			t.Errorf("claims: got %v, %v, want the provider's", claims, err)
+		}
+		env["ERP_DIRECTORY_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+		if code := cli(context.Background(), withDir, getenv, io.Discard, io.Discard, nil); code != 1 {
+			t.Errorf("a directory that cannot be reached: exit %d, want 1", code)
+		}
+	})
+	env["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	if code := cli(context.Background(), args, getenv, io.Discard, io.Discard, nil); code != 1 {
+		t.Errorf("no database: exit %d, want 1", code)
 	}
 }

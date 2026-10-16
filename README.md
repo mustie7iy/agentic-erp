@@ -227,7 +227,10 @@ instance metadata service; [ADR-0024](docs/design/adr/0024-ambient-aws-credentia
 each tenant's identity providers and authentication policy are kept: a
 tenant's tokens are trusted from the providers it registered, which decide
 its tenant, with multi-factor and session rules per tenant
-([ADR-0031](docs/design/adr/0031-per-tenant-identity-providers-and-sessions.md)). With
+([ADR-0031](docs/design/adr/0031-per-tenant-identity-providers-and-sessions.md));
+`erp-server register-provider -tenant <id> -issuer <url> -audience <aud>`
+registers one without a running server, the remedy when a production cell
+refuses to start for an active tenant without one. With
 `ERP_DIRECTORY_URL` and `ERP_CELL_API_URL` set, the cell records its tenants
 in the global directory, and `erp-router` (same `ERP_ENV`,
 `ERP_DIRECTORY_URL`, `ERP_ROUTER_ADDR`; `ERP_OIDC_ISSUERS` outside

@@ -248,8 +248,10 @@ across tenants, the columns that resolve a token (issuer, audience, tenant
 claim, the values, status and policy) and the principals' bindings, never who
 changed them nor e-mails. Migration 000056 adds both tables. A production
 cell refuses to start while an active tenant has no active provider: its
-people could not sign in (provisioning registers one, and the last one
-cannot be retired, so only a change by hand gets there).
+people could not sign in (provisioning registers one, the last one cannot
+be retired and a production import refuses a tenant without one, so a
+change by hand or a tenant from before gets there); the remedy,
+`erp-server register-provider`, needs no running server.
 
 People's **sessions** are kept in `session` (T37f, migration 000057): one
 row per authentication at the identity provider, keyed per principal by a

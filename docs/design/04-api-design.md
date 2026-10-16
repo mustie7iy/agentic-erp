@@ -230,7 +230,9 @@ at most one bank file.
   (registry). Issuers configured for every tenant (`ERP_OIDC_ISSUERS`) keep
   the tenant claim and are for development: production refuses them, and
   refuses to start without operator issuers or while an active tenant has
-  no active identity provider.
+  no active identity provider; `erp-server register-provider` registers
+  one without a running server, and a production import refuses a tenant
+  without one.
 - Where the tenant requires multi-factor authentication (its policy on
   the control plane), a person's token must prove it by the provider's
   `acr` or `amr` values; otherwise the answer is 401

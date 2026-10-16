@@ -52,9 +52,6 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if err := config.CheckEnvironment(c.Environment); err != nil {
 		errs = append(errs, err)
 	}
-	if c.Environment == config.Production && getenv("ERP_OIDC_ISSUERS") != "" {
-		errs = append(errs, errors.New("ERP_OIDC_ISSUERS must not be set with ERP_ENV=production: it trusts its issuers for every tenant; tenants' registered identity providers resolve through the directory (ADR-0031)"))
-	}
 	if c.DirectoryURL == "" {
 		errs = append(errs, errors.New("ERP_DIRECTORY_URL is required: the directory database"))
 	}
@@ -62,6 +59,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		if err := json.Unmarshal([]byte(raw), &c.Issuers); err != nil || len(c.Issuers) == 0 {
 			errs = append(errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} when set`))
 		}
+	}
+	if c.Environment == config.Production && len(c.Issuers) > 0 {
+		errs = append(errs, errors.New("ERP_OIDC_ISSUERS must not be set with ERP_ENV=production: it trusts its issuers for every tenant; tenants' registered identity providers resolve through the directory (ADR-0031)"))
 	}
 	if raw := getenv("ERP_OPERATOR_ISSUERS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.OperatorIssuers); err != nil || len(c.OperatorIssuers) == 0 {

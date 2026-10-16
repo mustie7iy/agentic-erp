@@ -86,8 +86,10 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return rewrapCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "import":
 			return importCmd(ctx, args[1:], cfg, stdout, stderr)
+		case "register-provider":
+			return registerProviderCmd(ctx, args[1:], cfg, stdout, stderr)
 		}
-		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in)\n", args[0])
+		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider)\n", args[0])
 		return 2
 	}
 	if err := run(ctx, cfg, log, started); err != nil {
@@ -235,15 +237,17 @@ func (s *server) prepareSchema(ctx context.Context) error {
 
 // requireProviders refuses, in production, to start while an active tenant
 // has no active identity provider: its people could not sign in, and
-// nothing else would say so (ADR-0031). Provisioning registers one and the
-// last one cannot be retired, so only a hand-made change gets here.
+// nothing else would say so (ADR-0031). Provisioning registers one, the
+// last one cannot be retired and a production import refuses a tenant
+// without one, so a change by hand gets here, or a tenant from before; the
+// remedy, erp-server register-provider, needs no running server.
 func (s *server) requireProviders(ctx context.Context) error {
 	if s.cfg.Environment != config.Production {
 		return nil
 	}
 	tx, err := database.BeginOr(ctx, s.pool, s.beginCheck, database.Scope{Role: s.cfg.ControlRole, ReadOnly: true})
 	if err != nil {
-		return err
+		return fmt.Errorf("erp-server: check identity providers: %w", err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	tenants, err := tenancy.AllTenants(ctx, tx)
@@ -265,7 +269,8 @@ func (s *server) requireProviders(ctx context.Context) error {
 		}
 	}
 	if len(without) > 0 {
-		return fmt.Errorf("erp-server: ERP_ENV=production: active tenants without an active identity provider, whose people cannot sign in: %s; register one (registerIdentityProvider)", strings.Join(without, ", "))
+		return fmt.Errorf("erp-server: ERP_ENV=production: active tenants without an active identity provider, whose people cannot sign in: %s; "+
+			"register one with erp-server register-provider -tenant <id> -issuer <url> -audience <aud>, which needs no running server, then start again", strings.Join(without, ", "))
 	}
 	return nil
 }

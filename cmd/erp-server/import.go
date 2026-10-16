@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -55,5 +56,9 @@ func importTenant(ctx context.Context, cfg platformconfig.Config, manifest strin
 		return offboarding.Imported{}, err
 	}
 	defer pool.Close()
-	return (&offboarding.Importer{Pool: pool, Store: store, AppRole: cfg.AppRole}).Import(ctx, manifest)
+	im := &offboarding.Importer{Pool: pool, Store: store, AppRole: cfg.AppRole}
+	if cfg.Environment == platformconfig.Production {
+		im.Check = identity.RequireActiveProvider // a production cell refuses to start with such a tenant
+	}
+	return im.Import(ctx, manifest)
 }
