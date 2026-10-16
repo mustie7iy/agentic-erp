@@ -1687,11 +1687,22 @@ handling, concurrency and tenancy, SQL, tests, readability, duplication, money).
 Every step from T30 on is held to the same bar; a step that would lower it is not
 done. CLAUDE.md states the conventions; this is the loop that applies them.
 
-1. **Scope.** One step at a time, on its own branch from `main`, its exit
-   criterion and tracker items written down before the code. Changes to the API
-   contract, a migration or an ADR are proposed to the product owner and wait for
-   approval. A step too large for reviewable commits (about 400 changed lines,
-   unless mechanical) is split into T<n>a, T<n>b.
+1. **Scope.** One step at a time per lane, on its own branch from `main`, its
+   exit criterion and tracker items written down before the code. Changes to
+   the API contract, a migration or an ADR are proposed to the product owner and
+   wait for approval; the proposals of the lanes are put to them together. A
+   step too large for reviewable commits (about 400 changed lines, unless
+   mechanical) is split into T<n>a, T<n>b.
+
+   Since 2026-10-16 steps run in parallel lanes that touch different code: A
+   finance (T33, T34, T36: payables and payments, one after another), B ledger
+   (T35), C security (T37, T38), D operations and quality (fixes, performance,
+   T39 onwards). Each lane works in its own worktree. A migration takes its
+   number when its branch is rebased before merge, so numbers stay in merge
+   order; `api/gen` is regenerated after a rebase, never merged by hand. The
+   full gates run one lane at a time, as the lanes share the test database
+   server. A pull request is merged when CI is green and the reviewer has no
+   blocking finding.
 2. **Behaviour and refactoring apart.** A refactoring commit never changes
    behaviour. A bug found on the way is noted and fixed as its own commit with a
    test that fails before the fix; the failing output is copied, not described.

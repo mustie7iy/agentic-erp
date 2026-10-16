@@ -106,7 +106,8 @@ changed. For large branches the user may also run `/code-review high` or `/code-
 
 ### 4. Small, specific tasks
 
-- Work one tracker item (T-number) at a time, with its acceptance criteria stated up front.
+- Work one tracker item (T-number) at a time per lane, with its acceptance criteria stated up
+  front. Lanes run in parallel on code that does not overlap (07-transition §7.7).
 - Every step is held to the bar the refactoring programme reached (9.5/10) and built with the
   loop in `docs/design/07-transition.md` §7.7; `docs/tracker.json` is the only plan (§7.6).
 - If a request is broad ("build approvals"), propose a split into tracker-sized steps first.
