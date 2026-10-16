@@ -168,7 +168,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 |---|---|
 | `api/openapi.yaml`, `api/asyncapi.yaml`, `api/control.yaml`, `api/directory.yaml` | The API, event, control-plane and global control-plane contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
 | `db/migrations` | The data model as versioned PostgreSQL migrations, applied by the embedded runner (`db.Migrate`) |
-| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `blobstore` (write-once object storage: directory or S3), `secrets` (references to the environment, mounted files or Vault), `pagination`, `etag`, `config`, `httpapi` (wiring) |
+| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `tlsconf` (the TLS material: CA bundle and certificate, re-read while running), `blobstore` (write-once object storage: directory or S3), `secrets` (references to the environment, mounted files or Vault), `pagination`, `etag`, `config`, `httpapi` (wiring) |
 | `internal/operations` | Long-running operations: the first context on the foundation (`/v1/operations`) |
 | `internal/provisioning`, `internal/controlplane` | Tenant provisioning in one transaction, and the operators' control plane (`/control/v1/tenants`: list, create, suspend, resume, offboard) on the admin listener |
 | `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`, `/control/v1`), outbox relay and workers (balance projector, payment proposer, configuration simulator, audit anchorer and verifier, offboarding, directory sync) |
@@ -192,9 +192,11 @@ export ERP_OPERATOR_ISSUERS='[{"issuer":"https://your-ops-idp.example.com","audi
 export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"erp-api"}]'   # optional, development only: issuers trusted for every tenant
 export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
 export ERP_NATS_URL=nats://localhost:4222   # optional; without it events wait in the outbox
+export ERP_TLS_CA=file:/etc/erp/tls/ca.crt  # optional in development: secret references (ADR-0017) to the CA bundle trusted beside the system roots and to the cell's certificate and key
+export ERP_TLS_CERT=file:/etc/erp/tls/tls.crt ERP_TLS_KEY=file:/etc/erp/tls/tls.key   # re-read every minute, so renewed certificates need no restart (ADR-0033)
 export ERP_TEMPORAL_ADDRESS=localhost:7233   # optional; the workflow engine (ADR-0012): `temporal server start-dev` locally; without it in-process workers run the long-running work
 export ERP_TEMPORAL_CODEC_KEY=$(head -c 32 /dev/urandom | base64)   # seals workflow payloads before they reach the engine; required with an engine in production
-export ERP_ENV=development                   # required, no default (make run-server sets it); production refuses ERP_DEV_ISSUER, ERP_OIDC_ISSUERS, no ERP_OPERATOR_ISSUERS, an engine without ERP_TEMPORAL_CODEC_KEY, no object storage, ERP_AUDIT_VERIFY_INTERVAL=0, an active tenant without an identity provider and a database URL (DATABASE_URL, ERP_DIRECTORY_URL) without sslmode=verify-full (ADR-0033)
+export ERP_ENV=development                   # required, no default (make run-server sets it); production refuses ERP_DEV_ISSUER, ERP_OIDC_ISSUERS, no ERP_OPERATOR_ISSUERS, an engine without ERP_TEMPORAL_CODEC_KEY, no object storage, ERP_AUDIT_VERIFY_INTERVAL=0, an active tenant without an identity provider a database URL (DATABASE_URL, ERP_DIRECTORY_URL) without sslmode=verify-full, and ERP_NATS_URL without tls:// servers or without ERP_TLS_CERT (ADR-0033)
 export ERP_OBJECT_DIR=$PWD/data/objects      # or ERP_OBJECT_S3_ENDPOINT, _BUCKET, _ACCESS_KEY, _SECRET_KEY for an S3-compatible store
 make run-server                 # migrates, then serves :8080 (API) and :9090 (admin)
 ```

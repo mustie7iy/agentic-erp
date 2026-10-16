@@ -23,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
 
 // Config is the server configuration.
@@ -69,6 +70,7 @@ type Config struct {
 	CellAccepting   bool            // ERP_CELL_ACCEPTING: whether this cell takes new tenants (default true)
 	Vault           Vault           // ERP_VAULT_*: where vault: references are resolved
 	AWS             AWS             // ambient AWS credentials for S3 and KMS when no access keys are set (ADR-0024)
+	TLS             tlsconf.Source  // ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: secret references to the CA bundle and the cell's certificate, read again while it runs (ADR-0033)
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
 	Secrets secrets.Resolver
@@ -258,6 +260,12 @@ func (l *loader) basics() Config {
 		LLMEnabled:    getenv("ANTHROPIC_API_KEY") != "",
 		BankOutboxDir: getenv("ERP_BANK_OUTBOX_DIR"),
 		ExtractDir:    getenv("ERP_EXTRACT_DIR"),
+		// The references themselves: tlsconf.Store resolves them again
+		// while the server runs, to pick up renewed certificates.
+		TLS: tlsconf.Source{CA: l.raw("ERP_TLS_CA"), Cert: l.raw("ERP_TLS_CERT"), Key: l.raw("ERP_TLS_KEY")},
+	}
+	if (c.TLS.Cert == "") != (c.TLS.Key == "") {
+		l.errs = append(l.errs, errors.New("ERP_TLS_CERT and ERP_TLS_KEY go together: the certificate the cell presents and its key"))
 	}
 	if c.DatabaseURL == "" {
 		l.errs = append(l.errs, errors.New("DATABASE_URL is required"))
@@ -531,6 +539,20 @@ func checkTransport(c Config) []error {
 		if err := CheckDatabaseTLS(s.name, s.value); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	if c.NATSURL == "" {
+		return errs
+	}
+	// The servers are named as nats.go splits them; the URLs may carry
+	// credentials, so the errors do not repeat them.
+	for _, server := range strings.Split(c.NATSURL, ",") {
+		if u, err := url.Parse(strings.TrimSpace(server)); err != nil || u.Scheme != "tls" {
+			errs = append(errs, errors.New("ERP_NATS_URL must name tls:// servers only with ERP_ENV=production (ADR-0033)"))
+			break
+		}
+	}
+	if c.TLS.Cert == "" {
+		errs = append(errs, errors.New("ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY with ERP_ENV=production: the cell connects as its certificate's identity (ADR-0033)"))
 	}
 	return errs
 }

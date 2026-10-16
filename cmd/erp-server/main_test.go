@@ -41,6 +41,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
@@ -297,6 +299,7 @@ func TestStartupFailures(t *testing.T) {
 		"master key": func(_ *testing.T, c *config.Config) {
 			c.FieldKeys = []config.MasterKey{{ID: "k", Secret: []byte("short")}}
 		},
+		"tls material":      func(_ *testing.T, c *config.Config) { c.TLS = tlsconf.Source{CA: "file:/nonexistent/ca.crt"} },
 		"nats":              func(_ *testing.T, c *config.Config) { c.NATSURL = "nats://127.0.0.1:1" },
 		"jetstream missing": func(t *testing.T, c *config.Config) { t.Helper(); c.NATSURL = natstest.Plain(t) },
 		"api port":          func(_ *testing.T, c *config.Config) { c.HTTPAddr = busy.Addr().String() },
@@ -1658,5 +1661,39 @@ func TestRegisterProviderCommand(t *testing.T) {
 	env["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
 	if code := cli(context.Background(), args, getenv, io.Discard, io.Discard, nil); code != 1 {
 		t.Errorf("no database: exit %d, want 1", code)
+	}
+}
+
+// TestRelaysOverMutualTLS: with TLS material the cell reaches NATS over
+// TLS 1.3 as its certificate, the store's re-reading runs among the
+// workers, and the server comes up (ADR-0033). The bus requires a client
+// certificate, so a cell that connected without one would not start.
+func TestRelaysOverMutualTLS(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	natsURL := natstest.TLS(t, ca.Issue(t, tlstest.Options{}).Pair(t), ca.Pool())
+	cell, dir := ca.Issue(t, tlstest.Options{}), t.TempDir()
+	env := environment(t, authntest.New(t), natsURL)
+	env["ERP_TLS_CA"] = "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM)
+	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", cell.CertPEM)
+	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", cell.KeyPEM)
+	var s *server
+	startWorkersHook = func(srv *server, runCtx context.Context) { s = srv; srv.startWorkers(runCtx) }
+	defer func() { startWorkersHook = (*server).startWorkers }()
+	ctx, cancel := context.WithCancel(context.Background())
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(net.Listener, net.Listener) { cancel() })
+	}()
+	if code := <-done; code != 0 {
+		t.Fatalf("exit %d, want started and stopped\n%s", code, logs.String())
+	}
+	if s == nil {
+		t.Fatal("got no workers started, want them started")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.running["tls"]; !ok {
+		t.Error("tls: got not started, want the material re-read while the server runs")
 	}
 }

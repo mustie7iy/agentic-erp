@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -558,6 +559,9 @@ func TestProductionFailsClosed(t *testing.T) {
 	// Production reaches its databases over verified TLS only (ADR-0033).
 	const verified = "postgres://u:p@db.example.com/erp?sslmode=verify-full"
 	const dbRefused, dirRefused = "DATABASE_URL: sslmode must be verify-full", "ERP_DIRECTORY_URL: sslmode must be verify-full"
+	// Production speaks to NATS over TLS only, as the cell's certificate.
+	const natsPlain, natsIdentity = "ERP_NATS_URL must name tls:// servers only", "ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY"
+	identity := map[string]string{"ERP_TLS_CERT": "file:/etc/erp/tls/tls.crt", "ERP_TLS_KEY": "file:/etc/erp/tls/tls.key"}
 	directory := map[string]string{"ERP_DIRECTORY_URL": verified, "ERP_CELL_API_URL": "https://eu1.example.com", "ERP_CELL_REGION": "eu-west", "ERP_CELL_CONTROL_URL": "https://eu1-admin.example.com"}
 	with := func(base map[string]string, set map[string]string) map[string]string {
 		m := maps.Clone(base)
@@ -598,6 +602,11 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production database by default", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp"}), []string{dbRefused}},
 		{"production directory", prod(directory), nil},
 		{"production directory without verified TLS", prod(with(directory, map[string]string{"ERP_DIRECTORY_URL": "postgres://u:p@dir.example.com/erp?sslmode=prefer"})), []string{dirRefused}},
+		{"development NATS without TLS", map[string]string{"ERP_ENV": "development", "ERP_NATS_URL": "nats://localhost:4222"}, nil},
+		{"production NATS over mutual TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,tls://nats-2:4222"})), nil},
+		{"production NATS without TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,nats://nats-2:4222"})), []string{natsPlain}},
+		{"production NATS unparseable", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,%zz"})), []string{natsPlain}},
+		{"production NATS without a certificate", prod(map[string]string{"ERP_NATS_URL": "tls://nats-1:4222"}), []string{natsIdentity}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -647,6 +656,26 @@ func TestTenantIssuers(t *testing.T) {
 			if got := mustLoad(t, m).TenantIssuers(); !slices.Equal(got, c.want) {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
+		})
+	}
+}
+
+// TestTLSSettings: the TLS material stays as the references name it, to be
+// read again while the server runs (ADR-0033); certificate and key go
+// together.
+func TestTLSSettings(t *testing.T) {
+	m := valid()
+	m["ERP_TLS_CA"], m["ERP_TLS_CERT"], m["ERP_TLS_KEY"] = "file:/etc/erp/tls/ca.crt", "vault:secret/erp/tls#crt", "vault:secret/erp/tls#key"
+	c := mustLoad(t, m)
+	if want := (tlsconf.Source{CA: "file:/etc/erp/tls/ca.crt", Cert: "vault:secret/erp/tls#crt", Key: "vault:secret/erp/tls#key"}); c.TLS != want {
+		t.Errorf("TLS: got %+v, want %+v", c.TLS, want)
+	}
+	for _, missing := range []string{"ERP_TLS_CERT", "ERP_TLS_KEY"} {
+		t.Run("without "+missing, func(t *testing.T) {
+			mm := copyOf(m)
+			delete(mm, missing)
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_TLS_CERT and ERP_TLS_KEY go together")
 		})
 	}
 }

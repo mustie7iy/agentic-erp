@@ -48,6 +48,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -114,6 +115,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	// spans the last export loses are reported through otel's error handler.
 	defer func() { _ = tp.Shutdown(context.WithoutCancel(ctx)) }()
 	s := &server{cfg: cfg, log: log, tp: tp, failed: make(chan struct{})}
+	if s.tls, err = loadTLS(ctx, cfg); err != nil {
+		return err
+	}
 	if s.pool, err = openPool(ctx, cfg); err != nil {
 		return err
 	}
@@ -200,6 +204,7 @@ type server struct {
 	metrics      *telemetry.Metrics
 	engine       *workflow.Temporal
 	engineClient workflow.Client
+	tls          *tlsconf.Store // nil: no TLS material configured (development)
 	apiCfg       app.Config
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
@@ -215,6 +220,20 @@ type server struct {
 	failed   chan struct{}
 	failOnce sync.Once
 	failure  error
+}
+
+// loadTLS reads the cell's TLS material, or returns nil when none is
+// configured (development): a bundle that cannot be read, a certificate
+// without its key or an expired one stops the start (ADR-0033).
+func loadTLS(ctx context.Context, cfg config.Config) (*tlsconf.Store, error) {
+	if !cfg.TLS.Enabled() {
+		return nil, nil
+	}
+	store := &tlsconf.Store{Source: cfg.TLS, Resolver: cfg.Secrets}
+	if err := store.Refresh(ctx); err != nil {
+		return nil, fmt.Errorf("erp-server: %w", err)
+	}
+	return store, nil
 }
 
 // openPool opens the database pool with the configured size.
@@ -478,8 +497,8 @@ func (s *server) startOperations(runCtx context.Context) {
 	s.spawn("dispatcher", func() { dispatcher.Run(runCtx) })
 }
 
-// startMaintenance starts the partition maintenance and, with a global
-// directory, the directory sync.
+// startMaintenance starts the partition maintenance, with a global
+// directory the directory sync, and with TLS material its re-reading.
 func (s *server) startMaintenance(runCtx context.Context) {
 	pool, log := s.pool, s.log
 	s.spawn("maintenance", func() {
@@ -487,6 +506,9 @@ func (s *server) startMaintenance(runCtx context.Context) {
 	})
 	if s.sync != nil {
 		s.spawn("directory sync", func() { s.sync.Run(runCtx) })
+	}
+	if s.tls != nil {
+		s.spawn("tls", func() { s.tls.Run(runCtx, tlsconf.RefreshInterval, s.log) })
 	}
 }
 
@@ -530,7 +552,10 @@ func (s *server) connectBus() (*natsbus.Bus, error) {
 		s.log.Warn("ERP_NATS_URL not set: events stay in the outbox until a relay runs")
 		return nil, nil
 	}
-	return natsbus.Connect(s.cfg.NATSURL)
+	if s.tls == nil {
+		return natsbus.Connect(s.cfg.NATSURL)
+	}
+	return natsbus.Connect(s.cfg.NATSURL, natsbus.TLS(s.tls)...)
 }
 
 // startRelay makes sure the cell's streams exist and starts the outbox
