@@ -118,8 +118,11 @@ What runs when, to keep runner time to what proves something:
   suite was skipped for a tested tree.
 - A newer push to a pull request cancels its running check; the older
   commit then shows `ci-ok` failed, which is expected.
-- The tools run at pinned versions (`scripts/ci-tools.sh`), built once and
-  cached until that file or the Go version changes.
+- The tools run at pinned versions (`scripts/ci-tools.sh`), built once in
+  the job that uses them and cached until that file or the Go version
+  changes. The `changes` job builds nothing: it gates every other job and
+  stays within a few minutes, with gitleaks as its released binary checked
+  by hash.
 
 Weekly (Sundays) and on demand before a release: the load and soak suites
 (05 §5.8), the whole suite three times in random order, longer fuzzing,

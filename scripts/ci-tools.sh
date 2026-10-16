@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the tools CI runs, at pinned versions, into DIR (default
+# Installs the tools CI's test job runs, at pinned versions, into DIR (default
 # $HOME/.cache/ci-tools/bin), building only those not there yet, and prints
 # DIR. CI caches DIR by this file's hash and the Go version, so a run builds
 # them once per change instead of compiling each with `go run` every time
@@ -21,7 +21,6 @@ golangci-lint github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
 staticcheck honnef.co/go/tools/cmd/staticcheck@v0.8.2
 govulncheck golang.org/x/vuln/cmd/govulncheck@v1.9.0
 gosec github.com/securego/gosec/v2/cmd/gosec@v2.29.0
-gitleaks github.com/zricethezav/gitleaks/v8@v8.30.1
 vacuum github.com/daveshanley/vacuum@v0.32.0
 oasdiff github.com/oasdiff/oasdiff@v1.33.0
 EOF
