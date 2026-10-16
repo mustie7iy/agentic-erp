@@ -211,6 +211,7 @@ var operationRolesOidc = map[string][]string{
 	StartAgentSessionOperation:          []string{},
 	StartMigrationRunOperation:          []string{},
 	SubmitChangeRequestOperation:        []string{},
+	SubmitPurchaseOrderChangeOperation:  []string{},
 	SubmitRequisitionOperation:          []string{},
 	TerminateContractOperation:          []string{},
 	TransmitBankFileOperation:           []string{},

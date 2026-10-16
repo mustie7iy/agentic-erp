@@ -95,13 +95,26 @@ func getChange(ctx context.Context, tx pgx.Tx, order, id uuid.UUID, lock bool) (
 	if err != nil {
 		return PurchaseOrderChange{}, err
 	}
-	q := changeSelect + ` WHERE ch.purchase_order_id = $1 AND ch.id = $2`
-	if lock {
-		q += ` FOR UPDATE OF ch`
-	}
-	ch, err := scanChange(tx.QueryRow(ctx, q, order, id))
+	ch, err := scanChange(tx.QueryRow(ctx, changeQuery(lock), order, id))
 	if err = authz.Visible(err, access, ch.LegalEntityID, problem.NotFoundOf("order change"), "procurement: get order change %s", id); err != nil {
 		return PurchaseOrderChange{}, err
+	}
+	return ch, nil
+}
+
+func changeQuery(lock bool) string {
+	if lock {
+		return changeSelect + ` WHERE ch.purchase_order_id = $1 AND ch.id = $2 FOR UPDATE OF ch`
+	}
+	return changeSelect + ` WHERE ch.purchase_order_id = $1 AND ch.id = $2`
+}
+
+// readChange reads a change without the caller's company filter, for
+// those an approval request authorises.
+func readChange(ctx context.Context, tx pgx.Tx, order, id uuid.UUID, lock bool) (PurchaseOrderChange, error) {
+	ch, err := scanChange(tx.QueryRow(ctx, changeQuery(lock), order, id))
+	if err != nil {
+		return PurchaseOrderChange{}, fmt.Errorf("procurement: read order change %s: %w", id, err)
 	}
 	return ch, nil
 }
@@ -157,7 +170,8 @@ func (e *Endpoints) createChange(ctx context.Context, order uuid.UUID, in Change
 }
 
 // updateChange changes a draft change and checks it again against the
-// order as it reads now: receipts may have been posted since.
+// order as it reads now: receipts may have been posted since. The order is
+// locked first, as every write of a change takes the two locks.
 func (e *Endpoints) updateChange(ctx context.Context, order, id uuid.UUID, ifMatch func(int32) error, in ChangeInput) (PurchaseOrderChange, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -171,9 +185,8 @@ func (e *Endpoints) updateChange(ctx context.Context, order, id uuid.UUID, ifMat
 	if err != nil {
 		return PurchaseOrderChange{}, err
 	}
-	if o.Status != Released {
-		return PurchaseOrderChange{}, statusConflict("purchase order", o.Status, "an order change", Released)
-	}
+	// A draft change's order is released: closing or cancelling the order
+	// cancels its open change.
 	if in.Items == nil {
 		in.Items = proposedItems(ch)
 	}
@@ -267,11 +280,31 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	if pr.Items, err = e.orderItems(ctx, h, keptTolerance(o.Items, in.Items)); err != nil {
 		return ChangeProposal{}, 0, err
 	}
-	if err := keptItems(o.Items, pr.Items); err != nil {
+	removed, err := removedItems(ctx, tx, o.ID)
+	if err != nil {
+		return ChangeProposal{}, 0, err
+	}
+	if err := keptItems(append(slices.Clone(o.Items), removed...), pr.Items); err != nil {
 		return ChangeProposal{}, 0, err
 	}
 	after, err := documentTotal(pr.Items)
 	return pr, after, err
+}
+
+// removedItems are the order's removed items, which an item added back
+// under their number must match (the database checks it as the row is
+// updated); none has receipts.
+func removedItems(ctx context.Context, tx pgx.Tx, order uuid.UUID) ([]Item, error) {
+	rows, _ := tx.Query(ctx, `SELECT item_no, material_id, uom_code, account_id, contract_item_no FROM procurement.purchase_order_item
+		WHERE purchase_order_id = $1 AND is_removed ORDER BY item_no`, order)
+	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Item, error) {
+		it := Item{Received: "0", Quantity: "0", OverDelivery: "0"}
+		return it, r.Scan(&it.No, &it.MaterialID, &it.Unit, &it.AccountID, &it.ContractItemNo)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("procurement: read removed items of purchase order %s: %w", order, err)
+	}
+	return items, nil
 }
 
 // keptTolerance gives an item the change keeps the tolerance it has when

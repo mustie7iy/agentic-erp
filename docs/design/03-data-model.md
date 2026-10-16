@@ -836,6 +836,27 @@ may have been posted since; a second open change is 409
 `procurement.change_open`. An agent may draft a change; deciding one is
 human (`procurement.order.approve`).
 
+`:submit` checks the change again and applies it at once when it does not
+raise the order's total; one that raises it waits for an `order_change`
+approval request by amount tier on its new total (the order release tiers),
+unless the tiers ask for none. The approval applies it in the deciding
+transaction; a rejection ends it (`rejected`), a withdrawn request returns
+it to draft, and closing or cancelling the order cancels its open change
+and withdraws the request. The application locks the order, then the
+change, and writes in the order the triggers require: the order names the
+change, its items are written (an item added, or added back as it was,
+valued at its price), the change records what the order read before
+(`previous`, a non-empty object: `purchase_order_change_previous`) and the
+revision it makes, and the order takes the change's header fields as the
+name is cleared. A contract order consumes the difference of its total as a
+`contract_release` row, negative for a decrease; an increase must be covered
+by what remains of the contract on the changed order date, checked before
+approval is asked and again as it is applied (409
+`procurement.contract_exceeded`). `PurchaseOrderChanged` publishes the order
+as changed. Receipts posted while a change waited that it would fall below
+refuse its approval (422 `procurement.invalid_change`, from
+`purchase_order_item_received`), and the request stays pending.
+
 Each item of a released order carries its `valuation_price` and
 `valuation_price_unit` (migration 000061, T47a): its price when it was
 released, with its order or as an order change adds it; only the release

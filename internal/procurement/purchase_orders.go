@@ -227,7 +227,10 @@ func applyContractPrice(item *Item, contract *Contract, it ItemInput, field stri
 	return nil
 }
 
-func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item) error {
+// writeOrderItems writes an order's items and removes those beyond them.
+// valued values items not yet valued at their price, as an order change
+// adds them to a released order; a draft's are valued as it is released.
+func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item, valued bool) error {
 	n := len(items)
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
 	prices, priceUnits, accounts, tolerances := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n), make([]string, n)
@@ -238,15 +241,17 @@ func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items
 		taxes[i], contractItems[i] = it.TaxCode, it.ContractItemNo
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.purchase_order_item AS i (tenant_id, purchase_order_id, item_no, material_id, description, quantity,
-			uom_code, unit_price, price_unit, account_id, over_delivery_pct, tax_code, contract_item_no)
-		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, t::numeric, tx, ci
+			uom_code, unit_price, price_unit, account_id, over_delivery_pct, tax_code, contract_item_no, valuation_price, valuation_price_unit)
+		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, t::numeric, tx, ci, CASE WHEN $14 THEN p END, CASE WHEN $14 THEN pu END
 		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[], $11::text[], $12::text[], $13::int[])
 			AS x(n, m, d, q, u, p, pu, a, t, tx, ci)
 		ON CONFLICT (tenant_id, purchase_order_id, item_no) DO UPDATE SET material_id = EXCLUDED.material_id, description = EXCLUDED.description,
 			quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit,
 			account_id = EXCLUDED.account_id, over_delivery_pct = EXCLUDED.over_delivery_pct, tax_code = EXCLUDED.tax_code,
-			contract_item_no = EXCLUDED.contract_item_no, is_removed = false`,
-		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, tolerances, taxes, contractItems); err != nil {
+			contract_item_no = EXCLUDED.contract_item_no, is_removed = false,
+			valuation_price = coalesce(i.valuation_price, EXCLUDED.valuation_price),
+			valuation_price_unit = coalesce(i.valuation_price_unit, EXCLUDED.valuation_price_unit)`,
+		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, tolerances, taxes, contractItems, valued); err != nil {
 		return fmt.Errorf("procurement: write items of purchase order %s: %w", id, err)
 	}
 	return removeItems(ctx, tx, "purchase_order_item", "purchase_order_id", id, n)
@@ -360,7 +365,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 		in.Extensions, p.ID); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: create purchase order %s: %w", number, err)
 	}
-	if err := writeOrderItems(ctx, tx, p.TenantID, id, items); err != nil {
+	if err := writeOrderItems(ctx, tx, p.TenantID, id, items, false); err != nil {
 		return PurchaseOrder{}, err
 	}
 	if in.RequisitionID != nil {
@@ -461,7 +466,7 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	if err := writeOrderItems(ctx, tx, p.TenantID, id, items); err != nil {
+	if err := writeOrderItems(ctx, tx, p.TenantID, id, items, false); err != nil {
 		return PurchaseOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET purchasing_org_id = $2, supplier_id = $3, currency = $4, order_date = $5,
@@ -730,6 +735,9 @@ func (e *Endpoints) closeOrder(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	if err := e.cancelOpenChange(ctx, tx, p, id, "The purchase order was closed."); err != nil {
+		return PurchaseOrder{}, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'closed', version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: close purchase order %s: %w", id, err)
 	}
@@ -773,6 +781,9 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	if invoiced {
 		return PurchaseOrder{}, problem.Conflict("procurement.order_invoiced", "Invoices refer to the order; it cannot be cancelled.")
+	}
+	if err := e.cancelOpenChange(ctx, tx, p, id, "The purchase order was cancelled."); err != nil {
+		return PurchaseOrder{}, err
 	}
 	releasedValue, err := returnConsumption(ctx, tx, p, o)
 	if err != nil {

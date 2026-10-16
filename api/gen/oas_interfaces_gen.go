@@ -641,6 +641,10 @@ type SubmitChangeRequestRes interface {
 	submitChangeRequestRes()
 }
 
+type SubmitPurchaseOrderChangeRes interface {
+	submitPurchaseOrderChangeRes()
+}
+
 type SubmitRequisitionRes interface {
 	submitRequisitionRes()
 }

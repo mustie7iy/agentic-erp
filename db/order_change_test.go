@@ -290,6 +290,7 @@ func TestOrderChangeLifecycle(t *testing.T) {
 		{"rejected", []string{submit}, "status = 'rejected'", false, ""},
 		{"rejected on another request", []string{submit}, "status = 'rejected', approval_request_id = gen_random_uuid()", false, "decided only on the request it names"},
 		{"withdrawn", []string{submit}, "status = 'draft', approval_request_id = NULL", false, ""},
+		{"cancelled while pending, with its order", []string{submit}, "status = 'cancelled'", false, ""},
 		{"edited while pending", []string{submit}, "reason = 'More toner'", false, "cannot go from pending_approval to pending_approval"},
 		{"changed as it is submitted", nil, submit + ", total_after = 1", false, "changes only while it is a draft"},
 		{"applied on another request", []string{submit}, applied + ", approval_request_id = gen_random_uuid()", true, "decided only on the request it names"},

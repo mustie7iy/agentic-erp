@@ -169,12 +169,14 @@ func TestOrderChangeEdges(t *testing.T) {
 	}
 	cpath := path + "/changes/" + id(ch)
 	e.Problem(412, "request.version_mismatch", "PATCH", cpath, `{"reason": "x"}`, `"9"`)
-	patched, tag := e.Must(200, "PATCH", cpath, `{"items": `+items(item(e.office, "9", "EA", "2.50", "EUR", ""))+`}`, tag)
+	patched, _ := e.Must(200, "PATCH", cpath, `{"items": `+items(item(e.office, "9", "EA", "2.50", "EUR", ""))+`}`, tag)
 	want(t, "patched total", patched["total_after"].(map[string]any), map[string]any{"amount": "22.50"})
 	want(t, "patch keeps the rest", patched, map[string]any{"reason": "Later", "order_date": "2026-03-20"})
-	// A change of an order that is no longer released is refused.
+	// A closed order's change is cancelled with it; an order no longer
+	// released takes none.
 	e.act(t, path, "close", "")
-	e.Problem(409, "procurement.invalid_status", "PATCH", cpath, `{"reason": "x"}`, tag)
+	e.Problem(409, "procurement.invalid_status", "PATCH", cpath, `{"reason": "x"}`, "*")
+	e.Problem(409, "procurement.invalid_status", "POST", path+"/changes", `{"reason": "x"}`, "")
 	e.Problem(404, "request.not_found", "GET", "/v1/purchase-orders/"+uuid.NewString()+"/changes", "", "")
 }
 
@@ -206,6 +208,10 @@ func TestOrderChangeFailures(t *testing.T) {
 		},
 		"update": func(ctx context.Context) error {
 			_, err := h.UpdatePurchaseOrderChange(ctx, &gen.PurchaseOrderChangeUpdate{Items: its}, gen.UpdatePurchaseOrderChangeParams{ID: po, ChangeID: c, IfMatch: "*"})
+			return err
+		},
+		"submit": func(ctx context.Context) error {
+			_, err := h.SubmitPurchaseOrderChange(ctx, gen.SubmitPurchaseOrderChangeParams{ID: po, ChangeID: c, IfMatch: "*"})
 			return err
 		},
 		"cancel": func(ctx context.Context) error {

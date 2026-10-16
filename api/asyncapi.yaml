@@ -215,6 +215,7 @@ channels:
     messages:
       RequisitionSubmitted: {$ref: '#/components/messages/RequisitionSubmitted'}
       PurchaseOrderReleased: {$ref: '#/components/messages/PurchaseOrderReleased'}
+      PurchaseOrderChanged: {$ref: '#/components/messages/PurchaseOrderChanged'}
       GoodsReceived: {$ref: '#/components/messages/GoodsReceived'}
       GoodsReceiptReversed: {$ref: '#/components/messages/GoodsReceiptReversed'}
       GoodsReturned: {$ref: '#/components/messages/GoodsReturned'}
@@ -381,6 +382,7 @@ operations:
     messages:
       - $ref: '#/channels/procurement/messages/RequisitionSubmitted'
       - $ref: '#/channels/procurement/messages/PurchaseOrderReleased'
+      - $ref: '#/channels/procurement/messages/PurchaseOrderChanged'
       - $ref: '#/channels/procurement/messages/GoodsReceived'
       - $ref: '#/channels/procurement/messages/GoodsReceiptReversed'
       - $ref: '#/channels/procurement/messages/GoodsReturned'
@@ -899,6 +901,36 @@ components:
             total_amount: {amount: '1000.00', currency: EUR}
             items:
               - {item_no: 1, quantity: {value: '2', unit: EA}, unit_price: {amount: '500.00', currency: EUR}, price_unit: 1, account_id: 0192a000-0000-7000-8000-000000000404, tax_code: V1}
+    PurchaseOrderChanged:
+      name: PurchaseOrderChanged
+      title: Purchase order changed
+      summary: An order change was applied to a released purchase order, making its next revision.
+      description: Emitted when an order change is applied, by `purchase-orders/{id}/changes/{change_id}:submit` for a change that does not raise the order's total or needs no approval, or by `approval-requests/{id}:approve` in the deciding transaction. The payload is the order as it reads after the change, with the totals before and after; integration sends the changed order output, and payables matches invoices against the changed prices from then on (GR/IR stays valued at each item's valuation price). Subject is the purchase order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.purchase_order_changed.v1}
+      payload: {$ref: '#/components/schemas/PurchaseOrderChangedV1'}
+      examples:
+        - name: price
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000014, source: /erp/eu-1/procurement, type: com.example.erp.procurement.purchase_order_changed.v1, subject: 0192a000-0000-7000-8000-000000000602, time: '2026-10-08T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload:
+            purchase_order_id: 0192a000-0000-7000-8000-000000000602
+            document_number: '4500001234'
+            legal_entity_id: 0192a000-0000-7000-8000-000000000201
+            supplier_id: 0192a000-0000-7000-8000-000000000301
+            change_id: 0192a000-0000-7000-8000-000000000607
+            revision: 2
+            reason: Supplier lowered the price
+            order_date: '2026-10-02'
+            payment_term_code: NT30
+            contract_id: null
+            total_before: {amount: '1000.00', currency: EUR}
+            total_after: {amount: '960.00', currency: EUR}
+            items:
+              - {item_no: 1, quantity: {value: '2', unit: EA}, unit_price: {amount: '480.00', currency: EUR}, price_unit: 1, account_id: 0192a000-0000-7000-8000-000000000404, tax_code: V1}
     GoodsReceived:
       name: GoodsReceived
       title: Goods received
@@ -2449,6 +2481,37 @@ components:
         items:
           type: array
           minItems: 1
+          items:
+            type: object
+            required: [item_no, quantity, unit_price, price_unit, account_id]
+            properties:
+              item_no: {type: integer, minimum: 1}
+              quantity: {$ref: '#/components/schemas/Quantity'}
+              unit_price: {$ref: '#/components/schemas/Money'}
+              price_unit: {type: integer, minimum: 1}
+              account_id: {$ref: '#/components/schemas/Uuid'}
+              tax_code: {type: [string, 'null']}
+              contract_item_no: {type: [integer, 'null']}
+    PurchaseOrderChangedV1:
+      type: object
+      required: [purchase_order_id, document_number, legal_entity_id, supplier_id, change_id, revision, reason, order_date, payment_term_code, total_before, total_after, items]
+      properties:
+        purchase_order_id: {$ref: '#/components/schemas/Uuid'}
+        document_number: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_id: {$ref: '#/components/schemas/Uuid'}
+        change_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.purchase_order_change.id` applied.'}
+        revision: {type: integer, minimum: 2, description: The revision the change made.}
+        reason: {type: string}
+        order_date: {$ref: '#/components/schemas/Date'}
+        payment_term_code: {type: string}
+        contract_id: {$ref: '#/components/schemas/NullableUuid'}
+        total_before: {$ref: '#/components/schemas/Money'}
+        total_after: {$ref: '#/components/schemas/Money'}
+        items:
+          type: array
+          minItems: 1
+          description: The order's live items after the change.
           items:
             type: object
             required: [item_no, quantity, unit_price, price_unit, account_id]

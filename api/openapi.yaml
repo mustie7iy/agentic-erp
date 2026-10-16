@@ -5420,7 +5420,7 @@ paths:
       tags:
         - procurement
       summary: Close a purchase order
-      description: "Closes a released order: no further goods receipts or invoices are expected and both are refused from then on; the contract consumption stays. Requires status `released`. Orders fully received and invoiced are closed this way by the buyer."
+      description: "Closes a released order: no further goods receipts or invoices are expected and both are refused from then on; the contract consumption stays. Requires status `released`. Orders fully received and invoiced are closed this way by the buyer. An open order change is cancelled with it, and its approval request withdrawn."
       x-permission: procurement.order.release
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -5470,7 +5470,7 @@ paths:
       tags:
         - procurement
       summary: Cancel a purchase order
-      description: "Cancels an order without receipts or invoices and returns its contract consumption. An order waiting for its release approval is cancelled too, and its request withdrawn."
+      description: "Cancels an order without receipts or invoices and returns its contract consumption. An order waiting for its release approval is cancelled too, and its request withdrawn; so is an open order change of a released order."
       x-permission: procurement.order.create
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -5716,6 +5716,57 @@ paths:
       responses:
         "200":
           description: "The order change after cancelPurchaseOrderChange."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}/changes/{change_id}:submit":
+    post:
+      operationId: submitPurchaseOrderChange
+      tags:
+        - procurement
+      summary: Submit a drafted order change
+      description: "Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order still `released`, checked again against the order as it reads now (422 `procurement.invalid_change`). A change that does not raise the order's total is applied at once; one that raises it waits for an `order_change` approval request by amount tier on its new total (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`); withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields and items as its next `revision`: items it adds take their price as valuation price, a contract order consumes the difference of its total (409 `procurement.contract_exceeded` when what remains does not cover an increase), and `PurchaseOrderChanged` is published. Agents may submit; approving is for people."
+      x-permission: procurement.order.create
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The order change after submitPurchaseOrderChange: `applied` or `pending_approval`."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"

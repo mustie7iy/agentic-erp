@@ -87,6 +87,22 @@ func TestStoredTotalOutOfRange(t *testing.T) {
 	e.Problem(422, "procurement.amount_too_large", "POST", "/v1/purchase-orders/"+id(changed)+"/changes",
 		`{"reason": "r", "items": `+items(item(e.office, "1", "EA", "1.00", "EUR", ""))+`}`, "")
 
+	// Submitting a change of an order stored out of range is refused, and
+	// so is approving one.
+	lowered := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	e.act(t, "/v1/purchase-orders/"+id(lowered), "release", "")
+	ch, tag := e.Must(201, "POST", "/v1/purchase-orders/"+id(lowered)+"/changes", `{"reason": "r"}`, "")
+	corrupt("purchase_order_item", "purchase_order_id", lowered)
+	e.Problem(422, "procurement.amount_too_large", "POST", "/v1/purchase-orders/"+id(lowered)+"/changes/"+id(ch)+":submit", "", tag)
+	raised := e.order(t, items(item(e.office, "10", "EA", "90.00", "EUR", "")), "")
+	e.act(t, "/v1/purchase-orders/"+id(raised), "release", "")
+	ch, tag = e.Must(201, "POST", "/v1/purchase-orders/"+id(raised)+"/changes", `{"reason": "r", "items": `+items(item(e.office, "10", "EA", "150.00", "EUR", ""))+`}`, "")
+	e.Must(200, "POST", "/v1/purchase-orders/"+id(raised)+"/changes/"+id(ch)+":submit", "", tag)
+	pending := e.Pending(t, id(ch))
+	corrupt("purchase_order_item", "purchase_order_id", raised)
+	e.As(e.Approver).Problem(422, "procurement.amount_too_large", "POST", "/v1/approval-requests/"+id(pending)+":approve", `{"comment": "ok"}`,
+		fmt.Sprintf(`"%v"`, pending["version"]))
+
 	// Approving the release of an order stored out of range is refused.
 	waiting := e.order(t, items(item(e.office, "10", "EA", "150.00", "EUR", "")), "")
 	e.act(t, "/v1/purchase-orders/"+id(waiting), "release", "")

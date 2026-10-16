@@ -609,6 +609,15 @@ func (e *Endpoints) CancelPurchaseOrderChange(ctx context.Context, params gen.Ca
 	return changeOK(ch), nil
 }
 
+// SubmitPurchaseOrderChange implements POST /v1/purchase-orders/{id}/changes/{change_id}:submit.
+func (e *Endpoints) SubmitPurchaseOrderChange(ctx context.Context, params gen.SubmitPurchaseOrderChangeParams) (gen.SubmitPurchaseOrderChangeRes, error) {
+	ch, err := e.submitChange(ctx, params.ID, params.ChangeID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return changeOK(ch), nil
+}
+
 // --- goods receipts ---------------------------------------------------------
 
 // PostGoodsReceipt implements POST /v1/goods-receipts.

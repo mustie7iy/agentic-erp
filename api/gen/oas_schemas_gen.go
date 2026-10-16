@@ -2206,6 +2206,7 @@ func (*BadRequestHeaders) simulateChangeRequestRes()      {}
 func (*BadRequestHeaders) startAgentSessionRes()          {}
 func (*BadRequestHeaders) startMigrationRunRes()          {}
 func (*BadRequestHeaders) submitChangeRequestRes()        {}
+func (*BadRequestHeaders) submitPurchaseOrderChangeRes()  {}
 func (*BadRequestHeaders) submitRequisitionRes()          {}
 func (*BadRequestHeaders) terminateContractRes()          {}
 func (*BadRequestHeaders) transmitBankFileRes()           {}
@@ -5920,6 +5921,7 @@ func (*ConflictHeaders) simulateChangeRequestRes()     {}
 func (*ConflictHeaders) startAgentSessionRes()         {}
 func (*ConflictHeaders) startMigrationRunRes()         {}
 func (*ConflictHeaders) submitChangeRequestRes()       {}
+func (*ConflictHeaders) submitPurchaseOrderChangeRes() {}
 func (*ConflictHeaders) submitRequisitionRes()         {}
 func (*ConflictHeaders) terminateContractRes()         {}
 func (*ConflictHeaders) transmitBankFileRes()          {}
@@ -8700,6 +8702,7 @@ func (*ForbiddenHeaders) simulateChangeRequestRes()      {}
 func (*ForbiddenHeaders) startAgentSessionRes()          {}
 func (*ForbiddenHeaders) startMigrationRunRes()          {}
 func (*ForbiddenHeaders) submitChangeRequestRes()        {}
+func (*ForbiddenHeaders) submitPurchaseOrderChangeRes()  {}
 func (*ForbiddenHeaders) submitRequisitionRes()          {}
 func (*ForbiddenHeaders) terminateContractRes()          {}
 func (*ForbiddenHeaders) transmitBankFileRes()           {}
@@ -13760,6 +13763,7 @@ func (*NotFoundHeaders) reverseSupplierInvoiceRes()     {}
 func (*NotFoundHeaders) simulateChangeRequestRes()      {}
 func (*NotFoundHeaders) startMigrationRunRes()          {}
 func (*NotFoundHeaders) submitChangeRequestRes()        {}
+func (*NotFoundHeaders) submitPurchaseOrderChangeRes()  {}
 func (*NotFoundHeaders) submitRequisitionRes()          {}
 func (*NotFoundHeaders) terminateContractRes()          {}
 func (*NotFoundHeaders) transmitBankFileRes()           {}
@@ -18547,6 +18551,7 @@ func (*PreconditionFailedHeaders) reverseSupplierInvoiceRes()    {}
 func (*PreconditionFailedHeaders) simulateChangeRequestRes()     {}
 func (*PreconditionFailedHeaders) startMigrationRunRes()         {}
 func (*PreconditionFailedHeaders) submitChangeRequestRes()       {}
+func (*PreconditionFailedHeaders) submitPurchaseOrderChangeRes() {}
 func (*PreconditionFailedHeaders) submitRequisitionRes()         {}
 func (*PreconditionFailedHeaders) terminateContractRes()         {}
 func (*PreconditionFailedHeaders) transmitBankFileRes()          {}
@@ -18694,6 +18699,7 @@ func (*PreconditionRequiredHeaders) simulateChangeRequestRes()     {}
 func (*PreconditionRequiredHeaders) startAgentSessionRes()         {}
 func (*PreconditionRequiredHeaders) startMigrationRunRes()         {}
 func (*PreconditionRequiredHeaders) submitChangeRequestRes()       {}
+func (*PreconditionRequiredHeaders) submitPurchaseOrderChangeRes() {}
 func (*PreconditionRequiredHeaders) submitRequisitionRes()         {}
 func (*PreconditionRequiredHeaders) terminateContractRes()         {}
 func (*PreconditionRequiredHeaders) transmitBankFileRes()          {}
@@ -23799,6 +23805,7 @@ func (*ServiceUnavailableHeaders) simulateChangeRequestRes()      {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()          {}
 func (*ServiceUnavailableHeaders) startMigrationRunRes()          {}
 func (*ServiceUnavailableHeaders) submitChangeRequestRes()        {}
+func (*ServiceUnavailableHeaders) submitPurchaseOrderChangeRes()  {}
 func (*ServiceUnavailableHeaders) submitRequisitionRes()          {}
 func (*ServiceUnavailableHeaders) terminateContractRes()          {}
 func (*ServiceUnavailableHeaders) transmitBankFileRes()           {}
@@ -25544,6 +25551,7 @@ func (*TooManyRequestsHeaders) simulateChangeRequestRes()      {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()          {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()          {}
 func (*TooManyRequestsHeaders) submitChangeRequestRes()        {}
+func (*TooManyRequestsHeaders) submitPurchaseOrderChangeRes()  {}
 func (*TooManyRequestsHeaders) submitRequisitionRes()          {}
 func (*TooManyRequestsHeaders) terminateContractRes()          {}
 func (*TooManyRequestsHeaders) transmitBankFileRes()           {}
@@ -25785,6 +25793,7 @@ func (*UnauthorizedHeaders) simulateChangeRequestRes()      {}
 func (*UnauthorizedHeaders) startAgentSessionRes()          {}
 func (*UnauthorizedHeaders) startMigrationRunRes()          {}
 func (*UnauthorizedHeaders) submitChangeRequestRes()        {}
+func (*UnauthorizedHeaders) submitPurchaseOrderChangeRes()  {}
 func (*UnauthorizedHeaders) submitRequisitionRes()          {}
 func (*UnauthorizedHeaders) terminateContractRes()          {}
 func (*UnauthorizedHeaders) transmitBankFileRes()           {}
@@ -25933,6 +25942,7 @@ func (*UnprocessableHeaders) simulateChangeRequestRes()     {}
 func (*UnprocessableHeaders) startAgentSessionRes()         {}
 func (*UnprocessableHeaders) startMigrationRunRes()         {}
 func (*UnprocessableHeaders) submitChangeRequestRes()       {}
+func (*UnprocessableHeaders) submitPurchaseOrderChangeRes() {}
 func (*UnprocessableHeaders) submitRequisitionRes()         {}
 func (*UnprocessableHeaders) terminateContractRes()         {}
 func (*UnprocessableHeaders) transmitBankFileRes()          {}
@@ -26547,6 +26557,7 @@ func (s *UpdatePurchaseOrderChangeOKHeaders) SetResponse(val PurchaseOrderChange
 }
 
 func (*UpdatePurchaseOrderChangeOKHeaders) cancelPurchaseOrderChangeRes() {}
+func (*UpdatePurchaseOrderChangeOKHeaders) submitPurchaseOrderChangeRes() {}
 func (*UpdatePurchaseOrderChangeOKHeaders) updatePurchaseOrderChangeRes() {}
 
 // UpdatePurchaseOrderOKHeaders wraps PurchaseOrder with response headers.

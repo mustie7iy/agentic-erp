@@ -122,7 +122,8 @@ type Invoker interface {
 	// CancelPurchaseOrder invokes cancelPurchaseOrder operation.
 	//
 	// Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
-	// for its release approval is cancelled too, and its request withdrawn.
+	// for its release approval is cancelled too, and its request withdrawn; so is an open order change of
+	// a released order.
 	//
 	// POST /v1/purchase-orders/{id}:cancel
 	CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (CancelPurchaseOrderRes, error)
@@ -163,7 +164,8 @@ type Invoker interface {
 	//
 	// Closes a released order: no further goods receipts or invoices are expected and both are refused
 	// from then on; the contract consumption stays. Requires status `released`. Orders fully received and
-	// invoiced are closed this way by the buyer.
+	// invoiced are closed this way by the buyer. An open order change is cancelled with it, and its
+	// approval request withdrawn.
 	//
 	// POST /v1/purchase-orders/{id}:close
 	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
@@ -1160,6 +1162,21 @@ type Invoker interface {
 	//
 	// POST /v1/change-requests/{id}:submit
 	SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (SubmitChangeRequestRes, error)
+	// SubmitPurchaseOrderChange invokes submitPurchaseOrderChange operation.
+	//
+	// Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order
+	// still `released`, checked again against the order as it reads now (422
+	// `procurement.invalid_change`). A change that does not raise the order's total is applied at once;
+	// one that raises it waits for an `order_change` approval request by amount tier on its new total
+	// (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`);
+	// withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields
+	// and items as its next `revision`: items it adds take their price as valuation price, a contract
+	// order consumes the difference of its total (409 `procurement.contract_exceeded` when what remains
+	// does not cover an increase), and `PurchaseOrderChanged` is published. Agents may submit; approving
+	// is for people.
+	//
+	// POST /v1/purchase-orders/{id}/changes/{change_id}:submit
+	SubmitPurchaseOrderChange(ctx context.Context, params SubmitPurchaseOrderChangeParams) (SubmitPurchaseOrderChangeRes, error)
 	// SubmitRequisition invokes submitRequisition operation.
 	//
 	// Submits a draft for approval and opens an approval request. Requires status `draft`.
@@ -3284,7 +3301,8 @@ func (c *Client) sendCancelParkedJournalEntry(ctx context.Context, request *Reas
 // CancelPurchaseOrder invokes cancelPurchaseOrder operation.
 //
 // Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
-// for its release approval is cancelled too, and its request withdrawn.
+// for its release approval is cancelled too, and its request withdrawn; so is an open order change of
+// a released order.
 //
 // POST /v1/purchase-orders/{id}:cancel
 func (c *Client) CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (CancelPurchaseOrderRes, error) {
@@ -4226,7 +4244,8 @@ func (c *Client) sendCloseFiscalPeriod(ctx context.Context, params CloseFiscalPe
 //
 // Closes a released order: no further goods receipts or invoices are expected and both are refused
 // from then on; the contract consumption stays. Requires status `released`. Orders fully received and
-// invoiced are closed this way by the buyer.
+// invoiced are closed this way by the buyer. An open order change is cancelled with it, and its
+// approval request withdrawn.
 //
 // POST /v1/purchase-orders/{id}:close
 func (c *Client) ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error) {
@@ -28308,6 +28327,191 @@ func (c *Client) sendSubmitChangeRequest(ctx context.Context, params SubmitChang
 
 	stage = "DecodeResponse"
 	result, err := decodeSubmitChangeRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// SubmitPurchaseOrderChange invokes submitPurchaseOrderChange operation.
+//
+// Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order
+// still `released`, checked again against the order as it reads now (422
+// `procurement.invalid_change`). A change that does not raise the order's total is applied at once;
+// one that raises it waits for an `order_change` approval request by amount tier on its new total
+// (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`);
+// withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields
+// and items as its next `revision`: items it adds take their price as valuation price, a contract
+// order consumes the difference of its total (409 `procurement.contract_exceeded` when what remains
+// does not cover an increase), and `PurchaseOrderChanged` is published. Agents may submit; approving
+// is for people.
+//
+// POST /v1/purchase-orders/{id}/changes/{change_id}:submit
+func (c *Client) SubmitPurchaseOrderChange(ctx context.Context, params SubmitPurchaseOrderChangeParams) (SubmitPurchaseOrderChangeRes, error) {
+	res, err := c.sendSubmitPurchaseOrderChange(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendSubmitPurchaseOrderChange(ctx context.Context, params SubmitPurchaseOrderChangeParams) (res SubmitPurchaseOrderChangeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("submitPurchaseOrderChange"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/changes/{change_id}:submit"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SubmitPurchaseOrderChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/changes/"
+	{
+		// Encode "change_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "change_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ChangeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":submit"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SubmitPurchaseOrderChangeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSubmitPurchaseOrderChangeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

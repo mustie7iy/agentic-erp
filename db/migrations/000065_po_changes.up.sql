@@ -49,7 +49,8 @@ ALTER TABLE procurement.purchase_order ADD CONSTRAINT purchase_order_applying_ch
 
 -- A change moves draft -> pending_approval -> applied or rejected, back to
 -- draft when its request is withdrawn, straight to applied when it needs
--- no approval, or to cancelled; it changes only as a draft, and is decided
+-- no approval, or to cancelled, from pending_approval too as its order is
+-- closed or cancelled; it changes only as a draft, and is decided
 -- only on the request it names. Each changes the revision it is based on
 -- and makes the next one.
 CREATE FUNCTION procurement.check_order_change() RETURNS trigger
@@ -63,7 +64,7 @@ BEGIN
     RETURN NEW;
   END IF;
   IF (OLD.status, NEW.status) NOT IN (('draft', 'draft'), ('draft', 'pending_approval'), ('draft', 'applied'), ('draft', 'cancelled'),
-      ('pending_approval', 'applied'), ('pending_approval', 'rejected'), ('pending_approval', 'draft')) THEN
+      ('pending_approval', 'applied'), ('pending_approval', 'rejected'), ('pending_approval', 'draft'), ('pending_approval', 'cancelled')) THEN
     RAISE EXCEPTION 'order change % cannot go from % to %', OLD.id, OLD.status, NEW.status
       USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_change_transition';
   END IF;

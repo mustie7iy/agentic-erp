@@ -142,7 +142,8 @@ func (UnimplementedHandler) CancelParkedJournalEntry(ctx context.Context, req *R
 // CancelPurchaseOrder implements cancelPurchaseOrder operation.
 //
 // Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
-// for its release approval is cancelled too, and its request withdrawn.
+// for its release approval is cancelled too, and its request withdrawn; so is an open order change of
+// a released order.
 //
 // POST /v1/purchase-orders/{id}:cancel
 func (UnimplementedHandler) CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (r CancelPurchaseOrderRes, _ error) {
@@ -201,7 +202,8 @@ func (UnimplementedHandler) CloseFiscalPeriod(ctx context.Context, params CloseF
 //
 // Closes a released order: no further goods receipts or invoices are expected and both are refused
 // from then on; the contract consumption stays. Requires status `released`. Orders fully received and
-// invoiced are closed this way by the buyer.
+// invoiced are closed this way by the buyer. An open order change is cancelled with it, and its
+// approval request withdrawn.
 //
 // POST /v1/purchase-orders/{id}:close
 func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (r ClosePurchaseOrderRes, _ error) {
@@ -1621,6 +1623,24 @@ func (UnimplementedHandler) StartMigrationRun(ctx context.Context, params StartM
 //
 // POST /v1/change-requests/{id}:submit
 func (UnimplementedHandler) SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (r SubmitChangeRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// SubmitPurchaseOrderChange implements submitPurchaseOrderChange operation.
+//
+// Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order
+// still `released`, checked again against the order as it reads now (422
+// `procurement.invalid_change`). A change that does not raise the order's total is applied at once;
+// one that raises it waits for an `order_change` approval request by amount tier on its new total
+// (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`);
+// withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields
+// and items as its next `revision`: items it adds take their price as valuation price, a contract
+// order consumes the difference of its total (409 `procurement.contract_exceeded` when what remains
+// does not cover an increase), and `PurchaseOrderChanged` is published. Agents may submit; approving
+// is for people.
+//
+// POST /v1/purchase-orders/{id}/changes/{change_id}:submit
+func (UnimplementedHandler) SubmitPurchaseOrderChange(ctx context.Context, params SubmitPurchaseOrderChangeParams) (r SubmitPurchaseOrderChangeRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
