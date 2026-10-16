@@ -375,7 +375,7 @@ which is reachable only inside the platform (ADR-0015).
 | Operation | Method | Notes |
 |---|---|---|
 | `listTenants` | `GET /control/v1/tenants` | `status` filter; `order_by` `created_at` (default, newest first) or `name`; cursor pages |
-| `createTenant` | `POST /control/v1/tenants` | `Idempotency-Key` required; the tenant, its administrator, roles, legal entities and configuration v1 in one transaction; 201 with the tenant and what was provisioned |
+| `createTenant` | `POST /control/v1/tenants` | `Idempotency-Key` required; the tenant, its administrator, roles, legal entities, configuration v1 and, with `identity_provider` (required in production), its identity provider in one transaction; 201 with the tenant and what was provisioned |
 | `getTenant` | `GET /control/v1/tenants/{id}` | `ETag` = version |
 | `suspendTenant`, `resumeTenant`, `offboardTenant` | `POST /control/v1/tenants/{id}:verb` | `If-Match` required; 409 `tenancy.invalid_transition` outside active → suspended → active, active or suspended → offboarded (final) |
 | `rotateTenantKey` | `POST /control/v1/tenants/{id}:rotateKey` | `If-Match` required; a new field-encryption key, every sensitive field re-sealed (ADR-0018) |
@@ -384,6 +384,8 @@ which is reachable only inside the platform (ADR-0015).
 | `listIdentityProviders`, `registerIdentityProvider` | `GET`, `POST /control/v1/tenants/{id}/identity-providers` | The tenant's identity providers (ADR-0031); registering needs `erp:admin` and an `Idempotency-Key`, claims the issuer and audience in the global directory first (409 `identity.provider_taken`, 503 while it cannot be reached), and publishes `IdentityProviderRegistered` |
 | `getIdentityProvider`, `updateIdentityProvider` | `GET`, `PATCH /control/v1/tenants/{id}/identity-providers/{provider_id}` | Merge patch of the tenant claim and the `acr`/`amr` values; issuer and audience never change; `If-Match` required; `erp:admin` |
 | `retireIdentityProvider` | `POST /control/v1/tenants/{id}/identity-providers/{provider_id}:retire` | `If-Match` required; 409 `identity.last_provider` for the tenant's last active one; publishes `IdentityProviderRetired`; `erp:admin` |
+| `listTenantPrincipals` | `GET /control/v1/tenants/{id}/principals` | `binding=unbound` (default: those whose issuer is no active provider of the tenant) or `all`; cursor pages; `erp:read` |
+| `bindPrincipal` | `POST /control/v1/tenants/{id}/principals/{principal_id}:bind` | Binds the principal to an active provider with its subject there; `If-Match` required; publishes `PrincipalBound`; `erp:admin` |
 | `getAuthPolicy`, `updateAuthPolicy` | `GET`, `PATCH /control/v1/tenants/{id}/auth-policy` | Multi-factor requirement, session lifetime and idle timeout; merge patch with `If-Match`; publishes `AuthPolicyChanged`; `erp:admin` |
 
 The control plane follows this document's rules (problems, pagination,

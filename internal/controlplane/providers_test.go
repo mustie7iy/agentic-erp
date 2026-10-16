@@ -20,7 +20,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 )
@@ -606,4 +608,103 @@ func TestProvisioningWithAProviderThroughTheControlPlane(t *testing.T) {
 		t.Errorf("providers: got %v, want the one provisioned", list)
 	}
 	p.problem(400, "request.invalid_body", "ops|alice", "POST", tenants, strings.Replace(body, `"audience"`, `"colour": "red", "audience"`, 1), "Idempotency-Key", "key-"+uuid.NewString())
+}
+
+// TestBindingUnboundPrincipals: an operator lists a tenant's principals
+// whose issuer is no active provider of the tenant (such as the
+// development issuer 000046 bound them to) and binds one to a registered
+// provider with its subject there, so it signs in again (ADR-0031).
+func TestBindingUnboundPrincipals(t *testing.T) {
+	p := newPlane(t)
+	ten := pgtest.NewTenant(t)
+	base := tenants + "/" + ten.ID.String()
+	pgtest.Exec(t, `UPDATE identity.principal SET external_issuer = 'erp-dev', version = version + 1 WHERE tenant_id = $1 AND id = $2`, ten.ID, ten.Human.ID)
+	body, iss := providerBody("bind")
+	provider, _ := p.must(201, "ops|alice", "POST", base+"/identity-providers", body, "Idempotency-Key", "key-"+uuid.NewString())
+
+	unbound, _ := p.must(200, "ops|alice", "GET", base+"/principals", "")
+	items, _ := unbound["items"].([]any)
+	ids := map[any]bool{}
+	for _, it := range items {
+		ids[it.(map[string]any)["id"]] = true
+	}
+	// The service and agent are bound to the test issuer, which is no provider of the tenant: unbound too.
+	if !ids[ten.Human.ID.String()] || len(items) != 3 {
+		t.Fatalf("unbound principals: got %v, want the three, the person among them", unbound)
+	}
+	all, _ := p.must(200, "ops|alice", "GET", base+"/principals?binding=all&page_size=2", "")
+	if items, _ := all["items"].([]any); len(items) != 2 || all["next_page_token"] == nil {
+		t.Errorf("a page of all principals: got %v, want two and a next page", all)
+	}
+	p.problem(400, "request.invalid_parameter", "ops|alice", "GET", base+"/principals?binding=some", "")
+
+	path := base + "/principals/" + ten.Human.ID.String() + ":bind"
+	bind := `{"identity_provider_id": "` + provider["id"].(string) + `", "subject": "ada@acme"}`
+	got, h := p.must(200, "ops|alice", "POST", path, bind, "If-Match", `"2"`)
+	if got["external_issuer"] != iss || got["external_subject"] != "ada@acme" || got["bound"] != true || h.Get("ETag") != `"3"` {
+		t.Errorf("bound: got %v, ETag %s, want %s's ada@acme, bound, \"3\"", got, h.Get("ETag"), iss)
+	}
+	events := apitest.Published(t, ten, outbox.Event{Context: "identity", Name: "principal_bound"})
+	if len(events) != 1 || events[0]["previous_issuer"] != "erp-dev" || events[0]["external_issuer"] != iss {
+		t.Errorf("events: got %v, want one from erp-dev to %s", events, iss)
+	}
+	if _, op := auditAction(t, ten.ID, "identity.principal.bind"); op != "ops|alice" {
+		t.Errorf("audit: got operator %q, want ops|alice", op)
+	}
+	after, _ := p.must(200, "ops|alice", "GET", base+"/principals", "")
+	if items, _ := after["items"].([]any); len(items) != 2 {
+		t.Errorf("unbound after the binding: got %v, want the two machines", after)
+	}
+
+	t.Run("refusals", func(t *testing.T) {
+		pr := p.in(t)
+		pr.problem(412, "request.version_mismatch", "ops|alice", "POST", path, bind, "If-Match", `"2"`)
+		pr.problem(409, "identity.subject_taken", "ops|alice", "POST", base+"/principals/"+ten.Service.ID.String()+":bind", bind, "If-Match", "*")
+		pr.problem(404, "request.not_found", "ops|alice", "POST", base+"/principals/"+uuid.NewString()+":bind", bind, "If-Match", "*")
+		pr.problem(422, "request.reference_not_found", "ops|alice", "POST", path, `{"identity_provider_id": "`+uuid.NewString()+`", "subject": "x"}`, "If-Match", "*")
+		pr.problem(422, "identity.invalid_subject", "ops|alice", "POST", path, `{"identity_provider_id": "`+provider["id"].(string)+`", "subject": ""}`, "If-Match", "*")
+		pr.problem(400, "request.invalid_body", "ops|alice", "POST", path, `{"subject": "x", "colour": "red"}`, "If-Match", "*")
+		pr.problem(400, "request.invalid_parameter", "ops|alice", "POST", base+"/principals/nope:bind", bind, "If-Match", "*")
+		pr.problem(400, "request.invalid_parameter", "ops|alice", "GET", base+"/principals?page_size=many", "")
+		pr.problem(413, "request.body_too_large", "ops|alice", "POST", path, `{"subject": "`+strings.Repeat("x", 5000)+`"}`, "If-Match", "*")
+		pr.problem(404, "request.not_found", "ops|alice", "POST", base+"/principals/"+ten.Human.ID.String()+":promote", bind, "If-Match", "*")
+		status, _, hd := pr.as("ops|alice", "GET", path, "")
+		if status != 405 || hd.Get("Allow") != "POST" {
+			t.Errorf("GET of :bind: got %d Allow %q, want 405 POST", status, hd.Get("Allow"))
+		}
+		status, _, hd = pr.as("ops|alice", "DELETE", base+"/principals", "")
+		if status != 405 || hd.Get("Allow") != "GET" {
+			t.Errorf("DELETE of principals: got %d Allow %q, want 405 GET", status, hd.Get("Allow"))
+		}
+	})
+	t.Run("a retired provider", func(t *testing.T) {
+		pr := p.in(t)
+		second, _ := providerBody("second")
+		pr.must(201, "ops|alice", "POST", base+"/identity-providers", second, "Idempotency-Key", "key-"+uuid.NewString())
+		pr.must(200, "ops|alice", "POST", base+"/identity-providers/"+provider["id"].(string)+":retire", "", "If-Match", "*")
+		pr.problem(422, "identity.provider_retired", "ops|alice", "POST", path, bind, "If-Match", "*")
+	})
+}
+
+func TestBindingDatabaseFailures(t *testing.T) {
+	s := service(t)
+	ctx := context.Background()
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	ten := pgtest.NewTenant(t)
+	prov, _, err := s.RegisterProvider(ctx, op, ten.ID, identity.NewIdentityProvider{Issuer: "https://bind-f-" + uuid.NewString() + ".example.com", Audience: "erp"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	everyFailure(t, s, "list", func(ctx context.Context) error {
+		_, _, err := s.ListPrincipals(ctx, ten.ID, "unbound", pagination.Request{})
+		return err
+	})
+	everyFailure(t, s, "bind", func(ctx context.Context) error {
+		_, err := s.BindPrincipal(ctx, op, ten.ID, ten.Human.ID, "*", prov.ID, "f-"+uuid.NewString())
+		return err
+	})
+	_, _, err = s.ListPrincipals(ctx, ten.ID, "all", pagination.Request{PageToken: "garbage", PageTokenSet: true})
+	if got := problem.From(err).Status; got != 400 {
+		t.Errorf("a bad page token: got %d (%v), want 400", got, err)
+	}
 }

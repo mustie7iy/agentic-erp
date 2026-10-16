@@ -293,3 +293,69 @@ func seconds(s *int64) *time.Duration {
 	d := time.Duration(min(max(*s, 0), int64(time.Duration(1<<62)/time.Second))) * time.Second
 	return &d
 }
+
+// principals serves {id}/principals.
+func (h *handler) principals(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpapi.NotAllowed(w, r, "GET")
+		return
+	}
+	h.serveIn(w, r, "listTenantPrincipals", func(w http.ResponseWriter, r *http.Request, tenant uuid.UUID) error {
+		q := r.URL.Query()
+		page, err := pageRequest(q)
+		if err != nil {
+			return err
+		}
+		ps, next, err := h.s.ListPrincipals(r.Context(), tenant, q.Get("binding"), page)
+		if err != nil {
+			return err
+		}
+		out := map[string]any{"items": ps}
+		if next != "" {
+			out["next_page_token"] = next
+		}
+		httpapi.WriteJSON(w, http.StatusOK, out)
+		return nil
+	})
+}
+
+// principal serves {id}/principals/{principal_id}:bind.
+func (h *handler) principal(w http.ResponseWriter, r *http.Request) {
+	raw, verb, custom := strings.Cut(r.PathValue("rest"), ":")
+	switch {
+	case !custom || verb != "bind":
+		problem.Write(w, r, problem.NotFound("No such endpoint."))
+	case r.Method != http.MethodPost:
+		httpapi.NotAllowed(w, r, "POST")
+	default:
+		h.serveIn(w, r, "bindPrincipal", func(w http.ResponseWriter, r *http.Request, tenant uuid.UUID) error {
+			id, err := uuid.Parse(raw)
+			if err != nil {
+				return problem.BadRequest("request.invalid_parameter", "Parameter principal_id is invalid.",
+					problem.FieldError{Field: "principal_id", Code: "invalid", Message: "a UUID"})
+			}
+			return h.bind(w, r, tenant, id)
+		})
+	}
+}
+
+func (h *handler) bind(w http.ResponseWriter, r *http.Request, tenant, id uuid.UUID) error {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
+	if err != nil {
+		return problem.New(http.StatusRequestEntityTooLarge, "request.body_too_large", "Request body too large", "The request body exceeds 4 KB.").WithCause(err)
+	}
+	var in struct {
+		IdentityProviderID uuid.UUID `json:"identity_provider_id"`
+		Subject            string    `json:"subject"`
+	}
+	if err := strictJSON(body, &in); err != nil {
+		return err
+	}
+	p, err := h.s.BindPrincipal(r.Context(), operator(r.Context()), tenant, id, r.Header.Get("If-Match"), in.IdentityProviderID, in.Subject)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("ETag", etag.Format(p.Version))
+	httpapi.WriteJSON(w, http.StatusOK, p)
+	return nil
+}

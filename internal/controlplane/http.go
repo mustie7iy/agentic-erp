@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -42,6 +43,8 @@ func Handler(s *Service, v *authn.Verifier, log *slog.Logger) http.Handler {
 	mux.HandleFunc(Base+"/tenants/{id}/identity-providers", h.providers)
 	mux.HandleFunc(Base+"/tenants/{id}/identity-providers/{rest}", h.provider)
 	mux.HandleFunc(Base+"/tenants/{id}/auth-policy", h.policy)
+	mux.HandleFunc(Base+"/tenants/{id}/principals", h.principals)
+	mux.HandleFunc(Base+"/tenants/{id}/principals/{rest}", h.principal)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, r, problem.NotFound("No such endpoint."))
 	})
@@ -59,7 +62,9 @@ var Roles = map[string]string{"listTenants": authn.RoleRead, "getTenant": authn.
 	// A tenant's identity providers and policy decide who signs in as its
 	// principals: changing them needs erp:admin (ADR-0027 as amended by ADR-0031).
 	"listIdentityProviders": authn.RoleRead, "getIdentityProvider": authn.RoleRead, "getAuthPolicy": authn.RoleRead,
-	"registerIdentityProvider": authn.RoleAdmin, "updateIdentityProvider": authn.RoleAdmin, "retireIdentityProvider": authn.RoleAdmin, "updateAuthPolicy": authn.RoleAdmin}
+	"registerIdentityProvider": authn.RoleAdmin, "updateIdentityProvider": authn.RoleAdmin, "retireIdentityProvider": authn.RoleAdmin, "updateAuthPolicy": authn.RoleAdmin,
+	// Binding a principal to a subject hands its access to whoever holds the subject.
+	"listTenantPrincipals": authn.RoleRead, "bindPrincipal": authn.RoleAdmin}
 
 func (h *handler) collection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -101,16 +106,25 @@ func operator(ctx context.Context) Operator {
 	return OperatorFrom(claims)
 }
 
-func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	q := r.URL.Query()
+// pageRequest reads a listing's page parameters.
+func pageRequest(q url.Values) (pagination.Request, error) {
 	page := pagination.Request{OrderBy: q.Get("order_by"), PageToken: q.Get("page_token"), PageTokenSet: q.Has("page_token")}
 	if q.Has("page_size") {
 		n, err := strconv.ParseInt(q.Get("page_size"), 10, 32)
 		if err != nil {
-			return problem.BadRequest("request.invalid_parameter", "Parameter page_size is invalid.",
+			return page, problem.BadRequest("request.invalid_parameter", "Parameter page_size is invalid.",
 				problem.FieldError{Field: "page_size", Code: "invalid", Message: "an integer"})
 		}
 		page.PageSize, page.PageSizeSet = int32(n), true
+	}
+	return page, nil
+}
+
+func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
+	q := r.URL.Query()
+	page, err := pageRequest(q)
+	if err != nil {
+		return err
 	}
 	tenants, next, err := h.s.List(r.Context(), q.Get("status"), page)
 	if err != nil {

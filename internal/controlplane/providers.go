@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
@@ -330,6 +331,68 @@ func (s *Service) UpdateAuthPolicy(ctx context.Context, op Operator, tenant uuid
 		for k, v := range facts {
 			entry.Detail[k] = v
 		}
+		return s.record(ctx, tx, op, tenant, change{event: &event, entry: entry})
+	})
+	return out, err
+}
+
+// TenantPrincipal is the TenantPrincipal schema of the contract.
+type TenantPrincipal struct {
+	ID              uuid.UUID `json:"id"`
+	Kind            string    `json:"kind"`
+	DisplayName     string    `json:"display_name"`
+	ExternalIssuer  *string   `json:"external_issuer"`
+	ExternalSubject *string   `json:"external_subject"`
+	Status          string    `json:"status"`
+	Bound           bool      `json:"bound"`
+	Version         int32     `json:"version"`
+}
+
+func principalView(p identity.TenantPrincipal) TenantPrincipal {
+	return TenantPrincipal{ID: p.ID, Kind: p.Kind, DisplayName: p.DisplayName, ExternalIssuer: p.ExternalIssuer, ExternalSubject: p.ExternalSubject,
+		Status: p.Status, Bound: p.Bound, Version: p.Version}
+}
+
+// ListPrincipals lists one page of the tenant's principals: binding is
+// unbound (the default) or all.
+func (s *Service) ListPrincipals(ctx context.Context, tenant uuid.UUID, binding string, page pagination.Request) ([]TenantPrincipal, string, error) {
+	if binding != "" && binding != "unbound" && binding != "all" {
+		return nil, "", problem.BadRequest("request.invalid_parameter", "Parameter binding is invalid.",
+			problem.FieldError{Field: "binding", Code: "invalid", Message: "unbound or all"})
+	}
+	ks, err := s.Pages.Keyset(identity.PrincipalSort, "listTenantPrincipals|"+tenant.String()+"|"+binding, page)
+	if err != nil {
+		return nil, "", err
+	}
+	var out []TenantPrincipal
+	var next string
+	err = s.inTenant(ctx, tenant, nil, func(ctx context.Context, tx pgx.Tx) error {
+		ps, err := identity.ListTenantPrincipals(ctx, tx, binding == "all", ks)
+		if err != nil {
+			return err
+		}
+		ps, next = pagination.Page(ks, ps, func(p identity.TenantPrincipal) (string, uuid.UUID) {
+			return p.CreatedAt.UTC().Format(time.RFC3339Nano), p.ID
+		})
+		out = make([]TenantPrincipal, len(ps))
+		for i, p := range ps {
+			out[i] = principalView(p)
+		}
+		return nil
+	})
+	return out, next, err
+}
+
+// BindPrincipal binds the tenant's principal to one of its active
+// identity providers with its subject there, guarded by If-Match.
+func (s *Service) BindPrincipal(ctx context.Context, op Operator, tenant, id uuid.UUID, ifMatch string, provider uuid.UUID, subject string) (TenantPrincipal, error) {
+	var out TenantPrincipal
+	err := s.inTenant(ctx, tenant, &op, func(ctx context.Context, tx pgx.Tx) error {
+		b, event, entry, err := identity.BindPrincipal(ctx, tx, op.ID, id, etag.IfMatch(ifMatch), provider, subject)
+		if err != nil {
+			return err
+		}
+		out = principalView(b.Principal)
 		return s.record(ctx, tx, op, tenant, change{event: &event, entry: entry})
 	})
 	return out, err

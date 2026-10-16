@@ -220,7 +220,10 @@ one, and, where none is found, to the development issuer `erp-dev`, as
 000037 did. A migration cannot read which issuers the cell trusts, and
 `ERP_ENV=production` refuses `erp-dev`, so outside development such a
 principal is refused until an operator binds it to its real issuer (T37):
-it fails closed rather than guess. 000047 `VALIDATE`s the check, and 000048
+it fails closed rather than guess. The control plane lists a tenant's
+unbound principals (those whose issuer is no active registered provider
+of the tenant) and binds one to a provider with its subject there
+(`bindPrincipal`, `erp:admin`, audited, published as `PrincipalBound`). 000047 `VALIDATE`s the check, and 000048
 drops `principal_subject` (the subject alone unique per tenant)
 concurrently; `principal_issuer_subject` carries uniqueness. A person or
 service now always has an issuer, and the new release refuses to create one

@@ -550,6 +550,79 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}/principals":
+    get:
+      operationId: listTenantPrincipals
+      tags:
+        - identity
+      summary: List a tenant's principals and their binding
+      description: "The tenant's principals with the identity provider their subject belongs to (ADR-0031), oldest first. `binding=unbound` (the default) lists those whose issuer is no active registered provider of the tenant, such as the development issuer `erp-dev` migration 000046 bound some to: their tokens are refused until an operator binds them (`bindPrincipal`). `binding=all` lists every principal."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: binding
+          in: query
+          required: false
+          description: "`unbound` (default) or `all`."
+          schema:
+            type: string
+            enum: ["unbound", "all"]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the tenant's principals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantPrincipalPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  "/control/v1/tenants/{id}/principals/{principal_id}:bind":
+    post:
+      operationId: bindPrincipal
+      tags:
+        - identity
+      summary: Bind a principal to an identity provider
+      description: "Binds the principal to an active registered identity provider of the tenant with its subject there: from then on that provider's tokens with that subject sign in as it, and no other's (ADR-0031). This is how a principal left unbound (its issuer no active provider of the tenant) signs in again. 422 `request.reference_not_found` for a provider the tenant does not have, `identity.provider_retired` for a retired one, `identity.invalid_subject` for an empty or long subject; 409 `identity.subject_taken` when another principal of the tenant holds the subject there; 409 `tenancy.invalid_transition` once the tenant's offboarding has started. Needs the `erp:admin` role: whoever holds the subject acts as the principal. Recorded in the tenant's audit trail and published as `PrincipalBound`."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PrincipalId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        description: The provider and the principal's subject there.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrincipalBinding"
+      responses:
+        "200":
+          description: The principal, bound.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantPrincipal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
 components:
   securitySchemes:
     operator:
@@ -596,11 +669,20 @@ components:
         type: string
         format: uuid
       example: "0192a000-0000-7000-8000-000000000301"
+    PrincipalId:
+      name: principal_id
+      in: path
+      required: true
+      description: Principal identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "0192a000-0000-7000-8000-000000000107"
     PageSize:
       name: page_size
       in: query
       required: false
-      description: Maximum number of tenants to return. Defaults to 50, maximum 500.
+      description: Maximum number of items to return. Defaults to 50, maximum 500.
       schema:
         type: integer
         format: int32
@@ -1434,6 +1516,97 @@ components:
       examples:
         - mfa_required: true
           idle_timeout_seconds: 900
+    TenantPrincipal:
+      type: object
+      description: "A principal of the tenant as the operators see it: its binding to an identity provider (ADR-0031)."
+      required:
+        - id
+        - kind
+        - display_name
+        - external_issuer
+        - external_subject
+        - status
+        - bound
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Principal identifier.
+        kind:
+          type: string
+          description: "Open enum: human, agent, service."
+        display_name:
+          type: string
+          description: Display name.
+        external_issuer:
+          type: ["string", "null"]
+          description: The identity provider (OIDC iss) the subject belongs to; null without a subject.
+        external_subject:
+          type: ["string", "null"]
+          description: The subject at that provider; null for an agent without one.
+        status:
+          type: string
+          description: "Open enum: active, blocked, deprovisioned."
+        bound:
+          type: boolean
+          description: "Whether the principal has no subject or its issuer is an active registered provider of the tenant."
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000107"
+          kind: human
+          display_name: Ada Lovelace
+          external_issuer: erp-dev
+          external_subject: "idp|ada"
+          status: active
+          bound: false
+          version: 2
+    TenantPrincipalPage:
+      type: object
+      description: One page of a tenant's principals.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantPrincipal"
+          description: The principals of this page.
+        next_page_token:
+          type: string
+          description: Cursor of the next page; absent on the last page.
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000107"
+              kind: human
+              display_name: Ada Lovelace
+              external_issuer: erp-dev
+              external_subject: "idp|ada"
+              status: active
+              bound: false
+              version: 2
+    PrincipalBinding:
+      type: object
+      description: "The identity provider and the principal's subject there."
+      required:
+        - identity_provider_id
+        - subject
+      properties:
+        identity_provider_id:
+          type: string
+          format: uuid
+          description: An active registered identity provider of the tenant.
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: The principal's subject (sub) at that provider.
+      examples:
+        - identity_provider_id: "0192a000-0000-7000-8000-000000000301"
+          subject: "00u1abcd"
     TenantPage:
       type: object
       description: One page of tenants.
