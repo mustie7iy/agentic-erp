@@ -3,7 +3,8 @@
 # on any of severity high or above that has a fix. An image is the pinned
 # base plus one Go binary, so two scans cover it:
 #   - each per-platform SBOM that images.sh wrote (the Go modules in the
-#     binary; govulncheck also checks the code that is called);
+#     binary; ko's SBOM does not list the standard library, which
+#     govulncheck covers in CI and nightly);
 #   - the base image by its digest from .ko.yaml, for each platform (its
 #     Debian packages, which ko's SBOM names but does not list).
 # Exceptions go in .grype.yaml, each with a reason and an expiry date.
@@ -21,8 +22,15 @@ for sbom in "${sboms[@]}"; do
   echo "image-scan: $(basename "$sbom")"
   $GRYPE "sbom:$sbom" "${args[@]}"
 done
+# .ko.yaml writes the base and the platforms one per line; a file in another
+# shape would make this scan nothing, so it fails instead.
 base="$(sed -n 's/^defaultBaseImage: *//p' .ko.yaml)"
-for platform in $(sed -n '/^defaultPlatforms:/,/^[a-z]/s/^ *- *//p' .ko.yaml); do
+read -r -a platforms <<<"$(sed -n '/^defaultPlatforms:/,/^[a-z]/s/^ *- *//p' .ko.yaml | tr '\n' ' ')"
+if [[ "$base" != *@sha256:* ]] || [ ${#platforms[@]} -eq 0 ]; then
+  echo "image-scan: .ko.yaml must name defaultBaseImage by digest and list defaultPlatforms one per line" >&2
+  exit 1
+fi
+for platform in "${platforms[@]}"; do
   echo "image-scan: $base ($platform)"
   $GRYPE "registry:$base" --platform "$platform" "${args[@]}"
 done

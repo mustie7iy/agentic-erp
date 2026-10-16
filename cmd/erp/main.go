@@ -163,7 +163,11 @@ run "erp <command> -h" for flags`)
 // versionCmd prints the build (ADR-0032) as the servers serve it on their
 // admin listener's /version.
 func versionCmd(_ context.Context, args []string) error {
-	if len(args) > 0 {
+	fs := flag.NewFlagSet("version", flag.ContinueOnError)
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
 		return errors.New("version takes no arguments")
 	}
 	b, _ := json.Marshal(buildinfo.Get()) // strings and a bool always encode

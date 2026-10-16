@@ -167,7 +167,11 @@ func TestVersion(t *testing.T) {
 	if got["version"] != buildinfo.Development {
 		t.Errorf("erp version of a test binary: got %v, want %s", got["version"], buildinfo.Development)
 	}
-	fails(t, "no arguments", "version", "-x")
+	fails(t, "no arguments", "version", "extra")
+	fails(t, "flag provided", "version", "-x")
+	if code, _ := cli(t, "version", "-h"); code != 0 {
+		t.Errorf("erp version -h: got exit %d, want 0", code)
+	}
 	printFails(t, "version")
 }
 

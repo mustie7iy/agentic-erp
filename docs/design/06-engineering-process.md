@@ -259,7 +259,8 @@ A change is done when:
 - Trunk-based: short-lived branches, pull requests into `main`, at least one
   reviewer; two for migrations, contracts and security-sensitive code.
 - Commit subjects are a sentence naming the tracker item, prefixed `Fix:`,
-  `Refactor:`, `Tests:`, `CI:`, `Plan:` or `Tracker:` where they are one of
+  `Refactor:`, `Tests:` (older history also `Test:`), `CI:`, `Plan:`,
+  `Tracker:` or `Process:` where they are one of
   those; the changelog is generated from them (ADR-0032). The pull request
   links its tracker item.
 - `main` is always releasable. Releases are container images promoted

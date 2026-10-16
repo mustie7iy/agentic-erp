@@ -1,5 +1,6 @@
 # Vulnerabilities the image scan accepts (scripts/image-scan.sh, ADR-0032).
 # Each entry names the vulnerability and the package, says why it is
 # accepted and until when; an expired entry is removed, not extended
-# without a new reason. None today.
+# without a new reason. grype does not read the expiry: review does.
+# None today.
 ignore: []

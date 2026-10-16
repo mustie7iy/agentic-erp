@@ -34,8 +34,11 @@ them on their admin listener (`GET /version`); the CLI prints them
 **SBOM and scan.** ko writes an SPDX SBOM per image. grype scans each SBOM
 (the Go modules) and the pinned base image (its Debian packages) and fails
 on a high or critical vulnerability that has a fix; accepted exceptions go
-in `.grype.yaml` with a reason and an expiry. govulncheck keeps checking the
-code that is called. The nightly run repeats the scan on `main`.
+in `.grype.yaml` with a reason and an expiry, which review enforces (grype
+does not). ko's SBOM does not list the Go standard library, where most Go
+advisories are: govulncheck covers it, and the modules, in the code that is
+called, on every push and again nightly. The nightly run repeats both scans
+on `main`.
 
 **Signature.** Images are signed with cosign using a key in AWS KMS
 (`cosign sign --key awskms:///<key ARN>`), not keyless signing: keyless
@@ -65,7 +68,8 @@ the key.
 the pilot and `1.0.0` at its go-live. Major: an accepted contract break
 (`api/breaking-accepted.txt` grew since the last tag), from 1.0 on; minor: a
 migration, a contract change or any commit that is not a `Fix:`,
-`Refactor:`, `Tests:`, `CI:`, `Plan:` or `Tracker:`; patch otherwise. The
+`Refactor:`, `Tests:` (or the older `Test:`), `CI:`, `Plan:`, `Tracker:` or
+`Process:`; patch otherwise. The
 changelog is generated from the commit history by git-cliff, grouped by
 tracker item and prefix. Commit subjects keep the house style (a sentence
 naming the T-number, with those prefixes); §6.9 is corrected to say so

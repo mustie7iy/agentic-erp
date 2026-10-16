@@ -45,7 +45,16 @@ jobs:
         run: make images
       - name: Image scan
         run: make image-scan
+      - name: Go vulnerabilities, standard library included
+        # ko's SBOM lists the modules but not the standard library, where
+        # most Go advisories are; govulncheck covers both, in the code that
+        # is called.
+        if: success() || failure()
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Base image still current
+        # Distroless is rebuilt often: this step goes red whenever the tag
+        # moves, which asks for a reviewed digest bump, not a fix.
+        if: success() || failure()
         run: ./scripts/base-image-current.sh
 
   shuffle:

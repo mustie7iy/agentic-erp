@@ -9,10 +9,10 @@
 set -euo pipefail
 OUT="${1:-dist/images}"
 work="$(mktemp -d)"
-trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
+trap 'chmod -R u+w "$work" 2>/dev/null || true; rm -rf "$work"' EXIT
 for run in first second; do
   mkdir -p "$work/$run/gocache" "$work/$run/kocache"
-  GOCACHE="$work/$run/gocache" KOCACHE="$work/$run/kocache" GOFLAGS=-modcacherw \
+  GOCACHE="$work/$run/gocache" KOCACHE="$work/$run/kocache" GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw" \
     "$(dirname "$0")/images.sh" "$work/$run/out" >/dev/null
 done
 if ! diff -u "$work/first/out/images.txt" "$work/second/out/images.txt"; then
