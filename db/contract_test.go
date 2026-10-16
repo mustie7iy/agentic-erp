@@ -333,3 +333,24 @@ func TestReservationsReconcileHoldsWriters(t *testing.T) {
 		t.Errorf("retry once the writer is done: got %v, want nil", err)
 	}
 }
+
+// TestDeferredChecksValidated: the checks migrations add NOT VALID, so as
+// not to scan a table under its lock, are validated by a later one (06
+// §6.4), and then hold for every row, not only new ones (T31). A check an
+// expand step leaves for a later release to validate is the exception this
+// test would name, with the release that validates it.
+func TestDeferredChecksValidated(t *testing.T) {
+	need(t)
+	rows, err := testDB.Query(context.Background(), `SELECT conrelid::regclass::text || '.' || conname FROM pg_constraint
+		WHERE NOT convalidated AND connamespace::regnamespace::text NOT IN ('pg_catalog', 'information_schema') ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) > 0 {
+		t.Errorf("constraints not validated: got %v, want none", pending)
+	}
+}

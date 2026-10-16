@@ -586,7 +586,8 @@ decided on the invoice as it was. Matches recorded before 000040, or by the
 previous release during the rollout, have no version and count for none:
 such an invoice is matched again before it posts. The column is the expand
 step of 06 §6.4 (nullable, its positive check `NOT VALID`, no backfill:
-nothing records which version an old match evaluated).
+nothing records which version an old match evaluated); 000044 validates the
+check (T31).
 
 The invoice likewise records the version the approval of its exception left
 it at (`exception_version`, migration 000041, F16), and the linked approved
@@ -599,7 +600,8 @@ Approvals before 000041, or by the previous release, have no version and
 count for none. A match of an invoice parked on an approval of its current
 version leaves it parked rather than holding it for a new request (F18).
 The column is again the expand step (nullable, its check of
-`0 < exception_version <= version` `NOT VALID`, no backfill); it is not tied
+`0 < exception_version <= version` `NOT VALID`, validated by 000044, no
+backfill); it is not tied
 to `workflow_request_id` by a rule, as the previous release unlinks requests
 without clearing it, and a stale value is always below the invoice's
 version.
