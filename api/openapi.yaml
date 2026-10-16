@@ -4334,6 +4334,57 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/parked-journal-entries/{id}:post":
+    post:
+      operationId: postParkedJournalEntry
+      tags:
+        - ledger
+      summary: Post a parked journal entry
+      description: "Posts a parked journal entry, or asks for its approval. Its debits, converted exactly into the legal entity's currency at the average rate of its posting date, are measured against the company's `manual_entry_approval_limit`. Within it the entry is posted at once (`posted`, `journal_entry_id`; the journal entry's `source_document_id` is the parked entry). Above it a `manual_entry` approval request is opened (`pending_approval`, `approval_request_id`); when someone else approves it the entry is posted in the same transaction, when it is rejected it is `rejected` for good, and when the requester withdraws it (`approval-requests/{id}:cancel`) it returns to `parked`. The caller is the requester and can never approve it. Requires status `parked` (409 `ledger.invalid_parked_status`) and the entry's owner (403 `ledger.not_entry_owner`; a person posting an agent's proposal takes it on). Posting checks the entry again, with the open period (409 `ledger.period_not_open`) and the rates. Human-only: agents propose, never post."
+      x-permission: ledger.entry.post
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The parked journal entry after postParkedJournalEntry: `posted` with `journal_entry_id`, or `pending_approval` with `approval_request_id`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParkedJournalEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/open-items:
     get:
       operationId: listOpenItems

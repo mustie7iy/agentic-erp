@@ -100,6 +100,40 @@ func TestDatabaseFailures(t *testing.T) {
 			t.Error("unlock period outside a unit of work")
 		}
 	})
+	t.Run("posting a parked entry", func(t *testing.T) {
+		// Each call posts the parked entry directly, or submits it and ends
+		// its request; every step fails like parking.
+		request := uuid.New()
+		post := func(needed bool) func(ctx context.Context) error {
+			return func(ctx context.Context) error {
+				p := *h
+				p.Approvals = opener{request, needed}
+				_, err := p.PostParkedJournalEntry(ctx, gen.PostParkedJournalEntryParams{ID: d.id(d.parked), IfMatch: "*"})
+				return err
+			}
+		}
+		m := manualEntries()
+		for name, call := range map[string]func(ctx context.Context) error{
+			"post parked":   post(false),
+			"submit parked": post(true),
+			"approve entry": func(ctx context.Context) error { return m.Approved(ctx, d.id(d.parked), request) },
+			"reject entry":  func(ctx context.Context) error { return m.Rejected(ctx, d.id(d.parked), request, "c") },
+			"return entry":  func(ctx context.Context) error { return m.Cancelled(ctx, d.id(d.parked), request, "c") },
+		} {
+			if err := call(context.Background()); err == nil {
+				t.Errorf("%s outside a unit of work: got no error, want one", name)
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, func(ctx context.Context) error {
+				if name == "post parked" || name == "submit parked" {
+					return call(ctx)
+				}
+				if err := post(true)(ctx); err != nil {
+					return err
+				}
+				return call(ctx)
+			})
+		}
+	})
 	t.Run("page sizes and list rules", func(t *testing.T) {
 		// Handlers check page sizes and list rules for callers other than the generated router.
 		zero := gen.NewOptInt32(0)

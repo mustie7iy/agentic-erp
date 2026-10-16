@@ -174,6 +174,7 @@ var operationRolesOidc = map[string][]string{
 	ParkJournalEntryOperation:           []string{},
 	PostGoodsReceiptOperation:           []string{},
 	PostJournalEntryOperation:           []string{},
+	PostParkedJournalEntryOperation:     []string{},
 	PostSupplierInvoiceOperation:        []string{},
 	ProposePaymentRunOperation:          []string{},
 	ReconcileMigrationRunOperation:      []string{},

@@ -917,6 +917,22 @@ type Invoker interface {
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, request *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
+	// PostParkedJournalEntry invokes postParkedJournalEntry operation.
+	//
+	// Posts a parked journal entry, or asks for its approval. Its debits, converted exactly into the legal
+	// entity's currency at the average rate of its posting date, are measured against the company's
+	// `manual_entry_approval_limit`. Within it the entry is posted at once (`posted`, `journal_entry_id`;
+	// the journal entry's `source_document_id` is the parked entry). Above it a `manual_entry` approval
+	// request is opened (`pending_approval`, `approval_request_id`); when someone else approves it the
+	// entry is posted in the same transaction, when it is rejected it is `rejected` for good, and when the
+	// requester withdraws it (`approval-requests/{id}:cancel`) it returns to `parked`. The caller is the
+	// requester and can never approve it. Requires status `parked` (409 `ledger.invalid_parked_status`)
+	// and the entry's owner (403 `ledger.not_entry_owner`; a person posting an agent's proposal takes it
+	// on). Posting checks the entry again, with the open period (409 `ledger.period_not_open`) and the
+	// rates. Human-only: agents propose, never post.
+	//
+	// POST /v1/parked-journal-entries/{id}:post
+	PostParkedJournalEntry(ctx context.Context, params PostParkedJournalEntryParams) (PostParkedJournalEntryRes, error)
 	// PostSupplierInvoice invokes postSupplierInvoice operation.
 	//
 	// Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
@@ -24184,6 +24200,173 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 
 	stage = "DecodeResponse"
 	result, err := decodePostJournalEntryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostParkedJournalEntry invokes postParkedJournalEntry operation.
+//
+// Posts a parked journal entry, or asks for its approval. Its debits, converted exactly into the legal
+// entity's currency at the average rate of its posting date, are measured against the company's
+// `manual_entry_approval_limit`. Within it the entry is posted at once (`posted`, `journal_entry_id`;
+// the journal entry's `source_document_id` is the parked entry). Above it a `manual_entry` approval
+// request is opened (`pending_approval`, `approval_request_id`); when someone else approves it the
+// entry is posted in the same transaction, when it is rejected it is `rejected` for good, and when the
+// requester withdraws it (`approval-requests/{id}:cancel`) it returns to `parked`. The caller is the
+// requester and can never approve it. Requires status `parked` (409 `ledger.invalid_parked_status`)
+// and the entry's owner (403 `ledger.not_entry_owner`; a person posting an agent's proposal takes it
+// on). Posting checks the entry again, with the open period (409 `ledger.period_not_open`) and the
+// rates. Human-only: agents propose, never post.
+//
+// POST /v1/parked-journal-entries/{id}:post
+func (c *Client) PostParkedJournalEntry(ctx context.Context, params PostParkedJournalEntryParams) (PostParkedJournalEntryRes, error) {
+	res, err := c.sendPostParkedJournalEntry(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendPostParkedJournalEntry(ctx context.Context, params PostParkedJournalEntryParams) (res PostParkedJournalEntryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postParkedJournalEntry"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/parked-journal-entries/{id}:post"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostParkedJournalEntryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/parked-journal-entries/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":post"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostParkedJournalEntryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostParkedJournalEntryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

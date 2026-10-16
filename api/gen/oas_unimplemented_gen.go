@@ -1306,6 +1306,25 @@ func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEn
 	return r, ht.ErrNotImplemented
 }
 
+// PostParkedJournalEntry implements postParkedJournalEntry operation.
+//
+// Posts a parked journal entry, or asks for its approval. Its debits, converted exactly into the legal
+// entity's currency at the average rate of its posting date, are measured against the company's
+// `manual_entry_approval_limit`. Within it the entry is posted at once (`posted`, `journal_entry_id`;
+// the journal entry's `source_document_id` is the parked entry). Above it a `manual_entry` approval
+// request is opened (`pending_approval`, `approval_request_id`); when someone else approves it the
+// entry is posted in the same transaction, when it is rejected it is `rejected` for good, and when the
+// requester withdraws it (`approval-requests/{id}:cancel`) it returns to `parked`. The caller is the
+// requester and can never approve it. Requires status `parked` (409 `ledger.invalid_parked_status`)
+// and the entry's owner (403 `ledger.not_entry_owner`; a person posting an agent's proposal takes it
+// on). Posting checks the entry again, with the open period (409 `ledger.period_not_open`) and the
+// rates. Human-only: agents propose, never post.
+//
+// POST /v1/parked-journal-entries/{id}:post
+func (UnimplementedHandler) PostParkedJournalEntry(ctx context.Context, params PostParkedJournalEntryParams) (r PostParkedJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PostSupplierInvoice implements postSupplierInvoice operation.
 //
 // Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires

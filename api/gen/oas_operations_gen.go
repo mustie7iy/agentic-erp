@@ -141,6 +141,7 @@ const (
 	ParkJournalEntryOperation           OperationName = "ParkJournalEntry"
 	PostGoodsReceiptOperation           OperationName = "PostGoodsReceipt"
 	PostJournalEntryOperation           OperationName = "PostJournalEntry"
+	PostParkedJournalEntryOperation     OperationName = "PostParkedJournalEntry"
 	PostSupplierInvoiceOperation        OperationName = "PostSupplierInvoice"
 	ProposePaymentRunOperation          OperationName = "ProposePaymentRun"
 	ReconcileMigrationRunOperation      OperationName = "ReconcileMigrationRun"

@@ -119,3 +119,12 @@ func (e *Endpoints) CancelParkedJournalEntry(ctx context.Context, req *gen.Reaso
 	}
 	return &gen.UpdateParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: parkedToAPI(pe)}, nil
 }
+
+// PostParkedJournalEntry implements POST /v1/parked-journal-entries/{id}:post.
+func (e *Endpoints) PostParkedJournalEntry(ctx context.Context, params gen.PostParkedJournalEntryParams) (gen.PostParkedJournalEntryRes, error) {
+	pe, err := e.postParked(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateParkedJournalEntryOKHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)), Response: parkedToAPI(pe)}, nil
+}

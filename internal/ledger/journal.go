@@ -326,6 +326,11 @@ func (e *Endpoints) legalEntity(ctx context.Context, id uuid.UUID, field string)
 	if err != nil {
 		return tenancy.Entity{}, err
 	}
+	return e.activeEntity(ctx, access, id, field)
+}
+
+// activeEntity loads an active legal entity within access.
+func (e *Endpoints) activeEntity(ctx context.Context, access authz.Access, id uuid.UUID, field string) (tenancy.Entity, error) {
 	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, id, field)
 	if err != nil {
 		return tenancy.Entity{}, err

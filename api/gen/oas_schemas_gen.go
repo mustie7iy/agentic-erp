@@ -2181,6 +2181,7 @@ func (*BadRequestHeaders) openFiscalPeriodRes()           {}
 func (*BadRequestHeaders) parkJournalEntryRes()           {}
 func (*BadRequestHeaders) postGoodsReceiptRes()           {}
 func (*BadRequestHeaders) postJournalEntryRes()           {}
+func (*BadRequestHeaders) postParkedJournalEntryRes()     {}
 func (*BadRequestHeaders) postSupplierInvoiceRes()        {}
 func (*BadRequestHeaders) proposePaymentRunRes()          {}
 func (*BadRequestHeaders) reconcileMigrationRunRes()      {}
@@ -5891,6 +5892,7 @@ func (*ConflictHeaders) openFiscalPeriodRes()         {}
 func (*ConflictHeaders) parkJournalEntryRes()         {}
 func (*ConflictHeaders) postGoodsReceiptRes()         {}
 func (*ConflictHeaders) postJournalEntryRes()         {}
+func (*ConflictHeaders) postParkedJournalEntryRes()   {}
 func (*ConflictHeaders) postSupplierInvoiceRes()      {}
 func (*ConflictHeaders) proposePaymentRunRes()        {}
 func (*ConflictHeaders) reconcileMigrationRunRes()    {}
@@ -8665,6 +8667,7 @@ func (*ForbiddenHeaders) openFiscalPeriodRes()           {}
 func (*ForbiddenHeaders) parkJournalEntryRes()           {}
 func (*ForbiddenHeaders) postGoodsReceiptRes()           {}
 func (*ForbiddenHeaders) postJournalEntryRes()           {}
+func (*ForbiddenHeaders) postParkedJournalEntryRes()     {}
 func (*ForbiddenHeaders) postSupplierInvoiceRes()        {}
 func (*ForbiddenHeaders) proposePaymentRunRes()          {}
 func (*ForbiddenHeaders) reconcileMigrationRunRes()      {}
@@ -13621,6 +13624,7 @@ func (*NotFoundHeaders) listRolePermissionsRes()        {}
 func (*NotFoundHeaders) lockFiscalPeriodRes()           {}
 func (*NotFoundHeaders) matchSupplierInvoiceRes()       {}
 func (*NotFoundHeaders) openFiscalPeriodRes()           {}
+func (*NotFoundHeaders) postParkedJournalEntryRes()     {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()        {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()      {}
 func (*NotFoundHeaders) recordAgentToolCallRes()        {}
@@ -18407,6 +18411,7 @@ func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()      {}
 func (*PreconditionFailedHeaders) lockFiscalPeriodRes()         {}
 func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()     {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()         {}
+func (*PreconditionFailedHeaders) postParkedJournalEntryRes()   {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()      {}
 func (*PreconditionFailedHeaders) reconcileMigrationRunRes()    {}
 func (*PreconditionFailedHeaders) rejectApprovalRequestRes()    {}
@@ -18546,6 +18551,7 @@ func (*PreconditionRequiredHeaders) openFiscalPeriodRes()         {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()         {}
 func (*PreconditionRequiredHeaders) postGoodsReceiptRes()         {}
 func (*PreconditionRequiredHeaders) postJournalEntryRes()         {}
+func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()   {}
 func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()      {}
 func (*PreconditionRequiredHeaders) proposePaymentRunRes()        {}
 func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()    {}
@@ -23080,6 +23086,7 @@ func (*ServiceUnavailableHeaders) openFiscalPeriodRes()           {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()           {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()           {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()           {}
+func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()     {}
 func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()        {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()          {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()      {}
@@ -24748,6 +24755,7 @@ func (*TooManyRequestsHeaders) openFiscalPeriodRes()           {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()           {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()           {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()           {}
+func (*TooManyRequestsHeaders) postParkedJournalEntryRes()     {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()        {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()          {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()      {}
@@ -24983,6 +24991,7 @@ func (*UnauthorizedHeaders) openFiscalPeriodRes()           {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()           {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()           {}
 func (*UnauthorizedHeaders) postJournalEntryRes()           {}
+func (*UnauthorizedHeaders) postParkedJournalEntryRes()     {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()        {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()          {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()      {}
@@ -25127,6 +25136,7 @@ func (*UnprocessableHeaders) openFiscalPeriodRes()         {}
 func (*UnprocessableHeaders) parkJournalEntryRes()         {}
 func (*UnprocessableHeaders) postGoodsReceiptRes()         {}
 func (*UnprocessableHeaders) postJournalEntryRes()         {}
+func (*UnprocessableHeaders) postParkedJournalEntryRes()   {}
 func (*UnprocessableHeaders) postSupplierInvoiceRes()      {}
 func (*UnprocessableHeaders) proposePaymentRunRes()        {}
 func (*UnprocessableHeaders) reconcileMigrationRunRes()    {}
@@ -25613,6 +25623,7 @@ func (s *UpdateParkedJournalEntryOKHeaders) SetResponse(val ParkedJournalEntry) 
 }
 
 func (*UpdateParkedJournalEntryOKHeaders) cancelParkedJournalEntryRes() {}
+func (*UpdateParkedJournalEntryOKHeaders) postParkedJournalEntryRes()   {}
 func (*UpdateParkedJournalEntryOKHeaders) updateParkedJournalEntryRes() {}
 
 // UpdatePrincipalOKHeaders wraps Principal with response headers.

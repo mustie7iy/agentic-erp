@@ -480,7 +480,15 @@ Rules enforced in the database:
   gaps in the journal's number ranges. The owner changes a parked entry
   (`PATCH`, lines replaced as a whole) or cancels it (`:cancel`) while it
   is parked (T35d); a person who changes or cancels an agent's proposal
-  takes it on, and an agent acts only on its own unowned proposals. Agents may hold `ledger.entry.park`;
+  takes it on, and an agent acts only on its own unowned proposals.
+  Posting it (`:post`, people only, T35e) asks the approval policy: within
+  its company's `manual_entry_approval_limit` it is posted at once, above it
+  a `manual_entry` request is opened, raised by the owner, who can never
+  approve it. The approval posts the entry in the deciding transaction,
+  checked again (a period closed meanwhile refuses the decision, which stays
+  pending); the approver need not act in the legal entity, as the request
+  authorises the posting. A rejection ends the entry; a withdrawal returns it
+  to parked. Agents may hold `ledger.entry.park`;
   `ledger.entry.approve` is an approval permission (agents never hold it).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger

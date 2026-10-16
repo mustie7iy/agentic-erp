@@ -541,6 +541,10 @@ type PostJournalEntryRes interface {
 	postJournalEntryRes()
 }
 
+type PostParkedJournalEntryRes interface {
+	postParkedJournalEntryRes()
+}
+
 type PostSupplierInvoiceRes interface {
 	postSupplierInvoiceRes()
 }
