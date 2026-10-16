@@ -179,6 +179,7 @@ erDiagram
     text tenant_claim "optional cross-check"
     text_array acr_values "prove multi-factor"
     text_array amr_values "prove multi-factor (RFC 8176)"
+    bool certificate_bound "binds tokens to client certificates (RFC 8705)"
     text status "active | retired" }
   auth_policy { uuid tenant_id PK
     bool mfa_required
@@ -243,7 +244,10 @@ when one is retired, its providers read `FOR UPDATE`). `auth_policy` holds the
 tenant's policy, one row or none for the defaults: whether people must prove
 multi-factor authentication (by a provider's `acr` or `amr` values; a policy
 requiring it while an active provider can prove neither is refused), the
-session lifetime and the idle timeout. The control role `erp_control` reads,
+session lifetime and the idle timeout. A provider's `certificate_bound`
+(000058, ADR-0033) says it binds its tokens to the client's certificate
+(`cnf.x5t#S256`); in production agents' tokens are accepted only from a
+provider that does. The control role `erp_control` reads,
 across tenants, the columns that resolve a token (issuer, audience, tenant
 claim, the values, status and policy) and the principals' bindings, never who
 changed them nor e-mails. Migration 000056 adds both tables. A production

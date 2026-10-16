@@ -1786,6 +1786,16 @@ func TestIdentityProviders(t *testing.T) {
 		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "issuer = 'https://other.example.com'")), "issuer and audience cannot change")
 		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "audience = 'other'")), "issuer and audience cannot change")
 	})
+	t.Run("tokens are not certificate-bound unless said", func(t *testing.T) {
+		var bound bool
+		if err := testDB.QueryRow(context.Background(), "SELECT certificate_bound FROM identity.identity_provider WHERE tenant_id = $1 AND id = $2", a.tenant, p).Scan(&bound); err != nil {
+			t.Fatal(err)
+		}
+		if bound {
+			t.Error("certificate_bound: got true, want false by default")
+		}
+		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "certificate_bound = NULL")), "certificate_bound")
+	})
 	t.Run("retired_at goes with retired", func(t *testing.T) {
 		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "status = 'retired'")), "identity_provider_retired_at")
 	})
@@ -1857,7 +1867,7 @@ func TestControlRoleReadsTheRegistry(t *testing.T) {
 		return err
 	}
 	for _, c := range []struct{ name, sql, fails string }{
-		{"providers", "SELECT tenant_id, id, issuer, audience, tenant_claim, acr_values, amr_values, status FROM identity.identity_provider", ""},
+		{"providers", "SELECT tenant_id, id, issuer, audience, tenant_claim, acr_values, amr_values, status, certificate_bound FROM identity.identity_provider", ""},
 		{"policies", "SELECT tenant_id, mfa_required, session_max_age, idle_timeout FROM identity.auth_policy", ""},
 		{"principals", "SELECT tenant_id, id, kind, external_issuer, external_subject, display_name, status, version FROM identity.principal", ""},
 		{"who registered", "SELECT created_by FROM identity.identity_provider", "permission denied"},
