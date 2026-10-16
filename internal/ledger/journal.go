@@ -584,6 +584,55 @@ func convertErr(err error) error {
 	return fmt.Errorf("ledger: convert: %w", err)
 }
 
+// prepared is a manual entry checked as far as it can be before it is
+// posted: its legal entity, ledger, currencies and lines, with accounts,
+// partners and tax codes valid; the open period and the rates depend on
+// when it is posted.
+type prepared struct {
+	le     tenancy.Entity
+	ledger uuid.UUID
+	group  string
+	exps   currency.Exponents
+	expTC  int
+	lines  []Line // amounts in transaction currency only
+}
+
+// prepare checks a manual entry as parking and posting both need it.
+func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, in NewEntry) (prepared, error) {
+	le, err := e.legalEntity(ctx, in.LegalEntityID, "legal_entity_id")
+	if err != nil {
+		return prepared{}, err
+	}
+	ledger, err := ledgerID(ctx, tx, in.LedgerID)
+	if err != nil {
+		return prepared{}, err
+	}
+	group, err := e.LegalEntities.GroupCurrency(ctx)
+	if err != nil {
+		return prepared{}, err
+	}
+	exps, err := exponents(ctx, tx, in.Currency, le.LocalCurrency, group)
+	if err != nil {
+		return prepared{}, err
+	}
+	expTC, ok := exps[in.Currency]
+	if !ok {
+		return prepared{}, problem.Unprocessable("ledger.unknown_currency", "The currency is not known.",
+			problem.FieldError{Field: "currency", Code: "unknown", Message: "an ISO 4217 currency in the reference data"})
+	}
+	lines, err := entryLines(in, expTC)
+	if err != nil {
+		return prepared{}, err
+	}
+	if err := e.checkAccounts(ctx, tx, le.ID, lines, true); err != nil {
+		return prepared{}, err
+	}
+	if err := checkTaxCodes(ctx, tx, le.ID, in.PostingDate, lines); err != nil {
+		return prepared{}, err
+	}
+	return prepared{le: le, ledger: ledger, group: group, exps: exps, expTC: expTC, lines: lines}, nil
+}
+
 // postJournalEntry validates and posts a manual journal entry. Local and
 // group amounts are converted at the average rates valid on the posting
 // date, and rounding differences go to the largest line.
@@ -592,53 +641,26 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 	if err != nil {
 		return Entry{}, err
 	}
-	le, err := e.legalEntity(ctx, in.LegalEntityID, "legal_entity_id")
+	v, err := e.prepare(ctx, tx, in)
 	if err != nil {
 		return Entry{}, err
 	}
-	ledger, err := ledgerID(ctx, tx, in.LedgerID)
+	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, v.le.LocalCurrency, v.group, in.PostingDate)
 	if err != nil {
 		return Entry{}, err
 	}
-	group, err := e.LegalEntities.GroupCurrency(ctx)
-	if err != nil {
+	if err := convertLines(v.lines, rateLC, rateGC, v.expTC, v.exps[v.le.LocalCurrency], v.exps[v.group]); err != nil {
 		return Entry{}, err
 	}
-	exps, err := exponents(ctx, tx, in.Currency, le.LocalCurrency, group)
-	if err != nil {
-		return Entry{}, err
-	}
-	expTC, ok := exps[in.Currency]
-	if !ok {
-		return Entry{}, problem.Unprocessable("ledger.unknown_currency", "The currency is not known.",
-			problem.FieldError{Field: "currency", Code: "unknown", Message: "an ISO 4217 currency in the reference data"})
-	}
-	lines, err := entryLines(in, expTC)
-	if err != nil {
-		return Entry{}, err
-	}
-	if err := e.checkAccounts(ctx, tx, le.ID, lines, true); err != nil {
-		return Entry{}, err
-	}
-	if err := checkTaxCodes(ctx, tx, le.ID, in.PostingDate, lines); err != nil {
-		return Entry{}, err
-	}
-	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, le.LocalCurrency, group, in.PostingDate)
-	if err != nil {
-		return Entry{}, err
-	}
-	if err := convertLines(lines, rateLC, rateGC, expTC, exps[le.LocalCurrency], exps[group]); err != nil {
-		return Entry{}, err
-	}
-	posted, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: group, rateTCLC: rateLC.shown,
+	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgerID: v.ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
+		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
 		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
-		sourceDocumentID: in.SourceDocumentID, lines: lines})
+		sourceDocumentID: in.SourceDocumentID, lines: v.lines})
 	if err != nil {
 		return Entry{}, err
 	}
 	return posted, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: posted.ID,
-		Outcome: "succeeded", Detail: map[string]any{"document_number": posted.DocumentNumber, "fiscal_year": posted.FiscalYear, "lines": len(lines),
+		Outcome: "succeeded", Detail: map[string]any{"document_number": posted.DocumentNumber, "fiscal_year": posted.FiscalYear, "lines": len(v.lines),
 			"source_context": posted.SourceContext}})
 }
 
