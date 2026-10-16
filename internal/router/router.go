@@ -145,6 +145,9 @@ type Router struct {
 	// RequireTLS refuses a cell whose API URL is not https (production,
 	// ADR-0033).
 	RequireTLS bool
+	// PeerOf is the SPIFFE ID the tenant's cell must present; nil: the
+	// transport's own rule.
+	PeerOf func(cell string) string
 }
 
 // ServeHTTP implements http.Handler. /livez answers without a token; every
@@ -176,6 +179,9 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			problem.Write(w, r, problem.New(http.StatusBadGateway, "platform.cell_unreachable", "Cell unreachable",
 				"The tenant's cell did not answer; try again."))
 		},
+	}
+	if rt.PeerOf != nil {
+		r = r.WithContext(tlsconf.ExpectPeer(r.Context(), rt.PeerOf(target.cell)))
 	}
 	proxy.ServeHTTP(w, r)
 }

@@ -252,8 +252,8 @@ verified by comparing the two cells' fingerprints with `erp directory verify`,
 With `ERP_TLS_CA`, `ERP_TLS_CERT`, `ERP_TLS_KEY` (env: or file:
 references) and `ERP_TRUST_DOMAIN` the router reaches the cells over
 mutual TLS 1.3 as `spiffe://<domain>/global/erp-router`, only cells whose
-URLs are https and whose certificates name a cell's identity,
-`spiffe://<domain>/<cell>/erp-server` (the URL's host binds the cell),
+URLs are https and whose certificates name the cell the directory names,
+`spiffe://<domain>/<cell>/erp-server`,
 and serves its admin listener over TLS; with `ERP_ROUTER_PUBLIC_CERT` and
 `ERP_ROUTER_PUBLIC_KEY` its public listener serves TLS with a public CA's
 certificate. Production requires all of them

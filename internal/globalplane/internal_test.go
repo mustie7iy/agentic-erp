@@ -2,11 +2,14 @@ package globalplane
 
 import (
 	"errors"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
 
 // TestUpdatedAndClient covers the version race the HTTP tests cannot stage
@@ -42,5 +45,27 @@ func TestCallRefusesPlaintextCells(t *testing.T) {
 	_, _, _, err := s.call(t.Context(), directory.Cell{Name: "eu-1", ControlURL: "http://eu1-admin.internal:9090"}, http.MethodGet, "/control/v1/x", nil, nil)
 	if p := problem.From(err); p.Status != http.StatusServiceUnavailable {
 		t.Errorf("plaintext control URL: got %v, want 503", err)
+	}
+}
+
+// roundTrip is a transport made of a function.
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestCallNamesTheCell: with PeerOf a call names the identity of the cell
+// it is for, which alone the connection accepts (ADR-0033).
+func TestCallNamesTheCell(t *testing.T) {
+	var named string
+	s := &Service{PeerOf: func(cell string) string { return "spiffe://erp.example/" + cell + "/erp-server" },
+		Client: &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			named, _ = tlsconf.ExpectedPeer(r.Context())
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+		})}}
+	if _, _, _, err := s.call(t.Context(), directory.Cell{Name: "eu-1", ControlURL: "https://eu1-admin.internal"}, http.MethodGet, "/control/v1/x", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if named != "spiffe://erp.example/eu-1/erp-server" {
+		t.Errorf("named peer: got %q, want eu-1's", named)
 	}
 }

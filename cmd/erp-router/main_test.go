@@ -277,13 +277,16 @@ func TestRoutesOverMutualTLS(t *testing.T) {
 	}
 	eu1, peer := cell(tlsconf.ID(trustDomain, "eu-1", "erp-server"))
 	impostor, _ := cell(tlsconf.ID(trustDomain, "global", "erp-router"))
+	// A cell's genuine certificate, but another cell's than the directory
+	// names: a stolen cell certificate impersonates no other cell.
+	eu2, _ := cell(tlsconf.ID(trustDomain, "eu-2", "erp-server"))
 	dir, err := directory.Open(context.Background(), pgtest.URL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer dir.Close()
-	good, plain, wrong := uuid.New(), uuid.New(), uuid.New()
-	for tenant, url := range map[uuid.UUID]string{good: eu1.URL, plain: strings.Replace(eu1.URL, "https://", "http://", 1), wrong: impostor.URL} {
+	good, plain, wrong, otherCell := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for tenant, url := range map[uuid.UUID]string{good: eu1.URL, plain: strings.Replace(eu1.URL, "https://", "http://", 1), wrong: impostor.URL, otherCell: eu2.URL} {
 		if err := dir.Upsert(context.Background(), directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: url, Status: directory.Active}); err != nil {
 			t.Fatal(err)
 		}
@@ -317,6 +320,7 @@ func TestRoutesOverMutualTLS(t *testing.T) {
 		{"the tenant's cell", good, http.StatusOK},
 		{"a cell without https", plain, http.StatusServiceUnavailable},
 		{"a certificate of another service", wrong, http.StatusBadGateway},
+		{"a certificate of another cell", otherCell, http.StatusBadGateway},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			req, _ := http.NewRequestWithContext(t.Context(), "GET", "https://"+a[0]+"/v1/balances", nil)

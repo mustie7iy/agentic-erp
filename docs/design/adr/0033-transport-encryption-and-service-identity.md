@@ -70,7 +70,9 @@ token stolen in transit or from a log works from anywhere.
   The global plane runs in the router, so the router's one identity,
   `spiffe://<domain>/global/erp-router`, is what the cell API and
   `/control` both serve (403 `platform.peer_not_allowed` otherwise). A
-  router with an identity reaches cells over TLS only and needs
+  router accepts from each cell exactly the identity of the cell the
+  directory names, so a stolen cell certificate impersonates no other
+  cell. A router with an identity reaches cells over TLS only and needs
   `ERP_TRUST_DOMAIN`; its public listener has a public CA's certificate
   of its own (`ERP_ROUTER_PUBLIC_CERT`, `ERP_ROUTER_PUBLIC_KEY`). Its TLS
   references are env: or file: only.

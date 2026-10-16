@@ -1,6 +1,7 @@
 package tlsconf
 
 import (
+	"context"
 	"crypto/tls"
 	"net/http"
 	"time"
@@ -39,7 +40,7 @@ func (s *Store) ClientConfig(minVersion uint16, serverName string) (*tls.Config,
 // proxy net/http would handshake with its own configuration, without the
 // material (ADR-0033).
 func (s *Store) HTTPClient(timeout time.Duration) *http.Client {
-	return s.client(timeout, func(host string) (*tls.Config, error) {
+	return s.client(timeout, func(_ context.Context, host string) (*tls.Config, error) {
 		cfg, err := s.ClientConfig(External, host)
 		if err != nil {
 			return nil, err

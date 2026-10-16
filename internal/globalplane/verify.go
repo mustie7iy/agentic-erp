@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
@@ -179,6 +180,9 @@ func short(hash string) string {
 func (s *Service) call(ctx context.Context, cell directory.Cell, method, path string, body []byte, headers map[string]string) (int, []byte, http.Header, error) {
 	if u, err := url.Parse(cell.ControlURL); s.RequireTLS && (err != nil || u.Scheme != "https") {
 		return 0, nil, nil, problem.Unavailable("Cell "+cell.Name+" has no https control URL.", 60)
+	}
+	if s.PeerOf != nil {
+		ctx = tlsconf.ExpectPeer(ctx, s.PeerOf(cell.Name))
 	}
 	var reader io.Reader
 	if body != nil {

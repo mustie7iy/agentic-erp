@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -73,7 +72,8 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	if transport == nil && cfg.Identity != nil {
 		transport = cellClient(cfg).Transport
 	}
-	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: transport, RequireTLS: cfg.Identity != nil})
+	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: transport,
+		RequireTLS: cfg.Identity != nil, PeerOf: peerOf(cfg)})
 	admin, err := adminMux(ctx, cfg, dir, metrics, traced, log)
 	if err != nil {
 		return err
@@ -135,18 +135,23 @@ func secure(ctx context.Context, cfg router.Config, log *slog.Logger, ln, adminL
 	return ln, adminLn
 }
 
-// cellClient reaches the cells as the router's identity, accepting only a
-// cell's, spiffe://<trust domain>/<cell>/erp-server; nil without an
-// identity, which leaves the callers their defaults (ADR-0033).
+// cellClient reaches the cells as the router's identity, each only as
+// the identity peerOf names for it; nil without an identity, which leaves
+// the callers their defaults (ADR-0033).
 func cellClient(cfg router.Config) *http.Client {
 	if cfg.Identity == nil {
 		return nil
 	}
-	return cfg.Identity.InternalClient(30*time.Second, func(id string) bool {
-		rest, ok := strings.CutPrefix(id, "spiffe://"+cfg.TrustDomain+"/")
-		cell, service, found := strings.Cut(rest, "/")
-		return ok && found && cell != "" && cell != "global" && service == "erp-server"
-	})
+	return cfg.Identity.InternalClient(30 * time.Second)
+}
+
+// peerOf names the identity of the cell the directory names, which alone
+// the router accepts for it (ADR-0033); nil without an identity.
+func peerOf(cfg router.Config) func(cell string) string {
+	if cfg.Identity == nil {
+		return nil
+	}
+	return func(cell string) string { return tlsconf.ID(cfg.TrustDomain, cell, "erp-server") }
 }
 
 // adminMux is the admin listener's handler: liveness, metrics, and with
@@ -164,7 +169,7 @@ func adminMux(ctx context.Context, cfg router.Config, dir *directory.Postgres, m
 			return nil, err
 		}
 		pages, _ := pagination.NewCodec(cfg.PageTokenKey) // the key's length was checked with the configuration
-		plane := &globalplane.Service{Directory: dir, Pages: pages, Client: cellClient(cfg), RequireTLS: cfg.Identity != nil}
+		plane := &globalplane.Service{Directory: dir, Pages: pages, Client: cellClient(cfg), RequireTLS: cfg.Identity != nil, PeerOf: peerOf(cfg)}
 		admin.Handle(globalplane.Base+"/", traced(globalplane.Handler(plane, operators, log)))
 		log.Info("global control plane served on the admin listener", "path", globalplane.Base, "operator_issuers", len(cfg.OperatorIssuers))
 	}

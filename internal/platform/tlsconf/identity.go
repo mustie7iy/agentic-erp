@@ -3,6 +3,7 @@ package tlsconf
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -47,11 +48,16 @@ func (s *Store) ServerConfig(minVersion uint16, clientAuth tls.ClientAuthType) *
 
 // InternalClient is a client to the deployment's own services: TLS 1.3,
 // the store's certificate presented, the server verified against the
-// bundle alone and accepted only when allow accepts its SPIFFE ID; bundle
-// and certificate taken in one read per connection. It connects directly,
-// like HTTPClient.
-func (s *Store) InternalClient(timeout time.Duration, allow func(id string) bool) *http.Client {
-	return s.client(timeout, func(host string) (*tls.Config, error) {
+// bundle alone and accepted only when it presents the SPIFFE ID its
+// request's context names (ExpectPeer); a request naming none is refused.
+// Bundle and certificate are taken in one read per connection. It
+// connects directly, like HTTPClient.
+func (s *Store) InternalClient(timeout time.Duration) *http.Client {
+	return s.client(timeout, func(ctx context.Context, host string) (*tls.Config, error) {
+		want, ok := ExpectedPeer(ctx)
+		if !ok {
+			return nil, errors.New("tlsconf: the request names no identity the server must present (ExpectPeer)")
+		}
 		m, err := s.snapshot()
 		if err != nil {
 			return nil, err
@@ -67,9 +73,8 @@ func (s *Store) InternalClient(timeout time.Duration, allow func(id string) bool
 				return m.cert, nil
 			},
 			VerifyConnection: func(cs tls.ConnectionState) error {
-				id := spiffeID(cs.PeerCertificates[0].URIs)
-				if !allow(id) {
-					return fmt.Errorf("tlsconf: the server's identity %q is not one this client may reach", id)
+				if id := spiffeID(cs.PeerCertificates[0].URIs); id != want {
+					return fmt.Errorf("tlsconf: the server presented %q, want %q", id, want)
 				}
 				return nil
 			},
@@ -79,13 +84,13 @@ func (s *Store) InternalClient(timeout time.Duration, allow func(id string) bool
 
 // client is a direct client whose every connection is made with the
 // configuration config returns for the host.
-func (s *Store) client(timeout time.Duration, config func(host string) (*tls.Config, error)) *http.Client {
+func (s *Store) client(timeout time.Duration, config func(ctx context.Context, host string) (*tls.Config, error)) *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // the standard library's default is an *http.Transport
 	t.Proxy = nil
 	t.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		// The transport dials host:port, always with a port.
 		host, _, _ := net.SplitHostPort(addr)
-		cfg, err := config(host)
+		cfg, err := config(ctx, host)
 		if err != nil {
 			return nil, err
 		}
@@ -101,6 +106,23 @@ func (s *Store) client(timeout time.Duration, config func(host string) (*tls.Con
 		return conn, nil
 	}
 	return &http.Client{Timeout: timeout, Transport: t}
+}
+
+// peerKey keys the SPIFFE ID a request's connection must present.
+type peerKey struct{}
+
+// ExpectPeer makes the connection an InternalClient dials for a request
+// with ctx accept exactly id: the router names the cell the directory
+// names, so a cell's certificate impersonates no other cell. A connection
+// is kept for its host and port, which one cell serves (ADR-0033).
+func ExpectPeer(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, peerKey{}, id)
+}
+
+// ExpectedPeer is the SPIFFE ID ctx names (ExpectPeer).
+func ExpectedPeer(ctx context.Context) (string, bool) {
+	id, ok := ctx.Value(peerKey{}).(string)
+	return id, ok
 }
 
 // spiffeID is the first spiffe URI among uris, or "".

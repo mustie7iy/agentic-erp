@@ -64,24 +64,33 @@ func TestServiceIdentities(t *testing.T) {
 	}
 	cell, router := identity(t, ca, cellID), identity(t, ca, routerID)
 	required := peerServer(t, cell, tls.RequireAndVerifyClientCert)
-	isCell := func(id string) bool { return id == cellID }
 	for _, c := range []struct {
 		name   string
 		client *http.Client
 		url    string
+		expect string // the identity the request names
 		peer   string // the identity the server verified
 		want   string // the error; empty: served
 	}{
-		{"router to cell", router.InternalClient(5*time.Second, isCell), required.URL, routerID, ""},
-		{"no client certificate", identity(t, ca, "").InternalClient(5*time.Second, isCell), required.URL, "", "certificate"},
-		{"not the expected server", router.InternalClient(5*time.Second, func(id string) bool { return id == routerID }), required.URL, "", `"spiffe://erp.example/eu1/erp-server" is not one this client may reach`},
-		{"server without an identity", router.InternalClient(5*time.Second, isCell), peerServer(t, identity(t, ca, "none"), tls.NoClientCert).URL, "", `"" is not one`},
-		{"client of another authority", identity(t, tlstest.NewCA(t), routerID).InternalClient(5*time.Second, isCell), required.URL, "", "certificate"},
+		{"router to cell", router.InternalClient(5 * time.Second), required.URL, cellID, routerID, ""},
+		{"no client certificate", identity(t, ca, "").InternalClient(5 * time.Second), required.URL, cellID, "", "certificate"},
+		{"another cell than named", router.InternalClient(5 * time.Second), required.URL, tlsconf.ID(domain, "eu2", "erp-server"), "",
+			`presented "spiffe://erp.example/eu1/erp-server", want "spiffe://erp.example/eu2/erp-server"`},
+		{"server without an identity", router.InternalClient(5 * time.Second), peerServer(t, identity(t, ca, "none"), tls.NoClientCert).URL, cellID, "", `presented ""`},
+		{"client of another authority", identity(t, tlstest.NewCA(t), routerID).InternalClient(5 * time.Second), required.URL, cellID, "", "certificate"},
+		{"no identity named", router.InternalClient(5 * time.Second), required.URL, "", "", "names no identity"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, c.url, nil)
+			ctx := t.Context()
+			if c.expect != "" {
+				ctx = tlsconf.ExpectPeer(ctx, c.expect)
+			}
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
 			resp, err := c.client.Do(req)
 			if c.want != "" {
+				if err == nil {
+					_ = resp.Body.Close() // the failure is what is reported
+				}
 				if err == nil || !strings.Contains(err.Error(), c.want) {
 					t.Errorf("got %v, want an error containing %q", err, c.want)
 				}
@@ -124,8 +133,8 @@ func TestServerWithoutMaterial(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			srv := peerServer(t, c.store, tls.NoClientCert)
-			req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
-			resp, err := identity(t, ca, "").InternalClient(time.Second, func(string) bool { return true }).Do(req)
+			req, _ := http.NewRequestWithContext(tlsconf.ExpectPeer(t.Context(), ""), http.MethodGet, srv.URL, nil)
+			resp, err := identity(t, ca, "").InternalClient(time.Second).Do(req)
 			if err == nil {
 				_ = resp.Body.Close() // the failure is what is reported
 				t.Error("got served, want the handshake refused")
@@ -148,8 +157,8 @@ func TestPeerID(t *testing.T) {
 // refuses to connect rather than connecting without its material.
 func TestInternalClientBeforeRefresh(t *testing.T) {
 	srv := peerServer(t, identity(t, tlstest.NewCA(t), "none"), tls.NoClientCert)
-	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
-	resp, err := (&tlsconf.Store{}).InternalClient(time.Second, func(string) bool { return true }).Do(req)
+	req, _ := http.NewRequestWithContext(tlsconf.ExpectPeer(t.Context(), ""), http.MethodGet, srv.URL, nil)
+	resp, err := (&tlsconf.Store{}).InternalClient(time.Second).Do(req)
 	if err == nil {
 		_ = resp.Body.Close() // the failure is what is reported
 	}

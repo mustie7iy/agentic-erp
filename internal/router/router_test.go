@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/router"
 )
@@ -391,5 +392,36 @@ func TestLoadConfigTLS(t *testing.T) {
 	// Development needs none of them.
 	if c, err := router.LoadConfig(env(map[string]string{"ERP_ENV": "development"})); err != nil || c.Identity != nil || c.Public != nil {
 		t.Errorf("development: got %v, %v, %v, want no TLS and no error", c.Identity, c.Public, err)
+	}
+}
+
+// roundTrip is a transport made of a function.
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestPeerOfTheNamedCell: with PeerOf the request to the cell names the
+// identity of the cell the directory names, which alone the connection
+// accepts (ADR-0033).
+func TestPeerOfTheNamedCell(t *testing.T) {
+	is := authntest.New(t)
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := uuid.New()
+	m := &memory{entries: map[uuid.UUID]directory.Entry{tenant: {TenantID: tenant, Cell: "eu-1", APIURL: "https://eu1.internal", Status: directory.Active}}}
+	var named string
+	transport := roundTrip(func(r *http.Request) (*http.Response, error) {
+		named, _ = tlsconf.ExpectedPeer(r.Context())
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Header: http.Header{}}, nil
+	})
+	rt := &router.Router{Verifier: v, Directory: lookup{m}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Transport: transport,
+		PeerOf: func(cell string) string { return "spiffe://erp.example/" + cell + "/erp-server" }}
+	req := httptest.NewRequest(http.MethodGet, "/v1/balances", nil)
+	req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
+	rt.ServeHTTP(httptest.NewRecorder(), req)
+	if named != "spiffe://erp.example/eu-1/erp-server" {
+		t.Errorf("named peer: got %q, want the directory's cell eu-1", named)
 	}
 }

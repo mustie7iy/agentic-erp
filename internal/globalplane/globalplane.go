@@ -32,6 +32,9 @@ type Service struct {
 	// RequireTLS refuses a cell whose control URL is not https
 	// (production, ADR-0033).
 	RequireTLS bool
+	// PeerOf is the SPIFFE ID a cell must present; nil: the client's own
+	// rule.
+	PeerOf func(cell string) string
 }
 
 func (s *Service) client() *http.Client {
