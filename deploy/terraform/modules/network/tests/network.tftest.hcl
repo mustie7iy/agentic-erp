@@ -1,0 +1,69 @@
+mock_provider "aws" {
+  mock_data "aws_region" {
+    defaults = { region = "eu-central-1" }
+  }
+}
+
+variables {
+  name               = "dev-1"
+  cidr               = "10.10.0.0/16"
+  availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
+}
+
+run "three_zones_with_private_and_public_subnets" {
+  command = apply
+
+  assert {
+    condition     = length(aws_subnet.private) == 3 && length(aws_subnet.public) == 3 && length(aws_nat_gateway.cell) == 3
+    error_message = "a private and a public subnet and a NAT gateway in each zone"
+  }
+  assert {
+    condition     = length(setintersection(toset([for s in aws_subnet.private : s.cidr_block]), toset([for s in aws_subnet.public : s.cidr_block]))) == 0
+    error_message = "subnets do not overlap"
+  }
+  assert {
+    condition     = alltrue([for s in aws_subnet.public : !s.map_public_ip_on_launch])
+    error_message = "nothing gets a public address by default"
+  }
+}
+
+run "s3_kms_and_sts_are_never_proxied" {
+  command = apply
+
+  assert {
+    condition     = aws_vpc_endpoint.s3.service_name == "com.amazonaws.eu-central-1.s3" && aws_vpc_endpoint.s3.vpc_endpoint_type == "Gateway"
+    error_message = "S3 through a gateway endpoint on the private route tables"
+  }
+  assert {
+    condition     = length(aws_vpc_endpoint.s3.route_table_ids) == 3
+    error_message = "every private route table reaches S3 through the endpoint"
+  }
+  assert {
+    condition     = aws_vpc_endpoint.kms.service_name == "com.amazonaws.eu-central-1.kms" && aws_vpc_endpoint.kms.private_dns_enabled
+    error_message = "KMS through an interface endpoint with private DNS"
+  }
+  assert {
+    condition     = aws_vpc_endpoint.sts.service_name == "com.amazonaws.eu-central-1.sts" && aws_vpc_endpoint.sts.private_dns_enabled
+    error_message = "STS through an interface endpoint with private DNS"
+  }
+  assert {
+    condition     = contains(keys(aws_vpc_endpoint.interface), "ecr.dkr") && contains(keys(aws_vpc_endpoint.interface), "secretsmanager")
+    error_message = "images and secrets are pulled through endpoints too"
+  }
+}
+
+run "kms_cannot_be_moved_to_the_optional_list" {
+  command = plan
+  variables {
+    more_interface_endpoints = ["kms"]
+  }
+  expect_failures = [var.more_interface_endpoints]
+}
+
+run "a_cell_spans_three_zones" {
+  command = plan
+  variables {
+    availability_zones = ["eu-central-1a", "eu-central-1b"]
+  }
+  expect_failures = [var.availability_zones]
+}
