@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -44,6 +45,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
@@ -682,12 +684,18 @@ func (s *devLogin) shutdown(t *testing.T) {
 
 // production turns a configuration into production's (ADR-0031,
 // ADR-0033): operators but no shared issuers, the database over verified
-// TLS, TLS material, and objects in a KMS-encrypted S3 bucket reached over
-// TLS, stated in ERP_AT_REST. It returns the bucket.
-func production(t *testing.T, env map[string]string) *blobstoretest.Server {
+// TLS, the cell's SPIFFE identity in a trust domain, and objects in a
+// KMS-encrypted S3 bucket reached over TLS, stated in ERP_AT_REST. It
+// returns the bucket and the authority, which issues the router's
+// certificate for calls to the cell.
+func production(t *testing.T, env map[string]string) (*blobstoretest.Server, *tlstest.CA) {
 	t.Helper()
 	ca := tlstest.NewCA(t)
-	maps.Copy(env, tlsSettings(t, ca))
+	cell, dir := ca.Issue(t, tlstest.Options{URIs: []string{tlsconf.ID(trustDomain, env["ERP_CELL"], "erp-server")}}), t.TempDir()
+	env["ERP_TLS_CA"] = "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM)
+	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", cell.CertPEM)
+	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", cell.KeyPEM)
+	env["ERP_TRUST_DOMAIN"] = trustDomain
 	env["ERP_ENV"], env["ERP_OPERATOR_ISSUERS"] = "production", env["ERP_OIDC_ISSUERS"]
 	delete(env, "ERP_OIDC_ISSUERS")
 	env["DATABASE_URL"] = pgtest.TLS(t, env["DATABASE_URL"])
@@ -698,7 +706,60 @@ func production(t *testing.T, env map[string]string) *blobstoretest.Server {
 	env["ERP_OBJECT_S3_BUCKET"], env["ERP_OBJECT_S3_REGION"] = blobstoretest.Bucket, blobstoretest.Region
 	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
 	env["ERP_AT_REST"] = "postgres=storage-kms,objects=sse-kms"
-	return s3
+	return s3, ca
+}
+
+// trustDomain is the SPIFFE trust domain of the production tests.
+const trustDomain = "erp.example"
+
+// peerClient calls a cell over TLS as the service id that ca certified,
+// or as no one with an empty id.
+func peerClient(t *testing.T, ca *tlstest.CA, id string) *http.Client {
+	t.Helper()
+	cfg := &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: ca.Pool()}
+	if id != "" {
+		cfg.Certificates = []tls.Certificate{ca.Issue(t, tlstest.Options{URIs: []string{id}}).Pair(t)}
+	}
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: cfg}}
+}
+
+// checkAPIPeers: a production cell's API serves the router alone (ADR-0033):
+// a client without a certificate fails the handshake, another service
+// is refused with 403, and the router's request reaches the API (401
+// without a token).
+func checkAPIPeers(t *testing.T, ca *tlstest.CA, addr string) {
+	t.Helper()
+	url := "https://" + addr + "/v1/operations"
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+	if resp, err := peerClient(t, ca, "").Do(req); err == nil {
+		_ = resp.Body.Close() // the failure is what is reported
+		t.Errorf("API without a certificate: got %d, want the handshake refused", resp.StatusCode)
+	}
+	for _, c := range []struct {
+		id   string
+		want int
+	}{
+		{tlsconf.ID(trustDomain, "eu2", "erp-server"), http.StatusForbidden},
+		{tlsconf.ID(trustDomain, "global", "erp-router"), http.StatusUnauthorized},
+	} {
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+		if got := statusWith(t, peerClient(t, ca, c.id), req); got != c.want {
+			t.Errorf("API from %s: got %d, want %d", c.id, got, c.want)
+		}
+	}
+}
+
+// statusWith is the status of req sent by client.
+func statusWith(t *testing.T, client *http.Client, req *http.Request) int {
+	t.Helper()
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode
 }
 
 // TestProductionOperatorWithoutRoles: the server passes ERP_ENV through to
@@ -710,20 +771,22 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
 	env["DATABASE_URL"] = pgtest.EmptyDatabase(t) // a cell whose active tenants each have one
-	production(t, env)
+	_, ca := production(t, env)
+	router := peerClient(t, ca, tlsconf.ID(trustDomain, "global", "erp-router"))
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
-	admin := make(chan string, 1)
+	admin, apiAddr := make(chan string, 1), make(chan string, 1)
 	done := make(chan int, 1)
 	go func() {
-		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(_, a net.Listener) { admin <- a.Addr().String() })
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(api, a net.Listener) { apiAddr <- api.Addr().String(); admin <- a.Addr().String() })
 	}()
 	stop := sync.OnceValue(func() int { cancel(); return <-done })
 	defer stop()
 	var base string
 	select {
 	case a := <-admin:
-		base = "http://" + a + "/control/v1/tenants/"
+		base = "https://" + a + "/control/v1/tenants/"
+		checkAPIPeers(t, ca, <-apiAddr)
 	case code := <-done:
 		done <- code // the deferred stop reads the exit code again
 		t.Fatalf("stopped before serving: %d\n%s", code, logs.String())
@@ -731,7 +794,20 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	get := func(extra map[string]any) int {
 		req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
 		req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", extra))
-		return status(t, req)
+		return statusWith(t, router, req)
+	}
+	// The admin listener serves TLS only; probes connect without a
+	// certificate, /control only as the global plane (ADR-0033).
+	livez, _ := http.NewRequestWithContext(t.Context(), "GET", strings.Replace(base, "/control/v1/tenants/", "/livez", 1), nil)
+	if got := statusWith(t, peerClient(t, ca, ""), livez); got != http.StatusOK {
+		t.Errorf("a probe without a certificate: got %d, want 200", got)
+	}
+	for name, client := range map[string]*http.Client{"no certificate": peerClient(t, ca, ""), "another service": peerClient(t, ca, tlsconf.ID(trustDomain, "eu2", "erp-server"))} {
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
+		req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil, "roles": []string{"erp:read"}}))
+		if got := statusWith(t, client, req); got != http.StatusForbidden {
+			t.Errorf("/control from %s: got %d, want 403", name, got)
+		}
 	}
 	if got := get(map[string]any{"tenant_id": nil}); got != http.StatusForbidden {
 		t.Errorf("no roles claim: got %d, want 403", got)
@@ -908,7 +984,8 @@ func TestImportCommand(t *testing.T) {
 	// (one provisioned in development) is not imported: its people could not
 	// sign in, and the cell would refuse its next start (ADR-0031).
 	prod := maps.Clone(env)
-	s3 := production(t, prod).Store()
+	bucket, _ := production(t, prod)
+	s3 := bucket.Store()
 	keys, err := store.List(context.Background(), "tenants/")
 	if err != nil {
 		t.Fatal(err)
@@ -1545,7 +1622,7 @@ func TestProductionRequiresProviders(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
 	env["DATABASE_URL"] = pgtest.EmptyDatabase(t)
-	production(t, env)
+	_, _ = production(t, env) // the bucket and authority go unused: the start is what is tested
 	start := func() (int, string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		var logs pgtest.SyncBuffer
@@ -1592,7 +1669,7 @@ func TestProductionRequiresProviders(t *testing.T) {
 // the start.
 func TestRequireProvidersFailures(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
-	production(t, env)
+	_, _ = production(t, env) // the bucket and authority go unused: the start is what is tested
 	cfg := load(t, env)
 	pool := pgtest.Pool(t)
 	for name, begin := range map[string]database.BeginFunc{

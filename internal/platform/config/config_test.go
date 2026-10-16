@@ -565,6 +565,10 @@ func TestProductionFailsClosed(t *testing.T) {
 	// Production speaks to NATS over TLS only, as the cell's certificate.
 	const natsPlain, natsIdentity = "ERP_NATS_URL must name tls:// servers only", "ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY"
 	identity := tlsFiles(t)
+	noIdentity := map[string]string{"ERP_TLS_CERT": "", "ERP_TLS_KEY": ""}
+	// The listeners serve TLS only, as the cell's SPIFFE identity in the
+	// trust domain (ADR-0033).
+	const listenersIdentity = "ERP_TLS_CERT and ERP_TLS_KEY are required with ERP_ENV=production"
 	// Production states how each store encrypts at rest and keeps objects
 	// in a KMS-encrypted S3 bucket, never a directory (ADR-0033).
 	const statement = "postgres=storage-kms,objects=sse-kms"
@@ -582,7 +586,8 @@ func TestProductionFailsClosed(t *testing.T) {
 	}
 	prod := func(set map[string]string) map[string]string {
 		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp",
-			"ERP_OIDC_ISSUERS": "", "ERP_OPERATOR_ISSUERS": operators, "DATABASE_URL": verified, "ERP_AT_REST": statement}
+			"ERP_OIDC_ISSUERS": "", "ERP_OPERATOR_ISSUERS": operators, "DATABASE_URL": verified, "ERP_AT_REST": statement, "ERP_TRUST_DOMAIN": "erp.example"}
+		maps.Copy(m, identity) // listeners serve TLS as the cell's certificate
 		for k, v := range set {
 			m[k] = v
 		}
@@ -598,7 +603,7 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"development engine without codec", map[string]string{"ERP_ENV": "development", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
 		{"development without verification", map[string]string{"ERP_ENV": "development", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
 		{"production", prod(with(identity, map[string]string{"ERP_TEMPORAL_ADDRESS": "temporal:7233", "ERP_TEMPORAL_CODEC_KEY": codec})), nil},
-		{"production engine without a certificate", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "temporal:7233", "ERP_TEMPORAL_CODEC_KEY": codec}), []string{engineIdentity}},
+		{"production engine without a certificate", prod(with(noIdentity, map[string]string{"ERP_TEMPORAL_ADDRESS": "temporal:7233", "ERP_TEMPORAL_CODEC_KEY": codec})), []string{engineIdentity}},
 		{"production plaintext object store", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "http://minio:9000"}), []string{"ERP_OBJECT_S3_ENDPOINT must be an https:// URL"}},
 		{"production plaintext KMS", prod(map[string]string{"ERP_FIELD_KMS_KEY": "alias/erp", "ERP_FIELD_KMS_ENDPOINT": "http://kms.internal"}), []string{"ERP_FIELD_KMS_ENDPOINT must be an https:// URL"}},
 		{"production KMS by default", prod(map[string]string{"ERP_FIELD_KMS_KEY": "alias/erp"}), nil},
@@ -638,7 +643,11 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production NATS over mutual TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,tls://nats-2:4222", "ERP_AT_REST": statement + ",nats=volume"})), nil},
 		{"production NATS without TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,nats://nats-2:4222"})), []string{natsPlain}},
 		{"production NATS unparseable", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,%zz"})), []string{natsPlain}},
-		{"production NATS without a certificate", prod(map[string]string{"ERP_NATS_URL": "tls://nats-1:4222"}), []string{natsIdentity}},
+		{"production NATS without a certificate", prod(with(noIdentity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222"})), []string{natsIdentity}},
+		{"production without a certificate", prod(noIdentity), []string{listenersIdentity}},
+		{"production without a trust domain", prod(map[string]string{"ERP_TRUST_DOMAIN": ""}), []string{"ERP_TRUST_DOMAIN is required with ERP_ENV=production"}},
+		{"production plaintext cell URLs", prod(with(directory, map[string]string{"ERP_CELL_API_URL": "http://eu1.internal", "ERP_CELL_CONTROL_URL": "http://eu1-admin.internal:9090"})),
+			[]string{"ERP_CELL_API_URL must be an https:// URL", "ERP_CELL_CONTROL_URL must be an https:// URL"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -779,6 +788,35 @@ func TestAtRest(t *testing.T) {
 			}
 			if cfg.AtRest != c.want {
 				t.Errorf("AtRest: got %+v, want %+v", cfg.AtRest, c.want)
+			}
+		})
+	}
+}
+
+// TestTrustDomain: ERP_TRUST_DOMAIN names the SPIFFE trust domain, a DNS
+// name in lower case.
+func TestTrustDomain(t *testing.T) {
+	for _, c := range []struct {
+		name, value, wantErr string
+	}{
+		{"none", "", ""},
+		{"a domain", "erp.example.com", ""},
+		{"upper case", "ERP.example", "ERP_TRUST_DOMAIN must be"},
+		{"a URL", "spiffe://erp.example", "ERP_TRUST_DOMAIN must be"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			m["ERP_TRUST_DOMAIN"] = c.value
+			cfg, err := Load(env(m))
+			if c.wantErr != "" {
+				pgtest.CheckErr(t, err, c.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.TrustDomain != c.value {
+				t.Errorf("TrustDomain: got %q, want %q", cfg.TrustDomain, c.value)
 			}
 		})
 	}

@@ -74,6 +74,7 @@ type Config struct {
 	AWS             AWS             // ambient AWS credentials for S3 and KMS when no access keys are set (ADR-0024)
 	TLS             tlsconf.Source  // ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: secret references to the CA bundle and the cell's certificate, read again while it runs (ADR-0033)
 	TLSMaterial     *tlsconf.Store  // TLS read when the configuration loads; nil without it (development)
+	TrustDomain     string          // ERP_TRUST_DOMAIN: the SPIFFE trust domain of the services' identities; set, the API serves the router alone and /control the global plane (ADR-0033)
 	AtRest          AtRest          // ERP_AT_REST: how each store encrypts at rest, stated per environment and checked at start (ADR-0033)
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
@@ -315,6 +316,9 @@ func (l *loader) basics() Config {
 // server's subcommands included.
 func (l *loader) tls(c *Config) {
 	c.TLS = tlsconf.Source{CA: l.raw("ERP_TLS_CA"), Cert: l.raw("ERP_TLS_CERT"), Key: l.raw("ERP_TLS_KEY")}
+	if c.TrustDomain = l.getenv("ERP_TRUST_DOMAIN"); c.TrustDomain != "" && !trustDomainPattern.MatchString(c.TrustDomain) {
+		l.errs = append(l.errs, errors.New("ERP_TRUST_DOMAIN must be a DNS name in lower case, such as erp.example.com: the SPIFFE trust domain"))
+	}
 	switch {
 	case (c.TLS.Cert == "") != (c.TLS.Key == ""):
 		l.errs = append(l.errs, errors.New("ERP_TLS_CERT and ERP_TLS_KEY go together: the certificate the cell presents and its key"))
@@ -650,6 +654,12 @@ func checkTransport(c Config) []error {
 			errs = append(errs, err)
 		}
 	}
+	if c.TLS.Cert == "" {
+		errs = append(errs, errors.New("ERP_TLS_CERT and ERP_TLS_KEY are required with ERP_ENV=production: the listeners serve TLS only, as the cell's certificate (ADR-0033)"))
+	}
+	if c.TrustDomain == "" {
+		errs = append(errs, errors.New("ERP_TRUST_DOMAIN is required with ERP_ENV=production: the API serves the router alone, /control the global plane, by their SPIFFE identities (ADR-0033)"))
+	}
 	errs = append(errs, checkNATS(c)...)
 	if c.Temporal.Address != "" && c.TLS.Cert == "" {
 		errs = append(errs, errors.New("ERP_TEMPORAL_ADDRESS needs ERP_TLS_CERT and ERP_TLS_KEY with ERP_ENV=production: the cell reaches the engine over TLS as its certificate's identity (ADR-0033)"))
@@ -678,6 +688,9 @@ func checkNATS(c Config) []error {
 	return errs
 }
 
+// trustDomainPattern is a SPIFFE trust domain: a DNS name in lower case.
+var trustDomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+
 // imdsHosts are the instance metadata service's link-local addresses, the
 // one endpoint reached without TLS: its traffic never leaves the host.
 var imdsHosts = map[string]bool{"169.254.169.254": true, "fd00:ec2::254": true}
@@ -695,7 +708,8 @@ func isIMDS(endpoint string) bool {
 // service's own addresses.
 func checkEndpoints(c Config) []error {
 	var errs []error
-	endpoints := []setting{{"ERP_OBJECT_S3_ENDPOINT", c.Objects.Endpoint}, {"ERP_VAULT_ADDR", c.Vault.Address}, {"ERP_AWS_STS_ENDPOINT", c.AWS.STSEndpoint}}
+	endpoints := []setting{{"ERP_OBJECT_S3_ENDPOINT", c.Objects.Endpoint}, {"ERP_VAULT_ADDR", c.Vault.Address}, {"ERP_AWS_STS_ENDPOINT", c.AWS.STSEndpoint},
+		{"ERP_CELL_API_URL", c.CellAPIURL}, {"ERP_CELL_CONTROL_URL", c.CellControlURL}}
 	if c.KMS.Enabled() {
 		endpoints = append(endpoints, setting{"ERP_FIELD_KMS_ENDPOINT", c.KMS.Endpoint})
 	}

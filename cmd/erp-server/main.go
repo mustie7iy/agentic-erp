@@ -603,9 +603,11 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 	if err != nil {
 		return s.stop(cancel, err)
 	}
+	apiLn, adminLn = s.secure(apiLn, adminLn)
+	api, control := s.peers(s.apiHandler, traced(s.control, s.log, s.metrics, s.tp))
 	servers := []*http.Server{
-		{Handler: s.apiHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
-		{Handler: httpapi.Admin(ready(s.pool), s.metrics, devHandler(s.dev), traced(s.control, s.log, s.metrics, s.tp)), ReadHeaderTimeout: 5 * time.Second},
+		{Handler: api, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
+		{Handler: httpapi.Admin(ready(s.pool), s.metrics, devHandler(s.dev), control), ReadHeaderTimeout: 5 * time.Second},
 	}
 	errc := make(chan error, 2)
 	for i, ln := range []net.Listener{apiLn, adminLn} {
@@ -633,6 +635,38 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 	err = s.stop(cancel, serveErr) // nil after a requested shutdown; set when a listener or a critical worker failed
 	s.log.Info("erp-server stopped")
 	return err
+}
+
+// secure serves both listeners over TLS 1.3 as the cell's certificate,
+// when it has one (ADR-0033). With a trust domain the API asks every
+// client for a certificate, the router being its one caller; the admin
+// listener verifies one when given, so probes connect without and
+// /control is left to the global plane's.
+func (s *server) secure(apiLn, adminLn net.Listener) (net.Listener, net.Listener) {
+	if s.tls == nil || !s.tls.HasCertificate() {
+		return apiLn, adminLn
+	}
+	apiAuth := tls.VerifyClientCertIfGiven
+	if s.cfg.TrustDomain != "" {
+		apiAuth = tls.RequireAndVerifyClientCert
+	}
+	return tls.NewListener(apiLn, s.tls.ServerConfig(tlsconf.Internal, apiAuth)),
+		tls.NewListener(adminLn, s.tls.ServerConfig(tlsconf.Internal, tls.VerifyClientCertIfGiven))
+}
+
+// peers restricts, with a trust domain, the API and the control plane to
+// the router's identity, which is also the global plane's: the router
+// forwards every public request, the global plane calls /control, and
+// the operator's token is still required there (ADR-0033).
+func (s *server) peers(api, control http.Handler) (http.Handler, http.Handler) {
+	if s.cfg.TrustDomain == "" {
+		return api, control
+	}
+	router := tlsconf.ID(s.cfg.TrustDomain, "global", "erp-router")
+	if control != nil {
+		control = httpapi.RequirePeer(router, control)
+	}
+	return httpapi.RequirePeer(router, api), control
 }
 
 // listen opens the API and admin listeners; when the second fails the
