@@ -237,9 +237,16 @@ type policyStep struct {
 	required int
 }
 
-// requisitionSteps are the steps of the first tier whose threshold the
-// requisition's amount, in its company's currency, does not exceed.
+// requisitionSteps are the steps of the first requisition tier whose
+// threshold the requisition's amount, in its company's currency, does not
+// exceed.
 func requisitionSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
+	return tierSteps(ctx, rates, doc.Purchasing.RequisitionApproval, in)
+}
+
+// tierSteps are the steps of the first of the tiers whose threshold the
+// request's amount, in its company's currency, does not exceed.
+func tierSteps(ctx context.Context, rates Rates, tiers []config.ApprovalTier, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
 	// The converted amount is compared exactly, unrounded: rounded to the
 	// company's digits first, 1000.004 would fall under an "up to 1000.00"
@@ -250,7 +257,7 @@ func requisitionSteps(ctx context.Context, rates Rates, doc *config.Config, in N
 	if err != nil {
 		return nil, fmt.Errorf("approvals: policy steps: %w", err)
 	}
-	for _, t := range doc.Purchasing.RequisitionApproval {
+	for _, t := range tiers {
 		if t.UpTo != "" { // "" is the last tier
 			limit, err := money.ParseDecimalRat(t.UpTo) // the grammar the document was validated with
 			if err != nil {

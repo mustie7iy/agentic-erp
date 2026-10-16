@@ -335,14 +335,19 @@ func (v *validator) paymentTerms(c *Config) {
 }
 
 func (v *validator) purchasing(c *Config) {
-	tiers := c.Purchasing.RequisitionApproval
+	v.tiers("purchasing.requisition_approval", c.Purchasing.RequisitionApproval, c)
+}
+
+// tiers checks approval tiers by amount: at least one, in increasing
+// order of their up_to, the last without one so every amount is covered.
+func (v *validator) tiers(path string, tiers []ApprovalTier, c *Config) {
 	if len(tiers) == 0 {
-		v.err("purchasing.requisition_approval", "at least one tier is required")
+		v.err(path, "at least one tier is required")
 		return
 	}
 	var prev money.Minor = -1
 	for i, t := range tiers {
-		p := fmt.Sprintf("purchasing.requisition_approval[%d]", i)
+		p := fmt.Sprintf("%s[%d]", path, i)
 		last := i == len(tiers)-1
 		switch {
 		case last && t.UpTo != "":
