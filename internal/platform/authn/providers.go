@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
@@ -365,22 +366,39 @@ func (p *Providers) httpClient() *http.Client {
 	return p.client
 }
 
-// refusePrivate refuses connections to loopback, private, link-local,
-// unspecified and multicast addresses, checked on the address dialled, so
-// a name resolving there (or re-resolving there) is refused too: a
-// registered issuer must not reach the cell's own network or the
-// instance metadata service.
+// refusePrivate allows connections only to public unicast addresses,
+// checked on the address dialled, so a name resolving elsewhere (or
+// re-resolving there) is refused too: a registered issuer must not reach
+// the cell's own network or an instance metadata service. It fails closed:
+// global unicast addresses outside every special-purpose range below, IPv4
+// written as IPv6 judged as IPv4.
 func refusePrivate(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
+	ap, err := netip.ParseAddrPort(address)
 	if err != nil {
 		return fmt.Errorf("authn: dial %s: %w", address, err)
 	}
-	ip := net.ParseIP(host)
-	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return fmt.Errorf("authn: address %s is not allowed for an identity provider", host)
+	ip := ap.Addr().Unmap()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(ip) }) {
+		return fmt.Errorf("authn: address %s is not allowed for an identity provider", ip)
 	}
 	return nil
+}
+
+// nonPublic are the special-purpose ranges (RFC 6890 and successors) that
+// IsGlobalUnicast and IsPrivate let through: shared address space (cloud
+// metadata services live there too), benchmarking, reserved, and the IPv6
+// translation and tunnelling prefixes that would carry a private IPv4
+// address.
+var nonPublic = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2001::/32"),
+	netip.MustParsePrefix("2002::/16"),
 }
 
 // unavailable is the 503 of an issuer whose document or keys cannot be had.
