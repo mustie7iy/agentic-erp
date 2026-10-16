@@ -4,8 +4,9 @@
 #   - cluster: Kubernetes secrets, node and workload volumes, logs;
 #   - fields: the KMS master of field encryption (ADR-0019); the server's
 #     role wraps and unwraps tenant keys with it and nothing else does:
-#     administrators and the account administer it but cannot use it, so
-#     no IAM policy, however broad, unwraps a tenant key.
+#     administrators and the account administer it but cannot use it or
+#     grant its use, so unwrapping a tenant key outside the server takes
+#     a change of the key policy, which CloudTrail records.
 
 locals {
   administer = {
@@ -22,7 +23,7 @@ locals {
     Effect    = "Allow"
     Principal = { AWS = concat([local.account_root], var.admin_role_arns) }
     Action = [
-      "kms:Create*", "kms:Describe*", "kms:Enable*", "kms:List*", "kms:Put*", "kms:Update*",
+      "kms:CreateAlias", "kms:Describe*", "kms:Enable*", "kms:List*", "kms:Put*", "kms:Update*",
       "kms:Revoke*", "kms:Disable*", "kms:Get*", "kms:Delete*", "kms:TagResource", "kms:UntagResource",
       "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion", "kms:RotateKeyOnDemand",
     ]

@@ -133,7 +133,8 @@ run "only_the_server_unwraps_tenant_keys" {
   assert {
     condition = alltrue([
       for st in jsondecode(aws_kms_key.fields.policy).Statement :
-      !anytrue([for a in flatten([st.Action]) : contains(["kms:*", "kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:CreateGrant"], a)])
+      # Wildcards too: kms:Create* would include CreateGrant.
+      !anytrue([for a in flatten([st.Action]) : can(regex("^kms:(\\*|Create\\*|CreateGrant|Decrypt|Encrypt|ReEncrypt.*|GenerateDataKey.*)$", a))])
       if st.Sid != "ServerWrapsTenantKeys"
     ])
     error_message = "administrators and the account manage the field key but cannot use it (ADR-0019)"

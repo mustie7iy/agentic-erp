@@ -103,20 +103,26 @@ the regional endpoints the cell outputs (`aws_endpoints`), above all
 `ERP_AWS_STS_ENDPOINT`, whose default `https://sts.amazonaws.com` would
 leave through the NAT gateway (T40c sets them);
 three KMS keys (data, cluster, and fields of ADR-0019, which
-administrators and the account manage but cannot use: only the server's
-role encrypts and decrypts with it, and only with a `tenant` encryption
-context); EKS with a private API
-unless operator CIDRs are given, access entries instead of the creator's
-implicit administrator, secrets encrypted, IMDSv2 with a hop limit of one
-so pods use IRSA, encrypted gp3 node volumes on Graviton; the RDS cluster
-(`db.m6gd.large` by default, at least 400 GiB of gp3, below which gp3
-takes no provisioned IOPS) with a parameter group setting
-`rds.force_ssl=1` and `ssl_min_protocol_version=TLSv1.3`, its master
-password managed by RDS in Secrets Manager; the object bucket (ADR-0016);
-empty Secrets Manager entries under `erp/<cell>/` that operators fill, so
-no secret value is in Terraform state; and IRSA roles for the server,
-External Secrets (read only), cert-manager's issuer (the environment's
-subordinate and end-entity templates only) and the EBS CSI driver. NATS and Temporal run on the
+administrators and the account manage but can neither use nor grant: only
+the server's role encrypts and decrypts with it, and only with a `tenant`
+encryption context; anyone else would first have to change the key
+policy, which CloudTrail records); EKS with a private API unless operator
+CIDRs are given, access entries instead of the creator's implicit
+administrator, secrets encrypted, IMDSv2 with a hop limit of one so pods
+use IRSA, encrypted gp3 node volumes on Graviton; the RDS cluster
+(`db.m6gd.large` by default, at least 400 GiB of gp3 with 12000 IOPS,
+since gp3 below 400 GiB takes no provisioned IOPS and a Multi-AZ DB
+cluster requires them; to be confirmed for the region at first apply with
+`aws rds describe-orderable-db-instance-options`, and lowered if it
+allows) with a parameter group setting `rds.force_ssl=1` and
+`ssl_min_protocol_version=TLSv1.3`, its master password managed by RDS in
+Secrets Manager; the object bucket (ADR-0016); empty Secrets Manager
+entries under `erp/<cell>/` that operators fill, so no secret value is in
+Terraform state; and IRSA roles for the server, External Secrets (read
+only), cert-manager's issuer (the environment's subordinate and
+`EndEntity*` templates only, so every Certificate of T40c must declare
+`server auth` and/or `client auth`, from which the issuer picks such a
+template) and the EBS CSI driver. NATS and Temporal run on the
 cluster (T40c) on volumes encrypted with the cluster key; Temporal's
 databases live on the cell's RDS cluster. The role of the AWS Load
 Balancer Controller comes with its chart (T40c).
