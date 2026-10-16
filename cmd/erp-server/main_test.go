@@ -1391,3 +1391,69 @@ func TestProvisionWithAProvider(t *testing.T) {
 		t.Errorf("discovery fetches: got %d, want the probe's 1", d)
 	}
 }
+
+// TestRegisteredProviderEndToEnd runs the server with no deployment
+// issuer for tenants (ADR-0031): an operator provisions a tenant with its
+// identity provider, and that provider's token for the administrator signs
+// in through the registry, the provider's keys, the session check and the
+// unit of work; a token of an issuer the tenant did not register is
+// refused.
+func TestRegisteredProviderEndToEnd(t *testing.T) {
+	ops, idp := authntest.New(t), authntest.NewSeparate(t)
+	env := environment(t, ops, "")
+	delete(env, "ERP_OIDC_ISSUERS")
+	env["ERP_OPERATOR_ISSUERS"] = `[{"issuer": "` + ops.URL + `", "audience": "` + authntest.Audience + `"}]`
+	ctx, cancel := context.WithCancel(context.Background())
+	addrs, done := make(chan [2]string, 1), make(chan int, 1)
+	var logs pgtest.SyncBuffer
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(api, admin net.Listener) {
+			addrs <- [2]string{api.Addr().String(), admin.Addr().String()}
+		})
+	}()
+	defer func() {
+		cancel()
+		if code := <-done; code != 0 {
+			t.Errorf("exit %d\n%s", code, logs.String())
+		}
+	}()
+	a := <-addrs
+	doc, _ := json.Marshal(fixture.Document(t))
+	body := `{"name": "Registered", "region": "eu-west", "group_currency": "EUR", "administrator": {"subject": "ada", "display_name": "Ada"},
+		"identity_provider": {"issuer": "` + idp.URL + `", "audience": "` + authntest.Audience + `"}, "configuration": ` + string(doc) + `}`
+	req := request(t, "POST", "http://"+a[1]+"/control/v1/tenants", body)
+	req.Header.Set("Authorization", "Bearer "+ops.Token(t, uuid.Nil, "ops|e2e", map[string]any{"tenant_id": nil}))
+	req.Header.Set("Idempotency-Key", "key-"+uuid.NewString())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]any
+	readJSON(t, resp, &created)
+	if resp.StatusCode != 201 {
+		t.Fatalf("provision: %d %v", resp.StatusCode, created)
+	}
+	tenant := created["id"].(string)
+	get := func(token string) int {
+		r := request(t, "GET", "http://"+a[0]+"/v1/roles", "")
+		r.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close() // the status is what is asserted
+		return resp.StatusCode
+	}
+	admin := idp.Token(t, uuid.Nil, "ada", map[string]any{"tenant_id": nil, "sid": "e2e", "auth_time": time.Now().Unix()})
+	if code := get(admin); code != 200 {
+		t.Fatalf("the administrator through the registered provider: got %d, want 200\n%s", code, logs.String())
+	}
+	var sessions int
+	pgtest.Scan(t, `SELECT count(*) FROM identity.session WHERE tenant_id = $1`, []any{tenant}, &sessions)
+	if sessions != 1 {
+		t.Errorf("sessions: got %d, want the administrator's", sessions)
+	}
+	if code := get(ops.Token(t, uuid.MustParse(tenant), "ada", nil)); code != 401 {
+		t.Errorf("an issuer the tenant did not register: got %d, want 401", code)
+	}
+}
