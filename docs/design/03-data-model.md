@@ -692,10 +692,18 @@ application version from before 000034 rejecting a run during the rollout)
 only keeps its item out of proposals (`OpenItems.Payable` leaves reserved
 items out), and refuses its manual clearing and reversal, until a
 reconciliation releases the reservations no live run holds and adds those
-missing. That reconciliation is a contract step (06 §6.4): it is a
-migration of its own (the next free number in the release after this one; 000040 went to
-F13; tracker F5b), landed once 000034 runs everywhere, not part of the
-change that adds the table.
+missing. That reconciliation is the contract step (06 §6.4) 000042 (F5b,
+T31), a migration of its own, run once no replica of a release from before
+000034 runs (it ships in the release after 000034's only because there is
+no production data yet). It locks the runs, payments and reservations
+against writers while it runs, and fails rather than reconcile nothing
+under row-level security: a reservation no live item matches is released in the name of
+whoever last decided or changed its run, and a live item without one is
+reserved for its run in the proposer's name, as 000034 did. A live item its
+run already released cannot be reserved for that run again (a reservation is
+released once and keyed by owner and item), so the migration stops and
+counts them rather than leave one unreserved; such a run is rejected and
+proposed again before the migration is retried.
 
 Entry locks (clearing, reversal, settlement, reservation) are advisory
 locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'

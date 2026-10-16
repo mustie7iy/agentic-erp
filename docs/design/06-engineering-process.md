@@ -77,6 +77,13 @@ against the same schema at the same time.
 Long backfills run as operations in batches with progress, not inside a
 migration.
 
+Migrations run as an administrative login that bypasses row-level security
+(the superuser in development). `erp_owner` owns the objects but is subject
+to it (every tenant table forces it), so a migration that reads or changes
+tenant rows begins with `SET LOCAL row_security = off`: under a role that
+does not bypass row-level security it then fails, rather than see no rows
+and change nothing (000042, 000046).
+
 ## 6.5 Continuous integration
 
 Every pull request runs, and must pass:
