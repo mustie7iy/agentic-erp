@@ -120,7 +120,11 @@ func contractToAPI(c Contract) gen.Contract {
 func receiptToAPI(g GoodsReceipt) gen.GoodsReceipt {
 	out := gen.GoodsReceipt{ID: g.ID, CreatedAt: g.PostedAt, CreatedBy: g.PostedBy, DocumentNumber: g.DocumentNumber, LegalEntityID: g.LegalEntityID,
 		PlantID: apitypes.OptUUID(g.PlantID), MovementType: g.MovementType, DocumentDate: g.DocumentDate, PostingDate: g.PostingDate,
-		Reference: apitypes.OptString(g.Reference), ReversalOfID: apitypes.OptUUID(g.ReversalOfID), Items: make([]gen.GoodsReceiptItem, len(g.Items))}
+		Reference: apitypes.OptString(g.Reference), ReversalOfID: apitypes.OptUUID(g.ReversalOfID), JournalEntryID: apitypes.OptUUID(g.JournalEntryID),
+		Items: make([]gen.GoodsReceiptItem, len(g.Items))}
+	if g.JournalEntryYear != nil {
+		out.JournalEntryYear.SetTo(int32(*g.JournalEntryYear))
+	}
 	for i, it := range g.Items {
 		out.Items[i] = gen.GoodsReceiptItem{ItemNo: gen.NewOptInt32(it.No), PurchaseOrderID: it.PurchaseOrderID, PoItemNo: it.POItemNo,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}}

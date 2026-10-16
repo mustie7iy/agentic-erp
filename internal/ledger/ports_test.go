@@ -238,7 +238,7 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 	}
 	for _, c := range []struct{ source, endpoint string }{
 		{"payables", "/v1/supplier-invoices/"},
-		{"procurement", "no reversal path exists yet"},
+		{"procurement", "/v1/goods-receipts/"},
 		{"receivables", "no reversal path exists yet"},
 		{"assets", "no reversal path exists yet"},
 	} {
@@ -248,7 +248,7 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 			refused := e.Problem(409, "ledger.entry_owned_elsewhere", "POST", "/v1/journal-entries/"+entry.ID.String()+":reverse", "", tag)
 			if detail, _ := refused["detail"].(string); !strings.Contains(detail, c.endpoint) {
 				t.Errorf("detail: got %q, want it to name %s", detail, c.endpoint)
-			} else if c.source != "payables" && strings.Contains(detail, "/v1/") {
+			} else if !strings.HasPrefix(c.endpoint, "/v1/") && strings.Contains(detail, "/v1/") {
 				t.Errorf("detail: got %q, want no endpoint named where none exists", detail)
 			}
 			if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {

@@ -2,7 +2,9 @@
 // purchase requisitions approved through the workflow context, purchasing
 // contracts, purchase orders and goods receipts (insert-only movements 101
 // and 102, limited by the ordered quantity plus the over-delivery
-// tolerance).
+// tolerance). Orders are valued at release, directly or through GR/IR;
+// movements on GR/IR orders post WE entries through the ledger's Postings
+// (T33, 03-data-model §3.8).
 package procurement
 
 import (
@@ -72,6 +74,13 @@ type Endpoints struct {
 	Settings      Settings
 	Approvals     Opener
 	Invoices      Invoices
+	Postings      Postings
+}
+
+// Postings posts the WE entries of goods movements on orders valued
+// through GR/IR (ledger context, T33).
+type Postings interface {
+	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
 }
 
 // Invoices tells whether supplier invoices refer to a purchase order

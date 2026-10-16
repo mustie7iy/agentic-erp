@@ -492,14 +492,15 @@ Rules enforced in the database:
   reversed entry or of a reversal.
 - An entry posted for a document with a reversal of its own belongs to
   that document's context: today a supplier invoice's (`source_context`
-  `payables`). The ledger's `:reverse` refuses it (409
-  `ledger.entry_owned_elsewhere`, naming `supplier-invoices/{id}:reverse`),
-  whose reversal goes through `Postings.Reverse` and also changes the
-  invoice and applies its permission and checks. Manual entries, entries a
+  `payables`) and a goods movement's WE entry (`procurement`, T33). The
+  ledger's `:reverse` refuses them (409 `ledger.entry_owned_elsewhere`,
+  naming `supplier-invoices/{id}:reverse` or `goods-receipts/{id}:reverse`):
+  an invoice's reversal goes through `Postings.Reverse` and also changes the
+  invoice and applies its permission and checks; a receipt is reversed by a
+  102 movement that posts its own entry. Manual entries, entries a
   migration run loaded (`integration`) and payment entries stay reversible
-  through the ledger; entries of any other context (procurement,
-  receivables, assets) are refused with the same code until a reversal path
-  is decided for them.
+  through the ledger; entries of any other context (receivables, assets) are
+  refused with the same code until a reversal path is decided for them.
 - An open item another context is about to settle is reserved in
   `item_reservation` (owner context, owner document and its reference;
   migration 000034): at most one active reservation per line (partial unique
@@ -663,7 +664,14 @@ determination, and fixed from then on (trigger
 therefore keep the direct scheme to their end, and no posted invoice is
 migrated. A goods movement on a `gr_ir` order names the entry it posted
 (`journal_entry_id`, `journal_entry_year`: both or neither,
-`goods_movement_entry_pair`).
+`goods_movement_entry_pair`): document type WE (number range `journal_we`),
+on the movement's dates, through `ledger.Postings` with a GR/IR item per
+item of a `gr_ir` order (T33c). The entry is posted before the movement is
+written, so a receipt the ledger refuses (a period not open, no rate)
+leaves none; the items of `gr_ir` orders in one movement share its one
+entry and so its currency (422 `procurement.mixed_currencies`). A 102
+posts its own WE entry the other way; the ledger's `:reverse` refuses a
+WE entry.
 
 ## 3.9 Accounts payable (`payables`)
 

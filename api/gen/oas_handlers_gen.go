@@ -29087,9 +29087,11 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 // clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
 // Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
 // payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
-// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`.
-// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
-// them yet. Returns the new reversal entry.
+// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a
+// goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
+// is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
+// other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
+// Returns the new reversal entry.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

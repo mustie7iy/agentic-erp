@@ -816,7 +816,9 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
 // only the owner knows what else the reversal must change (a supplier
 // invoice's status, its permission, the payment runs holding its item), so
 // it reverses the entry through Postings.Reverse. Today that is payables
-// (supplier-invoices/{id}:reverse). Entries of contexts without such a
+// (supplier-invoices/{id}:reverse), and procurement, whose goods receipts
+// are reversed by a 102 movement posting its own WE entry
+// (goods-receipts/{id}:reverse, T33). Entries of contexts without such a
 // reversal stay the ledger's to reverse: manual ones, those a migration run
 // loaded (their source document is the load run), and payments (whose
 // entries clear their items, so requireReversible refuses them anyway).
@@ -830,6 +832,9 @@ func requireOwnEntry(orig Entry) error {
 	case orig.SourceContext == "payables" && orig.SourceDocumentID != nil:
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for supplier invoice "+orig.SourceDocumentID.String()+
 			"; reverse it with POST /v1/supplier-invoices/"+orig.SourceDocumentID.String()+":reverse.")
+	case orig.SourceContext == "procurement" && orig.SourceDocumentID != nil:
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for goods movement "+orig.SourceDocumentID.String()+
+			"; a goods receipt is reversed with POST /v1/goods-receipts/"+orig.SourceDocumentID.String()+":reverse, which posts its own entry.")
 	}
 	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
 		" context, and no reversal path exists yet for that context's entries, so it cannot be reversed.")

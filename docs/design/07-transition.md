@@ -282,9 +282,12 @@ Decisions taken while building it:
   `purchase_order`, `goods_receipt` and `supplier_invoice` (invoices post as
   journal type KR, range `journal_kr`), in the fiscal year of the document
   date (today for requisitions and contracts).
-- **Goods receipts do not post to the ledger**; invoices post expense on the
-  order item's account directly (Dr expense, Dr input tax, Cr the supplier's
-  reconciliation account). GR/IR clearing arrives with inventory valuation.
+- **Goods receipts do not post to the ledger** on orders valued directly;
+  invoices post expense on the order item's account directly (Dr expense,
+  Dr input tax, Cr the supplier's reconciliation account). Orders released
+  once the legal entity has a GR/IR account are valued through GR/IR
+  (T33): their receipts and reversals post WE entries, Dr the order item's
+  account / Cr GR/IR at the order price (T33c).
 - **Tax codes** from the document (input tax) are valid from the company's
   first fiscal year; a changed rate or account ends the current code and
   starts the new one on the activation day; a second change on the same day
