@@ -42,3 +42,13 @@ func (m *Metrics) Gauge(name, help string, read func(context.Context) (float64, 
 	}
 	m.Registry.MustRegister(&gauge{desc: prometheus.NewDesc(name, help, nil, nil), read: read, errors: m.readErrors.WithLabelValues(name)})
 }
+
+// Info registers an info metric: a sample of 1 for each row of label
+// values, facts that hold for the process's life.
+func (m *Metrics) Info(name, help string, labels []string, rows [][]string) {
+	g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: name, Help: help}, labels)
+	for _, r := range rows {
+		g.WithLabelValues(r...).Set(1)
+	}
+	m.Registry.MustRegister(g)
+}
