@@ -160,16 +160,28 @@ func (t *tally) invoice(r replayed, before, after *config.Company) error {
 
 // postingMoves records the posting rules an invoice is booked with that
 // the proposal changes: account determination and its items' tax codes,
-// and for an order valued through GR/IR its order items' price
-// differences (the GR/IR account itself never changes once activated).
+// and for an order valued through GR/IR the price difference account its
+// order items may post to, counted once with the amount of those items:
+// what the change exposes, as the difference itself is known only when it
+// posts (the GR/IR account never changes once activated).
 func (t *tally) postingMoves(co string, before, after *config.Company, r replayed) {
 	v := r.Invoice
 	if r.Order.Valuation == procurement.ValuationGRIR {
+		var exposed []money.Minor
 		for _, it := range v.Items {
 			if it.POItemNo != nil {
-				t.move(co, "account_determination.price_difference", before.AccountDetermination.PriceDifference, after.AccountDetermination.PriceDifference,
-					it.Amount, r.Conversion)
+				exposed = append(exposed, it.Amount)
 			}
+		}
+		total, err := money.Sum(exposed...)
+		switch {
+		case err != nil:
+			if t.err == nil {
+				t.err = fmt.Errorf("payables: simulate: amount moved by %s/account_determination.price_difference: %w", co, err)
+			}
+		case len(exposed) > 0:
+			t.move(co, "account_determination.price_difference", before.AccountDetermination.PriceDifference, after.AccountDetermination.PriceDifference,
+				total, r.Conversion)
 		}
 	}
 	t.move(co, "account_determination.input_tax", before.AccountDetermination.InputTax, after.AccountDetermination.InputTax, v.Tax, r.Conversion)

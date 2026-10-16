@@ -1,8 +1,11 @@
 package payables_test
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -103,15 +107,67 @@ func TestInvoiceClearsGRIR(t *testing.T) {
 // sorted orders lines by account and amount, as an entry's order of lines
 // is the posting's, not part of the rule.
 func sorted(lines []line) []line {
-	out := append([]line(nil), lines...)
-	for i := range out {
-		for j := i + 1; j < len(out); j++ {
-			if out[j].account+out[j].amount < out[i].account+out[i].amount {
-				out[i], out[j] = out[j], out[i]
-			}
+	return slices.SortedFunc(slices.Values(lines), func(a, b line) int {
+		return cmp.Or(strings.Compare(a.account, b.account), strings.Compare(a.amount, b.amount))
+	})
+}
+
+// TestForeignInvoiceClearsGRIR: an invoice in USD of a EUR company clears
+// the receipt's GR/IR at the local value it was received at; the price
+// difference takes the invoice's rate, and what the GR/IR line leaves is
+// an exchange difference. The reversal restores the receipt's position.
+func TestForeignInvoiceClearsGRIR(t *testing.T) {
+	f := fixture.New(t, append(perms, "procurement.receipt.post", "procurement.receipt.read", "ledger.rate.maintain")...)
+	e := env{Env: f, expense: f.Account(t, "2000", "520000"), tax: f.Account(t, "2000", "140000"), ap: f.Account(t, "2000", "211000")}
+	e.GRIR(t)
+	for _, r := range []struct{ from, rate string }{{"2026-03-01", "0.9"}, {"2026-03-12", "0.92"}} {
+		e.Must(201, "POST", "/v1/exchange-rates", fmt.Sprintf(`{"rate_type": "average", "from_currency": "USD", "to_currency": "EUR", "valid_from": %q,
+			"rate": %q, "source": "ECB"}`, r.from, r.rate), "")
+	}
+	po := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
+		payment_term_code, status, valuation, created_by, updated_by) VALUES ($1, $2, 'PO-USD', $3, $4, 'USD', '2026-03-01', 'NT30', 'released', 'gr_ir', $5, $5)`,
+		e.Tenant.ID, po, e.DE, e.Supplier, e.Tenant.Human.ID)
+	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
+		price_unit, account_id) VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3)`, e.Tenant.ID, po, e.expense)
+	e.Must(201, "POST", "/v1/goods-receipts", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-05", "posting_date": "2026-03-05",
+		"items": [{"purchase_order_id": %q, "po_item_no": 1, "quantity": {"value": "10", "unit": "EA"}}]}`, e.DE, po), "")
+	position := func() [2]int64 {
+		var p [2]int64
+		if err := pgtest.Admin(t).QueryRow(t.Context(), `SELECT coalesce(sum(amount_tc), 0)::bigint, coalesce(sum(amount_lc), 0)::bigint
+			FROM ledger.journal_line WHERE purchase_order_id = $1`, po).Scan(&p[0], &p[1]); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	inv := e.foreignInvoice(t, po, "USD", "INV-USD", "125.00", "0.00", "125.00")
+	if m := e.act(t, 200, inv, "match", ""); m["is_clean"] != true {
+		t.Fatalf("match: got %v, want clean", m["issues"])
+	}
+	posted := e.act(t, 200, inv, "post", `{"posting_date": "2026-03-15"}`)
+	je, _ := e.Must(200, "GET", fmt.Sprintf("/v1/journal-entries/%v", posted["journal_entry_id"]), "", "")
+	local := map[string]money.Minor{} // per account: the exchange difference has a local and a group line
+	for _, l := range je["lines"].([]any) {
+		m := l.(map[string]any)
+		amount, err := money.ParseAmount(m["amount_lc"].(map[string]any)["amount"].(string), 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		local[m["account_id"].(string)] += amount
+	}
+	for account, want := range map[string]money.Minor{e.Account(t, "2000", "219000").String(): 10800, e.Account(t, "2000", "590000").String(): 460,
+		e.ap.String(): -11500, e.Account(t, "2000", "690000").String(): 240} {
+		if local[account] != want {
+			t.Errorf("local amount on %s: got %d, want %d (lines %v)", account, local[account], want, local)
 		}
 	}
-	return out
+	if got := position(); got != [2]int64{} {
+		t.Errorf("position after the invoice: got %v, want zero", got)
+	}
+	e.act(t, 200, inv, "reverse", `{"reason": "wrong"}`)
+	if got := position(); got != [2]int64{-12000, -10800} {
+		t.Errorf("position after the reversal: got %v, want the receipt's -120.00 USD, -108.00 EUR", got)
+	}
 }
 
 // TestInvoiceOnARemovedOrderItem: an invoice item whose order item the

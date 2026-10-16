@@ -3,37 +3,62 @@ package payables
 import (
 	"context"
 	"errors"
+	"math"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 // TestSimulatedPriceDifferenceMoves: a proposal that changes the price
-// difference account moves the order items an invoice books through GR/IR,
-// with their amounts; items of a directly valued order, which post their
-// own account, move nothing.
+// difference account moves an invoice on an order valued through GR/IR
+// once, with the amount of its order items (what the change exposes);
+// items of a directly valued order, which post their own account, move
+// nothing; an exposed amount out of range fails the simulation.
 func TestSimulatedPriceDifferenceMoves(t *testing.T) {
 	item, other := int32(1), uuid.New()
 	before, after := &config.Company{}, &config.Company{}
 	before.AccountDetermination.PriceDifference, after.AccountDetermination.PriceDifference = "590000", "591000"
-	invoice := Invoice{Items: []Item{{POItemNo: &item, Amount: 1200}, {AccountID: &other, Amount: 500}}}
-	for valuation, want := range map[string]int{procurement.ValuationGRIR: 1, procurement.ValuationDirect: 0} {
-		t.Run(valuation, func(t *testing.T) {
-			ta := &tally{moves: map[string]*Posting{}}
-			ta.postingMoves("2000", before, after, replayed{Invoice: invoice, Order: procurement.Order{Valuation: valuation}, Conversion: inEUR})
-			p := ta.moves["2000/account_determination.price_difference"]
-			if got := map[bool]int{true: 1, false: 0}[p != nil]; got != want {
-				t.Fatalf("price difference moves: got %d, want %d", got, want)
-			}
-			if p != nil && (p.Invoices != 1 || p.amounts[0] != 1200) {
-				t.Errorf("price difference move: got %d invoices of %v, want 1 of 1200", p.Invoices, p.amounts)
-			}
-		})
-	}
+	invoice := Invoice{Items: []Item{{POItemNo: &item, Amount: 1200}, {POItemNo: &item, Amount: 300}, {AccountID: &other, Amount: 500}}}
+	t.Run("gr_ir", func(t *testing.T) {
+		ta := &tally{moves: map[string]*Posting{}}
+		ta.postingMoves("2000", before, after, replayed{Invoice: invoice, Order: procurement.Order{Valuation: procurement.ValuationGRIR}, Conversion: inEUR})
+		p := ta.moves["2000/account_determination.price_difference"]
+		if p == nil {
+			t.Fatal("price difference move: got none, want one")
+		}
+		if p.Invoices != 1 {
+			t.Errorf("invoices: got %d, want 1", p.Invoices)
+		}
+		if !slices.Equal(p.amounts, []money.Minor{1500}) {
+			t.Errorf("amounts: got %v, want [1500], the order items'", p.amounts)
+		}
+	})
+	t.Run("direct", func(t *testing.T) {
+		ta := &tally{moves: map[string]*Posting{}}
+		ta.postingMoves("2000", before, after, replayed{Invoice: invoice, Order: procurement.Order{Valuation: procurement.ValuationDirect}, Conversion: inEUR})
+		if p := ta.moves["2000/account_determination.price_difference"]; p != nil {
+			t.Errorf("price difference move: got %+v, want none", p)
+		}
+	})
+	t.Run("out of range", func(t *testing.T) {
+		huge := Invoice{Items: []Item{{POItemNo: &item, Amount: math.MaxInt64}, {POItemNo: &item, Amount: 1}}}
+		ta := &tally{moves: map[string]*Posting{}}
+		for range 2 { // the first overflow is the one kept
+			ta.postingMoves("2000", before, after, replayed{Invoice: huge, Order: procurement.Order{Valuation: procurement.ValuationGRIR}, Conversion: inEUR})
+		}
+		if !errors.Is(ta.err, money.ErrOverflow) {
+			t.Errorf("error: got %v, want %v", ta.err, money.ErrOverflow)
+		}
+		if p := ta.moves["2000/account_determination.price_difference"]; p != nil {
+			t.Errorf("price difference move: got %+v, want none", p)
+		}
+	})
 }
 
 // orders answers with one order, or with err.
@@ -66,7 +91,10 @@ func TestInvoiceOrder(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			o, err := (&Endpoints{Orders: c.orders}).invoiceOrder(context.Background(), v)
-			if got := problem.From(err).Code; err != nil && got != c.err {
+			if c.err == "" && err != nil {
+				t.Errorf("error: got %v, want none", err)
+			}
+			if got := problem.From(err).Code; c.err != "" && (err == nil || got != c.err) {
 				t.Errorf("error: got %v, want %s", err, c.err)
 			}
 			if got := o != nil; got != c.grir {
