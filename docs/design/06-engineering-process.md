@@ -274,7 +274,8 @@ A change is done when:
   notes, and opens, as the release GitHub App so that CI runs on it, the
   pull request that adds them to `CHANGELOG.md`. The environment's
   settings (reviewers, the signing key, the AWS role, the App) are listed in
-  `.github/workflows/release.yml`. Releases are container images promoted through
+  `.github/workflows/release.yml`. A run that failed after it pushed the tag
+  is dispatched again with the same version, which resumes from the tag. Releases are container images promoted through
   dev → staging → canary cell → all cells.
 - Feature flags (per tenant) hide incomplete features; flags are removed once
   a feature is fully rolled out.

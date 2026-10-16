@@ -195,6 +195,19 @@ if [ -n "${GIT_CLIFF:-}" ]; then
   else
     echo "ok   changelog.sh: notes of the release alone, CHANGELOG.md newest first"
   fi
+
+  # A release run again after its tag was pushed: the notes are that
+  # release's still, and CHANGELOG.md does not gain the entry twice.
+  git -C "$r" tag v0.2.1
+  (cd "$r" && GIT_CLIFF="$GIT_CLIFF" ./scripts/changelog.sh v0.2.1 dist/again.md >/dev/null 2>&1)
+  if ! grep -q "A later fix (T33)" "$r/dist/again.md" || [ "$(grep -c '^## v0.2.1 ' "$r/CHANGELOG.md")" -ne 1 ]; then
+    echo "FAIL changelog.sh after the tag: notes and CHANGELOG.md entries:" >&2
+    cat "$r/dist/again.md" >&2
+    grep '^## v' "$r/CHANGELOG.md" >&2
+    failed=1
+  else
+    echo "ok   changelog.sh after the tag: the release's notes again, one entry in CHANGELOG.md"
+  fi
 else
   echo "skip changelog: GIT_CLIFF is not set"
 fi
