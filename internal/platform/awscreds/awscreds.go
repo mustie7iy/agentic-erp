@@ -166,7 +166,17 @@ func expiry(token, s string) (time.Time, error) {
 // service, version 2 (a session token first).
 type IMDS struct {
 	Endpoint string       // default http://169.254.169.254
-	Client   *http.Client // nil: a client with a 2 s timeout, the service being link-local
+	Client   *http.Client // nil: imdsClient, direct with a 2 s timeout, the service being link-local
+}
+
+// imdsClient reaches the service directly, never through HTTP_PROXY: its
+// plaintext is exempt from TLS only because it never leaves the host
+// (ADR-0033), and Go's proxy rules exempt loopback, not link-local
+// addresses, so the role's credentials would otherwise cross the network.
+func imdsClient() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // the standard library's default is an *http.Transport
+	t.Proxy = nil
+	return &http.Client{Timeout: 2 * time.Second, Transport: t}
 }
 
 // Credentials implements Provider; an absent service is ErrNone.
@@ -177,7 +187,7 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 	}
 	c := m.Client
 	if c == nil {
-		c = &http.Client{Timeout: 2 * time.Second}
+		c = imdsClient()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint+"/latest/api/token", nil)
 	if err != nil {

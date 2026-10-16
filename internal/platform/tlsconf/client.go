@@ -37,9 +37,13 @@ func (s *Store) ClientConfig(minVersion uint16, serverName string) (*tls.Config,
 
 // HTTPClient is a client to providers' HTTPS endpoints (S3, KMS, STS)
 // whose every connection is made with ClientConfig(External, host), within
-// timeout per request.
+// timeout per request. Providers are outside the deployment, so the
+// client offers them no certificate. It connects directly: through a
+// proxy net/http would handshake with its own configuration, without the
+// material (ADR-0033).
 func (s *Store) HTTPClient(timeout time.Duration) *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // the standard library's default is an *http.Transport
+	t.Proxy = nil
 	t.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		// The transport dials host:port, always with a port.
 		host, _, _ := net.SplitHostPort(addr)
@@ -47,6 +51,7 @@ func (s *Store) HTTPClient(timeout time.Duration) *http.Client {
 		if err != nil {
 			return nil, err
 		}
+		cfg.GetClientCertificate = nil
 		raw, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("tlsconf: %w", err)

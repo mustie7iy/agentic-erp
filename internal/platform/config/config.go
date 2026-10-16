@@ -603,6 +603,14 @@ func checkNATS(c Config) []error {
 // one endpoint reached without TLS: its traffic never leaves the host.
 var imdsHosts = map[string]bool{"169.254.169.254": true, "fd00:ec2::254": true}
 
+// isIMDS reports whether endpoint is exactly the instance metadata
+// service: http, one of its addresses, nothing else in the URL.
+func isIMDS(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	return err == nil && u.Scheme == "http" && imdsHosts[u.Hostname()] && u.Port() == "" && strings.Trim(u.Path, "/") == "" &&
+		u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == ""
+}
+
 // checkEndpoints refuses providers' endpoints (S3, KMS, Vault, STS) that
 // are not https, and an instance metadata endpoint other than the
 // service's own addresses.
@@ -617,7 +625,7 @@ func checkEndpoints(c Config) []error {
 			errs = append(errs, fmt.Errorf("%s must be an https:// URL with ERP_ENV=production (ADR-0033)", s.name))
 		}
 	}
-	if u, err := url.Parse(c.AWS.IMDSEndpoint); err != nil || u.Scheme != "http" || !imdsHosts[u.Hostname()] || u.Port() != "" || strings.Trim(u.Path, "/") != "" {
+	if !isIMDS(c.AWS.IMDSEndpoint) {
 		errs = append(errs, errors.New("ERP_AWS_IMDS_ENDPOINT must be http://169.254.169.254 or http://[fd00:ec2::254] with ERP_ENV=production: the one endpoint reached without TLS is the link-local instance metadata service (ADR-0033)"))
 	}
 	return errs

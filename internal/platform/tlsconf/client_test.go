@@ -35,8 +35,10 @@ func server(t *testing.T, ca *tlstest.CA, clientCAs *x509.CertPool, maxVersion u
 }
 
 // TestHTTPClient: the store's client verifies servers against its roots,
-// speaks TLS 1.2 at least, presents its certificate when a server asks,
-// and fails without its material rather than connecting without it.
+// speaks TLS 1.2 at least, offers providers no certificate, reaches them
+// directly rather than through a proxy (which would handshake without the
+// material), and fails without its material rather than connecting
+// without it.
 func TestHTTPClient(t *testing.T) {
 	ca := tlstest.NewCA(t)
 	withCert, _ := files(t, ca, ca.Issue(t, tlstest.Options{}))
@@ -55,6 +57,9 @@ func TestHTTPClient(t *testing.T) {
 	open, mutual, closed := server(t, ca, nil, tls.VersionTLS13), server(t, ca, ca.Pool(), tls.VersionTLS13), server(t, ca, nil, tls.VersionTLS13)
 	old := server(t, ca, nil, tls.VersionTLS11)
 	closed.Close()
+	if tr, ok := rootsOnly.HTTPClient(time.Second).Transport.(*http.Transport); !ok || tr.Proxy != nil {
+		t.Error("transport: got one that may use a proxy, want direct connections")
+	}
 	for _, c := range []struct {
 		name   string
 		store  *tlsconf.Store
@@ -63,8 +68,9 @@ func TestHTTPClient(t *testing.T) {
 		want   string // the error; empty: served
 	}{
 		{"verified server", rootsOnly, open.URL, "", ""},
-		{"certificate presented when asked", withCert, mutual.URL, "tlstest leaf", ""},
-		{"no certificate to present", rootsOnly, mutual.URL, "", "certificate"},
+		// Providers are outside the deployment: the cell's certificate, and
+		// the identity it carries, is never offered to them.
+		{"no certificate offered to providers", withCert, mutual.URL, "", "certificate"},
 		{"server from an untrusted authority", other, open.URL, "", "certificate"},
 		{"material never read", &tlsconf.Store{}, open.URL, "", "not read yet"},
 		{"server gone", rootsOnly, closed.URL, "", "connection refused"},
@@ -120,5 +126,22 @@ func TestClientConfig(t *testing.T) {
 	cert, err := cfg.GetClientCertificate(&tls.CertificateRequestInfo{})
 	if err != nil || len(cert.Certificate) == 0 {
 		t.Errorf("client certificate: got %v, %v, want the store's", cert, err)
+	}
+}
+
+// TestClientConfigWithoutCertificate: without a certificate the
+// configuration presents none, leaving the server to decide whether it
+// needs one.
+func TestClientConfigWithoutCertificate(t *testing.T) {
+	s := &tlsconf.Store{Resolver: secrets.Local{}}
+	if err := s.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := s.ClientConfig(tlsconf.Internal, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert, err := cfg.GetClientCertificate(&tls.CertificateRequestInfo{}); err != nil || len(cert.Certificate) != 0 {
+		t.Errorf("client certificate: got %d certificates, %v, want none and no error", len(cert.Certificate), err)
 	}
 }

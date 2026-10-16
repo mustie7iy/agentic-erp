@@ -29,8 +29,11 @@ token stolen in transit or from a log works from anywhere.
   - The workflow engine is dialled with TLS (T38b).
   - Endpoints of S3, KMS, Vault and STS must be `https://`. The one
     exemption is instance metadata at exactly `169.254.169.254` or
-    `fd00:ec2::254`, a link-local address that never leaves the host
-    (T38b).
+    `fd00:ec2::254`, a link-local address that never leaves the host;
+    it is reached directly, never through a proxy (T38b).
+  - Providers (S3, KMS, STS) are reached directly with the material's
+    client, which trusts `ERP_TLS_CA` and offers them no certificate: the
+    cell's identity is for the deployment's own services.
   - Listeners serve TLS only, and a cell's API and control URLs in the
     directory must be `https://` (T38c).
 - **Versions.** TLS 1.3 between the deployment's own services

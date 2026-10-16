@@ -26,12 +26,16 @@ func TestDialOverMutualTLS(t *testing.T) {
 	frontend := tlstest.Proxy(t, workflowtest.Server(t), ca.Issue(t, tlstest.Options{DNS: []string{"temporal.internal"}}).Pair(t), ca.Pool(), "h2")
 	cell := ca.Issue(t, tlstest.Options{}).Pair(t)
 	var configs atomic.Int32 // taken on gRPC's goroutines
-	config := func(roots *tlstest.CA) func() (*tls.Config, error) {
+	named := func(roots *tlstest.CA, name string) func() (*tls.Config, error) {
 		return func() (*tls.Config, error) {
 			configs.Add(1)
-			return &tls.Config{MinVersion: tls.VersionTLS13, ServerName: "temporal.internal", RootCAs: roots.Pool(), Certificates: []tls.Certificate{cell}}, nil
+			return &tls.Config{MinVersion: tls.VersionTLS13, ServerName: name, RootCAs: roots.Pool(), Certificates: []tls.Certificate{cell}}, nil
 		}
 	}
+	config := func(roots *tlstest.CA) func() (*tls.Config, error) { return named(roots, "temporal.internal") }
+	// A frontend certified for its address, dialled without a name: the
+	// address's host is what is verified.
+	byAddress := tlstest.Proxy(t, workflowtest.Server(t), ca.Issue(t, tlstest.Options{}).Pair(t), ca.Pool(), "h2")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	engine, err := workflow.Dial(ctx, workflow.Config{Address: frontend, Namespace: "default", TLS: config(ca)})
@@ -45,11 +49,17 @@ func TestDialOverMutualTLS(t *testing.T) {
 	if configs.Load() == 0 {
 		t.Error("configurations: got none taken, want one per connection")
 	}
+	byHost, err := workflow.Dial(ctx, workflow.Config{Address: byAddress, Namespace: "default", TLS: named(ca, "")})
+	if err != nil {
+		t.Fatalf("a frontend verified for its address: %v", err)
+	}
+	byHost.Close()
 	for _, c := range []struct {
 		name string
 		tls  func() (*tls.Config, error)
 		want string
 	}{
+		{"another name", named(ca, "other.internal"), "certificate"},
 		{"untrusted frontend", config(tlstest.NewCA(t)), "certificate"},
 		{"no configuration", func() (*tls.Config, error) { return nil, errors.New("material not read yet") }, "material not read yet"},
 	} {
