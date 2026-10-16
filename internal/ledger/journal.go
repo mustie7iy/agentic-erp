@@ -248,9 +248,12 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 		taxes, quantities, units, texts, orders, items); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", id, err)
 	}
-	posted, err := getEntry(ctx, tx, id)
+	// Read back without the caller's company filter: the caller was let post
+	// in the legal entity, or an approval it decides authorises the posting
+	// (T35e).
+	posted, err := scanEntry(tx.QueryRow(ctx, entrySelect+` WHERE e.id = $1`, id))
 	if err != nil {
-		return Entry{}, err
+		return Entry{}, fmt.Errorf("ledger: read posted entry %s: %w", id, err)
 	}
 	event, err := outbox.Add(ctx, postedEvent(posted))
 	if err != nil {
@@ -597,12 +600,18 @@ type prepared struct {
 	lines  []Line // amounts in transaction currency only
 }
 
-// prepare checks a manual entry as parking and posting both need it.
+// prepare checks a manual entry as parking and posting both need it, in a
+// legal entity the caller may act in.
 func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, in NewEntry) (prepared, error) {
 	le, err := e.legalEntity(ctx, in.LegalEntityID, "legal_entity_id")
 	if err != nil {
 		return prepared{}, err
 	}
+	return e.prepareFor(ctx, tx, le, in)
+}
+
+// prepareFor checks a manual entry of the legal entity le.
+func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity, in NewEntry) (prepared, error) {
 	ledger, err := ledgerID(ctx, tx, in.LedgerID)
 	if err != nil {
 		return prepared{}, err
@@ -633,9 +642,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, in NewEntry) (prepar
 	return prepared{le: le, ledger: ledger, group: group, exps: exps, expTC: expTC, lines: lines}, nil
 }
 
-// postJournalEntry validates and posts a manual journal entry. Local and
-// group amounts are converted at the average rates valid on the posting
-// date, and rounding differences go to the largest line.
+// postJournalEntry validates and posts a manual journal entry.
 func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -645,6 +652,13 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 	if err != nil {
 		return Entry{}, err
 	}
+	return e.postPrepared(ctx, tx, p, v, in)
+}
+
+// postPrepared posts a prepared manual entry: local and group amounts are
+// converted at the average rates valid on the posting date, and rounding
+// differences go to the largest line.
+func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared, in NewEntry) (Entry, error) {
 	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, v.le.LocalCurrency, v.group, in.PostingDate)
 	if err != nil {
 		return Entry{}, err
