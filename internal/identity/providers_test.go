@@ -550,7 +550,10 @@ func (r registry) begin() pgx.Tx {
 func interleave(t *testing.T, r registry, first, second func(ctx context.Context, tx pgx.Tx) error) error {
 	t.Helper()
 	ctx := context.Background()
-	tx1, tx2 := r.begin(), r.begin()
+	// Cleanups run last first: tx1, begun second, rolls back first when the
+	// test fails, releasing the locks tx2 may be waiting on.
+	tx2 := r.begin()
+	tx1 := r.begin()
 	var pid int32
 	if err := tx1.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
 		t.Fatal(err)
@@ -627,6 +630,10 @@ func TestMultiFactorRuleUnderConcurrency(t *testing.T) {
 			return r, p
 		}
 		name := map[bool]string{false: "no policy row", true: "policy row"}[policyRow]
+		// With the policy row there, "policy first" and "policy before
+		// values cleared" are ordered by the second's insert of the row
+		// waiting on the first's update of it; the other two only by the
+		// row locks.
 		t.Run(name+", policy first", func(t *testing.T) {
 			r, _ := setup(t)
 			wantProblem(t, interleave(t, r, requireMFA(r), addPlain(r)), "identity.mfa_unprovable")
