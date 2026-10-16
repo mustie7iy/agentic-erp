@@ -1194,3 +1194,31 @@ func TestInvoiceExceptionVersion(t *testing.T) {
 		})
 	}
 }
+
+// TestLocalCurrencyIsFixed: a legal entity's local currency is set when it
+// is created and never changes (000045, F14): configurations are checked
+// against it and its postings are kept in it. Its other details still change.
+func TestLocalCurrencyIsFixed(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	for _, c := range []struct {
+		name, set, fails string
+	}{
+		{"renamed", "name = 'Acme Inc.'", ""},
+		{"same currency", "local_currency = 'USD'", ""},
+		{"another currency", "local_currency = 'EUR'", "local currency of legal entity"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE tenancy.legal_entity SET "+c.set+", version = version + 1 WHERE id = $1", f.entity)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("update: got %v, want success", err)
+				}
+				return
+			}
+			failsWith(t, err, c.fails)
+		})
+	}
+}
