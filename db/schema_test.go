@@ -484,6 +484,72 @@ func TestPeriodTransitions(t *testing.T) {
 	}
 }
 
+// TestPeriodUnlock: a locked period returns to closed only by consuming the
+// unlock request it names, which it clears in the same update (000051,
+// T32); and only a locked period names one. That the request was approved
+// is checked by the ledger's approvals callback (T32c): the database rule
+// stays within the ledger's schema (02-architecture, boundary rule 1).
+func TestPeriodUnlock(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	// locked puts period 5 of a new tenant in locked, naming an unlock
+	// request when named is set, and returns the tenant.
+	locked := func(t *testing.T, named bool) uuid.UUID {
+		t.Helper()
+		f := newFixture(t)
+		steps := []string{"status = 'closed'", "status = 'locked'"}
+		if named {
+			steps = append(steps, "unlock_request_id = gen_random_uuid()")
+		}
+		for _, set := range steps {
+			if _, err := testDB.Exec(ctx, `UPDATE ledger.period_status SET `+set+`, version = version + 1
+				WHERE tenant_id = $1 AND fiscal_year = 2026 AND period = 5`, f.tenant); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return f.tenant
+	}
+	for _, c := range []struct {
+		name  string
+		named bool
+		set   string
+		want  string // empty: allowed
+	}{
+		{"consuming the request", true, "unlock_request_id = NULL", ""},
+		{"naming none", false, "unlock_request_id = NULL", "cannot go from locked to closed"},
+		{"keeping the request", true, "unlock_request_id = unlock_request_id", "cannot go from locked to closed"},
+		{"naming another", true, "unlock_request_id = gen_random_uuid()", "cannot go from locked to closed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant := locked(t, c.named)
+			var closed int64
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				tag, err := tx.Exec(ctx, `UPDATE ledger.period_status SET status = 'closed', `+c.set+`, version = version + 1
+					WHERE fiscal_year = 2026 AND period = 5`)
+				closed = tag.RowsAffected()
+				return err
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+			if closed != 1 {
+				t.Errorf("periods closed: got %d, want 1", closed)
+			}
+		})
+	}
+	t.Run("naming one while open", func(t *testing.T) {
+		f := newFixture(t)
+		err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.period_status SET unlock_request_id = $1, version = version + 1 WHERE fiscal_year = 2026 AND period = 5`, id())
+		})
+		failsWith(t, err, "period_status_unlock_only_locked")
+	})
+}
+
 // TestPostingHoldsItsPeriod: inserting an entry holds its period's status
 // row FOR SHARE until the transaction ends (F8b, 000043), as the ledger's
 // postingPeriod does, so a close, which locks the row FOR UPDATE, waits for

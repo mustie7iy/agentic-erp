@@ -1,7 +1,7 @@
 // Package approvals is the workflow context (03-data-model §3.11): approval
-// requests for requisitions, partner changes, configuration changes and
-// supplier invoice exceptions, with sequential steps that each need a
-// number of distinct approvals from holders of a role. Only people approve
+// requests for requisitions, partner changes, configuration changes,
+// supplier invoice exceptions and period unlocks, with sequential steps
+// that each need a number of distinct approvals from holders of a role. Only people approve
 // or reject, never the requester, and nobody approves a request twice; the
 // requester may withdraw it. (The prototype's engine is internal/workflow;
 // its rules are kept here.)
@@ -13,8 +13,9 @@
 // from the active configuration document, which is the approval policy of
 // T4: requisitions by amount tier (purchasing.requisition_approval),
 // partner changes by payments.vendor_approver_role, configuration changes
-// by their tier, invoice exceptions by DefaultExceptionRole. Roles are the
-// identity context's roles with the document's role names as codes.
+// by their tier, invoice exceptions by DefaultExceptionRole, period unlocks
+// by DefaultPeriodUnlockRole. Roles are the identity context's roles with
+// the document's role names as codes.
 package approvals
 
 import (
@@ -43,6 +44,7 @@ const (
 	PartnerChange    = "partner_change"
 	ConfigChange     = "config_change"
 	InvoiceException = "invoice_exception"
+	PeriodUnlock     = "period_unlock"
 )
 
 // Request statuses.
@@ -57,11 +59,17 @@ const (
 // configuration document has a setting for them.
 const DefaultExceptionRole = "process_owner"
 
+// DefaultPeriodUnlockRole decides the unlock of a locked posting period
+// (T32): a fixed role, so that reopening the books after the lock is never
+// a matter of configuration.
+const DefaultPeriodUnlockRole = "controller"
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
 	Requisition: "procurement.requisition.approve", PartnerChange: "partner.change.approve",
 	InvoiceException: "payables.invoice.approve", ConfigChange: "config.change.approve",
+	PeriodUnlock: "ledger.period.unlock.approve",
 }
 
 func init() {
@@ -259,6 +267,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		}
 	case InvoiceException:
 		out = append(out, policyStep{DefaultExceptionRole, 1})
+	case PeriodUnlock:
+		out = append(out, policyStep{DefaultPeriodUnlockRole, 1})
 	default:
 		return nil, fmt.Errorf("approvals: unknown object type %q", in.ObjectType)
 	}

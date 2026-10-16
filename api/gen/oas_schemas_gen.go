@@ -8163,8 +8163,9 @@ type FiscalPeriod struct {
 	EndDate time.Time `json:"end_date"`
 	// Year-end adjustment period.
 	IsSpecial bool `json:"is_special"`
-	// Posting status; changed only by `:open` and `:close`. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// Posting status; changed only by `:open`, `:close` and `:lock`, and from locked back to closed only
+	// by an approved `period_unlock` approval request. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// Optimistic-lock version; equals the ETag.
 	Version int32 `json:"version"`
@@ -8172,6 +8173,8 @@ type FiscalPeriod struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Principal that made the last status change.
 	UpdatedBy uuid.UUID `json:"updated_by"`
+	// Pending `period_unlock` approval request (workflow context) of a locked period; absent otherwise.
+	UnlockRequestID OptUUID `json:"unlock_request_id"`
 }
 
 // GetID returns the value of ID.
@@ -8239,6 +8242,11 @@ func (s *FiscalPeriod) GetUpdatedBy() uuid.UUID {
 	return s.UpdatedBy
 }
 
+// GetUnlockRequestID returns the value of UnlockRequestID.
+func (s *FiscalPeriod) GetUnlockRequestID() OptUUID {
+	return s.UnlockRequestID
+}
+
 // SetID sets the value of ID.
 func (s *FiscalPeriod) SetID(val uuid.UUID) {
 	s.ID = val
@@ -8302,6 +8310,11 @@ func (s *FiscalPeriod) SetUpdatedAt(val time.Time) {
 // SetUpdatedBy sets the value of UpdatedBy.
 func (s *FiscalPeriod) SetUpdatedBy(val uuid.UUID) {
 	s.UpdatedBy = val
+}
+
+// SetUnlockRequestID sets the value of UnlockRequestID.
+func (s *FiscalPeriod) SetUnlockRequestID(val OptUUID) {
+	s.UnlockRequestID = val
 }
 
 // FiscalPeriodHeaders wraps FiscalPeriod with response headers.

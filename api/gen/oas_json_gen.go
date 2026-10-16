@@ -12711,9 +12711,15 @@ func (s *FiscalPeriod) encodeFields(e *jx.Encoder) {
 		e.FieldStart("updated_by")
 		json.EncodeUUID(e, s.UpdatedBy)
 	}
+	{
+		if s.UnlockRequestID.Set {
+			e.FieldStart("unlock_request_id")
+			s.UnlockRequestID.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfFiscalPeriod = [13]string{
+var jsonFieldsNameOfFiscalPeriod = [14]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "ledger_id",
@@ -12727,6 +12733,7 @@ var jsonFieldsNameOfFiscalPeriod = [13]string{
 	10: "version",
 	11: "updated_at",
 	12: "updated_by",
+	13: "unlock_request_id",
 }
 
 // Decode decodes FiscalPeriod from json.
@@ -12893,6 +12900,16 @@ func (s *FiscalPeriod) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"updated_by\"")
+			}
+		case "unlock_request_id":
+			if err := func() error {
+				s.UnlockRequestID.Reset()
+				if err := s.UnlockRequestID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"unlock_request_id\"")
 			}
 		default:
 			return d.Skip()
