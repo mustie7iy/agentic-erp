@@ -133,7 +133,7 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	// is touched: replayed by whoever stole it, it would otherwise keep
 	// its owner's session alive (ADR-0033).
 	if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), false); err != nil {
-		m.Log.WarnContext(ctx, "certificate binding refused", "subject", claims.Subject, "bound", true)
+		m.Log.WarnContext(ctx, "certificate binding refused", "issuer", claims.Issuer, "subject", claims.Subject, "bound", true)
 		return err
 	}
 	if m.Sessions != nil {

@@ -114,6 +114,18 @@ func (p *peerTransports) RoundTrip(r *http.Request) (*http.Response, error) {
 	return t.RoundTrip(r) //nolint:wrapcheck // a transport passes its transport's errors on as they are
 }
 
+// CloseIdleConnections closes every pool's idle connections, as
+// http.Client.CloseIdleConnections asks of its transport.
+func (p *peerTransports) CloseIdleConnections() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, t := range p.by {
+		if c, ok := t.(interface{ CloseIdleConnections() }); ok {
+			c.CloseIdleConnections()
+		}
+	}
+}
+
 // client is a direct client whose every connection is made with the
 // configuration config returns for the host.
 func (s *Store) client(timeout time.Duration, config func(ctx context.Context, host string) (*tls.Config, error)) *http.Client {

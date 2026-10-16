@@ -214,4 +214,8 @@ func TestConnectionsKeptPerIdentity(t *testing.T) {
 	if err := get(tlsconf.ID(domain, "eu2", "erp-server")); err == nil {
 		t.Error("another cell at the same address: got served over the pooled connection, want refused")
 	}
+	client.CloseIdleConnections() // reaches every pool
+	if err := get(cellID); err != nil {
+		t.Errorf("after closing idle connections: %v", err)
+	}
 }

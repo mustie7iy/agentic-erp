@@ -118,8 +118,6 @@ func plausible(iss string, auds []string) bool {
 	return true
 }
 
-// facts reads the token's facts that multi-factor and sessions are
-// decided on; absent or malformed claims leave them empty.
 // confirmation reads the token's cnf (RFC 7800): absent, the token is a
 // bearer token; a non-empty x5t#S256, it is bound to that certificate
 // (RFC 8705). Any other confirmation (DPoP's jkt, a malformed one) is
@@ -139,6 +137,8 @@ func confirmation(c *reqctx.Claims, claims map[string]any) error {
 	return nil
 }
 
+// facts reads the token's facts that multi-factor and sessions are
+// decided on; absent or malformed claims leave them empty.
 func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
 	c.IssuedAt, c.Expiry = tok.IssuedAt, tok.Expiry
 	var at struct {
@@ -150,7 +150,6 @@ func facts(c *reqctx.Claims, tok *oidc.IDToken, claims map[string]any) {
 	}
 	c.ACR, _ = claims["acr"].(string)
 	c.SessionID, _ = claims["sid"].(string)
-
 	if amr, ok := claims["amr"].([]any); ok {
 		for _, m := range amr {
 			s, ok := m.(string)
