@@ -569,3 +569,23 @@ func TestWriteTimeoutEndsALongRegistration(t *testing.T) {
 		t.Errorf("providers registered: got %d, want 0", n)
 	}
 }
+
+// TestRegistrationProbesTheProvider: a provider whose discovery document
+// cannot be read is refused at registration, 422
+// identity.provider_unreachable, for registration and provisioning alike.
+func TestRegistrationProbesTheProvider(t *testing.T) {
+	s := service(t)
+	s.Discover = func(_ context.Context, issuer string) error {
+		if strings.Contains(issuer, "down") {
+			return errors.New("connection refused")
+		}
+		return nil
+	}
+	ten := pgtest.NewTenant(t)
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	_, _, err := s.RegisterProvider(context.Background(), op, ten.ID, identity.NewIdentityProvider{Issuer: "https://down-" + uuid.NewString() + ".example.com", Audience: "erp"}, nil)
+	pgtest.CheckErr(t, err, "identity.provider_unreachable")
+	if _, _, err := s.RegisterProvider(context.Background(), op, ten.ID, identity.NewIdentityProvider{Issuer: "https://up-" + uuid.NewString() + ".example.com", Audience: "erp"}, nil); err != nil {
+		t.Errorf("a provider that answers: got %v, want registered", err)
+	}
+}

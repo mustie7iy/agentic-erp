@@ -171,6 +171,9 @@ func (s *Service) RegisterProvider(ctx context.Context, op Operator, tenant uuid
 		return IdentityProvider{}, false, problem.Unprocessable("identity.invalid_provider", "The identity provider is invalid.",
 			problem.FieldError{Field: "issuer", Code: "invalid", Message: "an https URL in production"})
 	}
+	if err := s.probe(ctx, in.Issuer); err != nil {
+		return IdentityProvider{}, false, err
+	}
 	var out IdentityProvider
 	replayed := false
 	err := s.inTenant(ctx, tenant, &op, func(ctx context.Context, tx pgx.Tx) error {
@@ -194,6 +197,20 @@ func (s *Service) RegisterProvider(ctx context.Context, op Operator, tenant uuid
 		return s.storeProvider(ctx, tx, tenant, key, out)
 	})
 	return out, replayed, err
+}
+
+// probe refuses a provider whose discovery document cannot be read: an
+// issuer mistyped, or not reachable from the cell, is told at registration
+// rather than when its tokens fail.
+func (s *Service) probe(ctx context.Context, issuer string) error {
+	if s.Discover == nil {
+		return nil
+	}
+	if err := s.Discover(ctx, issuer); err != nil {
+		return problem.Unprocessable("identity.provider_unreachable", "The identity provider's discovery document could not be read.",
+			problem.FieldError{Field: "issuer", Code: "unreachable", Message: "an issuer whose /.well-known/openid-configuration the cell can read"}).WithCause(err)
+	}
+	return nil
 }
 
 func (s *Service) claim(ctx context.Context, tenant uuid.UUID, p identity.IdentityProvider) error {

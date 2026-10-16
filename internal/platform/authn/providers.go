@@ -121,6 +121,15 @@ func (p *Providers) Verify(ctx context.Context, issuer, audience, raw string) (*
 	return tok, nil
 }
 
+// Probe reads the issuer's discovery document afresh, within the fetch
+// timeout and the production rules, keeping nothing: it tells whether a
+// provider being registered can be reached (ADR-0031).
+func (p *Providers) Probe(ctx context.Context, issuer string) error {
+	ctx, cancel := context.WithTimeout(ctx, orDefault(p.Timeout, DefaultFetchTimeout))
+	defer cancel()
+	return p.fetchDiscovery(ctx, &remote{issuer: issuer, attempt: map[string]time.Time{}})
+}
+
 // verified hands go-oidc the payload whose signature Verify has checked,
 // so the claims are checked without verifying the signature twice. It is
 // made for one call of Verify, with the token that call verifies.

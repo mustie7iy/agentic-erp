@@ -180,6 +180,7 @@ type server struct {
 	static       []authn.Static
 	dev          *authn.DevIssuer
 	verifier     *authn.Verifier
+	providers    *authn.Providers // tenants' identity providers' documents and keys (ADR-0031)
 	pages        *pagination.Codec
 	keys         *fieldcrypt.Keyring
 	store        blobstore.Store
@@ -239,8 +240,8 @@ func (s *server) authenticate(ctx context.Context) error {
 	// resolved by issuer and audience in the cell (ADR-0031), and from the
 	// issuers the deployment configures for every tenant.
 	registry := &authn.RegistryCache{Registry: identity.Registry{Pool: s.pool, ControlRole: s.cfg.ControlRole}}
-	providers := &authn.Providers{Production: s.cfg.Environment == config.Production}
-	if s.verifier, err = authn.NewRegistered(ctx, authn.Environment(s.cfg.Environment), registry, providers, s.cfg.Issuers, s.static...); err != nil {
+	s.providers = &authn.Providers{Production: s.cfg.Environment == config.Production}
+	if s.verifier, err = authn.NewRegistered(ctx, authn.Environment(s.cfg.Environment), registry, s.providers, s.cfg.Issuers, s.static...); err != nil {
 		return err
 	}
 	if s.pages, err = pagination.NewCodec(s.cfg.PageTokenKey); err != nil {
@@ -312,7 +313,7 @@ func (s *server) controlPlane(ctx context.Context) error {
 	}
 	service := &controlplane.Service{Pool: s.pool, AppRole: s.cfg.AppRole, ControlRole: s.cfg.ControlRole, Pages: s.pages,
 		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Issuers: s.cfg.TenantIssuers(), Configuration: app.Configuration(app.Config{FieldKeys: s.keys})},
-		Offboarding: s.offboarder, Directory: s.sync, Production: s.cfg.Environment == config.Production}
+		Offboarding: s.offboarder, Directory: s.sync, Production: s.cfg.Environment == config.Production, Discover: s.providers.Probe}
 	s.control = controlplane.Handler(service, operators, s.log)
 	s.log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(s.cfg.OperatorIssuers), "dev_issuer", s.cfg.DevIssuer)
 	return nil

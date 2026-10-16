@@ -127,6 +127,9 @@ type Service struct {
 	Directory   *directory.Sync     // records tenants in the global directory after a change; nil: a single cell
 	Pages       *pagination.Codec
 	Production  bool // ERP_ENV=production: identity providers' issuers are https (ADR-0031)
+	// Discover reads a provider's discovery document before it is
+	// registered (authn.Providers.Probe); nil reads none.
+	Discover func(ctx context.Context, issuer string) error
 	// WriteTimeout bounds a registry or policy write's transaction; 0:
 	// DefaultWriteTimeout, which must stay below directory.ClaimGrace.
 	WriteTimeout time.Duration
