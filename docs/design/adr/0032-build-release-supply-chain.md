@@ -68,7 +68,10 @@ the test.
 **Checked before deployment.** `scripts/verify-image.sh` accepts an image
 only by digest, with a signature, an SBOM attestation and a provenance
 attestation by the release key, and, given `ERP_EXPECTED_COMMIT`, provenance
-naming that commit. The release workflow runs it on what it pushed, delivery
+naming that commit and a checkout without uncommitted changes (the caller
+must give the commit, or `any` to skip the check on purpose); `cosign
+verify` alone would take an attestation for a signature, so it looks for an
+image signature itself. The release workflow runs it on what it pushed, delivery
 runs it again before a rollout (T40), and the clusters admit only images
 signed with the key. CI's signing job proves the round trip on every push
 against a registry made for the job, with a key pair made for the run:
@@ -115,6 +118,10 @@ gate, the scan), T39b (signing, attestations, `verify-image.sh`) and T39c
 - A new distroless digest, ko or grype version is a reviewed change.
 - The KMS key, its policy and the clusters' admission policy are T40's
   infrastructure; T39b's tests sign with a local key.
+- Without a transparency log or a timestamp authority a signature carries no
+  trusted time: if the KMS key is ever compromised, signatures made before
+  cannot be told from those made after, so every image signed with it is
+  re-signed with a new key and the old one is no longer trusted.
 - Go records the commit of the repository it finds a `.git` directory in; a
   build inside a git worktree (whose `.git` is a file) stamps the enclosing
   repository's commit instead. CI and releases build from a clone.
