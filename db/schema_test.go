@@ -545,18 +545,28 @@ func TestClearingsRespectPeriods(t *testing.T) {
 		t.Errorf("clearing in an open period: got %v, want none", err)
 	}
 	// The clearing entry exists and is of the clearing's legal entity.
+	other := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by) VALUES ($1,$2,'2000','Acme DE','DE','EUR',$3,'active',$4,$4)",
+			f.tenant, other, f.calendar, f.actor)
+	})
 	for name, c := range map[string]struct {
-		entity, entry uuid.UUID
-		want          string
+		entity, entry  uuid.UUID
+		want, sqlState string
 	}{
-		"entry of another legal entity": {id(), pay, "belongs to another legal entity"},
-		"entry that does not exist":     {f.entity, id(), "does not exist"},
+		"entry of another legal entity": {other, pay, "belongs to another legal entity", "23514"},
+		"entry that does not exist":     {f.entity, id(), "does not exist", "23503"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
 				return exec(tx, "INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by) VALUES ($1,$2,$3,'2026-07-01',2026,$4,$5)",
 					f.tenant, id(), c.entity, c.entry, f.actor)
-			}), c.want)
+			})
+			failsWith(t, err, c.want)
+			var pg *pgconn.PgError
+			if errors.As(err, &pg) && pg.Code != c.sqlState {
+				t.Errorf("SQLSTATE: got %s, want %s", pg.Code, c.sqlState)
+			}
 		})
 	}
 }

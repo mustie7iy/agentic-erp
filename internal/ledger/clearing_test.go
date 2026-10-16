@@ -401,17 +401,24 @@ func TestMigratedClearingEntryOfItsLegalEntity(t *testing.T) {
 	us, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.us, "2026-03-20", "USD", line{e.account(t, "1000", "520000"), "1.00", ""},
 		line{e.account(t, "1000", "100000"), "-1.00", ""}), "")
 	p := migratedPair{uuid.MustParse(inv["id"].(string)), uuid.MustParse(pay["id"].(string))}
-	for name, by := range map[string]uuid.UUID{
-		"of another legal entity": uuid.MustParse(us["id"].(string)),
-		"that does not exist":     uuid.New(),
+	for name, c := range map[string]struct {
+		by     uuid.UUID
+		detail string
+	}{
+		"of another legal entity": {uuid.MustParse(us["id"].(string)), "belongs to another legal entity"},
+		"that does not exist":     {uuid.New(), "does not exist"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-				_, err := postings().Clear(ctx, e.de, date("2026-03-31"), ledger.ItemRef{FiscalYear: 2026, EntryID: by, LineNo: 1}, p.items())
+				_, err := postings().Clear(ctx, e.de, date("2026-03-31"), ledger.ItemRef{FiscalYear: 2026, EntryID: c.by, LineNo: 1}, p.items())
 				return err
 			})
-			if got := problem.From(err).Code; got != "ledger.invalid_clearing_entry" {
-				t.Errorf("code: got %s (%v), want ledger.invalid_clearing_entry", got, err)
+			got := problem.From(err)
+			if got.Code != "ledger.invalid_clearing_entry" {
+				t.Errorf("code: got %s (%v), want ledger.invalid_clearing_entry", got.Code, err)
+			}
+			if !strings.Contains(got.Detail, c.detail) {
+				t.Errorf("detail: got %q, want it to say %q", got.Detail, c.detail)
 			}
 		})
 	}

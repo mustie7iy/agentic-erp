@@ -14,6 +14,9 @@ DECLARE entity uuid; book uuid; st text; y smallint; n smallint;
 BEGIN
   SELECT e.legal_entity_id, e.ledger_id INTO entity, book FROM ledger.journal_entry e
   WHERE e.tenant_id = NEW.tenant_id AND e.fiscal_year = NEW.clearing_entry_year AND e.id = NEW.clearing_entry_id;
+  -- A backstop: the ledger checks both first (clearingPeriod) and answers
+  -- 422 ledger.invalid_clearing_entry, so these name no constraint for a
+  -- problem mapping; a caller that reaches them gets a 500.
   IF NOT FOUND THEN
     RAISE EXCEPTION 'clearing entry %/% does not exist', NEW.clearing_entry_year, NEW.clearing_entry_id USING ERRCODE = 'foreign_key_violation';
   END IF;
