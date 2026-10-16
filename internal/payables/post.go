@@ -40,6 +40,9 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireStatus(v, "post", Parked); err != nil {
 		return Invoice{}, err
 	}
+	if err := requireInvoice(v, "posted"); err != nil {
+		return Invoice{}, err
+	}
 	if err := requireCleanMatch(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}

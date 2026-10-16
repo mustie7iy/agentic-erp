@@ -828,7 +828,17 @@ credit revalues order items without quantity: it is on a purchase order
 quantity 0, every other kind's items have a positive quantity; a removed
 item no longer counts (trigger `payables.check_item_quantity`, constraint
 `supplier_invoice_item_quantity_kind`). The checks on existing rows were
-added `NOT VALID` (migration 000059) and are validated by a later one.
+added `NOT VALID` (migration 000059) and are validated by a later one. Entry (T34b) checks the same through the
+API: `kind` (default `invoice`; 422 `payables.unknown_kind`), the reference
+a posted invoice of the same supplier, legal entity and currency (422
+`payables.invalid_reference_invoice`; on an invoice 422
+`payables.reference_not_allowed`), a subsequent debit's or credit's items
+order items (422 `payables.po_item_required`) of quantity 0 (422
+`payables.quantity_not_zero`). `SupplierInvoiceCaptured` carries the kind
+and signs the gross and tax amounts by it (negative for credit memos and
+subsequent credits). Until they are matched and posted by kind (T34c),
+`:match` and `:post` refuse any kind but an invoice (409
+`payables.kind_not_supported`).
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database

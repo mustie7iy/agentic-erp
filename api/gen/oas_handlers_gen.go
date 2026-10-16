@@ -25928,6 +25928,10 @@ func (s *Server) handleListSupplierInvoicesRequest(args [0]string, argsEscaped b
 					In:   "query",
 				}: params.PurchaseOrderID,
 				{
+					Name: "kind",
+					In:   "query",
+				}: params.Kind,
+				{
 					Name: "invoice_date_from",
 					In:   "query",
 				}: params.InvoiceDateFrom,

@@ -264,6 +264,9 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	if err := requireStatus(v, "match", Parked, OnHold); err != nil {
 		return Match{}, err
 	}
+	if err := requireInvoice(v, "matched"); err != nil {
+		return Match{}, err
+	}
 	if v.PurchaseOrderID == nil {
 		return Match{}, noPurchaseOrder()
 	}

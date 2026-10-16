@@ -28474,6 +28474,8 @@ type ListSupplierInvoicesParams struct {
 	DocumentNumber OptString `json:",omitempty,omitzero"`
 	// Only invoices for this purchase order.
 	PurchaseOrderID OptUUID `json:",omitempty,omitzero"`
+	// Only documents of this kind: invoice, credit_memo, subsequent_debit, subsequent_credit.
+	Kind OptString `json:",omitempty,omitzero"`
 	// Only invoices dated on or after this date.
 	InvoiceDateFrom OptDate `json:",omitempty,omitzero"`
 	// Only invoices dated on or before this date.
@@ -28538,6 +28540,15 @@ func unpackListSupplierInvoicesParams(packed middleware.Parameters) (params List
 		}
 		if v, ok := packed[key]; ok {
 			params.PurchaseOrderID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "kind",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Kind = v.(OptString)
 		}
 	}
 	{
@@ -28836,6 +28847,47 @@ func decodeListSupplierInvoicesParams(args [0]string, argsEscaped bool, r *http.
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "purchase_order_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: kind.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotKindVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotKindVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Kind.SetTo(paramsDotKindVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "kind",
 			In:   "query",
 			Err:  err,
 		}

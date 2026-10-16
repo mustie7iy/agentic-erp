@@ -183,39 +183,41 @@ type Item struct {
 // Invoice is a row of payables.supplier_invoice with its live items.
 // Amounts are minor units of Currency, whose minor-unit digits are Exponent.
 type Invoice struct {
-	ID                uuid.UUID
-	DocumentNumber    string
-	LegalEntityID     uuid.UUID
-	SupplierID        uuid.UUID
-	SupplierReference string
-	InvoiceDate       time.Time
-	PostingDate       *time.Time
-	Currency          string
-	Exponent          int
-	Gross, Tax        money.Minor
-	PurchaseOrderID   *uuid.UUID
-	Status            string
-	HoldReason        *string
-	Source            string
-	CaptureSHA256     []byte
-	CaptureObjectRef  *string // where the captured document is kept, or sha256:<hex> for captures before object storage
-	JournalEntryYear  *int16
-	JournalEntryID    *uuid.UUID
-	ReversalEntryYear *int16
-	ReversalEntryID   *uuid.UUID
-	WorkflowRequestID *uuid.UUID
-	Extensions        map[string]any
-	Items             []Item
-	Version           int32
-	CreatedAt         time.Time
-	CreatedBy         uuid.UUID
-	UpdatedAt         time.Time
-	UpdatedBy         uuid.UUID
+	ID                 uuid.UUID
+	DocumentNumber     string
+	LegalEntityID      uuid.UUID
+	SupplierID         uuid.UUID
+	SupplierReference  string
+	InvoiceDate        time.Time
+	PostingDate        *time.Time
+	Currency           string
+	Exponent           int
+	Gross, Tax         money.Minor
+	PurchaseOrderID    *uuid.UUID
+	Status             string
+	HoldReason         *string
+	Source             string
+	CaptureSHA256      []byte
+	CaptureObjectRef   *string // where the captured document is kept, or sha256:<hex> for captures before object storage
+	JournalEntryYear   *int16
+	JournalEntryID     *uuid.UUID
+	ReversalEntryYear  *int16
+	ReversalEntryID    *uuid.UUID
+	WorkflowRequestID  *uuid.UUID
+	Extensions         map[string]any
+	Kind               string     // KindInvoice, KindCreditMemo, KindSubsequentDebit or KindSubsequentCredit (T34)
+	ReferenceInvoiceID *uuid.UUID // the posted invoice a correction names
+	Items              []Item
+	Version            int32
+	CreatedAt          time.Time
+	CreatedBy          uuid.UUID
+	UpdatedAt          time.Time
+	UpdatedBy          uuid.UUID
 }
 
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
 		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256, i.capture_object_ref,
-		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions,
+		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions, i.kind, i.reference_invoice_id,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'purchase_order_id', t.purchase_order_id, 'po_item_no', t.po_item_no,
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
 			'account_id', t.account_id) ORDER BY t.item_no)
@@ -227,7 +229,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	var v Invoice
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.SupplierID, &v.SupplierReference, &v.InvoiceDate, &v.PostingDate,
 		&v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256, &v.CaptureObjectRef,
-		&v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
+		&v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions, &v.Kind, &v.ReferenceInvoiceID,
 		&v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
 	return v, errs.Wrapf(err, "scan invoice")
 }
@@ -299,6 +301,11 @@ type Input struct {
 	PurchaseOrderID   *uuid.UUID
 	Items             []ItemInput
 	Extensions        map[string]any
+	// Kind is KindInvoice (also when empty), KindCreditMemo,
+	// KindSubsequentDebit or KindSubsequentCredit; ReferenceInvoiceID the
+	// posted invoice a correction names (T34).
+	Kind               string
+	ReferenceInvoiceID *uuid.UUID
 }
 
 // checked is an input that passed validation.
@@ -307,6 +314,7 @@ type checked struct {
 	gross, tax    money.Minor
 	purchaseOrder *uuid.UUID
 	items         []Item
+	kind          string
 }
 
 func invalid(code, field, message string) error {
@@ -329,7 +337,7 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if err != nil {
 		return checked{}, err
 	}
-	v := &invoiceCheck{e: e, ctx: ctx, in: in, le: le, sup: sup, exp: exp, c: &c, orders: map[uuid.UUID]procurement.Order{}}
+	v := &invoiceCheck{e: e, ctx: ctx, tx: tx, in: in, le: le, sup: sup, exp: exp, c: &c, orders: map[uuid.UUID]procurement.Order{}}
 	if c.gross, err = v.parse(in.Gross, "gross_amount"); err != nil {
 		return checked{}, err
 	}
@@ -337,6 +345,9 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 		return checked{}, err
 	}
 	if err := notNegative(c.gross, c.tax); err != nil {
+		return checked{}, err
+	}
+	if err := v.kind(); err != nil {
 		return checked{}, err
 	}
 	if c.purchaseOrder != nil {
@@ -409,6 +420,7 @@ func currencyExponent(ctx context.Context, tx pgx.Tx, code string) (int, error) 
 type invoiceCheck struct {
 	e      *Endpoints
 	ctx    context.Context
+	tx     pgx.Tx
 	in     Input
 	le     tenancy.Entity
 	sup    partner.Supplier
@@ -454,8 +466,8 @@ func (v *invoiceCheck) order(id uuid.UUID, field string) (procurement.Order, err
 func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
 	field := fmt.Sprintf("items[%d]", i)
 	item := Item{ItemNo: int32(i + 1), Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, TaxCode: it.TaxCode, AccountID: it.AccountID}
-	if money.PositiveQuantity(it.Quantity) != nil {
-		return Item{}, invalid("payables.invalid_quantity", field+".quantity.value", fmt.Sprintf("A quantity is a positive plain decimal of at most %d integer digits and %d decimals.", money.QuantityIntDigits, money.QuantityDecimals))
+	if err := v.quantity(field, it.Quantity); err != nil {
+		return Item{}, err
 	}
 	var err error
 	if item.Amount, err = v.parse(it.Amount, field+".amount"); err != nil {
@@ -463,6 +475,9 @@ func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
 	}
 	if err := v.itemTarget(field, it, &item); err != nil {
 		return Item{}, err
+	}
+	if subsequent(v.c.kind) && item.POItemNo == nil {
+		return Item{}, invalid("payables.po_item_required", field+".po_item_no", "A subsequent debit or credit revalues order items: each item names one.")
 	}
 	if err := v.taxCode(field, item.TaxCode); err != nil {
 		return Item{}, err

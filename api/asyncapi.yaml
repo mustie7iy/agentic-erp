@@ -2490,9 +2490,11 @@ components:
         supplier_id: {$ref: '#/components/schemas/Uuid'}
         supplier_reference: {type: string}
         invoice_date: {$ref: '#/components/schemas/Date'}
-        gross_amount: {$ref: '#/components/schemas/SignedMoney', description: Negative for credit memos.}
-        tax_amount: {$ref: '#/components/schemas/SignedMoney'}
+        gross_amount: {$ref: '#/components/schemas/SignedMoney', description: 'Negative for credit memos and subsequent credits, whose document amounts are positive (kind gives the direction).'}
+        tax_amount: {$ref: '#/components/schemas/SignedMoney', description: 'Signed as gross_amount.'}
         purchase_order_id: {$ref: '#/components/schemas/NullableUuid'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo, subsequent_debit, subsequent_credit. Absent from events of releases before it was kept: an invoice.'}
+        reference_invoice_id: {$ref: '#/components/schemas/NullableUuid', description: 'The invoice a credit memo or subsequent debit/credit corrects.'}
         source: {type: string, description: 'Open enum: manual, capture, edi, migration.'}
         capture_sha256: {type: [string, 'null'], pattern: '^[0-9a-f]{64}$', description: Hash of the captured document when source is capture.}
         status: {type: string, description: 'Open enum: parked, or on_hold for a low-confidence capture.'}

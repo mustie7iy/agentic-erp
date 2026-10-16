@@ -23633,6 +23633,15 @@ type SupplierInvoice struct {
 	TaxAmount Money `json:"tax_amount"`
 	// Purchase order (PO-based invoices).
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// What the document is, as SAP's invoice verification transactions: `invoice`, `credit_memo` (the
+	// supplier credits what was invoiced: Dr supplier when posted), `subsequent_debit` or
+	// `subsequent_credit` (a revaluation of order items already invoiced, without quantity). Amounts are
+	// not negative whatever the kind, which gives the direction. Fixed once entered. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Kind OptString `json:"kind"`
+	// The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal
+	// entity and currency); never on an invoice.
+	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
 	// Lifecycle status: `parked`, `on_hold` (`:hold`/`:release`), `posted` (`:post`), `cancelled`
 	// (`:cancel`, unposted only), `reversed` (`:reverse`), or `rejected` when the approval request for an
 	// invoice exception is rejected. Open enumeration: clients must accept and preserve values not listed
@@ -23730,6 +23739,16 @@ func (s *SupplierInvoice) GetTaxAmount() Money {
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
 func (s *SupplierInvoice) GetPurchaseOrderID() OptUUID {
 	return s.PurchaseOrderID
+}
+
+// GetKind returns the value of Kind.
+func (s *SupplierInvoice) GetKind() OptString {
+	return s.Kind
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *SupplierInvoice) GetReferenceInvoiceID() OptUUID {
+	return s.ReferenceInvoiceID
 }
 
 // GetStatus returns the value of Status.
@@ -23852,6 +23871,16 @@ func (s *SupplierInvoice) SetPurchaseOrderID(val OptUUID) {
 	s.PurchaseOrderID = val
 }
 
+// SetKind sets the value of Kind.
+func (s *SupplierInvoice) SetKind(val OptString) {
+	s.Kind = val
+}
+
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *SupplierInvoice) SetReferenceInvoiceID(val OptUUID) {
+	s.ReferenceInvoiceID = val
+}
+
 // SetStatus sets the value of Status.
 func (s *SupplierInvoice) SetStatus(val string) {
 	s.Status = val
@@ -23959,8 +23988,18 @@ type SupplierInvoiceCreate struct {
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
 	TaxAmount Money `json:"tax_amount"`
-	// Purchase order.
+	// Purchase order; required on a subsequent debit or credit, whose items are its order items with
+	// quantity 0.
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// What the document is, as SAP's invoice verification transactions: `invoice`, `credit_memo` (the
+	// supplier credits what was invoiced: Dr supplier when posted), `subsequent_debit` or
+	// `subsequent_credit` (a revaluation of order items already invoiced, without quantity). Amounts are
+	// not negative whatever the kind, which gives the direction. Fixed once entered. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Kind OptString `json:"kind"`
+	// The posted invoice a credit memo or subsequent debit/credit corrects (optional); never on an
+	// invoice.
+	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
 	// How the invoice entered the system; scanned documents use `:capture`. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
 	Source OptString `json:"source"`
@@ -24008,6 +24047,16 @@ func (s *SupplierInvoiceCreate) GetTaxAmount() Money {
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
 func (s *SupplierInvoiceCreate) GetPurchaseOrderID() OptUUID {
 	return s.PurchaseOrderID
+}
+
+// GetKind returns the value of Kind.
+func (s *SupplierInvoiceCreate) GetKind() OptString {
+	return s.Kind
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *SupplierInvoiceCreate) GetReferenceInvoiceID() OptUUID {
+	return s.ReferenceInvoiceID
 }
 
 // GetSource returns the value of Source.
@@ -24063,6 +24112,16 @@ func (s *SupplierInvoiceCreate) SetTaxAmount(val Money) {
 // SetPurchaseOrderID sets the value of PurchaseOrderID.
 func (s *SupplierInvoiceCreate) SetPurchaseOrderID(val OptUUID) {
 	s.PurchaseOrderID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *SupplierInvoiceCreate) SetKind(val OptString) {
+	s.Kind = val
+}
+
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *SupplierInvoiceCreate) SetReferenceInvoiceID(val OptUUID) {
+	s.ReferenceInvoiceID = val
 }
 
 // SetSource sets the value of Source.
@@ -24417,6 +24476,8 @@ type SupplierInvoiceUpdate struct {
 	TaxAmount OptMoney `json:"tax_amount"`
 	// Purchase order. Send null to clear.
 	PurchaseOrderID OptNilUUID `json:"purchase_order_id"`
+	// The posted invoice a credit memo or subsequent debit/credit corrects. Send null to clear.
+	ReferenceInvoiceID OptNilUUID `json:"reference_invoice_id"`
 	// Complete list of items.
 	Items []SupplierInvoiceItem `json:"items"`
 	// Custom fields.
@@ -24451,6 +24512,11 @@ func (s *SupplierInvoiceUpdate) GetTaxAmount() OptMoney {
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
 func (s *SupplierInvoiceUpdate) GetPurchaseOrderID() OptNilUUID {
 	return s.PurchaseOrderID
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *SupplierInvoiceUpdate) GetReferenceInvoiceID() OptNilUUID {
+	return s.ReferenceInvoiceID
 }
 
 // GetItems returns the value of Items.
@@ -24491,6 +24557,11 @@ func (s *SupplierInvoiceUpdate) SetTaxAmount(val OptMoney) {
 // SetPurchaseOrderID sets the value of PurchaseOrderID.
 func (s *SupplierInvoiceUpdate) SetPurchaseOrderID(val OptNilUUID) {
 	s.PurchaseOrderID = val
+}
+
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *SupplierInvoiceUpdate) SetReferenceInvoiceID(val OptNilUUID) {
+	s.ReferenceInvoiceID = val
 }
 
 // SetItems sets the value of Items.
