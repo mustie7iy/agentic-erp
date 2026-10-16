@@ -1,10 +1,10 @@
 // Package approvals is the workflow context (03-data-model §3.11): approval
 // requests for requisitions, partner changes, configuration changes,
-// supplier invoice exceptions and period unlocks, with sequential steps
-// that each need a number of distinct approvals from holders of a role. Only people approve
-// or reject, never the requester, and nobody approves a request twice; the
-// requester may withdraw it. (The prototype's engine is internal/workflow;
-// its rules are kept here.)
+// supplier invoice exceptions, period unlocks and manual journal entries,
+// with sequential steps that each need a number of distinct approvals from
+// holders of a role. Only people approve or reject, never the requester,
+// and nobody approves a request twice; the requester may withdraw it. (The
+// prototype's engine is internal/workflow; its rules are kept here.)
 //
 // The owning context opens a request through Approvals in its own
 // transaction and is called back (Handler) in the deciding transaction when
@@ -14,8 +14,10 @@
 // T4: requisitions by amount tier (purchasing.requisition_approval),
 // partner changes by payments.vendor_approver_role, configuration changes
 // by their tier, invoice exceptions by DefaultExceptionRole, period unlocks
-// by DefaultPeriodUnlockRole. Roles are the identity context's roles with
-// the document's role names as codes.
+// by DefaultPeriodUnlockRole, and manual journal entries above their
+// company's manual_entry_approval_limit by DefaultManualEntryRole (T35).
+// Roles are the identity context's roles with the document's role names as
+// codes.
 package approvals
 
 import (
@@ -23,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +48,7 @@ const (
 	ConfigChange     = "config_change"
 	InvoiceException = "invoice_exception"
 	PeriodUnlock     = "period_unlock"
+	ManualEntry      = "manual_entry"
 )
 
 // Request statuses.
@@ -64,12 +68,17 @@ const DefaultExceptionRole = "process_owner"
 // a matter of configuration.
 const DefaultPeriodUnlockRole = "controller"
 
+// DefaultManualEntryRole approves a manual journal entry above its
+// company's manual_entry_approval_limit (T35): a fixed role, as for period
+// unlocks.
+const DefaultManualEntryRole = "controller"
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
 	Requisition: "procurement.requisition.approve", PartnerChange: "partner.change.approve",
 	InvoiceException: "payables.invoice.approve", ConfigChange: "config.change.approve",
-	PeriodUnlock: "ledger.period.unlock.approve",
+	PeriodUnlock: "ledger.period.unlock.approve", ManualEntry: "ledger.entry.approve",
 }
 
 func init() {
@@ -214,6 +223,9 @@ type NewRequest struct {
 	// before it is compared with the thresholds.
 	LegalEntityID uuid.UUID
 	Date          time.Time
+	// Company is the configuration's code of the legal entity, whose
+	// manual_entry_approval_limit a manual entry is measured against.
+	Company string
 }
 
 // policyStep is a step as the configuration names it.
@@ -253,6 +265,29 @@ func requisitionSteps(ctx context.Context, rates Rates, doc *config.Config, in N
 	return out, nil
 }
 
+// manualEntrySteps are none when the entry's debits, converted exactly
+// into its company's currency, are within the company's
+// manual_entry_approval_limit, and the controller's approval otherwise. A
+// company the configuration lacks, or one without a limit (a document
+// older than T35), has a limit of 0: its manual entries are approved
+// first, never posted unchecked.
+func manualEntrySteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
+	amount, err := rates.ExactToCompany(ctx, in.LegalEntityID, *in.Currency, in.Date, *in.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("approvals: policy steps: %w", err)
+	}
+	limit := new(big.Rat)
+	if co := doc.Company(in.Company); co != nil && strings.TrimSpace(co.ManualEntryApprovalLimit) != "" {
+		if limit, err = money.ParseDecimalRat(co.ManualEntryApprovalLimit); err != nil {
+			return nil, fmt.Errorf("approvals: policy steps: manual entry approval limit of company %s: %w", in.Company, err)
+		}
+	}
+	if amount.Cmp(limit) <= 0 {
+		return nil, nil
+	}
+	return []policyStep{{DefaultManualEntryRole, 1}}, nil
+}
+
 // steps resolves the steps the active configuration requires.
 func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
@@ -269,6 +304,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultExceptionRole, 1})
 	case PeriodUnlock:
 		out = append(out, policyStep{DefaultPeriodUnlockRole, 1})
+	case ManualEntry:
+		return manualEntrySteps(ctx, rates, doc, in)
 	default:
 		return nil, fmt.Errorf("approvals: unknown object type %q", in.ObjectType)
 	}
@@ -328,6 +365,18 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 		outbox.Event{Context: "workflow", Name: "approval_requested", AggregateType: "workflow.approval_request", AggregateID: id,
 			Payload: map[string]any{"approval_request_id": id, "object_type": r.ObjectType, "object_id": r.ObjectID, "title": r.Title,
 				"requester_id": r.RequesterID, "amount": moneyOf(r), "policy_id": nil, "steps": stepPayload}})
+}
+
+// Required reports whether the active configuration requires approval of
+// the object, without opening a request: the ledger refuses a direct
+// manual entry that needs one (T35).
+func (a Approvals) Required(ctx context.Context, in NewRequest) (bool, error) {
+	doc, _, err := a.Settings.Document(ctx)
+	if err != nil {
+		return false, err
+	}
+	policy, err := steps(ctx, a.Rates, doc, in)
+	return len(policy) > 0, err
 }
 
 // Withdraw cancels the object's pending request, if there is one, because

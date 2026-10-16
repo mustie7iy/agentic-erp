@@ -942,6 +942,15 @@ Database rules: one approval per actor per request (partial unique index);
 the requester cannot decide (check against `approval_request.requester_id` in
 the decision trigger); decisions are insert-only.
 
+A `manual_entry` request (T35) is opened for a parked manual journal entry
+whose debits, converted exactly into its company's currency at the average
+rate of its posting date, exceed the company's `manual_entry_approval_limit`;
+within the limit the policy has no steps and the entry posts at once
+(`Approvals.Required` answers the same question without opening a request,
+for direct posts). A company without a limit has a limit of 0. Above it,
+one approval by the role `controller` with `ledger.entry.approve`, whatever
+the configuration says, as for period unlocks.
+
 ## 3.12 Audit (`audit`)
 
 | Table | Key | Notes |
