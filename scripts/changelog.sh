@@ -27,6 +27,6 @@ if [ ! -f CHANGELOG.md ]; then
   else
     $GIT_CLIFF --config cliff.toml --tag "$VERSION" --output CHANGELOG.md
   fi
-elif ! grep -q "^## ${VERSION} " CHANGELOG.md; then
+elif ! awk -v heading="## ${VERSION} " 'index($0, heading) == 1 { found = 1 } END { exit !found }' CHANGELOG.md; then
   $GIT_CLIFF --config cliff.toml "${release[@]}" --prepend CHANGELOG.md
 fi

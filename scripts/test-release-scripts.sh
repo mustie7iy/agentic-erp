@@ -180,6 +180,7 @@ if [ -n "${GIT_CLIFF:-}" ]; then
   mkdir -p "$r/scripts"
   cp "$root/scripts/changelog.sh" "$r/scripts/"
   (cd "$r" && GIT_CLIFF="$GIT_CLIFF" ./scripts/changelog.sh v0.2.0 dist/notes.md >/dev/null 2>&1)
+  cp "$r/CHANGELOG.md" "$work/changelog-v0.2.0.md" # main's, as a re-run's checkout has it
   git -C "$r" tag v0.2.0
   commit "$r" "Fix: a later fix (T33)"
   (cd "$r" && GIT_CLIFF="$GIT_CLIFF" ./scripts/changelog.sh v0.2.1 dist/notes.md >/dev/null 2>&1)
@@ -207,6 +208,20 @@ if [ -n "${GIT_CLIFF:-}" ]; then
     failed=1
   else
     echo "ok   changelog.sh after the tag: the release's notes again, one entry in CHANGELOG.md"
+  fi
+  # The re-run in CI starts from main's CHANGELOG.md, which lacks the entry
+  # while the earlier run's pull request is unmerged: it is added once.
+  cp "$work/changelog-v0.2.0.md" "$r/CHANGELOG.md"
+  (cd "$r" && GIT_CLIFF="$GIT_CLIFF" ./scripts/changelog.sh v0.2.1 dist/again.md >/dev/null 2>&1)
+  newer="$(grep -n '^## v0.2.1 ' "$r/CHANGELOG.md" | cut -d: -f1)"
+  older="$(grep -n '^## v0.2.0 ' "$r/CHANGELOG.md" | cut -d: -f1)"
+  if [ "$(grep -c '^## v0.2.1 ' "$r/CHANGELOG.md")" -ne 1 ] || [ -z "$older" ] || [ "$newer" -gt "$older" ] ||
+    ! grep -q "A later fix (T33)" "$r/CHANGELOG.md"; then
+    echo "FAIL changelog.sh re-run from main's CHANGELOG.md:" >&2
+    cat "$r/CHANGELOG.md" >&2
+    failed=1
+  else
+    echo "ok   changelog.sh re-run from main's CHANGELOG.md: the entry added once, on top"
   fi
 else
   echo "skip changelog: GIT_CLIFF is not set"
