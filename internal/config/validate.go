@@ -68,7 +68,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.purchasing(c)
 	v.payments(c)
 	v.numberRanges(c)
-	v.grIRJournalRanges(c)
+	v.journalRanges(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -253,23 +253,39 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	}
 }
 
-// grIRJournalRanges requires a WE journal range (journal_we) wherever a
-// company that values receipts through GR/IR numbers goods receipts: each
-// receipt on such an order posts a WE entry in its fiscal year (T33).
-func (v *validator) grIRJournalRanges(c *Config) {
+// journalRule is a journal number range a document's range needs: a
+// company that numbers documents of the type in a fiscal year, when the
+// rule applies to it, posts journal entries of journal type in that year.
+type journalRule struct {
+	documentType, journal string
+	applies               func(co *Company) bool
+	why                   string // what the documents post, for the message
+}
+
+// journalRules are the journal ranges document ranges need.
+var journalRules = []journalRule{
+	// Receipts on orders valued through GR/IR post WE entries (T33).
+	{"goods_receipt", "journal_we", func(co *Company) bool { return co.AccountDetermination.GRIR != "" }, "WE entries to GR/IR"},
+}
+
+// journalRanges requires the journal ranges each document range needs
+// (journalRules), in the same company and fiscal year.
+func (v *validator) journalRanges(c *Config) {
 	have := map[string]bool{}
 	for _, n := range c.NumberRanges {
 		have[n.Key()] = true
 	}
 	for _, n := range c.NumberRanges {
 		co := c.Company(n.Company)
-		if n.DocumentType != "goods_receipt" || co == nil || co.AccountDetermination.GRIR == "" {
-			continue
-		}
-		we := NumberRange{Company: n.Company, DocumentType: "journal_we", FiscalYear: n.FiscalYear}
-		if !have[we.Key()] {
-			v.err("number_ranges["+we.Key()+"]", "goods receipts of company %s post WE entries to GR/IR in fiscal year %d; add a journal_we range",
-				n.Company, n.FiscalYear)
+		for _, r := range journalRules {
+			if n.DocumentType != r.documentType || co == nil || !r.applies(co) {
+				continue
+			}
+			need := NumberRange{Company: n.Company, DocumentType: r.journal, FiscalYear: n.FiscalYear}
+			if !have[need.Key()] {
+				v.err("number_ranges["+need.Key()+"]", "%s of company %s post %s in fiscal year %d; add a %s range",
+					strings.ReplaceAll(r.documentType, "_", " ")+"s", n.Company, r.why, n.FiscalYear, r.journal)
+			}
 		}
 	}
 }
