@@ -76,7 +76,7 @@ func TestValuationPrices(t *testing.T) {
 			t.Errorf("valuation price unit on release: got %d, want 1", unit)
 		}
 	})
-	t.Run("an item added to a released order unvalued", func(t *testing.T) {
+	t.Run("an item added to a released order", func(t *testing.T) {
 		f := newFixture(t)
 		var po uuid.UUID
 		mustApp(t, f.tenant, func(tx pgx.Tx) (err error) { po, err = f.order(tx, &price); return err })
@@ -84,7 +84,7 @@ func TestValuationPrices(t *testing.T) {
 		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code,
 				unit_price, account_id) VALUES ($1,$2,2,'Toner',1,'EA',100,$3)`, f.tenant, po, f.expense)
-		}), "is added to released purchase order")
+		}), "cannot change") // outside an order change; inside one, an item comes valued (TestOrderChangeApplication)
 	})
 	for _, c := range []struct {
 		name   string

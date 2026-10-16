@@ -804,6 +804,26 @@ cancelled from draft, pending_approval or released (trigger
 (`purchase_order_draft_direct`). A migration run's order is released as
 loaded.
 
+A released order changes only through an order change
+(`purchase_order_change`, migration 000065, T47e): a draft of its header
+fields (payment terms, order date, extensions) and its complete items,
+with its reason and the totals before and after, based on the order's
+`revision`; one open change per order (`purchase_order_one_open_change`).
+A change moves draft -> pending_approval -> applied or rejected, back to
+draft when its request is withdrawn, straight to applied when it needs no
+approval, or to cancelled; it changes only as a draft, is decided only on
+the request it names, and makes the next revision, keeping what the order
+read before (`previous`). It is applied in one transaction: the order names
+it (`applying_change_id`, an open change of its own revision, only on a
+released order), its items are written, and its header changes and its
+revision moves on by one as the name is cleared (trigger
+`purchase_order_revision`). Outside that, a released order's items and
+header do not change; its supplier, currency, legal entity, contract and
+requisition never do once it left draft; an item keeps its account, unit,
+material and contract item, is never below what was received, nor removed
+with receipts (`purchase_order_item_received`), and its valuation price
+stays the one it was released at.
+
 Each item of a released order carries its `valuation_price` and
 `valuation_price_unit` (migration 000061, T47a): its price when it was
 released, with its order or as an order change adds it; only the release

@@ -103,7 +103,8 @@ func regressionInvoices(t *testing.T, e env) (held, twice map[string]any) {
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
 		payment_term_code, status, created_by, updated_by) VALUES ($1, $2, 'PO-BIG', $3, $4, 'EUR', '2026-03-01', 'NT30', 'released', $5, $5)`,
 		e.Tenant.ID, big, e.DE, e.Supplier, e.Tenant.Human.ID)
-	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
+	// Items of an order inserted released, as only an order change adds them (T47e).
+	pgtest.Unguarded(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
 		price_unit, account_id, tax_code, valuation_price, valuation_price_unit) VALUES ($1, $2, 1, 'Machine', 1, 'EA', 4800000, 1, $3, 'V1', 4800000, 1)`, e.Tenant.ID, big, e.expense)
 	e.receive(t, big, 1, "1")
 	large, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-4", "57120.00", "9120.00", poItem(big, 1, "1", "EA", "48000.00")), "")

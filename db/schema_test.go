@@ -885,11 +885,14 @@ func TestGoodsReceiptLimits(t *testing.T) {
 	po := id()
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
 		if err := exec(tx, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date, payment_term_code, status, created_by, updated_by)
-			VALUES ($1,$2,'4500000001',$3,$4,'USD','2026-08-01','NT30','released',$5,$5)`, f.tenant, po, f.entity, f.supplier, f.actor); err != nil {
+			VALUES ($1,$2,'4500000001',$3,$4,'USD','2026-08-01','NT30','draft',$5,$5)`, f.tenant, po, f.entity, f.supplier, f.actor); err != nil {
 			return err
 		}
-		return exec(tx, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price, account_id, over_delivery_pct,
-			valuation_price, valuation_price_unit) VALUES ($1,$2,10,'Paper',10,'EA',250,$3,10,250,1)`, f.tenant, po, f.expense)
+		if err := exec(tx, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price, account_id, over_delivery_pct)
+			VALUES ($1,$2,10,'Paper',10,'EA',250,$3,10)`, f.tenant, po, f.expense); err != nil {
+			return err
+		}
+		return exec(tx, `UPDATE procurement.purchase_order SET status = 'released', version = version + 1 WHERE id = $1`, po)
 	})
 	receive := func(qty string, mt string, rev *uuid.UUID) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {

@@ -26,7 +26,8 @@ func (e env) grirOrder(t *testing.T, number string) uuid.UUID {
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
 		payment_term_code, status, valuation, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 'EUR', '2026-03-01', 'NT30', 'released', 'gr_ir', $6, $6)`,
 		e.Tenant.ID, id, number, e.DE, e.Supplier, e.Tenant.Human.ID)
-	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
+	// Items of an order inserted released, as only an order change adds them (T47e).
+	pgtest.Unguarded(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
 		price_unit, account_id, tax_code, valuation_price, valuation_price_unit)
 		VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3, 'V1', 1200, 1), ($1, $2, 2, 'Toner', 5, 'KG', 300, 1, $3, NULL, 300, 1)`,
 		e.Tenant.ID, id, e.expense)
@@ -129,7 +130,8 @@ func TestForeignInvoiceClearsGRIR(t *testing.T) {
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
 		payment_term_code, status, valuation, created_by, updated_by) VALUES ($1, $2, 'PO-USD', $3, $4, 'USD', '2026-03-01', 'NT30', 'released', 'gr_ir', $5, $5)`,
 		e.Tenant.ID, po, e.DE, e.Supplier, e.Tenant.Human.ID)
-	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
+	// Items of an order inserted released, as only an order change adds them (T47e).
+	pgtest.Unguarded(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
 		price_unit, account_id, valuation_price, valuation_price_unit) VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3, 1200, 1)`, e.Tenant.ID, po, e.expense)
 	e.Must(201, "POST", "/v1/goods-receipts", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-05", "posting_date": "2026-03-05",
 		"items": [{"purchase_order_id": %q, "po_item_no": 1, "quantity": {"value": "10", "unit": "EA"}}]}`, e.DE, po), "")
