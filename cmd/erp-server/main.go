@@ -52,6 +52,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -118,6 +119,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err := s.prepareSchema(ctx); err != nil {
 		return err
 	}
+	if err := s.requireProviders(ctx); err != nil {
+		return err
+	}
 	if err := s.authenticate(ctx); err != nil {
 		return err
 	}
@@ -181,7 +185,8 @@ type server struct {
 	static       []authn.Static
 	dev          *authn.DevIssuer
 	verifier     *authn.Verifier
-	providers    *authn.Providers // tenants' identity providers' documents and keys (ADR-0031)
+	beginCheck   database.BeginFunc // the startup check's transaction; nil: the pool's (tests inject failures)
+	providers    *authn.Providers   // tenants' identity providers' documents and keys (ADR-0031)
 	pages        *pagination.Codec
 	keys         *fieldcrypt.Keyring
 	store        blobstore.Store
@@ -226,6 +231,43 @@ func (s *server) prepareSchema(ctx context.Context) error {
 		}
 	}
 	return partitions(ctx, s.pool, s.log)
+}
+
+// requireProviders refuses, in production, to start while an active tenant
+// has no active identity provider: its people could not sign in, and
+// nothing else would say so (ADR-0031). Provisioning registers one and the
+// last one cannot be retired, so only a hand-made change gets here.
+func (s *server) requireProviders(ctx context.Context) error {
+	if s.cfg.Environment != config.Production {
+		return nil
+	}
+	tx, err := database.BeginOr(ctx, s.pool, s.beginCheck, database.Scope{Role: s.cfg.ControlRole, ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	tenants, err := tenancy.AllTenants(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("erp-server: read tenants: %w", err)
+	}
+	keys, err := identity.ActiveIdentityProviders(ctx, tx)
+	if err != nil {
+		return err
+	}
+	with := map[uuid.UUID]bool{}
+	for _, k := range keys {
+		with[k.TenantID] = true
+	}
+	var without []string
+	for _, t := range tenants {
+		if t.Status == "active" && !with[t.ID] {
+			without = append(without, t.ID.String())
+		}
+	}
+	if len(without) > 0 {
+		return fmt.Errorf("erp-server: ERP_ENV=production: active tenants without an active identity provider, whose people cannot sign in: %s; register one (registerIdentityProvider)", strings.Join(without, ", "))
+	}
+	return nil
 }
 
 // authenticate sets up who the API trusts (the configured issuers and the

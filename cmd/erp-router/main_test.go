@@ -177,6 +177,7 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is)
 	env["ERP_ENV"] = "production"
+	delete(env, "ERP_OIDC_ISSUERS") // production trusts tenants' registered providers only (ADR-0031)
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs bytes.Buffer
 	adminAddr := make(chan string, 1)

@@ -118,8 +118,9 @@ flowchart LR
   registration still committing (T37c); the router will resolve a token's
   tenant from it (T37d). The server reads the cell's providers for the
   rounds from the identity context, so the directory does not import it.
-- The router resolves the cell from the token's tenant claim and forwards
-  the request; clients may also call `https://{cell}.api.example.com` directly
+- The router resolves the token's tenant from its identity provider's
+  claim in the directory (ADR-0031; a deployment issuer's tenant claim
+  outside production), then the cell, and forwards the request; clients may also call `https://{cell}.api.example.com` directly
   (the `servers` entry in the OpenAPI contract). Built in T18: `erp-router`.
 - **Cell size is capped** (initial guideline: about 1 B journal lines per
   year, 10 TB, 5,000 requests/s). A full cell takes no new tenants; new cells

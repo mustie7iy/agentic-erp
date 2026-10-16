@@ -501,6 +501,12 @@ func checkEnvironment(c Config) []error {
 	if c.DevIssuer {
 		errs = append(errs, errors.New("ERP_DEV_ISSUER must not be set with ERP_ENV=production: it mints tokens for any subject of any tenant"))
 	}
+	if len(c.Issuers) > 0 {
+		errs = append(errs, errors.New("ERP_OIDC_ISSUERS must not be set with ERP_ENV=production: it trusts its issuers for every tenant; register each tenant's identity provider instead (ADR-0031)"))
+	}
+	if len(c.OperatorIssuers) == 0 {
+		errs = append(errs, errors.New("ERP_OPERATOR_ISSUERS is required with ERP_ENV=production: without operators no tenant's identity provider is registered and no principal is bound"))
+	}
 	if c.Temporal.Address != "" && c.Temporal.CodecKey == nil {
 		errs = append(errs, errors.New("ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production and a workflow engine: without it payloads reach the engine unsealed"))
 	}

@@ -687,6 +687,8 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	env := environment(t, is, "")
 	env["ERP_ENV"] = "production"
 	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
+	delete(env, "ERP_OIDC_ISSUERS")               // production trusts registered providers only
+	env["DATABASE_URL"] = pgtest.EmptyDatabase(t) // a cell whose active tenants each have one
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
 	admin := make(chan string, 1)
@@ -1486,5 +1488,80 @@ func TestProvisionClaimsInTheDirectory(t *testing.T) {
 	stderr.Reset()
 	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code == 0 {
 		t.Error("a directory that cannot be reached: got provisioned, want refused")
+	}
+}
+
+// TestProductionRequiresProviders: in production a cell refuses to start
+// while an active tenant has no active identity provider, naming the
+// tenants, and starts once each has one (ADR-0031).
+func TestProductionRequiresProviders(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["ERP_ENV"] = "production"
+	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
+	delete(env, "ERP_OIDC_ISSUERS")
+	env["DATABASE_URL"] = pgtest.EmptyDatabase(t)
+	start := func() (int, string) {
+		ctx, cancel := context.WithCancel(context.Background())
+		var logs pgtest.SyncBuffer
+		done := make(chan int, 1)
+		go func() {
+			done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(net.Listener, net.Listener) { cancel() })
+		}()
+		code := <-done
+		cancel()
+		return code, logs.String()
+	}
+	if code, logs := start(); code != 0 { // an empty cell: nothing to require; it migrates its database
+		t.Fatalf("an empty cell: exit %d\n%s", code, logs)
+	}
+	conn, err := pgx.Connect(context.Background(), env["DATABASE_URL"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }() // the test is over
+	tenant := uuid.New()
+	if _, err := conn.Exec(context.Background(), `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Bare', 'eu-west', 'EUR', 'active')`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	code, logs := start()
+	if code == 0 || !strings.Contains(logs, tenant.String()) || !strings.Contains(logs, "identity provider") {
+		t.Fatalf("an active tenant without a provider: exit %d, want a refusal naming %s\n%s", code, tenant, logs)
+	}
+	if _, err := conn.Exec(context.Background(), `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by)
+		VALUES ($1, gen_random_uuid(), 'https://bare.example.com', 'erp', $1, $1)`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if code, logs := start(); code != 0 {
+		t.Errorf("with a provider: exit %d, want started\n%s", code, logs)
+	}
+}
+
+// TestRequireProvidersFailures: the production check's reads failing stop
+// the start.
+func TestRequireProvidersFailures(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	env["ERP_ENV"] = "production"
+	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
+	delete(env, "ERP_OIDC_ISSUERS")
+	cfg := load(t, env)
+	pool := pgtest.Pool(t)
+	for name, begin := range map[string]database.BeginFunc{
+		"no transaction": func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") },
+		"tenants": func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			return &pgtest.FailingTx{Tx: tx, FailAt: 1}, err
+		},
+		"providers": func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			return &pgtest.FailingTx{Tx: tx, FailAt: 2}, err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &server{cfg: cfg, pool: pool, beginCheck: begin}
+			if err := s.requireProviders(context.Background()); err == nil {
+				t.Error("got started, want the failure")
+			}
+		})
 	}
 }

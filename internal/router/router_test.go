@@ -129,6 +129,19 @@ func TestLoadConfig(t *testing.T) {
 	m["ERP_OPERATOR_ISSUERS"] = "[]"
 	_, err = router.LoadConfig(env(m))
 	pgtest.WantErr(t, err, "ERP_OPERATOR_ISSUERS")
+	// Production trusts tenants' registered identity providers only
+	// (ADR-0031): issuers for every tenant are refused.
+	prodEnv := map[string]string{}
+	for k, v := range valid {
+		prodEnv[k] = v
+	}
+	prodEnv["ERP_ENV"] = "production"
+	_, err = router.LoadConfig(env(prodEnv))
+	pgtest.WantErr(t, err, "ERP_OIDC_ISSUERS must not be set with ERP_ENV=production")
+	delete(prodEnv, "ERP_OIDC_ISSUERS")
+	if _, err := router.LoadConfig(env(prodEnv)); err != nil {
+		t.Errorf("production without them: got %v, want loaded", err)
+	}
 }
 
 func TestRouting(t *testing.T) {

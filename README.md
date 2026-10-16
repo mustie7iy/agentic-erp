@@ -188,12 +188,13 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 
 ```sh
 make db-up                      # PostgreSQL 17 in Docker on :55432
-export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"erp-api"}]'
+export ERP_OPERATOR_ISSUERS='[{"issuer":"https://your-ops-idp.example.com","audience":"erp-control"}]'   # operators: the control plane, where each tenant's identity provider is registered
+export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"erp-api"}]'   # optional, development only: issuers trusted for every tenant
 export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
 export ERP_NATS_URL=nats://localhost:4222   # optional; without it events wait in the outbox
 export ERP_TEMPORAL_ADDRESS=localhost:7233   # optional; the workflow engine (ADR-0012): `temporal server start-dev` locally; without it in-process workers run the long-running work
 export ERP_TEMPORAL_CODEC_KEY=$(head -c 32 /dev/urandom | base64)   # seals workflow payloads before they reach the engine; required with an engine in production
-export ERP_ENV=development                   # required, no default (make run-server sets it); production refuses ERP_DEV_ISSUER, an engine without ERP_TEMPORAL_CODEC_KEY, no object storage and ERP_AUDIT_VERIFY_INTERVAL=0
+export ERP_ENV=development                   # required, no default (make run-server sets it); production refuses ERP_DEV_ISSUER, ERP_OIDC_ISSUERS, no ERP_OPERATOR_ISSUERS, an engine without ERP_TEMPORAL_CODEC_KEY, no object storage, ERP_AUDIT_VERIFY_INTERVAL=0 and an active tenant without an identity provider
 export ERP_OBJECT_DIR=$PWD/data/objects      # or ERP_OBJECT_S3_ENDPOINT, _BUCKET, _ACCESS_KEY, _SECRET_KEY for an S3-compatible store
 make run-server                 # migrates, then serves :8080 (API) and :9090 (admin)
 ```
@@ -222,10 +223,16 @@ instance metadata service; [ADR-0024](docs/design/adr/0024-ambient-aws-credentia
 `/livez`, `/readyz` (schema version and partition horizon), `/metrics`
 (request latency per operation, worker backlogs) and, with
 `ERP_OPERATOR_ISSUERS` set, the operators' control plane under
-`/control/v1` ([ADR-0015](docs/design/adr/0015-control-plane.md)). With
+`/control/v1` ([ADR-0015](docs/design/adr/0015-control-plane.md)), where
+each tenant's identity providers and authentication policy are kept: a
+tenant's tokens are trusted from the providers it registered, which decide
+its tenant, with multi-factor and session rules per tenant
+([ADR-0031](docs/design/adr/0031-per-tenant-identity-providers-and-sessions.md)). With
 `ERP_DIRECTORY_URL` and `ERP_CELL_API_URL` set, the cell records its tenants
-in the global directory, and `erp-router` (same `ERP_ENV`, `ERP_OIDC_ISSUERS`,
-`ERP_DIRECTORY_URL`, `ERP_ROUTER_ADDR`) forwards each request to its
+in the global directory, and `erp-router` (same `ERP_ENV`,
+`ERP_DIRECTORY_URL`, `ERP_ROUTER_ADDR`; `ERP_OIDC_ISSUERS` outside
+production) resolves a token's tenant from its provider's claim in the
+directory and forwards each request to its
 tenant's cell ([ADR-0022](docs/design/adr/0022-tenant-directory-and-router.md));
 with `ERP_OPERATOR_ISSUERS` and `ERP_PAGE_TOKEN_KEY` its admin listener
 (`ERP_ROUTER_ADMIN_ADDR`) serves the global control plane

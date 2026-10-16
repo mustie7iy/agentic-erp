@@ -550,8 +550,13 @@ func TestProductionFailsClosed(t *testing.T) {
 	const storeRefused, verifyRefused = "object storage (ERP_OBJECT_DIR or ERP_OBJECT_S3_*) is required with ERP_ENV=production", "ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production"
 	// prod is a production configuration that starts: object storage and
 	// the default audit verification interval.
+	// Production trusts tenants' registered identity providers only, and
+	// needs operators to register them (ADR-0031).
+	const sharedRefused, operatorsRequired = "ERP_OIDC_ISSUERS must not be set with ERP_ENV=production", "ERP_OPERATOR_ISSUERS is required with ERP_ENV=production"
+	operators := `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`
 	prod := func(set map[string]string) map[string]string {
-		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp"}
+		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp",
+			"ERP_OIDC_ISSUERS": "", "ERP_OPERATOR_ISSUERS": operators}
 		for k, v := range set {
 			m[k] = v
 		}
@@ -568,13 +573,15 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"development without verification", map[string]string{"ERP_ENV": "development", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
 		{"production", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_TEMPORAL_CODEC_KEY": codec}), nil},
 		{"production without an engine", prod(nil), nil},
-		{"production with an object directory", map[string]string{"ERP_ENV": "production", "ERP_OBJECT_DIR": t.TempDir()}, nil},
+		{"production with an object directory", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": "", "ERP_OBJECT_DIR": t.TempDir()}), nil},
+		{"production issuers for every tenant", prod(map[string]string{"ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}), []string{sharedRefused}},
+		{"production without operators", prod(map[string]string{"ERP_OPERATOR_ISSUERS": ""}), []string{operatorsRequired}},
 		{"production dev issuer", prod(map[string]string{"ERP_DEV_ISSUER": "true"}), []string{devRefused}},
 		{"production engine without codec", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{codecRefused}},
 		{"production both", prod(map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{devRefused, codecRefused}},
-		{"production without object storage", map[string]string{"ERP_ENV": "production"}, []string{storeRefused}},
+		{"production without object storage", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": ""}), []string{storeRefused}},
 		{"production without verification", prod(map[string]string{"ERP_AUDIT_VERIFY_INTERVAL": "0"}), []string{verifyRefused}},
-		{"production without either", map[string]string{"ERP_ENV": "production", "ERP_AUDIT_VERIFY_INTERVAL": "0s"}, []string{storeRefused, verifyRefused}},
+		{"production without either", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": "", "ERP_AUDIT_VERIFY_INTERVAL": "0s"}), []string{storeRefused, verifyRefused}},
 		{"unknown environment", map[string]string{"ERP_ENV": "staging"}, []string{"must be development or production"}},
 	}
 	for _, c := range cases {

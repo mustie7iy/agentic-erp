@@ -227,8 +227,10 @@ at most one bank file.
   tenant claim must name that tenant. An issuer no tenant registered is
   401 and never fetched; a registry or provider that cannot answer is 503
   `platform.identity_provider_unavailable` (keys) or `platform.unavailable`
-  (registry). Issuers configured for every tenant (`ERP_OIDC_ISSUERS`) are
-  optional and keep the tenant claim.
+  (registry). Issuers configured for every tenant (`ERP_OIDC_ISSUERS`) keep
+  the tenant claim and are for development: production refuses them, and
+  refuses to start without operator issuers or while an active tenant has
+  no active identity provider.
 - Where the tenant requires multi-factor authentication (its policy on
   the control plane), a person's token must prove it by the provider's
   `acr` or `amr` values; otherwise the answer is 401
@@ -391,6 +393,9 @@ which is reachable only inside the platform (ADR-0015).
 The control plane follows this document's rules (problems, pagination,
 idempotency, concurrency) with these differences:
 
+- **A production cell needs operators.** It refuses to start without
+  `ERP_OPERATOR_ISSUERS`: tenants' identity providers are registered and
+  principals bound here (ADR-0031).
 - **Callers are operators, not principals.** Tokens come from the operator
   identity providers (`ERP_OPERATOR_ISSUERS`) and must name no tenant; a
   tenant's token is refused, and an operator token is refused by the public
