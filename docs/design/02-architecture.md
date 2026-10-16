@@ -170,6 +170,7 @@ failure isolation; the global directory and `erp-router` map tenants to cells
 | Extensibility | Typed custom fields in `jsonb`, governed by configuration schemas (ADR-0009) |
 | AuthN/AuthZ | OIDC tokens of the identity providers each tenant registers, which decide the token's tenant; multi-factor and session lifetime and idle timeout per tenant (ADR-0031); permissions, company access and SoD from the identity context (ADR-0010) |
 | Audit | Hash-chained audit events per tenant, written in the same transaction (ADR-0011) |
+| Transport | TLS on every connection, verified; production refuses plaintext at start; TLS 1.3 between services, 1.2+ to providers; service certificates (SPIFFE IDs) authorize hops, agent tokens are bound to client certificates; encryption at rest stated and checked at start (ADR-0033) |
 | Long-running work | Temporal workflows exposed as API operations (ADR-0012) |
 
 ## 2.7 What to revisit as the system grows
