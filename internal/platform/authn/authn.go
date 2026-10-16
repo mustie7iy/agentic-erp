@@ -1,7 +1,9 @@
 // Package authn authenticates requests: it verifies the OIDC bearer token
 // against a trusted issuer (signature, issuer, audience, expiry) and reads
 // the tenant from the token (ADR-0010, ADR-0014). Principal resolution needs
-// the tenant's identity data and happens in the unit of work.
+// the tenant's identity data and happens in the unit of work. Providers
+// discovers the tenants' own identity providers lazily and caches their
+// keys (ADR-0031).
 package authn
 
 import (

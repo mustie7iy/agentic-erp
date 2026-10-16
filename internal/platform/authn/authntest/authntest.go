@@ -1,6 +1,7 @@
 // Package authntest runs a minimal OIDC issuer for tests: discovery, signing
 // keys and token minting, for the OIDC authentication of ADR-0010
-// (06-engineering-process §6.6). It is test support and is excluded from the
+// (06-engineering-process §6.6), with key rotation and endpoints that fail,
+// stall or answer other bodies for the key cache of ADR-0031. It is test support and is excluded from the
 // coverage figure.
 package authntest
 
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -24,9 +26,25 @@ import (
 // Audience is the audience tokens are minted for.
 const Audience = "erp-api"
 
-// Issuer is a running test identity provider.
+// Issuer is a running test identity provider. Its keys can be rotated and
+// its endpoints made to fail, stall or answer other bodies, for the key
+// cache of authn.Providers (ADR-0031); only a separate issuer
+// (NewSeparate) is changed that way, never the shared one (New).
 type Issuer struct {
-	URL    string
+	URL string
+
+	mu           sync.Mutex
+	keys         []signingKey // published; the last one signs
+	discoveries  int
+	keyFetches   int
+	failNext     int
+	cacheControl string
+	blocked      chan struct{}
+	bodies       map[string][]byte
+}
+
+type signingKey struct {
+	kid    string
 	key    *rsa.PrivateKey
 	signer jose.Signer
 }
@@ -75,31 +93,155 @@ func NewSeparate(tb testing.TB) *Issuer {
 // start makes a signing key and serves discovery and the keys; stop closes
 // the server.
 func start() (is *Issuer, stop func(), err error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	k, err := newKey("k1")
 	if err != nil {
-		return nil, nil, fmt.Errorf("authntest: signing key: %w", err)
+		return nil, nil, err
 	}
-	is = &Issuer{key: key}
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: key, KeyID: "k1"}}, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("authntest: signer: %w", err)
-	}
-	is.signer = signer
+	is = &Issuer{keys: []signingKey{k}, bodies: map[string][]byte{}}
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	is.URL = srv.URL
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		// A failed response write means the client is gone: no one is left to tell.
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"issuer": is.URL, "jwks_uri": is.URL + "/keys",
+	mux.HandleFunc(DiscoveryPath, is.serve(DiscoveryPath, func() any {
+		return map[string]any{
+			"issuer": is.URL, "jwks_uri": is.URL + KeysPath,
 			"authorization_endpoint": is.URL + "/auth", "token_endpoint": is.URL + "/token",
 			"id_token_signing_alg_values_supported": []string{"RS256"},
-		})
-	})
-	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "k1", Algorithm: "RS256", Use: "sig"}}}) // a failed response write means the client is gone: no one is left to tell
-	})
+		}
+	}))
+	mux.HandleFunc(KeysPath, is.serve(KeysPath, func() any {
+		set := jose.JSONWebKeySet{}
+		for _, k := range is.keys {
+			set.Keys = append(set.Keys, jose.JSONWebKey{Key: &k.key.PublicKey, KeyID: k.kid, Algorithm: "RS256", Use: "sig"})
+		}
+		return set
+	}))
 	return is, srv.Close, nil
+}
+
+// The paths the issuer serves.
+const (
+	DiscoveryPath = "/.well-known/openid-configuration"
+	KeysPath      = "/keys"
+)
+
+func newKey(kid string) (signingKey, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return signingKey{}, fmt.Errorf("authntest: signing key: %w", err)
+	}
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: key, KeyID: kid}}, nil)
+	if err != nil {
+		return signingKey{}, fmt.Errorf("authntest: signer: %w", err)
+	}
+	return signingKey{kid: kid, key: key, signer: signer}, nil
+}
+
+// serve answers path: counted, then stalled while blocked, failed while
+// failures are due, or the body set for it, or doc as JSON.
+func (is *Issuer) serve(path string, doc func() any) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		is.mu.Lock()
+		if path == DiscoveryPath {
+			is.discoveries++
+		} else {
+			is.keyFetches++
+		}
+		blocked := is.blocked
+		is.mu.Unlock()
+		if blocked != nil {
+			select {
+			case <-blocked:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		is.mu.Lock()
+		defer is.mu.Unlock()
+		if is.failNext > 0 {
+			is.failNext--
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if is.cacheControl != "" && path == KeysPath {
+			w.Header().Set("Cache-Control", is.cacheControl)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if body, ok := is.bodies[path]; ok {
+			_, _ = w.Write(body) // a failed response write means the client is gone: no one is left to tell
+			return
+		}
+		_ = json.NewEncoder(w).Encode(doc()) // a failed response write means the client is gone: no one is left to tell
+	}
+}
+
+// Fetches counts the requests for discovery and for the keys so far.
+func (is *Issuer) Fetches() (discovery, keys int) {
+	is.mu.Lock()
+	defer is.mu.Unlock()
+	return is.discoveries, is.keyFetches
+}
+
+// Rotate publishes a new key next to the others and signs with it from now
+// on; it returns the new key's id.
+func (is *Issuer) Rotate(tb testing.TB) string {
+	tb.Helper()
+	is.mu.Lock()
+	defer is.mu.Unlock()
+	k, err := newKey(fmt.Sprintf("k%d", len(is.keys)+1))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	is.keys = append(is.keys, k)
+	return k.kid
+}
+
+// Retire stops publishing the key with the id.
+func (is *Issuer) Retire(kid string) {
+	is.mu.Lock()
+	defer is.mu.Unlock()
+	is.keys = slices.DeleteFunc(is.keys, func(k signingKey) bool { return k.kid == kid })
+}
+
+// FailNext answers the next n requests 503.
+func (is *Issuer) FailNext(n int) {
+	is.mu.Lock()
+	defer is.mu.Unlock()
+	is.failNext = n
+}
+
+// SetCacheControl sends the header with the keys from now on.
+func (is *Issuer) SetCacheControl(v string) {
+	is.mu.Lock()
+	defer is.mu.Unlock()
+	is.cacheControl = v
+}
+
+// Serve answers path with body from now on instead of its document.
+func (is *Issuer) Serve(path string, body []byte) {
+	is.mu.Lock()
+	defer is.mu.Unlock()
+	is.bodies[path] = body
+}
+
+// Block stalls every request until release is called (or the client gives
+// up); release is called when the test ends at the latest.
+func (is *Issuer) Block(tb testing.TB) (release func()) {
+	tb.Helper()
+	ch := make(chan struct{})
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			is.mu.Lock()
+			is.blocked = nil
+			is.mu.Unlock()
+			close(ch)
+		})
+	}
+	is.mu.Lock()
+	is.blocked = ch
+	is.mu.Unlock()
+	tb.Cleanup(release)
+	return release
 }
 
 // Config is the trusted-issuer configuration for this issuer.
@@ -111,6 +253,24 @@ func (is *Issuer) Config() authn.Issuer {
 // the defaults.
 func (is *Issuer) Token(tb testing.TB, tenant uuid.UUID, subject string, extra map[string]any) string {
 	tb.Helper()
+	is.mu.Lock()
+	signer := is.keys[len(is.keys)-1].signer
+	is.mu.Unlock()
+	return sign(tb, signer, is.claims(tenant, subject, extra))
+}
+
+// Forge mints a token like Token's, signed by a key the issuer never
+// published, under a key id of its own.
+func (is *Issuer) Forge(tb testing.TB, tenant uuid.UUID, subject string, extra map[string]any) string {
+	tb.Helper()
+	k, err := newKey(uuid.NewString())
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return sign(tb, k.signer, is.claims(tenant, subject, extra))
+}
+
+func (is *Issuer) claims(tenant uuid.UUID, subject string, extra map[string]any) map[string]any {
 	claims := map[string]any{
 		"iss": is.URL, "aud": Audience, "sub": subject, "tenant_id": tenant.String(),
 		"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
@@ -118,8 +278,13 @@ func (is *Issuer) Token(tb testing.TB, tenant uuid.UUID, subject string, extra m
 	for k, v := range extra {
 		claims[k] = v
 	}
-	payload, _ := json.Marshal(claims)
-	sig, err := is.signer.Sign(payload)
+	return claims
+}
+
+func sign(tb testing.TB, signer jose.Signer, claims map[string]any) string {
+	tb.Helper()
+	payload, _ := json.Marshal(claims) // test claims are strings, numbers and lists
+	sig, err := signer.Sign(payload)
 	if err != nil {
 		tb.Fatal(err)
 	}

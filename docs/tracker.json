@@ -3880,10 +3880,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "P",
         "t": "Per-tenant identity provider registry (T2)",
         "r": "T37",
-        "c": []
+        "c": [
+         {
+          "s": "D",
+          "t": "Identity providers discovered lazily and their keys cached: refresh at most once a minute for an unknown key, 5 s timeouts, 1 MiB bodies, expired caches served while refetched, 503 while keys cannot be fetched, only public addresses in production",
+          "r": "internal/platform/authn · authn.Providers · T37b",
+          "c": []
+         }
+        ]
        },
        {
         "s": "T",
