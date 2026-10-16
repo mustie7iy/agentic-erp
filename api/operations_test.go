@@ -126,7 +126,7 @@ func TestControlOperations(t *testing.T) {
 		"listIdentityProviders": "GET /control/v1/tenants/{id}/identity-providers", "registerIdentityProvider": "POST /control/v1/tenants/{id}/identity-providers",
 		"getIdentityProvider": "GET /control/v1/tenants/{id}/identity-providers/{provider_id}", "updateIdentityProvider": "PATCH /control/v1/tenants/{id}/identity-providers/{provider_id}",
 		"retireIdentityProvider": "POST /control/v1/tenants/{id}/identity-providers/{provider_id}:retire",
-		"getAuthPolicy": "GET /control/v1/tenants/{id}/auth-policy", "updateAuthPolicy": "PATCH /control/v1/tenants/{id}/auth-policy"}
+		"getAuthPolicy":          "GET /control/v1/tenants/{id}/auth-policy", "updateAuthPolicy": "PATCH /control/v1/tenants/{id}/auth-policy"}
 	if len(ops) != len(want) {
 		t.Fatalf("operations: got %d, want %d", len(ops), len(want))
 	}
