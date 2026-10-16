@@ -756,7 +756,10 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if postingDate != nil {
 		date = *postingDate
 	}
-	lines := reversalLines(orig)
+	lines, err := grirAdjustments(ctx, tx, orig, reversalLines(orig))
+	if err != nil {
+		return Entry{}, err
+	}
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}

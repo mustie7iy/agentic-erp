@@ -1,0 +1,419 @@
+package ledger
+
+// GR/IR clearing (T33, 03-data-model §3.7). Each purchase order item's
+// GR/IR position is the sum of its lines on the GR/IR account: their
+// quantity, invoiced less received, and their amounts in the three
+// currencies. Every goods movement and invoice moves the position so that
+// its transaction-currency balance is the order price of its quantity,
+// never the sum of rounded postings, and the posting that brings the
+// quantity to zero leaves zero in every currency.
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"math/big"
+	"slices"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
+)
+
+// orderItem identifies a purchase order item.
+type orderItem struct {
+	order uuid.UUID
+	item  int32
+}
+
+func compareOrderItems(a, b orderItem) int {
+	return cmp.Or(bytes.Compare(a.order[:], b.order[:]), cmp.Compare(a.item, b.item))
+}
+
+// position is an order item's GR/IR position.
+type position struct {
+	qty        *big.Rat
+	tc, lc, gc money.Minor
+}
+
+// lockOrders takes the tenant's GR/IR lock of each order, in one sorted
+// call: postings on one order take turns on its positions, each reading
+// them after the last committed. One lock per order rather than per item
+// keeps a receipt of many items within the lock table. Taken after any
+// entry bucket (a reversal holds its entry's) and before the period and
+// number range post takes, so no two transactions wait in a cycle.
+func lockOrders(ctx context.Context, tx pgx.Tx, keys []orderItem) error {
+	orders := make([]uuid.UUID, len(keys))
+	for i, k := range keys {
+		orders[i] = k.order
+	}
+	slices.SortFunc(orders, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	orders = slices.Compact(orders)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('ledger.gr_ir:' || platform.require_tenant() || ':' || o, 0))
+		FROM unnest($1::uuid[]) AS x(o)`, orders); err != nil {
+		return fmt.Errorf("ledger: lock the GR/IR positions of %d orders: %w", len(orders), err)
+	}
+	return nil
+}
+
+// positions locks and reads the order items' positions in the legal
+// entity's ledger. An item posted in another currency than tc is refused:
+// its amounts would not add up.
+func positions(ctx context.Context, tx pgx.Tx, le, ledgerID uuid.UUID, tc string, keys []orderItem) (map[orderItem]*position, error) {
+	if err := lockOrders(ctx, tx, keys); err != nil {
+		return nil, err
+	}
+	orders, items := make([]uuid.UUID, len(keys)), make([]int32, len(keys))
+	for i, k := range keys {
+		orders[i], items[i] = k.order, k.item
+	}
+	rows, _ := tx.Query(ctx, `SELECT x.o, x.n, coalesce(trim_scale(sum(l.quantity)), 0)::text, coalesce(sum(l.amount_tc), 0)::bigint,
+			coalesce(sum(l.amount_lc), 0)::bigint, coalesce(sum(l.amount_gc), 0)::bigint, coalesce(bool_and(e.currency_tc = $5), true)
+		FROM unnest($3::uuid[], $4::int[]) AS x(o, n)
+		LEFT JOIN ledger.journal_line l ON l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.purchase_order_id = x.o AND l.po_item_no = x.n
+		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+		GROUP BY x.o, x.n`, le, ledgerID, orders, items, tc)
+	out := map[orderItem]*position{}
+	var k orderItem
+	var qty string
+	var p position
+	var same bool
+	_, err := pgx.ForEachRow(rows, []any{&k.order, &k.item, &qty, &p.tc, &p.lc, &p.gc, &same}, func() error {
+		if !same {
+			return problem.Unprocessable("ledger.gr_ir_currency_mismatch", fmt.Sprintf("Item %d of purchase order %s has GR/IR postings in another currency than %s.", k.item, k.order, tc))
+		}
+		p.qty = money.ParseRat(qty)
+		out[k] = &position{qty: p.qty, tc: p.tc, lc: p.lc, gc: p.gc}
+		return nil
+	})
+	if err != nil {
+		var pr *problem.Problem
+		if errors.As(err, &pr) {
+			return nil, pr
+		}
+		return nil, fmt.Errorf("ledger: read the GR/IR positions of %d order items: %w", len(keys), err)
+	}
+	return out, nil
+}
+
+// signedQuantity reads a plain decimal with an optional minus sign.
+func signedQuantity(s string) (*big.Rat, error) {
+	q, err := money.ParsePlain(strings.TrimPrefix(s, "-"))
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(s, "-") {
+		q.Neg(q)
+	}
+	return q, nil
+}
+
+// rates converts transaction amounts at a posting's rates.
+type rates struct {
+	toLC, toGC          exchange
+	expTC, expLC, expGC int
+}
+
+// local converts a transaction amount to local and group currency.
+func (r rates) local(tc money.Minor) (lc, gc money.Minor, err error) {
+	if lc, err = convert(tc, r.toLC, r.expTC, r.expLC); err != nil {
+		return 0, 0, err
+	}
+	gc, err = convert(lc, r.toGC, r.expLC, r.expGC)
+	return lc, gc, err
+}
+
+// share is part of a local or group balance: amount × after / before,
+// rounded half away from zero.
+func share(amount money.Minor, after, before *big.Rat) (money.Minor, error) {
+	v := new(big.Rat).Mul(new(big.Rat).SetInt64(int64(amount)), after)
+	return money.Round(v.Quo(v, before), 0)
+}
+
+// move moves the position by an item and returns the GR/IR line's amounts.
+// In transaction currency the balance becomes the order price of the new
+// quantity. In local and group currency a position that grows takes the
+// posting's rates; one that shrinks keeps the value it was booked at, by
+// quantity; one that reaches zero clears what is left; one that crosses
+// zero clears what is left and values the rest at the posting's rates.
+func (r rates) move(p *position, it GRIRItem) (tc, lc, gc money.Minor, err error) {
+	q, err := signedQuantity(it.Quantity)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("ledger: GR/IR quantity %q: %w", it.Quantity, err)
+	}
+	after := new(big.Rat).Add(p.qty, q)
+	target, err := money.Scale(it.UnitPrice, after.FloatString(6), int64(it.PriceUnit))
+	if err == nil {
+		tc, err = money.Diff(target, p.tc)
+	}
+	if err != nil {
+		return 0, 0, 0, convertErr(err)
+	}
+	before, now := p.qty.Sign(), after.Sign()
+	switch {
+	case now == 0:
+		lc, gc = -p.lc, -p.gc
+	case before == now && new(big.Rat).Abs(after).Cmp(new(big.Rat).Abs(p.qty)) < 0:
+		if lc, err = share(p.lc, after, p.qty); err == nil {
+			gc, err = share(p.gc, after, p.qty)
+		}
+		lc, gc = lc-p.lc, gc-p.gc
+	case before == now:
+		lc, gc, err = r.local(tc)
+	default:
+		if lc, gc, err = r.local(target); err == nil {
+			lc, gc = lc-p.lc, gc-p.gc
+		}
+	}
+	if err != nil {
+		return 0, 0, 0, convertErr(err)
+	}
+	p.qty, p.tc, p.lc, p.gc = after, target, p.lc+lc, p.gc+gc
+	return tc, lc, gc, nil
+}
+
+// grirPosting is a posting with GR/IR items, as far as it is established.
+type grirPosting struct {
+	in         Posting
+	le         tenancy.Entity
+	ledgerID   uuid.UUID
+	group      string
+	rates      rates
+	grir, diff uuid.UUID
+}
+
+// prepareGRIR resolves what a GR/IR posting books with: the legal entity,
+// the leading ledger, the rates of the posting date and the GR/IR and
+// price difference accounts.
+func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirPosting, error) {
+	e := p.endpoints()
+	g := grirPosting{in: in}
+	var err error
+	if g.le, err = e.legalEntity(ctx, in.LegalEntityID, "legal_entity_id"); err != nil {
+		return g, err
+	}
+	if g.ledgerID, err = ledgerID(ctx, tx, nil); err != nil {
+		return g, err
+	}
+	if g.group, err = e.LegalEntities.GroupCurrency(ctx); err != nil {
+		return g, err
+	}
+	var exps currency.Exponents
+	if exps, err = exponents(ctx, tx, in.Currency, g.le.LocalCurrency, g.group); err != nil {
+		return g, err
+	}
+	g.rates.expTC, g.rates.expLC, g.rates.expGC = exps[in.Currency], exps[g.le.LocalCurrency], exps[g.group]
+	if g.rates.toLC, g.rates.toGC, err = postingRates(ctx, tx, in.Currency, g.le.LocalCurrency, g.group, in.PostingDate); err != nil {
+		return g, err
+	}
+	if g.grir, err = determined(ctx, g.le.ID, "gr_ir", "ledger.no_gr_ir_account"); err != nil {
+		return g, err
+	}
+	if slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.Invoiced != nil }) {
+		g.diff, err = determined(ctx, g.le.ID, "price_difference", "ledger.no_price_difference_account")
+	}
+	return g, err
+}
+
+// determined is the legal entity's account for the key, or the problem
+// code when it has none.
+func determined(ctx context.Context, le uuid.UUID, key, code string) (uuid.UUID, error) {
+	account, ok, err := Accounts{}.Determination(ctx, le, key)
+	if err == nil && !ok {
+		err = problem.Unprocessable(code, "The legal entity has no "+key+" account in its account determination.")
+	}
+	return account, err
+}
+
+// lines builds the entry: the posting's own lines, each item's GR/IR line
+// and counter line, converted at the posting's rates, and what the GR/IR
+// lines' local and group amounts leave as exchange differences.
+func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
+	keys := make([]orderItem, len(g.in.GRIR))
+	for i, it := range g.in.GRIR {
+		if (it.OffsetAccountID == nil) == (it.Invoiced == nil) {
+			return nil, fmt.Errorf("ledger: GR/IR item %d of order %s: a goods movement names the offset account, an invoice its amount; got both or neither",
+				it.POItemNo, it.PurchaseOrderID)
+		}
+		keys[i] = orderItem{it.PurchaseOrderID, it.POItemNo}
+	}
+	pos, err := positions(ctx, tx, g.le.ID, g.ledgerID, g.in.Currency, keys)
+	if err != nil {
+		return nil, err
+	}
+	lines := make([]Line, 0, len(g.in.Lines)+2*len(g.in.GRIR)+2)
+	for _, l := range g.in.Lines {
+		lines = append(lines, Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text})
+	}
+	kept := make([]bool, len(lines))
+	moved, keep, err := g.itemLines(pos, keys)
+	if err != nil {
+		return nil, err
+	}
+	return g.convert(ctx, append(lines, moved...), append(kept, keep...))
+}
+
+// itemLines are each item's GR/IR line and its counter line, and which of
+// them keep the local and group amounts they are given: the GR/IR line
+// and a goods movement's mirror of it, not an invoice's price difference,
+// which is converted at the posting's rates.
+func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([]Line, []bool, error) {
+	var lines []Line
+	var kept []bool
+	for i, it := range g.in.GRIR {
+		tc, lc, gc, err := g.rates.move(pos[keys[i]], it)
+		if err != nil {
+			return nil, nil, err
+		}
+		lines = append(lines, Line{AccountID: g.grir, TC: tc, LC: lc, GC: gc, Quantity: &g.in.GRIR[i].Quantity, Unit: &g.in.GRIR[i].Unit,
+			Text: it.Text, PurchaseOrderID: &g.in.GRIR[i].PurchaseOrderID, POItemNo: &g.in.GRIR[i].POItemNo})
+		kept = append(kept, true)
+		switch {
+		case it.OffsetAccountID != nil && (tc != 0 || lc != 0 || gc != 0):
+			lines, kept = append(lines, Line{AccountID: *it.OffsetAccountID, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}), append(kept, true)
+		case it.Invoiced != nil:
+			diff, err := money.Diff(*it.Invoiced, tc)
+			if err != nil {
+				return nil, nil, errTotalTooLarge("grir")
+			}
+			if diff != 0 {
+				lines, kept = append(lines, Line{AccountID: g.diff, TC: diff, Text: it.Text}), append(kept, false)
+			}
+		}
+	}
+	return lines, kept, nil
+}
+
+// convert converts the lines at the posting's rates, keeps the local and
+// group amounts of the lines marked kept, and books what that leaves in
+// local and group currency as exchange differences.
+func (g grirPosting) convert(ctx context.Context, lines []Line, kept []bool) ([]Line, error) {
+	tcs := make([]money.Minor, len(lines))
+	given := slices.Clone(lines)
+	for i, l := range lines {
+		tcs[i] = l.TC
+	}
+	if !netsToZero(tcs...) {
+		sum, _ := money.Sum(tcs...) // out of range reads as 0: unbalanced either way
+		return nil, problem.Unprocessable("ledger.unbalanced", "Debits and credits differ by "+sum.Plain(g.rates.expTC)+" "+g.in.Currency+".")
+	}
+	if err := convertLines(lines, g.rates.toLC, g.rates.toGC, g.rates.expTC, g.rates.expLC, g.rates.expGC); err != nil {
+		return nil, err
+	}
+	lcs, gcs := make([]money.Minor, len(lines)), make([]money.Minor, len(lines))
+	for i := range lines {
+		if kept[i] {
+			lines[i].LC, lines[i].GC = given[i].LC, given[i].GC
+		}
+		lcs[i], gcs[i] = lines[i].LC, lines[i].GC
+	}
+	lc, err := money.Sum(lcs...)
+	var gc money.Minor
+	if err == nil {
+		gc, err = money.Sum(gcs...)
+	}
+	if err != nil {
+		return nil, errTotalTooLarge("lines")
+	}
+	fx, err := fxLines(ctx, g.le.ID, -lc, -gc, g.in.HeaderText)
+	return append(lines, fx...), err
+}
+
+// postGRIR posts an entry with GR/IR items (Posting.GRIR).
+func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
+	tx, actor, err := reqctx.Request(ctx)
+	if err != nil {
+		return Entry{}, err
+	}
+	g, err := p.prepareGRIR(ctx, tx, in)
+	if err != nil {
+		return Entry{}, err
+	}
+	lines, err := g.lines(ctx, tx)
+	if err != nil {
+		return Entry{}, err
+	}
+	e := p.endpoints()
+	if err := e.checkAccounts(ctx, tx, g.le.ID, lines, true); err != nil {
+		return Entry{}, err
+	}
+	if err := checkTaxCodes(ctx, tx, g.le.ID, in.PostingDate, lines); err != nil {
+		return Entry{}, err
+	}
+	posted, err := e.post(ctx, tx, actor, draft{entity: g.le, ledgerID: g.ledgerID, documentType: in.DocumentType, documentDate: in.DocumentDate,
+		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
+		rateLCGC: g.rates.toGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext,
+		sourceDocumentID: &in.SourceDocumentID, lines: lines})
+	if err != nil {
+		return Entry{}, err
+	}
+	return posted, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: posted.ID,
+		Outcome: "succeeded", Detail: map[string]any{"document_number": posted.DocumentNumber, "fiscal_year": posted.FiscalYear, "lines": len(lines),
+			"source_context": posted.SourceContext}})
+}
+
+// grirAdjustments are what a reversal adds to its mirrored lines: where
+// they bring an order item's quantity to zero but rounding leaves a
+// balance (the item moved since the reversed entry), a GR/IR line clears
+// it against the price difference account, so a position is zero in every
+// currency once its quantities agree.
+func grirAdjustments(ctx context.Context, tx pgx.Tx, orig Entry, lines []Line) ([]Line, error) {
+	moves := map[orderItem]Line{}
+	for _, l := range lines {
+		if l.PurchaseOrderID == nil {
+			continue
+		}
+		k := orderItem{*l.PurchaseOrderID, *l.POItemNo}
+		m, ok := moves[k]
+		if !ok {
+			m = Line{AccountID: l.AccountID, Unit: l.Unit, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo, Quantity: new(string)}
+		}
+		q := new(big.Rat).Add(money.ParseRat(cmp.Or(*m.Quantity, "0")), money.ParseRat(*l.Quantity))
+		*m.Quantity = q.FloatString(6)
+		m.TC, m.LC, m.GC = m.TC+l.TC, m.LC+l.LC, m.GC+l.GC
+		moves[k] = m
+	}
+	if len(moves) == 0 {
+		return lines, nil
+	}
+	keys := slices.SortedFunc(maps.Keys(moves), compareOrderItems)
+	pos, err := positions(ctx, tx, orig.LegalEntityID, orig.LedgerID, orig.CurrencyTC, keys)
+	if err != nil {
+		return nil, err
+	}
+	return appendAdjustments(ctx, orig.LegalEntityID, lines, keys, moves, pos)
+}
+
+// appendAdjustments appends, for each order item the reversal brings to a
+// zero quantity with a balance left, the pair that clears it.
+func appendAdjustments(ctx context.Context, le uuid.UUID, lines []Line, keys []orderItem, moves map[orderItem]Line, pos map[orderItem]*position) ([]Line, error) {
+	var diff uuid.UUID
+	for _, k := range keys {
+		m, p := moves[k], pos[k]
+		qty := new(big.Rat).Add(p.qty, money.ParseRat(*m.Quantity))
+		tc, lc, gc := p.tc+m.TC, p.lc+m.LC, p.gc+m.GC
+		if qty.Sign() != 0 || (tc == 0 && lc == 0 && gc == 0) {
+			continue
+		}
+		if diff == uuid.Nil {
+			var err error
+			if diff, err = determined(ctx, le, "price_difference", "ledger.no_price_difference_account"); err != nil {
+				return nil, err
+			}
+		}
+		zero := "0"
+		lines = append(lines, Line{AccountID: m.AccountID, TC: -tc, LC: -lc, GC: -gc, Quantity: &zero, Unit: m.Unit, PurchaseOrderID: m.PurchaseOrderID, POItemNo: m.POItemNo},
+			Line{AccountID: diff, TC: tc, LC: lc, GC: gc})
+	}
+	return lines, nil
+}

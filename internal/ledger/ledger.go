@@ -2,7 +2,8 @@
 // ADR-0005, ADR-0006): an insert-only journal in three currencies,
 // corrections by reversal, clearing of open items in a separate insert-only
 // table, posting periods per legal entity and ledger, exchange rates, and
-// period balances derived by a projector.
+// period balances derived by a projector, and each purchase order item's
+// GR/IR position on its own lines (grir.go, T33).
 //
 // A locked period returns to closed only through an approved period_unlock
 // approval request (T32): the ledger opens it (RequestUnlock) and is called

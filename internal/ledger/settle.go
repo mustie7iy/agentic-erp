@@ -353,7 +353,7 @@ func fxLines(ctx context.Context, legalEntity uuid.UUID, diffLC, diffGC money.Mi
 		if d.LC == 0 && d.GC == 0 {
 			continue
 		}
-		key := "fx_gain" // the payment cost less than the items were booked at
+		key := "fx_gain" // the posting settles for less than the items were booked at
 		if d.LC+d.GC > 0 {
 			key = "fx_loss"
 		}
@@ -362,7 +362,7 @@ func fxLines(ctx context.Context, legalEntity uuid.UUID, diffLC, diffGC money.Mi
 			return nil, err
 		}
 		if !ok {
-			return nil, problem.Unprocessable("ledger.no_fx_account", "The payment realizes an exchange difference, and the legal entity has no "+key+
+			return nil, problem.Unprocessable("ledger.no_fx_account", "The posting realizes an exchange difference, and the legal entity has no "+key+
 				" account in its account determination.")
 		}
 		d.AccountID, d.Text = account, text

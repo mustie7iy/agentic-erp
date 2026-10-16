@@ -525,6 +525,30 @@ Rules enforced in the database:
   migration run loaded (`integration`) are exempt, as SAP's GR/IR lines
   arrive without their order items. The ledger's `IsPostable` answers false
   for the GR/IR account too, so no order or invoice item names it.
+- An order item's GR/IR position is the sum of its lines: quantity
+  (invoiced less received; a receipt's line is negative) and amounts in the
+  three currencies. Goods movements and invoices move it through
+  `Postings.Post` with `GRIR` items (T33b); the ledger books the GR/IR line,
+  its own reading of the position under the order's lock:
+  - in transaction currency the balance afterwards is the order price of the
+    new quantity (`money.Scale`), so rounding never adds up across partial
+    receipts and invoices;
+  - in local and group currency a position that grows takes the posting's
+    rates; one that shrinks keeps the value it was booked at, by quantity;
+    one that reaches zero clears what is left; one that crosses zero clears
+    what is left and values the rest at the posting's rates;
+  - a goods movement's other line, on the order item's account, mirrors the
+    GR/IR line in all three currencies; an invoice item's net amount less
+    the GR/IR line is its price difference, on `price_difference`, and what
+    the GR/IR line's local and group amounts leave is an exchange
+    difference on `fx_gain` / `fx_loss`;
+  - an item posted in another currency than its position's is refused (422
+    `ledger.gr_ir_currency_mismatch`), as is a legal entity without a
+    `gr_ir` (422 `ledger.no_gr_ir_account`).
+  A reversal mirrors its entry; where it brings an order item's quantity to
+  zero and rounding leaves a balance (the item moved since), it adds a
+  GR/IR line of quantity 0 that clears it against `price_difference`, so a
+  position is zero in every currency once its quantities agree.
 - `period_balance` is maintained by an idempotent projector (ADR-0006).
 - `journal_line` is partitioned by `fiscal_year`.
 - `period_status` (one row per legal entity, ledger, year and period) has a
@@ -820,9 +844,12 @@ locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
 `platform.require_tenant()` (migration 000039), which fails a transaction
 without one where a NULL key would take no lock), each set
 taken once per transaction in bucket order and before any posting period or
-number range (posting takes those). The lock order is entry buckets, then
-the `period_status` row of each period posted into (`FOR SHARE`), then the
-number range.
+number range (posting takes those). GR/IR locks (T33b) are advisory locks
+per purchase order (`'ledger.gr_ir:' || tenant || ':' || order`), taken in
+one sorted call by every posting that moves a GR/IR position and by a
+reversal of one, after its entry bucket. The lock order is entry buckets,
+then GR/IR orders, then the `period_status` row of each period posted into
+(`FOR SHARE`), then the number range.
 
 Every posting (manual entries, the ports other contexts post through,
 clearings, settlements, reversals and the migration load) reads its
