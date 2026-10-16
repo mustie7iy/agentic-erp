@@ -126,6 +126,24 @@ ALTER FUNCTION procurement.check_order_revision() OWNER TO erp_owner;
 CREATE TRIGGER purchase_order_revision BEFORE UPDATE ON procurement.purchase_order
   FOR EACH ROW EXECUTE FUNCTION procurement.check_order_revision();
 
+-- A change is applied within one transaction: an order may not commit
+-- naming the change it applies, so every application holds the order's
+-- row lock from naming to clearing. A deferred check reads the order as
+-- the transaction ends.
+CREATE FUNCTION procurement.check_order_applied() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT FROM procurement.purchase_order WHERE tenant_id = NEW.tenant_id AND id = NEW.id AND applying_change_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'purchase order % applies a change within one transaction', NEW.document_number
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'purchase_order_applied_at_once';
+  END IF;
+  RETURN NULL;
+END $$;
+ALTER FUNCTION procurement.check_order_applied() OWNER TO erp_owner;
+CREATE CONSTRAINT TRIGGER purchase_order_applied_at_once AFTER UPDATE OF applying_change_id ON procurement.purchase_order
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.applying_change_id IS NOT NULL)
+  EXECUTE FUNCTION procurement.check_order_applied();
+
 -- A draft's items change freely; an order waiting for approval's only by
 -- being valued as it is released (000063); a released order's only while
 -- a change is applied, keeping their account, unit, material and contract

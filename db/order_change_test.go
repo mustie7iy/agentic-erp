@@ -176,6 +176,11 @@ func TestOrderChangeNaming(t *testing.T) {
 			return exec(tx, `UPDATE procurement.purchase_order SET applying_change_id = NULL, revision = 2, version = version + 1 WHERE id = $1`, po)
 		}), "clears the change it applied")
 	})
+	t.Run("named past the transaction", func(t *testing.T) {
+		f := newFixture(t)
+		po, change := f.released(t)
+		failsWith(t, asApp(t, f.tenant, name(po, change, "")), "applies a change within one transaction")
+	})
 	t.Run("cleared without its revision", func(t *testing.T) {
 		f := newFixture(t)
 		po, change := f.released(t)
@@ -297,7 +302,15 @@ func TestOrderChangeLifecycle(t *testing.T) {
 							return err
 						}
 					}
-					return exec(tx, `UPDATE procurement.purchase_order_change SET `+sql+`, version = version + 1 WHERE id = $1`, change)
+					if err := exec(tx, `UPDATE procurement.purchase_order_change SET `+sql+`, version = version + 1 WHERE id = $1`, change); err != nil {
+						return err
+					}
+					if !naming {
+						return nil
+					}
+					// The order moves on, as it may not commit naming the change.
+					return exec(tx, `UPDATE procurement.purchase_order SET applying_change_id = NULL, revision = revision + 1, version = version + 1
+						WHERE id = $1`, po)
 				})
 			}
 			for _, sql := range c.after {

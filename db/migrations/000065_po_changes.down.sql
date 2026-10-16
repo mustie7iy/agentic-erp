@@ -12,6 +12,8 @@ BEGIN
 END $$;
 CREATE TRIGGER purchase_order_item_editable BEFORE UPDATE ON procurement.purchase_order_item
   FOR EACH ROW EXECUTE FUNCTION procurement.check_order_item_editable();
+DROP TRIGGER purchase_order_applied_at_once ON procurement.purchase_order;
+DROP FUNCTION procurement.check_order_applied();
 DROP TRIGGER purchase_order_revision ON procurement.purchase_order;
 DROP FUNCTION procurement.check_order_revision();
 ALTER TABLE procurement.purchase_order DROP CONSTRAINT purchase_order_applying_change;

@@ -813,7 +813,8 @@ A change moves draft -> pending_approval -> applied or rejected, back to
 draft when its request is withdrawn, straight to applied when it needs no
 approval, or to cancelled; it changes only as a draft, is decided only on
 the request it names, and makes the next revision, keeping what the order
-read before (`previous`). It is applied in one transaction: the order names
+read before (`previous`). It is applied in one transaction (an order cannot commit naming it,
+`purchase_order_applied_at_once`): the order names
 it (`applying_change_id`, an open change of its own revision, only on a
 released order), its items are written, and its header changes and its
 revision moves on by one as the name is cleared (trigger
