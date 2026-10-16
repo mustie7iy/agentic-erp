@@ -62,3 +62,46 @@ func TestGRIRLinesOutOfRange(t *testing.T) {
 		t.Errorf("local total: got %v, want ledger.amount_too_large", err)
 	}
 }
+
+// TestGRIRMoveShares: a position that shrinks keeps the share of its local
+// and group value that its transaction balance keeps, or by quantity at a
+// zero order price; a quantity with more decimals than a line keeps is an
+// internal error.
+func TestGRIRMoveShares(t *testing.T) {
+	r := rates{toLC: one, toGC: one}
+	tc, lc, gc, err := r.move(&position{qty: big.NewRat(-4, 1), tc: -300, lc: -270, gc: -250}, GRIRItem{Quantity: "1", UnitPrice: 75, PriceUnit: 1})
+	if got, want := [4]any{tc, lc, gc, err}, [4]any{money.Minor(75), money.Minor(67), money.Minor(62), nil}; got != want {
+		t.Errorf("priced: got %v, want %v (three quarters of each kept, -202.5 and -187.5 rounded away from zero)", got, want)
+	}
+	tc, lc, gc, err = r.move(&position{qty: big.NewRat(-2, 1), lc: -10, gc: -9}, GRIRItem{Quantity: "1", UnitPrice: 0, PriceUnit: 1})
+	if got, want := [4]any{tc, lc, gc, err}, [4]any{money.Minor(0), money.Minor(5), money.Minor(4), nil}; got != want {
+		t.Errorf("free: got %v, want %v (half of each kept by quantity, -4.5 rounded to -5)", got, want)
+	}
+	if _, _, _, err := r.move(zero(), GRIRItem{Quantity: "-1.0000001", UnitPrice: 1, PriceUnit: 1}); err == nil || problemCode(err) != "" {
+		t.Errorf("seven decimals: got %v, want an internal error", err)
+	}
+}
+
+// TestGRIRBalancesOutOfRange: a local balance moved, or a reversal's or a
+// position's total, out of the range of an amount is too large to post.
+func TestGRIRBalancesOutOfRange(t *testing.T) {
+	r := rates{toLC: one, toGC: one}
+	if _, _, _, err := r.move(&position{qty: big.NewRat(-1, 1), tc: -1, lc: math.MinInt64}, GRIRItem{Quantity: "-1", UnitPrice: 1, PriceUnit: 1}); problemCode(err) != "ledger.amount_too_large" {
+		t.Errorf("local balance: got %v, want ledger.amount_too_large", err)
+	}
+	order, item, qty := uuid.New(), int32(10), "-1"
+	grir := uuid.New()
+	line := Line{AccountID: grir, TC: math.MaxInt64, Quantity: &qty, PurchaseOrderID: &order, POItemNo: &item}
+	if _, err := reversalMoves([]Line{line, line}, grir); problemCode(err) != "ledger.amount_too_large" {
+		t.Errorf("reversal total: got %v, want ledger.amount_too_large", err)
+	}
+	moves, err := reversalMoves([]Line{line}, grir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := orderItem{order, item}
+	pos := map[orderItem]*position{k: {qty: big.NewRat(1, 1), tc: math.MaxInt64}}
+	if _, err := appendAdjustments(context.Background(), uuid.Nil, nil, []orderItem{k}, moves, pos); problemCode(err) != "ledger.amount_too_large" {
+		t.Errorf("position total: got %v, want ledger.amount_too_large", err)
+	}
+}

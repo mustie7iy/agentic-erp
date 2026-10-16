@@ -3,6 +3,8 @@ package ledger_test
 import (
 	"context"
 	"math"
+	"reflect"
+	"slices"
 	"sync"
 	"testing"
 
@@ -63,7 +65,6 @@ func (g grirEnv) invoicePosting(day, currency string, order uuid.UUID, qty strin
 		Lines: []ledger.PostingLine{{AccountID: g.ap, Amount: -net, PartnerID: &g.supplier}},
 		GRIR:  []ledger.GRIRItem{{PurchaseOrderID: order, POItemNo: 10, Quantity: qty, Unit: "EA", UnitPrice: p.unit, PriceUnit: p.per, Invoiced: &net}}}
 }
-
 
 // post posts in a committed transaction.
 func (g grirEnv) post(t *testing.T, in ledger.Posting) ledger.Entry {
@@ -128,8 +129,9 @@ func TestGRIRRounding(t *testing.T) {
 		if got := one(t, entry, g.grir, "receipt")[0]; got != want {
 			t.Errorf("receipt %d: GR/IR got %d, want %d", i+1, got, want)
 		}
-		if got, want := one(t, entry, g.expense, "receipt"), one(t, entry, g.grir, "receipt"); got[0] != -want[0] || got[1] != -want[1] || got[2] != -want[2] {
-			t.Errorf("receipt %d: expense got %v, want the GR/IR line %v negated", i+1, got, want)
+		grir := one(t, entry, g.grir, "receipt")
+		if got, want := one(t, entry, g.expense, "receipt"), [3]money.Minor{-grir[0], -grir[1], -grir[2]}; got != want {
+			t.Errorf("receipt %d: expense got %v, want %v, the GR/IR line negated", i+1, got, want)
 		}
 	}
 	entry := g.post(t, g.invoicePosting("2026-03-03", "EUR", order, "3", p, 1000))
@@ -177,7 +179,7 @@ func TestGRIRPartialAndEarlyInvoices(t *testing.T) {
 			for _, d := range on(entry, g.diff) {
 				diffs = append(diffs, d[0])
 			}
-			if len(diffs) != len(s.diff) || (len(diffs) == 1 && diffs[0] != s.diff[0]) {
+			if !slices.Equal(diffs, s.diff) {
 				t.Errorf("price differences: got %v, want %v", diffs, s.diff)
 			}
 			if got := g.position(t, order); got != s.position {
@@ -235,8 +237,8 @@ func TestGRIRForeignCurrency(t *testing.T) {
 // TestGRIRReversalResidue: a reversal mirrors the invoice it reverses;
 // where rounding leaves a balance on an item whose quantity it brings to
 // zero, the reversal clears it against price differences. At 0.01 per 3,
-// invoices of one credit 0.00 and then 0.01; after a receipt of one,
-// reversing the second invoice leaves -0.01 on a zero quantity.
+// invoices of one debit 0.00 and then 0.01, and a receipt of one credits
+// 0.01; reversing the second invoice leaves -0.01 on a zero quantity.
 func TestGRIRReversalResidue(t *testing.T) {
 	g := grirSetup(t)
 	reverse := func(t *testing.T, entry ledger.Entry) ledger.Entry {
@@ -260,6 +262,25 @@ func TestGRIRReversalResidue(t *testing.T) {
 			t.Errorf("position: got %+v, want zero", got)
 		}
 	})
+	t.Run("quantity left", func(t *testing.T) {
+		order, p := uuid.New(), price{1000, 3}
+		g.post(t, g.receiptPosting("2026-03-02", "EUR", order, "-3", p))
+		entry := g.post(t, g.invoicePosting("2026-03-03", "EUR", order, "2", p, 667))
+		if rev := reverse(t, entry); len(rev.Lines) != len(entry.Lines) {
+			t.Errorf("reversal: got %d lines, want the %d it mirrors", len(rev.Lines), len(entry.Lines))
+		}
+		if got := g.position(t, order); got != (position{"-3", -1000, -1000, -1000}) {
+			t.Errorf("position: got %+v, want -3 at -10.00", got)
+		}
+	})
+	t.Run("no GR/IR line", func(t *testing.T) {
+		manual := g.post(t, ledger.Posting{LegalEntityID: g.de, DocumentType: "SA", DocumentDate: date("2026-03-02"), PostingDate: date("2026-03-02"),
+			Currency: "EUR", SourceContext: "integration", SourceDocumentID: uuid.New(),
+			Lines: []ledger.PostingLine{{AccountID: g.expense, Amount: 100}, {AccountID: g.diff, Amount: -100}}})
+		if rev := reverse(t, manual); len(rev.Lines) != 2 {
+			t.Errorf("reversal: got %d lines, want 2", len(rev.Lines))
+		}
+	})
 	t.Run("residue", func(t *testing.T) {
 		order, p := uuid.New(), price{1, 3}
 		g.post(t, g.invoicePosting("2026-03-02", "EUR", order, "1", p, 1))
@@ -271,16 +292,32 @@ func TestGRIRReversalResidue(t *testing.T) {
 			t.Fatalf("reversal: got %d lines, want %d and an adjustment pair: %+v", len(rev.Lines), n, rev.Lines)
 		}
 		adj, against := rev.Lines[n], rev.Lines[n+1]
-		if adj.AccountID != g.grir || adj.TC != 1 || adj.PurchaseOrderID == nil || *adj.PurchaseOrderID != order || adj.Quantity == nil || *adj.Quantity != "0" {
+		zero := "0"
+		unit, item := "EA", int32(10)
+		want := ledger.Line{LineNo: adj.LineNo, AccountID: g.grir, TC: 1, LC: 1, GC: 1, Quantity: &zero, Unit: &unit, PurchaseOrderID: &order, POItemNo: &item}
+		if !reflect.DeepEqual(adj, want) {
 			t.Errorf("adjustment: got %+v, want 0.01 on GR/IR for the order item, quantity 0", adj)
 		}
-		if against.AccountID != g.diff || against.TC != -1 {
-			t.Errorf("against: got %+v, want -0.01 on price differences", against)
+		if got := [3]any{against.AccountID, against.TC, against.LC}; got != [3]any{g.diff, money.Minor(-1), money.Minor(-1)} {
+			t.Errorf("against: got %v, want -0.01 on price differences", got)
 		}
 		if got := g.position(t, order); got != (position{"0", 0, 0, 0}) {
 			t.Errorf("position: got %+v, want zero", got)
 		}
 	})
+}
+
+// TestGRIRPositionIsOnGRIR: a line that names an order item on another
+// account than GR/IR (a migration run may load one) is no part of its
+// position.
+func TestGRIRPositionIsOnGRIR(t *testing.T) {
+	g := grirSetup(t)
+	order := uuid.New()
+	g.insertWithOrderItem(t, order) // 4 EA, 10.00 on expense 520000
+	entry := g.post(t, g.receiptPosting("2026-03-11", "EUR", order, "-1", price{500, 1}))
+	if got := one(t, entry, g.grir, "receipt")[0]; got != -500 {
+		t.Errorf("GR/IR line: got %d, want -500", got)
+	}
 }
 
 // TestGRIRSeveralOrders: one receipt of items of two orders moves each
@@ -377,8 +414,8 @@ func TestGRIRRefusals(t *testing.T) {
 				_, err := postings().Post(ctx, c.posting)
 				return err
 			})
-			if got := problem.From(err).Code; err == nil || got != c.code {
-				t.Errorf("got %v, want %s", err, c.code)
+			if got := problem.From(err).Code; got != c.code {
+				t.Errorf("got %v (%s), want %s", err, got, c.code)
 			}
 		})
 	}
@@ -393,6 +430,36 @@ func TestGRIRRefusals(t *testing.T) {
 			})
 			if problem.From(err).Status != 500 {
 				t.Errorf("got %v, want an internal error", err)
+			}
+		})
+	}
+}
+
+// TestGRIRWithoutPriceDifferenceAccount: an invoice, or a reversal that
+// must clear a residue, in a legal entity whose account determination
+// lost its price difference account is refused rather than posted
+// without one. (Configuration requires it with gr_ir; the row is removed
+// here behind its back.)
+func TestGRIRWithoutPriceDifferenceAccount(t *testing.T) {
+	g := grirSetup(t)
+	order, p := uuid.New(), price{1, 3}
+	g.post(t, g.invoicePosting("2026-03-02", "EUR", order, "1", p, 1))
+	second := g.post(t, g.invoicePosting("2026-03-03", "EUR", order, "1", p, 1))
+	g.post(t, g.receiptPosting("2026-03-04", "EUR", order, "-1", p))
+	pgtest.Exec(t, `DELETE FROM ledger.account_determination WHERE tenant_id = $1 AND key = 'price_difference'`, g.ten.ID)
+	for name, call := range map[string]func(ctx context.Context) error{
+		"invoice": func(ctx context.Context) error {
+			_, err := postings().Post(ctx, g.invoicePosting("2026-03-05", "EUR", uuid.New(), "1", p, 1))
+			return err
+		},
+		"reversal with a residue": func(ctx context.Context) error {
+			_, err := postings().Reverse(ctx, second.ID, nil, nil)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := problem.From(apitest.InRequest(t, g.ten, g.ten.Human, call)).Code; got != "ledger.no_price_difference_account" {
+				t.Errorf("got %s, want ledger.no_price_difference_account", got)
 			}
 		})
 	}

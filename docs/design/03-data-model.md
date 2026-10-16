@@ -534,7 +534,9 @@ Rules enforced in the database:
     new quantity (`money.Scale`), so rounding never adds up across partial
     receipts and invoices;
   - in local and group currency a position that grows takes the posting's
-    rates; one that shrinks keeps the value it was booked at, by quantity;
+    rates; one that shrinks keeps the value it was booked at, in the share
+    its transaction balance keeps (so a position in the local currency keeps
+    equal amounts; by quantity at a zero price);
     one that reaches zero clears what is left; one that crosses zero clears
     what is left and values the rest at the posting's rates;
   - a goods movement's other line, on the order item's account, mirrors the
@@ -542,6 +544,8 @@ Rules enforced in the database:
     the GR/IR line is its price difference, on `price_difference`, and what
     the GR/IR line's local and group amounts leave is an exchange
     difference on `fx_gain` / `fx_loss`;
+  - the position is read from the lines on the GR/IR account only; a
+    quantity has at most six decimals, as a line keeps;
   - an item posted in another currency than its position's is refused (422
     `ledger.gr_ir_currency_mismatch`), as is a legal entity without a
     `gr_ir` (422 `ledger.no_gr_ir_account`).

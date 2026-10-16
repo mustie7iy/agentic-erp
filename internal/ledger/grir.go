@@ -67,9 +67,9 @@ func lockOrders(ctx context.Context, tx pgx.Tx, keys []orderItem) error {
 }
 
 // positions locks and reads the order items' positions in the legal
-// entity's ledger. An item posted in another currency than tc is refused:
-// its amounts would not add up.
-func positions(ctx context.Context, tx pgx.Tx, le, ledgerID uuid.UUID, tc string, keys []orderItem) (map[orderItem]*position, error) {
+// entity's ledger: their lines on the GR/IR account. An item posted in
+// another currency than tc is refused: its amounts would not add up.
+func positions(ctx context.Context, tx pgx.Tx, le, ledgerID, grir uuid.UUID, tc string, keys []orderItem) (map[orderItem]*position, error) {
 	if err := lockOrders(ctx, tx, keys); err != nil {
 		return nil, err
 	}
@@ -80,9 +80,10 @@ func positions(ctx context.Context, tx pgx.Tx, le, ledgerID uuid.UUID, tc string
 	rows, _ := tx.Query(ctx, `SELECT x.o, x.n, coalesce(trim_scale(sum(l.quantity)), 0)::text, coalesce(sum(l.amount_tc), 0)::bigint,
 			coalesce(sum(l.amount_lc), 0)::bigint, coalesce(sum(l.amount_gc), 0)::bigint, coalesce(bool_and(e.currency_tc = $5), true)
 		FROM unnest($3::uuid[], $4::int[]) AS x(o, n)
-		LEFT JOIN ledger.journal_line l ON l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.purchase_order_id = x.o AND l.po_item_no = x.n
+		LEFT JOIN ledger.journal_line l ON l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.account_id = $6
+			AND l.purchase_order_id = x.o AND l.po_item_no = x.n
 		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
-		GROUP BY x.o, x.n`, le, ledgerID, orders, items, tc)
+		GROUP BY x.o, x.n`, le, ledgerID, orders, items, tc, grir)
 	out := map[orderItem]*position{}
 	var k orderItem
 	var qty string
@@ -106,11 +107,16 @@ func positions(ctx context.Context, tx pgx.Tx, le, ledgerID uuid.UUID, tc string
 	return out, nil
 }
 
-// signedQuantity reads a plain decimal with an optional minus sign.
+// signedQuantity reads a plain decimal with an optional minus sign and at
+// most the six decimals a line's quantity keeps: more would be computed
+// exactly but stored rounded, and the position would drift from its lines.
 func signedQuantity(s string) (*big.Rat, error) {
 	q, err := money.ParsePlain(strings.TrimPrefix(s, "-"))
 	if err != nil {
 		return nil, err
+	}
+	if _, frac, _ := strings.Cut(s, "."); len(frac) > money.QuantityDecimals {
+		return nil, fmt.Errorf("more than %d decimals", money.QuantityDecimals)
 	}
 	if strings.HasPrefix(s, "-") {
 		q.Neg(q)
@@ -143,9 +149,10 @@ func share(amount money.Minor, after, before *big.Rat) (money.Minor, error) {
 // move moves the position by an item and returns the GR/IR line's amounts.
 // In transaction currency the balance becomes the order price of the new
 // quantity. In local and group currency a position that grows takes the
-// posting's rates; one that shrinks keeps the value it was booked at, by
-// quantity; one that reaches zero clears what is left; one that crosses
-// zero clears what is left and values the rest at the posting's rates.
+// posting's rates; one that shrinks keeps the value it was booked at, in
+// the share its transaction balance keeps; one that reaches zero clears
+// what is left; one that crosses zero clears what is left and values the
+// rest at the posting's rates.
 func (r rates) move(p *position, it GRIRItem) (tc, lc, gc money.Minor, err error) {
 	q, err := signedQuantity(it.Quantity)
 	if err != nil {
@@ -159,27 +166,48 @@ func (r rates) move(p *position, it GRIRItem) (tc, lc, gc money.Minor, err error
 	if err != nil {
 		return 0, 0, 0, convertErr(err)
 	}
-	before, now := p.qty.Sign(), after.Sign()
-	switch {
-	case now == 0:
-		lc, gc = -p.lc, -p.gc
-	case before == now && new(big.Rat).Abs(after).Cmp(new(big.Rat).Abs(p.qty)) < 0:
-		if lc, err = share(p.lc, after, p.qty); err == nil {
-			gc, err = share(p.gc, after, p.qty)
-		}
-		lc, gc = lc-p.lc, gc-p.gc
-	case before == now:
-		lc, gc, err = r.local(tc)
-	default:
-		if lc, gc, err = r.local(target); err == nil {
-			lc, gc = lc-p.lc, gc-p.gc
-		}
-	}
-	if err != nil {
+	if lc, gc, err = r.localMove(p, after, tc, target); err != nil {
 		return 0, 0, 0, convertErr(err)
 	}
-	p.qty, p.tc, p.lc, p.gc = after, target, p.lc+lc, p.gc+gc
+	newLC, err := money.Sum(p.lc, lc)
+	newGC, errGC := money.Sum(p.gc, gc)
+	if err = errors.Join(err, errGC); err != nil {
+		return 0, 0, 0, errTotalTooLarge("grir")
+	}
+	p.qty, p.tc, p.lc, p.gc = after, target, newLC, newGC
 	return tc, lc, gc, nil
+}
+
+// localMove is the GR/IR line's local and group amounts when the position
+// moves to the quantity after, by tc to the balance target.
+func (r rates) localMove(p *position, after *big.Rat, tc, target money.Minor) (lc, gc money.Minor, err error) {
+	before, now := p.qty.Sign(), after.Sign()
+	var keepLC, keepGC money.Minor // what the position keeps of its local and group balance
+	switch {
+	case now == 0:
+	case before == now && new(big.Rat).Abs(after).Cmp(new(big.Rat).Abs(p.qty)) < 0:
+		// The share the transaction balance keeps, so a position in the
+		// local currency keeps local equal to transaction amounts; by
+		// quantity when the order price is zero.
+		kept, of := new(big.Rat).SetInt64(int64(target)), new(big.Rat).SetInt64(int64(p.tc))
+		if p.tc == 0 {
+			kept, of = after, p.qty
+		}
+		if keepLC, err = share(p.lc, kept, of); err == nil {
+			keepGC, err = share(p.gc, kept, of)
+		}
+	case before == now:
+		return r.local(tc)
+	default:
+		keepLC, keepGC, err = r.local(target)
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if lc, err = money.Diff(keepLC, p.lc); err == nil {
+		gc, err = money.Diff(keepGC, p.gc)
+	}
+	return lc, gc, err
 }
 
 // grirPosting is a posting with GR/IR items, as far as it is established.
@@ -247,7 +275,7 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 		}
 		keys[i] = orderItem{it.PurchaseOrderID, it.POItemNo}
 	}
-	pos, err := positions(ctx, tx, g.le.ID, g.ledgerID, g.in.Currency, keys)
+	pos, err := positions(ctx, tx, g.le.ID, g.ledgerID, g.grir, g.in.Currency, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -366,54 +394,96 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 // they bring an order item's quantity to zero but rounding leaves a
 // balance (the item moved since the reversed entry), a GR/IR line clears
 // it against the price difference account, so a position is zero in every
-// currency once its quantities agree.
+// currency once its quantities agree. A legal entity without a GR/IR
+// account has no positions to adjust.
 func grirAdjustments(ctx context.Context, tx pgx.Tx, orig Entry, lines []Line) ([]Line, error) {
-	moves := map[orderItem]Line{}
-	for _, l := range lines {
-		if l.PurchaseOrderID == nil {
-			continue
-		}
-		k := orderItem{*l.PurchaseOrderID, *l.POItemNo}
-		m, ok := moves[k]
-		if !ok {
-			m = Line{AccountID: l.AccountID, Unit: l.Unit, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo, Quantity: new(string)}
-		}
-		q := new(big.Rat).Add(money.ParseRat(cmp.Or(*m.Quantity, "0")), money.ParseRat(*l.Quantity))
-		*m.Quantity = q.FloatString(6)
-		m.TC, m.LC, m.GC = m.TC+l.TC, m.LC+l.LC, m.GC+l.GC
-		moves[k] = m
+	grir, ok, err := Accounts{}.Determination(ctx, orig.LegalEntityID, "gr_ir")
+	if err != nil || !ok {
+		return lines, err
 	}
-	if len(moves) == 0 {
-		return lines, nil
+	moves, err := reversalMoves(lines, grir)
+	if err != nil || len(moves) == 0 {
+		return lines, err
 	}
 	keys := slices.SortedFunc(maps.Keys(moves), compareOrderItems)
-	pos, err := positions(ctx, tx, orig.LegalEntityID, orig.LedgerID, orig.CurrencyTC, keys)
+	pos, err := positions(ctx, tx, orig.LegalEntityID, orig.LedgerID, grir, orig.CurrencyTC, keys)
 	if err != nil {
 		return nil, err
 	}
 	return appendAdjustments(ctx, orig.LegalEntityID, lines, keys, moves, pos)
 }
 
+// reversalMoves sums a reversal's GR/IR lines per order item.
+func reversalMoves(lines []Line, grir uuid.UUID) (map[orderItem]*move, error) {
+	moves := map[orderItem]*move{}
+	for _, l := range lines {
+		if l.PurchaseOrderID == nil || l.AccountID != grir {
+			continue
+		}
+		k := orderItem{*l.PurchaseOrderID, *l.POItemNo}
+		if moves[k] == nil {
+			moves[k] = &move{qty: new(big.Rat), line: l}
+		}
+		if err := moves[k].add(l); err != nil {
+			return nil, err
+		}
+	}
+	return moves, nil
+}
+
+// move is what a reversal's lines do to one order item's position.
+type move struct {
+	qty    *big.Rat
+	amount [3]money.Minor // transaction, local, group
+	line   Line           // one of them: the account, unit and order item
+}
+
+// add adds a line; a total out of range is too large to post.
+func (m *move) add(l Line) (err error) {
+	m.qty.Add(m.qty, money.ParseRat(*l.Quantity))
+	m.amount, err = add3(m.amount, [3]money.Minor{l.TC, l.LC, l.GC})
+	return err
+}
+
+// add3 adds amounts in the three currencies; a total out of range is too
+// large to post.
+func add3(a, b [3]money.Minor) ([3]money.Minor, error) {
+	var out [3]money.Minor
+	for i := range out {
+		var err error
+		if out[i], err = money.Sum(a[i], b[i]); err != nil {
+			return out, errTotalTooLarge("lines")
+		}
+	}
+	return out, nil
+}
+
 // appendAdjustments appends, for each order item the reversal brings to a
 // zero quantity with a balance left, the pair that clears it.
-func appendAdjustments(ctx context.Context, le uuid.UUID, lines []Line, keys []orderItem, moves map[orderItem]Line, pos map[orderItem]*position) ([]Line, error) {
+func appendAdjustments(ctx context.Context, le uuid.UUID, lines []Line, keys []orderItem, moves map[orderItem]*move, pos map[orderItem]*position) ([]Line, error) {
 	var diff uuid.UUID
 	for _, k := range keys {
 		m, p := moves[k], pos[k]
-		qty := new(big.Rat).Add(p.qty, money.ParseRat(*m.Quantity))
-		tc, lc, gc := p.tc+m.TC, p.lc+m.LC, p.gc+m.GC
-		if qty.Sign() != 0 || (tc == 0 && lc == 0 && gc == 0) {
+		if new(big.Rat).Add(p.qty, m.qty).Sign() != 0 {
+			continue
+		}
+		left, err := add3([3]money.Minor{p.tc, p.lc, p.gc}, m.amount)
+		if err != nil {
+			return nil, err
+		}
+		if left == ([3]money.Minor{}) {
 			continue
 		}
 		if diff == uuid.Nil {
-			var err error
 			if diff, err = determined(ctx, le, "price_difference", "ledger.no_price_difference_account"); err != nil {
 				return nil, err
 			}
 		}
 		zero := "0"
-		lines = append(lines, Line{AccountID: m.AccountID, TC: -tc, LC: -lc, GC: -gc, Quantity: &zero, Unit: m.Unit, PurchaseOrderID: m.PurchaseOrderID, POItemNo: m.POItemNo},
-			Line{AccountID: diff, TC: tc, LC: lc, GC: gc})
+		// Residues of rounding and of rates, never near the range: negating
+		// them cannot overflow.
+		lines = append(lines, Line{AccountID: m.line.AccountID, TC: -left[0], LC: -left[1], GC: -left[2], Quantity: &zero, Unit: m.line.Unit,
+			PurchaseOrderID: m.line.PurchaseOrderID, POItemNo: m.line.POItemNo}, Line{AccountID: diff, TC: left[0], LC: left[1], GC: left[2]})
 	}
 	return lines, nil
 }
