@@ -3518,7 +3518,7 @@ paths:
       tags:
         - ledger
       summary: Open a fiscal period
-      description: "Opens the period for postings. Requires status `closed` (a `locked` period cannot be reopened)."
+      description: "Opens the period for postings. Requires status `closed`: a `locked` period is not reopened here (409 `ledger.invalid_period_status`)."
       x-permission: ledger.period.manage
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -3577,6 +3577,57 @@ paths:
       responses:
         "200":
           description: The fiscal period after closeFiscalPeriod.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FiscalPeriod"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/fiscal-periods/{id}:lock":
+    post:
+      operationId: lockFiscalPeriod
+      tags:
+        - ledger
+      summary: Lock a fiscal period
+      description: "Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as a closed one does, and `:open` cannot reopen it; only an approved unlock request returns it to `closed`. Requires status `closed`, so the postings under way have finished. Human-only."
+      x-permission: ledger.period.lock
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The fiscal period after lockFiscalPeriod.
           headers:
             ETag:
               $ref: "#/components/headers/ETag"

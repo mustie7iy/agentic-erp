@@ -164,6 +164,7 @@ var operationRolesOidc = map[string][]string{
 	ListRolesOperation:                  []string{},
 	ListSodRulesOperation:               []string{},
 	ListSupplierInvoicesOperation:       []string{},
+	LockFiscalPeriodOperation:           []string{},
 	MatchSupplierInvoiceOperation:       []string{},
 	OpenFiscalPeriodOperation:           []string{},
 	PostGoodsReceiptOperation:           []string{},

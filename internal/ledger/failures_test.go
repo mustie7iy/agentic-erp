@@ -53,6 +53,19 @@ func TestDatabaseFailures(t *testing.T) {
 			t.Error("open period outside a unit of work")
 		}
 	})
+	t.Run("locking a period", func(t *testing.T) {
+		// Locking fails like closing; it needs a closed period.
+		apitest.EveryFailure(t, e.ten, e.ten.Human, "lock period", func(ctx context.Context) error {
+			if _, err := h.CloseFiscalPeriod(ctx, gen.CloseFiscalPeriodParams{ID: d.period, IfMatch: "*"}); err != nil {
+				return err
+			}
+			_, err := h.LockFiscalPeriod(ctx, gen.LockFiscalPeriodParams{ID: d.period, IfMatch: "*"})
+			return err
+		})
+		if _, err := h.LockFiscalPeriod(context.Background(), gen.LockFiscalPeriodParams{ID: d.period, IfMatch: "*"}); err == nil {
+			t.Error("lock period outside a unit of work")
+		}
+	})
 	t.Run("page sizes and list rules", func(t *testing.T) {
 		// Handlers check page sizes and list rules for callers other than the generated router.
 		zero := gen.NewOptInt32(0)

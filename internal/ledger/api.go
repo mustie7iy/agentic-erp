@@ -188,6 +188,15 @@ func (e *Endpoints) CloseFiscalPeriod(ctx context.Context, params gen.CloseFisca
 	return &gen.CloseFiscalPeriodOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: periodToAPI(p)}, nil
 }
 
+// LockFiscalPeriod implements POST /v1/fiscal-periods/{id}:lock.
+func (e *Endpoints) LockFiscalPeriod(ctx context.Context, params gen.LockFiscalPeriodParams) (gen.LockFiscalPeriodRes, error) {
+	p, err := LockPeriod(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CloseFiscalPeriodOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: periodToAPI(p)}, nil
+}
+
 // PostJournalEntry implements POST /v1/journal-entries.
 func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryCreate, _ gen.PostJournalEntryParams) (gen.PostJournalEntryRes, error) {
 	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), DocumentType: req.DocumentType.Or("SA"),

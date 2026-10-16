@@ -424,6 +424,13 @@ Rules enforced in the database:
   deferred constraint trigger at commit; transaction-currency balance is
   checked per currency.
 - Posting requires the period to be open for the legal entity and ledger.
+- A period moves open <-> closed (`:close`, `:open`) and closed -> locked
+  (`:lock`, permission `ledger.period.lock`, people only); the trigger
+  `ledger.check_period_transition` (migration 000050, T32) refuses every
+  other change of status. A locked period refuses what a closed one does and
+  is not reopened by `:open`; only an approved unlock request returns it to
+  closed (T32c). Locking needs a closed period, so the postings under way
+  finished when it closed.
 - A clearing's date falls in an open period of its entry's legal entity
   and ledger (trigger `ledger.check_clearing_period`, migration 000049, T32),
   as a posting date does. A clearing that posts its entry is held to this by
