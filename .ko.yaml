@@ -1,0 +1,34 @@
+# Container images of the three binaries (ADR-0032), built by `make images`.
+#
+# The base is distroless static, nonroot (uid 65532, no shell, CA
+# certificates and time zones included), pinned by the digest of its
+# multi-platform index: a base that moves under a tag would change the image
+# without a change in this repository. The nightly run fails when the tag
+# has moved (scripts/base-image-current.sh), so the digest is bumped in a
+# reviewed change.
+#
+# The binaries are static (CGO_ENABLED=0) and built with -trimpath and an
+# empty build id, and ko dates every layer at the epoch, so an image's digest
+# depends only on the source and this file: the reproducibility gate builds
+# twice and compares. ERP_VERSION, when set, stamps the release version into
+# internal/platform/buildinfo; a build without it reports "devel".
+defaultBaseImage: gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+defaultPlatforms:
+  - linux/amd64
+  - linux/arm64
+builds:
+  - id: erp-server
+    main: ./cmd/erp-server
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -buildid= -X github.com/mustie7iy/agentic-erp/internal/platform/buildinfo.version={{.Env.ERP_VERSION}}"]
+  - id: erp-router
+    main: ./cmd/erp-router
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -buildid= -X github.com/mustie7iy/agentic-erp/internal/platform/buildinfo.version={{.Env.ERP_VERSION}}"]
+  - id: erp
+    main: ./cmd/erp
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -buildid= -X github.com/mustie7iy/agentic-erp/internal/platform/buildinfo.version={{.Env.ERP_VERSION}}"]

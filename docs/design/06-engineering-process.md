@@ -99,7 +99,7 @@ Every change passes, before it is merged:
 | Performance budgets | `-run Budget`, `-run Perf` |
 | Coverage gate | `scripts/coverage.sh`, 100% of production statements |
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
-| Build and container image | `go build`, image scan |
+| Build and container images | `make build`; `make images-reproducible`: the three images built with ko twice, with private caches, and their digests compared; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability (ADR-0032) |
 
 The checks are split between the author's machine and GitHub (the hybrid
 check, since 2026-10-18), so runner minutes go to the independent second
@@ -145,8 +145,9 @@ opinion rather than to repeating the slow gates:
   by hash.
 
 Weekly (Sundays) and on demand before a release: the load and soak suites
-(05 §5.8), the whole suite three times in random order, longer fuzzing,
-dependency updates. Latency budgets on the shared runner are scaled by `ERP_BUDGET_SCALE`
+(05 §5.8), the whole suite three times in random order, longer fuzzing, the
+image scan of `main` again and a check that the pinned base image is still
+its tag's digest (ADR-0032), dependency updates. Latency budgets on the shared runner are scaled by `ERP_BUDGET_SCALE`
 (docs/testing.md); the budgets at scale 1 are checked in a cell-sized
 environment.
 
@@ -257,7 +258,10 @@ A change is done when:
 
 - Trunk-based: short-lived branches, pull requests into `main`, at least one
   reviewer; two for migrations, contracts and security-sensitive code.
-- Conventional commit messages; the pull request links its tracker item.
+- Commit subjects are a sentence naming the tracker item, prefixed `Fix:`,
+  `Refactor:`, `Tests:`, `CI:`, `Plan:` or `Tracker:` where they are one of
+  those; the changelog is generated from them (ADR-0032). The pull request
+  links its tracker item.
 - `main` is always releasable. Releases are container images promoted
   through dev → staging → canary cell → all cells.
 - Feature flags (per tenant) hide incomplete features; flags are removed once

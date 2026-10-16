@@ -11,7 +11,7 @@ on:
       jobs:
         description: Which jobs to run
         type: choice
-        options: [all, shuffle, nfr]
+        options: [all, images, shuffle, nfr]
         default: all
 
 # Weekly, and on demand before a release (06 §6.5): about four hours of
@@ -29,6 +29,25 @@ on:
 # hook) fails here rather than at random in CI. A failure prints the seed;
 # `go test -shuffle=<seed>` replays that order.
 jobs:
+  images:
+    # Vulnerabilities are disclosed after a commit passed CI, and the base
+    # image moves under its tag: rescan main's images every week, and fail
+    # when the pinned distroless digest is no longer the tag's (ADR-0032).
+    if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'images'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Container images
+        run: make images
+      - name: Image scan
+        run: make image-scan
+      - name: Base image still current
+        run: ./scripts/base-image-current.sh
+
   shuffle:
     if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'shuffle'
     runs-on: ubuntu-latest
