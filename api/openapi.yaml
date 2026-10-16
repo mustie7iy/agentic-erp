@@ -7671,7 +7671,7 @@ paths:
       tags:
         - workflow
       summary: Approve an approval request
-      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`)."
+      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending."
       x-permission: workflow.request.decide
       x-agent: false
       parameters:

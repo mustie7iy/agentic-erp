@@ -114,7 +114,8 @@ func (m ManualEntries) endpoints() *Endpoints {
 
 // Approved posts the entry as approved, checked again: a period closed or
 // an account blocked since it was submitted refuses the decision, and the
-// request stays pending. The approver need not act in the entry's legal
+// request stays pending. The refusal's fields name the parked entry's, which the approver
+// reads with the request. The approver need not act in the entry's legal
 // entity: the request authorises the posting.
 func (m ManualEntries) Approved(ctx context.Context, entry, request uuid.UUID) error {
 	tx, p, err := reqctx.Request(ctx)

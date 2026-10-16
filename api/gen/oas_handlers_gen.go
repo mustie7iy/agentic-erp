@@ -626,7 +626,10 @@ func (s *Server) handleActivateOrgUnitRequest(args [1]string, argsEscaped bool, 
 // `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 // object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 // request is `approved` when the last step is complete, and the object moves on (a requisition becomes
-// `approved`, a partner change is applied, a change request becomes `approved`).
+// `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
+// is posted). A manual entry is checked again as it is posted: when that refuses it (409
+// `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the
+// parked entry's), the approval is refused and the request stays pending.
 //
 // POST /v1/approval-requests/{id}:approve
 func (s *Server) handleApproveApprovalRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

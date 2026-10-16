@@ -62,9 +62,11 @@ func TestManualEntryCallbacks(t *testing.T) {
 		"rejected for another request":  func(ctx context.Context) error { return m.Rejected(ctx, id, uuid.New(), "c") },
 		"cancelled for another request": func(ctx context.Context) error { return m.Cancelled(ctx, id, uuid.New(), "c") },
 	} {
-		if err := call(fn); err == nil {
-			t.Errorf("%s: got no error, want the decision refused", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := call(fn); err == nil {
+				t.Errorf("%s: got no error, want the decision refused", name)
+			}
+		})
 	}
 	if err := call(func(ctx context.Context) error { return m.Approved(ctx, id, request) }); err != nil {
 		t.Fatalf("approved: %v", err)
