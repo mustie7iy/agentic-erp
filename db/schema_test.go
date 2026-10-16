@@ -1436,7 +1436,7 @@ func TestLocalCurrencyIsFixed(t *testing.T) {
 	}
 }
 
-// --- GR/IR clearing (T33a, 000052) -------------------------------------------
+// --- GR/IR clearing (T33a, 000053) -------------------------------------------
 
 // failsOn asserts err is a PostgreSQL error raised for the named constraint,
 // the name the application maps to a problem (problem.RegisterConstraint).

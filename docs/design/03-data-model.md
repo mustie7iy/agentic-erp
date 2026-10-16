@@ -514,7 +514,7 @@ Rules enforced in the database:
   the ledger never reads the owner's tables.
 - A line may name the purchase order item it belongs to
   (`purchase_order_id`, `po_item_no`; procurement context, no foreign key;
-  migration 000052, T33a): both or neither (`journal_line_order_item_pair`),
+  migration 000053, T33a): both or neither (`journal_line_order_item_pair`),
   and with a quantity (`journal_line_order_item_quantity`). The ledger keeps
   each order item's GR/IR position on these lines, as SAP's ACDOCA carries
   EBELN/EBELP, so the positions add up to the GR/IR account's balance.
@@ -623,7 +623,7 @@ movement items (102 movements are negative). A materialized
 `po_item_receipt_summary` read model can be added for speed without changing
 the source of truth.
 
-An order's `valuation` (migration 000052, T33a) says how its receipts and
+An order's `valuation` (migration 000053, T33a) says how its receipts and
 invoices are booked: `direct` (invoices post the order item's account, goods
 receipts do not post) or `gr_ir` (goods receipts post Dr the order item's
 account / Cr GR/IR at the order price, invoices clear GR/IR). It is decided
