@@ -276,8 +276,11 @@ and every change to them traces back to an approved change request.
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the invoice price tolerance
-(`invoice_tolerance.price_absolute`) and the auto-post limit
-(`auto_post_limit`). The amounts are read with the digits of the
+(`invoice_tolerance.price_absolute`), the auto-post limit
+(`auto_post_limit`) and the manual entry approval limit
+(`manual_entry_approval_limit`, T35: the largest manual journal entry, by
+its debits, that people post without approval; posting-relevant, so a
+change is approved as one). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local

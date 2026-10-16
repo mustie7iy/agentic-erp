@@ -53,8 +53,12 @@ type Company struct {
 	TaxCodes             []TaxCode            `yaml:"tax_codes" json:"tax_codes"`
 	InvoiceTolerance     Tolerance            `yaml:"invoice_tolerance" json:"invoice_tolerance"`
 	AutoPostLimit        string               `yaml:"auto_post_limit" json:"auto_post_limit"`
-	OverDeliveryPercent  int                  `yaml:"gr_over_delivery_percent" json:"gr_over_delivery_percent"`
-	HouseBank            HouseBank            `yaml:"house_bank" json:"house_bank"`
+	// ManualEntryApprovalLimit is the largest manual journal entry, by its
+	// debits in the company's currency, that people post without approval
+	// (T35); above it the controller approves the entry first.
+	ManualEntryApprovalLimit string    `yaml:"manual_entry_approval_limit" json:"manual_entry_approval_limit"`
+	OverDeliveryPercent      int       `yaml:"gr_over_delivery_percent" json:"gr_over_delivery_percent"`
+	HouseBank                HouseBank `yaml:"house_bank" json:"house_bank"`
 }
 
 // AccountType classifies an account for the balance sheet and the income

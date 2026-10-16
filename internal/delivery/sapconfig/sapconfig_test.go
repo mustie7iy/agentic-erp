@@ -64,7 +64,7 @@ func TestGenerateFromMockSAP(t *testing.T) {
 		}
 	}
 	all := notesText(notes)
-	for _, want := range []string{"auto_post_limit", "fiscal year variant", "release strategies", "bank_change_hold_days",
+	for _, want := range []string{"auto_post_limit", "manual_entry_approval_limit", "fiscal year variant", "release strategies", "bank_change_hold_days",
 		"provision these identity roles", "roles[Z_AP_CLERK]: SAP role"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("got notes without %s, want a note about it:\n%s", want, all)

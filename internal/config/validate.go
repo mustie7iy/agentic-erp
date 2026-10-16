@@ -167,6 +167,7 @@ func (v *validator) company(p string, co *Company) {
 	if known {
 		v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, exp)
 		v.amount(p+".auto_post_limit", co.AutoPostLimit, exp)
+		v.amount(p+".manual_entry_approval_limit", co.ManualEntryApprovalLimit, exp)
 	}
 	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
 		v.err(p+".gr_over_delivery_percent", "must be 0-100")

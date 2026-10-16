@@ -64,7 +64,7 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
 	{rx(`^companies\[\*\]\.(name|country)$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
-	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|house_bank)`), TierPostingRelated},
+	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
 	{rx(`^payment_terms\[\*\]\.description$`), TierCosmetic},
 	{rx(`^payment_terms`), TierOperational},

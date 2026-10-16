@@ -33,6 +33,9 @@ type Options struct {
 	// identity roles the approval policies route to.
 	RequisitionApprover, ReleaseRole, VendorApproverRole string
 	AutoPostLimit                                        string
+	// ManualEntryApprovalLimit is each company's limit for manual journal
+	// entries posted without approval (T35).
+	ManualEntryApprovalLimit string
 }
 
 // DefaultOptions suit a standard S/4HANA procure-to-pay role design.
@@ -46,7 +49,7 @@ func DefaultOptions() Options {
 			{From: "500000", To: "999999", Type: config.Expense},
 		},
 		RequisitionApprover: "Z_PURCH_MGR", ReleaseRole: "Z_TREASURY_MGR", VendorApproverRole: "vendor_master_approver",
-		AutoPostLimit: "50000.00",
+		AutoPostLimit: "50000.00", ManualEntryApprovalLimit: "10000.00",
 	}
 }
 
@@ -169,10 +172,12 @@ func (g *gen) company(t sap.T001) config.Company {
 	p := fmt.Sprintf("companies[%s]", t.BUKRS)
 	co := config.Company{
 		Code: t.BUKRS, Name: t.BUTXT, Currency: t.WAERS, Country: t.LAND1, FiscalYearStartMonth: 1,
-		AutoPostLimit: g.opts.AutoPostLimit, OverDeliveryPercent: 0,
+		AutoPostLimit: g.opts.AutoPostLimit, ManualEntryApprovalLimit: g.opts.ManualEntryApprovalLimit, OverDeliveryPercent: 0,
 	}
 	g.note(p+".fiscal_year_start_month", "fiscal year variant not in extract; assumed calendar year (K4)")
 	g.note(p+".auto_post_limit", "no SAP equivalent; invoices above "+g.opts.AutoPostLimit+" always go to a person")
+	g.note(p+".manual_entry_approval_limit", "SAP releases parked documents by amount in its FI workflow, not in the extract; manual entries above "+
+		g.opts.ManualEntryApprovalLimit+" need the controller's approval")
 	co.ChartOfAccounts = g.chartOfAccounts(p, t.BUKRS)
 	for _, r := range g.e.T030 {
 		if r.BUKRS != t.BUKRS {
