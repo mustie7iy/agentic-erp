@@ -24,7 +24,17 @@ $TERRAFORM fmt -check -recursive deploy/terraform
 for dir in deploy/terraform/modules/* deploy/terraform/envs/*; do
   echo "== $dir"
   $TERRAFORM -chdir="$dir" init -backend=false -input=false >/dev/null
-  $TERRAFORM -chdir="$dir" validate -no-color
+  # A module that takes an aliased provider (configuration_aliases) cannot
+  # be validated alone: nothing configures the alias. Its tests pass it a
+  # mock provider and the roots that call it are validated, so both check it.
+  if grep -q configuration_aliases "$dir"/*.tf; then
+    if [ ! -d "$dir/tests" ]; then
+      echo "deploy-checks: $dir takes an aliased provider but has no tests to validate it" >&2
+      exit 1
+    fi
+  else
+    $TERRAFORM -chdir="$dir" validate -no-color
+  fi
   if [ -d "$dir/tests" ]; then
     $TERRAFORM -chdir="$dir" test -no-color
   fi
