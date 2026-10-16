@@ -98,16 +98,34 @@ func TestFiscalPeriods(t *testing.T) {
 	if opened["updated_by"] != e.ten.Human.ID.String() {
 		t.Errorf("opened updated_by: got %v, want %s", opened["updated_by"], e.ten.Human.ID)
 	}
-	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'locked', version = version + 1 WHERE id = $1`, id)
-	e.Problem(409, "ledger.invalid_period_status", "POST", "/v1/fiscal-periods/"+id+":open", "", "*")
+	// Only a closed period locks, and a locked one neither opens nor closes.
+	e.Problem(409, "ledger.invalid_period_status", "POST", "/v1/fiscal-periods/"+id+":lock", "", "*")
+	_, tag = e.Must(200, "POST", "/v1/fiscal-periods/"+id+":close", "", "*")
+	agent := e.Client
+	agent.As = e.ten.Agent
+	agent.Problem(403, "identity.agent_not_allowed", "POST", "/v1/fiscal-periods/"+id+":lock", "", tag)
+	e.Problem(412, "request.version_mismatch", "POST", "/v1/fiscal-periods/"+id+":lock", "", `"1"`)
+	locked, tag := e.Must(200, "POST", "/v1/fiscal-periods/"+id+":lock", "", tag)
+	if locked["status"] != "locked" {
+		t.Errorf("locked status: got %v, want locked", locked["status"])
+	}
+	for _, op := range []string{":open", ":close", ":lock"} {
+		e.Problem(409, "ledger.invalid_period_status", "POST", "/v1/fiscal-periods/"+id+op, "", tag)
+	}
 	e.Problem(404, "request.not_found", "GET", "/v1/fiscal-periods/"+uuid.NewString(), "", "")
 	e.Problem(404, "request.not_found", "POST", "/v1/fiscal-periods/"+uuid.NewString()+":open", "", "*")
-	o, c := events(t, e.ten, "period_opened"), events(t, e.ten, "period_closed")
+	o, c, l := events(t, e.ten, "period_opened"), events(t, e.ten, "period_closed"), events(t, e.ten, "period_locked")
 	if len(o) != 1 {
 		t.Errorf("period_opened events: got %d %v, want 1", len(o), o)
 	}
-	if len(c) != 1 {
-		t.Fatalf("period_closed events: got %d %v, want 1", len(c), c)
+	if len(c) != 2 {
+		t.Fatalf("period_closed events: got %d %v, want 2", len(c), c)
+	}
+	if len(l) != 1 {
+		t.Fatalf("period_locked events: got %d %v, want 1", len(l), l)
+	}
+	if l[0]["status"] != "locked" || l[0]["previous_status"] != "closed" {
+		t.Errorf("period_locked status: got %v from %v, want locked from closed", l[0]["status"], l[0]["previous_status"])
 	}
 	if c[0]["previous_status"] != "open" {
 		t.Errorf("period_closed previous_status: got %v, want open", c[0]["previous_status"])
@@ -115,8 +133,6 @@ func TestFiscalPeriods(t *testing.T) {
 	if c[0]["start_date"] != "2026-01-01" {
 		t.Errorf("period_closed start_date: got %v, want 2026-01-01", c[0]["start_date"])
 	}
-	agent := e.Client
-	agent.As = e.ten.Agent
 	agent.Problem(404, "request.not_found", "GET", "/v1/fiscal-periods/"+id, "", "")
 }
 

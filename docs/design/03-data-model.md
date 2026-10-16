@@ -424,6 +424,22 @@ Rules enforced in the database:
   deferred constraint trigger at commit; transaction-currency balance is
   checked per currency.
 - Posting requires the period to be open for the legal entity and ledger.
+- A period moves open <-> closed (`:close`, `:open`) and closed -> locked
+  (`:lock`, permission `ledger.period.lock`, people only); the trigger
+  `ledger.check_period_transition` (migration 000050, T32) refuses every
+  other change of status. A locked period refuses what a closed one does and
+  is not reopened by `:open`; only an approved unlock request returns it to
+  closed (T32c). Locking needs a closed period, so the postings under way
+  finished when it closed.
+- A clearing's entry is one of the clearing's legal entity, and its date
+  falls in an open period of that legal entity and the entry's ledger
+  (trigger `ledger.check_clearing_period`, migration 000049, T32), as a
+  posting date does. A clearing that posts its entry is held to this by the
+  entry already; a migrated clearing (`Postings.Clear`) records one against
+  an entry already posted, so the rule is on `ledger.clearing`, and the
+  ledger checks it first (`clearingPeriod`: 422
+  `ledger.invalid_clearing_entry`, 409 `ledger.period_not_open`, 422
+  `ledger.no_fiscal_period`).
 - A line is cleared at most once (`clearing_item` unique on the line).
 - Open items are lines on reconciliation accounts without a clearing item.
 - A reversal clears the original's open items against the matching lines of
@@ -740,7 +756,11 @@ trigger `ledger.check_entry_period` reads the status `FOR SHARE` too
 (migration 000043, F8b), so an insert into `journal_entry` that did not go
 through `postingPeriod` would still hold its period against a close. On the
 one insert path there is, the lock is already held by `postingPeriod` in the
-same transaction, so the trigger adds no step to the lock order.
+same transaction, so the trigger adds no step to the lock order. A
+migrated clearing takes its period's row `FOR SHARE` in `clearingPeriod`
+after the entry buckets `loadItems` takes, and the clearing trigger reads it
+`FOR SHARE` again, so a close waits for a migrated clearing as it does for a
+posting, in the same order.
 
 A transaction that would otherwise lock in several
 steps or after posting, the migration load (it posts every document, then

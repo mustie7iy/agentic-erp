@@ -2171,6 +2171,7 @@ func (*BadRequestHeaders) listRolePermissionsRes()        {}
 func (*BadRequestHeaders) listRolesRes()                  {}
 func (*BadRequestHeaders) listSodRulesRes()               {}
 func (*BadRequestHeaders) listSupplierInvoicesRes()       {}
+func (*BadRequestHeaders) lockFiscalPeriodRes()           {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()       {}
 func (*BadRequestHeaders) openFiscalPeriodRes()           {}
 func (*BadRequestHeaders) postGoodsReceiptRes()           {}
@@ -5085,6 +5086,7 @@ func (s *CloseFiscalPeriodOKHeaders) SetResponse(val FiscalPeriod) {
 }
 
 func (*CloseFiscalPeriodOKHeaders) closeFiscalPeriodRes() {}
+func (*CloseFiscalPeriodOKHeaders) lockFiscalPeriodRes()  {}
 func (*CloseFiscalPeriodOKHeaders) openFiscalPeriodRes()  {}
 
 // Body of a rejection or cancellation decision.
@@ -5874,6 +5876,7 @@ func (*ConflictHeaders) endSodRuleRes()               {}
 func (*ConflictHeaders) getBankFileContentRes()       {}
 func (*ConflictHeaders) grantRolePermissionRes()      {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()      {}
+func (*ConflictHeaders) lockFiscalPeriodRes()         {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()     {}
 func (*ConflictHeaders) openFiscalPeriodRes()         {}
 func (*ConflictHeaders) postGoodsReceiptRes()         {}
@@ -8627,6 +8630,7 @@ func (*ForbiddenHeaders) listRolePermissionsRes()        {}
 func (*ForbiddenHeaders) listRolesRes()                  {}
 func (*ForbiddenHeaders) listSodRulesRes()               {}
 func (*ForbiddenHeaders) listSupplierInvoicesRes()       {}
+func (*ForbiddenHeaders) lockFiscalPeriodRes()           {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()       {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()           {}
 func (*ForbiddenHeaders) postGoodsReceiptRes()           {}
@@ -13251,6 +13255,7 @@ func (*NotFoundHeaders) listMatchResultsRes()           {}
 func (*NotFoundHeaders) listPaymentExclusionsRes()      {}
 func (*NotFoundHeaders) listPaymentsRes()               {}
 func (*NotFoundHeaders) listRolePermissionsRes()        {}
+func (*NotFoundHeaders) lockFiscalPeriodRes()           {}
 func (*NotFoundHeaders) matchSupplierInvoiceRes()       {}
 func (*NotFoundHeaders) openFiscalPeriodRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()        {}
@@ -17432,6 +17437,7 @@ func (*PreconditionFailedHeaders) endRoleAssignmentRes()      {}
 func (*PreconditionFailedHeaders) endRolePermissionRes()      {}
 func (*PreconditionFailedHeaders) endSodRuleRes()             {}
 func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()    {}
+func (*PreconditionFailedHeaders) lockFiscalPeriodRes()       {}
 func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()   {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()       {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()    {}
@@ -17564,6 +17570,7 @@ func (*PreconditionRequiredHeaders) endRolePermissionRes()        {}
 func (*PreconditionRequiredHeaders) endSodRuleRes()               {}
 func (*PreconditionRequiredHeaders) grantRolePermissionRes()      {}
 func (*PreconditionRequiredHeaders) holdSupplierInvoiceRes()      {}
+func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()         {}
 func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()     {}
 func (*PreconditionRequiredHeaders) openFiscalPeriodRes()         {}
 func (*PreconditionRequiredHeaders) postGoodsReceiptRes()         {}
@@ -22077,6 +22084,7 @@ func (*ServiceUnavailableHeaders) endSodRuleRes()                 {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes() {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()        {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()        {}
+func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()           {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()       {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()           {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()           {}
@@ -23737,6 +23745,7 @@ func (*TooManyRequestsHeaders) listRolePermissionsRes()        {}
 func (*TooManyRequestsHeaders) listRolesRes()                  {}
 func (*TooManyRequestsHeaders) listSodRulesRes()               {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()       {}
+func (*TooManyRequestsHeaders) lockFiscalPeriodRes()           {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()       {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()           {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()           {}
@@ -23964,6 +23973,7 @@ func (*UnauthorizedHeaders) listRolePermissionsRes()        {}
 func (*UnauthorizedHeaders) listRolesRes()                  {}
 func (*UnauthorizedHeaders) listSodRulesRes()               {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()       {}
+func (*UnauthorizedHeaders) lockFiscalPeriodRes()           {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()       {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()           {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()           {}
@@ -24103,6 +24113,7 @@ func (*UnprocessableHeaders) endRolePermissionRes()        {}
 func (*UnprocessableHeaders) endSodRuleRes()               {}
 func (*UnprocessableHeaders) grantRolePermissionRes()      {}
 func (*UnprocessableHeaders) holdSupplierInvoiceRes()      {}
+func (*UnprocessableHeaders) lockFiscalPeriodRes()         {}
 func (*UnprocessableHeaders) matchSupplierInvoiceRes()     {}
 func (*UnprocessableHeaders) openFiscalPeriodRes()         {}
 func (*UnprocessableHeaders) postGoodsReceiptRes()         {}

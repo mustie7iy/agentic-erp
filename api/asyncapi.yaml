@@ -198,6 +198,7 @@ channels:
       ItemsCleared: {$ref: '#/components/messages/ItemsCleared'}
       PeriodOpened: {$ref: '#/components/messages/PeriodOpened'}
       PeriodClosed: {$ref: '#/components/messages/PeriodClosed'}
+      PeriodLocked: {$ref: '#/components/messages/PeriodLocked'}
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
   procurement:
     address: 'erp.{cell}.procurement.{tenant}.{event}'
@@ -358,6 +359,7 @@ operations:
       - $ref: '#/channels/ledger/messages/ItemsCleared'
       - $ref: '#/channels/ledger/messages/PeriodOpened'
       - $ref: '#/channels/ledger/messages/PeriodClosed'
+      - $ref: '#/channels/ledger/messages/PeriodLocked'
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
   publishProcurementEvents:
     action: send
@@ -752,12 +754,12 @@ components:
     PeriodClosed:
       name: PeriodClosed
       title: Posting period closed
-      summary: A fiscal period was closed (or locked) for posting.
+      summary: A fiscal period was closed for posting.
       description: |
         Emitted by `fiscal-periods/{id}:close` (synchronous: the request
         answers 200 with the period) when `ledger.period_status` becomes
-        `closed` or `locked`. Postings into the period are refused from
-        then on. Subject is the period status id.
+        `closed`. Postings, reversals and clearings dated in the period are
+        refused from then on. Subject is the period status id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -769,6 +771,28 @@ components:
         - name: sep-2026
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000000f, source: /erp/eu-1/ledger, type: com.example.erp.ledger.period_closed.v1, subject: 0192a000-0000-7000-8000-000000000205, time: '2026-10-06T18:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: closed, previous_status: open}
+    PeriodLocked:
+      name: PeriodLocked
+      title: Posting period locked
+      summary: A closed fiscal period was locked for good.
+      description: |
+        Emitted by `fiscal-periods/{id}:lock` (synchronous: the request
+        answers 200 with the period) when `ledger.period_status` goes from
+        `closed` to `locked`. The period refuses postings, reversals and
+        clearings as a closed one does, and is not reopened by `:open`;
+        only an approved unlock request returns it to `closed`. Subject is
+        the period status id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.period_locked.v1}
+      payload: {$ref: '#/components/schemas/PeriodStatusChangedV1'}
+      examples:
+        - name: sep-2026
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000082, source: /erp/eu-1/ledger, type: com.example.erp.ledger.period_locked.v1, subject: 0192a000-0000-7000-8000-000000000205, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: locked, previous_status: closed}
 
     # ------------------------------------------------------------ procurement
     RequisitionSubmitted:

@@ -439,6 +439,51 @@ func TestPostingPeriods(t *testing.T) {
 	failsWith(t, err, "outside period")
 }
 
+// TestPeriodTransitions: a period moves open <-> closed and closed ->
+// locked, and no other way (000050, T32): a locked period never reopens
+// by an update, and nothing locks a period still open for postings.
+func TestPeriodTransitions(t *testing.T) {
+	need(t)
+	set := func(tenant uuid.UUID, status string) error {
+		_, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = $2, version = version + 1
+			WHERE tenant_id = $1 AND fiscal_year = 2026 AND period = 5`, tenant, status)
+		return err
+	}
+	// Each case has a tenant of its own and puts period 5 (open) in its
+	// starting status by allowed steps, so no case depends on another.
+	path := map[string][]string{"open": {"closed", "open"}, "closed": {"open", "closed"}, "locked": {"open", "closed", "locked"}}
+	for _, c := range []struct {
+		from, to string
+		want     string // empty: allowed
+	}{
+		{"open", "locked", "cannot go from open to locked"},
+		{"open", "open", ""},
+		{"open", "closed", ""},
+		{"closed", "open", ""},
+		{"closed", "locked", ""},
+		{"locked", "open", "cannot go from locked to open"},
+		{"locked", "closed", "cannot go from locked to closed"},
+		{"locked", "locked", ""},
+	} {
+		t.Run(c.from+" to "+c.to, func(t *testing.T) {
+			f := newFixture(t)
+			for _, step := range path[c.from] {
+				if err := set(f.tenant, step); err != nil {
+					t.Fatalf("set up %s: %v", c.from, err)
+				}
+			}
+			err := set(f.tenant, c.to)
+			if c.want == "" {
+				if err != nil {
+					t.Errorf("got %v, want no error", err)
+				}
+				return
+			}
+			failsWith(t, err, c.want)
+		})
+	}
+}
+
 // TestPostingHoldsItsPeriod: inserting an entry holds its period's status
 // row FOR SHARE until the transaction ends (F8b, 000043), as the ledger's
 // postingPeriod does, so a close, which locks the row FOR UPDATE, waits for
@@ -457,6 +502,99 @@ func TestPostingHoldsItsPeriod(t *testing.T) {
 			return fmt.Errorf("post: %w", err)
 		}
 		_, err := closer.Exec(ctx, `SELECT FROM ledger.period_status WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = 2026 AND period = 7
+			FOR UPDATE NOWAIT`, f.tenant, f.entity)
+		return err
+	})
+	failsWith(t, err, "could not obtain lock on row in relation \"period_status\"")
+}
+
+// TestClearingsRespectPeriods: a clearing is dated in a fiscal period of
+// its entry's legal entity and ledger, and that period is open (000049,
+// 03-data-model §3.10), as an entry's posting date is. A clearing posts no
+// entry when a migration brings it over, so the rule is on the clearing.
+func TestClearingsRespectPeriods(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var pay uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		pay, err = f.entry(tx, 6, "2026-06-20", line{account: f.ap, amount: 700, partner: &f.supplier}, line{account: f.bank, amount: -700})
+		return err
+	})
+	// Period 1 starts closed: lock it. Close period 2.
+	for period, status := range map[int]string{1: "locked", 2: "closed"} {
+		if _, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = $3, version = version + 1
+			WHERE tenant_id = $1 AND period = $2`, f.tenant, period, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clear := func(day string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by) VALUES ($1,$2,$3,$4,2026,$5,$6)",
+				f.tenant, id(), f.entity, day, pay, f.actor)
+		})
+	}
+	for name, c := range map[string]struct{ day, want string }{
+		"locked period":    {"2026-01-20", "is locked"},
+		"closed period":    {"2026-02-20", "is closed"},
+		"no fiscal period": {"2027-01-05", "no fiscal period"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, clear(c.day), c.want) })
+	}
+	if err := clear("2026-07-01"); err != nil {
+		t.Errorf("clearing in an open period: got %v, want none", err)
+	}
+	// The clearing entry exists and is of the clearing's legal entity.
+	other := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by) VALUES ($1,$2,'2000','Acme DE','DE','EUR',$3,'active',$4,$4)",
+			f.tenant, other, f.calendar, f.actor)
+	})
+	for name, c := range map[string]struct {
+		entity, entry  uuid.UUID
+		want, sqlState string
+	}{
+		"entry of another legal entity": {other, pay, "belongs to another legal entity", "23514"},
+		"entry that does not exist":     {f.entity, id(), "does not exist", "23503"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by) VALUES ($1,$2,$3,'2026-07-01',2026,$4,$5)",
+					f.tenant, id(), c.entity, c.entry, f.actor)
+			})
+			failsWith(t, err, c.want)
+			var pg *pgconn.PgError
+			if errors.As(err, &pg) && pg.Code != c.sqlState {
+				t.Errorf("SQLSTATE: got %s, want %s", pg.Code, c.sqlState)
+			}
+		})
+	}
+}
+
+// TestClearingHoldsItsPeriod: inserting a clearing holds its period's
+// status row FOR SHARE until the transaction ends, as posting does, so a
+// close waits for it.
+func TestClearingHoldsItsPeriod(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	ctx := context.Background()
+	var pay uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		pay, err = f.entry(tx, 6, "2026-06-20", line{account: f.ap, amount: 700, partner: &f.supplier}, line{account: f.bank, amount: -700})
+		return err
+	})
+	closer, err := pgx.ConnectConfig(ctx, testDB.Config().Copy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = closer.Close(ctx) }() // a close error leaves nothing to undo: the session ends either way
+	err = asApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, "INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by) VALUES ($1,$2,$3,'2026-08-03',2026,$4,$5)",
+			f.tenant, id(), f.entity, pay, f.actor); err != nil {
+			return fmt.Errorf("clear: %w", err)
+		}
+		_, err := closer.Exec(ctx, `SELECT FROM ledger.period_status WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = 2026 AND period = 8
 			FOR UPDATE NOWAIT`, f.tenant, f.entity)
 		return err
 	})

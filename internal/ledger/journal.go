@@ -166,15 +166,28 @@ func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgerID uu
 	}
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		return 0, 0, problem.Unprocessable("ledger.no_fiscal_period", "No fiscal period of the legal entity covers "+day+
-			"; a fiscal year is set up by a number range for it in the configuration.",
-			problem.FieldError{Field: "posting_date", Code: "no_fiscal_period", Message: "a date in a fiscal year that is set up"})
+		return 0, 0, noFiscalPeriod("posting_date", "No fiscal period of the legal entity covers "+day+
+			"; a fiscal year is set up by a number range for it in the configuration.")
 	case err != nil:
 		return 0, 0, fmt.Errorf("ledger: posting period of %s on %s: %w", e.ID, day, err)
-	case status != Open:
-		return 0, 0, problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; postings dated %s need it open.", year, number, status, day))
 	}
-	return year, number, nil
+	return year, number, mustBeOpen(year, number, status, "postings dated "+day)
+}
+
+// noFiscalPeriod refuses a document dated outside every fiscal period;
+// field names the request field that holds the date.
+func noFiscalPeriod(field, detail string) error {
+	return problem.Unprocessable("ledger.no_fiscal_period", detail,
+		problem.FieldError{Field: field, Code: "no_fiscal_period", Message: "a date in a fiscal year that is set up"})
+}
+
+// mustBeOpen refuses a document dated in a period that is not open, closed
+// or locked alike; what names the documents ("postings dated ...").
+func mustBeOpen(year, number int16, status, what string) error {
+	if status == Open {
+		return nil
+	}
+	return problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; %s need it open.", year, number, status, what))
 }
 
 // post inserts a balanced entry with its lines, publishes JournalEntryPosted

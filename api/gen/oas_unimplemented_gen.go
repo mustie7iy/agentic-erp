@@ -1191,6 +1191,17 @@ func (UnimplementedHandler) ListSupplierInvoices(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// LockFiscalPeriod implements lockFiscalPeriod operation.
+//
+// Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
+// a closed one does, and `:open` cannot reopen it; only an approved unlock request returns it to
+// `closed`. Requires status `closed`, so the postings under way have finished. Human-only.
+//
+// POST /v1/fiscal-periods/{id}:lock
+func (UnimplementedHandler) LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (r LockFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // MatchSupplierInvoice implements matchSupplierInvoice operation.
 //
 // Evaluates the invoice against its purchase order and goods receipts with the active tolerances and
@@ -1203,7 +1214,8 @@ func (UnimplementedHandler) MatchSupplierInvoice(ctx context.Context, params Mat
 
 // OpenFiscalPeriod implements openFiscalPeriod operation.
 //
-// Opens the period for postings. Requires status `closed` (a `locked` period cannot be reopened).
+// Opens the period for postings. Requires status `closed`: a `locked` period is not reopened here (409
+// `ledger.invalid_period_status`).
 //
 // POST /v1/fiscal-periods/{id}:open
 func (UnimplementedHandler) OpenFiscalPeriod(ctx context.Context, params OpenFiscalPeriodParams) (r OpenFiscalPeriodRes, _ error) {

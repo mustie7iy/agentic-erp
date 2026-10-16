@@ -501,6 +501,10 @@ type ListSupplierInvoicesRes interface {
 	listSupplierInvoicesRes()
 }
 
+type LockFiscalPeriodRes interface {
+	lockFiscalPeriodRes()
+}
+
 type MatchSupplierInvoiceRes interface {
 	matchSupplierInvoiceRes()
 }

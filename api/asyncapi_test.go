@@ -368,7 +368,7 @@ func TestAsyncAPIRequiredEvents(t *testing.T) {
 		"LegalEntityCreated", "RoleAssigned", "AccessRevoked", "ConfigurationActivated",
 		"ChangeRequestSubmitted", "ChangeRequestApproved", "BusinessPartnerCreated", "SupplierApproved",
 		"BankAccountChanged", "PartnerBlocked", "JournalEntryPosted", "JournalEntryReversed", "ItemsCleared",
-		"PeriodOpened", "PeriodClosed", "RequisitionSubmitted", "PurchaseOrderReleased", "GoodsReceived",
+		"PeriodOpened", "PeriodClosed", "PeriodLocked", "RequisitionSubmitted", "PurchaseOrderReleased", "GoodsReceived",
 		"GoodsReceiptReversed", "SupplierInvoiceCaptured", "SupplierInvoiceMatched", "InvoiceHeld",
 		"SupplierInvoicePosted", "SupplierInvoiceCancelled", "SupplierInvoiceReversed", "PaymentRunProposed", "PaymentRunReleased",
 		"PaymentRunRejected", "BankFileTransmitted", "ApprovalRequested", "ApprovalCompleted",

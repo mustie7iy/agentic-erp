@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -57,6 +58,9 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	if err != nil {
 		return uuid.Nil, err
 	}
+	if err := clearingPeriod(ctx, tx, legalEntity, by, date); err != nil {
+		return uuid.Nil, err
+	}
 	var currencies []string
 	for _, it := range loaded {
 		currencies = append(currencies, it.currency)
@@ -75,6 +79,43 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	}
 	return id, audit.Add(ctx, audit.Entry{Action: "ledger.clearing.create", ObjectType: "ledger.clearing", ObjectID: id, Outcome: "succeeded",
 		Detail: map[string]any{"items": len(items), "clearing_entry_id": by.EntryID, "migrated": true}})
+}
+
+// clearingPeriod requires the clearing entry to be one of the legal
+// entity's and the clearing date to fall in an open period of the legal
+// entity and the entry's ledger, and holds the period's status row FOR
+// SHARE until the transaction ends, as postingPeriod does for a posting: a
+// close or lock waits for the clearing. A migrated clearing posts no entry,
+// so nothing else checks its entry or date; ledger.clearing's trigger
+// (000049) is the backstop. The lock comes after the entry buckets
+// loadItems takes, the order postingPeriod keeps.
+func clearingPeriod(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, by ItemRef, date time.Time) error {
+	var entity, book uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT legal_entity_id, ledger_id FROM ledger.journal_entry WHERE fiscal_year = $1 AND id = $2`,
+		by.FiscalYear, by.EntryID).Scan(&entity, &book)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return problem.Unprocessable("ledger.invalid_clearing_entry", fmt.Sprintf("Entry %d/%s does not exist.", by.FiscalYear, by.EntryID))
+	case err != nil:
+		return fmt.Errorf("ledger: clearing entry %s: %w", by.EntryID, err)
+	case entity != legalEntity:
+		return problem.Unprocessable("ledger.invalid_clearing_entry", "Entry "+by.EntryID.String()+" belongs to another legal entity.")
+	}
+	var year, number int16
+	var status string
+	day := date.Format(time.DateOnly)
+	err = tx.QueryRow(ctx, `SELECT ps.fiscal_year, ps.period, ps.status FROM ledger.period_status ps
+		JOIN ledger.fiscal_period fp ON fp.tenant_id = ps.tenant_id AND fp.calendar_id = ps.calendar_id
+			AND fp.fiscal_year = ps.fiscal_year AND fp.period = ps.period
+		WHERE ps.legal_entity_id = $1 AND ps.ledger_id = $2 AND NOT fp.is_special AND $3 BETWEEN fp.start_date AND fp.end_date
+		FOR SHARE OF ps`, entity, book, date).Scan(&year, &number, &status)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return noFiscalPeriod("clearing_date", "No fiscal period of the legal entity and the clearing entry's ledger covers "+day+".")
+	case err != nil:
+		return fmt.Errorf("ledger: clearing period of %s on %s: %w", legalEntity, day, err)
+	}
+	return mustBeOpen(year, number, status, "clearings dated "+day)
 }
 
 // migratedItems checks the items a migrated clearing settles (open items of

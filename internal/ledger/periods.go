@@ -93,6 +93,15 @@ func ClosePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (
 	return changePeriod(ctx, id, ifMatch, Open, Closed, "close", "period_closed")
 }
 
+// LockPeriod locks a closed period for good: it refuses postings as a
+// closed period does, and OpenPeriod does not reopen it. Locking a closed
+// period, not an open one, means the postings under way have finished
+// (ClosePeriod waited for them); the database refuses any other way in or
+// out of locked (000050).
+func LockPeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Period, error) {
+	return changePeriod(ctx, id, ifMatch, Closed, Locked, "lock", "period_locked")
+}
+
 func changePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, from, to, action, event string) (Period, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {

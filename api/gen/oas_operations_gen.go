@@ -131,6 +131,7 @@ const (
 	ListRolesOperation                  OperationName = "ListRoles"
 	ListSodRulesOperation               OperationName = "ListSodRules"
 	ListSupplierInvoicesOperation       OperationName = "ListSupplierInvoices"
+	LockFiscalPeriodOperation           OperationName = "LockFiscalPeriod"
 	MatchSupplierInvoiceOperation       OperationName = "MatchSupplierInvoice"
 	OpenFiscalPeriodOperation           OperationName = "OpenFiscalPeriod"
 	PostGoodsReceiptOperation           OperationName = "PostGoodsReceipt"
