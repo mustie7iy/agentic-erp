@@ -554,8 +554,9 @@ Rules enforced in the database:
   order items from these lines: received quantity (the procurement
   context's lines, negated), invoiced quantity (the others'), balance in
   the three currencies and last posting date, open ones by default, on a
-  key date with `posting_date_to`; together they are the GR/IR account's
-  balance.
+  key date with `posting_date_to`; together they are the leading ledger's
+  GR/IR balance from goods receipts and invoices (lines a migration run
+  loaded without an order item are on the account but in no position).
   A reversal mirrors its entry; where it brings an order item's quantity to
   zero and rounding leaves a balance (the item moved since), it adds a
   GR/IR line of quantity 0 that clears it against `price_difference`, so a

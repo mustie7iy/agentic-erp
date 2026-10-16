@@ -7,6 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -79,13 +82,21 @@ func TestGRIRBalances(t *testing.T) {
 		}
 	})
 	t.Run("adds up to the account", func(t *testing.T) {
-		var account int64
+		var listed money.Minor
+		for _, it := range list(t, "&open_only=false")["items"].([]any) {
+			amount, err := money.ParseAmount(it.(map[string]any)["balance"].(map[string]any)["amount"].(string), 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			listed += amount
+		}
+		var account money.Minor
 		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT sum(amount_tc)::bigint FROM ledger.journal_line WHERE tenant_id = $1 AND account_id = $2`,
 			g.ten.ID, g.grir).Scan(&account); err != nil {
 			t.Fatal(err)
 		}
-		if account != -1000 {
-			t.Errorf("GR/IR account balance: got %d, want -1000, the listed positions' sum", account)
+		if listed != account {
+			t.Errorf("listed balances: got %d, want the GR/IR account's %d", listed, account)
 		}
 	})
 	t.Run("without company access", func(t *testing.T) {
@@ -97,4 +108,53 @@ func TestGRIRBalances(t *testing.T) {
 		}
 	})
 	g.Problem(400, "request.invalid_order_by", "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&order_by=balance", "", "")
+}
+
+// TestGRIRBalanceAmounts: an invoice's reversal takes its quantity off the
+// invoiced; a reversal's adjustment line moves no quantity; a position of
+// a USD order shows its local and group balances at the receipt's rate.
+func TestGRIRBalanceAmounts(t *testing.T) {
+	g := grirSetup(t)
+	settleRate(t, g.env, "USD", "2026-03-01", "0.9")
+	reversed, residue, usd := uuid.New(), uuid.New(), uuid.New()
+	g.post(t, g.receiptPosting("2026-03-02", "EUR", reversed, "-5", price{500, 1}))
+	invoice := g.post(t, g.invoicePosting("2026-03-03", "EUR", reversed, "5", price{500, 1}, 2500))
+	g.post(t, g.invoicePosting("2026-03-02", "EUR", residue, "1", price{1, 3}, 1))
+	second := g.post(t, g.invoicePosting("2026-03-03", "EUR", residue, "1", price{1, 3}, 1))
+	g.post(t, g.receiptPosting("2026-03-04", "EUR", residue, "-1", price{1, 3}))
+	for _, e := range []ledger.Entry{invoice, second} {
+		if err := apitest.Committed(t, g.ten, g.ten.Human, func(ctx context.Context) error {
+			_, err := postings().Reverse(ctx, e.ID, nil, nil)
+			return err
+		}); err != nil {
+			t.Fatalf("reverse: %v", err)
+		}
+	}
+	g.post(t, g.receiptPosting("2026-03-05", "USD", usd, "-100", price{100, 1}))
+	for _, c := range []struct {
+		name  string
+		order uuid.UUID
+		want  string
+	}{
+		{"invoice reversed", reversed, "5 0 -25.00 -25.00 -25.00"},
+		{"residue adjusted", residue, "1 1 0.00 0.00 0.00"},
+		{"in USD", usd, "100 0 -100.00 -90.00 -90.00"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			client := g.Client
+			client.T = t
+			page, _ := client.Must(200, "GET", "/v1/gr-ir-balances?open_only=false&legal_entity_id="+g.de.String()+"&purchase_order_id="+c.order.String(), "", "")
+			items := page["items"].([]any)
+			if len(items) != 1 {
+				t.Fatalf("positions: got %d, want 1", len(items))
+			}
+			b := items[0].(map[string]any)
+			amount := func(k string) any { return b[k].(map[string]any)["amount"] }
+			got := fmt.Sprint(b["received_quantity"].(map[string]any)["value"], " ", b["invoiced_quantity"].(map[string]any)["value"], " ",
+				amount("balance"), " ", amount("balance_lc"), " ", amount("balance_gc"))
+			if got != c.want {
+				t.Errorf("received, invoiced, balances: got %s, want %s", got, c.want)
+			}
+		})
+	}
 }

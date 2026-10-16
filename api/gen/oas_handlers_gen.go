@@ -20549,11 +20549,11 @@ func (s *Server) handleListGoodsReceiptsRequest(args [0]string, argsEscaped bool
 
 // handleListGrIrBalancesRequest handles listGrIrBalances operation.
 //
-// The GR/IR position of each purchase order item of a legal entity: its received and invoiced
-// quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive:
-// invoiced, not yet received). A position is zero in every currency once its received and invoiced
-// quantities agree. Only orders valued through GR/IR have positions. `posting_date_to` gives the
-// positions on a key date. Sortable by: `purchase_order_id`, `last_posting_date`.
+// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
+// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
+// positive: invoiced, not yet received). A position is zero in every currency once its received and
+// invoiced quantities agree. Only orders valued through GR/IR have positions. `posting_date_to` gives
+// the positions on a key date. Sortable by: `purchase_order_id`, `last_posting_date`.
 //
 // GET /v1/gr-ir-balances
 func (s *Server) handleListGrIrBalancesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -36,13 +36,15 @@ type GRIRBalance struct {
 // grirBalanceSelect sums each order item's lines on the legal entity's
 // GR/IR account in the leading ledger up to a key date. Receipts are the
 // procurement context's lines (their quantity credited, so negated here),
-// invoices the payables context's; a reversal is its document's context's.
+// invoices the payables context's; a reversal is its document's context's,
+// and a reversal's adjustment line moves no quantity. Only those two
+// contexts post order items today; another's would count in neither.
 // $1, $2: company access; $3 legal entity; $4 order or NULL; $5 key date or
 // NULL; $6 open positions only.
 const grirBalanceSelect = `SELECT * FROM (SELECT md5(l.purchase_order_id::text || '/' || l.po_item_no)::uuid AS id, l.legal_entity_id, l.purchase_order_id,
 		l.po_item_no, l.account_id,
 		trim_scale(coalesce(-sum(l.quantity) FILTER (WHERE e.source_context = 'procurement'), 0))::text AS received,
-		trim_scale(coalesce(sum(l.quantity) FILTER (WHERE e.source_context <> 'procurement'), 0))::text AS invoiced,
+		trim_scale(coalesce(sum(l.quantity) FILTER (WHERE e.source_context = 'payables'), 0))::text AS invoiced,
 		min(l.uom_code) AS unit, sum(l.amount_tc)::bigint AS tc, sum(l.amount_lc)::bigint AS lc, sum(l.amount_gc)::bigint AS gc,
 		min(e.currency_tc) AS currency_tc, min(e.currency_lc) AS currency_lc, min(e.currency_gc) AS currency_gc,
 		min(ctc.exponent) AS exp_tc, min(clc.exponent) AS exp_lc, min(cgc.exponent) AS exp_gc, max(l.posting_date) AS last_posting_date,
@@ -87,23 +89,20 @@ func (e *Endpoints) ListGrIrBalances(ctx context.Context, params gen.ListGrIrBal
 	if err != nil {
 		return nil, fmt.Errorf("ledger: list GR/IR balances of %s: %w", params.LegalEntityID, err)
 	}
-	list, next := pagination.Page(ks, list, func(b GRIRBalance) (string, uuid.UUID) {
+	items, next := apitypes.PageOf(ks, list, func(b GRIRBalance) (string, uuid.UUID) {
 		if ks.Field() == "last_posting_date" {
 			return b.LastPostingDate.Format(time.DateOnly), b.ID
 		}
 		return b.PurchaseOrderID.String(), b.ID
-	})
-	page := gen.GrIrBalancePage{Items: make([]gen.GrIrBalance, len(list))}
-	for i, b := range list {
-		page.Items[i] = gen.GrIrBalance{LegalEntityID: b.LegalEntityID, PurchaseOrderID: b.PurchaseOrderID, PoItemNo: b.POItemNo, AccountID: b.AccountID,
-			ReceivedQuantity: gen.Quantity{Value: b.Received, Unit: b.Unit}, InvoicedQuantity: gen.Quantity{Value: b.Invoiced, Unit: b.Unit},
-			Balance: apitypes.Money(b.TC, b.CurrencyTC, b.ExpTC), BalanceLc: apitypes.Money(b.LC, b.CurrencyLC, b.ExpLC),
-			BalanceGc: apitypes.Money(b.GC, b.CurrencyGC, b.ExpGC), LastPostingDate: b.LastPostingDate}
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.GrIrBalancePageHeaders{Response: page}, nil
+	}, grirBalanceToAPI)
+	return &gen.GrIrBalancePageHeaders{Response: gen.GrIrBalancePage{Items: items, NextPageToken: next}}, nil
+}
+
+func grirBalanceToAPI(b GRIRBalance) gen.GrIrBalance {
+	return gen.GrIrBalance{LegalEntityID: b.LegalEntityID, PurchaseOrderID: b.PurchaseOrderID, PoItemNo: b.POItemNo, AccountID: b.AccountID,
+		ReceivedQuantity: gen.Quantity{Value: b.Received, Unit: b.Unit}, InvoicedQuantity: gen.Quantity{Value: b.Invoiced, Unit: b.Unit},
+		Balance: apitypes.Money(b.TC, b.CurrencyTC, b.ExpTC), BalanceLc: apitypes.Money(b.LC, b.CurrencyLC, b.ExpLC),
+		BalanceGc: apitypes.Money(b.GC, b.CurrencyGC, b.ExpGC), LastPostingDate: b.LastPostingDate}
 }
 
 func scanGRIRBalance(row pgx.Row) (GRIRBalance, error) {

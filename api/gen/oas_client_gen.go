@@ -700,11 +700,11 @@ type Invoker interface {
 	ListGoodsReceipts(ctx context.Context, params ListGoodsReceiptsParams) (ListGoodsReceiptsRes, error)
 	// ListGrIrBalances invokes listGrIrBalances operation.
 	//
-	// The GR/IR position of each purchase order item of a legal entity: its received and invoiced
-	// quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive:
-	// invoiced, not yet received). A position is zero in every currency once its received and invoiced
-	// quantities agree. Only orders valued through GR/IR have positions. `posting_date_to` gives the
-	// positions on a key date. Sortable by: `purchase_order_id`, `last_posting_date`.
+	// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
+	// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
+	// positive: invoiced, not yet received). A position is zero in every currency once its received and
+	// invoiced quantities agree. Only orders valued through GR/IR have positions. `posting_date_to` gives
+	// the positions on a key date. Sortable by: `purchase_order_id`, `last_posting_date`.
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
@@ -17388,11 +17388,11 @@ func (c *Client) sendListGoodsReceipts(ctx context.Context, params ListGoodsRece
 
 // ListGrIrBalances invokes listGrIrBalances operation.
 //
-// The GR/IR position of each purchase order item of a legal entity: its received and invoiced
-// quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive:
-// invoiced, not yet received). A position is zero in every currency once its received and invoiced
-// quantities agree. Only orders valued through GR/IR have positions. `posting_date_to` gives the
-// positions on a key date. Sortable by: `purchase_order_id`, `last_posting_date`.
+// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
+// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
+// positive: invoiced, not yet received). A position is zero in every currency once its received and
+// invoiced quantities agree. Only orders valued through GR/IR have positions. `posting_date_to` gives
+// the positions on a key date. Sortable by: `purchase_order_id`, `last_posting_date`.
 //
 // GET /v1/gr-ir-balances
 func (c *Client) ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error) {
