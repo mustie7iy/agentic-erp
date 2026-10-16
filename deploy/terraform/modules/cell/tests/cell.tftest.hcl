@@ -35,6 +35,12 @@ mock_provider "aws" {
   mock_resource "aws_launch_template" {
     defaults = { id = "lt-0123456789abcdef0", latest_version = 1 }
   }
+  mock_resource "aws_db_instance" {
+    defaults = {
+      address            = "erp-dev-1.abc.eu-central-1.rds.amazonaws.com"
+      master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1", kms_key_id = "k", secret_status = "active" }]
+    }
+  }
   mock_resource "aws_secretsmanager_secret" {
     defaults = { arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/dev-1/x" }
   }
@@ -191,6 +197,14 @@ run "dev_and_test_run_a_single_instance_that_still_requires_tls_1_3" {
     condition     = aws_db_instance.cell[0].storage_encrypted && aws_db_instance.cell[0].kms_key_id == aws_kms_key.data.arn && aws_db_instance.cell[0].deletion_protection && aws_db_instance.cell[0].backup_retention_period >= 14
     error_message = "encrypted with the data key, protected, two weeks of recovery"
   }
+  assert {
+    condition     = aws_db_instance.cell[0].availability_zone == "eu-central-1a"
+    error_message = "in the zone of the NAT gateway and the endpoints"
+  }
+  assert {
+    condition     = output.database_endpoint == "erp-dev-1.abc.eu-central-1.rds.amazonaws.com" && output.database_master_secret_arn == "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1"
+    error_message = "the outputs name the single instance's host and master secret"
+  }
 }
 
 run "a_small_instance_may_have_small_storage" {
@@ -205,6 +219,16 @@ run "a_small_instance_may_have_small_storage" {
     condition     = aws_db_instance.cell[0].allocated_storage == 50
     error_message = "the 400 GiB floor is the Multi-AZ DB cluster's only"
   }
+}
+
+run "a_single_instance_below_gp3_minimum_is_refused" {
+  command   = plan
+  state_key = "small"
+  variables {
+    zone_redundant      = false
+    database_storage_gb = 10
+  }
+  expect_failures = [var.database_storage_gb]
 }
 
 run "a_database_too_small_for_provisioned_iops_is_refused" {

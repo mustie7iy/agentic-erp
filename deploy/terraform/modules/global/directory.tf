@@ -47,11 +47,14 @@ resource "aws_cloudwatch_log_group" "directory" {
 }
 
 resource "aws_db_instance" "directory" {
-  identifier                      = "${local.prefix}-directory"
-  engine                          = "postgres"
-  engine_version                  = data.aws_rds_engine_version.postgres.version_actual
-  instance_class                  = var.directory_instance_class
-  multi_az                        = var.directory_multi_az
+  identifier     = "${local.prefix}-directory"
+  engine         = "postgres"
+  engine_version = data.aws_rds_engine_version.postgres.version_actual
+  instance_class = var.directory_instance_class
+  multi_az       = var.directory_multi_az
+  # In one zone, the first of the home cell's private subnets, where its
+  # NAT gateway and endpoints are; AWS refuses a zone with Multi-AZ.
+  availability_zone               = var.directory_multi_az ? null : var.directory_zone
   storage_type                    = "gp3"
   allocated_storage               = 20
   max_allocated_storage           = 200

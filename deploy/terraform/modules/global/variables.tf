@@ -70,3 +70,13 @@ variable "directory_multi_az" {
   type        = bool
   default     = true
 }
+
+variable "directory_zone" {
+  description = "The zone of a single-AZ directory: the home cell's first zone. Required when directory_multi_az is false."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.directory_multi_az || var.directory_zone != null
+    error_message = "a single-AZ directory needs its zone"
+  }
+}

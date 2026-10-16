@@ -89,9 +89,18 @@ run "dev_and_test_run_the_directory_in_one_zone" {
   command = plan
   variables {
     directory_multi_az = false
+    directory_zone     = "eu-central-1a"
   }
   assert {
-    condition     = !aws_db_instance.directory.multi_az && aws_db_instance.directory.storage_encrypted
-    error_message = "one zone, still encrypted"
+    condition     = !aws_db_instance.directory.multi_az && aws_db_instance.directory.availability_zone == "eu-central-1a" && aws_db_instance.directory.storage_encrypted
+    error_message = "one zone, the home cell's first, still encrypted"
   }
+}
+
+run "a_single_az_directory_needs_its_zone" {
+  command = plan
+  variables {
+    directory_multi_az = false
+  }
+  expect_failures = [var.directory_zone]
 }

@@ -84,7 +84,7 @@ resources T40b brings (launch templates' volumes, log groups, file systems,
 caches).
 
 **Cells (T40b, T40c).** EKS; RDS for PostgreSQL 17 as a Multi-AZ cluster
-with two readable standbys and point-in-time recovery, behind PgBouncer in
+(in the production shape; see Two shapes) with two readable standbys and point-in-time recovery, behind PgBouncer in
 transaction mode (RDS Proxy pins sessions on the `SET LOCAL` that
 row-level security relies on, ADR-0003); NATS JetStream on EKS with
 encrypted volumes; Temporal self-hosted per cell, for isolation and
@@ -93,9 +93,9 @@ Secrets Operator into Kubernetes secrets mounted as files, which the
 platform reads with `file:` references (ADR-0017). Workloads reach AWS with
 their service account's role (IRSA, ADR-0024).
 
-T40b builds a cell as one module: a VPC over three zones (public subnets
-for load balancers, private ones for nodes and databases, a NAT gateway per
-zone) with a gateway endpoint for S3 and interface endpoints with private
+T40b builds a cell as one module, described here in the production shape:
+a VPC over three zones (public subnets for load balancers, private ones for
+nodes and databases, a NAT gateway per zone) with a gateway endpoint for S3 and interface endpoints with private
 DNS for KMS and STS, so calls to the providers never leave AWS's network
 or pass a proxy, plus ECR, Secrets Manager, CloudWatch Logs, EC2 and ELB.
 Private DNS answers for the regional names only: the workloads must use
@@ -124,7 +124,9 @@ only), cert-manager's issuer (the environment's subordinate and
 `server auth` and/or `client auth`, from which the issuer picks such a
 template) and the EBS CSI driver. NATS and Temporal run on the
 cluster (T40c) on volumes encrypted with the cluster key; Temporal's
-databases live on the cell's RDS cluster. The role of the AWS Load
+databases live on the cell's database, so T40c sizes PgBouncer's pools
+and Temporal's connections within its budget (a `db.t4g.medium` allows
+about 400 connections, shared with the platform). The role of the AWS Load
 Balancer Controller comes with its chart (T40c).
 
 **Two shapes (product owner, T40b).** Staging and production run the
@@ -132,7 +134,8 @@ production shape above (`zone_redundant`, the default). Dev and test turn
 it off: the cell's database is a single-AZ RDS for PostgreSQL 17 instance
 (`db.t4g.medium`, 20 GiB of gp3, growing to 200) instead of the Multi-AZ
 DB cluster, the VPC has one NAT gateway, and the interface endpoints sit
-in the first zone only; the directory runs in one zone too. Everything
+in the first zone only, where the instance is placed too; the directory
+runs in that zone as well. Everything
 else is the same in both shapes: TLS 1.3 only, encryption with the cell's
 keys, two weeks of point-in-time recovery, deletion protection, and S3,
 KMS and STS reached only through their endpoints, so both policies apply
@@ -140,7 +143,8 @@ unchanged. A zone's outage takes a dev or test cell down; that is the
 saving.
 
 **Global (T40b).** Per environment, in its home cell's VPC: the directory
-(05 §5.4, ADR-0022) on its own RDS for PostgreSQL 17 instance, Multi-AZ,
+(05 §5.4, ADR-0022) on its own RDS for PostgreSQL 17 instance, Multi-AZ
+in the production shape,
 TLS 1.3 only, with a key of its own; and the internet-facing Network Load
 Balancer, TCP 443 to the router's pods as IP targets (registered by the
 `erp-global` chart's TargetGroupBinding, T40c), health-checked over TCP,

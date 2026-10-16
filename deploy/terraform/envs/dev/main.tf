@@ -111,6 +111,7 @@ module "global" {
   public_subnet_ids         = module.cell.public_subnet_ids
   cluster_security_group_id = module.cell.cluster_security_group_id
   directory_multi_az        = false
+  directory_zone            = var.availability_zones[0]
 }
 
 output "cell" {

@@ -114,15 +114,18 @@ resource "aws_db_parameter_group" "cell" {
 }
 
 resource "aws_db_instance" "cell" {
-  count                           = var.zone_redundant ? 0 : 1
-  identifier                      = local.prefix
-  engine                          = "postgres"
-  engine_version                  = data.aws_rds_engine_version.postgres.version_actual
-  instance_class                  = local.database_class
-  multi_az                        = false
+  count          = var.zone_redundant ? 0 : 1
+  identifier     = local.prefix
+  engine         = "postgres"
+  engine_version = data.aws_rds_engine_version.postgres.version_actual
+  instance_class = local.database_class
+  multi_az       = false
+  # The zone of the NAT gateway and the endpoints: one zone's outage, not
+  # any of three, takes a dev or test cell down.
+  availability_zone               = var.availability_zones[0]
   storage_type                    = "gp3"
   allocated_storage               = local.database_storage_gb
-  max_allocated_storage           = 200
+  max_allocated_storage           = max(200, local.database_storage_gb)
   db_name                         = "erp"
   username                        = "erp_admin"
   manage_master_user_password     = true

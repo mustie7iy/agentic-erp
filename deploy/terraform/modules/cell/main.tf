@@ -89,7 +89,7 @@ variable "zone_redundant" {
 }
 
 variable "database_instance_class" {
-  description = "Instance class of the database; null picks db.m6gd.large for the Multi-AZ DB cluster, db.t4g.medium for the single instance."
+  description = "Instance class of the database in either shape; null picks db.m6gd.large for the Multi-AZ DB cluster, db.t4g.medium for the single instance."
   type        = string
   default     = null
 }
@@ -99,13 +99,13 @@ variable "database_storage_gb" {
   type        = number
   default     = null
   validation {
-    condition     = var.database_storage_gb == null || !var.zone_redundant || coalesce(var.database_storage_gb, 400) >= 400
-    error_message = "the Multi-AZ DB cluster needs at least 400 GiB: below it gp3 refuses the provisioned IOPS"
+    condition     = var.database_storage_gb == null || (var.zone_redundant ? coalesce(var.database_storage_gb, 0) >= 400 : coalesce(var.database_storage_gb, 0) >= 20)
+    error_message = "the Multi-AZ DB cluster needs at least 400 GiB (below it gp3 refuses provisioned IOPS), the single instance 20 GiB (gp3's minimum)"
   }
 }
 
 variable "database_iops" {
-  description = "Provisioned IOPS of the DB cluster's gp3 storage (12000 is gp3's baseline from 400 GiB)."
+  description = "Provisioned IOPS of the Multi-AZ DB cluster's gp3 storage (12000 is gp3's baseline from 400 GiB); the single instance takes gp3's baseline and ignores it."
   type        = number
   default     = 12000
 }
