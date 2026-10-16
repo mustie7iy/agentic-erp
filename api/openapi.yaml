@@ -7083,6 +7083,7 @@ paths:
               - partner_change
               - config_change
               - invoice_exception
+              - period_unlock
         - name: object_id
           in: query
           required: false
@@ -7309,6 +7310,7 @@ paths:
         partner_change: partner.change.approve
         invoice_exception: payables.invoice.approve
         config_change: config.change.approve
+        period_unlock: ledger.period.unlock.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -7372,6 +7374,7 @@ paths:
         partner_change: partner.change.approve
         invoice_exception: payables.invoice.approve
         config_change: config.change.approve
+        period_unlock: ledger.period.unlock.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
@@ -12612,7 +12615,7 @@ components:
           readOnly: true
         status:
           type: string
-          description: "Posting status; changed only by `:open` and `:close`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "Posting status; changed only by `:open`, `:close` and `:lock`, and from locked back to closed only by an approved `period_unlock` approval request. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum:
             - open
             - closed
@@ -12633,6 +12636,11 @@ components:
           type: string
           format: uuid
           description: Principal that made the last status change.
+          readOnly: true
+        unlock_request_id:
+          type: string
+          format: uuid
+          description: "Pending `period_unlock` approval request (workflow context) of a locked period; absent otherwise."
           readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
@@ -16035,6 +16043,7 @@ components:
                 - partner_change
                 - config_change
                 - invoice_exception
+                - period_unlock
               readOnly: true
             object_id:
               type: string

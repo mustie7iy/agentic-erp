@@ -484,6 +484,87 @@ func TestPeriodTransitions(t *testing.T) {
 	}
 }
 
+// TestPeriodUnlock: a locked period returns to closed only when the unlock
+// request it names is an approved period_unlock request of that period
+// (000051, T32), checked as the application role so the trigger reads the
+// request through row security; and only a locked period names one.
+func TestPeriodUnlock(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	// locked puts period 5 of a new tenant in locked naming a request of
+	// the given type, object and status, and returns the tenant.
+	locked := func(t *testing.T, objectType string, ofThisPeriod bool, status string) uuid.UUID {
+		t.Helper()
+		f := newFixture(t)
+		var period uuid.UUID
+		if err := testDB.QueryRow(ctx, `SELECT id FROM ledger.period_status WHERE tenant_id = $1 AND fiscal_year = 2026 AND period = 5`,
+			f.tenant).Scan(&period); err != nil {
+			t.Fatal(err)
+		}
+		object := period
+		if !ofThisPeriod {
+			object = id()
+		}
+		owner := func(sql string, args ...any) {
+			t.Helper()
+			if _, err := testDB.Exec(ctx, sql, args...); err != nil {
+				t.Fatal(err)
+			}
+		}
+		request := id()
+		owner(`INSERT INTO workflow.approval_request (tenant_id, id, object_type, object_id, title, requester_id, status, completed_at, created_by)
+			VALUES ($1, $2, $3, $4, 'Unlock', $5, $6, CASE WHEN $6 = 'pending' THEN NULL ELSE now() END, $5)`,
+			f.tenant, request, objectType, object, f.actor, status)
+		for _, step := range []string{"closed", "locked"} {
+			owner(`UPDATE ledger.period_status SET status = $2, version = version + 1 WHERE id = $1`, period, step)
+		}
+		owner(`UPDATE ledger.period_status SET unlock_request_id = $2, version = version + 1 WHERE id = $1`, period, request)
+		return f.tenant
+	}
+	unlock := func(tenant uuid.UUID) error {
+		return asApp(t, tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.period_status SET status = 'closed', unlock_request_id = NULL, version = version + 1
+				WHERE fiscal_year = 2026 AND period = 5`)
+		})
+	}
+	for _, c := range []struct {
+		name, objectType string
+		ofThisPeriod     bool
+		status, want     string // want empty: allowed
+	}{
+		{"approved", "period_unlock", true, "approved", ""},
+		{"pending", "period_unlock", true, "pending", "cannot go from locked to closed"},
+		{"rejected", "period_unlock", true, "rejected", "cannot go from locked to closed"},
+		{"of another period", "period_unlock", false, "approved", "cannot go from locked to closed"},
+		{"of another type", "config_change", true, "approved", "cannot go from locked to closed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := unlock(locked(t, c.objectType, c.ofThisPeriod, c.status))
+			if c.want == "" {
+				if err != nil {
+					t.Errorf("got %v, want no error", err)
+				}
+				return
+			}
+			failsWith(t, err, c.want)
+		})
+	}
+	t.Run("keeping the request", func(t *testing.T) {
+		tenant := locked(t, "period_unlock", true, "approved")
+		err := asApp(t, tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE fiscal_year = 2026 AND period = 5`)
+		})
+		failsWith(t, err, "period_status_unlock_only_locked")
+	})
+	t.Run("naming one while open", func(t *testing.T) {
+		f := newFixture(t)
+		err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.period_status SET unlock_request_id = $1, version = version + 1 WHERE fiscal_year = 2026 AND period = 5`, id())
+		})
+		failsWith(t, err, "period_status_unlock_only_locked")
+	})
+}
+
 // TestPostingHoldsItsPeriod: inserting an entry holds its period's status
 // row FOR SHARE until the transaction ends (F8b, 000043), as the ledger's
 // postingPeriod does, so a close, which locks the row FOR UPDATE, waits for

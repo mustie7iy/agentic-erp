@@ -42,7 +42,7 @@ func entryToAPI(e Entry) gen.JournalEntry {
 func periodToAPI(p Period) gen.FiscalPeriod {
 	return gen.FiscalPeriod{ID: p.ID, LegalEntityID: p.LegalEntityID, LedgerID: p.LedgerID, CalendarID: p.CalendarID, FiscalYear: int32(p.FiscalYear),
 		Period: int32(p.Period), StartDate: p.StartDate, EndDate: p.EndDate, IsSpecial: p.IsSpecial, Status: p.Status, Version: p.Version,
-		UpdatedAt: p.UpdatedAt, UpdatedBy: p.UpdatedBy}
+		UpdatedAt: p.UpdatedAt, UpdatedBy: p.UpdatedBy, UnlockRequestID: apitypes.OptUUID(p.UnlockRequestID)}
 }
 
 func accountToAPI(a Account) gen.Account {

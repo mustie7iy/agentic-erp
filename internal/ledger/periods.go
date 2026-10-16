@@ -39,17 +39,20 @@ type Period struct {
 	Version       int32
 	UpdatedAt     time.Time
 	UpdatedBy     uuid.UUID
+	// UnlockRequestID is the pending period_unlock approval request of a
+	// locked period (workflow context), nil otherwise.
+	UnlockRequestID *uuid.UUID
 }
 
 const periodSelect = `SELECT * FROM (SELECT s.id, s.legal_entity_id, s.ledger_id, s.calendar_id, s.fiscal_year, s.period, f.start_date, f.end_date,
-		f.is_special, s.status, s.version, s.updated_at, s.updated_by
+		f.is_special, s.status, s.version, s.updated_at, s.updated_by, s.unlock_request_id
 	FROM ledger.period_status s JOIN ledger.fiscal_period f ON f.tenant_id = s.tenant_id AND f.calendar_id = s.calendar_id
 		AND f.fiscal_year = s.fiscal_year AND f.period = s.period) p`
 
 func scanPeriod(row pgx.Row) (Period, error) {
 	var p Period
 	err := errs.Wrapf(row.Scan(&p.ID, &p.LegalEntityID, &p.LedgerID, &p.CalendarID, &p.FiscalYear, &p.Period, &p.StartDate, &p.EndDate,
-		&p.IsSpecial, &p.Status, &p.Version, &p.UpdatedAt, &p.UpdatedBy), "scan fiscal period")
+		&p.IsSpecial, &p.Status, &p.Version, &p.UpdatedAt, &p.UpdatedBy, &p.UnlockRequestID), "scan fiscal period")
 	return p, err
 }
 

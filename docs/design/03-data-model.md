@@ -429,8 +429,18 @@ Rules enforced in the database:
   `ledger.check_period_transition` (migration 000050, T32) refuses every
   other change of status. A locked period refuses what a closed one does and
   is not reopened by `:open`; only an approved unlock request returns it to
-  closed (T32c). Locking needs a closed period, so the postings under way
+  closed. Locking needs a closed period, so the postings under way
   finished when it closed.
+- A locked period names its pending unlock request in `unlock_request_id`
+  (workflow context, no foreign key across contexts); only a locked period
+  names one (`period_status_unlock_only_locked`), and the column is cleared
+  when the request ends. The transition trigger lets locked -> closed
+  through only when the named request is an approved `period_unlock`
+  request of that period (migration 000051, T32b): the approvals context
+  marks a request approved before it calls the ledger back in the same
+  transaction, so no path unlocks a period without the decision. The
+  request needs one approval by the role `controller` holding
+  `ledger.period.unlock.approve`, whatever the configuration says.
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger
   (trigger `ledger.check_clearing_period`, migration 000049, T32), as a

@@ -116,3 +116,19 @@ func TestRequisitionWithoutARate(t *testing.T) {
 		t.Errorf("steps: got %v, want %v", err, missing)
 	}
 }
+
+// TestPeriodUnlockSteps: unlocking a locked period needs one approval by
+// the controller with the period unlock permission (T32), whatever the
+// configuration says.
+func TestPeriodUnlockSteps(t *testing.T) {
+	got, err := steps(context.Background(), nil, &config.Config{}, NewRequest{ObjectType: PeriodUnlock})
+	if err != nil {
+		t.Fatalf("steps: %v", err)
+	}
+	if want := []policyStep{{"controller", 1}}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("steps: got %v, want %v", got, want)
+	}
+	if got, want := ObjectPermissions[PeriodUnlock], "ledger.period.unlock.approve"; got != want {
+		t.Errorf("permission: got %q, want %q", got, want)
+	}
+}
