@@ -1,10 +1,11 @@
 // Package approvals is the workflow context (03-data-model §3.11): approval
 // requests for requisitions, partner changes, configuration changes,
-// supplier invoice exceptions, period unlocks and manual journal entries,
-// with sequential steps that each need a number of distinct approvals from
-// holders of a role. Only people approve or reject, never the requester,
-// and nobody approves a request twice; the requester may withdraw it. (The
-// prototype's engine is internal/workflow; its rules are kept here.)
+// supplier invoice exceptions, period unlocks, manual journal entries, and
+// purchase orders and their changes, with sequential steps that each need
+// a number of distinct approvals from holders of a role. Only people
+// approve or reject, never the requester, and nobody approves a request
+// twice; the requester may withdraw it. (The prototype's engine is
+// internal/workflow; its rules are kept here.)
 //
 // The owning context opens a request through Approvals in its own
 // transaction and is called back (Handler) in the deciding transaction when
@@ -14,8 +15,11 @@
 // T4: requisitions by amount tier (purchasing.requisition_approval),
 // partner changes by payments.vendor_approver_role, configuration changes
 // by their tier, invoice exceptions by DefaultExceptionRole, period unlocks
-// by DefaultPeriodUnlockRole, and manual journal entries above their
-// company's manual_entry_approval_limit by DefaultManualEntryRole (T35).
+// by DefaultPeriodUnlockRole, manual journal entries above their
+// company's manual_entry_approval_limit by DefaultManualEntryRole (T35),
+// and purchase orders released without an approved requisition, and
+// changes raising an order's total, by amount tier
+// (purchasing.order_release_approval, T47).
 // Roles are the identity context's roles with the document's role names as
 // codes.
 package approvals
@@ -49,6 +53,8 @@ const (
 	InvoiceException = "invoice_exception"
 	PeriodUnlock     = "period_unlock"
 	ManualEntry      = "manual_entry"
+	PurchaseOrder    = "purchase_order" // the release of an order without an approved requisition (T47)
+	OrderChange      = "order_change"   // a change that raises a released order's total (T47)
 )
 
 // Request statuses.
@@ -79,6 +85,7 @@ var ObjectPermissions = map[string]string{
 	Requisition: "procurement.requisition.approve", PartnerChange: "partner.change.approve",
 	InvoiceException: "payables.invoice.approve", ConfigChange: "config.change.approve",
 	PeriodUnlock: "ledger.period.unlock.approve", ManualEntry: "ledger.entry.approve",
+	PurchaseOrder: "procurement.order.approve", OrderChange: "procurement.order.approve",
 }
 
 func init() {
@@ -275,6 +282,18 @@ func tierSteps(ctx context.Context, rates Rates, tiers []config.ApprovalTier, in
 	return out, nil
 }
 
+// orderSteps route an order's release, or a change that raises its
+// total, by the order's total through purchasing.order_release_approval
+// (T47). A document without those tiers, one from before T47c, routes
+// nothing: the order is refused rather than released unapproved.
+func orderSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
+	if len(doc.Purchasing.OrderReleaseApproval) == 0 {
+		return nil, problem.Unprocessable("workflow.no_policy",
+			"The active configuration has no purchasing.order_release_approval tiers; add them to release or change purchase orders.")
+	}
+	return tierSteps(ctx, rates, doc.Purchasing.OrderReleaseApproval, in)
+}
+
 // manualEntrySteps are none when the entry's debits, converted exactly
 // into its company's currency, are within the company's
 // manual_entry_approval_limit, and the controller's approval otherwise. A
@@ -316,6 +335,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultPeriodUnlockRole, 1})
 	case ManualEntry:
 		return manualEntrySteps(ctx, rates, doc, in)
+	case PurchaseOrder, OrderChange:
+		return orderSteps(ctx, rates, doc, in)
 	default:
 		return nil, fmt.Errorf("approvals: unknown object type %q", in.ObjectType)
 	}

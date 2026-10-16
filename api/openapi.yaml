@@ -7547,6 +7547,8 @@ paths:
               - invoice_exception
               - period_unlock
               - manual_entry
+              - purchase_order
+              - order_change
         - name: object_id
           in: query
           required: false
@@ -7775,6 +7777,8 @@ paths:
         config_change: config.change.approve
         period_unlock: ledger.period.unlock.approve
         manual_entry: ledger.entry.approve
+        purchase_order: procurement.order.approve
+        order_change: procurement.order.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -7840,6 +7844,8 @@ paths:
         config_change: config.change.approve
         period_unlock: ledger.period.unlock.approve
         manual_entry: ledger.entry.approve
+        purchase_order: procurement.order.approve
+        order_change: procurement.order.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
@@ -16953,6 +16959,8 @@ components:
                 - invoice_exception
                 - period_unlock
                 - manual_entry
+                - purchase_order
+                - order_change
               readOnly: true
             object_id:
               type: string

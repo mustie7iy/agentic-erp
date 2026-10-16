@@ -330,7 +330,9 @@ and every change to them traces back to an approved change request.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
-in the currency of the requisition's company), the invoice price tolerance
+in the currency of the requisition's company), the order release
+thresholds (`purchasing.order_release_approval[].up_to`, likewise in the
+order's company's currency, T47c), the invoice price tolerance
 (`invoice_tolerance.price_absolute`), the auto-post limit
 (`auto_post_limit`) and the manual entry approval limit
 (`manual_entry_approval_limit`, T35: the largest manual journal entry, by
@@ -1257,6 +1259,14 @@ within the limit the policy has no steps and the entry posts at once
 for direct posts). A company without a limit has a limit of 0. Above it,
 one approval by the role `controller` with `ledger.entry.approve`, whatever
 the configuration says, as for period unlocks.
+
+The release of a purchase order without an approved requisition (object
+type `purchase_order`) and a change that raises a released order's total
+(`order_change`) are routed by the order's total, converted exactly into
+its company's currency, through `purchasing.order_release_approval` tiers,
+as requisitions are through theirs (T47c), decided by holders of the
+tier's roles with `procurement.order.approve`. A document without those
+tiers routes nothing and refuses the order (422 `workflow.no_policy`).
 
 ## 3.12 Audit (`audit`)
 

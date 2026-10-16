@@ -261,3 +261,51 @@ func TestRequired(t *testing.T) {
 		}
 	})
 }
+
+// TestOrderSteps: the release of a purchase order without an approved
+// requisition, and a change that raises a released order's total, are
+// routed by the order's total through purchasing.order_release_approval,
+// in the company's currency (T47c).
+func TestOrderSteps(t *testing.T) {
+	doc := &config.Config{}
+	doc.Purchasing.OrderReleaseApproval = []config.ApprovalTier{
+		{UpTo: "5000.00", Steps: []config.ApprovalStep{{Role: "buyer_lead", Approvals: 1}}},
+		{Steps: []config.ApprovalStep{{Role: "buyer_lead", Approvals: 1}, {Role: "cfo", Approvals: 1}}},
+	}
+	eur := "EUR"
+	for _, c := range []struct {
+		name   string
+		object string
+		amount money.Minor
+		want   []policyStep
+	}{
+		{"an order at the threshold", PurchaseOrder, 500000, []policyStep{{"buyer_lead", 1}}},
+		{"an order above it", PurchaseOrder, 500001, []policyStep{{"buyer_lead", 1}, {"cfo", 1}}},
+		{"a change to a total at the threshold", OrderChange, 500000, []policyStep{{"buyer_lead", 1}}},
+		{"a change to a total above it", OrderChange, 500001, []policyStep{{"buyer_lead", 1}, {"cfo", 1}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := steps(context.Background(), inCompany{2}, doc, NewRequest{ObjectType: c.object, Amount: &c.amount, Currency: &eur})
+			if err != nil {
+				t.Fatalf("steps: %v", err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(c.want) {
+				t.Errorf("steps: got %v, want %v", got, c.want)
+			}
+		})
+	}
+	for _, object := range []string{PurchaseOrder, OrderChange} {
+		t.Run(object+" permission", func(t *testing.T) {
+			if got, want := ObjectPermissions[object], "procurement.order.approve"; got != want {
+				t.Errorf("permission: got %q, want %q", got, want)
+			}
+		})
+	}
+	// A document from before T47c has no order tiers: orders are refused
+	// rather than released unapproved.
+	t.Run("without order tiers", func(t *testing.T) {
+		amount := money.Minor(1)
+		_, err := steps(context.Background(), inCompany{2}, &config.Config{}, NewRequest{ObjectType: PurchaseOrder, Amount: &amount, Currency: &eur})
+		pgtest.WantErr(t, err, "purchasing.order_release_approval")
+	})
+}

@@ -129,6 +129,10 @@ type Purchasing struct {
 	// ordered; the first tier whose up_to covers the amount applies, and the
 	// last tier has no up_to.
 	RequisitionApproval []ApprovalTier `yaml:"requisition_approval" json:"requisition_approval"`
+	// OrderReleaseApproval routes the release of purchase orders without
+	// an approved requisition, and changes that raise a released order's
+	// total, by the order's total, as RequisitionApproval does (T47c).
+	OrderReleaseApproval []ApprovalTier `yaml:"order_release_approval" json:"order_release_approval"`
 }
 
 type ApprovalTier struct {
