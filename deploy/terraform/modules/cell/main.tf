@@ -82,19 +82,25 @@ variable "node_scaling" {
   default = { min = 3, desired = 3, max = 12 }
 }
 
+variable "zone_redundant" {
+  description = "The production shape (staging, production): a Multi-AZ DB cluster, a NAT gateway and interface endpoints per zone. False is dev and test: a single-AZ PostgreSQL instance and one zone's egress."
+  type        = bool
+  default     = true
+}
+
 variable "database_instance_class" {
-  description = "Instance class of the Multi-AZ DB cluster's three instances."
+  description = "Instance class of the database; null picks db.m6gd.large for the Multi-AZ DB cluster, db.t4g.medium for the single instance."
   type        = string
-  default     = "db.m6gd.large"
+  default     = null
 }
 
 variable "database_storage_gb" {
-  description = "Allocated storage of the DB cluster; gp3 takes provisioned IOPS from 400 GiB, which a Multi-AZ DB cluster requires."
+  description = "Allocated gp3 storage; null picks 400 GiB for the Multi-AZ DB cluster (gp3 takes provisioned IOPS from 400 GiB, which the cluster requires), 20 GiB for the single instance."
   type        = number
-  default     = 400
+  default     = null
   validation {
-    condition     = var.database_storage_gb >= 400
-    error_message = "at least 400 GiB: below it gp3 refuses the provisioned IOPS a Multi-AZ DB cluster needs"
+    condition     = var.database_storage_gb == null || !var.zone_redundant || coalesce(var.database_storage_gb, 400) >= 400
+    error_message = "the Multi-AZ DB cluster needs at least 400 GiB: below it gp3 refuses the provisioned IOPS"
   }
 }
 
@@ -124,4 +130,5 @@ module "network" {
   name               = local.prefix
   cidr               = var.cidr
   availability_zones = var.availability_zones
+  zone_redundant     = var.zone_redundant
 }

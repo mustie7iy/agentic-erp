@@ -127,6 +127,18 @@ cluster (T40c) on volumes encrypted with the cluster key; Temporal's
 databases live on the cell's RDS cluster. The role of the AWS Load
 Balancer Controller comes with its chart (T40c).
 
+**Two shapes (product owner, T40b).** Staging and production run the
+production shape above (`zone_redundant`, the default). Dev and test turn
+it off: the cell's database is a single-AZ RDS for PostgreSQL 17 instance
+(`db.t4g.medium`, 20 GiB of gp3, growing to 200) instead of the Multi-AZ
+DB cluster, the VPC has one NAT gateway, and the interface endpoints sit
+in the first zone only; the directory runs in one zone too. Everything
+else is the same in both shapes: TLS 1.3 only, encryption with the cell's
+keys, two weeks of point-in-time recovery, deletion protection, and S3,
+KMS and STS reached only through their endpoints, so both policies apply
+unchanged. A zone's outage takes a dev or test cell down; that is the
+saving.
+
 **Global (T40b).** Per environment, in its home cell's VPC: the directory
 (05 §5.4, ADR-0022) on its own RDS for PostgreSQL 17 instance, Multi-AZ,
 TLS 1.3 only, with a key of its own; and the internet-facing Network Load

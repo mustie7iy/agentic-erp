@@ -67,3 +67,27 @@ run "a_cell_spans_three_zones" {
   }
   expect_failures = [var.availability_zones]
 }
+
+run "dev_and_test_keep_one_zone_of_egress_and_every_endpoint" {
+  command = apply
+  variables {
+    zone_redundant = false
+  }
+
+  assert {
+    condition     = keys(aws_nat_gateway.cell) == ["eu-central-1a"] && length(aws_eip.nat) == 1
+    error_message = "one NAT gateway, in the first zone"
+  }
+  assert {
+    condition     = alltrue([for t in aws_route_table.private : one(t.route).nat_gateway_id == aws_nat_gateway.cell["eu-central-1a"].id])
+    error_message = "every private subnet leaves through that NAT gateway"
+  }
+  assert {
+    condition     = length(aws_vpc_endpoint.kms.subnet_ids) == 1 && length(aws_vpc_endpoint.sts.subnet_ids) == 1 && alltrue([for e in aws_vpc_endpoint.interface : length(e.subnet_ids) == 1])
+    error_message = "the interface endpoints sit in one zone"
+  }
+  assert {
+    condition     = aws_vpc_endpoint.kms.private_dns_enabled && aws_vpc_endpoint.sts.private_dns_enabled && length(aws_vpc_endpoint.s3.route_table_ids) == 3
+    error_message = "S3, KMS and STS are still never proxied"
+  }
+}

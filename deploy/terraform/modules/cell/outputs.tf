@@ -34,18 +34,20 @@ output "cluster_security_group_id" {
 }
 
 output "database_endpoint" {
-  description = "The DB cluster's writer endpoint (PgBouncer's upstream)."
-  value       = aws_rds_cluster.cell.endpoint
+  description = "The database's writer endpoint, host only (PgBouncer's upstream)."
+  value       = var.zone_redundant ? one(aws_rds_cluster.cell[*].endpoint) : one(aws_db_instance.cell[*].address)
 }
 
 output "database_reader_endpoint" {
-  description = "The DB cluster's reader endpoint."
-  value       = aws_rds_cluster.cell.reader_endpoint
+  description = "The DB cluster's reader endpoint; the writer's for the single instance."
+  value       = var.zone_redundant ? one(aws_rds_cluster.cell[*].reader_endpoint) : one(aws_db_instance.cell[*].address)
 }
 
 output "database_master_secret_arn" {
   description = "The RDS-managed master credentials in Secrets Manager."
-  value       = one(aws_rds_cluster.cell.master_user_secret[*].secret_arn)
+  value = (var.zone_redundant
+    ? one(flatten(aws_rds_cluster.cell[*].master_user_secret[*].secret_arn))
+  : one(flatten(aws_db_instance.cell[*].master_user_secret[*].secret_arn)))
 }
 
 output "object_bucket" {

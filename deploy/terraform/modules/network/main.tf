@@ -1,6 +1,9 @@
 # A cell's network (ADR-0035): a VPC across three availability zones with
 # public subnets (the load balancers, one NAT gateway per zone) and private
-# subnets (nodes, databases, endpoints).
+# subnets (nodes, databases, endpoints). Without zone_redundant (dev and
+# test) one NAT gateway and the interface endpoints sit in the first zone
+# only: a zone's outage takes the cell's egress with it, at a third of the
+# cost.
 #
 # Providers are never proxied (T38b): S3 is reached through a gateway
 # endpoint, KMS, STS, ECR, Secrets Manager, CloudWatch Logs and EC2 through
@@ -41,7 +44,18 @@ variable "more_interface_endpoints" {
   }
 }
 
+variable "zone_redundant" {
+  description = "One NAT gateway and interface endpoint per zone (staging, production); false keeps one, in the first zone (dev, test)."
+  type        = bool
+  default     = true
+}
+
 data "aws_region" "current" {}
+
+locals {
+  egress_zones        = var.zone_redundant ? var.availability_zones : [var.availability_zones[0]]
+  endpoint_subnet_ids = [for az in local.egress_zones : aws_subnet.private[az].id]
+}
 
 resource "aws_vpc" "cell" {
   cidr_block           = var.cidr
@@ -73,14 +87,14 @@ resource "aws_internet_gateway" "cell" {
 }
 
 resource "aws_eip" "nat" {
-  for_each = aws_subnet.public
+  for_each = toset(local.egress_zones)
   domain   = "vpc"
   tags     = { Name = "${var.name}-nat-${each.key}" }
 }
 
 resource "aws_nat_gateway" "cell" {
-  for_each      = aws_subnet.public
-  subnet_id     = each.value.id
+  for_each      = toset(local.egress_zones)
+  subnet_id     = aws_subnet.public[each.key].id
   allocation_id = aws_eip.nat[each.key].id
   tags          = { Name = "${var.name}-${each.key}" }
 }
@@ -105,7 +119,7 @@ resource "aws_route_table" "private" {
   vpc_id   = aws_vpc.cell.id
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.cell[each.key].id
+    nat_gateway_id = aws_nat_gateway.cell[var.zone_redundant ? each.key : local.egress_zones[0]].id
   }
   tags = { Name = "${var.name}-private-${each.key}" }
 }
@@ -145,7 +159,7 @@ resource "aws_vpc_endpoint" "kms" {
   service_name        = "com.amazonaws.${data.aws_region.current.region}.kms"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  subnet_ids          = [for subnet in aws_subnet.private : subnet.id]
+  subnet_ids          = local.endpoint_subnet_ids
   security_group_ids  = [aws_security_group.endpoints.id]
   tags                = { Name = "${var.name}-kms" }
 }
@@ -155,7 +169,7 @@ resource "aws_vpc_endpoint" "sts" {
   service_name        = "com.amazonaws.${data.aws_region.current.region}.sts"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  subnet_ids          = [for subnet in aws_subnet.private : subnet.id]
+  subnet_ids          = local.endpoint_subnet_ids
   security_group_ids  = [aws_security_group.endpoints.id]
   tags                = { Name = "${var.name}-sts" }
 }
@@ -166,7 +180,7 @@ resource "aws_vpc_endpoint" "interface" {
   service_name        = "com.amazonaws.${data.aws_region.current.region}.${each.key}"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  subnet_ids          = [for subnet in aws_subnet.private : subnet.id]
+  subnet_ids          = local.endpoint_subnet_ids
   security_group_ids  = [aws_security_group.endpoints.id]
   tags                = { Name = "${var.name}-${each.key}" }
 }

@@ -84,3 +84,14 @@ run "clients_can_be_limited" {
     error_message = "only the listed clients reach the load balancer"
   }
 }
+
+run "dev_and_test_run_the_directory_in_one_zone" {
+  command = plan
+  variables {
+    directory_multi_az = false
+  }
+  assert {
+    condition     = !aws_db_instance.directory.multi_az && aws_db_instance.directory.storage_encrypted
+    error_message = "one zone, still encrypted"
+  }
+}

@@ -53,23 +53,23 @@ run "the_database_requires_tls_1_3_and_survives_a_zone" {
   command = apply
 
   assert {
-    condition     = { for p in aws_rds_cluster_parameter_group.cell.parameter : p.name => p.value }["ssl_min_protocol_version"] == "TLSv1.3"
+    condition     = { for p in aws_rds_cluster_parameter_group.cell[0].parameter : p.name => p.value }["ssl_min_protocol_version"] == "TLSv1.3"
     error_message = "PostgreSQL accepts TLS 1.3 and nothing older (T38)"
   }
   assert {
-    condition     = { for p in aws_rds_cluster_parameter_group.cell.parameter : p.name => p.value }["rds.force_ssl"] == "1"
+    condition     = { for p in aws_rds_cluster_parameter_group.cell[0].parameter : p.name => p.value }["rds.force_ssl"] == "1"
     error_message = "PostgreSQL refuses clients without TLS"
   }
   assert {
-    condition     = aws_rds_cluster.cell.db_cluster_instance_class != null && aws_rds_cluster.cell.engine == "postgres" && aws_rds_cluster.cell.engine_version == "17.6"
+    condition     = aws_rds_cluster.cell[0].db_cluster_instance_class != null && aws_rds_cluster.cell[0].engine == "postgres" && aws_rds_cluster.cell[0].engine_version == "17.6"
     error_message = "a Multi-AZ DB cluster of PostgreSQL 17"
   }
   assert {
-    condition     = aws_rds_cluster.cell.storage_encrypted && aws_rds_cluster.cell.deletion_protection && aws_rds_cluster.cell.backup_retention_period >= 14
+    condition     = aws_rds_cluster.cell[0].storage_encrypted && aws_rds_cluster.cell[0].deletion_protection && aws_rds_cluster.cell[0].backup_retention_period >= 14
     error_message = "encrypted, protected from deletion, two weeks of point-in-time recovery"
   }
   assert {
-    condition     = aws_rds_cluster.cell.manage_master_user_password
+    condition     = aws_rds_cluster.cell[0].manage_master_user_password
     error_message = "the master password lives in Secrets Manager, not in Terraform"
   }
 }
@@ -164,6 +164,46 @@ run "the_issuer_asks_for_end_entity_certificates_only" {
   assert {
     condition     = jsondecode(aws_iam_role_policy.workload["cert_manager"].policy).Statement[0].Condition.StringLike["acm-pca:TemplateArn"] == "arn:aws:acm-pca:::template/EndEntity*"
     error_message = "cert-manager's role cannot request a CA certificate"
+  }
+}
+
+run "dev_and_test_run_a_single_instance_that_still_requires_tls_1_3" {
+  command = apply
+  # Its own state: the production shape of the other runs is kept from destruction.
+  state_key = "small"
+  variables {
+    zone_redundant = false
+  }
+
+  assert {
+    condition     = length(aws_rds_cluster.cell) == 0 && length(aws_db_instance.cell) == 1 && !aws_db_instance.cell[0].multi_az
+    error_message = "a single-AZ instance instead of the Multi-AZ DB cluster"
+  }
+  assert {
+    condition     = aws_db_instance.cell[0].instance_class == "db.t4g.medium" && aws_db_instance.cell[0].allocated_storage == 20 && aws_db_instance.cell[0].storage_type == "gp3"
+    error_message = "small gp3 storage on a small instance"
+  }
+  assert {
+    condition     = { for p in aws_db_parameter_group.cell[0].parameter : p.name => p.value }["ssl_min_protocol_version"] == "TLSv1.3" && { for p in aws_db_parameter_group.cell[0].parameter : p.name => p.value }["rds.force_ssl"] == "1"
+    error_message = "TLS 1.3 only, as in production"
+  }
+  assert {
+    condition     = aws_db_instance.cell[0].storage_encrypted && aws_db_instance.cell[0].kms_key_id == aws_kms_key.data.arn && aws_db_instance.cell[0].deletion_protection && aws_db_instance.cell[0].backup_retention_period >= 14
+    error_message = "encrypted with the data key, protected, two weeks of recovery"
+  }
+}
+
+run "a_small_instance_may_have_small_storage" {
+  command = plan
+  # Its own state: the production shape of the other runs is kept from destruction.
+  state_key = "small"
+  variables {
+    zone_redundant      = false
+    database_storage_gb = 50
+  }
+  assert {
+    condition     = aws_db_instance.cell[0].allocated_storage == 50
+    error_message = "the 400 GiB floor is the Multi-AZ DB cluster's only"
   }
 }
 

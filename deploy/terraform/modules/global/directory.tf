@@ -1,6 +1,7 @@
 # The global directory (internal/directory, ADR-0022): its own PostgreSQL 17
-# instance, Multi-AZ with a standby in another zone, written by the cells
-# and read by the router. TLS 1.3 only, as in the cells (T38).
+# instance, Multi-AZ with a standby in another zone (single-AZ in dev and
+# test), written by the cells and read by the router. TLS 1.3 only, as in
+# the cells (T38).
 
 data "aws_rds_engine_version" "postgres" {
   engine  = "postgres"
@@ -50,7 +51,7 @@ resource "aws_db_instance" "directory" {
   engine                          = "postgres"
   engine_version                  = data.aws_rds_engine_version.postgres.version_actual
   instance_class                  = var.directory_instance_class
-  multi_az                        = true
+  multi_az                        = var.directory_multi_az
   storage_type                    = "gp3"
   allocated_storage               = 20
   max_allocated_storage           = 200

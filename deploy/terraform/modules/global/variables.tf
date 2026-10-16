@@ -64,3 +64,9 @@ variable "log_retention_days" {
   type        = number
   default     = 90
 }
+
+variable "directory_multi_az" {
+  description = "A standby in another zone (staging, production); dev and test run the directory in one zone."
+  type        = bool
+  default     = true
+}

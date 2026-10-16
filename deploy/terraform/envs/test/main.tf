@@ -96,6 +96,9 @@ module "cell" {
   subordinate_ca_arn   = module.subordinate_ca.ca_arn
   public_api_cidrs     = var.public_api_cidrs
   node_scaling         = { min = 2, desired = 2, max = 4 }
+  # The product owner's shape for dev and test: a single-AZ instance and
+  # one zone's egress and endpoints. Staging and production keep the default.
+  zone_redundant = false
 }
 
 module "global" {
@@ -107,6 +110,7 @@ module "global" {
   private_subnet_ids        = module.cell.private_subnet_ids
   public_subnet_ids         = module.cell.public_subnet_ids
   cluster_security_group_id = module.cell.cluster_security_group_id
+  directory_multi_az        = false
 }
 
 output "cell" {
