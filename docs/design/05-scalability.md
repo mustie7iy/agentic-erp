@@ -180,7 +180,7 @@ and changes no API contract.
 | Suite | What it proves | When |
 |---|---|---|
 | `db/schema_test.go` | Keys lead with `tenant_id`, RLS everywhere, no cross-context FKs, database rules hold | Every commit |
-| Load test (posting, list, approval, trial balance) | p95/p99 targets at the largest-tenant peak in one cell | Before each phase goes live, then nightly |
+| Load test (posting, list, approval, trial balance) | p95/p99 targets at the largest-tenant peak in one cell | Before each phase goes live, then weekly |
 | Soak test (24 h at sustained load) | No leaks, stable latency, projector keeps up | Before each release |
 | Resilience tests (primary failover, NATS node loss, worker kill) | RPO/RTO targets; operations resume | Quarterly and before go-live |
 | Tenant move rehearsal | §5.4 procedure works with verified counts and hash chain | Before the first shared cell exceeds 50% of its cap |

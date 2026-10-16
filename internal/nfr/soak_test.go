@@ -12,10 +12,10 @@ import (
 // goroutine or heap growth, and workers that keep up.
 //
 // ERP_SOAK_DURATION (default 30s) and ERP_SOAK_WINDOW (default 5s) size
-// the run; the nightly suite runs it for hours.
+// the run; the weekly suite runs it for hours.
 func TestSoak(t *testing.T) {
 	if testing.Short() || raceDetector {
-		t.Skip("soak suite: runs without -short and without the race detector (make soak, nightly)")
+		t.Skip("soak suite: runs without -short and without the race detector (make soak, weekly)")
 	}
 	duration, window := Setting("ERP_SOAK_DURATION", 30*time.Second), Setting("ERP_SOAK_WINDOW", 5*time.Second)
 	s := Start(t, Options{Users: int(Setting("ERP_LOAD_USERS", 16)), Events: true})

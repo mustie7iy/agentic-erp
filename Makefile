@@ -10,7 +10,7 @@ build:
 # tree, which is at zero issues; CI runs it.
 # api/gen is left out of the package list: its findings are excluded anyway,
 # and analysing its 650,000 generated lines takes over half an hour.
-GOLANGCI = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+GOLANGCI ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
 LINT_BASE ?= main
 LINT_PKGS = $(shell go list -e -f '{{.Dir}}' ./... | grep -vE '/api/gen(/|$$)')
 
@@ -80,7 +80,7 @@ perf:
 # Non-functional suites against the database (05-scalability §5.8). Each
 # takes ERP_LOAD_USERS (16) and ERP_LOAD_RPS (0: unpaced); load takes
 # ERP_LOAD_DURATION (10s), soak takes ERP_SOAK_DURATION (30s) and
-# ERP_SOAK_WINDOW (5s). The nightly workflow runs them long.
+# ERP_SOAK_WINDOW (5s). The weekly workflow runs them long.
 load:
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./internal/nfr -run 'TestLoad'
 soak:

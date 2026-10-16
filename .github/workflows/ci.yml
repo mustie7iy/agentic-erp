@@ -5,9 +5,81 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to a pull request makes its running check obsolete: cancel it.
+# Pushes to main are never cancelled, nor queued behind one another.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  changes:
+    # Always runs: the secret scan, and whether the suite below has to run
+    # (scripts/ci-changes.sh, 06 §6.5). The suite is skipped for
+    # documentation alone, and on a push to main that brings exactly the tree
+    # the merged pull request's green run tested. A skipped job counts as
+    # passed for a required check.
+    # No Go and no tool builds here: it gates everything, so it stays a
+    # minute long. gitleaks comes as its released binary, checked by hash.
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # the pull request's run and its tested-tree artifact
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      code: ${{ steps.decide.outputs.code }}
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the comparisons and the secret scan read the commit range
+      - name: Install gitleaks (pinned)
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p bin && tar xzf "${archive}" -C bin gitleaks
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Secret scanning
+        # The scanner itself rather than gitleaks-action, whose v3 demands a
+        # license whenever it cannot look the account up. Pushes scan the
+        # commits they bring, pull requests theirs; .gitleaks.toml applies.
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          range="${BASE:-$BEFORE}..HEAD"
+          if [ -z "${BASE}${BEFORE}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then range="HEAD~1..HEAD"; fi
+          gitleaks git --redact --no-banner --log-opts="--no-merges $range" .
+      - name: The skip rules' own tests
+        # Seconds: the decision below is only as good as these.
+        run: ./scripts/test-ci-changes.sh
+      - name: Does the suite have to run?
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        # bash with pipefail, so a failing script fails the step rather than
+        # tee hiding it; the gates below also run on anything but "false".
+        shell: bash
+        run: ./scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+
+  test:
+    needs: changes
+    if: needs.changes.outputs.run != 'false'
+    runs-on: ubuntu-latest
+    # About 35 minutes warm; the first run after a tool change also builds
+    # the pinned tools (about 10 minutes) before the cache has them.
+    timeout-minutes: 75
     services:
       postgres:
         image: postgres:17
@@ -21,10 +93,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # the secret scan reads the pushed commit range, whose base a shallow clone lacks
-      - uses: actions/setup-go@v7
+          fetch-depth: 0 # the breaking-change check reads main
+      - id: go
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: CI tools (pinned, cached)
+        uses: actions/cache@v5.1.0
+        with:
+          path: ~/.cache/ci-tools/bin
+          key: ci-tools-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('scripts/ci-tools.sh') }}
+      - name: Install CI tools
+        run: ./scripts/ci-tools.sh >> "$GITHUB_PATH"
       - name: Install the Temporal CLI
         # The workflow engine's development server (ADR-0012): tests start it
         # headless on a free port when the CLI is on the path.
@@ -51,32 +131,21 @@ jobs:
         # The refactoring recorded in docs/refactoring-progress.md brought every linter
         # to zero across the tree, so the whole tree is held to the rules, not
         # only the code a push changes. api/gen is left out as the Makefile does.
-        run: make lint-all
+        run: make lint-all GOLANGCI=golangci-lint
       - name: Static analysis
-        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+        run: staticcheck ./...
       - name: Vulnerabilities
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: govulncheck ./...
       - name: Static security analysis
         # Excluded by decision (docs/design/06-engineering-process.md): G104 (errors ignored on purpose carry a comment),
         # G115 (integer conversions of bounded domain values), G304 and G107 (paths and URLs come from settings and flags by design).
-        run: go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
-      - name: Secret scanning
-        # The scanner itself rather than gitleaks-action, whose v3 demands a
-        # license whenever it cannot look the account up. Pushes scan the
-        # commits they bring, pull requests theirs; .gitleaks.toml applies.
-        env:
-          BEFORE: ${{ github.event.before }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          range="${BASE:-$BEFORE}..HEAD"
-          if [ -z "${BASE}${BEFORE}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then range="HEAD~1..HEAD"; fi
-          go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact --no-banner --log-opts="--no-merges $range" .
+        run: gosec -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
       - name: Generated server matches the contract
         run: |
           make generate
           git diff --exit-code -- api/gen || (echo "api/gen is stale: run make generate" && exit 1)
       - name: API contract lint
-        run: go run github.com/daveshanley/vacuum@v0.32.0 lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml
+        run: vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml
       - name: API breaking-change check against main
         if: github.event_name == 'pull_request'
         run: |
@@ -84,7 +153,7 @@ jobs:
           for spec in openapi control directory; do
             if git cat-file -e "FETCH_HEAD:api/$spec.yaml" 2>/dev/null; then
               git show "FETCH_HEAD:api/$spec.yaml" > "/tmp/base-$spec.yaml"
-              go run github.com/oasdiff/oasdiff@latest breaking --fail-on ERR --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
+              oasdiff breaking --fail-on ERR --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
             fi
           done
       - name: Schema tests (migrations and database-enforced rules)
@@ -113,7 +182,59 @@ jobs:
           df -h / | tail -1
           ./scripts/coverage.sh
           df -h / | tail -1
+      - name: Build
+        run: make build
+      - name: The tree this run tested
+        # A push to main that brings exactly this tree skips the suite
+        # (scripts/ci-changes.sh). A pull request is tested on its merge
+        # commit, checked out here, so this is the tree to compare.
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p tested-tree
+          git rev-parse "HEAD^{tree}" > tested-tree/tree
+      - name: Save the tested tree
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: tested-tree
+          path: tested-tree/tree
+          retention-days: 14
+          overwrite: true # a re-run of the job saves it again
+
+  fuzz:
+    # On main, whenever code changed, even when the suite was skipped for a
+    # tree the pull request already tested: fuzzing finds new inputs each
+    # run. A pull request's tests already run every target's seed corpus,
+    # and the weekly run fuzzes 5 minutes per target.
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.code != 'false'
+    # No database: the fuzz targets are parsers (money, config, analytics,
+    # bankfile, sap), and a package's database tests skip without one.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # 8 targets of 30 s each, run twice at most, and their builds
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
       - name: Fuzz (30s per target)
         run: make fuzz FUZZTIME=30s
-      - name: Build
-        run: go build -o bin/erp ./cmd/erp
+
+  ci-ok:
+    # The one check branch protection requires. A job skipped by an `if`
+    # reports success, so requiring the jobs themselves would let a failed
+    # `changes` (a leaked secret, a broken skip rule) skip the suite and
+    # pass: this job fails unless `changes` succeeded and nothing it gates
+    # failed or was cancelled.
+    needs: [changes, test, fuzz]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was rightly skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e '.changes.result == "success"
+            and ([.[] | .result] | all(. == "success" or . == "skipped"))' >/dev/null
