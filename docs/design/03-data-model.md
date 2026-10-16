@@ -784,6 +784,8 @@ erDiagram
     bigint gross_amount
     bigint tax_amount
     text status "parked | on_hold | posted | rejected | cancelled | reversed"
+    text kind "invoice | credit_memo | subsequent_debit | subsequent_credit"
+    uuid reference_invoice_id
     uuid purchase_order_id
     text source "manual | capture | edi | migration"
     uuid journal_entry_id
@@ -808,9 +810,25 @@ erDiagram
     int invoice_version }
 ```
 
+A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
+transactions are: `invoice`, `credit_memo`, `subsequent_debit` or
+`subsequent_credit`, fixed once entered (trigger
+`payables.check_kind_fixed`, constraint `supplier_invoice_kind_fixed`). Its
+amounts are positive whatever the kind (`supplier_invoice_amounts_positive`);
+the kind gives the direction when it posts (credit memos and subsequent
+credits as journal type KG, number range `journal_kg`, which configuration
+requires wherever a company numbers supplier invoices). A credit memo or
+subsequent debit/credit may name the invoice it corrects
+(`reference_invoice_id`, never itself:
+`supplier_invoice_not_its_own_reference`). A subsequent debit or credit
+revalues order items without quantity: it is on a purchase order
+(`supplier_invoice_subsequent_on_order`) and its items have quantity 0,
+every other kind's a positive one (trigger `payables.check_item_quantity`,
+constraint `supplier_invoice_item_quantity_kind`).
+
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
-level, not just detectable. `match_result` keeps the history of every match
+level, not just detectable, across kinds. `match_result` keeps the history of every match
 evaluation with the configuration version used and the invoice version the
 match left the invoice at (`invoice_version`, migration 000040, F13; after
 the hold or release the match itself causes). An invoice on a purchase
