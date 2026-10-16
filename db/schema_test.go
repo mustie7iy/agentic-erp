@@ -1650,3 +1650,60 @@ func TestGoodsMovementEntry(t *testing.T) {
 		})
 	}
 }
+
+// TestGRIRPositionBackfill: migration 000054 projects each order item's
+// GR/IR position from its lines on the legal entity's GR/IR account in the
+// leading ledger: received (the procurement context's lines, negated),
+// invoiced (the payables context's), the balance in the three currencies
+// and the last posting date. Each position equals the sum of its lines.
+func TestGRIRPositionBackfill(t *testing.T) {
+	conn := emptyDatabase(t)
+	migrateBefore(t, conn, 54)
+	f := fixtureIDs()
+	order, other := id(), id()
+	item := "10"
+	qty := func(q string) *string { return &q }
+	inTenant(t, conn, f.tenant, f.seed)
+	grir := id()
+	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'219000','GR/IR clearing','liability','none','active',$4,$4)`, f.tenant, grir, f.chart, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)",
+			f.tenant, f.entity, grir, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, "INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1,$2,'gr_ir',$3,$4)",
+			f.tenant, f.entity, grir, f.actor)
+	})
+	inTenant(t, conn, f.tenant, f.grIREntry("procurement", grIRLine{grir, -300, &order, &item, qty("-3")}, grIRLine{account: f.expense, amount: 300}))
+	inTenant(t, conn, f.tenant, f.grIREntry("payables", grIRLine{grir, 110, &order, &item, qty("1")}, grIRLine{account: f.expense, amount: -110}))
+	inTenant(t, conn, f.tenant, f.grIREntry("procurement", grIRLine{grir, -50, &other, &item, qty("-1")}, grIRLine{account: f.expense, amount: 50}))
+	inTenant(t, conn, f.tenant, f.grIREntry("ledger", grIRLine{f.expense, -70, &order, &item, qty("-7")}, grIRLine{account: f.bank, amount: 70})) // not on GR/IR
+	var up Migration
+	for _, m := range Migrations() {
+		if v, _ := m.Version(); v == 54 {
+			up = m
+		}
+	}
+	if _, err := migrate(context.Background(), conn, []Migration{up}); err != nil {
+		t.Fatalf("migrate 000054: %v", err)
+	}
+	rows, _ := conn.Query(context.Background(), `SELECT purchase_order_id = $2, trim_scale(received)::text, trim_scale(invoiced)::text, amount_tc, amount_lc,
+		amount_gc, currency_tc, last_posting_date::text, is_open FROM ledger.gr_ir_position WHERE tenant_id = $1 ORDER BY 1 DESC`, f.tenant, order)
+	got, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (string, error) {
+		var first, open bool
+		var received, invoiced, currency, last string
+		var tc, lc, gc int64
+		err := r.Scan(&first, &received, &invoiced, &tc, &lc, &gc, &currency, &last, &open)
+		return fmt.Sprint(first, received, invoiced, tc, lc, gc, currency, last, open), err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{fmt.Sprint(true, "3", "1", -190, -190, -171, "USD", "2026-08-05", true), fmt.Sprint(false, "1", "0", -50, -50, -45, "USD", "2026-08-05", true)}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("positions: got %v, want %v", got, want)
+	}
+}
