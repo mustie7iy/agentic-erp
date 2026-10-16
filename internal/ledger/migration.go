@@ -111,14 +111,11 @@ func clearingPeriod(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, by It
 		FOR SHARE OF ps`, entity, book, date).Scan(&year, &number, &status)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		return problem.Unprocessable("ledger.no_fiscal_period", "No fiscal period of the legal entity and the clearing entry's ledger covers "+day+".",
-			problem.FieldError{Field: "clearing_date", Code: "no_fiscal_period", Message: "a date in a fiscal year that is set up"})
+		return noFiscalPeriod("clearing_date", "No fiscal period of the legal entity and the clearing entry's ledger covers "+day+".")
 	case err != nil:
 		return fmt.Errorf("ledger: clearing period of %s on %s: %w", legalEntity, day, err)
-	case status != Open:
-		return problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; clearings dated %s need it open.", year, number, status, day))
 	}
-	return nil
+	return mustBeOpen(year, number, status, "clearings dated "+day)
 }
 
 // migratedItems checks the items a migrated clearing settles (open items of

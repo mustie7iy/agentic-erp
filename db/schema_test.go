@@ -444,30 +444,35 @@ func TestPostingPeriods(t *testing.T) {
 // by an update, and nothing locks a period still open for postings.
 func TestPeriodTransitions(t *testing.T) {
 	need(t)
-	f := newFixture(t)
-	set := func(period int, status string) error {
-		_, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = $3, version = version + 1
-			WHERE tenant_id = $1 AND fiscal_year = 2026 AND period = $2`, f.tenant, period, status)
+	set := func(tenant uuid.UUID, status string) error {
+		_, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = $2, version = version + 1
+			WHERE tenant_id = $1 AND fiscal_year = 2026 AND period = 5`, tenant, status)
 		return err
 	}
-	// Period 1 starts closed, the others open.
+	// Each case has a tenant of its own and puts period 5 (open) in its
+	// starting status by allowed steps, so no case depends on another.
+	path := map[string][]string{"open": {"closed", "open"}, "closed": {"open", "closed"}, "locked": {"open", "closed", "locked"}}
 	for _, c := range []struct {
-		name   string
-		period int
-		to     string
-		want   string // empty: allowed
+		from, to string
+		want     string // empty: allowed
 	}{
-		{"open to locked", 2, "locked", "cannot go from open to locked"},
-		{"open to open", 2, "open", ""},
-		{"open to closed", 2, "closed", ""},
-		{"closed to open", 2, "open", ""},
-		{"closed to locked", 1, "locked", ""},
-		{"locked to open", 1, "open", "cannot go from locked to open"},
-		{"locked to closed", 1, "closed", "cannot go from locked to closed"},
-		{"locked to locked", 1, "locked", ""},
+		{"open", "locked", "cannot go from open to locked"},
+		{"open", "open", ""},
+		{"open", "closed", ""},
+		{"closed", "open", ""},
+		{"closed", "locked", ""},
+		{"locked", "open", "cannot go from locked to open"},
+		{"locked", "closed", "cannot go from locked to closed"},
+		{"locked", "locked", ""},
 	} {
-		t.Run(c.name, func(t *testing.T) {
-			err := set(c.period, c.to)
+		t.Run(c.from+" to "+c.to, func(t *testing.T) {
+			f := newFixture(t)
+			for _, step := range path[c.from] {
+				if err := set(f.tenant, step); err != nil {
+					t.Fatalf("set up %s: %v", c.from, err)
+				}
+			}
+			err := set(f.tenant, c.to)
 			if c.want == "" {
 				if err != nil {
 					t.Errorf("got %v, want no error", err)
@@ -516,11 +521,12 @@ func TestClearingsRespectPeriods(t *testing.T) {
 		pay, err = f.entry(tx, 6, "2026-06-20", line{account: f.ap, amount: 700, partner: &f.supplier}, line{account: f.bank, amount: -700})
 		return err
 	})
-	if _, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = 'locked', version = version + 1 WHERE tenant_id = $1 AND period = 1`, f.tenant); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND period = 2`, f.tenant); err != nil {
-		t.Fatal(err)
+	// Period 1 starts closed: lock it. Close period 2.
+	for period, status := range map[int]string{1: "locked", 2: "closed"} {
+		if _, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = $3, version = version + 1
+			WHERE tenant_id = $1 AND period = $2`, f.tenant, period, status); err != nil {
+			t.Fatal(err)
+		}
 	}
 	clear := func(day string) error {
 		return asApp(t, f.tenant, func(tx pgx.Tx) error {
