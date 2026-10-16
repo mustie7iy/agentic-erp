@@ -316,8 +316,8 @@ func (l *loader) basics() Config {
 // server's subcommands included.
 func (l *loader) tls(c *Config) {
 	c.TLS = tlsconf.Source{CA: l.raw("ERP_TLS_CA"), Cert: l.raw("ERP_TLS_CERT"), Key: l.raw("ERP_TLS_KEY")}
-	if c.TrustDomain = l.getenv("ERP_TRUST_DOMAIN"); c.TrustDomain != "" && !trustDomainPattern.MatchString(c.TrustDomain) {
-		l.errs = append(l.errs, errors.New("ERP_TRUST_DOMAIN must be a DNS name in lower case, such as erp.example.com: the SPIFFE trust domain"))
+	if c.TrustDomain = l.getenv("ERP_TRUST_DOMAIN"); !ValidTrustDomain(c.TrustDomain) {
+		l.errs = append(l.errs, ErrTrustDomain)
 	}
 	switch {
 	case (c.TLS.Cert == "") != (c.TLS.Key == ""):
@@ -690,6 +690,13 @@ func checkNATS(c Config) []error {
 
 // trustDomainPattern is a SPIFFE trust domain: a DNS name in lower case.
 var trustDomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+
+// ErrTrustDomain reports an ERP_TRUST_DOMAIN that is not a trust domain.
+var ErrTrustDomain = errors.New("ERP_TRUST_DOMAIN must be a DNS name in lower case, such as erp.example.com: the SPIFFE trust domain")
+
+// ValidTrustDomain reports whether d is empty or a SPIFFE trust domain;
+// the router checks its own setting with it.
+func ValidTrustDomain(d string) bool { return d == "" || trustDomainPattern.MatchString(d) }
 
 // imdsHosts are the instance metadata service's link-local addresses, the
 // one endpoint reached without TLS: its traffic never leaves the host.

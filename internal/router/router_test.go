@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/router"
 )
 
@@ -144,9 +146,10 @@ func TestLoadConfig(t *testing.T) {
 	_, err = router.LoadConfig(env(prodEnv))
 	pgtest.WantErr(t, err, "ERP_DIRECTORY_URL: sslmode must be verify-full")
 	prodEnv["ERP_DIRECTORY_URL"] = "postgres://u:p@dir.example.com/erp?sslmode=verify-full"
-	if _, err := router.LoadConfig(env(prodEnv)); err != nil {
-		t.Errorf("production without them, over verified TLS: got %v, want loaded", err)
-	}
+	// Its own TLS material is the rest of what production requires
+	// (TestLoadConfigTLS).
+	_, err = router.LoadConfig(env(prodEnv))
+	pgtest.WantErr(t, err, "ERP_TLS_CERT and ERP_TLS_KEY are required with ERP_ENV=production")
 }
 
 func TestRouting(t *testing.T) {
@@ -313,5 +316,79 @@ func TestRoutingRegisteredIssuers(t *testing.T) {
 	}
 	if got := get(other.Token(t, tenant, "mallory", nil)); got != 401 {
 		t.Errorf("an unregistered issuer's token: got %d, want 401", got)
+	}
+}
+
+// TestRefusesPlaintextCells: with RequireTLS (production) a tenant whose
+// cell's API URL is not https is not forwarded: 503 (ADR-0033).
+func TestRefusesPlaintextCells(t *testing.T) {
+	is := authntest.New(t)
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := uuid.New()
+	m := &memory{entries: map[uuid.UUID]directory.Entry{tenant: {TenantID: tenant, Cell: "eu-1", APIURL: "http://eu1.internal", Status: directory.Active}}}
+	rt := &router.Router{Verifier: v, Directory: lookup{m}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), RequireTLS: true}
+	req := httptest.NewRequest(http.MethodGet, "/v1/balances", nil)
+	req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
+	rec := httptest.NewRecorder()
+	rt.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("plaintext cell: got %d, want 503", rec.Code)
+	}
+}
+
+// TestLoadConfigTLS: the router reads its identity (ERP_TLS_*), the public
+// listener's certificate (ERP_ROUTER_PUBLIC_*) and the trust domain, from
+// env: and file: references; production requires all three (ADR-0033).
+func TestLoadConfigTLS(t *testing.T) {
+	t.Setenv("PGSSLMODE", "") // pgx reads the process's PG* settings, not the injected environment
+	ca, dir := tlstest.NewCA(t), t.TempDir()
+	leaf, public := ca.Issue(t, tlstest.Options{URIs: []string{"spiffe://erp.example/global/erp-router"}}), ca.Issue(t, tlstest.Options{DNS: []string{"api.example.com"}})
+	files := map[string]string{
+		"ERP_TLS_CA":             "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM),
+		"ERP_TLS_CERT":           "file:" + tlstest.WriteFile(t, dir, "tls.crt", leaf.CertPEM),
+		"ERP_TLS_KEY":            "file:" + tlstest.WriteFile(t, dir, "tls.key", leaf.KeyPEM),
+		"ERP_ROUTER_PUBLIC_CERT": "file:" + tlstest.WriteFile(t, dir, "public.crt", public.CertPEM),
+		"ERP_ROUTER_PUBLIC_KEY":  "file:" + tlstest.WriteFile(t, dir, "public.key", public.KeyPEM),
+		"ERP_TRUST_DOMAIN":       "erp.example",
+	}
+	base := map[string]string{"ERP_DIRECTORY_URL": "postgres://u:p@dir.example.com/erp?sslmode=verify-full", "ERP_ENV": "production"}
+	env := func(set ...map[string]string) func(string) string {
+		m := maps.Clone(base)
+		for _, s := range set {
+			maps.Copy(m, s)
+		}
+		return func(k string) string { return m[k] }
+	}
+	c, err := router.LoadConfig(env(files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Identity == nil || !c.Identity.HasCertificate() || c.Public == nil || !c.Public.HasCertificate() || c.TrustDomain != "erp.example" {
+		t.Errorf("TLS: got identity %v, public %v, trust domain %q, want all read", c.Identity, c.Public, c.TrustDomain)
+	}
+	for _, bad := range []struct {
+		name string
+		set  map[string]string
+		want string
+	}{
+		{"production without an identity", map[string]string{"ERP_TLS_CERT": "", "ERP_TLS_KEY": ""}, "ERP_TLS_CERT and ERP_TLS_KEY are required with ERP_ENV=production"},
+		{"production without a public certificate", map[string]string{"ERP_ROUTER_PUBLIC_CERT": "", "ERP_ROUTER_PUBLIC_KEY": ""}, "ERP_ROUTER_PUBLIC_CERT and ERP_ROUTER_PUBLIC_KEY are required with ERP_ENV=production"},
+		{"production without a trust domain", map[string]string{"ERP_TRUST_DOMAIN": ""}, "ERP_TRUST_DOMAIN is required with ERP_ENV=production"},
+		{"a bad trust domain", map[string]string{"ERP_TRUST_DOMAIN": "Erp"}, "ERP_TRUST_DOMAIN must be"},
+		{"an identity without a trust domain", map[string]string{"ERP_ENV": "development", "ERP_TRUST_DOMAIN": ""}, "ERP_TLS_CERT needs ERP_TRUST_DOMAIN"},
+		{"an unreadable identity", map[string]string{"ERP_TLS_CA": "file:/nonexistent/ca.crt"}, "ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: tlsconf: CA bundle"},
+		{"a public key without its certificate", map[string]string{"ERP_ROUTER_PUBLIC_CERT": ""}, "ERP_ROUTER_PUBLIC_CERT, ERP_ROUTER_PUBLIC_KEY: tlsconf: the certificate and key go together"},
+	} {
+		t.Run(bad.name, func(t *testing.T) {
+			_, err := router.LoadConfig(env(files, bad.set))
+			pgtest.WantErr(t, err, bad.want)
+		})
+	}
+	// Development needs none of them.
+	if c, err := router.LoadConfig(env(map[string]string{"ERP_ENV": "development"})); err != nil || c.Identity != nil || c.Public != nil {
+		t.Errorf("development: got %v, %v, %v, want no TLS and no error", c.Identity, c.Public, err)
 	}
 }

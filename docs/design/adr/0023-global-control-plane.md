@@ -52,3 +52,7 @@ API, `:unfreeze`. The router follows within its cache period.
   (`directory.placement`).
 - Capacity is a count of tenants; weighing cells by size or load is a
   later refinement.
+- Transport (amended 2026-10-16, ADR-0033): cells register https URLs in
+  production, and the router (and the global plane in it) reaches them
+  over mutual TLS as `spiffe://<domain>/global/erp-router`, the one
+  identity a cell's API and `/control` serve.

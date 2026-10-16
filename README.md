@@ -249,6 +249,14 @@ platform, provisioning placed in a cell of the region, moves between cells
 verified by comparing the two cells' fingerprints with `erp directory verify`,
 [ADR-0030](docs/design/adr/0030-cross-cell-verification.md);
 `erp directory`, [ADR-0023](docs/design/adr/0023-global-control-plane.md)).
+With `ERP_TLS_CA`, `ERP_TLS_CERT`, `ERP_TLS_KEY` (env: or file:
+references) and `ERP_TRUST_DOMAIN` the router reaches the cells over
+mutual TLS 1.3 as `spiffe://<domain>/global/erp-router`, only cells whose
+URLs are https and whose certificates name `spiffe://<domain>/<cell>/erp-server`,
+and serves its admin listener over TLS; with `ERP_ROUTER_PUBLIC_CERT` and
+`ERP_ROUTER_PUBLIC_KEY` its public listener serves TLS with a public CA's
+certificate. Production requires all of them
+([ADR-0033](docs/design/adr/0033-transport-encryption-and-service-identity.md)).
 Each cell registers itself with `ERP_CELL_REGION`, `ERP_CELL_CONTROL_URL`
 and `ERP_CELL_ACCEPTING`. Tokens must
 carry the tenant id in the `tenant_id` claim, and their issuer and subject

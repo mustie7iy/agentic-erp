@@ -34,3 +34,13 @@ func TestUpdatedAndClient(t *testing.T) {
 		t.Fatal("the service's client was not used")
 	}
 }
+
+// TestCallRefusesPlaintextCells: with RequireTLS (production) a cell
+// whose control URL is not https is not called: 503 (ADR-0033).
+func TestCallRefusesPlaintextCells(t *testing.T) {
+	s := &Service{RequireTLS: true}
+	_, _, _, err := s.call(t.Context(), directory.Cell{Name: "eu-1", ControlURL: "http://eu1-admin.internal:9090"}, http.MethodGet, "/control/v1/x", nil, nil)
+	if p := problem.From(err); p.Status != http.StatusServiceUnavailable {
+		t.Errorf("plaintext control URL: got %v, want 503", err)
+	}
+}
