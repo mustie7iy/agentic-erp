@@ -489,6 +489,12 @@ type Invoker interface {
 	//
 	// GET /v1/org-units/{id}
 	GetOrgUnit(ctx context.Context, params GetOrgUnitParams) (GetOrgUnitRes, error)
+	// GetParkedJournalEntry invokes getParkedJournalEntry operation.
+	//
+	// Returns one parked journal entry with its lines.
+	//
+	// GET /v1/parked-journal-entries/{id}
+	GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (GetParkedJournalEntryRes, error)
 	// GetPartnerChange invokes getPartnerChange operation.
 	//
 	// Returns one partner change.
@@ -757,6 +763,13 @@ type Invoker interface {
 	//
 	// GET /v1/org-units
 	ListOrgUnits(ctx context.Context, params ListOrgUnitsParams) (ListOrgUnitsRes, error)
+	// ListParkedJournalEntries invokes listParkedJournalEntries operation.
+	//
+	// Manual journal entries parked before they are posted, newest first: entries people or agents
+	// proposed, entries waiting for approval and what became of them. Sortable by: `created_at`.
+	//
+	// GET /v1/parked-journal-entries
+	ListParkedJournalEntries(ctx context.Context, params ListParkedJournalEntriesParams) (ListParkedJournalEntriesRes, error)
 	// ListPartnerChanges invokes listPartnerChanges operation.
 	//
 	// Governed changes to business partners. Sortable by: `created_at`.
@@ -865,6 +878,17 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:open
 	OpenFiscalPeriod(ctx context.Context, params OpenFiscalPeriodParams) (OpenFiscalPeriodRes, error)
+	// ParkJournalEntry invokes parkJournalEntry operation.
+	//
+	// Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
+	// posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation
+	// lines, tax codes) except for the open period and the exchange rates, which are checked when it is
+	// posted. Nothing is posted and no document number is drawn. Agents may park: this is how they propose
+	// an entry, which only a person can post. A person owns what they park; an agent's entry has no owner
+	// until a person takes it on.
+	//
+	// POST /v1/parked-journal-entries
+	ParkJournalEntry(ctx context.Context, request *JournalEntryCreate, params ParkJournalEntryParams) (ParkJournalEntryRes, error)
 	// PostGoodsReceipt invokes postGoodsReceipt operation.
 	//
 	// Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals.
@@ -11002,6 +11026,137 @@ func (c *Client) sendGetOrgUnit(ctx context.Context, params GetOrgUnitParams) (r
 	return result, nil
 }
 
+// GetParkedJournalEntry invokes getParkedJournalEntry operation.
+//
+// Returns one parked journal entry with its lines.
+//
+// GET /v1/parked-journal-entries/{id}
+func (c *Client) GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (GetParkedJournalEntryRes, error) {
+	res, err := c.sendGetParkedJournalEntry(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (res GetParkedJournalEntryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getParkedJournalEntry"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/parked-journal-entries/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetParkedJournalEntryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/parked-journal-entries/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetParkedJournalEntryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetParkedJournalEntryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetPartnerChange invokes getPartnerChange operation.
 //
 // Returns one partner change.
@@ -19464,6 +19619,226 @@ func (c *Client) sendListOrgUnits(ctx context.Context, params ListOrgUnitsParams
 	return result, nil
 }
 
+// ListParkedJournalEntries invokes listParkedJournalEntries operation.
+//
+// Manual journal entries parked before they are posted, newest first: entries people or agents
+// proposed, entries waiting for approval and what became of them. Sortable by: `created_at`.
+//
+// GET /v1/parked-journal-entries
+func (c *Client) ListParkedJournalEntries(ctx context.Context, params ListParkedJournalEntriesParams) (ListParkedJournalEntriesRes, error) {
+	res, err := c.sendListParkedJournalEntries(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListParkedJournalEntries(ctx context.Context, params ListParkedJournalEntriesParams) (res ListParkedJournalEntriesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listParkedJournalEntries"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/parked-journal-entries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListParkedJournalEntriesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/parked-journal-entries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "created_by_kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "created_by_kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CreatedByKind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListParkedJournalEntriesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListParkedJournalEntriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListPartnerChanges invokes listPartnerChanges operation.
 //
 // Governed changes to business partners. Sortable by: `created_at`.
@@ -23220,6 +23595,141 @@ func (c *Client) sendOpenFiscalPeriod(ctx context.Context, params OpenFiscalPeri
 
 	stage = "DecodeResponse"
 	result, err := decodeOpenFiscalPeriodResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ParkJournalEntry invokes parkJournalEntry operation.
+//
+// Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
+// posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation
+// lines, tax codes) except for the open period and the exchange rates, which are checked when it is
+// posted. Nothing is posted and no document number is drawn. Agents may park: this is how they propose
+// an entry, which only a person can post. A person owns what they park; an agent's entry has no owner
+// until a person takes it on.
+//
+// POST /v1/parked-journal-entries
+func (c *Client) ParkJournalEntry(ctx context.Context, request *JournalEntryCreate, params ParkJournalEntryParams) (ParkJournalEntryRes, error) {
+	res, err := c.sendParkJournalEntry(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendParkJournalEntry(ctx context.Context, request *JournalEntryCreate, params ParkJournalEntryParams) (res ParkJournalEntryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("parkJournalEntry"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/parked-journal-entries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ParkJournalEntryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/parked-journal-entries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeParkJournalEntryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ParkJournalEntryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeParkJournalEntryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -2115,6 +2115,7 @@ func (*BadRequestHeaders) getMigrationRunRes()            {}
 func (*BadRequestHeaders) getNumberRangeRes()             {}
 func (*BadRequestHeaders) getOperationRes()               {}
 func (*BadRequestHeaders) getOrgUnitRes()                 {}
+func (*BadRequestHeaders) getParkedJournalEntryRes()      {}
 func (*BadRequestHeaders) getPartnerChangeRes()           {}
 func (*BadRequestHeaders) getPaymentRunRes()              {}
 func (*BadRequestHeaders) getPrincipalRes()               {}
@@ -2158,6 +2159,7 @@ func (*BadRequestHeaders) listNumberRangesRes()           {}
 func (*BadRequestHeaders) listOpenItemsRes()              {}
 func (*BadRequestHeaders) listOperationsRes()             {}
 func (*BadRequestHeaders) listOrgUnitsRes()               {}
+func (*BadRequestHeaders) listParkedJournalEntriesRes()   {}
 func (*BadRequestHeaders) listPartnerChangesRes()         {}
 func (*BadRequestHeaders) listPaymentExclusionsRes()      {}
 func (*BadRequestHeaders) listPaymentRunsRes()            {}
@@ -2175,6 +2177,7 @@ func (*BadRequestHeaders) listSupplierInvoicesRes()       {}
 func (*BadRequestHeaders) lockFiscalPeriodRes()           {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()       {}
 func (*BadRequestHeaders) openFiscalPeriodRes()           {}
+func (*BadRequestHeaders) parkJournalEntryRes()           {}
 func (*BadRequestHeaders) postGoodsReceiptRes()           {}
 func (*BadRequestHeaders) postJournalEntryRes()           {}
 func (*BadRequestHeaders) postSupplierInvoiceRes()        {}
@@ -5882,6 +5885,7 @@ func (*ConflictHeaders) holdSupplierInvoiceRes()      {}
 func (*ConflictHeaders) lockFiscalPeriodRes()         {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()     {}
 func (*ConflictHeaders) openFiscalPeriodRes()         {}
+func (*ConflictHeaders) parkJournalEntryRes()         {}
 func (*ConflictHeaders) postGoodsReceiptRes()         {}
 func (*ConflictHeaders) postJournalEntryRes()         {}
 func (*ConflictHeaders) postSupplierInvoiceRes()      {}
@@ -8591,6 +8595,7 @@ func (*ForbiddenHeaders) getMigrationRunRes()            {}
 func (*ForbiddenHeaders) getNumberRangeRes()             {}
 func (*ForbiddenHeaders) getOperationRes()               {}
 func (*ForbiddenHeaders) getOrgUnitRes()                 {}
+func (*ForbiddenHeaders) getParkedJournalEntryRes()      {}
 func (*ForbiddenHeaders) getPartnerChangeRes()           {}
 func (*ForbiddenHeaders) getPaymentRunRes()              {}
 func (*ForbiddenHeaders) getPrincipalRes()               {}
@@ -8634,6 +8639,7 @@ func (*ForbiddenHeaders) listNumberRangesRes()           {}
 func (*ForbiddenHeaders) listOpenItemsRes()              {}
 func (*ForbiddenHeaders) listOperationsRes()             {}
 func (*ForbiddenHeaders) listOrgUnitsRes()               {}
+func (*ForbiddenHeaders) listParkedJournalEntriesRes()   {}
 func (*ForbiddenHeaders) listPartnerChangesRes()         {}
 func (*ForbiddenHeaders) listPaymentExclusionsRes()      {}
 func (*ForbiddenHeaders) listPaymentRunsRes()            {}
@@ -8651,6 +8657,7 @@ func (*ForbiddenHeaders) listSupplierInvoicesRes()       {}
 func (*ForbiddenHeaders) lockFiscalPeriodRes()           {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()       {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()           {}
+func (*ForbiddenHeaders) parkJournalEntryRes()           {}
 func (*ForbiddenHeaders) postGoodsReceiptRes()           {}
 func (*ForbiddenHeaders) postJournalEntryRes()           {}
 func (*ForbiddenHeaders) postSupplierInvoiceRes()        {}
@@ -9611,6 +9618,67 @@ func (s *GetOrgUnitOKHeaders) SetResponse(val OrgUnit) {
 }
 
 func (*GetOrgUnitOKHeaders) getOrgUnitRes() {}
+
+// GetParkedJournalEntryOKHeaders wraps ParkedJournalEntry with response headers.
+type GetParkedJournalEntryOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ParkedJournalEntry
+}
+
+// GetETag returns the value of ETag.
+func (s *GetParkedJournalEntryOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetParkedJournalEntryOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetParkedJournalEntryOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetParkedJournalEntryOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetParkedJournalEntryOKHeaders) GetResponse() ParkedJournalEntry {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetParkedJournalEntryOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetParkedJournalEntryOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetParkedJournalEntryOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetParkedJournalEntryOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetParkedJournalEntryOKHeaders) SetResponse(val ParkedJournalEntry) {
+	s.Response = val
+}
+
+func (*GetParkedJournalEntryOKHeaders) getParkedJournalEntryRes() {}
 
 // GetPartnerChangeOKHeaders wraps PartnerChange with response headers.
 type GetPartnerChangeOKHeaders struct {
@@ -13520,6 +13588,7 @@ func (*NotFoundHeaders) getMigrationRunRes()            {}
 func (*NotFoundHeaders) getNumberRangeRes()             {}
 func (*NotFoundHeaders) getOperationRes()               {}
 func (*NotFoundHeaders) getOrgUnitRes()                 {}
+func (*NotFoundHeaders) getParkedJournalEntryRes()      {}
 func (*NotFoundHeaders) getPartnerChangeRes()           {}
 func (*NotFoundHeaders) getPaymentRunRes()              {}
 func (*NotFoundHeaders) getPrincipalRes()               {}
@@ -16257,6 +16326,518 @@ func (s *OrgUnitUpdate) SetParentID(val OptNilUUID) {
 }
 
 // Merged schema.
+// Ref: #/components/schemas/ParkedJournalEntry
+type ParkedJournalEntry struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Document type.
+	DocumentType string `json:"document_type"`
+	// Document date.
+	DocumentDate time.Time `json:"document_date"`
+	// Posting date; its period must be open when the entry is posted.
+	PostingDate time.Time `json:"posting_date"`
+	// Transaction currency.
+	Currency string `json:"currency"`
+	// External reference.
+	Reference OptString `json:"reference"`
+	// Header text.
+	HeaderText OptString `json:"header_text"`
+	// Parked entry status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Kind of principal that parked the entry; `agent` marks an agent's proposal. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	CreatedByKind string `json:"created_by_kind"`
+	// The person who owns the entry, and alone changes, posts or withdraws it: who parked it, or for an
+	// agent's entry the person who took it on; absent until then.
+	OwnerID OptUUID `json:"owner_id"`
+	// The `manual_entry` approval request (workflow context) the entry waits for or was decided on; absent
+	// when it was never submitted or was posted within the limit.
+	ApprovalRequestID OptUUID `json:"approval_request_id"`
+	// The journal entry it was posted as; set once `posted`.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// Fiscal year of the journal entry, set with `journal_entry_id`.
+	JournalFiscalYear OptInt32 `json:"journal_fiscal_year"`
+	// The lines, balancing to zero.
+	Lines []ParkedJournalLine `json:"lines"`
+}
+
+// GetID returns the value of ID.
+func (s *ParkedJournalEntry) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ParkedJournalEntry) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ParkedJournalEntry) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ParkedJournalEntry) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ParkedJournalEntry) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ParkedJournalEntry) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ParkedJournalEntry) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *ParkedJournalEntry) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetDocumentType returns the value of DocumentType.
+func (s *ParkedJournalEntry) GetDocumentType() string {
+	return s.DocumentType
+}
+
+// GetDocumentDate returns the value of DocumentDate.
+func (s *ParkedJournalEntry) GetDocumentDate() time.Time {
+	return s.DocumentDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *ParkedJournalEntry) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ParkedJournalEntry) GetCurrency() string {
+	return s.Currency
+}
+
+// GetReference returns the value of Reference.
+func (s *ParkedJournalEntry) GetReference() OptString {
+	return s.Reference
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *ParkedJournalEntry) GetHeaderText() OptString {
+	return s.HeaderText
+}
+
+// GetStatus returns the value of Status.
+func (s *ParkedJournalEntry) GetStatus() string {
+	return s.Status
+}
+
+// GetCreatedByKind returns the value of CreatedByKind.
+func (s *ParkedJournalEntry) GetCreatedByKind() string {
+	return s.CreatedByKind
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *ParkedJournalEntry) GetOwnerID() OptUUID {
+	return s.OwnerID
+}
+
+// GetApprovalRequestID returns the value of ApprovalRequestID.
+func (s *ParkedJournalEntry) GetApprovalRequestID() OptUUID {
+	return s.ApprovalRequestID
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *ParkedJournalEntry) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalFiscalYear returns the value of JournalFiscalYear.
+func (s *ParkedJournalEntry) GetJournalFiscalYear() OptInt32 {
+	return s.JournalFiscalYear
+}
+
+// GetLines returns the value of Lines.
+func (s *ParkedJournalEntry) GetLines() []ParkedJournalLine {
+	return s.Lines
+}
+
+// SetID sets the value of ID.
+func (s *ParkedJournalEntry) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ParkedJournalEntry) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ParkedJournalEntry) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ParkedJournalEntry) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ParkedJournalEntry) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ParkedJournalEntry) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ParkedJournalEntry) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *ParkedJournalEntry) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetDocumentType sets the value of DocumentType.
+func (s *ParkedJournalEntry) SetDocumentType(val string) {
+	s.DocumentType = val
+}
+
+// SetDocumentDate sets the value of DocumentDate.
+func (s *ParkedJournalEntry) SetDocumentDate(val time.Time) {
+	s.DocumentDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *ParkedJournalEntry) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ParkedJournalEntry) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetReference sets the value of Reference.
+func (s *ParkedJournalEntry) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *ParkedJournalEntry) SetHeaderText(val OptString) {
+	s.HeaderText = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ParkedJournalEntry) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCreatedByKind sets the value of CreatedByKind.
+func (s *ParkedJournalEntry) SetCreatedByKind(val string) {
+	s.CreatedByKind = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *ParkedJournalEntry) SetOwnerID(val OptUUID) {
+	s.OwnerID = val
+}
+
+// SetApprovalRequestID sets the value of ApprovalRequestID.
+func (s *ParkedJournalEntry) SetApprovalRequestID(val OptUUID) {
+	s.ApprovalRequestID = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *ParkedJournalEntry) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalFiscalYear sets the value of JournalFiscalYear.
+func (s *ParkedJournalEntry) SetJournalFiscalYear(val OptInt32) {
+	s.JournalFiscalYear = val
+}
+
+// SetLines sets the value of Lines.
+func (s *ParkedJournalEntry) SetLines(val []ParkedJournalLine) {
+	s.Lines = val
+}
+
+// ParkedJournalEntryHeaders wraps ParkedJournalEntry with response headers.
+type ParkedJournalEntryHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ParkedJournalEntry
+}
+
+// GetETag returns the value of ETag.
+func (s *ParkedJournalEntryHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ParkedJournalEntryHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ParkedJournalEntryHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *ParkedJournalEntryHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *ParkedJournalEntryHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *ParkedJournalEntryHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *ParkedJournalEntryHeaders) GetResponse() ParkedJournalEntry {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ParkedJournalEntryHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ParkedJournalEntryHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ParkedJournalEntryHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *ParkedJournalEntryHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *ParkedJournalEntryHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *ParkedJournalEntryHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ParkedJournalEntryHeaders) SetResponse(val ParkedJournalEntry) {
+	s.Response = val
+}
+
+func (*ParkedJournalEntryHeaders) parkJournalEntryRes() {}
+
+// One page of parked journal entries.
+// Ref: #/components/schemas/ParkedJournalEntryPage
+type ParkedJournalEntryPage struct {
+	// The parked journal entries on this page.
+	Items []ParkedJournalEntry `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ParkedJournalEntryPage) GetItems() []ParkedJournalEntry {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ParkedJournalEntryPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ParkedJournalEntryPage) SetItems(val []ParkedJournalEntry) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ParkedJournalEntryPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// ParkedJournalEntryPageHeaders wraps ParkedJournalEntryPage with response headers.
+type ParkedJournalEntryPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ParkedJournalEntryPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *ParkedJournalEntryPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *ParkedJournalEntryPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *ParkedJournalEntryPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *ParkedJournalEntryPageHeaders) GetResponse() ParkedJournalEntryPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *ParkedJournalEntryPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *ParkedJournalEntryPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *ParkedJournalEntryPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ParkedJournalEntryPageHeaders) SetResponse(val ParkedJournalEntryPage) {
+	s.Response = val
+}
+
+func (*ParkedJournalEntryPageHeaders) listParkedJournalEntriesRes() {}
+
+// One line of a parked journal entry, in transaction currency.
+// Ref: #/components/schemas/ParkedJournalLine
+type ParkedJournalLine struct {
+	// Line number.
+	LineNo int32 `json:"line_no"`
+	// General ledger account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Amount in transaction currency; signed: debit positive, credit negative.
+	Amount Money `json:"amount"`
+	// Supplier or customer on reconciliation lines.
+	PartnerID OptUUID `json:"partner_id"`
+	// Tax code.
+	TaxCode OptString `json:"tax_code"`
+	// Quantity, where relevant.
+	Quantity OptQuantity `json:"quantity"`
+	// Line text.
+	LineText OptString `json:"line_text"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *ParkedJournalLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ParkedJournalLine) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAmount returns the value of Amount.
+func (s *ParkedJournalLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPartnerID returns the value of PartnerID.
+func (s *ParkedJournalLine) GetPartnerID() OptUUID {
+	return s.PartnerID
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *ParkedJournalLine) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ParkedJournalLine) GetQuantity() OptQuantity {
+	return s.Quantity
+}
+
+// GetLineText returns the value of LineText.
+func (s *ParkedJournalLine) GetLineText() OptString {
+	return s.LineText
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *ParkedJournalLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ParkedJournalLine) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ParkedJournalLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPartnerID sets the value of PartnerID.
+func (s *ParkedJournalLine) SetPartnerID(val OptUUID) {
+	s.PartnerID = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *ParkedJournalLine) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ParkedJournalLine) SetQuantity(val OptQuantity) {
+	s.Quantity = val
+}
+
+// SetLineText sets the value of LineText.
+func (s *ParkedJournalLine) SetLineText(val OptString) {
+	s.LineText = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/PartnerChange
 type PartnerChange struct {
 	// Identifier (UUIDv7).
@@ -17862,6 +18443,7 @@ func (*PreconditionRequiredHeaders) holdSupplierInvoiceRes()      {}
 func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()         {}
 func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()     {}
 func (*PreconditionRequiredHeaders) openFiscalPeriodRes()         {}
+func (*PreconditionRequiredHeaders) parkJournalEntryRes()         {}
 func (*PreconditionRequiredHeaders) postGoodsReceiptRes()         {}
 func (*PreconditionRequiredHeaders) postJournalEntryRes()         {}
 func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()      {}
@@ -22393,6 +22975,7 @@ func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()        {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()           {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()       {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()           {}
+func (*ServiceUnavailableHeaders) parkJournalEntryRes()           {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()           {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()           {}
 func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()        {}
@@ -23996,6 +24579,7 @@ func (*TooManyRequestsHeaders) getMigrationRunRes()            {}
 func (*TooManyRequestsHeaders) getNumberRangeRes()             {}
 func (*TooManyRequestsHeaders) getOperationRes()               {}
 func (*TooManyRequestsHeaders) getOrgUnitRes()                 {}
+func (*TooManyRequestsHeaders) getParkedJournalEntryRes()      {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()           {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()              {}
 func (*TooManyRequestsHeaders) getPrincipalRes()               {}
@@ -24039,6 +24623,7 @@ func (*TooManyRequestsHeaders) listNumberRangesRes()           {}
 func (*TooManyRequestsHeaders) listOpenItemsRes()              {}
 func (*TooManyRequestsHeaders) listOperationsRes()             {}
 func (*TooManyRequestsHeaders) listOrgUnitsRes()               {}
+func (*TooManyRequestsHeaders) listParkedJournalEntriesRes()   {}
 func (*TooManyRequestsHeaders) listPartnerChangesRes()         {}
 func (*TooManyRequestsHeaders) listPaymentExclusionsRes()      {}
 func (*TooManyRequestsHeaders) listPaymentRunsRes()            {}
@@ -24056,6 +24641,7 @@ func (*TooManyRequestsHeaders) listSupplierInvoicesRes()       {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()           {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()       {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()           {}
+func (*TooManyRequestsHeaders) parkJournalEntryRes()           {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()           {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()           {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()        {}
@@ -24226,6 +24812,7 @@ func (*UnauthorizedHeaders) getMigrationRunRes()            {}
 func (*UnauthorizedHeaders) getNumberRangeRes()             {}
 func (*UnauthorizedHeaders) getOperationRes()               {}
 func (*UnauthorizedHeaders) getOrgUnitRes()                 {}
+func (*UnauthorizedHeaders) getParkedJournalEntryRes()      {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()           {}
 func (*UnauthorizedHeaders) getPaymentRunRes()              {}
 func (*UnauthorizedHeaders) getPrincipalRes()               {}
@@ -24269,6 +24856,7 @@ func (*UnauthorizedHeaders) listNumberRangesRes()           {}
 func (*UnauthorizedHeaders) listOpenItemsRes()              {}
 func (*UnauthorizedHeaders) listOperationsRes()             {}
 func (*UnauthorizedHeaders) listOrgUnitsRes()               {}
+func (*UnauthorizedHeaders) listParkedJournalEntriesRes()   {}
 func (*UnauthorizedHeaders) listPartnerChangesRes()         {}
 func (*UnauthorizedHeaders) listPaymentExclusionsRes()      {}
 func (*UnauthorizedHeaders) listPaymentRunsRes()            {}
@@ -24286,6 +24874,7 @@ func (*UnauthorizedHeaders) listSupplierInvoicesRes()       {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()           {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()       {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()           {}
+func (*UnauthorizedHeaders) parkJournalEntryRes()           {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()           {}
 func (*UnauthorizedHeaders) postJournalEntryRes()           {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()        {}
@@ -24427,6 +25016,7 @@ func (*UnprocessableHeaders) holdSupplierInvoiceRes()      {}
 func (*UnprocessableHeaders) lockFiscalPeriodRes()         {}
 func (*UnprocessableHeaders) matchSupplierInvoiceRes()     {}
 func (*UnprocessableHeaders) openFiscalPeriodRes()         {}
+func (*UnprocessableHeaders) parkJournalEntryRes()         {}
 func (*UnprocessableHeaders) postGoodsReceiptRes()         {}
 func (*UnprocessableHeaders) postJournalEntryRes()         {}
 func (*UnprocessableHeaders) postSupplierInvoiceRes()      {}

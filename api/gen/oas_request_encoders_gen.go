@@ -602,6 +602,20 @@ func encodeHoldSupplierInvoiceRequest(
 	return nil
 }
 
+func encodeParkJournalEntryRequest(
+	req *JournalEntryCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodePostGoodsReceiptRequest(
 	req *GoodsReceiptCreate,
 	r *http.Request,

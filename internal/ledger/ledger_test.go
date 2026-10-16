@@ -23,7 +23,7 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"ledger.account.read", "ledger.period.read", "ledger.period.manage", "ledger.period.lock", "ledger.entry.read", "ledger.entry.post",
+var perms = []string{"ledger.account.read", "ledger.period.read", "ledger.period.manage", "ledger.period.lock", "ledger.entry.read", "ledger.entry.post", "ledger.entry.park",
 	"ledger.rate.read", "ledger.rate.maintain", "ledger.clearing.post"}
 
 // document is the prototype's configuration (companies 1000 in USD and

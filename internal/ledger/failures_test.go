@@ -108,6 +108,10 @@ func TestDatabaseFailures(t *testing.T) {
 				_, err := h.ListJournalEntries(ctx, gen.ListJournalEntriesParams{PageSize: zero})
 				return err
 			},
+			"parked entries": func(ctx context.Context) error {
+				_, err := h.ListParkedJournalEntries(ctx, gen.ListParkedJournalEntriesParams{PageSize: zero})
+				return err
+			},
 			"open items": func(ctx context.Context) error {
 				_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{PageSize: zero})
 				return err
@@ -164,6 +168,7 @@ type ledgerDocs struct {
 	e                              env
 	bank, ap                       string
 	je, inv2, pay2, inv3, cl, rate map[string]any
+	parked                         map[string]any
 	period                         uuid.UUID
 }
 
@@ -185,6 +190,7 @@ func (d *ledgerDocs) post(t *testing.T) {
 	d.inv2, _ = e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
 	d.pay2, _ = e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-16", "EUR", line{ap, "5.00", e.supplier.String()}, line{bank, "-5.00", ""}), "")
 	d.inv3, _ = e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")
+	d.parked, _ = e.Must(201, "POST", "/v1/parked-journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	d.rate, _ = e.Must(201, "POST", "/v1/exchange-rates", `{"rate_type": "average", "from_currency": "GBP", "to_currency": "EUR", "valid_from": "2026-01-01", "rate": "1.1", "source": "x"}`, "")
 	periods, _ := e.Must(200, "GET", "/v1/fiscal-periods?legal_entity_id="+e.de.String()+"&order_by=period&page_size=1", "", "")
 	d.period = uuid.MustParse(periods["items"].([]any)[0].(map[string]any)["id"].(string))
@@ -204,6 +210,21 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 				Currency: "USD", Lines: []gen.JournalLineInput{
 					{AccountID: u(bank), Amount: gen.Money{Amount: "1.00", Currency: "USD"}, TaxCode: gen.NewOptString("V9"), Quantity: qty},
 					{AccountID: u(ap), Amount: gen.Money{Amount: "-1.00", Currency: "USD"}, PartnerID: gen.NewOptUUID(e.supplier)}}}, gen.PostJournalEntryParams{})
+			return err
+		},
+		"park": func(ctx context.Context) error {
+			_, err := h.ParkJournalEntry(ctx, &gen.JournalEntryCreate{LegalEntityID: e.de, DocumentDate: date("2026-03-15"), PostingDate: date("2026-03-15"),
+				Currency: "USD", Lines: []gen.JournalLineInput{
+					{AccountID: u(bank), Amount: gen.Money{Amount: "1.00", Currency: "USD"}, TaxCode: gen.NewOptString("V9"), Quantity: qty},
+					{AccountID: u(ap), Amount: gen.Money{Amount: "-1.00", Currency: "USD"}, PartnerID: gen.NewOptUUID(e.supplier)}}}, gen.ParkJournalEntryParams{})
+			return err
+		},
+		"get parked": func(ctx context.Context) error {
+			_, err := h.GetParkedJournalEntry(ctx, gen.GetParkedJournalEntryParams{ID: id(d.parked)})
+			return err
+		},
+		"list parked": func(ctx context.Context) error {
+			_, err := h.ListParkedJournalEntries(ctx, gen.ListParkedJournalEntriesParams{})
 			return err
 		},
 		"get entry": func(ctx context.Context) error {

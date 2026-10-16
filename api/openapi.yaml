@@ -4052,6 +4052,175 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/parked-journal-entries:
+    get:
+      operationId: listParkedJournalEntries
+      tags:
+        - ledger
+      summary: List parked journal entries
+      description: "Manual journal entries parked before they are posted, newest first: entries people or agents proposed, entries waiting for approval and what became of them. Sortable by: `created_at`."
+      x-permission: ledger.entry.read
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: status
+          in: query
+          required: false
+          description: Only parked entries in this status.
+          schema:
+            type: string
+            description: "Parked entry status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - parked
+              - pending_approval
+              - posted
+              - rejected
+              - cancelled
+        - name: created_by_kind
+          in: query
+          required: false
+          description: "Only entries parked by this kind of principal; `agent` lists agents' proposals."
+          schema:
+            type: string
+            description: "Principal kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - human
+              - agent
+              - service
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of parked journal entries.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParkedJournalEntryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: parkJournalEntry
+      tags:
+        - ledger
+      summary: Park a manual journal entry
+      description: "Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation lines, tax codes) except for the open period and the exchange rates, which are checked when it is posted. Nothing is posted and no document number is drawn. Agents may park: this is how they propose an entry, which only a person can post. A person owns what they park; an agent's entry has no owner until a person takes it on."
+      x-permission: ledger.entry.park
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The manual journal entry to park.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JournalEntryCreate"
+            examples:
+              accrual:
+                summary: Manual accrual in EUR
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  document_type: SA
+                  document_date: "2026-10-09"
+                  posting_date: "2026-10-09"
+                  currency: EUR
+                  reference: ACCR-2026-10
+                  header_text: October consulting accrual
+                  lines:
+                    - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d06"
+                      amount:
+                        amount: "1200.00"
+                        currency: EUR
+                      line_text: Consulting fees
+                    - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d07"
+                      amount:
+                        amount: "-1200.00"
+                        currency: EUR
+                      line_text: Accrued liabilities
+      responses:
+        "201":
+          description: "Created; the parked journal entry."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParkedJournalEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/parked-journal-entries/{id}":
+    get:
+      operationId: getParkedJournalEntry
+      tags:
+        - ledger
+      summary: Get a parked journal entry
+      description: Returns one parked journal entry with its lines.
+      x-permission: ledger.entry.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The parked journal entry.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParkedJournalEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/open-items:
     get:
       operationId: listOpenItems
@@ -13256,6 +13425,215 @@ components:
                     currency: EUR
               posted_at: "2026-10-09T14:03:11Z"
               posted_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc4"
+    ParkedJournalLine:
+      type: object
+      description: One line of a parked journal entry, in transaction currency.
+      required:
+        - line_no
+        - account_id
+        - amount
+      properties:
+        line_no:
+          type: integer
+          format: int32
+          description: Line number.
+          minimum: 1
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: General ledger account.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "Amount in transaction currency; signed: debit positive, credit negative."
+          readOnly: true
+        partner_id:
+          type: string
+          format: uuid
+          description: Supplier or customer on reconciliation lines.
+          readOnly: true
+        tax_code:
+          type: string
+          description: Tax code.
+          readOnly: true
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: Quantity, where relevant.
+          readOnly: true
+        line_text:
+          type: string
+          description: Line text.
+          readOnly: true
+      examples:
+        - line_no: 1
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d06"
+          amount:
+            amount: "1200.00"
+            currency: EUR
+    ParkedJournalEntry:
+      description: "A manual journal entry parked before it is posted (T35). It moves `parked` -> `pending_approval` -> `posted` or `rejected`, back to `parked` when its approval request is withdrawn, straight to `posted` within its company's `manual_entry_approval_limit`, or to `cancelled`; its content and lines change only while it is `parked`."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - ledger_id
+            - document_type
+            - document_date
+            - posting_date
+            - currency
+            - status
+            - created_by_kind
+            - lines
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: Legal entity.
+              readOnly: true
+            ledger_id:
+              type: string
+              format: uuid
+              description: Ledger.
+              readOnly: true
+            document_type:
+              type: string
+              description: Document type.
+              readOnly: true
+            document_date:
+              type: string
+              format: date
+              description: Document date.
+              readOnly: true
+            posting_date:
+              type: string
+              format: date
+              description: "Posting date; its period must be open when the entry is posted."
+              readOnly: true
+            currency:
+              type: string
+              description: Transaction currency.
+              readOnly: true
+            reference:
+              type: string
+              description: External reference.
+              readOnly: true
+            header_text:
+              type: string
+              description: Header text.
+              readOnly: true
+            status:
+              type: string
+              description: "Parked entry status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - parked
+                - pending_approval
+                - posted
+                - rejected
+                - cancelled
+              readOnly: true
+            created_by_kind:
+              type: string
+              description: "Kind of principal that parked the entry; `agent` marks an agent's proposal. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - human
+                - agent
+                - service
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              description: "The person who owns the entry, and alone changes, posts or withdraws it: who parked it, or for an agent's entry the person who took it on; absent until then."
+              readOnly: true
+            approval_request_id:
+              type: string
+              format: uuid
+              description: "The `manual_entry` approval request (workflow context) the entry waits for or was decided on; absent when it was never submitted or was posted within the limit."
+              readOnly: true
+            journal_entry_id:
+              type: string
+              format: uuid
+              description: "The journal entry it was posted as; set once `posted`."
+              readOnly: true
+            journal_fiscal_year:
+              type: integer
+              format: int32
+              description: Fiscal year of the journal entry, set with `journal_entry_id`.
+              readOnly: true
+            lines:
+              type: array
+              items:
+                $ref: "#/components/schemas/ParkedJournalLine"
+              description: The lines, balancing to zero.
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          version: 1
+          created_at: "2026-10-09T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-10-09T14:03:11Z"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+          document_type: SA
+          document_date: "2026-10-09"
+          posting_date: "2026-10-09"
+          currency: EUR
+          header_text: October consulting accrual
+          status: parked
+          created_by_kind: agent
+          lines:
+            - line_no: 1
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d06"
+              amount:
+                amount: "1200.00"
+                currency: EUR
+            - line_no: 2
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d07"
+              amount:
+                amount: "-1200.00"
+                currency: EUR
+    ParkedJournalEntryPage:
+      type: object
+      description: One page of parked journal entries.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParkedJournalEntry"
+          description: The parked journal entries on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              version: 1
+              created_at: "2026-10-09T14:03:11Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+              updated_at: "2026-10-09T14:03:11Z"
+              legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+              document_type: SA
+              document_date: "2026-10-09"
+              posting_date: "2026-10-09"
+              currency: EUR
+              status: parked
+              created_by_kind: agent
+              lines:
+                - line_no: 1
+                  account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d06"
+                  amount:
+                    amount: "1200.00"
+                    currency: EUR
+                - line_no: 2
+                  account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d07"
+                  amount:
+                    amount: "-1200.00"
+                    currency: EUR
     OpenItem:
       type: object
       description: A line on a supplier or customer reconciliation account that is not yet cleared. Identified by (fiscal_year, journal_entry_id, line_no).

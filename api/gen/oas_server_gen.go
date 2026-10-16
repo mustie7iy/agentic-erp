@@ -468,6 +468,12 @@ type Handler interface {
 	//
 	// GET /v1/org-units/{id}
 	GetOrgUnit(ctx context.Context, params GetOrgUnitParams) (GetOrgUnitRes, error)
+	// GetParkedJournalEntry implements getParkedJournalEntry operation.
+	//
+	// Returns one parked journal entry with its lines.
+	//
+	// GET /v1/parked-journal-entries/{id}
+	GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (GetParkedJournalEntryRes, error)
 	// GetPartnerChange implements getPartnerChange operation.
 	//
 	// Returns one partner change.
@@ -736,6 +742,13 @@ type Handler interface {
 	//
 	// GET /v1/org-units
 	ListOrgUnits(ctx context.Context, params ListOrgUnitsParams) (ListOrgUnitsRes, error)
+	// ListParkedJournalEntries implements listParkedJournalEntries operation.
+	//
+	// Manual journal entries parked before they are posted, newest first: entries people or agents
+	// proposed, entries waiting for approval and what became of them. Sortable by: `created_at`.
+	//
+	// GET /v1/parked-journal-entries
+	ListParkedJournalEntries(ctx context.Context, params ListParkedJournalEntriesParams) (ListParkedJournalEntriesRes, error)
 	// ListPartnerChanges implements listPartnerChanges operation.
 	//
 	// Governed changes to business partners. Sortable by: `created_at`.
@@ -844,6 +857,17 @@ type Handler interface {
 	//
 	// POST /v1/fiscal-periods/{id}:open
 	OpenFiscalPeriod(ctx context.Context, params OpenFiscalPeriodParams) (OpenFiscalPeriodRes, error)
+	// ParkJournalEntry implements parkJournalEntry operation.
+	//
+	// Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
+	// posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation
+	// lines, tax codes) except for the open period and the exchange rates, which are checked when it is
+	// posted. Nothing is posted and no document number is drawn. Agents may park: this is how they propose
+	// an entry, which only a person can post. A person owns what they park; an agent's entry has no owner
+	// until a person takes it on.
+	//
+	// POST /v1/parked-journal-entries
+	ParkJournalEntry(ctx context.Context, req *JournalEntryCreate, params ParkJournalEntryParams) (ParkJournalEntryRes, error)
 	// PostGoodsReceipt implements postGoodsReceipt operation.
 	//
 	// Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals.

@@ -680,6 +680,15 @@ func (UnimplementedHandler) GetOrgUnit(ctx context.Context, params GetOrgUnitPar
 	return r, ht.ErrNotImplemented
 }
 
+// GetParkedJournalEntry implements getParkedJournalEntry operation.
+//
+// Returns one parked journal entry with its lines.
+//
+// GET /v1/parked-journal-entries/{id}
+func (UnimplementedHandler) GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (r GetParkedJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetPartnerChange implements getPartnerChange operation.
 //
 // Returns one partner change.
@@ -1077,6 +1086,16 @@ func (UnimplementedHandler) ListOrgUnits(ctx context.Context, params ListOrgUnit
 	return r, ht.ErrNotImplemented
 }
 
+// ListParkedJournalEntries implements listParkedJournalEntries operation.
+//
+// Manual journal entries parked before they are posted, newest first: entries people or agents
+// proposed, entries waiting for approval and what became of them. Sortable by: `created_at`.
+//
+// GET /v1/parked-journal-entries
+func (UnimplementedHandler) ListParkedJournalEntries(ctx context.Context, params ListParkedJournalEntriesParams) (r ListParkedJournalEntriesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListPartnerChanges implements listPartnerChanges operation.
 //
 // Governed changes to business partners. Sortable by: `created_at`.
@@ -1233,6 +1252,20 @@ func (UnimplementedHandler) MatchSupplierInvoice(ctx context.Context, params Mat
 //
 // POST /v1/fiscal-periods/{id}:open
 func (UnimplementedHandler) OpenFiscalPeriod(ctx context.Context, params OpenFiscalPeriodParams) (r OpenFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ParkJournalEntry implements parkJournalEntry operation.
+//
+// Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
+// posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation
+// lines, tax codes) except for the open period and the exchange rates, which are checked when it is
+// posted. Nothing is posted and no document number is drawn. Agents may park: this is how they propose
+// an entry, which only a person can post. A person owns what they park; an agent's entry has no owner
+// until a person takes it on.
+//
+// POST /v1/parked-journal-entries
+func (UnimplementedHandler) ParkJournalEntry(ctx context.Context, req *JournalEntryCreate, params ParkJournalEntryParams) (r ParkJournalEntryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

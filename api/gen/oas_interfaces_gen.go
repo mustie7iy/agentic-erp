@@ -277,6 +277,10 @@ type GetOrgUnitRes interface {
 	getOrgUnitRes()
 }
 
+type GetParkedJournalEntryRes interface {
+	getParkedJournalEntryRes()
+}
+
 type GetPartnerChangeRes interface {
 	getPartnerChangeRes()
 }
@@ -449,6 +453,10 @@ type ListOrgUnitsRes interface {
 	listOrgUnitsRes()
 }
 
+type ListParkedJournalEntriesRes interface {
+	listParkedJournalEntriesRes()
+}
+
 type ListPartnerChangesRes interface {
 	listPartnerChangesRes()
 }
@@ -515,6 +523,10 @@ type MatchSupplierInvoiceRes interface {
 
 type OpenFiscalPeriodRes interface {
 	openFiscalPeriodRes()
+}
+
+type ParkJournalEntryRes interface {
+	parkJournalEntryRes()
 }
 
 type PostGoodsReceiptRes interface {

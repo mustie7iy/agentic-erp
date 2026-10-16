@@ -293,7 +293,7 @@ and role administration) are never exposed as agent tools.
 | identity | `principals`, `roles`, `role-permissions`, `role-assignments`, `company-access`, `sod-rules` | `:block`, `:end` |
 | configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
-| ledger | `accounts`, `fiscal-periods`, `journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:unlock` |
+| ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:unlock` |
 | procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |

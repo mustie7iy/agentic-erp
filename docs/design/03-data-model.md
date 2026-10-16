@@ -473,7 +473,11 @@ Rules enforced in the database:
   `created_by`); an agent's entry has no owner until a person changes or
   posts it, an entry is submitted or posted only with an owner, and the
   owner never changes: the requester an approval excludes is the one person
-  who wrote the entry. Agents may hold `ledger.entry.park`;
+  who wrote the entry. People and agents park entries through
+  `parked-journal-entries` (T35c), checked as a posting is except for the
+  open period and the rates; nothing is posted and no number is drawn
+  until the entry is posted, so cancelled and rejected entries leave no
+  gaps in the journal's number ranges. Agents may hold `ledger.entry.park`;
   `ledger.entry.approve` is an approval permission (agents never hold it).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger
