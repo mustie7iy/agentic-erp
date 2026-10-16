@@ -162,6 +162,7 @@ const (
 	UnblockBusinessPartnerOperation     OperationName = "UnblockBusinessPartner"
 	UnblockLegalEntityOperation         OperationName = "UnblockLegalEntity"
 	UnblockOrgUnitOperation             OperationName = "UnblockOrgUnit"
+	UnlockFiscalPeriodOperation         OperationName = "UnlockFiscalPeriod"
 	UpdateChangeRequestOperation        OperationName = "UpdateChangeRequest"
 	UpdateConnectorOperation            OperationName = "UpdateConnector"
 	UpdateContractOperation             OperationName = "UpdateContract"

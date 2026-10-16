@@ -1058,6 +1058,16 @@ type Handler interface {
 	//
 	// POST /v1/org-units/{id}:unblock
 	UnblockOrgUnit(ctx context.Context, params UnblockOrgUnitParams) (UnblockOrgUnitRes, error)
+	// UnlockFiscalPeriod implements unlockFiscalPeriod operation.
+	//
+	// Opens a `period_unlock` approval request for a locked period and names it on the period
+	// (`unlock_request_id`). When the request is approved the period returns to `closed` (event
+	// `PeriodUnlocked`); reopening it is a separate `:open`. When it is rejected or withdrawn the period
+	// stays `locked`. Requires status `locked` and no pending unlock request (409
+	// `ledger.invalid_period_status`, `ledger.unlock_pending`). Human-only.
+	//
+	// POST /v1/fiscal-periods/{id}:unlock
+	UnlockFiscalPeriod(ctx context.Context, req *ReasonInput, params UnlockFiscalPeriodParams) (UnlockFiscalPeriodRes, error)
 	// UpdateChangeRequest implements updateChangeRequest operation.
 	//
 	// Changes a change request in status `draft` or `invalid`; an `invalid` one returns to `draft` and

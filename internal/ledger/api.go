@@ -197,6 +197,15 @@ func (e *Endpoints) LockFiscalPeriod(ctx context.Context, params gen.LockFiscalP
 	return &gen.CloseFiscalPeriodOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: periodToAPI(p)}, nil
 }
 
+// UnlockFiscalPeriod implements POST /v1/fiscal-periods/{id}:unlock.
+func (e *Endpoints) UnlockFiscalPeriod(ctx context.Context, req *gen.ReasonInput, params gen.UnlockFiscalPeriodParams) (gen.UnlockFiscalPeriodRes, error) {
+	p, err := RequestUnlock(ctx, e.Approvals, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CloseFiscalPeriodOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: periodToAPI(p)}, nil
+}
+
 // PostJournalEntry implements POST /v1/journal-entries.
 func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryCreate, _ gen.PostJournalEntryParams) (gen.PostJournalEntryRes, error) {
 	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), DocumentType: req.DocumentType.Or("SA"),

@@ -49,7 +49,7 @@ var (
 	rn145AllowedHeaders = map[string]string{
 		"GET": "Authorization",
 	}
-	rn201AllowedHeaders = map[string]string{
+	rn202AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key",
 	}
 	rn147AllowedHeaders = map[string]string{
@@ -110,7 +110,7 @@ var (
 	rn191AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
-	rn202AllowedHeaders = map[string]string{
+	rn203AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
 	rn53AllowedHeaders = map[string]string{
@@ -188,6 +188,9 @@ var (
 	}
 	rn167AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
+	}
+	rn201AllowedHeaders = map[string]string{
+		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
 	rn152AllowedHeaders = map[string]string{
 		"GET":  "Authorization",
@@ -891,7 +894,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 							default:
 								s.notAllowed(w, r, notAllowedParams{
 									allowedMethods: "POST",
-									allowedHeaders: rn201AllowedHeaders,
+									allowedHeaders: rn202AllowedHeaders,
 									acceptPost:     "application/json",
 									acceptPatch:    "",
 								})
@@ -1548,7 +1551,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									default:
 										s.notAllowed(w, r, notAllowedParams{
 											allowedMethods: "POST",
-											allowedHeaders: rn202AllowedHeaders,
+											allowedHeaders: rn203AllowedHeaders,
 											acceptPost:     "application/json",
 											acceptPatch:    "",
 										})
@@ -2321,6 +2324,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										allowedMethods: "POST",
 										allowedHeaders: rn167AllowedHeaders,
 										acceptPost:     "",
+										acceptPatch:    "",
+									})
+								}
+
+								return
+							}
+
+						case 'u': // Prefix: "unlock"
+
+							if l := len("unlock"); len(elem) >= l && elem[0:l] == "unlock" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							if len(elem) == 0 {
+								// Leaf node.
+								switch r.Method {
+								case "POST":
+									s.handleUnlockFiscalPeriodRequest([1]string{
+										args[0],
+									}, elemIsEscaped, w, r)
+								default:
+									s.notAllowed(w, r, notAllowedParams{
+										allowedMethods: "POST",
+										allowedHeaders: rn201AllowedHeaders,
+										acceptPost:     "application/json",
 										acceptPatch:    "",
 									})
 								}
@@ -6863,6 +6893,31 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 									r.operationID = "openFiscalPeriod"
 									r.operationGroup = ""
 									r.pathPattern = "/v1/fiscal-periods/{id}:open"
+									r.args = args
+									r.count = 1
+									return r, true
+								default:
+									return
+								}
+							}
+
+						case 'u': // Prefix: "unlock"
+
+							if l := len("unlock"); len(elem) >= l && elem[0:l] == "unlock" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							if len(elem) == 0 {
+								// Leaf node.
+								switch method {
+								case "POST":
+									r.name = UnlockFiscalPeriodOperation
+									r.summary = "Request the unlock of a fiscal period"
+									r.operationID = "unlockFiscalPeriod"
+									r.operationGroup = ""
+									r.pathPattern = "/v1/fiscal-periods/{id}:unlock"
 									r.args = args
 									r.count = 1
 									return r, true

@@ -59,7 +59,7 @@ var allowed = map[string][]string{
 	"directory":               {"tenancy"},
 	"globalplane":             {"directory", "offboarding"},
 	"integration":             {"bankfile", "config", "ledger", "operations", "partner", "payables", "procurement", "sap", "tenancy"},
-	"ledger":                  {"config", "tenancy"},
+	"ledger":                  {"approvals", "config", "tenancy"},
 	"nfr":                     {"analytics", "app", "ledger"},
 	"offboarding":             {"tenancy"},
 	"partner":                 {"approvals", "bankfile", "config", "tenancy"},

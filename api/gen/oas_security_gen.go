@@ -195,6 +195,7 @@ var operationRolesOidc = map[string][]string{
 	UnblockBusinessPartnerOperation:     []string{},
 	UnblockLegalEntityOperation:         []string{},
 	UnblockOrgUnitOperation:             []string{},
+	UnlockFiscalPeriodOperation:         []string{},
 	UpdateChangeRequestOperation:        []string{},
 	UpdateConnectorOperation:            []string{},
 	UpdateContractOperation:             []string{},

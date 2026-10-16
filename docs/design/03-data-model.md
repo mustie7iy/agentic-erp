@@ -433,8 +433,14 @@ Rules enforced in the database:
   finished when it closed.
 - A locked period names its pending unlock request in `unlock_request_id`
   (workflow context, no foreign key across contexts), and only a locked
-  period names one (`period_status_unlock_only_locked`); the ledger clears
-  it when the request ends (T32c). The transition trigger lets locked ->
+  period names one (`period_status_unlock_only_locked`). `:unlock`
+  (permission `ledger.period.lock`, people only, T32c) opens the request
+  and names it, only on a locked period naming none (409
+  `ledger.unlock_pending` otherwise); the ledger's callbacks
+  (`ledger.PeriodUnlocks`) clear it when the request ends: approved, the
+  period returns to closed (`PeriodUnlocked`); rejected or withdrawn, it
+  stays locked. Each acts only while the period, locked, names that
+  request, and fails the decision otherwise. The transition trigger lets locked ->
   closed through only when the update consumes the named request, clearing
   it (migration 000051, T32b). That the request was approved is checked by
   the ledger's approvals callback, which closes the period under the guard
