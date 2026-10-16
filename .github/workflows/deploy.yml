@@ -1,0 +1,48 @@
+name: deploy
+
+# The infrastructure code's checks (ADR-0035), only when it changes: fmt,
+# validate, `terraform test` against a mock provider, tflint, and the
+# encryption-at-rest policy with conftest (scripts/deploy-checks.sh). No
+# credentials and no account: nothing here plans against or applies to AWS.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - deploy/**
+      - scripts/deploy-checks.sh
+      - .github/workflows/deploy.yml
+  pull_request:
+    paths: *paths
+
+concurrency:
+  group: deploy-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TERRAFORM_VERSION: 1.16.4
+      TERRAFORM_SHA256: dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install Terraform, tflint and conftest (pinned)
+        run: |
+          cd "$RUNNER_TEMP"
+          archive="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+          curl -sSfLO "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/${archive}"
+          echo "${TERRAFORM_SHA256}  ${archive}" | sha256sum -c -
+          unzip -q "${archive}" terraform
+          mkdir -p bin && mv terraform bin/
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/terraform-linters/tflint@v0.63.1
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/open-policy-agent/conftest@v0.71.0
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Infrastructure checks
+        run: ./scripts/deploy-checks.sh
