@@ -1260,9 +1260,11 @@ func (UnimplementedHandler) OpenFiscalPeriod(ctx context.Context, params OpenFis
 // Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
 // posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation
 // lines, tax codes) except for the open period and the exchange rates, which are checked when it is
-// posted. Nothing is posted and no document number is drawn. Agents may park: this is how they propose
-// an entry, which only a person can post. A person owns what they park; an agent's entry has no owner
-// until a person takes it on.
+// posted. An entry that could never be posted is refused as posting would refuse it: a line on the
+// legal entity's GR/IR account (422 `ledger.automatic_account`; only goods receipts and invoices post
+// it) or a quantity in an unknown unit (422 `ledger.unknown_unit`). Nothing is posted and no document
+// number is drawn. Agents may park: this is how they propose an entry, which only a person can post. A
+// person owns what they park; an agent's entry has no owner until a person takes it on.
 //
 // POST /v1/parked-journal-entries
 func (UnimplementedHandler) ParkJournalEntry(ctx context.Context, req *JournalEntryCreate, params ParkJournalEntryParams) (r ParkJournalEntryRes, _ error) {

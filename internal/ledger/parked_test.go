@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Parked manual entries (T35c): people and agents park a checked entry,
@@ -49,8 +51,11 @@ func TestParkJournalEntry(t *testing.T) {
 		t.Errorf("parked lines: got %s, want 1200.00,-1200.00", got)
 	}
 	got, tag := e.Must(200, "GET", "/v1/parked-journal-entries/"+pe["id"].(string), "", "")
-	if got["id"] != pe["id"] || tag != `"1"` {
-		t.Errorf("read back: got %v %s, want %v \"1\"", got["id"], tag, pe["id"])
+	if got["id"] != pe["id"] {
+		t.Errorf("read back id: got %v, want %v", got["id"], pe["id"])
+	}
+	if tag != `"1"` {
+		t.Errorf("read back ETag: got %s, want \"1\"", tag)
 	}
 	// Nothing is posted and no number is drawn.
 	if page, _ := e.Must(200, "GET", "/v1/journal-entries", "", ""); len(page["items"].([]any)) != 0 {
@@ -66,9 +71,7 @@ func TestParkJournalEntry(t *testing.T) {
 	}
 	want(t, "parked event", changed[0], map[string]any{"parked_entry_id": pe["id"], "status": "parked", "previous_status": nil,
 		"created_by_kind": "human", "owner_id": e.ten.Human.ID.String(), "posting_date": "2026-03-15", "approval_request_id": nil, "journal_entry_id": nil})
-	if amount := changed[0]["amount"].(map[string]any); amount["amount"] != "1200.00" || amount["currency"] != "EUR" {
-		t.Errorf("parked event amount: got %v, want the debit total 1200.00 EUR", amount)
-	}
+	want(t, "parked event amount", changed[0]["amount"].(map[string]any), map[string]any{"amount": "1200.00", "currency": "EUR"})
 	var audited int
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event
 		WHERE tenant_id = $1 AND action = 'ledger.parked_entry.park' AND object_id = $2`, e.ten.ID, uuid.MustParse(pe["id"].(string))).Scan(&audited); err != nil {
@@ -87,9 +90,11 @@ func TestAgentsPropose(t *testing.T) {
 	agent := e.asAgent(t)
 	pe, _ := agent.Must(201, "POST", "/v1/parked-journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "10.00", ""}, line{revenue, "-10.00", ""}), "")
 	want(t, "proposal", pe, map[string]any{"status": "parked", "created_by_kind": "agent", "owner_id": nil, "created_by": e.ten.Agent.ID.String()})
-	if changed := events(t, e.ten, "parked_journal_entry_changed"); len(changed) != 1 || changed[0]["owner_id"] != nil {
-		t.Errorf("proposal event: got %v, want one without an owner", changed)
+	changed := events(t, e.ten, "parked_journal_entry_changed")
+	if len(changed) != 1 {
+		t.Fatalf("proposal events: got %d %v, want 1", len(changed), changed)
 	}
+	want(t, "proposal event", changed[0], map[string]any{"created_by_kind": "agent", "owner_id": nil})
 }
 
 // TestParkingChecks: parking checks what posting does except the period
@@ -160,8 +165,11 @@ func TestListParkedJournalEntries(t *testing.T) {
 		})
 	}
 	page := list("?page_size=2")
-	if len(page) != 3 || page[0] != proposal || page[1] != second {
-		t.Fatalf("page 1: got %v, want %s, %s and a next page token", page, proposal, second)
+	if len(page) != 3 {
+		t.Fatalf("page 1: got %v, want two entries and a next page token", page)
+	}
+	if fmt.Sprint(page[:2]) != fmt.Sprint([]string{proposal, second}) {
+		t.Errorf("page 1: got %v, want [%s %s]", page[:2], proposal, second)
 	}
 	if rest := list("?page_size=2&page_token=" + page[2][len("next:"):]); fmt.Sprint(rest) != fmt.Sprint([]string{first}) {
 		t.Errorf("page 2: got %v, want [%s]", rest, first)
@@ -205,4 +213,26 @@ func TestPostedParkedEntry(t *testing.T) {
 	if got["journal_entry_id"] == nil {
 		t.Errorf("posted entry journal_entry_id: got none, want the journal entry")
 	}
+}
+
+// TestParkingRefusesWhatCannotPost: an entry that could never be posted is
+// refused when it is parked, with posting's reason: a line on the GR/IR
+// account, which only goods receipts and invoices post, and a quantity in
+// an unknown unit.
+func TestParkingRefusesWhatCannotPost(t *testing.T) {
+	e := setup(t)
+	s := ledger.Setup{LegalEntities: tenancy.Directory{}}
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error { return s.Apply(ctx, withGRIR(t)) }); err != nil {
+		t.Fatal(err)
+	}
+	grir, bank := e.account(t, "2000", "219000"), e.account(t, "2000", "100000")
+	p := e.Problem(422, "ledger.automatic_account", "POST", "/v1/parked-journal-entries",
+		entry(e.de, "2026-03-15", "EUR", line{bank, "10.00", ""}, line{grir, "-10.00", ""}), "")
+	if fields := fmt.Sprint(p["errors"]); !strings.Contains(fields, "lines[1].account_id") {
+		t.Errorf("GR/IR refusal fields: got %s, want lines[1].account_id", fields)
+	}
+	body := `{"legal_entity_id": "` + e.de.String() + `", "document_date": "2026-03-15", "posting_date": "2026-03-15", "currency": "EUR", "lines": [
+		{"account_id": "` + bank + `", "amount": {"amount": "1.00", "currency": "EUR"}, "quantity": {"value": "1", "unit": "XYZ"}},
+		{"account_id": "` + bank + `", "amount": {"amount": "-1.00", "currency": "EUR"}}]}`
+	e.Problem(422, "ledger.unknown_unit", "POST", "/v1/parked-journal-entries", body, "")
 }

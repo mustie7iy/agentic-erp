@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -83,13 +84,11 @@ func getParked(ctx context.Context, tx pgx.Tx, id uuid.UUID) (ParkedEntry, error
 	return pe, nil
 }
 
-// GetParked returns a parked journal entry.
-func GetParked(ctx context.Context, id uuid.UUID) (ParkedEntry, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return ParkedEntry{}, err
-	}
-	return getParked(ctx, tx, id)
+func init() {
+	problem.RegisterConstraint("parked_entry_line_uom_code_fkey", func() *problem.Problem {
+		return problem.Unprocessable("ledger.unknown_unit", "A quantity's unit of measure is not known.",
+			problem.FieldError{Field: "lines.quantity.unit", Code: "unknown", Message: "a unit of measure code from the reference data"})
+	})
 }
 
 // parkEntry parks a manual entry, checked as a posting is except for the
@@ -104,6 +103,13 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 		return ParkedEntry{}, err
 	}
 	v, err := e.prepare(ctx, tx, in)
+	if err != nil {
+		return ParkedEntry{}, err
+	}
+	if err := refuseAutomatic(ctx, tx, v.le.ID, v.lines); err != nil {
+		return ParkedEntry{}, err
+	}
+	total, err := debitTotal(v.lines)
 	if err != nil {
 		return ParkedEntry{}, err
 	}
@@ -126,7 +132,29 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	if err != nil {
 		return ParkedEntry{}, err
 	}
-	return pe, parkedChanged(ctx, pe, nil, "park")
+	return pe, parkedChanged(ctx, pe, total, nil, "park")
+}
+
+// refuseAutomatic refuses a line on the legal entity's GR/IR account, which
+// only goods receipts and invoices post (T33): parked, it could never be
+// posted. Posting is refused by the database (journal_line_gr_ir_order_item)
+// with the same problem.
+func refuseAutomatic(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line) error {
+	var grir uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT account_id FROM ledger.account_determination WHERE legal_entity_id = $1 AND key = 'gr_ir'`, le).Scan(&grir)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("ledger: GR/IR account of %s: %w", le, err)
+	}
+	for i, l := range lines {
+		if l.AccountID == grir {
+			return problem.Unprocessable("ledger.automatic_account", "The GR/IR account is posted only by goods receipts and invoices, which name the order item of each line.",
+				problem.FieldError{Field: fmt.Sprintf("lines[%d].account_id", i), Code: "automatic", Message: "an account other than the legal entity's GR/IR account"})
+		}
+	}
+	return nil
 }
 
 // insertParkedLines writes the lines of a parked entry, numbered 1..n.
@@ -165,13 +193,9 @@ func debitTotal(lines []Line) (money.Minor, error) {
 }
 
 // parkedChanged records a change of a parked entry: the audit record of
-// the action and ParkedJournalEntryChanged with its status before
-// (previous; nil when it was just parked).
-func parkedChanged(ctx context.Context, pe ParkedEntry, previous *string, action string) error {
-	total, err := debitTotal(pe.Lines)
-	if err != nil {
-		return err
-	}
+// the action and ParkedJournalEntryChanged with its debit total and its
+// status before (previous; nil when it was just parked).
+func parkedChanged(ctx context.Context, pe ParkedEntry, total money.Minor, previous *string, action string) error {
 	return audit.Record(ctx, "ledger.parked_entry."+action, "ledger.parked_entry", pe.ID,
 		map[string]any{"status": pe.Status, "previous_status": previous, "lines": len(pe.Lines)},
 		outbox.Event{Context: "ledger", Name: "parked_journal_entry_changed", AggregateType: "ledger.parked_entry", AggregateID: pe.ID,

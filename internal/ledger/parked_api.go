@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -48,7 +49,11 @@ func (e *Endpoints) ParkJournalEntry(ctx context.Context, req *gen.JournalEntryC
 
 // GetParkedJournalEntry implements GET /v1/parked-journal-entries/{id}.
 func (e *Endpoints) GetParkedJournalEntry(ctx context.Context, params gen.GetParkedJournalEntryParams) (gen.GetParkedJournalEntryRes, error) {
-	pe, err := GetParked(ctx, params.ID)
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pe, err := getParked(ctx, tx, params.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +89,7 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 		return nil, fmt.Errorf("ledger: list parked entries: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, entries, func(pe ParkedEntry) (string, uuid.UUID) {
-		return pe.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), pe.ID
+		return pe.CreatedAt.UTC().Format(time.RFC3339Nano), pe.ID
 	}, parkedToAPI)
 	return &gen.ParkedJournalEntryPageHeaders{Response: gen.ParkedJournalEntryPage{Items: items, NextPageToken: next}}, nil
 }
