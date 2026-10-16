@@ -432,13 +432,14 @@ Rules enforced in the database:
   closed. Locking needs a closed period, so the postings under way
   finished when it closed.
 - A locked period names its pending unlock request in `unlock_request_id`
-  (workflow context, no foreign key across contexts); only a locked period
-  names one (`period_status_unlock_only_locked`), and the column is cleared
-  when the request ends. The transition trigger lets locked -> closed
-  through only when the named request is an approved `period_unlock`
-  request of that period (migration 000051, T32b): the approvals context
-  marks a request approved before it calls the ledger back in the same
-  transaction, so no path unlocks a period without the decision. The
+  (workflow context, no foreign key across contexts), and only a locked
+  period names one (`period_status_unlock_only_locked`); the ledger clears
+  it when the request ends (T32c). The transition trigger lets locked ->
+  closed through only when the update consumes the named request, clearing
+  it (migration 000051, T32b). That the request was approved is checked by
+  the ledger's approvals callback, which closes the period under the guard
+  `unlock_request_id` = the approved request, not by the trigger: the rule
+  stays within the ledger's schema (02-architecture, boundary rule 1). The
   request needs one approval by the role `controller` holding
   `ledger.period.unlock.approve`, whatever the configuration says.
 - A clearing's entry is one of the clearing's legal entity, and its date

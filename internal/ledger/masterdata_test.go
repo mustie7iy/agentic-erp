@@ -118,6 +118,7 @@ func TestFiscalPeriods(t *testing.T) {
 	// A pending unlock request is shown on the period (T32c opens it).
 	request := uuid.New()
 	pgtest.Exec(t, `UPDATE ledger.period_status SET unlock_request_id = $2, version = version + 1 WHERE id = $1`, id, request)
+	// The ETag is not needed: nothing changes the period after this read.
 	if got, _ := e.Must(200, "GET", "/v1/fiscal-periods/"+id, "", ""); got["unlock_request_id"] != request.String() {
 		t.Errorf("unlock_request_id: got %v, want %s", got["unlock_request_id"], request)
 	}
