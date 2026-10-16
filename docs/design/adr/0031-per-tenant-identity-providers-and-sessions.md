@@ -119,3 +119,14 @@ alone: a token refreshed at the provider carries the same `sid` and no
 refuses it. A provider that keeps a `sid` alive longer must put
 `auth_time` in its tokens. An `auth_time` ahead of the cell's clock starts
 the session no later than now.
+
+## Amendment (2026-10-16, T37g and T37h)
+
+A registration is checked before its issuer is fetched, and the probe of
+the discovery document runs inside the registration's transaction, after
+its key is claimed, so a retry replays without probing; the probe's
+timeout (5 s) must stay well within the write timeout (1 minute).
+Provisioning claims the issuer in the global directory last, right before
+its commit, so the claim grace (5 minutes) covers it. Production refuses
+`ERP_OIDC_ISSUERS`, requires `ERP_OPERATOR_ISSUERS`, and refuses to start
+while an active tenant has no active identity provider, naming them.
