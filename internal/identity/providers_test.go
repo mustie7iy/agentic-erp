@@ -763,3 +763,42 @@ func TestRegistry(t *testing.T) {
 		t.Errorf("no transaction: got %v, want a failure to answer", err)
 	}
 }
+
+// TestRequireActiveProvider: a tenant comes into a production cell only
+// with an active identity provider (ADR-0031).
+func TestRequireActiveProvider(t *testing.T) {
+	r := newRegistry(t)
+	check := func(t *testing.T, wrap func(pgx.Tx) pgx.Tx) error {
+		t.Helper()
+		var err error
+		_ = r.in(func(ctx context.Context, tx pgx.Tx) error {
+			err = identity.RequireActiveProvider(ctx, wrap(tx), r.tenant)
+			return nil
+		})
+		return err
+	}
+	plain := func(tx pgx.Tx) pgx.Tx { return tx }
+	t.Run("none", func(t *testing.T) {
+		wantProblem(t, check(t, plain), "identity.provider_required")
+	})
+	first := r.mustRegister(issuer("require"), "erp")
+	t.Run("an active one", func(t *testing.T) {
+		if err := check(t, plain); err != nil {
+			t.Errorf("got %v, want none", err)
+		}
+	})
+	t.Run("a retired one only", func(t *testing.T) {
+		r.mustRegister(issuer("require-spare"), "erp")
+		if _, err := r.retire(first.ID, "*"); err != nil {
+			t.Fatal(err)
+		}
+		pgtest.Exec(t, `UPDATE identity.identity_provider SET status = 'retired', retired_at = now(), version = version + 1 WHERE tenant_id = $1 AND status = 'active'`, r.tenant)
+		wantProblem(t, check(t, plain), "identity.provider_required")
+	})
+	t.Run("a failing read", func(t *testing.T) {
+		err := check(t, func(tx pgx.Tx) pgx.Tx { return &pgtest.FailingTx{Tx: tx, FailAt: 1} })
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Errorf("got %v, want the injected failure", err)
+		}
+	})
+}
