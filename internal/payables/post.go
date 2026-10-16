@@ -14,13 +14,17 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 // PostInvoice posts a parked invoice: Dr expense per item, Dr input tax on
 // the tax code's account (the input tax account of the account
 // determination when the items carry none), Cr the supplier's
-// reconciliation account. PO-based invoices need a clean latest match or
-// an approved exception.
+// reconciliation account. On an order valued through GR/IR (T33) an item
+// on an order item clears GR/IR instead of debiting expense: the ledger
+// debits GR/IR at the order price of its quantity and puts the rest on
+// the price difference account. PO-based invoices need a clean latest
+// match or an approved exception.
 func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -50,14 +54,18 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	lines, err := e.invoiceLines(ctx, v, sup, *date)
+	order, err := e.invoiceOrder(ctx, v)
+	if err != nil {
+		return Invoice{}, err
+	}
+	lines, grir, err := e.invoiceLines(ctx, v, sup, *date, order)
 	if err != nil {
 		return Invoice{}, err
 	}
 	text := "Supplier invoice " + v.DocumentNumber
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: DocumentType, DocumentDate: v.InvoiceDate,
 		PostingDate: *date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
-		SourceDocumentID: id, Lines: lines})
+		SourceDocumentID: id, Lines: lines, GRIR: grir})
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -160,15 +168,40 @@ func invoicePostingDate(ctx context.Context, tx pgx.Tx, v Invoice, postingDate *
 	return date, nil
 }
 
-// invoiceLines builds the entry's lines: Dr expense per non-zero item, Dr
-// input tax on the first item tax code's account, Cr the supplier's
-// reconciliation account.
-func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Supplier, date time.Time) ([]ledger.PostingLine, error) {
+// invoiceOrder is the order of an invoice on one valued through GR/IR, the
+// order whose items its items clear, or nil: a directly valued order's
+// items post their own accounts, as an invoice without an order's do.
+func (e *Endpoints) invoiceOrder(ctx context.Context, v Invoice) (*procurement.Order, error) {
+	if v.PurchaseOrderID == nil {
+		return nil, nil
+	}
+	o, err := newReplayCache().order(ctx, e.Orders, v)
+	if err != nil || o.Valuation != procurement.ValuationGRIR {
+		return nil, err
+	}
+	return &o, nil
+}
+
+// invoiceLines builds the entry: Dr expense per non-zero item, or a GR/IR
+// item per item on an order item of an order valued through GR/IR (order
+// not nil); Dr input tax on the first item tax code's account; Cr the
+// supplier's reconciliation account.
+func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Supplier, date time.Time, order *procurement.Order) ([]ledger.PostingLine,
+	[]ledger.GRIRItem, error) {
 	var lines []ledger.PostingLine
+	var grir []ledger.GRIRItem
 	var taxCode *string
 	for _, it := range v.Items {
 		if it.TaxCode != nil && taxCode == nil {
 			taxCode = it.TaxCode
+		}
+		if order != nil && it.POItemNo != nil {
+			item, err := grirItem(*order, it)
+			if err != nil {
+				return nil, nil, err
+			}
+			grir = append(grir, item)
+			continue
 		}
 		if it.Amount != 0 {
 			// Every item has an account: validation requires one on an item
@@ -180,15 +213,29 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 	if v.Tax != 0 {
 		account, ok, err := e.taxAccount(ctx, v.LegalEntityID, taxCode, date)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !ok {
-			return nil, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
+			return nil, nil, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
 		}
 		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: v.Tax, TaxCode: taxCode})
 	}
 	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -v.Gross, PartnerID: &v.SupplierID})
-	return lines, nil
+	return lines, grir, nil
+}
+
+// grirItem is an invoice item's GR/IR item: its quantity at its order
+// item's price, its amount the invoiced net. An order item the order no
+// longer has is refused, as the match flags it (order_item_missing).
+func grirItem(o procurement.Order, it Item) (ledger.GRIRItem, error) {
+	for _, oi := range o.Items {
+		if oi.ItemNo == *it.POItemNo {
+			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: it.Quantity, Unit: it.Unit, UnitPrice: oi.UnitPrice,
+				PriceUnit: oi.PriceUnit, Invoiced: &it.Amount, Text: it.Description}, nil
+		}
+	}
+	return ledger.GRIRItem{}, problem.Unprocessable("payables.order_item_missing",
+		fmt.Sprintf("Order item %d is not on purchase order %s.", *it.POItemNo, o.DocumentNumber))
 }
 
 // taxAccount is the account of the tax code valid on the date, else the

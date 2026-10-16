@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 // Decisions the invoice flow takes on a matched invoice.
@@ -158,9 +159,19 @@ func (t *tally) invoice(r replayed, before, after *config.Company) error {
 }
 
 // postingMoves records the posting rules an invoice is booked with that
-// the proposal changes: account determination and its items' tax codes.
+// the proposal changes: account determination and its items' tax codes,
+// and for an order valued through GR/IR its order items' price
+// differences (the GR/IR account itself never changes once activated).
 func (t *tally) postingMoves(co string, before, after *config.Company, r replayed) {
 	v := r.Invoice
+	if r.Order.Valuation == procurement.ValuationGRIR {
+		for _, it := range v.Items {
+			if it.POItemNo != nil {
+				t.move(co, "account_determination.price_difference", before.AccountDetermination.PriceDifference, after.AccountDetermination.PriceDifference,
+					it.Amount, r.Conversion)
+			}
+		}
+	}
 	t.move(co, "account_determination.input_tax", before.AccountDetermination.InputTax, after.AccountDetermination.InputTax, v.Tax, r.Conversion)
 	t.move(co, "account_determination.ap_reconciliation", before.AccountDetermination.APReconciliation, after.AccountDetermination.APReconciliation,
 		v.Gross, r.Conversion)

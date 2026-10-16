@@ -287,7 +287,9 @@ Decisions taken while building it:
   Dr input tax, Cr the supplier's reconciliation account). Orders released
   once the legal entity has a GR/IR account are valued through GR/IR
   (T33): their receipts and reversals post WE entries, Dr the order item's
-  account / Cr GR/IR at the order price (T33c).
+  account / Cr GR/IR at the order price (T33c), and their invoices debit
+  GR/IR at the order price with the price difference on its own line
+  (T33d).
 - **Tax codes** from the document (input tax) are valid from the company's
   first fiscal year; a changed rate or account ends the current code and
   starts the new one on the activation day; a second change on the same day

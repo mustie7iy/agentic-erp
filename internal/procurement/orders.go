@@ -38,6 +38,7 @@ type Order struct {
 	Currency        string
 	PaymentTermCode string
 	Status          string
+	Valuation       string // ValuationDirect or ValuationGRIR (T33)
 	Items           []OrderItem
 }
 
@@ -48,14 +49,14 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 		return Order{}, false, err
 	}
 	o := Order{ID: id}
-	err = tx.QueryRow(ctx, `SELECT po.document_number, po.legal_entity_id, po.supplier_id, po.currency, po.payment_term_code, po.status,
+	err = tx.QueryRow(ctx, `SELECT po.document_number, po.legal_entity_id, po.supplier_id, po.currency, po.payment_term_code, po.status, po.valuation,
 			coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code,
 				'unit_price', i.unit_price, 'price_unit', i.price_unit, 'account_id', i.account_id, 'tax_code', i.tax_code,
 				'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 					AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
 			 FROM procurement.purchase_order_item i WHERE i.tenant_id = po.tenant_id AND i.purchase_order_id = po.id AND NOT i.is_removed), '[]')
 		FROM procurement.purchase_order po WHERE po.id = $1`, id).
-		Scan(&o.DocumentNumber, &o.LegalEntityID, &o.SupplierID, &o.Currency, &o.PaymentTermCode, &o.Status, &o.Items)
+		Scan(&o.DocumentNumber, &o.LegalEntityID, &o.SupplierID, &o.Currency, &o.PaymentTermCode, &o.Status, &o.Valuation, &o.Items)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, false, nil
 	}

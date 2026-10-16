@@ -773,6 +773,24 @@ returns it (`decision`, F12b) without storing it, as the limit and the rate
 may change before the invoice is posted, and `erp invoices` acts on it
 instead of comparing amounts itself.
 
+Posting (document type KR) books Dr input tax and Cr the supplier's
+reconciliation account. Each item is booked by its order's valuation
+(T33d):
+
+- On an order valued directly, or without an order, the item is Dr its
+  account.
+- On an order valued through GR/IR, an item on an order item clears GR/IR
+  through a GR/IR item of `ledger.Postings`: GR/IR is debited at the order
+  price of the invoiced quantity, and what the item's net amount differs
+  from it goes to `price_difference`. An invoice beyond the receipts (an
+  approved exception) leaves a debit position that a later receipt clears.
+  An item whose order item the order no longer has is refused (422
+  `payables.order_item_missing`).
+
+A reversal mirrors the entry, and the ledger clears a rounding residue
+(§3.7). A simulation counts a changed `price_difference` against the order
+items of GR/IR orders.
+
 `upload` (ADR-0020) records a direct upload of a document above the
 request limit: purpose, content type, size limit, the object key the bytes
 go to, until when, and its status (`open`, `received` through the API,
