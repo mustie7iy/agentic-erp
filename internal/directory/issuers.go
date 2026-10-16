@@ -96,8 +96,9 @@ func (p *Postgres) ReleaseIssuer(ctx context.Context, is Issuer) error {
 // ClaimGrace is how old a claim must be before a round of its cell may give
 // it up: a claim is made before its registration commits, so a round that
 // read the cell's providers just before the commit would otherwise drop
-// it, and another cell could then take the pair. It is well above the
-// longest a registration's transaction may run.
+// it, and another cell could then take the pair. A registration runs a
+// handful of statements, each bounded by the pool's statement timeout
+// (database.DefaultSettings, 30 s), so it commits well within the grace.
 const ClaimGrace = 5 * time.Minute
 
 // SyncIssuers makes the cell's claims the given ones: each is claimed, and
