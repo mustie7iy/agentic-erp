@@ -129,7 +129,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err := s.authenticate(ctx); err != nil {
 		return err
 	}
-	s.openObjects()
+	if err := s.openObjects(ctx); err != nil {
+		return err
+	}
 	dir, err := s.openDirectory(ctx)
 	if err != nil {
 		return err
@@ -306,10 +308,18 @@ func (s *server) authenticate(ctx context.Context) error {
 
 // openObjects opens the object store and, where there is one, the worker
 // that exports and erases offboarded tenants.
-func (s *server) openObjects() {
+func (s *server) openObjects(ctx context.Context) error {
 	s.store = objects(s.cfg)
 	if s.store == nil {
 		s.log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported (ERP_ENV=production refuses this)")
+	}
+	// Objects stated as KMS-encrypted are kept only in a bucket whose
+	// default encryption is KMS, which covers the presigned uploads too
+	// (ADR-0033); the configuration made sure the store is S3.
+	if s3, ok := s.store.(blobstore.S3); ok && s3.Encryption != "" {
+		if err := s3.CheckEncryption(ctx); err != nil {
+			return fmt.Errorf("erp-server: object store: %w", err)
+		}
 	}
 	// The control plane trusts the operator issuers, and the development
 	// issuer's operator tokens; without either it is not served.
@@ -319,6 +329,7 @@ func (s *server) openObjects() {
 		s.offboarder = &offboarding.Worker{Pool: s.pool, Store: s.store, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Interval: offboardInterval,
 			Grace: s.cfg.OffboardGrace, Retention: s.cfg.Objects.Retention, Log: s.log}
 	}
+	return nil
 }
 
 // openDirectory connects the global directory (ADR-0022), where there is
@@ -391,6 +402,24 @@ func (s *server) collaborators() {
 	}
 	s.metrics = telemetry.NewMetrics()
 	backlogs(s.pool, s.cfg, s.metrics)
+	atRest(s.cfg.AtRest, s.metrics, s.log)
+}
+
+// atRest states how each store encrypts at rest, in the log and as
+// erp_at_rest_info, as ERP_AT_REST says (ADR-0033).
+func atRest(a config.AtRest, m *telemetry.Metrics, log *slog.Logger) {
+	if a == (config.AtRest{}) {
+		log.Warn("ERP_AT_REST not set: how the stores encrypt at rest is not stated (ERP_ENV=production refuses this)")
+		return
+	}
+	log.Info("encryption at rest", "postgres", a.Postgres, "objects", a.Objects, "nats", a.NATS)
+	var rows [][]string
+	for _, r := range [][]string{{"postgres", a.Postgres}, {"objects", a.Objects}, {"nats", a.NATS}} {
+		if r[1] != "" {
+			rows = append(rows, r)
+		}
+	}
+	m.Info("erp_at_rest_info", "How each store encrypts its data at rest, as ERP_AT_REST states it (ADR-0033).", []string{"store", "encryption"}, rows)
 }
 
 // dialEngine connects the workflow engine (ADR-0012): with
@@ -737,7 +766,11 @@ func objects(cfg config.Config) blobstore.Store {
 		return blobstore.Dir{Root: o.Dir}
 	case o.Endpoint != "":
 		client := cfg.HTTPClient()
-		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey, client), Client: client}
+		s3 := blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey, client), Client: client}
+		if cfg.AtRest.Objects == "sse-kms" {
+			s3.Encryption = blobstore.SSEKMS
+		}
+		return s3
 	}
 	return nil
 }

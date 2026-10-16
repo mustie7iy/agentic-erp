@@ -565,6 +565,10 @@ func TestProductionFailsClosed(t *testing.T) {
 	// Production speaks to NATS over TLS only, as the cell's certificate.
 	const natsPlain, natsIdentity = "ERP_NATS_URL must name tls:// servers only", "ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY"
 	identity := tlsFiles(t)
+	// Production states how each store encrypts at rest and keeps objects
+	// in a KMS-encrypted S3 bucket, never a directory (ADR-0033).
+	const statement = "postgres=storage-kms,objects=sse-kms"
+	const atRestRequired, objectDirRefused = "ERP_AT_REST is required with ERP_ENV=production", "ERP_OBJECT_DIR must not be set with ERP_ENV=production"
 	// The engine is reached as the cell's certificate; providers' endpoints
 	// over https only, but for the instance metadata service, which is
 	// link-local (ADR-0033).
@@ -578,7 +582,7 @@ func TestProductionFailsClosed(t *testing.T) {
 	}
 	prod := func(set map[string]string) map[string]string {
 		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp",
-			"ERP_OIDC_ISSUERS": "", "ERP_OPERATOR_ISSUERS": operators, "DATABASE_URL": verified}
+			"ERP_OIDC_ISSUERS": "", "ERP_OPERATOR_ISSUERS": operators, "DATABASE_URL": verified, "ERP_AT_REST": statement}
 		for k, v := range set {
 			m[k] = v
 		}
@@ -610,7 +614,12 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"development plaintext endpoints", map[string]string{"ERP_ENV": "development", "ERP_OBJECT_S3_ENDPOINT": "http://localhost:9000", "ERP_OBJECT_S3_BUCKET": "erp",
 			"ERP_AWS_IMDS_ENDPOINT": "http://localhost:1338", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
 		{"production without an engine", prod(nil), nil},
-		{"production with an object directory", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": "", "ERP_OBJECT_DIR": t.TempDir()}), nil},
+		{"production with an object directory", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": "", "ERP_OBJECT_DIR": t.TempDir()}), []string{objectDirRefused}},
+		{"production without an encryption statement", prod(map[string]string{"ERP_AT_REST": ""}), []string{atRestRequired}},
+		{"production without the database's", prod(map[string]string{"ERP_AT_REST": "objects=sse-kms"}), []string{"ERP_AT_REST must state postgres"}},
+		{"production without the objects'", prod(map[string]string{"ERP_AT_REST": "postgres=volume"}), []string{"ERP_AT_REST must state objects=sse-kms"}},
+		{"production without the bus's", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats:4222"})), []string{"ERP_AT_REST must state nats"}},
+		{"production with the bus's", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats:4222", "ERP_AT_REST": statement + ",nats=jetstream-cipher"})), nil},
 		{"production issuers for every tenant", prod(map[string]string{"ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}), []string{sharedRefused}},
 		{"production without operators", prod(map[string]string{"ERP_OPERATOR_ISSUERS": ""}), []string{operatorsRequired}},
 		{"production dev issuer", prod(map[string]string{"ERP_DEV_ISSUER": "true"}), []string{devRefused}},
@@ -626,7 +635,7 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production directory", prod(directory), nil},
 		{"production directory without verified TLS", prod(with(directory, map[string]string{"ERP_DIRECTORY_URL": "postgres://u:p@dir.example.com/erp?sslmode=prefer"})), []string{dirRefused}},
 		{"development NATS without TLS", map[string]string{"ERP_ENV": "development", "ERP_NATS_URL": "nats://localhost:4222"}, nil},
-		{"production NATS over mutual TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,tls://nats-2:4222"})), nil},
+		{"production NATS over mutual TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,tls://nats-2:4222", "ERP_AT_REST": statement + ",nats=volume"})), nil},
 		{"production NATS without TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,nats://nats-2:4222"})), []string{natsPlain}},
 		{"production NATS unparseable", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,%zz"})), []string{natsPlain}},
 		{"production NATS without a certificate", prod(map[string]string{"ERP_NATS_URL": "tls://nats-1:4222"}), []string{natsIdentity}},
@@ -735,4 +744,42 @@ func TestTLSSettings(t *testing.T) {
 			t.Errorf("without material: got %v, %v, want no store and no client", c.TLSMaterial, c.HTTPClient())
 		}
 	})
+}
+
+// TestAtRest: ERP_AT_REST states how each store encrypts at rest, from a
+// fixed vocabulary (ADR-0033); objects=sse-kms needs an S3 store.
+func TestAtRest(t *testing.T) {
+	for _, c := range []struct {
+		name, value string
+		s3          bool
+		want        AtRest
+		wantErr     string
+	}{
+		{"none", "", false, AtRest{}, ""},
+		{"every store", "postgres=storage-kms, objects=sse-kms, nats=volume", true, AtRest{Postgres: "storage-kms", Objects: "sse-kms", NATS: "volume"}, ""},
+		{"unknown store", "redis=volume", false, AtRest{}, `ERP_AT_REST: unknown store "redis"`},
+		{"unknown encryption", "postgres=rot13", false, AtRest{}, `ERP_AT_REST: postgres=rot13 is not one of storage-kms, volume`},
+		{"not a pair", "postgres", false, AtRest{}, `ERP_AT_REST must be "store=encryption,..."`},
+		{"stated twice", "postgres=volume,postgres=storage-kms", false, AtRest{}, `ERP_AT_REST states postgres twice`},
+		{"KMS objects without S3", "objects=sse-kms", false, AtRest{}, "ERP_AT_REST objects=sse-kms needs ERP_OBJECT_S3_ENDPOINT"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			m["ERP_AT_REST"] = c.value
+			if c.s3 {
+				m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"] = "https://s3.example.com", "erp"
+			}
+			cfg, err := Load(env(m))
+			if c.wantErr != "" {
+				pgtest.CheckErr(t, err, c.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.AtRest != c.want {
+				t.Errorf("AtRest: got %+v, want %+v", cfg.AtRest, c.want)
+			}
+		})
+	}
 }

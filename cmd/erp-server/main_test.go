@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -679,6 +680,27 @@ func (s *devLogin) shutdown(t *testing.T) {
 	}
 }
 
+// production turns a configuration into production's (ADR-0031,
+// ADR-0033): operators but no shared issuers, the database over verified
+// TLS, TLS material, and objects in a KMS-encrypted S3 bucket reached over
+// TLS, stated in ERP_AT_REST. It returns the bucket.
+func production(t *testing.T, env map[string]string) *blobstoretest.Server {
+	t.Helper()
+	ca := tlstest.NewCA(t)
+	maps.Copy(env, tlsSettings(t, ca))
+	env["ERP_ENV"], env["ERP_OPERATOR_ISSUERS"] = "production", env["ERP_OIDC_ISSUERS"]
+	delete(env, "ERP_OIDC_ISSUERS")
+	env["DATABASE_URL"] = pgtest.TLS(t, env["DATABASE_URL"])
+	s3 := blobstoretest.New(t)
+	s3.BucketEncryption = blobstore.SSEKMS
+	delete(env, "ERP_OBJECT_DIR")
+	env["ERP_OBJECT_S3_ENDPOINT"] = "https://" + tlstest.Proxy(t, strings.TrimPrefix(s3.URL, "http://"), ca.Issue(t, tlstest.Options{}).Pair(t), nil)
+	env["ERP_OBJECT_S3_BUCKET"], env["ERP_OBJECT_S3_REGION"] = blobstoretest.Bucket, blobstoretest.Region
+	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
+	env["ERP_AT_REST"] = "postgres=storage-kms,objects=sse-kms"
+	return s3
+}
+
 // TestProductionOperatorWithoutRoles: the server passes ERP_ENV through to
 // the operator verifier, so in production an operator token without a roles
 // claim holds no role on the control plane (ADR-0027, amended), while one
@@ -687,12 +709,8 @@ func (s *devLogin) shutdown(t *testing.T) {
 func TestProductionOperatorWithoutRoles(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
-	env["ERP_ENV"] = "production"
-	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
-	delete(env, "ERP_OIDC_ISSUERS") // production trusts registered providers only
-	// A cell whose active tenants each have one, reached over verified TLS
-	// as production requires (ADR-0033).
-	env["DATABASE_URL"] = pgtest.TLS(t, pgtest.EmptyDatabase(t))
+	env["DATABASE_URL"] = pgtest.EmptyDatabase(t) // a cell whose active tenants each have one
+	production(t, env)
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
 	admin := make(chan string, 1)
@@ -889,13 +907,21 @@ func TestImportCommand(t *testing.T) {
 	// In production a tenant whose export holds no active identity provider
 	// (one provisioned in development) is not imported: its people could not
 	// sign in, and the cell would refuse its next start (ADR-0031).
-	prod := map[string]string{}
-	for k, v := range env {
-		prod[k] = v
+	prod := maps.Clone(env)
+	s3 := production(t, prod).Store()
+	keys, err := store.List(context.Background(), "tenants/")
+	if err != nil {
+		t.Fatal(err)
 	}
-	prod["ERP_ENV"], prod["ERP_OPERATOR_ISSUERS"] = "production", env["ERP_OIDC_ISSUERS"]
-	prod["DATABASE_URL"] = pgtest.TLS(t, env["DATABASE_URL"]) // verified TLS, as production requires (ADR-0033)
-	delete(prod, "ERP_OIDC_ISSUERS")
+	for _, k := range keys { // the export, in production's bucket
+		content, ctype, err := store.Get(context.Background(), k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s3.Put(context.Background(), k, content, blobstore.PutOptions{ContentType: ctype}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	stderr.Reset()
 	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, func(k string) string { return prod[k] }, &stdout, &stderr, nil); code == 0 {
 		t.Fatalf("a production import without a provider: got imported, want refused")
@@ -1518,10 +1544,8 @@ func TestProvisionClaimsInTheDirectory(t *testing.T) {
 func TestProductionRequiresProviders(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
-	env["ERP_ENV"] = "production"
-	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
-	delete(env, "ERP_OIDC_ISSUERS")
-	env["DATABASE_URL"] = pgtest.TLS(t, pgtest.EmptyDatabase(t)) // verified TLS, as production requires (ADR-0033)
+	env["DATABASE_URL"] = pgtest.EmptyDatabase(t)
+	production(t, env)
 	start := func() (int, string) {
 		ctx, cancel := context.WithCancel(context.Background())
 		var logs pgtest.SyncBuffer
@@ -1568,10 +1592,7 @@ func TestProductionRequiresProviders(t *testing.T) {
 // the start.
 func TestRequireProvidersFailures(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
-	env["ERP_ENV"] = "production"
-	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
-	env["DATABASE_URL"] = pgtest.TLS(t, env["DATABASE_URL"]) // verified TLS, as production requires (ADR-0033)
-	delete(env, "ERP_OIDC_ISSUERS")
+	production(t, env)
 	cfg := load(t, env)
 	pool := pgtest.Pool(t)
 	for name, begin := range map[string]database.BeginFunc{
@@ -1701,12 +1722,21 @@ func TestRelaysOverMutualTLS(t *testing.T) {
 // the test's servers present certificates of, and the cell's certificate.
 func tlsEnvironment(t *testing.T, ca *tlstest.CA) map[string]string {
 	t.Helper()
-	cell, dir := ca.Issue(t, tlstest.Options{}), t.TempDir()
 	env := environment(t, authntest.New(t), "")
-	env["ERP_TLS_CA"] = "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM)
-	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", cell.CertPEM)
-	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", cell.KeyPEM)
+	maps.Copy(env, tlsSettings(t, ca))
 	return env
+}
+
+// tlsSettings are the TLS settings alone: the authority, and the cell's
+// certificate and key it issued, in files of the test.
+func tlsSettings(t *testing.T, ca *tlstest.CA) map[string]string {
+	t.Helper()
+	cell, dir := ca.Issue(t, tlstest.Options{}), t.TempDir()
+	return map[string]string{
+		"ERP_TLS_CA":   "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM),
+		"ERP_TLS_CERT": "file:" + tlstest.WriteFile(t, dir, "tls.crt", cell.CertPEM),
+		"ERP_TLS_KEY":  "file:" + tlstest.WriteFile(t, dir, "tls.key", cell.KeyPEM),
+	}
 }
 
 // TestProvidersOverTLS: with TLS material the cell reaches its object
@@ -1766,5 +1796,62 @@ func TestEngineOverMutualTLS(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "workflow engine connected") {
 		t.Errorf("logs: got %s, want the engine connected", logs.String())
+	}
+}
+
+// TestAtRestStatedAndChecked: with ERP_AT_REST the cell logs how each
+// store encrypts at rest and exports it as erp_at_rest_info; with
+// objects=sse-kms it asks for KMS encryption on every write and starts
+// only on a bucket whose default encryption is KMS (ADR-0033).
+func TestAtRestStatedAndChecked(t *testing.T) {
+	s3 := blobstoretest.New(t)
+	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `INSERT INTO audit.chain_head (tenant_id, seq, hash) VALUES ($1, 1, decode(repeat('a1', 32), 'hex'))`, ten.ID)
+	env := environment(t, authntest.New(t), "")
+	delete(env, "ERP_OBJECT_DIR")
+	env["ERP_OBJECT_S3_ENDPOINT"], env["ERP_OBJECT_S3_BUCKET"], env["ERP_OBJECT_S3_REGION"] = s3.URL, blobstoretest.Bucket, blobstoretest.Region
+	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
+	env["ERP_AT_REST"] = "postgres=storage-kms,objects=sse-kms"
+	// A bucket encrypted with S3's own keys, not KMS: the cell does not start.
+	s3.BucketEncryption = "AES256"
+	refused, cancelRefused := context.WithTimeout(context.Background(), 30*time.Second) // a server that starts anyway stops, and fails the check
+	defer cancelRefused()
+	if err := run(refused, load(t, env), quiet(), nil); err == nil || !strings.Contains(err.Error(), "bucket's default encryption") {
+		t.Fatalf("a bucket without KMS encryption: got %v, want the start refused", err)
+	}
+	s3.BucketEncryption = "aws:kms"
+	anchorInterval = 20 * time.Millisecond
+	defer func() { anchorInterval = time.Minute }()
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	ctx, cancel := context.WithCancel(context.Background())
+	addrs := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(_, admin net.Listener) { addrs <- admin.Addr().String() })
+	}()
+	stop := sync.OnceValue(func() int { cancel(); return <-done })
+	defer stop()
+	admin := <-addrs
+	key := "tenants/" + ten.ID.String() + "/audit/anchors/000000000001.json"
+	pgtest.Eventually(t, 30*time.Second, func() bool { _, ok := s3.Object(key); return ok }, "no anchor %s: %v", key, lazy(func() string { return fmt.Sprint(s3.Keys()) }))
+	if o, _ := s3.Object(key); o.Encryption != "aws:kms" {
+		t.Errorf("anchor's encryption: got %q, want aws:kms", o.Encryption)
+	}
+	resp, err := http.DefaultClient.Do(request(t, "GET", "http://"+admin+"/metrics", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close() // read whole
+	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("metrics: got %s, want %s", body, want)
+		}
+	}
+	if code := stop(); code != 0 {
+		t.Fatalf("exit %d\n%s", code, logs.String())
+	}
+	if !strings.Contains(logs.String(), `"msg":"encryption at rest","postgres":"storage-kms","objects":"sse-kms","nats":""`) {
+		t.Errorf("logs: got %s, want the statement logged", logs.String())
 	}
 }

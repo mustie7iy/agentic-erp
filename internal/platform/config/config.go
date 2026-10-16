@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +74,7 @@ type Config struct {
 	AWS             AWS             // ambient AWS credentials for S3 and KMS when no access keys are set (ADR-0024)
 	TLS             tlsconf.Source  // ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: secret references to the CA bundle and the cell's certificate, read again while it runs (ADR-0033)
 	TLSMaterial     *tlsconf.Store  // TLS read when the configuration loads; nil without it (development)
+	AtRest          AtRest          // ERP_AT_REST: how each store encrypts at rest, stated per environment and checked at start (ADR-0033)
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
 	Secrets secrets.Resolver
@@ -149,6 +151,25 @@ type Vault struct {
 var SecretSettings = []string{"DATABASE_URL", "ERP_DIRECTORY_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
 	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
 
+// AtRest is how each store encrypts its data at rest, as ERP_AT_REST
+// states it ("postgres=storage-kms,objects=sse-kms,nats=volume"); empty:
+// not stated (development). The cell checks what it can see itself, the
+// object store's KMS encryption; the infrastructure's policy tests check
+// the rest (T40, ADR-0033).
+type AtRest struct {
+	Postgres string // storage-kms (the managed service's storage under a KMS key) or volume (an encrypted volume)
+	Objects  string // sse-kms: S3 server-side encryption under KMS, asked on every write and required of the bucket
+	NATS     string // storage-kms, volume, or jetstream-cipher (JetStream's own encryption)
+}
+
+// atRestValues are the encryptions each store may state, in the order
+// errors list them.
+var atRestValues = map[string][]string{
+	"postgres": {"storage-kms", "volume"},
+	"objects":  {"sse-kms"},
+	"nats":     {"storage-kms", "volume", "jetstream-cipher"},
+}
+
 // Objects is the object storage configuration: a directory (development) or
 // an S3-compatible service, never both.
 type Objects struct {
@@ -200,6 +221,7 @@ func Load(getenv func(string) string) (Config, error) {
 	l.fieldKeys(&c)
 	l.kms(&c)
 	l.objects(&c)
+	l.atRest(&c)
 	l.lifetimes(&c)
 	l.temporal(&c)
 	l.directory(&c)
@@ -393,6 +415,38 @@ func (l *loader) objects(c *Config) {
 	}
 }
 
+// atRest reads ERP_AT_REST.
+func (l *loader) atRest(c *Config) {
+	raw := strings.TrimSpace(l.getenv("ERP_AT_REST"))
+	if raw == "" {
+		return
+	}
+	stated := map[string]string{}
+	for _, part := range strings.Split(raw, ",") {
+		store, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		allowed, known := atRestValues[store]
+		switch {
+		case !ok:
+			l.errs = append(l.errs, errors.New(`ERP_AT_REST must be "store=encryption,..." such as "postgres=storage-kms,objects=sse-kms"`))
+			return
+		case !known:
+			l.errs = append(l.errs, fmt.Errorf("ERP_AT_REST: unknown store %q (postgres, objects, nats)", store))
+			return
+		case !slices.Contains(allowed, value):
+			l.errs = append(l.errs, fmt.Errorf("ERP_AT_REST: %s=%s is not one of %s", store, value, strings.Join(allowed, ", ")))
+			return
+		case stated[store] != "":
+			l.errs = append(l.errs, fmt.Errorf("ERP_AT_REST states %s twice", store))
+			return
+		}
+		stated[store] = value
+	}
+	c.AtRest = AtRest{Postgres: stated["postgres"], Objects: stated["objects"], NATS: stated["nats"]}
+	if c.AtRest.Objects != "" && c.Objects.Endpoint == "" {
+		l.errs = append(l.errs, errors.New("ERP_AT_REST objects=sse-kms needs ERP_OBJECT_S3_ENDPOINT: a directory cannot be asked to encrypt"))
+	}
+}
+
 // lifetimes reads how long data and keys live: the anchors' lock, the
 // offboarding grace, the audit verification and key rotation periods; and
 // the public URL that upload links are made from.
@@ -556,7 +610,31 @@ func checkEnvironment(c Config) []error {
 	if c.AuditVerify == 0 {
 		errs = append(errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production: audit chains would go unverified against their anchors"))
 	}
+	errs = append(errs, checkAtRest(c)...)
 	return append(errs, checkTransport(c)...)
+}
+
+// checkAtRest refuses, in production, a store whose encryption at rest is
+// not stated, and objects kept anywhere but a KMS-encrypted S3 bucket
+// (ADR-0033).
+func checkAtRest(c Config) []error {
+	var errs []error
+	if c.Objects.Dir != "" {
+		errs = append(errs, errors.New("ERP_OBJECT_DIR must not be set with ERP_ENV=production: objects are kept in an S3 bucket encrypted under KMS (ADR-0033)"))
+	}
+	if c.AtRest == (AtRest{}) {
+		return append(errs, errors.New(`ERP_AT_REST is required with ERP_ENV=production: state how each store encrypts at rest, such as "postgres=storage-kms,objects=sse-kms" (ADR-0033)`))
+	}
+	if c.AtRest.Postgres == "" {
+		errs = append(errs, errors.New("ERP_AT_REST must state postgres with ERP_ENV=production (storage-kms or volume)"))
+	}
+	if c.AtRest.Objects != "sse-kms" {
+		errs = append(errs, errors.New("ERP_AT_REST must state objects=sse-kms with ERP_ENV=production"))
+	}
+	if c.NATSURL != "" && c.AtRest.NATS == "" {
+		errs = append(errs, errors.New("ERP_AT_REST must state nats with ERP_ENV=production and a bus (storage-kms, volume or jetstream-cipher)"))
+	}
+	return errs
 }
 
 // checkTransport refuses, in production, a connection that may go without
