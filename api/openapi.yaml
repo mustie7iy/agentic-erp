@@ -4097,6 +4097,63 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/gr-ir-balances:
+    get:
+      operationId: listGrIrBalances
+      tags:
+        - ledger
+      summary: List GR/IR balances
+      description: "The GR/IR position of each purchase order item of a legal entity: its received and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once its received and invoiced quantities agree. Only orders valued through GR/IR have positions. `posting_date_to` gives the positions on a key date. Sortable by: `purchase_order_id`, `last_posting_date`."
+      x-permission: ledger.entry.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: purchase_order_id
+          in: query
+          required: false
+          description: Only the items of this purchase order.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PostingDateTo"
+        - name: open_only
+          in: query
+          required: false
+          description: "Only positions with a quantity or a balance in any currency that is not zero (default true)."
+          schema:
+            type: boolean
+            default: true
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of GR/IR balances.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrIrBalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/balances:
     get:
       operationId: listBalances
@@ -13275,6 +13332,108 @@ components:
             amount: "1080.00"
             currency: EUR
           document_number: "5100000123"
+    GrIrBalance:
+      type: object
+      description: "The GR/IR position of one purchase order item: identified by (purchase_order_id, po_item_no)."
+      required:
+        - legal_entity_id
+        - purchase_order_id
+        - po_item_no
+        - account_id
+        - received_quantity
+        - invoiced_quantity
+        - balance
+        - balance_lc
+        - balance_gc
+        - last_posting_date
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        purchase_order_id:
+          type: string
+          format: uuid
+          description: Purchase order.
+          readOnly: true
+        po_item_no:
+          type: integer
+          format: int32
+          description: Item of the purchase order.
+          minimum: 1
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: The GR/IR account.
+          readOnly: true
+        received_quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: Received by goods receipts less their reversals, in the order item's unit.
+          readOnly: true
+        invoiced_quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: Invoiced by posted invoices less their reversals.
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Money"
+          description: "Balance in the order's currency, signed: negative when more is received than invoiced."
+          readOnly: true
+        balance_lc:
+          $ref: "#/components/schemas/Money"
+          description: Balance in local currency, signed.
+          readOnly: true
+        balance_gc:
+          $ref: "#/components/schemas/Money"
+          description: Balance in group currency, signed.
+          readOnly: true
+        last_posting_date:
+          type: string
+          format: date
+          description: Posting date of the latest receipt, invoice or reversal on the item.
+          readOnly: true
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d5c"
+          po_item_no: 1
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          received_quantity:
+            value: "10"
+            unit: EA
+          invoiced_quantity:
+            value: "4"
+            unit: EA
+          balance:
+            amount: "-30.00"
+            currency: EUR
+          balance_lc:
+            amount: "-30.00"
+            currency: EUR
+          balance_gc:
+            amount: "-30.00"
+            currency: EUR
+          last_posting_date: "2026-03-15"
+    GrIrBalancePage:
+      type: object
+      description: One page of GR/IR balances.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrIrBalance"
+          description: The positions on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     OpenItemPage:
       type: object
       description: One page of open items.

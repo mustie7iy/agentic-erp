@@ -991,6 +991,19 @@ func (UnimplementedHandler) ListGoodsReceipts(ctx context.Context, params ListGo
 	return r, ht.ErrNotImplemented
 }
 
+// ListGrIrBalances implements listGrIrBalances operation.
+//
+// The GR/IR position of each purchase order item of a legal entity: its received and invoiced
+// quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive:
+// invoiced, not yet received). A position is zero in every currency once its received and invoiced
+// quantities agree. Only orders valued through GR/IR have positions. `posting_date_to` gives the
+// positions on a key date. Sortable by: `purchase_order_id`, `last_posting_date`.
+//
+// GET /v1/gr-ir-balances
+func (UnimplementedHandler) ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (r ListGrIrBalancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListJournalEntries implements listJournalEntries operation.
 //
 // Posted journal entries. Sortable by: `posting_date`, `document_number`.

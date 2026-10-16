@@ -112,6 +112,10 @@ func TestDatabaseFailures(t *testing.T) {
 				_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{PageSize: zero})
 				return err
 			},
+			"GR/IR balances": func(ctx context.Context) error {
+				_, err := h.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: e.de, PageSize: zero})
+				return err
+			},
 			"balances": func(ctx context.Context) error {
 				_, err := h.ListBalances(ctx, gen.ListBalancesParams{LegalEntityID: e.de, FiscalYear: 2026, PageSize: zero})
 				return err
@@ -221,6 +225,10 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 		},
 		"open items": func(ctx context.Context) error {
 			_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{})
+			return err
+		},
+		"GR/IR balances": func(ctx context.Context) error {
+			_, err := h.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: e.de})
 			return err
 		},
 		"balances": func(ctx context.Context) error {

@@ -550,6 +550,12 @@ Rules enforced in the database:
   - an item posted in another currency than its position's is refused (422
     `ledger.gr_ir_currency_mismatch`), as is a legal entity without a
     `gr_ir` (422 `ledger.no_gr_ir_account`).
+  `GET /v1/gr-ir-balances` (T33e) lists the positions of a legal entity's
+  order items from these lines: received quantity (the procurement
+  context's lines, negated), invoiced quantity (the others'), balance in
+  the three currencies and last posting date, open ones by default, on a
+  key date with `posting_date_to`; together they are the GR/IR account's
+  balance.
   A reversal mirrors its entry; where it brings an order item's quantity to
   zero and rounding leaves a balance (the item moved since), it adds a
   GR/IR line of quantity 0 that clears it against `price_difference`, so a

@@ -413,6 +413,10 @@ type ListGoodsReceiptsRes interface {
 	listGoodsReceiptsRes()
 }
 
+type ListGrIrBalancesRes interface {
+	listGrIrBalancesRes()
+}
+
 type ListJournalEntriesRes interface {
 	listJournalEntriesRes()
 }

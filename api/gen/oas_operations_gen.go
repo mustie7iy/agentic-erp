@@ -109,6 +109,7 @@ const (
 	ListExchangeRatesOperation          OperationName = "ListExchangeRates"
 	ListFiscalPeriodsOperation          OperationName = "ListFiscalPeriods"
 	ListGoodsReceiptsOperation          OperationName = "ListGoodsReceipts"
+	ListGrIrBalancesOperation           OperationName = "ListGrIrBalances"
 	ListJournalEntriesOperation         OperationName = "ListJournalEntries"
 	ListLegalEntitiesOperation          OperationName = "ListLegalEntities"
 	ListMatchResultsOperation           OperationName = "ListMatchResults"
