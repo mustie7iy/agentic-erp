@@ -73,8 +73,10 @@ type Store interface {
 }
 
 // Schema is the directory's tables, created when the store opens: the
-// tenants, the cells, and the placements (which cell an Idempotency-Key of
-// a global provisioning went to, so a retry goes to the same cell).
+// tenants, the cells, the issuers (which tenant an active identity
+// provider's issuer and audience belong to, ADR-0031), and the placements
+// (which cell an Idempotency-Key of a global provisioning went to, so a
+// retry goes to the same cell).
 const Schema = `
 CREATE SCHEMA IF NOT EXISTS directory;
 CREATE TABLE IF NOT EXISTS directory.tenant (
@@ -94,6 +96,14 @@ CREATE TABLE IF NOT EXISTS directory.cell (
   control_url text NOT NULL,
   accepting   boolean NOT NULL DEFAULT true,
   updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS directory.issuer (
+  issuer     text NOT NULL,
+  audience   text NOT NULL,
+  tenant_id  uuid NOT NULL,
+  cell       text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (issuer, audience)
 );
 CREATE TABLE IF NOT EXISTS directory.placement (
   idempotency_key text PRIMARY KEY,
@@ -474,8 +484,9 @@ type Cells interface {
 	UpsertCell(ctx context.Context, c Cell) error
 }
 
-// RunOnce records the cell itself and every tenant of it, and returns how
-// many tenants.
+// RunOnce records the cell itself, every tenant of it and, where the
+// directory keeps issuers, their active identity providers' issuers; it
+// returns how many tenants.
 func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 	if cells, ok := s.Directory.(Cells); ok && s.ControlURL != "" {
 		if err := cells.UpsertCell(ctx, Cell{Name: s.Cell, Region: s.Region, APIURL: s.APIURL, ControlURL: s.ControlURL, Accepting: s.Accepting}); err != nil {
@@ -499,6 +510,9 @@ func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 		if err := s.Directory.Upsert(ctx, Entry{TenantID: t.ID, Region: t.Region, Cell: s.Cell, APIURL: s.APIURL, Status: status}); err != nil {
 			return 0, err
 		}
+	}
+	if err := s.syncIssuers(ctx, tx); err != nil {
+		return 0, err
 	}
 	return len(tenants), nil
 }

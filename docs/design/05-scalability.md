@@ -110,6 +110,11 @@ flowchart LR
 - The **global directory** maps tenant to region and cell. It is small, read
   mostly and cached at the router. It holds no business data. Built in T18:
   `internal/directory` (its own database, written by the cells, ADR-0022).
+  It also maps each active identity provider's issuer and audience to its
+  tenant (`directory.issuer`, ADR-0031): a cell claims the pair before a
+  registration commits, so it belongs to one tenant across cells, gives it
+  up when the provider is retired, and replaces its claims every round
+  (T37c); the router will resolve a token's tenant from it (T37d).
 - The router resolves the cell from the token's tenant claim and forwards
   the request; clients may also call `https://{cell}.api.example.com` directly
   (the `servers` entry in the OpenAPI contract). Built in T18: `erp-router`.

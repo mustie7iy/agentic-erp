@@ -3,6 +3,7 @@ package identity_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -657,4 +658,35 @@ func TestConcurrentRetirementsKeepOneProvider(t *testing.T) {
 		}
 	}
 	wantProblem(t, interleave(t, r, retire(a.ID), retire(b.ID)), "identity.last_provider")
+}
+
+// TestActiveIdentityProviders: the cell lists every tenant's active
+// providers as the control role, for its claims in the global directory.
+func TestActiveIdentityProviders(t *testing.T) {
+	r := newRegistry(t)
+	a := r.mustRegister(issuer("active"), "erp")
+	b := r.mustRegister(issuer("retired"), "erp")
+	if _, err := r.retire(b.ID, "*"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	tx, err := r.pool.Begin(ctx, database.Scope{Role: "erp_control", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	keys, err := identity.ActiveIdentityProviders(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := identity.ProviderKey{TenantID: r.tenant, Issuer: a.Issuer, Audience: "erp"}
+	if !slices.Contains(keys, want) {
+		t.Errorf("active providers: got %d without %+v, want it listed", len(keys), want)
+	}
+	if slices.ContainsFunc(keys, func(k identity.ProviderKey) bool { return k.Issuer == b.Issuer }) {
+		t.Errorf("active providers: got the retired %s, want it left out", b.Issuer)
+	}
+	if _, err := identity.ActiveIdentityProviders(ctx, &pgtest.FailingTx{Tx: tx, FailAt: 1}); !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("failing read: got %v, want the injected failure", err)
+	}
 }
