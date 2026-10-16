@@ -204,18 +204,10 @@ jobs:
     # and the weekly run fuzzes 5 minutes per target.
     needs: changes
     if: github.event_name == 'push' && needs.changes.outputs.code != 'false'
+    # No database: the fuzz targets are parsers (money, config, analytics,
+    # bankfile, sap), and a package's database tests skip without one.
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: dev
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

@@ -116,7 +116,8 @@ What runs when, to keep runner time to what proves something:
   them directly would let a failed `changes` skip them into a pass.
 - Fuzzing runs on pushes to `main` whenever code changed, even when the
   suite was skipped for a tested tree.
-- A newer push to a pull request cancels its running check.
+- A newer push to a pull request cancels its running check; the older
+  commit then shows `ci-ok` failed, which is expected.
 - The tools run at pinned versions (`scripts/ci-tools.sh`), built once and
   cached until that file or the Go version changes.
 
