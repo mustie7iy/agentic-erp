@@ -105,12 +105,12 @@ func TestParkedEntryTransitions(t *testing.T) {
 	})
 }
 
-// post posts a journal entry for source (none when nil) and links parked
-// entry pe to it, applying set too.
-func (f fixture) post(t *testing.T, pe uuid.UUID, source *uuid.UUID, set string) error {
+// post posts a journal entry dated date for source (none when nil) and
+// links parked entry pe to it, applying set too.
+func (f fixture) post(t *testing.T, pe uuid.UUID, source *uuid.UUID, date, set string) error {
 	t.Helper()
 	return asApp(t, f.tenant, func(tx pgx.Tx) error {
-		je, err := f.entryFor(tx, source, 5, "2026-05-04", line{account: f.expense, amount: 100}, line{account: f.bank, amount: -100})
+		je, err := f.entryFor(tx, source, 5, date, line{account: f.expense, amount: 100}, line{account: f.bank, amount: -100})
 		if err != nil {
 			return err
 		}
@@ -127,31 +127,42 @@ func TestParkedEntryPosting(t *testing.T) {
 		name   string
 		after  []string
 		source func(uuid.UUID) *uuid.UUID
+		date   string
 		set    string
 		want   string
 	}{
-		{"directly", nil, itself, "status = 'posted', ", ""},
-		{"on its request", []string{submit}, itself, "status = 'posted', ", ""},
-		{"on another request", []string{submit}, itself, "status = 'posted', approval_request_id = gen_random_uuid(), ", "decided only on the request it names"},
-		{"to an entry posted for something else", nil, other, "status = 'posted', ", "was not posted for parked entry"},
-		{"naming a journal entry while parked", nil, itself, "", "parked_entry_journal_when_posted"},
+		{"directly", nil, itself, "2026-05-04", "status = 'posted', ", ""},
+		{"directly naming a request", nil, itself, "2026-05-04", "status = 'posted', approval_request_id = gen_random_uuid(), ", "names no approval request"},
+		{"on its request", []string{submit}, itself, "2026-05-04", "status = 'posted', ", ""},
+		{"on another request", []string{submit}, itself, "2026-05-04", "status = 'posted', approval_request_id = gen_random_uuid(), ", "decided only on the request it names"},
+		{"to an entry posted for something else", nil, other, "2026-05-04", "status = 'posted', ", "was not posted for parked entry"},
+		{"to an entry of another date", nil, itself, "2026-05-05", "status = 'posted', ", "was not posted for parked entry"},
+		{"naming a journal entry while parked", nil, itself, "2026-05-04", "", "parked_entry_journal_when_posted"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFixture(t)
 			pe := f.park(t, "human")
 			f.mustChange(t, pe, c.after...)
-			expect(t, f.post(t, pe, c.source(pe), c.set), c.want)
+			expect(t, f.post(t, pe, c.source(pe), c.date, c.set), c.want)
 		})
 	}
 	t.Run("without a journal entry", func(t *testing.T) {
 		f := newFixture(t)
 		pe := f.park(t, "human")
 		failsWith(t, f.change(t, pe, "status = 'posted'"), "parked_entry_journal_when_posted")
+		failsWith(t, f.change(t, pe, "journal_fiscal_year = 2026"), "parked_entry_journal_year")
+	})
+	t.Run("one entry per request", func(t *testing.T) {
+		f := newFixture(t)
+		first, second := f.park(t, "human"), f.park(t, "human")
+		request := id()
+		f.mustChange(t, first, "status = 'pending_approval', approval_request_id = '"+request.String()+"'")
+		failsWith(t, f.change(t, second, "status = 'pending_approval', approval_request_id = $2", request), "parked_entry_one_per_request")
 	})
 	t.Run("changed once posted", func(t *testing.T) {
 		f := newFixture(t)
 		pe := f.park(t, "human")
-		expect(t, f.post(t, pe, &pe, "status = 'posted', "), "")
+		expect(t, f.post(t, pe, &pe, "2026-05-04", "status = 'posted', "), "")
 		failsWith(t, f.change(t, pe, "header_text = 'Accrual'"), "cannot go from posted to posted")
 	})
 	t.Run("to the reversal of its entry", func(t *testing.T) {
@@ -245,6 +256,15 @@ func TestParkedEntryLines(t *testing.T) {
 		failsWith(t, setLine(f, "amount = 250"), "items of a pending_approval ledger.parked_entry cannot change")
 		failsWith(t, add(f, pe, 5, nil), "items of a pending_approval ledger.parked_entry cannot change")
 	})
+	t.Run("moved off a submitted entry", func(t *testing.T) {
+		f := newFixture(t)
+		submitted, open := f.park(t, "human"), f.park(t, "human")
+		f.mustChange(t, submitted, submit)
+		err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.parked_entry_line SET parked_entry_id = $2, line_no = 9 WHERE parked_entry_id = $1 AND line_no = 1`, submitted, open)
+		})
+		failsWith(t, err, "stays on its parked entry")
+	})
 	t.Run("zero amount", func(t *testing.T) {
 		f := newFixture(t)
 		failsWith(t, add(f, f.park(t, "human"), 0, nil), "parked_entry_line_amount_check")
@@ -267,12 +287,30 @@ func TestParkedEntryAccess(t *testing.T) {
 		t.Errorf("another tenant's parked entries seen: got %d, want 0", seen)
 	}
 	for code, want := range map[string]bool{"ledger.entry.park": false, "ledger.entry.approve": true} {
-		var approval bool
-		if err := testDB.QueryRow(context.Background(), "SELECT is_approval FROM ref.permission WHERE code = $1", code).Scan(&approval); err != nil {
-			t.Fatalf("permission %s: %v", code, err)
-		}
-		if approval != want {
-			t.Errorf("%s is_approval: got %v, want %v", code, approval, want)
-		}
+		t.Run(code, func(t *testing.T) {
+			var approval bool
+			if err := testDB.QueryRow(context.Background(), "SELECT is_approval FROM ref.permission WHERE code = $1", code).Scan(&approval); err != nil {
+				t.Fatalf("permission %s: %v", code, err)
+			}
+			if approval != want {
+				t.Errorf("%s is_approval: got %v, want %v", code, approval, want)
+			}
+		})
 	}
+}
+
+// TestParkedEntryProvenance: who parked an entry, and how, is never
+// rewritten, and the document type has the journal's format.
+func TestParkedEntryProvenance(t *testing.T) {
+	need(t)
+	for _, set := range []string{"created_by_kind = 'human', owner_id = created_by", "created_by = gen_random_uuid()", "created_at = now() - interval '1 day'"} {
+		t.Run(set, func(t *testing.T) {
+			f := newFixture(t)
+			failsWith(t, f.change(t, f.park(t, "agent"), set), "who parked entry")
+		})
+	}
+	t.Run("document type", func(t *testing.T) {
+		f := newFixture(t)
+		failsWith(t, f.change(t, f.park(t, "human"), "document_type = 'x'"), "parked_entry_document_type_check")
+	})
 }

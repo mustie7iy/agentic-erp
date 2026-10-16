@@ -5,3 +5,4 @@ DELETE FROM ref.permission WHERE code IN ('ledger.entry.park', 'ledger.entry.app
 DROP TABLE ledger.parked_entry_line;
 DROP TABLE ledger.parked_entry;
 DROP FUNCTION ledger.check_parked_entry_change();
+DROP FUNCTION ledger.check_parked_entry_line_change();

@@ -452,15 +452,19 @@ Rules enforced in the database:
   approval limit) or cancelled, and pending_approval -> posted, rejected or
   back to parked (the request withdrawn, clearing `approval_request_id`);
   posted, rejected and cancelled are final. Its content, and its lines
-  (`platform.check_editable_parent`), change only while it is parked, so
-  what is approved is what is posted. A pending or rejected entry names its
-  `manual_entry` approval request (workflow context, no foreign key), an
-  entry posted on approval keeps it, and it is posted or rejected only on
-  the request it names; that the request was approved is checked by the
-  ledger's approvals callback, as for period unlocks. A posted entry names
-  the journal entry posted for it (`source_context` `ledger`,
-  `source_document_id` the parked entry, not its reversal), and only a
-  posted one does. A person owns what they park (`owner_id` =
+  (`platform.check_editable_parent`; a line also stays on its entry and
+  keeps its number), change only while it is parked, so what is approved is
+  what is posted; who parked it, and when, never changes. A pending or
+  rejected entry names its `manual_entry` approval request (workflow
+  context, no foreign key; one entry per request), an entry posted on
+  approval keeps it and one posted directly names none, and it is posted
+  or rejected only on the request it names; that the request was approved
+  is checked by the ledger's approvals callback, as for period unlocks. A
+  posted entry names the journal entry posted for it (`source_context`
+  `ledger`, `source_document_id` the parked entry, its header, not its
+  reversal), and only a posted one does. The ledger reads an entry
+  `FOR UPDATE` before it changes the entry or its lines (ADR-0008): the
+  line trigger reads the entry's status without a lock. A person owns what they park (`owner_id` =
   `created_by`); an agent's entry has no owner until a person changes or
   posts it, an entry is submitted or posted only with an owner, and the
   owner never changes: the requester an approval excludes is the one person

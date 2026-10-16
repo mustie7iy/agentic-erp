@@ -36,7 +36,7 @@ CREATE TABLE ledger.parked_entry (
   PRIMARY KEY (tenant_id, id),
   FOREIGN KEY (tenant_id, ledger_id) REFERENCES ledger.ledger (tenant_id, id),
   FOREIGN KEY (tenant_id, journal_fiscal_year, journal_entry_id) REFERENCES ledger.journal_entry (tenant_id, fiscal_year, id),
-  CHECK ((journal_entry_id IS NULL) = (journal_fiscal_year IS NULL)),
+  CONSTRAINT parked_entry_journal_year CHECK ((journal_entry_id IS NULL) = (journal_fiscal_year IS NULL)),
   CONSTRAINT parked_entry_journal_when_posted CHECK ((status = 'posted') = (journal_entry_id IS NOT NULL)),
   -- Posted on approval it keeps its request; posted directly it has none.
   CONSTRAINT parked_entry_request_when_decided CHECK (CASE status
@@ -48,6 +48,9 @@ CREATE TABLE ledger.parked_entry (
       AND (status IN ('parked', 'cancelled') OR owner_id IS NOT NULL))
 );
 CREATE INDEX parked_entry_by_status ON ledger.parked_entry (tenant_id, legal_entity_id, status, created_at);
+-- The approvals callback finds the entry by its request, and one approval
+-- never decides two entries.
+CREATE UNIQUE INDEX parked_entry_one_per_request ON ledger.parked_entry (tenant_id, approval_request_id) WHERE approval_request_id IS NOT NULL;
 CREATE TRIGGER parked_entry_touch BEFORE UPDATE ON ledger.parked_entry FOR EACH ROW EXECUTE FUNCTION platform.touch();
 
 -- Lines in minor units of the entry's currency, debit positive. Edits
@@ -72,12 +75,29 @@ CREATE TABLE ledger.parked_entry_line (
 );
 CREATE TRIGGER parked_entry_line_editable BEFORE INSERT OR UPDATE ON ledger.parked_entry_line
   FOR EACH ROW EXECUTE FUNCTION platform.check_editable_parent('ledger.parked_entry', 'parked_entry_id', 'parked');
+-- check_editable_parent reads the status of the entry a line now names, so
+-- a line moved off a submitted entry onto a parked one would pass it: a
+-- line stays on its entry and keeps its number.
+CREATE FUNCTION ledger.check_parked_entry_line_change() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF (NEW.tenant_id, NEW.parked_entry_id, NEW.line_no) IS DISTINCT FROM (OLD.tenant_id, OLD.parked_entry_id, OLD.line_no) THEN
+    RAISE EXCEPTION 'line % stays on its parked entry %', OLD.line_no, OLD.parked_entry_id USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+ALTER FUNCTION ledger.check_parked_entry_line_change() OWNER TO erp_owner;
+CREATE TRIGGER parked_entry_line_fixed BEFORE UPDATE ON ledger.parked_entry_line
+  FOR EACH ROW EXECUTE FUNCTION ledger.check_parked_entry_line_change();
 
--- An entry is parked first and then moves only along its lifecycle; what is
--- approved is what is posted, an entry is decided only on the request it
--- names, its owner never changes once a person owns it, and it is posted as
--- the journal entry posted for it (not that entry's reversal, which names
--- the same source document).
+-- An entry is parked first and then moves only along its lifecycle; who
+-- parked it, and how, is never rewritten; what is approved is what is
+-- posted; an entry posted directly names no request, and one decided is
+-- decided only on the request it names; its owner never changes once a
+-- person owns it; and it is posted as the journal entry posted for it, with
+-- its header (not that entry's reversal, which names the same source
+-- document). Callers read the entry FOR UPDATE before they change it or its
+-- lines (ADR-0008): the line trigger reads the entry's status unlocked.
 CREATE FUNCTION ledger.check_parked_entry_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -91,11 +111,17 @@ BEGIN
       ('pending_approval', 'posted'), ('pending_approval', 'rejected'), ('pending_approval', 'parked')) THEN
     RAISE EXCEPTION 'parked entry % cannot go from % to %', OLD.id, OLD.status, NEW.status USING ERRCODE = 'check_violation';
   END IF;
+  IF (NEW.id, NEW.created_by_kind, NEW.created_by, NEW.created_at) IS DISTINCT FROM (OLD.id, OLD.created_by_kind, OLD.created_by, OLD.created_at) THEN
+    RAISE EXCEPTION 'who parked entry %, and when, does not change', OLD.id USING ERRCODE = 'check_violation';
+  END IF;
   IF (OLD.status, NEW.status) <> ('parked', 'parked') AND
      (NEW.legal_entity_id, NEW.ledger_id, NEW.document_type, NEW.document_date, NEW.posting_date, NEW.currency, NEW.reference, NEW.header_text)
      IS DISTINCT FROM
      (OLD.legal_entity_id, OLD.ledger_id, OLD.document_type, OLD.document_date, OLD.posting_date, OLD.currency, OLD.reference, OLD.header_text) THEN
     RAISE EXCEPTION 'parked entry % changes only while it is parked', OLD.id USING ERRCODE = 'check_violation';
+  END IF;
+  IF (OLD.status, NEW.status) = ('parked', 'posted') AND NEW.approval_request_id IS NOT NULL THEN
+    RAISE EXCEPTION 'parked entry % posted directly names no approval request', OLD.id USING ERRCODE = 'check_violation';
   END IF;
   IF OLD.status = 'pending_approval' AND NEW.status <> 'parked' AND NEW.approval_request_id IS DISTINCT FROM OLD.approval_request_id THEN
     RAISE EXCEPTION 'parked entry % is decided only on the request it names', OLD.id USING ERRCODE = 'check_violation';
@@ -105,7 +131,9 @@ BEGIN
   END IF;
   IF NEW.journal_entry_id IS NOT NULL AND NOT EXISTS (SELECT FROM ledger.journal_entry j
       WHERE j.tenant_id = NEW.tenant_id AND j.fiscal_year = NEW.journal_fiscal_year AND j.id = NEW.journal_entry_id
-        AND j.source_context = 'ledger' AND j.source_document_id = NEW.id AND j.reversal_of_id IS NULL) THEN
+        AND j.source_context = 'ledger' AND j.source_document_id = NEW.id AND j.reversal_of_id IS NULL
+        AND (j.legal_entity_id, j.ledger_id, j.document_type, j.document_date, j.posting_date, j.currency_tc)
+          = (NEW.legal_entity_id, NEW.ledger_id, NEW.document_type, NEW.document_date, NEW.posting_date, NEW.currency)) THEN
     RAISE EXCEPTION 'journal entry % was not posted for parked entry %', NEW.journal_entry_id, OLD.id USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
