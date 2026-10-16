@@ -33,6 +33,10 @@ run "the_lifecycle_never_expires_untagged_signatures" {
   command = apply
 
   assert {
+    condition     = length(aws_ecr_lifecycle_policy.this) == 3 && alltrue([for p in aws_ecr_lifecycle_policy.this : length(jsondecode(p.policy).rules) == 1])
+    error_message = "every repository has its one lifecycle rule"
+  }
+  assert {
     condition = alltrue([
       for p in aws_ecr_lifecycle_policy.this : alltrue([
         for rule in jsondecode(p.policy).rules : rule.selection.tagStatus == "tagged" && rule.selection.tagPrefixList == ["v"]
@@ -50,8 +54,12 @@ run "replicated_to_every_cell_region_and_pulled_by_the_environments" {
     error_message = "replicated to every given region"
   }
   assert {
-    condition     = aws_ecr_repository_creation_template.replicas[0].encryption_configuration[0].encryption_type == "KMS"
-    error_message = "replicas are KMS-encrypted"
+    condition     = toset([for t in aws_ecr_repository_creation_template.replicas : t.region]) == toset(["eu-west-1", "us-east-1"])
+    error_message = "a creation template in every destination region, where the replicas are created"
+  }
+  assert {
+    condition     = alltrue([for t in aws_ecr_repository_creation_template.replicas : t.encryption_configuration[0].encryption_type == "KMS" && t.repository_policy != null])
+    error_message = "replicas are KMS-encrypted and pulled by the environment accounts"
   }
   assert {
     condition     = jsondecode(aws_ecr_repository_policy.pull["erp-server"].policy).Statement[0].Principal.AWS == ["arn:aws:iam::222222222222:root", "arn:aws:iam::333333333333:root"]

@@ -26,8 +26,10 @@ dedicated cell may get an account of its own.
 **Terraform.** `deploy/terraform/` holds modules (`state`, `accounts`,
 `signing-key`, `release-roles`, `ecr`, `private-ca`; from T40b `cell` and
 `global`) and one root per environment, region and cell under `envs/`.
-State lives in one S3 bucket in tooling, versioned, KMS-encrypted, TLS-only,
-with S3's own locking (`use_lockfile`), one key per root. Terraform 1.16,
+State lives in one S3 bucket in tooling, versioned (superseded versions
+kept a year), encrypted with a key of its own, which the bucket enforces on
+every write, TLS-only, with S3's own locking (`use_lockfile`), one key per
+root; other accounts' apply roles are granted by name. Terraform 1.16,
 AWS provider 6.x, lock files committed for the roots. Every root names its
 account (`allowed_account_ids`), so a wrong profile fails before it plans.
 
@@ -64,8 +66,12 @@ symmetric KMS key that does not rotate, any ECR repository or replication
 template not encrypted with KMS, any RDS instance or cluster, EBS volume,
 EKS cluster (secrets) or DynamoDB table not encrypted. conftest applies it
 to every module and root in CI, with unit tests, and checks that it refuses
-each resource of an unencrypted fixture. EBS encryption by default is on in
-every environment account (T40b).
+each resource of an unencrypted fixture. It reads the Terraform source, so
+it sees resources declared in the directory, not inside a called module:
+each module is checked in its own directory. EBS encryption by default is
+on in every environment account (T40b), and the rules grow with the
+resources T40b brings (launch templates' volumes, log groups, file systems,
+caches).
 
 **Cells (T40b, T40c).** EKS; RDS for PostgreSQL 17 as a Multi-AZ cluster
 with two readable standbys and point-in-time recovery, behind PgBouncer in
@@ -97,13 +103,29 @@ production: deploy N, deploy N+1, revert to N, smoke tests and readiness
 with N's code on N+1's schema, which expand, migrate, contract (§6.4) makes
 safe. Rollback in production is the same revert, per cell.
 
-**Bootstrap runbook.**
-1. In the management account, apply `envs/organization` (the accounts).
-2. In tooling, apply `envs/bootstrap` once with a `backend_override.tf`
-   declaring `backend "local" {}`; delete the override, then
-   `terraform init -migrate-state -backend-config="bucket=<bucket>" -backend-config="region=<region>"`.
-3. Apply `envs/tooling` with that backend configuration; set the release
-   environment's variables from its outputs.
+**Bootstrap runbook.** Every root is initialised with
+`-backend-config="bucket=<bucket>" -backend-config="region=<region>" -backend-config="kms_key_id=<state key ARN>"`:
+the S3 backend with `encrypt = true` and no `kms_key_id` writes SSE-S3,
+which the state bucket refuses.
+1. In the management account, apply `envs/organization` with a
+   `backend_override.tf` declaring `backend "local" {}` (the state bucket
+   does not exist yet). It creates the accounts.
+2. In the new tooling account (entered through `OrganizationAccountAccessRole`
+   or an SSO role), apply `envs/bootstrap` the same way, with
+   `state_role_arns` naming the management account's apply role. Delete
+   the override and run `terraform init -migrate-state` with the backend
+   configuration above; its outputs are the bucket and the state key.
+3. Back in `envs/organization`, delete the override and migrate its state
+   the same way: the bucket and the state key allow the management
+   account's apply role.
+4. Apply `envs/tooling`. `admin_role_arns` must include the role that runs
+   the apply, by its full ARN (an SSO role is
+   `arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/<region>/AWSReservedSSO_<set>_<id>`):
+   KMS refuses a key policy that would lock its creator out. The signing
+   key has no account-root statement, so IAM alone grants nothing on it;
+   keep more than one administrator role, since if every one were deleted
+   only AWS Support could restore access. Set the release environment's
+   variables from the outputs (`cosign_key`, `release_role_arn`, `region`).
 
 ## Alternatives
 - **One account for everything, environments by VPC.** Cheaper and simpler,

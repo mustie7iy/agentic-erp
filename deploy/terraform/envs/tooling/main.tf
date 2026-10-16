@@ -84,6 +84,11 @@ output "cosign_key" {
   value       = module.signing_key.cosign_key
 }
 
+output "region" {
+  description = "ERP_AWS_REGION of the release environment: the signing key's and the registry's region."
+  value       = var.region
+}
+
 output "release_role_arn" {
   description = "ERP_RELEASE_ROLE_ARN of the release environment."
   value       = module.roles.release_role_arn

@@ -84,6 +84,36 @@ test_eks_secrets_encryption if {
 }
 
 test_dynamodb_encryption if {
-	deny["aws_dynamodb_table.t: needs server_side_encryption enabled with a KMS key"] with input as file({"aws_dynamodb_table": {"t": [{}]}})
+	deny["aws_dynamodb_table.t: needs server_side_encryption enabled (encryption with a KMS key)"] with input as file({"aws_dynamodb_table": {"t": [{}]}})
 	count(deny) == 0 with input as file({"aws_dynamodb_table": {"t": [{"server_side_encryption": [{"enabled": true}]}]}})
+}
+
+test_bucket_encrypted_without_a_key if {
+	config := encrypted_bucket.aws_s3_bucket_server_side_encryption_configuration.state[0]
+	no_key := object.union(config, {"rule": [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "aws:kms"}]}]})
+	resource := object.union(encrypted_bucket, {"aws_s3_bucket_server_side_encryption_configuration": {"state": [no_key]}})
+	deny["aws_s3_bucket.state: needs aws_s3_bucket_server_side_encryption_configuration with sse_algorithm aws:kms and a kms_master_key_id"] with input as file(resource)
+}
+
+test_bucket_per_instance_reference if {
+	instances := {
+		"aws_s3_bucket": {"state": [{"for_each": "${var.buckets}", "bucket": "${each.key}"}]},
+		"aws_s3_bucket_server_side_encryption_configuration": {"state": [{
+			"for_each": "${var.buckets}",
+			"bucket": "${aws_s3_bucket.state[each.key].id}",
+			"rule": [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "aws:kms", "kms_master_key_id": "${aws_kms_key.state.arn}"}]}],
+		}]},
+		"aws_s3_bucket_public_access_block": {"state": [object.union(encrypted_bucket.aws_s3_bucket_public_access_block.state[0], {"bucket": "${aws_s3_bucket.state[each.key].id}"})]},
+	}
+	count(deny) == 0 with input as file(instances)
+}
+
+test_a_data_source_does_not_encrypt_a_resource if {
+	config := encrypted_bucket.aws_s3_bucket_server_side_encryption_configuration.state[0]
+	resource := object.union(encrypted_bucket, {"aws_s3_bucket_server_side_encryption_configuration": {"state": [object.union(config, {"bucket": "${data.aws_s3_bucket.state.id}"})]}})
+	deny["aws_s3_bucket.state: needs aws_s3_bucket_server_side_encryption_configuration with sse_algorithm aws:kms and a kms_master_key_id"] with input as file(resource)
+}
+
+test_a_key_spec_from_a_variable_must_rotate if {
+	deny["aws_kms_key.k: a symmetric key must rotate (enable_key_rotation = true)"] with input as file({"aws_kms_key": {"k": [{"customer_master_key_spec": "${var.spec}"}]}})
 }

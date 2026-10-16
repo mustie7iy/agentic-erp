@@ -12,11 +12,15 @@ variable "alias" {
 }
 
 variable "admin_role_arns" {
-  description = "Roles that administer the key (not sign with it)."
+  description = "Roles that administer the key (not sign with it). The role that applies this module must be one of them: KMS refuses a key policy that would lock its creator out."
   type        = list(string)
   validation {
     condition     = length(var.admin_role_arns) > 0
     error_message = "a signing key needs an administrator, or it can never be changed or retired"
+  }
+  validation {
+    condition     = alltrue([for arn in var.admin_role_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/", arn))])
+    error_message = "administrators are IAM roles (arn:aws:iam::<account>:role/...), never an account root"
   }
 }
 
@@ -31,6 +35,9 @@ variable "verifier_role_arns" {
   default     = []
 }
 
+# No account-root statement: IAM policies grant nothing on this key, which
+# is what keeps administrators from signing. If every administrator role
+# were deleted, only AWS Support could restore access (ADR-0035 runbook).
 resource "aws_kms_key" "signing" {
   description              = "Signs release images (ADR-0032)"
   customer_master_key_spec = "ECC_NIST_P256"
@@ -45,6 +52,7 @@ resource "aws_kms_key" "signing" {
         Principal = { AWS = var.admin_role_arns }
         Action = [
           "kms:Describe*", "kms:Get*", "kms:List*", "kms:Put*", "kms:Update*", "kms:Enable*", "kms:Disable*",
+          "kms:CreateAlias", "kms:DeleteAlias",
           "kms:TagResource", "kms:UntagResource", "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion",
         ]
         Resource = "*"
@@ -64,6 +72,10 @@ resource "aws_kms_key" "signing" {
         Resource  = "*"
     }])
   })
+  # Deleting it would leave every deployed image unverifiable.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_kms_alias" "signing" {
@@ -74,6 +86,11 @@ resource "aws_kms_alias" "signing" {
 output "key_arn" {
   description = "The signing key."
   value       = aws_kms_key.signing.arn
+}
+
+output "policy" {
+  description = "The key policy, the key's whole access model (for review and tests)."
+  value       = aws_kms_key.signing.policy
 }
 
 output "cosign_key" {

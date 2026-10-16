@@ -15,6 +15,22 @@ variable "admin_role_arns" {
   default     = []
 }
 
+variable "state_role_arns" {
+  description = "Roles in other accounts whose roots keep state here (the management account's apply role, for envs/organization)."
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for arn in var.state_role_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/", arn))])
+    error_message = "state is shared with IAM roles (arn:aws:iam::<account>:role/...), never a whole account"
+  }
+}
+
+variable "noncurrent_version_days" {
+  description = "How long superseded versions of a state file are kept."
+  type        = number
+  default     = 365
+}
+
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 
@@ -28,14 +44,37 @@ resource "aws_kms_key" "state" {
   deletion_window_in_days = 30
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
+    Statement = concat([{
       Sid       = "AccountAdministers"
       Effect    = "Allow"
       Principal = { AWS = concat([local.account_root], var.admin_role_arns) }
       Action    = "kms:*"
       Resource  = "*"
-    }]
+      }], length(var.state_role_arns) == 0 ? [] : [{
+      Sid       = "OtherAccountsUseState"
+      Effect    = "Allow"
+      Principal = { AWS = var.state_role_arns }
+      Action    = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+      Resource  = "*"
+    }])
   })
+  # Deleting it would make every state file unreadable.
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "state" {
+  bucket = aws_s3_bucket.state.id
+  rule {
+    id     = "superseded-state"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration {
+      noncurrent_days           = var.noncurrent_version_days
+      newer_noncurrent_versions = 10
+    }
+  }
 }
 
 resource "aws_kms_alias" "state" {
@@ -87,14 +126,43 @@ resource "aws_s3_bucket_policy" "state" {
   bucket = aws_s3_bucket.state.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "TLSOnly"
-      Effect    = "Deny"
-      Principal = "*"
-      Action    = "s3:*"
-      Resource  = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
-      Condition = { Bool = { "aws:SecureTransport" = "false" } }
-    }]
+    Statement = concat([
+      {
+        Sid       = "TLSOnly"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+        Condition = { Bool = { "aws:SecureTransport" = "false" } }
+      },
+      # Terraform's S3 backend with encrypt = true and no kms_key_id asks
+      # for SSE-S3 on every write, overriding the bucket's default. A write
+      # that asks for any encryption but this bucket's KMS key is refused,
+      # so a root initialised without -backend-config=kms_key_id fails
+      # loudly; a write that asks for none gets the bucket's default.
+      {
+        Sid       = "KMSOnly"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.state.arn}/*"
+        Condition = { StringNotEqualsIfExists = { "s3:x-amz-server-side-encryption" = "aws:kms" } }
+      },
+      {
+        Sid       = "StateKeyOnly"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.state.arn}/*"
+        Condition = { StringNotEqualsIfExists = { "s3:x-amz-server-side-encryption-aws-kms-key-id" = aws_kms_key.state.arn } }
+      },
+      ], length(var.state_role_arns) == 0 ? [] : [{
+        Sid       = "OtherAccountsUseState"
+        Effect    = "Allow"
+        Principal = { AWS = var.state_role_arns }
+        Action    = ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Resource  = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+    }])
   })
   depends_on = [aws_s3_bucket_public_access_block.state]
 }

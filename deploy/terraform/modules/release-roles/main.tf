@@ -36,9 +36,13 @@ variable "repository_arns" {
 }
 
 variable "delivery_principal_arns" {
-  description = "Further principals that may assume the delivery role (Argo CD's role, T40d)."
+  description = "Further roles that may assume the delivery role (Argo CD's role, T40d)."
   type        = list(string)
   default     = []
+  validation {
+    condition     = alltrue([for arn in var.delivery_principal_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/", arn))])
+    error_message = "delivery is shared with IAM roles (arn:aws:iam::<account>:role/...), never a whole account"
+  }
 }
 
 locals {

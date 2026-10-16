@@ -25,6 +25,16 @@ mock_provider "aws" {
   }
 }
 
+override_resource {
+  target = module.roles.aws_iam_role.release
+  values = { arn = "arn:aws:iam::111111111111:role/erp-release" }
+}
+
+override_resource {
+  target = module.roles.aws_iam_role.delivery
+  values = { arn = "arn:aws:iam::111111111111:role/erp-delivery" }
+}
+
 variables {
   account_id              = "111111111111"
   region                  = "eu-central-1"
@@ -45,5 +55,17 @@ run "the_tooling_account_plans_and_wires_its_parts" {
   assert {
     condition     = length(output.repository_urls) == 3
     error_message = "one repository per binary"
+  }
+  assert {
+    condition     = [for s in jsondecode(module.signing_key.policy).Statement : s.Principal.AWS if s.Sid == "Sign"][0] == ["arn:aws:iam::111111111111:role/erp-release"]
+    error_message = "the release role, not delivery, signs"
+  }
+  assert {
+    condition     = contains([for s in jsondecode(module.signing_key.policy).Statement : s.Principal.AWS if s.Sid == "Verify"][0], "arn:aws:iam::111111111111:role/erp-delivery")
+    error_message = "delivery reads the public key"
+  }
+  assert {
+    condition     = output.region == "eu-central-1"
+    error_message = "the release environment's region"
   }
 }

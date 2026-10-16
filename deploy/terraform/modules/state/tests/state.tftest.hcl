@@ -39,3 +39,50 @@ run "state_is_versioned_encrypted_private_and_tls_only" {
     error_message = "the account root must administer the state key"
   }
 }
+
+run "writes_must_use_the_state_key" {
+  command = apply
+
+  assert {
+    condition = length([
+      for s in jsondecode(aws_s3_bucket_policy.state.policy).Statement : s
+      if s.Effect == "Deny" && s.Action == "s3:PutObject" && try(s.Condition.StringNotEqualsIfExists["s3:x-amz-server-side-encryption"], "") == "aws:kms"
+    ]) == 1
+    error_message = "a write asking for SSE-S3 (the backend without kms_key_id) is refused"
+  }
+  assert {
+    condition = length([
+      for s in jsondecode(aws_s3_bucket_policy.state.policy).Statement : s
+      if s.Effect == "Deny" && try(s.Condition.StringNotEqualsIfExists["s3:x-amz-server-side-encryption-aws-kms-key-id"], "") == aws_kms_key.state.arn
+    ]) == 1
+    error_message = "a write naming another KMS key is refused"
+  }
+  assert {
+    condition     = one(aws_s3_bucket_lifecycle_configuration.state.rule).noncurrent_version_expiration[0].noncurrent_days == 365
+    error_message = "superseded state versions expire after a year"
+  }
+}
+
+run "another_accounts_apply_role_may_use_the_state" {
+  command = apply
+  variables {
+    state_role_arns = ["arn:aws:iam::999999999999:role/organization-apply"]
+  }
+
+  assert {
+    condition     = [for s in jsondecode(aws_s3_bucket_policy.state.policy).Statement : s.Principal.AWS if s.Sid == "OtherAccountsUseState"][0] == ["arn:aws:iam::999999999999:role/organization-apply"]
+    error_message = "the management account's apply role may read and write state"
+  }
+  assert {
+    condition     = contains([for s in jsondecode(aws_kms_key.state.policy).Statement : s.Action if s.Sid == "OtherAccountsUseState"][0], "kms:Decrypt")
+    error_message = "and use the state key"
+  }
+}
+
+run "a_whole_account_is_refused" {
+  command = plan
+  variables {
+    state_role_arns = ["arn:aws:iam::999999999999:root"]
+  }
+  expect_failures = [var.state_role_arns]
+}

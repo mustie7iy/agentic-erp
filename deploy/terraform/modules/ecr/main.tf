@@ -108,8 +108,13 @@ resource "aws_ecr_repository_policy" "pull" {
   })
 }
 
+# A creation template applies in the region where ECR creates the replica,
+# so there is one in every destination region (the provider's per-resource
+# region); without it a replica would get AES256, mutable tags and no pull
+# policy for the environment accounts.
 resource "aws_ecr_repository_creation_template" "replicas" {
-  count                = length(var.replication_regions) == 0 ? 0 : 1
+  for_each             = toset(var.replication_regions)
+  region               = each.value
   prefix               = "ROOT"
   description          = "Replicas of the release images (ADR-0035)"
   applied_for          = ["REPLICATION"]
@@ -143,6 +148,9 @@ resource "aws_ecr_replication_configuration" "this" {
           registry_id = data.aws_caller_identity.current.account_id
         }
       }
+      # Each repository by name, as a prefix (ECR's only filter type): a
+      # name that is a prefix of another (erp of erp-server) also covers
+      # it, which replicates the same set.
       dynamic "repository_filter" {
         for_each = var.repositories
         content {

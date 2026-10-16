@@ -25,13 +25,25 @@ variable "admin_role_arns" {
   default     = []
 }
 
+variable "state_role_arns" {
+  description = "Apply roles of other accounts whose roots keep state here (the management account's, for envs/organization)."
+  type        = list(string)
+  default     = []
+}
+
 module "state" {
   source          = "../../modules/state"
   bucket          = var.bucket
   admin_role_arns = var.admin_role_arns
+  state_role_arns = var.state_role_arns
 }
 
 output "bucket" {
   description = "The bucket for every root's -backend-config."
   value       = module.state.bucket
+}
+
+output "kms_key_arn" {
+  description = "The state key for every root's -backend-config kms_key_id: without it the backend writes SSE-S3, which the bucket refuses."
+  value       = module.state.kms_key_arn
 }

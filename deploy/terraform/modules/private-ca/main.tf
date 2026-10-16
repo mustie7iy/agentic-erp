@@ -2,7 +2,9 @@
 # from T38): it signs one subordinate CA per environment (T40b), from which
 # cert-manager's aws-privateca-issuer issues the short-lived certificates
 # of TLS inside a cell and of mTLS between services. The root signs nothing
-# else, lives in the tooling account and is kept from deletion.
+# else, lives in the tooling account and is kept from deletion. It publishes
+# no revocation list yet: whether to revoke a subordinate by CRL or OCSP is
+# decided with the subordinates in T40b.
 
 variable "common_name" {
   description = "The root's common name."
@@ -24,6 +26,12 @@ variable "country" {
   }
 }
 
+variable "key_storage_security_standard" {
+  description = "FIPS level of the CA's key storage; some regions offer only FIPS_140_2_LEVEL_2_OR_HIGHER."
+  type        = string
+  default     = "FIPS_140_2_LEVEL_3_OR_HIGHER"
+}
+
 variable "validity_years" {
   description = "How long the root certificate is valid."
   type        = number
@@ -42,7 +50,7 @@ resource "aws_acmpca_certificate_authority" "root" {
       country      = var.country
     }
   }
-  key_storage_security_standard   = "FIPS_140_2_LEVEL_3_OR_HIGHER"
+  key_storage_security_standard   = var.key_storage_security_standard
   permanent_deletion_time_in_days = 30
   lifecycle {
     prevent_destroy = true

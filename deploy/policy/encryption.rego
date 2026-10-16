@@ -15,15 +15,25 @@ resources contains [type, name, body] if {
 	some body in bodies
 }
 
-# referenced is true when the expression expr names resource type.name.
-referenced(expr, type, name) if contains(expr, sprintf("%s.%s.", [type, name]))
+# referenced is true when the expression expr names resource type.name:
+# an attribute of it (.id, .bucket) or one instance (for_each, count), and
+# not a data source or another resource whose name ends the same.
+referenced(expr, type, name) if regex.match(sprintf(`(^|[^A-Za-z0-9_.])%s\.%s[.\[]`, [type, name]), expr)
 
 deny contains msg if {
 	some [type, name, body] in resources
 	type == "aws_kms_key"
-	object.get(body, "customer_master_key_spec", "SYMMETRIC_DEFAULT") == "SYMMETRIC_DEFAULT"
+	not asymmetric(body)
 	object.get(body, "enable_key_rotation", false) != true
 	msg := sprintf("aws_kms_key.%s: a symmetric key must rotate (enable_key_rotation = true)", [name])
+}
+
+# asymmetric is true for a key spec written out as an asymmetric one; a
+# spec from an expression is not known here and counts as symmetric.
+asymmetric(body) if {
+	spec := object.get(body, "customer_master_key_spec", "SYMMETRIC_DEFAULT")
+	not contains(spec, "${")
+	spec != "SYMMETRIC_DEFAULT"
 }
 
 deny contains msg if {
@@ -97,7 +107,7 @@ eks_secrets_encrypted(body) if {
 deny contains msg if {
 	some ["aws_dynamodb_table", name, body] in resources
 	not dynamodb_kms_encrypted(body)
-	msg := sprintf("aws_dynamodb_table.%s: needs server_side_encryption enabled with a KMS key", [name])
+	msg := sprintf("aws_dynamodb_table.%s: needs server_side_encryption enabled (encryption with a KMS key)", [name])
 }
 
 dynamodb_kms_encrypted(body) if {

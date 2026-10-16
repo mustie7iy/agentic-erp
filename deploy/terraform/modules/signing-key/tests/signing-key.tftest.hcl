@@ -36,6 +36,13 @@ run "an_asymmetric_key_with_a_least_privilege_policy" {
     error_message = "administrators must not sign"
   }
   assert {
+    condition = alltrue([
+      for action in ["kms:CreateAlias", "kms:DeleteAlias", "kms:Put*", "kms:ScheduleKeyDeletion"] :
+      contains([for s in jsondecode(aws_kms_key.signing.policy).Statement : s.Action if s.Sid == "Administer"][0], action)
+    ])
+    error_message = "administrators can manage the key and its alias: with no account-root statement, IAM alone grants nothing"
+  }
+  assert {
     condition     = [for s in jsondecode(aws_kms_key.signing.policy).Statement : s.Action if s.Sid == "Verify"][0] == ["kms:GetPublicKey", "kms:DescribeKey"]
     error_message = "verifiers only read the public key"
   }
@@ -50,6 +57,14 @@ run "no_verifiers_means_no_verify_statement" {
     condition     = length([for s in jsondecode(aws_kms_key.signing.policy).Statement : s if s.Sid == "Verify"]) == 0
     error_message = "an empty verifier list must not leave a statement without principals"
   }
+}
+
+run "an_account_root_as_administrator_is_refused" {
+  command = plan
+  variables {
+    admin_role_arns = ["arn:aws:iam::111111111111:root"]
+  }
+  expect_failures = [var.admin_role_arns]
 }
 
 run "a_key_without_administrator_is_refused" {

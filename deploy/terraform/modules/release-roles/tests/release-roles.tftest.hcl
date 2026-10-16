@@ -61,3 +61,11 @@ run "argo_cd_may_be_added_to_delivery" {
     error_message = "a further delivery principal is trusted"
   }
 }
+
+run "a_whole_account_may_not_assume_delivery" {
+  command = plan
+  variables {
+    delivery_principal_arns = ["arn:aws:iam::222222222222:root"]
+  }
+  expect_failures = [var.delivery_principal_arns]
+}
