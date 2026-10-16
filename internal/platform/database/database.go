@@ -1,7 +1,9 @@
 // Package database opens the PostgreSQL pool and starts transactions in a
 // scope: the database role the transaction runs as, and the tenant and actor
 // that row-level security and triggers see (ADR-0003). Nothing in the
-// platform touches tenant data outside such a transaction.
+// platform touches tenant data outside such a transaction. Production
+// reaches the database over verified TLS only (RequireVerifiedTLS,
+// ADR-0033).
 package database
 
 import (

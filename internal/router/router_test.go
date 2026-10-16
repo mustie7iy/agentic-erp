@@ -50,6 +50,7 @@ func (l lookup) Upsert(_ context.Context, e directory.Entry) error {
 }
 
 func TestLoadConfig(t *testing.T) {
+	t.Setenv("PGSSLMODE", "") // pgx reads the process's PG* settings, not the injected environment
 	valid := map[string]string{"ERP_DIRECTORY_URL": "postgres://x", "ERP_ENV": "development", "ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	check := func(what string, got, want any) {

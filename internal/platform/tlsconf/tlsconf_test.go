@@ -1,16 +1,15 @@
 package tlsconf_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/x509"
 	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
@@ -150,24 +149,24 @@ func TestStoreRunPicksUpRenewal(t *testing.T) {
 	if err := s.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
-	logged := &lockedWriter{w: &bytes.Buffer{}}
+	var logged pgtest.SyncBuffer // Run logs on its goroutine while the test reads
 	done := make(chan struct{})
 	go func() {
-		s.Run(ctx, time.Millisecond, slog.New(slog.NewTextHandler(logged, nil)))
+		s.Run(ctx, time.Millisecond, slog.New(slog.NewTextHandler(&logged, nil)))
 		close(done)
 	}()
 	// A half-written renewal: the certificate is new, the key still old.
 	renewed := ca.Issue(t, tlstest.Options{NotAfter: time.Now().Add(2 * time.Hour)})
 	tlstest.WriteFile(t, dir, "tls.crt", renewed.CertPEM)
-	eventually(t, func() bool { return strings.Contains(logged.String(), "keeping the material read before") })
+	pgtest.Eventually(t, 5*time.Second, func() bool { return strings.Contains(logged.String(), "keeping the material read before") }, "the failed read logged")
 	if cert, _ := s.Certificate(); cert.Leaf.NotAfter.Unix() != first.NotAfter.Unix() {
 		t.Errorf("during a half-written renewal: got expiry %v, want the first certificate's %v", cert.Leaf.NotAfter, first.NotAfter)
 	}
 	tlstest.WriteFile(t, dir, "tls.key", renewed.KeyPEM)
-	eventually(t, func() bool {
+	pgtest.Eventually(t, 5*time.Second, func() bool {
 		cert, err := s.Certificate()
 		return err == nil && cert.Leaf.NotAfter.Unix() == renewed.NotAfter.Unix()
-	})
+	}, "the renewed certificate served")
 	cancel()
 	<-done
 }
@@ -175,36 +174,6 @@ func TestStoreRunPicksUpRenewal(t *testing.T) {
 // verifyOpts verifies a leaf for both of its uses against roots.
 func verifyOpts(roots *x509.CertPool) x509.VerifyOptions {
 	return x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}
-}
-
-// eventually waits for cond, polling, for at most 5 seconds.
-func eventually(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatal("condition never held")
-		}
-		<-time.After(time.Millisecond)
-	}
-}
-
-// lockedWriter lets the test read what Run's logger writes meanwhile.
-type lockedWriter struct {
-	mu sync.Mutex
-	w  *bytes.Buffer
-}
-
-func (l *lockedWriter) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.w.Write(p)
-}
-
-func (l *lockedWriter) String() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.w.String()
 }
 
 // TestStoreClock: expiry is checked against the store's clock, so a

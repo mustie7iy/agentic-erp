@@ -103,8 +103,9 @@ token stolen in transit or from a log works from anywhere.
   would expire under a running replica.
 
 ## Consequences
-- Development keeps plaintext. Production configurations need certificates
-  from T40's issuers before a cell starts.
+- Development keeps plaintext, unless `ERP_TLS_*` is set: then NATS is
+  reached over TLS whatever its URL's scheme. Production configurations
+  need certificates from T40's issuers before a cell starts.
 - Tests make their certificates in memory (`tlsconf/tlstest`).
   - PostgreSQL's TLS path is tested through a TLS-terminating proxy in
     front of the plaintext test database (`pgtest.TLS`).

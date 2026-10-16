@@ -40,7 +40,10 @@ func TLS(tb testing.TB, raw string) string {
 	p := &proxy{ctx: ctx, backend: backend, cfg: cfg}
 	go p.serve(ln)
 	tb.Cleanup(func() { cancel(); _ = ln.Close(); p.closeAll() }) // the test is over; nothing reads these anymore
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		tb.Fatal(err)
+	}
 	u.Host = net.JoinHostPort("localhost", port)
 	q := u.Query()
 	q.Set("sslmode", "verify-full")

@@ -55,11 +55,13 @@ func TestConnectOverMutualTLS(t *testing.T) {
 		want string
 	}{
 		// Without a certificate the server refuses the handshake.
-		{"no certificate", natsbus.TLS(store(t, ca, nil)), ""},
+		{"no certificate", natsbus.TLS(store(t, ca, nil)), "tls"},
 		// A server certificate from an authority the bundle lacks is refused.
 		{"untrusted server", natsbus.TLS(store(t, tlstest.NewCA(t), &cell)), "certificate"},
-		// No TLS options against a TLS server: no plaintext either.
-		{"plaintext", nil, ""},
+		// Without the store's options the client still upgrades to TLS for
+		// a server that requires it, and finds its certificate untrusted
+		// by the system roots alone.
+		{"system roots only", nil, "certificate"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			opts := append(slices.Clone(c.opts), nats.Timeout(2*time.Second), nats.NoReconnect())

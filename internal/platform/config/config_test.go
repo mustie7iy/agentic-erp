@@ -546,6 +546,8 @@ func TestEscalationsFitTheCount(t *testing.T) {
 // refused, and so is none: there is no default, so a production replica
 // whose ERP_ENV went missing does not start with development's allowances.
 func TestProductionFailsClosed(t *testing.T) {
+	// pgx reads the process's PG* settings, not the injected environment.
+	t.Setenv("PGSSLMODE", "")
 	codec := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
 	const devRefused, codecRefused = "ERP_DEV_ISSUER must not be set with ERP_ENV=production", "ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production"
 	const envRequired = "ERP_ENV is required: set ERP_ENV=development on a developer's machine or in tests, ERP_ENV=production everywhere else"
