@@ -75,6 +75,7 @@ type remote struct {
 	algs       []string
 	discovered time.Time // zero: never
 	keys       []jose.JSONWebKey
+	keysFrom   string // the key set URL keys came from: unused once the document names another
 	keysUntil  time.Time
 	attempt    map[string]time.Time // kind → last fetch started
 	inflight   map[string]*fetch
@@ -140,18 +141,22 @@ func (p *Providers) remote(issuer string) *remote {
 }
 
 // discover returns the issuer's signing algorithms, fetching its document
-// when there is none or it is older than the TTL; a stale one serves for as
-// long again while refetches fail.
+// when there is none. One older than the TTL is refetched in the
+// background and serves meanwhile, and for as long again while refetches
+// fail, so a stalled provider holds no request up.
 func (p *Providers) discover(ctx context.Context, r *remote) ([]string, error) {
 	ttl := orDefault(p.DiscoveryTTL, DefaultDiscoveryTTL)
 	r.mu.Lock()
 	have, age := !r.discovered.IsZero(), p.now().Sub(r.discovered)
 	algs := r.algs
 	r.mu.Unlock()
-	if have && age < ttl {
+	if have && age < 2*ttl {
+		if age >= ttl {
+			p.refresh(ctx, r, "discovery", p.fetchDiscovery) // in the background
+		}
 		return algs, nil
 	}
-	err := p.refresh(ctx, r, "discovery", p.fetchDiscovery)
+	err := p.wait(ctx, r, "discovery", p.refresh(ctx, r, "discovery", p.fetchDiscovery))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.discovered.IsZero() && p.now().Sub(r.discovered) < 2*ttl {
@@ -160,26 +165,30 @@ func (p *Providers) discover(ctx context.Context, r *remote) ([]string, error) {
 	return nil, unavailable(r.issuer, err)
 }
 
-// verifySignature checks the token's signature with the issuer's keys,
-// refreshing them when they expired or the token names a key they lack.
+// verifySignature checks the token's signature with the issuer's keys. A
+// token naming a key they lack waits for a refetch; expired keys are
+// refetched in the background and serve meanwhile. A key the provider
+// could not be asked for is 503, since the token may be valid.
 func (p *Providers) verifySignature(ctx context.Context, r *remote, raw string, algs []string) (string, error) {
 	jws, err := jose.ParseSigned(raw, sigAlgs(algs))
 	if err != nil || len(jws.Signatures) != 1 {
 		return "", problem.Unauthorized("The bearer token is malformed.").WithCause(err)
 	}
 	kid := jws.Signatures[0].Header.KeyID
-	r.mu.Lock()
-	expired, known := !p.now().Before(r.keysUntil), hasKey(r.keys, kid)
-	r.mu.Unlock()
+	keys, expired := r.current(p.now())
 	var fetchErr error
-	if expired || !known {
-		fetchErr = p.refresh(ctx, r, "keys", p.fetchKeys)
+	switch {
+	case !hasKey(keys, kid):
+		fetchErr = p.wait(ctx, r, "keys", p.refresh(ctx, r, "keys", p.fetchKeys))
+		keys, _ = r.current(p.now())
+	case expired:
+		p.refresh(ctx, r, "keys", p.fetchKeys) // in the background
 	}
-	r.mu.Lock()
-	keys := r.keys
-	r.mu.Unlock()
-	if len(keys) == 0 {
+	if fetchErr != nil && !hasKey(keys, kid) {
 		return "", unavailable(r.issuer, fetchErr)
+	}
+	if len(keys) == 0 {
+		return "", unavailable(r.issuer, nil)
 	}
 	for _, k := range keys {
 		if kid != "" && k.KeyID != kid {
@@ -190,6 +199,17 @@ func (p *Providers) verifySignature(ctx context.Context, r *remote, raw string, 
 		}
 	}
 	return "", problem.Unauthorized("The bearer token is invalid or expired.").WithCause(errUnknownKey)
+}
+
+// current returns the keys of the key set the document names, and whether
+// they are past their lifetime.
+func (r *remote) current(now time.Time) ([]jose.JSONWebKey, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.keysFrom != r.jwksURI {
+		return nil, true
+	}
+	return r.keys, !now.Before(r.keysUntil)
 }
 
 func hasKey(keys []jose.JSONWebKey, kid string) bool {
@@ -204,23 +224,30 @@ func sigAlgs(algs []string) []jose.SignatureAlgorithm {
 	return out
 }
 
-// refresh runs one fetch of kind for r, unless one started less than
-// MinRefresh ago; callers arriving meanwhile wait on the fetch in flight.
+// refresh starts one fetch of kind for r, unless one started less than
+// MinRefresh ago, and returns the fetch in flight, nil when there is none.
 // The fetch runs detached from the caller, so one client giving up does not
-// fail the others; a caller that gives up stops waiting.
-func (p *Providers) refresh(ctx context.Context, r *remote, kind string, do func(context.Context, *remote) error) error {
+// fail the others.
+func (p *Providers) refresh(ctx context.Context, r *remote, kind string, do func(context.Context, *remote) error) *fetch {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	f, running := r.inflight[kind]
 	if !running {
 		if last, ok := r.attempt[kind]; ok && p.now().Sub(last) < orDefault(p.MinRefresh, DefaultMinRefresh) {
-			r.mu.Unlock()
 			return nil
 		}
 		f = &fetch{done: make(chan struct{})}
 		r.inflight[kind], r.attempt[kind] = f, p.now()
 		go p.run(context.WithoutCancel(ctx), r, kind, f, do)
 	}
-	r.mu.Unlock()
+	return f
+}
+
+// wait waits for the fetch f, if any, or until the caller gives up.
+func (p *Providers) wait(ctx context.Context, r *remote, kind string, f *fetch) error {
+	if f == nil {
+		return nil
+	}
 	select {
 	case <-f.done:
 		return f.err
@@ -269,8 +296,8 @@ func (p *Providers) fetchDiscovery(ctx context.Context, r *remote) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.jwksURI != doc.JWKSURI {
-		r.keys, r.keysUntil = nil, time.Time{}
+	if doc.JWKSURI != r.jwksURI {
+		delete(r.attempt, "keys") // the new key set is fetched at once, whenever the old one was
 	}
 	r.jwksURI, r.algs, r.discovered = doc.JWKSURI, algs, p.now()
 	return nil
@@ -289,23 +316,28 @@ func (p *Providers) fetchKeys(ctx context.Context, r *remote) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.keys, r.keysUntil = set.Keys, p.now().Add(keysTTL(h.Get("Cache-Control")))
+	r.keys, r.keysFrom, r.keysUntil = set.Keys, uri, p.now().Add(keysTTL(h.Get("Cache-Control")))
 	return nil
 }
 
+// keysTTL reads how long keys are kept from their Cache-Control header:
+// no-store or no-cache anywhere in it mean MinKeysTTL; max-age is clamped
+// to MinKeysTTL..MaxKeysTTL; anything else is DefaultKeysTTL.
 func keysTTL(cacheControl string) time.Duration {
+	ttl := DefaultKeysTTL
 	for _, d := range strings.Split(cacheControl, ",") {
 		d = strings.ToLower(strings.TrimSpace(d))
 		if d == "no-store" || d == "no-cache" {
 			return MinKeysTTL
 		}
 		if v, ok := strings.CutPrefix(d, "max-age="); ok {
-			if s, err := strconv.Atoi(v); err == nil {
-				return min(max(time.Duration(s)*time.Second, MinKeysTTL), MaxKeysTTL)
+			if s, err := strconv.ParseUint(v, 10, 64); err == nil {
+				ttl = time.Duration(min(s, uint64(MaxKeysTTL/time.Second))) * time.Second
+				ttl = max(ttl, MinKeysTTL)
 			}
 		}
 	}
-	return DefaultKeysTTL
+	return ttl
 }
 
 // get fetches a JSON document of at most MaxDocument bytes into v.
