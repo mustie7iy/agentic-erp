@@ -117,7 +117,12 @@ which the state bucket refuses.
    configuration above; its outputs are the bucket and the state key.
 3. Back in `envs/organization`, delete the override and migrate its state
    the same way: the bucket and the state key allow the management
-   account's apply role.
+   account's apply role, which also needs IAM permissions of its own for
+   them (S3 on the bucket; `kms:Encrypt`, `kms:Decrypt`,
+   `kms:GenerateDataKey` on the key), as every cross-account grant does.
+   The first `init` also shows whether the lock file is written with the
+   state key: if the backend asked for SSE-S3 on it, the bucket refuses it
+   and locking fails at once, visibly.
 4. Apply `envs/tooling`. `admin_role_arns` must include the role that runs
    the apply, by its full ARN (an SSO role is
    `arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/<region>/AWSReservedSSO_<set>_<id>`):
