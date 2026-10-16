@@ -431,13 +431,15 @@ Rules enforced in the database:
   is not reopened by `:open`; only an approved unlock request returns it to
   closed (T32c). Locking needs a closed period, so the postings under way
   finished when it closed.
-- A clearing's date falls in an open period of its entry's legal entity
-  and ledger (trigger `ledger.check_clearing_period`, migration 000049, T32),
-  as a posting date does. A clearing that posts its entry is held to this by
-  the entry already; a migrated clearing (`Postings.Clear`) records one
-  against an entry already posted, so the rule is on `ledger.clearing`, and
-  the ledger checks it first (`clearingPeriod`: 409
-  `ledger.period_not_open`, 422 `ledger.no_fiscal_period`).
+- A clearing's entry is one of the clearing's legal entity, and its date
+  falls in an open period of that legal entity and the entry's ledger
+  (trigger `ledger.check_clearing_period`, migration 000049, T32), as a
+  posting date does. A clearing that posts its entry is held to this by the
+  entry already; a migrated clearing (`Postings.Clear`) records one against
+  an entry already posted, so the rule is on `ledger.clearing`, and the
+  ledger checks it first (`clearingPeriod`: 422
+  `ledger.invalid_clearing_entry`, 409 `ledger.period_not_open`, 422
+  `ledger.no_fiscal_period`).
 - A line is cleared at most once (`clearing_item` unique on the line).
 - Open items are lines on reconciliation accounts without a clearing item.
 - A reversal clears the original's open items against the matching lines of

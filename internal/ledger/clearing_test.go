@@ -387,3 +387,32 @@ func TestLockedPeriodRefusesDocuments(t *testing.T) {
 
 	e.Must(201, "POST", "/v1/clearings", clearing(e.de, "2026-04-02", ref{inv, 2}, ref{pay, 1}), "")
 }
+
+// TestMigratedClearingEntryOfItsLegalEntity: the entry a migrated clearing
+// names as its clearing document exists and is one of the clearing's
+// legal entity, as the items are.
+func TestMigratedClearingEntryOfItsLegalEntity(t *testing.T) {
+	e := setup(t)
+	bank, expense, ap := e.account(t, "2000", "100000"), e.account(t, "2000", "520000"), e.account(t, "2000", "211000")
+	sup := e.supplier.String()
+	inv, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-01", "EUR", line{expense, "10.00", ""}, line{ap, "-10.00", sup}), "")
+	pay, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-20", "EUR", line{ap, "10.00", sup}, line{bank, "-10.00", ""}), "")
+	e.rate(t, "USD", "EUR", "2026-01-01", "0.9")
+	us, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.us, "2026-03-20", "USD", line{e.account(t, "1000", "520000"), "1.00", ""},
+		line{e.account(t, "1000", "100000"), "-1.00", ""}), "")
+	p := migratedPair{uuid.MustParse(inv["id"].(string)), uuid.MustParse(pay["id"].(string))}
+	for name, by := range map[string]uuid.UUID{
+		"of another legal entity": uuid.MustParse(us["id"].(string)),
+		"that does not exist":     uuid.New(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+				_, err := postings().Clear(ctx, e.de, date("2026-03-31"), ledger.ItemRef{FiscalYear: 2026, EntryID: by, LineNo: 1}, p.items())
+				return err
+			})
+			if got := problem.From(err).Code; got != "ledger.invalid_clearing_entry" {
+				t.Errorf("code: got %s (%v), want ledger.invalid_clearing_entry", got, err)
+			}
+		})
+	}
+}

@@ -81,26 +81,37 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 		Detail: map[string]any{"items": len(items), "clearing_entry_id": by.EntryID, "migrated": true}})
 }
 
-// clearingPeriod requires the clearing date to fall in an open period of
-// the clearing entry's legal entity and ledger, and holds the period's
-// status row FOR SHARE until the transaction ends, as postingPeriod does for
-// a posting: a close or lock waits for the clearing. A migrated clearing
-// posts no entry, so nothing else checks its date; ledger.clearing's
-// trigger (000049) is the backstop. The lock comes after the entry buckets
+// clearingPeriod requires the clearing entry to be one of the legal
+// entity's and the clearing date to fall in an open period of the legal
+// entity and the entry's ledger, and holds the period's status row FOR
+// SHARE until the transaction ends, as postingPeriod does for a posting: a
+// close or lock waits for the clearing. A migrated clearing posts no entry,
+// so nothing else checks its entry or date; ledger.clearing's trigger
+// (000049) is the backstop. The lock comes after the entry buckets
 // loadItems takes, the order postingPeriod keeps.
 func clearingPeriod(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, by ItemRef, date time.Time) error {
+	var entity, book uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT legal_entity_id, ledger_id FROM ledger.journal_entry WHERE fiscal_year = $1 AND id = $2`,
+		by.FiscalYear, by.EntryID).Scan(&entity, &book)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return problem.Unprocessable("ledger.invalid_clearing_entry", fmt.Sprintf("Entry %d/%s does not exist.", by.FiscalYear, by.EntryID))
+	case err != nil:
+		return fmt.Errorf("ledger: clearing entry %s: %w", by.EntryID, err)
+	case entity != legalEntity:
+		return problem.Unprocessable("ledger.invalid_clearing_entry", "Entry "+by.EntryID.String()+" belongs to another legal entity.")
+	}
 	var year, number int16
 	var status string
 	day := date.Format(time.DateOnly)
-	err := tx.QueryRow(ctx, `SELECT ps.fiscal_year, ps.period, ps.status FROM ledger.journal_entry e
-		JOIN ledger.period_status ps ON ps.tenant_id = e.tenant_id AND ps.legal_entity_id = $1 AND ps.ledger_id = e.ledger_id
+	err = tx.QueryRow(ctx, `SELECT ps.fiscal_year, ps.period, ps.status FROM ledger.period_status ps
 		JOIN ledger.fiscal_period fp ON fp.tenant_id = ps.tenant_id AND fp.calendar_id = ps.calendar_id
 			AND fp.fiscal_year = ps.fiscal_year AND fp.period = ps.period
-		WHERE e.fiscal_year = $2 AND e.id = $3 AND NOT fp.is_special AND $4 BETWEEN fp.start_date AND fp.end_date
-		FOR SHARE OF ps`, legalEntity, by.FiscalYear, by.EntryID, date).Scan(&year, &number, &status)
+		WHERE ps.legal_entity_id = $1 AND ps.ledger_id = $2 AND NOT fp.is_special AND $3 BETWEEN fp.start_date AND fp.end_date
+		FOR SHARE OF ps`, entity, book, date).Scan(&year, &number, &status)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		return problem.Unprocessable("ledger.no_fiscal_period", "No fiscal period of the clearing entry's legal entity and ledger covers "+day+".",
+		return problem.Unprocessable("ledger.no_fiscal_period", "No fiscal period of the legal entity and the clearing entry's ledger covers "+day+".",
 			problem.FieldError{Field: "clearing_date", Code: "no_fiscal_period", Message: "a date in a fiscal year that is set up"})
 	case err != nil:
 		return fmt.Errorf("ledger: clearing period of %s on %s: %w", legalEntity, day, err)

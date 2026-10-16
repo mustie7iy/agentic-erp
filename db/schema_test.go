@@ -538,6 +538,21 @@ func TestClearingsRespectPeriods(t *testing.T) {
 	if err := clear("2026-07-01"); err != nil {
 		t.Errorf("clearing in an open period: got %v, want none", err)
 	}
+	// The clearing entry exists and is of the clearing's legal entity.
+	for name, c := range map[string]struct {
+		entity, entry uuid.UUID
+		want          string
+	}{
+		"entry of another legal entity": {id(), pay, "belongs to another legal entity"},
+		"entry that does not exist":     {f.entity, id(), "does not exist"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by) VALUES ($1,$2,$3,'2026-07-01',2026,$4,$5)",
+					f.tenant, id(), c.entity, c.entry, f.actor)
+			}), c.want)
+		})
+	}
 }
 
 // TestClearingHoldsItsPeriod: inserting a clearing holds its period's
