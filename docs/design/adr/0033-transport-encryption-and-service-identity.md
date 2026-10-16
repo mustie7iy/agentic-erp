@@ -85,7 +85,11 @@ token stolen in transit or from a log works from anywhere.
 - **Encryption at rest** (T38e).
   - `ERP_AT_REST` states it per store, and production requires it.
   - The cell checks what it can see: the S3 bucket's default encryption
-    must be KMS, and every upload asks for KMS encryption.
+    must be KMS, and every write the cell makes asks for that default's
+    algorithm and key. An algorithm without the key would put objects
+    under S3's AWS managed key instead of the bucket's. Presigned uploads
+    get the bucket's default; a bucket policy refusing any other
+    encryption header is T40's.
   - The PostgreSQL and JetStream statements are verified by T40's policy
     tests.
   - `ERP_OBJECT_DIR` is refused in production.

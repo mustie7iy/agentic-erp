@@ -756,7 +756,7 @@ func TestAtRest(t *testing.T) {
 		wantErr     string
 	}{
 		{"none", "", false, AtRest{}, ""},
-		{"every store", "postgres=storage-kms, objects=sse-kms, nats=volume", true, AtRest{Postgres: "storage-kms", Objects: "sse-kms", NATS: "volume"}, ""},
+		{"every store", "postgres = storage-kms, objects=sse-kms, nats=volume", true, AtRest{Postgres: "storage-kms", Objects: "sse-kms", NATS: "volume"}, ""},
 		{"unknown store", "redis=volume", false, AtRest{}, `ERP_AT_REST: unknown store "redis"`},
 		{"unknown encryption", "postgres=rot13", false, AtRest{}, `ERP_AT_REST: postgres=rot13 is not one of storage-kms, volume`},
 		{"not a pair", "postgres", false, AtRest{}, `ERP_AT_REST must be "store=encryption,..."`},

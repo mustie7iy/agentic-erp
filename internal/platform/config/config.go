@@ -423,7 +423,8 @@ func (l *loader) atRest(c *Config) {
 	}
 	stated := map[string]string{}
 	for _, part := range strings.Split(raw, ",") {
-		store, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		store, value, ok := strings.Cut(part, "=")
+		store, value = strings.TrimSpace(store), strings.TrimSpace(value)
 		allowed, known := atRestValues[store]
 		switch {
 		case !ok:

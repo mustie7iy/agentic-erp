@@ -1819,7 +1819,7 @@ func TestAtRestStatedAndChecked(t *testing.T) {
 	if err := run(refused, load(t, env), quiet(), nil); err == nil || !strings.Contains(err.Error(), "bucket's default encryption") {
 		t.Fatalf("a bucket without KMS encryption: got %v, want the start refused", err)
 	}
-	s3.BucketEncryption = "aws:kms"
+	s3.BucketEncryption, s3.BucketKeyID = "aws:kms", "arn:aws:kms:eu-west-1:111122223333:key/erp"
 	anchorInterval = 20 * time.Millisecond
 	defer func() { anchorInterval = time.Minute }()
 	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
@@ -1834,8 +1834,8 @@ func TestAtRestStatedAndChecked(t *testing.T) {
 	admin := <-addrs
 	key := "tenants/" + ten.ID.String() + "/audit/anchors/000000000001.json"
 	pgtest.Eventually(t, 30*time.Second, func() bool { _, ok := s3.Object(key); return ok }, "no anchor %s: %v", key, lazy(func() string { return fmt.Sprint(s3.Keys()) }))
-	if o, _ := s3.Object(key); o.Encryption != "aws:kms" {
-		t.Errorf("anchor's encryption: got %q, want aws:kms", o.Encryption)
+	if o, _ := s3.Object(key); o.Encryption != "aws:kms" || o.KeyID != s3.BucketKeyID {
+		t.Errorf("anchor's encryption: got %q under %q, want aws:kms under the bucket's key %q", o.Encryption, o.KeyID, s3.BucketKeyID)
 	}
 	resp, err := http.DefaultClient.Do(request(t, "GET", "http://"+admin+"/metrics", ""))
 	if err != nil {

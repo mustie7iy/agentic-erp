@@ -120,6 +120,11 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		return err
 	}
 	defer s.pool.Close()
+	// The object store is checked first: a misconfigured cell is refused
+	// before it migrates anything.
+	if err := s.openObjects(ctx); err != nil {
+		return err
+	}
 	if err := s.prepareSchema(ctx); err != nil {
 		return err
 	}
@@ -127,9 +132,6 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		return err
 	}
 	if err := s.authenticate(ctx); err != nil {
-		return err
-	}
-	if err := s.openObjects(ctx); err != nil {
 		return err
 	}
 	dir, err := s.openDirectory(ctx)
@@ -314,12 +316,16 @@ func (s *server) openObjects(ctx context.Context) error {
 		s.log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported (ERP_ENV=production refuses this)")
 	}
 	// Objects stated as KMS-encrypted are kept only in a bucket whose
-	// default encryption is KMS, which covers the presigned uploads too
-	// (ADR-0033); the configuration made sure the store is S3.
-	if s3, ok := s.store.(blobstore.S3); ok && s3.Encryption != "" {
-		if err := s3.CheckEncryption(ctx); err != nil {
+	// default encryption is KMS, which covers the presigned uploads too;
+	// the store's own writes ask for the same algorithm and key (ADR-0033).
+	// The configuration made sure the store is S3.
+	if s3, ok := s.store.(blobstore.S3); ok && s.cfg.AtRest.Objects == "sse-kms" {
+		enc, err := s3.BucketEncryption(ctx)
+		if err != nil {
 			return fmt.Errorf("erp-server: object store: %w", err)
 		}
+		s3.Encryption = enc
+		s.store = s3
 	}
 	// The control plane trusts the operator issuers, and the development
 	// issuer's operator tokens; without either it is not served.
@@ -766,11 +772,7 @@ func objects(cfg config.Config) blobstore.Store {
 		return blobstore.Dir{Root: o.Dir}
 	case o.Endpoint != "":
 		client := cfg.HTTPClient()
-		s3 := blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey, client), Client: client}
-		if cfg.AtRest.Objects == "sse-kms" {
-			s3.Encryption = blobstore.SSEKMS
-		}
-		return s3
+		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey, client), Client: client}
 	}
 	return nil
 }

@@ -32,13 +32,23 @@ type S3 struct {
 	Credentials awscreds.Provider
 	Client      *http.Client     // nil: http.DefaultClient
 	Now         func() time.Time // nil: time.Now
-	// Encryption is asked of the service on every Put
-	// (x-amz-server-side-encryption): SSEKMS, or "" to leave it to the
-	// bucket's default.
-	Encryption string
+	// Encryption is asked of the service on every Put; zero leaves it to
+	// the bucket's default. Set it to what BucketEncryption returns, so the
+	// store's writes land under the bucket's key: an algorithm without a
+	// key would put them under S3's AWS managed key instead.
+	Encryption Encryption
 }
 
-// SSEKMS is server-side encryption under the account's KMS key.
+// Encryption is server-side encryption: the algorithm
+// (x-amz-server-side-encryption) and the KMS key
+// (x-amz-server-side-encryption-aws-kms-key-id; empty: the AWS managed
+// key).
+type Encryption struct {
+	Algorithm string
+	KeyID     string
+}
+
+// SSEKMS is server-side encryption under a KMS key.
 const SSEKMS = "aws:kms"
 
 // creds are the credentials to sign with.
@@ -114,8 +124,11 @@ func (s S3) Put(ctx context.Context, key string, content []byte, opts PutOptions
 		headers["x-amz-object-lock-mode"] = "COMPLIANCE"
 		headers["x-amz-object-lock-retain-until-date"] = opts.RetainUntil.UTC().Format(time.RFC3339)
 	}
-	if s.Encryption != "" {
-		headers["x-amz-server-side-encryption"] = s.Encryption
+	if s.Encryption.Algorithm != "" {
+		headers["x-amz-server-side-encryption"] = s.Encryption.Algorithm
+	}
+	if s.Encryption.KeyID != "" {
+		headers["x-amz-server-side-encryption-aws-kms-key-id"] = s.Encryption.KeyID
 	}
 	resp, err := s.do(ctx, http.MethodPut, key, content, headers)
 	if err != nil {
@@ -187,35 +200,36 @@ func (s S3) bucketGet(ctx context.Context, q url.Values, what string) (*http.Res
 type encryptionResult struct {
 	Rules []struct {
 		Algorithm string `xml:"ApplyServerSideEncryptionByDefault>SSEAlgorithm"`
+		KeyID     string `xml:"ApplyServerSideEncryptionByDefault>KMSMasterKeyID"`
 	} `xml:"Rule"`
 }
 
-// CheckEncryption reports whether the bucket's default encryption is
-// KMS (aws:kms, or aws:kms:dsse), so that objects written past this store,
+// BucketEncryption is the bucket's default encryption, which must be KMS
+// (aws:kms, or aws:kms:dsse), so that objects written past this store,
 // presigned uploads among them, are encrypted under KMS too (ADR-0033).
-func (s S3) CheckEncryption(ctx context.Context) error {
+func (s S3) BucketEncryption(ctx context.Context) (Encryption, error) {
 	resp, err := s.bucketGet(ctx, url.Values{"encryption": {""}}, "GET encryption")
 	if err != nil {
-		return err
+		return Encryption{}, err
 	}
 	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	if resp.StatusCode >= 300 {
-		return s.failure(resp, http.MethodGet, "?encryption")
+		return Encryption{}, s.failure(resp, http.MethodGet, "?encryption")
 	}
 	var conf encryptionResult
 	if err := xml.NewDecoder(resp.Body).Decode(&conf); err != nil {
-		return fmt.Errorf("blobstore: GET encryption: %w", err)
+		return Encryption{}, fmt.Errorf("blobstore: GET encryption: %w", err)
 	}
 	for _, r := range conf.Rules {
 		if r.Algorithm == SSEKMS || r.Algorithm == SSEKMS+":dsse" {
-			return nil
+			return Encryption{Algorithm: r.Algorithm, KeyID: r.KeyID}, nil
 		}
 	}
 	got := ""
 	if len(conf.Rules) > 0 {
 		got = conf.Rules[0].Algorithm
 	}
-	return fmt.Errorf("blobstore: the bucket's default encryption is %q, want %s (ADR-0033)", got, SSEKMS)
+	return Encryption{}, fmt.Errorf("blobstore: the bucket's default encryption is %q, want %s (ADR-0033)", got, SSEKMS)
 }
 
 // List implements Eraser with ListObjectsV2, following continuation tokens.
