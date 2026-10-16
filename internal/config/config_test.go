@@ -281,3 +281,56 @@ func TestRuntime(t *testing.T) {
 		t.Errorf("PaymentTerm(X): got %v, want nil", got)
 	}
 }
+
+// withGRIR gives company 1000 a GR/IR account and a price difference
+// account, with the goods receipt and WE journal ranges of 2026.
+func withGRIR(t *testing.T) *Config {
+	t.Helper()
+	c := fixture(t)
+	co := &c.Companies[0]
+	co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "219000", Name: "GR/IR clearing", Type: Liability},
+		Account{Number: "590000", Name: "Price differences", Type: Expense})
+	co.AccountDetermination.GRIR, co.AccountDetermination.PriceDifference = "219000", "590000"
+	c.NumberRanges = append(c.NumberRanges, NumberRange{Company: "1000", DocumentType: "goods_receipt", FiscalYear: 2026, First: 1, Last: 9},
+		NumberRange{Company: "1000", DocumentType: "journal_we", FiscalYear: 2026, First: 1, Last: 9})
+	return c
+}
+
+// TestGRIRDetermination: the GR/IR account is a liability that is not a
+// reconciliation account, it comes with an expense account for price
+// differences, and a company that values receipts through it has a WE
+// journal range in every fiscal year it numbers goods receipts in.
+func TestGRIRDetermination(t *testing.T) {
+	if fs := Validate(withGRIR(t), currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("GR/IR configured: got %v, want no errors", fs)
+	}
+	cases := []struct {
+		name   string
+		mutate func(c *Config)
+		path   string
+	}{
+		{"gr_ir unknown", func(c *Config) { c.Companies[0].AccountDetermination.GRIR = "999999" }, "companies[1000].account_determination.gr_ir"},
+		{"gr_ir an expense", func(c *Config) { c.Companies[0].AccountDetermination.GRIR = "520000" }, "companies[1000].account_determination.gr_ir"},
+		{"gr_ir a reconciliation account", func(c *Config) { c.Companies[0].AccountDetermination.GRIR = "211000" }, "companies[1000].account_determination.gr_ir"},
+		{"gr_ir without price difference", func(c *Config) { c.Companies[0].AccountDetermination.PriceDifference = "" }, "companies[1000].account_determination.price_difference"},
+		{"price difference a revenue", func(c *Config) { c.Companies[0].AccountDetermination.PriceDifference = "400000" }, "companies[1000].account_determination.price_difference"},
+		{"no WE journal range", func(c *Config) { c.NumberRanges = c.NumberRanges[:len(c.NumberRanges)-1] }, "number_ranges[1000/journal_we/2026]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := withGRIR(t)
+			tc.mutate(c)
+			fs := Validate(c, currency.Seeded())
+			if !slices.ContainsFunc(fs, func(f Finding) bool { return f.Severity == SevError && f.Path == tc.path }) {
+				t.Fatalf("no error at %s; got %v", tc.path, fs)
+			}
+		})
+	}
+	t.Run("price difference alone", func(t *testing.T) {
+		c := fixture(t)
+		c.Companies[0].AccountDetermination.PriceDifference = "520000"
+		if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+			t.Fatalf("price difference without GR/IR: got %v, want no errors", fs)
+		}
+	})
+}

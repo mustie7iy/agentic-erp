@@ -89,6 +89,14 @@ type AccountDetermination struct {
 	// local or group currency; a payment that has one needs them.
 	FXGain string `yaml:"fx_gain,omitempty" json:"fx_gain,omitempty"`
 	FXLoss string `yaml:"fx_loss,omitempty" json:"fx_loss,omitempty"`
+	// GRIR is the goods receipt/invoice receipt clearing account (SAP
+	// WRX). Orders released while it is set are valued through it: their
+	// receipts credit it and their invoices clear it (T33). Once activated
+	// it stays (ledger.Setup.Check).
+	GRIR string `yaml:"gr_ir,omitempty" json:"gr_ir,omitempty"`
+	// PriceDifference takes what an invoice on an order valued through
+	// GR/IR differs from the order price; required with GRIR.
+	PriceDifference string `yaml:"price_difference,omitempty" json:"price_difference,omitempty"`
 }
 
 type TaxCode struct {
