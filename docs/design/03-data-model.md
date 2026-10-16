@@ -999,9 +999,12 @@ erDiagram
 
 A proposal pays each supplier its open items due by the run's due date,
 netted in one payment: an invoice is due its supplier's net days after its
-document date, a credit memo (a debit on the supplier account) on its
-document date (T34d), as SAP has a credit memo without an invoice reference
-due at once, so it nets with the next run that pays the supplier. A
+document date; every debit on the supplier account (a credit memo, whether
+or not it names an invoice, a subsequent credit, a manual or migrated
+debit) on its document date (T34d), so it nets with the next run that pays
+the supplier. SAP has a credit memo without an invoice reference due at
+once and gives one naming an invoice that invoice's due date; netting
+earlier never pays more than is owed. A
 supplier whose due items net to zero or a debit is excluded
 (`debit_balance`) and paid nothing: a credit memo never pays out alone,
 and stays open for a later run.

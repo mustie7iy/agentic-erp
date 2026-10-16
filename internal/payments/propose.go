@@ -265,10 +265,13 @@ type proposal struct {
 }
 
 // dueDate is when an open item is due: an invoice (a credit on the supplier
-// account) its supplier's net days after its document date; a credit memo
-// (a debit) on its document date, as SAP has a credit memo without an
-// invoice reference due at once, so it nets with the next run that pays the
-// supplier (T34d).
+// account) its supplier's net days after its document date; every debit on
+// the supplier account (a credit memo, whether or not it names an invoice,
+// a subsequent credit, a manual or migrated debit) on its document date, so
+// it nets with the next run that pays the supplier (T34d). SAP has a credit
+// memo without an invoice reference due at once and gives one naming an
+// invoice that invoice's due date; netting earlier never pays more than is
+// owed.
 func dueDate(it ledger.PayableItem, payee partner.Payee) time.Time {
 	if it.Amount > 0 {
 		return it.DocumentDate

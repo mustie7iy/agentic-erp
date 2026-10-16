@@ -178,10 +178,17 @@ func (e env) bankAccount(t *testing.T, supplier uuid.UUID, iban, holder, validFr
 // returns it.
 func (e env) invoice(t *testing.T, supplier uuid.UUID, ref, gross, date string) map[string]any {
 	t.Helper()
+	return e.document(t, "invoice", supplier, ref, gross, date)
+}
+
+// document enters and posts a supplier document of the kind (invoice,
+// credit_memo) in company 2000, on the expense account, and returns it.
+func (e env) document(t *testing.T, kind string, supplier uuid.UUID, ref, gross, date string) map[string]any {
+	t.Helper()
 	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": %q,
-		"invoice_date": %q, "gross_amount": {"amount": %q, "currency": "EUR"}, "tax_amount": {"amount": "0.00", "currency": "EUR"},
+		"invoice_date": %q, "kind": %q, "gross_amount": {"amount": %q, "currency": "EUR"}, "tax_amount": {"amount": "0.00", "currency": "EUR"},
 		"items": [{"account_id": %q, "description": "Fees", "quantity": {"value": "1", "unit": "EA"}, "amount": {"amount": %q, "currency": "EUR"}}]}`,
-		e.DE, supplier, ref, date, gross, e.expense, gross), "")
+		e.DE, supplier, ref, date, kind, gross, e.expense, gross), "")
 	posted, _ := e.Must(200, "POST", "/v1/supplier-invoices/"+id(inv)+":post", fmt.Sprintf(`{"posting_date": %q}`, date), `"1"`)
 	return posted
 }
