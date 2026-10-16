@@ -2515,7 +2515,7 @@ components:
             type: object
             required: [code]
             properties:
-              code: {type: string, description: 'Open enum, e.g. price_variance, quantity_variance, not_received, missing_po.'}
+              code: {type: string, description: 'Open enum, e.g. price_variance, quantity_exceeds_received, quantity_exceeds_invoiced (credit memos), nothing_invoiced (subsequent debits and credits).'}
               item_no: {type: [integer, 'null']}
               po_item_no: {type: [integer, 'null']}
               detail: {type: string}
@@ -2540,8 +2540,9 @@ components:
         supplier_reference: {type: string}
         invoice_date: {$ref: '#/components/schemas/Date'}
         posting_date: {$ref: '#/components/schemas/Date'}
-        gross_amount: {$ref: '#/components/schemas/SignedMoney'}
-        tax_amount: {$ref: '#/components/schemas/SignedMoney'}
+        gross_amount: {$ref: '#/components/schemas/SignedMoney', description: 'Negative for credit memos and subsequent credits (kind gives the direction).'}
+        tax_amount: {$ref: '#/components/schemas/SignedMoney', description: 'Signed as gross_amount.'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo, subsequent_debit, subsequent_credit. Absent from events of releases before it was kept: an invoice.'}
         purchase_order_id: {$ref: '#/components/schemas/NullableUuid'}
         journal_entry_id: {$ref: '#/components/schemas/Uuid'}
         journal_entry_year: {$ref: '#/components/schemas/FiscalYear'}
@@ -2563,7 +2564,8 @@ components:
         document_number: {type: string}
         supplier_id: {$ref: '#/components/schemas/Uuid'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
-        gross_amount: {$ref: '#/components/schemas/SignedMoney'}
+        gross_amount: {$ref: '#/components/schemas/SignedMoney', description: 'Negative for credit memos and subsequent credits (kind gives the direction).'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo, subsequent_debit, subsequent_credit. Absent from events of releases before it was kept: an invoice.'}
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: The invoice's original (now reversed) entry.}
         journal_entry_year: {$ref: '#/components/schemas/FiscalYear'}
         reversal_entry_id: {$ref: '#/components/schemas/Uuid'}

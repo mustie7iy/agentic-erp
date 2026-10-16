@@ -27,7 +27,7 @@ var kinds = map[string]bool{KindInvoice: true, KindCreditMemo: true, KindSubsequ
 func subsequent(kind string) bool { return kind == KindSubsequentDebit || kind == KindSubsequentCredit }
 
 // credits says whether the kind reduces what is owed the supplier: its
-// amounts are negative in events, and it posts Dr supplier (T34c).
+// amounts are negative in events, and it posts Dr supplier as KG.
 func credits(kind string) bool { return kind == KindCreditMemo || kind == KindSubsequentCredit }
 
 // signed is an amount of a document with its kind's direction: negative
@@ -37,16 +37,6 @@ func signed(v Invoice, amount money.Minor) money.Minor {
 		return -amount
 	}
 	return amount
-}
-
-// requireInvoice refuses to match or post a kind other than an invoice
-// until their matching and posting arrive (T34c), rather than book a credit
-// memo as an invoice.
-func requireInvoice(v Invoice, action string) error {
-	if v.Kind == KindInvoice {
-		return nil
-	}
-	return problem.Conflict("payables.kind_not_supported", fmt.Sprintf("A %s cannot be %s yet; only invoices are.", v.Kind, action))
 }
 
 // kind checks the document's kind and the invoice it corrects: a known

@@ -54,8 +54,12 @@ const (
 )
 
 // DocumentType is the journal document type of invoice postings (SAP KR);
-// it draws numbers from the journal_kr number range.
-const DocumentType = "KR"
+// it draws numbers from the journal_kr number range. CreditDocumentType is
+// that of credit memos and subsequent credits (SAP KG, journal_kg; T34).
+const (
+	DocumentType       = "KR"
+	CreditDocumentType = "KG"
+)
 
 // matchHold starts the hold reason the match sets, so a later clean match
 // releases its own holds and leaves manual ones alone.

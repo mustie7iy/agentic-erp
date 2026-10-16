@@ -11,7 +11,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
-	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -47,8 +46,7 @@ func (e env) document(kind, ref, gross, tax, extra string, items ...string) stri
 // TestDocumentKinds enters credit memos and subsequent debits through the
 // API: a kind and the posted invoice it corrects, shown, listed by kind
 // and published with signed amounts; the rules of each kind refused with
-// their codes; and, until T34c, match and post refused for any kind but an
-// invoice.
+// their codes.
 func TestDocumentKinds(t *testing.T) {
 	e := setup(t)
 	po := e.order(t, e.Supplier, "PO-1")
@@ -123,32 +121,6 @@ func TestDocumentKinds(t *testing.T) {
 					Quantity: "1", Unit: "EA", Amount: payables.Amount{Value: "10.00", Currency: "EUR"}}}}, "manual")
 			return err
 		})
-	})
-	t.Run("left out of simulations and suites until T34c", func(t *testing.T) {
-		sim, err := e.simulate(t, fixture.Document(t), fixture.Document(t))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := sim.Detail["invoices"]; got != 2 {
-			t.Errorf("simulated documents: got %v, want the 2 invoices", got)
-		}
-		cases, err := e.capture(t, fixture.Document(t))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, c := range cases {
-			if c.InvoiceID.String() == id(memo) || c.InvoiceID.String() == id(debit) {
-				t.Errorf("regression case %d: got %s, a document of another kind than invoice", c.CaseNo, c.DocumentNumber)
-			}
-		}
-	})
-	t.Run("not matched or posted until T34c", func(t *testing.T) {
-		c := e.Client
-		c.T = t
-		for _, v := range []map[string]any{memo, debit} {
-			c.Problem(409, "payables.kind_not_supported", "POST", "/v1/supplier-invoices/"+id(v)+":match", "", e.tag(t, id(v)))
-			c.Problem(409, "payables.kind_not_supported", "POST", "/v1/supplier-invoices/"+id(v)+":post", "", e.tag(t, id(v)))
-		}
 	})
 }
 

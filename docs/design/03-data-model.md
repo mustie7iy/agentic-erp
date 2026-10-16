@@ -818,9 +818,7 @@ gross and tax amounts are not negative whatever the kind
 (`supplier_invoice_amounts_not_negative`, 422 `payables.negative_amount` on
 entry); the kind gives the direction when it posts (credit memos and
 subsequent credits as journal type KG, number range `journal_kg`, which
-configuration asks for wherever a company numbers supplier invoices: a
-warning until KG entries post, T34c, as tenants' configurations predate
-it). A credit memo or subsequent debit/credit may name the invoice it
+configuration requires wherever a company numbers supplier invoices). A credit memo or subsequent debit/credit may name the invoice it
 corrects, an invoice none (`supplier_invoice_reference_corrects`), never
 itself (`supplier_invoice_not_its_own_reference`). A subsequent debit or
 credit revalues order items without quantity: it is on a purchase order
@@ -838,10 +836,35 @@ order items (422 `payables.po_item_required`) of quantity 0 (422
 correction whose invoice was reversed since is edited once its reference
 is cleared. `SupplierInvoiceCaptured` carries the kind
 and signs the gross and tax amounts by it (negative for credit memos and
-subsequent credits). Until they are matched and posted by kind (T34c),
-`:match` and `:post` refuse any kind but an invoice (409
-`payables.kind_not_supported`), and simulations and regression suites
-replay invoices only.
+subsequent credits), as `SupplierInvoicePosted` and `SupplierInvoiceReversed`
+do (T34c).
+
+Each kind is matched and posted by its kind (T34c):
+
+- **Match**, per order item, against what other posted documents invoiced
+  net of credit memos:
+  - an invoice does not invoice more than received;
+  - a credit memo does not credit more than invoiced
+    (`quantity_exceeds_invoiced`);
+  - both are within the price tolerance;
+  - a subsequent debit or credit revalues an order item something is
+    invoiced of (`nothing_invoiced`), at any price.
+
+  Simulations and regression suites decide every kind the same way.
+- **Post**:
+  - credit memos and subsequent credits post the other way round, as KG:
+    Dr supplier, Cr items and tax;
+  - on an order valued through GR/IR, a credit memo credits GR/IR at the
+    order price of the quantity it credits;
+  - a subsequent debit or credit moves no quantity, so its amount goes to
+    `price_difference` whole.
+- **Corrections and their invoice**:
+  - a correction naming an invoice posts only while that invoice is
+    posted, read `FOR SHARE` at `:post` (409 `payables.reference_not_posted`);
+  - an invoice that posted corrections name is reversed only once they
+    are (409 `payables.invoice_has_corrections`);
+  - the reversal locks the invoice `FOR UPDATE` and does not lock the
+    corrections, so the two never wait for each other in a cycle.
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database

@@ -100,15 +100,14 @@ func (c *replayCache) conversion(ctx context.Context, rates Rates, v Invoice, to
 }
 
 // invoicesOnOrders reads the invoices on purchase orders of the window,
-// newest first, with their orders and what was invoiced before. Other
-// kinds are left out, as :match leaves them, until they are matched by
-// kind (T34c).
+// newest first, with their orders and what was invoiced before: every
+// kind, decided by its kind as :match decides it (T34).
 func invoicesOnOrders(ctx context.Context, src sources, since time.Time, limit int) ([]replayed, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, invoiceSelect+` WHERE i.purchase_order_id IS NOT NULL AND i.kind = 'invoice' AND i.status IN ('parked', 'on_hold', 'posted') AND i.invoice_date >= $1
+	rows, _ := tx.Query(ctx, invoiceSelect+` WHERE i.purchase_order_id IS NOT NULL AND i.status IN ('parked', 'on_hold', 'posted') AND i.invoice_date >= $1
 		ORDER BY i.invoice_date DESC, i.id DESC LIMIT $2`, since, limit)
 	invoices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
 	if err != nil {
