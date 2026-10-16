@@ -466,6 +466,11 @@ func (v *invoiceCheck) order(id uuid.UUID, field string) (procurement.Order, err
 func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
 	field := fmt.Sprintf("items[%d]", i)
 	item := Item{ItemNo: int32(i + 1), Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, TaxCode: it.TaxCode, AccountID: it.AccountID}
+	// A subsequent debit's or credit's item names its order item first:
+	// what it is decides what its quantity may be.
+	if subsequent(v.c.kind) && it.POItemNo == nil {
+		return Item{}, invalid("payables.po_item_required", field+".po_item_no", "A subsequent debit or credit revalues order items: each item names one.")
+	}
 	if err := v.quantity(field, it.Quantity); err != nil {
 		return Item{}, err
 	}
@@ -475,9 +480,6 @@ func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
 	}
 	if err := v.itemTarget(field, it, &item); err != nil {
 		return Item{}, err
-	}
-	if subsequent(v.c.kind) && item.POItemNo == nil {
-		return Item{}, invalid("payables.po_item_required", field+".po_item_no", "A subsequent debit or credit revalues order items: each item names one.")
 	}
 	if err := v.taxCode(field, item.TaxCode); err != nil {
 		return Item{}, err
