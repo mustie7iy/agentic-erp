@@ -37,7 +37,7 @@ type GRIRBalance struct {
 // grirPositionSelect reads the projected positions (ledger.gr_ir_position,
 // T33f) of a legal entity: a keyset page is an index range scan on
 // (legal entity, sort column, id), over the open positions' partial index
-// by default. $1, $2: company access; $3 legal entity; $4 order or NULL.
+// by default. $1, $2: company access; $3 legal entity.
 const grirPositionSelect = `SELECT * FROM (SELECT p.id, p.legal_entity_id, p.purchase_order_id, p.po_item_no, p.account_id,
 		trim_scale(p.received)::text AS received, trim_scale(p.invoiced)::text AS invoiced, p.uom_code, p.amount_tc, p.amount_lc, p.amount_gc,
 		p.currency_tc, p.currency_lc, p.currency_gc, ctc.exponent AS exp_tc, clc.exponent AS exp_lc, cgc.exponent AS exp_gc, p.last_posting_date, p.is_open
@@ -45,7 +45,7 @@ const grirPositionSelect = `SELECT * FROM (SELECT p.id, p.legal_entity_id, p.pur
 	JOIN ref.currency ctc ON ctc.code = p.currency_tc
 	JOIN ref.currency clc ON clc.code = p.currency_lc
 	JOIN ref.currency cgc ON cgc.code = p.currency_gc
-	WHERE ($1 OR p.legal_entity_id = ANY($2)) AND p.legal_entity_id = $3 AND ($4::uuid IS NULL OR p.purchase_order_id = $4)) b WHERE true`
+	WHERE ($1 OR p.legal_entity_id = ANY($2)) AND p.legal_entity_id = $3) b WHERE true`
 
 // grirKeyDateSelect sums one order's lines on the legal entity's GR/IR
 // account up to a key date: a report over the order's history, bounded by
@@ -99,9 +99,13 @@ func (e *Endpoints) ListGrIrBalances(ctx context.Context, params gen.ListGrIrBal
 	if err != nil {
 		return nil, err
 	}
-	query, args := grirPositionSelect, []any{access.All, access.IDs, params.LegalEntityID, order}
-	if to != nil {
-		query, args = grirKeyDateSelect, append(args, *to)
+	query, args := grirPositionSelect, []any{access.All, access.IDs, params.LegalEntityID}
+	switch {
+	case to != nil:
+		query, args = grirKeyDateSelect, append(args, *order, *to)
+	case order != nil:
+		// Only when given, so a cached generic plan keeps it an index condition.
+		query, args = query+` AND purchase_order_id = $4`, append(args, *order)
 	}
 	if openOnly {
 		// A literal condition, so the planner uses the open positions' partial index.

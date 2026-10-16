@@ -557,7 +557,12 @@ Rules enforced in the database:
   currencies, last posting date and `is_open`. The ledger adds each posted
   entry's GR/IR lines to it in the posting's transaction, under the order's
   GR/IR lock (`project`, after a GR/IR posting or a reversal), and reads
-  positions from it; the migration projected the lines posted before.
+  positions from it; the migration projected the lines posted before
+  (none where it runs: GR/IR postings ship in the same release). The
+  database holds a legal entity's GR/IR account once determined (trigger
+  `ledger.check_gr_ir_fixed`, constraint `account_determination_gr_ir_fixed`,
+  409 `ledger.gr_ir_account_fixed`), as the configuration does: a reversal
+  of lines on another account would not reach their positions.
   `GET /v1/gr-ir-balances` (T33e) pages the current positions from it by an
   index range scan (partial indexes `WHERE is_open` for the default,
   open-only listing); together they are the leading ledger's GR/IR balance

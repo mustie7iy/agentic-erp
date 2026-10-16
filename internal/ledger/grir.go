@@ -48,7 +48,8 @@ type position struct {
 
 // lockOrders takes the tenant's GR/IR lock of each order, in one sorted
 // call: postings on one order take turns on its positions, each reading
-// them after the last committed. One lock per order rather than per item
+// them after the last committed. Rows of ledger.gr_ir_position are read
+// for a posting and written (project) only under their order's lock. One lock per order rather than per item
 // keeps a receipt of many items within the lock table. Taken after any
 // entry bucket (a reversal holds its entry's) and before the period and
 // number range post takes, so no two transactions wait in a cycle.

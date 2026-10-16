@@ -38,7 +38,30 @@ CREATE INDEX gr_ir_position_by_date ON ledger.gr_ir_position (tenant_id, legal_e
 CREATE TRIGGER gr_ir_position_touch BEFORE UPDATE ON ledger.gr_ir_position FOR EACH ROW EXECUTE FUNCTION platform.touch();
 SELECT platform.secure_table('ledger.gr_ir_position'::regclass);
 
--- The positions the lines posted so far add up to. Tenant rows: under a
+-- A legal entity's GR/IR account, once determined, does not change: its
+-- positions are the lines on it, projected as they post, and a reversal of
+-- one posted on another account would not reach its position. The
+-- configuration refuses the change (ledger.Setup.Check, T33a); this holds
+-- it in the database.
+CREATE FUNCTION ledger.check_gr_ir_fixed() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.key = 'gr_ir' AND NEW.account_id IS DISTINCT FROM OLD.account_id THEN
+    RAISE EXCEPTION 'the GR/IR account of legal entity % cannot change once determined', OLD.legal_entity_id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'account_determination_gr_ir_fixed';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER account_determination_gr_ir_fixed BEFORE UPDATE OF account_id ON ledger.account_determination
+  FOR EACH ROW EXECUTE FUNCTION ledger.check_gr_ir_fixed();
+
+-- The positions the lines posted so far add up to. GR/IR lines are first
+-- posted by the release this migration ships with (T33a-f are released
+-- together), so no binary before it posts one during a rolling release and
+-- an environment running it has none to project: the backfill is for
+-- databases loaded otherwise, never a long one (06-engineering-process
+-- §6.4). Were GR/IR postings released before this migration, it would
+-- need an expand/migrate/contract of its own. Tenant rows: under a
 -- role that does not bypass row-level security this fails rather than
 -- project nothing (06-engineering-process §6.4).
 SET LOCAL row_security = off;

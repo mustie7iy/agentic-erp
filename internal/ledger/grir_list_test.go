@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,7 +112,14 @@ func TestGRIRBalances(t *testing.T) {
 			t.Errorf("items: got %d, want none", n)
 		}
 	})
-	g.Problem(400, "request.invalid_parameter", "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&posting_date_to=2026-03-09", "", "")
+	t.Run("key date without an order", func(t *testing.T) {
+		c := g.Client
+		c.T = t
+		p := c.Problem(400, "request.invalid_parameter", "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&posting_date_to=2026-03-09", "", "")
+		if got := fmt.Sprint(p["errors"]); !strings.Contains(got, "purchase_order_id") {
+			t.Errorf("field errors: got %s, want one on purchase_order_id", got)
+		}
+	})
 	g.checkProjected(t)
 	g.Problem(400, "request.invalid_order_by", "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&order_by=balance", "", "")
 }

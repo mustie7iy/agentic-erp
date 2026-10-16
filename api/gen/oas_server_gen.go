@@ -682,10 +682,9 @@ type Handler interface {
 	// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
 	// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
 	// positive: invoiced, not yet received). A position is zero in every currency once its received and
-	// invoiced quantities agree. Only orders valued through GR/IR have positions. Current positions are
-	// read from their projection, a page at a time. `posting_date_to` makes the call a report of one
-	// order's positions on a key date, summed from its history: it needs `purchase_order_id` (400
-	// `request.invalid_parameter` without it). Sortable by: `purchase_order_id`, `last_posting_date`.
+	// invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to`
+	// the call reports one order's positions on that key date. Sortable by: `purchase_order_id`,
+	// `last_posting_date`.
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)

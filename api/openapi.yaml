@@ -4103,7 +4103,7 @@ paths:
       tags:
         - ledger
       summary: List GR/IR balances
-      description: "The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once its received and invoiced quantities agree. Only orders valued through GR/IR have positions. Current positions are read from their projection, a page at a time. `posting_date_to` makes the call a report of one order's positions on a key date, summed from its history: it needs `purchase_order_id` (400 `request.invalid_parameter` without it). Sortable by: `purchase_order_id`, `last_posting_date`."
+      description: "The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once its received and invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable by: `purchase_order_id`, `last_posting_date`."
       x-permission: ledger.entry.read
       parameters:
         - name: legal_entity_id
@@ -4116,11 +4116,17 @@ paths:
         - name: purchase_order_id
           in: query
           required: false
-          description: Only the items of this purchase order.
+          description: "Only the items of this purchase order; required with `posting_date_to`."
           schema:
             type: string
             format: uuid
-        - $ref: "#/components/parameters/PostingDateTo"
+        - name: posting_date_to
+          in: query
+          required: false
+          description: "Key date: the positions of the order named by `purchase_order_id` as they stood on this date, summed from its postings (a report, not a page of current positions). Without `purchase_order_id`: 400 `request.invalid_parameter`."
+          schema:
+            type: string
+            format: date
         - name: open_only
           in: query
           required: false

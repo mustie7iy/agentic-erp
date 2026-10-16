@@ -1707,3 +1707,35 @@ func TestGRIRPositionBackfill(t *testing.T) {
 		t.Errorf("positions: got %v, want %v", got, want)
 	}
 }
+
+// TestGRIRAccountIsFixed: once a legal entity has a GR/IR account its
+// determination does not change (000054): the positions are its lines, and
+// a reversal of one posted on another account would no longer be projected.
+// Other keys still change.
+func TestGRIRAccountIsFixed(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	f.grIRAccount(t)
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1,$2,'price_difference',$3,$4)",
+			f.tenant, f.entity, f.expense, f.actor)
+	})
+	for _, c := range []struct{ name, key, fails string }{
+		{"another price difference account", "price_difference", ""},
+		{"another GR/IR account", "gr_ir", "account_determination_gr_ir_fixed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE ledger.account_determination SET account_id = $3, version = version + 1 WHERE legal_entity_id = $1 AND key = $2",
+					f.entity, c.key, f.bank)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("update: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+}

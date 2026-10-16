@@ -27,6 +27,9 @@ func init() {
 	problem.RegisterConstraint("reversal_pkey", func() *problem.Problem {
 		return problem.Conflict("ledger.already_reversed", "The journal entry has already been reversed.")
 	})
+	problem.RegisterConstraint("account_determination_gr_ir_fixed", func() *problem.Problem {
+		return problem.Conflict("ledger.gr_ir_account_fixed", "The legal entity's GR/IR account cannot change once determined: its positions are the lines on it.")
+	})
 	problem.RegisterConstraint("journal_line_gr_ir_order_item", func() *problem.Problem {
 		return problem.Unprocessable("ledger.automatic_account", "The GR/IR account is posted only by goods receipts and invoices, which name the order item of each line.",
 			problem.FieldError{Field: "lines.account_id", Code: "automatic", Message: "an account other than the legal entity's GR/IR account"})
