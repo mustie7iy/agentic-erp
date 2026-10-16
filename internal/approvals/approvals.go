@@ -194,8 +194,9 @@ func GetRequest(ctx context.Context, id uuid.UUID) (Request, error) {
 	return getRequest(ctx, tx, id, false)
 }
 
-// Rates converts a requisition's amount into its company's currency
-// (ledger context): the approval thresholds are in that currency (F12). It
+// Rates converts a requisition's or manual entry's amount into its
+// company's currency (ledger context): the approval thresholds and limits
+// are in that currency (F12). It
 // returns the amount's exact value in major units of the company's
 // currency, unrounded, and refuses when no rate is valid on the date.
 type Rates interface {
@@ -215,16 +216,18 @@ type NewRequest struct {
 	ObjectType string
 	ObjectID   uuid.UUID
 	Title      string
-	Amount     *money.Minor // minor units of Currency; selects the requisition tier
+	Amount     *money.Minor // minor units of Currency; selects the requisition tier, or is a manual entry's debits
 	Currency   *string      // with Amount
 	Tier       int          // configuration change tier
-	// LegalEntityID and Date place a requisition: its amount is converted
-	// into the legal entity's currency at the rate valid on the date
-	// before it is compared with the thresholds.
+	// LegalEntityID and Date place a requisition or manual entry (its
+	// posting date): its amount is converted into the legal entity's
+	// currency at the rate valid on the date before it is compared with the
+	// thresholds or the limit.
 	LegalEntityID uuid.UUID
 	Date          time.Time
-	// Company is the configuration's code of the legal entity, whose
-	// manual_entry_approval_limit a manual entry is measured against.
+	// Company is the configuration's code of LegalEntityID (its tenancy
+	// code), whose manual_entry_approval_limit a manual entry is measured
+	// against; the ledger passes both from the one legal entity it posts in.
 	Company string
 }
 
@@ -373,7 +376,7 @@ func (a Approvals) Open(ctx context.Context, in NewRequest) (id uuid.UUID, neede
 func (a Approvals) Required(ctx context.Context, in NewRequest) (bool, error) {
 	doc, _, err := a.Settings.Document(ctx)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("approvals: required for %s: %w", in.ObjectType, err)
 	}
 	policy, err := steps(ctx, a.Rates, doc, in)
 	return len(policy) > 0, err

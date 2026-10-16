@@ -136,13 +136,13 @@ func TestPeriodUnlockSteps(t *testing.T) {
 // scaled is a ledger converting at a fixed rate into the company's
 // currency (two digits), recording what it was asked to convert.
 type scaled struct {
-	rate  int64
+	rate  *big.Rat
 	asked *NewRequest
 }
 
 func (s scaled) ExactToCompany(_ context.Context, le uuid.UUID, from string, date time.Time, amount money.Minor) (*big.Rat, error) {
 	*s.asked = NewRequest{LegalEntityID: le, Currency: &from, Date: date, Amount: &amount}
-	return new(big.Rat).Mul(money.Rat(amount, 2), big.NewRat(s.rate, 1)), nil
+	return new(big.Rat).Mul(money.Rat(amount, 2), s.rate), nil
 }
 
 // TestManualEntrySteps: a manual entry whose debits, converted exactly into
@@ -156,19 +156,23 @@ func TestManualEntrySteps(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		company string
-		amount  money.Minor // EUR cents, converted at 2
+		amount  money.Minor // EUR cents
+		rate    *big.Rat
 		want    []policyStep
 	}{
-		{"within the limit", "1000", 400000, nil},
-		{"at the limit", "1000", 500000, nil},
-		{"above the limit", "1000", 500001, controller},
-		{"a company without a limit", "2000", 1, controller},
-		{"a company the configuration lacks", "9999", 1, controller},
+		{"within the limit", "1000", 400000, big.NewRat(2, 1), nil},
+		{"at the limit", "1000", 500000, big.NewRat(2, 1), nil},
+		{"above the limit", "1000", 500001, big.NewRat(2, 1), controller},
+		{"at the limit at a third", "1000", 3000000, big.NewRat(1, 3), nil},
+		// 10000.00333...: within the limit only if rounded to cents first
+		{"above the limit by less than a cent", "1000", 3000001, big.NewRat(1, 3), controller},
+		{"a company without a limit", "2000", 1, big.NewRat(2, 1), controller},
+		{"a company the configuration lacks", "9999", 1, big.NewRat(2, 1), controller},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var asked NewRequest
 			eur := "EUR"
-			got, err := steps(context.Background(), scaled{2, &asked}, doc, NewRequest{ObjectType: ManualEntry, Company: c.company,
+			got, err := steps(context.Background(), scaled{c.rate, &asked}, doc, NewRequest{ObjectType: ManualEntry, Company: c.company,
 				LegalEntityID: le, Date: posted, Amount: &c.amount, Currency: &eur})
 			if err != nil {
 				t.Fatalf("steps: %v", err)
@@ -176,8 +180,17 @@ func TestManualEntrySteps(t *testing.T) {
 			if fmt.Sprint(got) != fmt.Sprint(c.want) {
 				t.Errorf("steps: got %v, want %v", got, c.want)
 			}
-			if asked.LegalEntityID != le || !asked.Date.Equal(posted) || *asked.Currency != eur || *asked.Amount != c.amount {
-				t.Errorf("converted: got %v %s %v on %v, want %v EUR %v on %v", asked.LegalEntityID, *asked.Currency, *asked.Amount, asked.Date, le, c.amount, posted)
+			if asked.LegalEntityID != le {
+				t.Errorf("converted for: got %v, want %v", asked.LegalEntityID, le)
+			}
+			if !asked.Date.Equal(posted) {
+				t.Errorf("converted on: got %v, want %v", asked.Date, posted)
+			}
+			if *asked.Currency != eur {
+				t.Errorf("converted from: got %s, want %s", *asked.Currency, eur)
+			}
+			if *asked.Amount != c.amount {
+				t.Errorf("converted amount: got %d, want %d", *asked.Amount, c.amount)
 			}
 		})
 	}
