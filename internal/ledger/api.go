@@ -227,7 +227,7 @@ func newEntry(req *gen.JournalEntryCreate) NewEntry {
 
 // PostJournalEntry implements POST /v1/journal-entries.
 func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryCreate, _ gen.PostJournalEntryParams) (gen.PostJournalEntryRes, error) {
-	je, err := e.postJournalEntry(ctx, newEntry(req))
+	je, err := e.postDirect(ctx, newEntry(req))
 	if err != nil {
 		return nil, err
 	}

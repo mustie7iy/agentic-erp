@@ -488,7 +488,11 @@ Rules enforced in the database:
   checked again (a period closed meanwhile refuses the decision, which stays
   pending); the approver need not act in the legal entity, as the request
   authorises the posting. A rejection ends the entry; a withdrawal returns it
-  to parked. Agents may hold `ledger.entry.park`;
+  to parked. A manual entry posted at once (`POST /v1/journal-entries`) is
+  measured the same way after it is converted and refused above the limit
+  (409 `ledger.approval_required`, T35f); entries other contexts post
+  through `Postings` are not manual and no limit applies. Only people post
+  or reverse manual entries (`x-agent: false`). Agents may hold `ledger.entry.park`;
   `ledger.entry.approve` is an approval permission (agents never hold it).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger

@@ -26997,11 +26997,15 @@ func (s *Server) handlePostGoodsReceiptRequest(args [0]string, argsEscaped bool,
 
 // handlePostJournalEntryRequest handles postJournalEntry operation.
 //
-// Posts a manual journal entry. Journal entries are insert-only and have no draft state, so creating
-// an entry is posting it: the request is validated (balance in every currency, open period, postable
-// accounts, partner on reconciliation lines) and either fully posted or rejected. A line on the legal
-// entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods
-// receipts and invoices post it.
+// Posts a manual journal entry at once: the request is validated (balance in every currency, open
+// period, postable accounts, partner on reconciliation lines) and either fully posted or rejected.
+// Journal entries are insert-only; an entry that should wait, for a person to post it or for approval,
+// is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal
+// entity's currency at the average rate of its posting date, exceed the company's
+// `manual_entry_approval_limit` is 409 `ledger.approval_required`: park it and post it with `:post`,
+// which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account
+// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
+// Human-only: agents propose entries by parking them.
 //
 // POST /v1/journal-entries
 func (s *Server) handlePostJournalEntryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -30337,7 +30341,7 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 // goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
 // is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
 // other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
-// Returns the new reversal entry.
+// Returns the new reversal entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

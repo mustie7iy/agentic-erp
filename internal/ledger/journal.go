@@ -647,8 +647,21 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	return prepared{le: le, ledger: ledger, group: group, exps: exps, expTC: expTC, lines: lines}, nil
 }
 
-// postJournalEntry validates and posts a manual journal entry.
+// postJournalEntry validates and posts an entry another context posts
+// through Postings: no approval limit applies to its documents' postings.
 func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, error) {
+	return e.postEntry(ctx, in, nil)
+}
+
+// postDirect validates and posts a manual entry a person posts at once
+// through the API, within its company's approval limit (T35f).
+func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (Entry, error) {
+	return e.postEntry(ctx, in, e.withinLimit)
+}
+
+// postEntry validates and posts an entry; check, when set, may refuse it
+// once it is converted, before anything is written.
+func (e *Endpoints) postEntry(ctx context.Context, in NewEntry, check func(context.Context, prepared, NewEntry) error) (Entry, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Entry{}, err
@@ -657,19 +670,25 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 	if err != nil {
 		return Entry{}, err
 	}
-	return e.postPrepared(ctx, tx, p, v, in)
+	return e.postPrepared(ctx, tx, p, v, in, check)
 }
 
 // postPrepared posts a prepared manual entry: local and group amounts are
 // converted at the average rates valid on the posting date, and rounding
 // differences go to the largest line.
-func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared, in NewEntry) (Entry, error) {
+func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared, in NewEntry,
+	check func(context.Context, prepared, NewEntry) error) (Entry, error) {
 	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, v.le.LocalCurrency, v.group, in.PostingDate)
 	if err != nil {
 		return Entry{}, err
 	}
 	if err := convertLines(v.lines, rateLC, rateGC, v.expTC, v.exps[v.le.LocalCurrency], v.exps[v.group]); err != nil {
 		return Entry{}, err
+	}
+	if check != nil {
+		if err := check(ctx, v, in); err != nil {
+			return Entry{}, err
+		}
 	}
 	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgerID: v.ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
 		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,

@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -109,6 +110,11 @@ func (r recorder) Open(_ context.Context, in approvals.NewRequest) (uuid.UUID, b
 	return uuid.New(), true, r.err
 }
 
+func (r recorder) Required(_ context.Context, in approvals.NewRequest) (bool, error) {
+	*r.asked = in
+	return true, r.err
+}
+
 // TestPostParkedAsksThePolicy: the entry is measured by its debits in its
 // currency on its posting date, against the limit of its own legal
 // entity's company, and approvers see what it is; a policy that cannot
@@ -149,5 +155,31 @@ func TestPostParkedAsksThePolicy(t *testing.T) {
 		return err
 	}); !errors.Is(err, refused) {
 		t.Errorf("posting without a policy: got %v, want %v", err, refused)
+	}
+}
+
+// TestDirectPostingAsksThePolicy: a direct posting the policy would send
+// for approval is refused, measured as :post measures it.
+func TestDirectPostingAsksThePolicy(t *testing.T) {
+	e := setup(t)
+	bank, revenue := e.account(t, "2000", "100000"), e.account(t, "2000", "400000")
+	var asked approvals.NewRequest
+	h := endpoints()
+	h.Approvals = recorder{asked: &asked}
+	body := gen.JournalEntryCreate{LegalEntityID: e.de, DocumentDate: date("2026-03-15"), PostingDate: date("2026-03-15"), Currency: "EUR",
+		Lines: []gen.JournalLineInput{{AccountID: uuid.MustParse(bank), Amount: gen.Money{Amount: "12.50", Currency: "EUR"}},
+			{AccountID: uuid.MustParse(revenue), Amount: gen.Money{Amount: "-12.50", Currency: "EUR"}}}}
+	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		_, err := h.PostJournalEntry(ctx, &body, gen.PostJournalEntryParams{})
+		return err
+	})
+	if got := problem.From(err).Code; got != "ledger.approval_required" {
+		t.Errorf("direct posting above the limit: got %v, want ledger.approval_required", err)
+	}
+	if *asked.Amount != 1250 {
+		t.Errorf("measured debits: got %d, want 1250", *asked.Amount)
+	}
+	if asked.Company != "2000" {
+		t.Errorf("measured against company: got %s, want 2000", asked.Company)
 	}
 }

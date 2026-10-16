@@ -13,9 +13,13 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// Opener opens approval requests (workflow context).
+// Opener opens approval requests (workflow context) and answers whether
+// one is needed.
 type Opener interface {
 	Open(ctx context.Context, in approvals.NewRequest) (uuid.UUID, bool, error)
+	// Required answers whether the policy requires approval, opening
+	// nothing: a manual entry posted directly needs none (T35f).
+	Required(ctx context.Context, in approvals.NewRequest) (bool, error)
 }
 
 // RequestUnlock opens the period_unlock approval request of a locked period

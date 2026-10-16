@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -43,7 +44,7 @@ func (e *Endpoints) postParked(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if needed {
 		return submitParked(ctx, tx, p, pe, owner, request)
 	}
-	je, err := e.postPrepared(ctx, tx, p, v, in)
+	je, err := e.postPrepared(ctx, tx, p, v, in, nil)
 	if err != nil {
 		return ParkedEntry{}, err
 	}
@@ -136,7 +137,7 @@ func (m ManualEntries) Approved(ctx context.Context, entry, request uuid.UUID) e
 	if err != nil {
 		return err
 	}
-	je, err := e.postPrepared(ctx, tx, p, v, in)
+	je, err := e.postPrepared(ctx, tx, p, v, in, nil)
 	if err != nil {
 		return err
 	}
@@ -193,4 +194,25 @@ func namingEntry(ctx context.Context, tx pgx.Tx, entry, request uuid.UUID) (Park
 // caller: an approval authorises the posting, not the approver's companies.
 func (e *Endpoints) postableEntity(ctx context.Context, id uuid.UUID) (tenancy.Entity, error) {
 	return e.activeEntity(ctx, authz.Access{All: true}, id, "legal_entity_id")
+}
+
+// withinLimit refuses a manual entry posted directly whose debits exceed
+// its company's manual_entry_approval_limit: it is parked and posted with
+// :post, which asks for someone else's approval. The policy is the one
+// :post asks (approvals.ManualEntry), so the two never disagree.
+func (e *Endpoints) withinLimit(ctx context.Context, v prepared, in NewEntry) error {
+	debits, err := debitTotal(v.lines)
+	if err != nil {
+		return err
+	}
+	required, err := e.Approvals.Required(ctx, approvals.NewRequest{ObjectType: approvals.ManualEntry, Amount: &debits, Currency: &in.Currency,
+		LegalEntityID: v.le.ID, Company: v.le.Code, Date: in.PostingDate})
+	if err != nil {
+		return err
+	}
+	if required {
+		return problem.Conflict("ledger.approval_required", "The entry's debits exceed the manual entry approval limit of company "+v.le.Code+
+			"; park it (POST /v1/parked-journal-entries) and post it with :post, which asks for approval.")
+	}
+	return nil
 }

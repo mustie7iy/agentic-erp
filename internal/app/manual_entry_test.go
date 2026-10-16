@@ -179,3 +179,74 @@ func TestApproverWithoutTheCompany(t *testing.T) {
 	got, _ := m.Must(200, "GET", "/v1/parked-journal-entries/"+pe["id"].(string), "", "")
 	expect(t, "entry approved by an approver outside the company", got, map[string]any{"status": "posted"})
 }
+
+// direct is a journal entry body of legal entity 2000 for posting at once.
+func (m manualEntries) direct(currency, amount string) string {
+	return fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-15", "posting_date": "2026-03-15", "currency": %q, "lines": [
+		{"account_id": %q, "amount": {"amount": %q, "currency": %q}}, {"account_id": %q, "amount": {"amount": "-%s", "currency": %q}}]}`,
+		m.DE, currency, m.bank, amount, currency, m.revenue, amount, currency)
+}
+
+// TestManualEntriesExitCriterion is T35's (07 §7.6): people post manual
+// entries through the API above a configured amount only after approval
+// by someone else; below it they post directly; both audited; agents can
+// propose, never post.
+func TestManualEntriesExitCriterion(t *testing.T) {
+	m := newManualEntries(t)
+	// Below the limit, directly.
+	below, _ := m.Must(201, "POST", "/v1/journal-entries", m.direct("EUR", "10000.00"), "")
+	// Above it, never directly: nothing posted, no number drawn, no request.
+	m.Problem(409, "ledger.approval_required", "POST", "/v1/journal-entries", m.direct("EUR", "10000.01"), "")
+	if page, _ := m.Must(200, "GET", "/v1/journal-entries", "", ""); len(page["items"].([]any)) != 1 {
+		t.Errorf("journal entries after the refusal: got %d, want 1", len(page["items"].([]any)))
+	}
+	if page, _ := m.As(m.Approver).Must(200, "GET", "/v1/approval-requests", "", ""); len(page["items"].([]any)) != 0 {
+		t.Errorf("approval requests after the refusal: got %v, want none", page["items"])
+	}
+	next, _ := m.Must(201, "POST", "/v1/journal-entries", m.direct("EUR", "1.00"), "")
+	if want := fmt.Sprint(atoi(t, below["document_number"]) + 1); next["document_number"] != want {
+		t.Errorf("number after the refusal: got %v, want %s", next["document_number"], want)
+	}
+	// Above it, only after someone else's approval.
+	pe := m.post(t, m.park(t, m.Client, "2026-03-15", "EUR", "10000.01"))
+	m.Approve(t, pe["id"].(string))
+	approved, _ := m.Must(200, "GET", "/v1/parked-journal-entries/"+pe["id"].(string), "", "")
+	expect(t, "approved entry", approved, map[string]any{"status": "posted"})
+	// Both audited.
+	for _, id := range []any{below["id"], approved["journal_entry_id"]} {
+		var n int
+		pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.journal_entry.post' AND object_id = $2::uuid`,
+			[]any{m.Tenant.ID, id}, &n)
+		if n != 1 {
+			t.Errorf("audit records of journal entry %v: got %d, want 1", id, n)
+		}
+	}
+	// Agents propose, never post or reverse.
+	m.Tenant.AllCompanies(t, m.Tenant.Agent)
+	agent := m.As(m.Tenant.Agent)
+	agent.Problem(403, "identity.agent_not_allowed", "POST", "/v1/journal-entries", m.direct("EUR", "1.00"), "")
+	_, tag := m.Must(200, "GET", "/v1/journal-entries/"+below["id"].(string), "", "")
+	agent.Problem(403, "identity.agent_not_allowed", "POST", "/v1/journal-entries/"+below["id"].(string)+":reverse", "", tag)
+	proposal := m.park(t, agent, "2026-03-15", "EUR", "5.00")
+	_, tag = agent.Must(200, "GET", proposal, "", "")
+	agent.Problem(403, "identity.agent_not_allowed", "POST", proposal+":post", "", tag)
+}
+
+// TestDirectPostingAboveTheLimitInAnotherCurrency: a direct posting is
+// measured in the company's currency, exactly.
+func TestDirectPostingAboveTheLimitInAnotherCurrency(t *testing.T) {
+	m := newManualEntries(t)
+	m.Must(201, "POST", "/v1/exchange-rates", `{"rate_type": "average", "from_currency": "USD", "to_currency": "EUR", "valid_from": "2026-01-01",
+		"rate": "1.25", "source": "ECB"}`, "")
+	m.Must(201, "POST", "/v1/journal-entries", m.direct("USD", "8000.00"), "")
+	m.Problem(409, "ledger.approval_required", "POST", "/v1/journal-entries", m.direct("USD", "8000.01"), "")
+}
+
+func atoi(t *testing.T, v any) int {
+	t.Helper()
+	var n int
+	if _, err := fmt.Sscan(fmt.Sprint(v), &n); err != nil {
+		t.Fatalf("number %v: %v", v, err)
+	}
+	return n
+}

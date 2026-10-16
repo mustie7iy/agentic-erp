@@ -22,6 +22,10 @@ func (o opener) Open(context.Context, approvals.NewRequest) (uuid.UUID, bool, er
 	return o.id, o.needed, nil
 }
 
+func (o opener) Required(context.Context, approvals.NewRequest) (bool, error) {
+	return o.needed, nil
+}
+
 // firstPeriod returns the path of period 1 of 2026 of legal entity 2000.
 func (e env) firstPeriod(t *testing.T) (uuid.UUID, string) {
 	t.Helper()
