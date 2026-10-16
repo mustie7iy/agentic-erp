@@ -4,6 +4,7 @@
 package tlstest
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net"
 	"net/url"
@@ -156,4 +158,48 @@ func serial(tb testing.TB) *big.Int {
 		tb.Fatal(err)
 	}
 	return n
+}
+
+// Proxy terminates TLS with cert in front of the plaintext server at
+// backend and returns its address: what a test's client dials to reach a
+// development server (Temporal, an HTTP stub) over TLS. With clientCAs it
+// requires a client certificate they signed; nextProtos are offered by
+// ALPN (h2 for gRPC).
+func Proxy(tb testing.TB, backend string, cert tls.Certificate, clientCAs *x509.CertPool, nextProtos ...string) string {
+	tb.Helper()
+	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, NextProtos: nextProtos}
+	if clientCAs != nil {
+		cfg.ClientCAs, cfg.ClientAuth = clientCAs, tls.RequireAndVerifyClientCert
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	raw, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		cancel()
+		tb.Fatal(err)
+	}
+	ln := tls.NewListener(raw, cfg)
+	tb.Cleanup(func() { cancel(); _ = ln.Close() }) // the test is over
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return // closed when the test ends
+			}
+			go relay(ctx, c, backend)
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// relay copies between the client and a new connection to backend until
+// either side closes.
+func relay(ctx context.Context, client net.Conn, backend string) {
+	defer func() { _ = client.Close() }() // the relay is over
+	server, err := (&net.Dialer{}).DialContext(ctx, "tcp", backend)
+	if err != nil {
+		return
+	}
+	defer func() { _ = server.Close() }() // the relay is over
+	go func() { _, _ = io.Copy(server, client); _ = server.Close() }() // ends when either side closes
+	_, _ = io.Copy(client, server)
 }
