@@ -13,8 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -556,4 +558,24 @@ func (r Registry) Resolve(ctx context.Context, issuer string, audiences []string
 	return authn.Registration{ProviderID: reg.ProviderID, TenantID: reg.TenantID, Issuer: reg.Issuer, Audience: reg.Audience, TenantClaim: reg.TenantClaim,
 		MFARequired: reg.Policy.MFARequired, ACRValues: reg.ACRValues, AMRValues: reg.AMRValues,
 		SessionMaxAge: reg.Policy.SessionMaxAge, IdleTimeout: reg.Policy.IdleTimeout}, nil
+}
+
+// RegisteredEvent is the IdentityProviderRegistered event of a
+// registration, for whoever registers it (the control plane, provisioning).
+func RegisteredEvent(p IdentityProvider) outbox.Event {
+	return outbox.Event{Context: "identity", Name: "identity_provider_registered", AggregateType: "identity.identity_provider", AggregateID: p.ID,
+		Payload: map[string]any{"provider_id": p.ID, "issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues}}
+}
+
+// RetiredEvent is the IdentityProviderRetired event of a retirement.
+func RetiredEvent(p IdentityProvider) outbox.Event {
+	return outbox.Event{Context: "identity", Name: "identity_provider_retired", AggregateType: "identity.identity_provider", AggregateID: p.ID,
+		Payload: map[string]any{"provider_id": p.ID, "issuer": p.Issuer, "audience": p.Audience, "retired_at": p.RetiredAt}}
+}
+
+// ProviderEntry is the audit entry of a change of the provider (verb:
+// register, update, retire); the caller adds who made it.
+func ProviderEntry(verb string, p IdentityProvider) audit.Entry {
+	return audit.Entry{Action: "identity.identity_provider." + verb, ObjectType: "identity.identity_provider", ObjectID: p.ID,
+		Detail: map[string]any{"issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues}}
 }

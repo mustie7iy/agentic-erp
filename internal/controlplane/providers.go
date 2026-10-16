@@ -187,9 +187,8 @@ func (s *Service) RegisterProvider(ctx context.Context, op Operator, tenant uuid
 			return err
 		}
 		out = providerView(p)
-		event := outbox.Event{Context: "identity", Name: "identity_provider_registered", AggregateType: "identity.identity_provider", AggregateID: p.ID,
-			Payload: map[string]any{"provider_id": p.ID, "issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues}}
-		if err := s.record(ctx, tx, op, tenant, change{event: &event, entry: providerEntry("register", p)}); err != nil {
+		event := identity.RegisteredEvent(p)
+		if err := s.record(ctx, tx, op, tenant, change{event: &event, entry: identity.ProviderEntry("register", p)}); err != nil {
 			return err
 		}
 		return s.storeProvider(ctx, tx, tenant, key, out)
@@ -202,11 +201,6 @@ func (s *Service) claim(ctx context.Context, tenant uuid.UUID, p identity.Identi
 		return nil
 	}
 	return s.Directory.ClaimIssuer(ctx, tenant, p.ID, p.Issuer, p.Audience)
-}
-
-func providerEntry(verb string, p identity.IdentityProvider) audit.Entry {
-	return audit.Entry{Action: "identity.identity_provider." + verb, ObjectType: "identity.identity_provider", ObjectID: p.ID,
-		Detail: map[string]any{"issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues}}
 }
 
 // claimKey claims the registration's key before anything else, as the unit
@@ -269,7 +263,7 @@ func (s *Service) UpdateProvider(ctx context.Context, op Operator, tenant, id uu
 			return err
 		}
 		out = providerView(p)
-		return s.record(ctx, tx, op, tenant, change{entry: providerEntry("update", p)})
+		return s.record(ctx, tx, op, tenant, change{entry: identity.ProviderEntry("update", p)})
 	})
 	return out, err
 }
@@ -284,9 +278,8 @@ func (s *Service) RetireProvider(ctx context.Context, op Operator, tenant, id uu
 			return err
 		}
 		out = providerView(p)
-		event := outbox.Event{Context: "identity", Name: "identity_provider_retired", AggregateType: "identity.identity_provider", AggregateID: p.ID,
-			Payload: map[string]any{"provider_id": p.ID, "issuer": p.Issuer, "audience": p.Audience, "retired_at": p.RetiredAt}}
-		return s.record(ctx, tx, op, tenant, change{event: &event, entry: providerEntry("retire", p)})
+		event := identity.RetiredEvent(p)
+		return s.record(ctx, tx, op, tenant, change{event: &event, entry: identity.ProviderEntry("retire", p)})
 	})
 	if err == nil && s.Directory != nil {
 		s.Directory.ReleaseIssuer(ctx, tenant, out.ID, out.Issuer, out.Audience)
