@@ -219,11 +219,18 @@ func (f fixture) seed(tx pgx.Tx) error {
 
 // entry posts a journal entry with the given (account, amount) lines in USD.
 func (f fixture) entry(tx pgx.Tx, period int, date string, lines ...line) (uuid.UUID, error) {
+	return f.entryFor(tx, nil, period, date, lines...)
+}
+
+// entryFor posts a manual journal entry as entry does, naming source as its
+// source document (none when nil).
+func (f fixture) entryFor(tx pgx.Tx, source *uuid.UUID, period int, date string, lines ...line) (uuid.UUID, error) {
 	je := id()
 	if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
-		document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
-		VALUES ($1,2026,$2,$3,$4,$5,'SA',$6,$7,$7,'USD','USD','EUR',1,0.9,'ledger',$8)`,
-		f.tenant, je, f.entity, f.ledger, period, je.String()[24:], date, f.actor); err != nil {
+		document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context,
+		source_document_id, posted_by)
+		VALUES ($1,2026,$2,$3,$4,$5,'SA',$6,$7,$7,'USD','USD','EUR',1,0.9,'ledger',$8,$9)`,
+		f.tenant, je, f.entity, f.ledger, period, je.String()[24:], date, source, f.actor); err != nil {
 		return je, err
 	}
 	for i, l := range lines {
