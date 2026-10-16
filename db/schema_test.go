@@ -848,7 +848,7 @@ func TestAssignmentsAreEndedNeverRewritten(t *testing.T) {
 	f := newFixture(t)
 	principal, role, assignment := id(), id(), id()
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
-		if err := exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','idp|ann','Ann','active',$3,$3)", f.tenant, principal, f.actor); err != nil {
+		if err := exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','https://idp.example.com','idp|ann','Ann','active',$3,$3)", f.tenant, principal, f.actor); err != nil {
 			return err
 		}
 		if err := exec(tx, "INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1,$2,'ap','AP clerk','active',$3,$3)", f.tenant, role, f.actor); err != nil {
@@ -1019,8 +1019,9 @@ func TestExclusionReasons(t *testing.T) {
 }
 
 // TestPrincipalsAreTheirIssuersSubjects: a principal's issuer and subject
-// are unique per tenant (000038, ADR-0010); the unique index the unit of
-// work resolves tokens with is built and valid.
+// are unique per tenant (000038, ADR-0010), a subject alone is not
+// (000048), and a principal with a subject has an issuer (000046); the
+// unique index the unit of work resolves tokens with is built and valid.
 func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -1032,6 +1033,15 @@ func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
 	}
 	mustApp(t, f.tenant, insert("https://a.example.com", "idp|bo"))
 	failsWith(t, asApp(t, f.tenant, insert("https://a.example.com", "idp|bo")), "duplicate key")
+	// The subject alone is no longer unique (000048): another issuer may issue it.
+	if err := asApp(t, f.tenant, insert("https://b.example.com", "idp|bo")); err != nil {
+		t.Errorf("the same subject under another issuer: got %v, want success", err)
+	}
+	// A subject needs its issuer (000046, 000047).
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,'human','idp|cy','P','active',$3,$3)",
+			f.tenant, id(), f.actor)
+	}), "principal_issuer_with_subject")
 	var valid, unique bool
 	if err := testDB.QueryRow(context.Background(), "SELECT indisvalid, indisunique FROM pg_index WHERE indexrelid = 'identity.principal_issuer_subject'::regclass").Scan(&valid, &unique); err != nil {
 		t.Fatalf("index: %v", err)

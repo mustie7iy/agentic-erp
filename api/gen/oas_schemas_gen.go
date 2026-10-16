@@ -17630,9 +17630,9 @@ type Principal struct {
 	// The identity provider (OIDC `iss`) the principal's subject belongs to: only that provider's tokens
 	// sign in as this principal. Set when a principal with a subject is created, to the issuer of the
 	// principal creating it (a tenant's first administrator: the cell's trusted tenant identity provider).
-	// Not changed through the API. Absent when the principal has no subject, and for a person or service
-	// the previous release created during an issuer rollout: such a principal cannot sign in until an
-	// operator binds it.
+	// Not changed through the API. Absent exactly when the principal has no subject. A principal a schema
+	// migration bound to the development issuer `erp-dev` (its creator unknown) cannot sign in where that
+	// issuer is not trusted, as in production, until an operator binds it to its real issuer.
 	ExternalIssuer OptString `json:"external_issuer"`
 	// Display name.
 	DisplayName string `json:"display_name"`

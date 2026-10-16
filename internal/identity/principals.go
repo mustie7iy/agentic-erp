@@ -168,9 +168,9 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 	// A subject is bound to its issuer (ADR-0010): the contract names no
 	// issuer, so the new principal is a subject of the identity provider the
 	// actor creating it is bound to, the tenant's. An actor bound to none (an
-	// agent, a job acting through uow.Act, a principal the previous release
-	// created during the issuer rollout) inserts nothing: the principal would
-	// match no token, so it is refused rather than locked out silently.
+	// agent, a job acting through uow.Act) inserts nothing: the principal
+	// would match no token (and break principal_issuer_with_subject), so it
+	// is refused rather than locked out silently.
 	tag, err := tx.Exec(ctx, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, email, all_companies, status, created_by, updated_by)
 		SELECT $1, $2, $3, i.issuer, $4, $5, $6, $7, 'active', $8, $8
 		FROM (SELECT CASE WHEN $4::text IS NOT NULL THEN (SELECT a.external_issuer FROM identity.principal a WHERE a.tenant_id = $1 AND a.id = $8) END AS issuer) i

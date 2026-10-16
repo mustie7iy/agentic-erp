@@ -7,6 +7,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -280,27 +281,32 @@ func TestReservationsReconcileFailsLoudly(t *testing.T) {
 	}
 }
 
-// TestReservationsReconcileRefusesRowSecurity: run by a role row-level
-// security applies to (erp_owner, which owns the tables), 000042 fails
-// rather than see no tenant's rows and reconcile nothing.
-func TestReservationsReconcileRefusesRowSecurity(t *testing.T) {
-	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 42)
-	var up string
-	for _, m := range Migrations() {
-		if v, _ := m.Version(); v == 42 { // the names were checked by TestMigrationFiles
-			up = m.Up
-		}
+// TestTenantRowMigrationsRefuseRowSecurity: run by a role row-level
+// security applies to (erp_owner, which owns the tables), a migration that
+// changes tenant rows (000042 reconciling reservations, 000046 binding
+// principals) fails rather than see no tenant's rows and change nothing.
+func TestTenantRowMigrationsRefuseRowSecurity(t *testing.T) {
+	for _, version := range []int{42, 46} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			conn := emptyDatabase(t)
+			migrateBefore(t, conn, version)
+			var up string
+			for _, m := range Migrations() {
+				if v, _ := m.Version(); v == version { // the names were checked by TestMigrationFiles
+					up = m.Up
+				}
+			}
+			ctx := context.Background()
+			err := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, "SET LOCAL ROLE erp_owner"); err != nil {
+					return err
+				}
+				_, err := tx.Conn().PgConn().Exec(ctx, up).ReadAll()
+				return err
+			})
+			failsWith(t, err, "row-level security policy")
+		})
 	}
-	ctx := context.Background()
-	err := pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "SET LOCAL ROLE erp_owner"); err != nil {
-			return err
-		}
-		_, err := tx.Conn().PgConn().Exec(ctx, up).ReadAll()
-		return err
-	})
-	failsWith(t, err, "row-level security policy")
 }
 
 // TestReservationsReconcileHoldsWriters: 000042 locks the runs, payments
@@ -352,5 +358,84 @@ func TestDeferredChecksValidated(t *testing.T) {
 	}
 	if len(pending) > 0 {
 		t.Errorf("constraints not validated: got %v, want none", pending)
+	}
+}
+
+// TestPrincipalIssuerRebound: 000046 binds each principal the previous
+// release created with a subject and no issuer to the issuer of its
+// creator, through chains of unbound creators, else to the development
+// issuer, as 000037 did (a principal that created itself, or a cycle of
+// unbound creators, finds none); agents without a subject stay without one
+// (F7, ADR-0010).
+func TestPrincipalIssuerRebound(t *testing.T) {
+	conn := emptyDatabase(t)
+	migrateBefore(t, conn, 46)
+	const idp = "https://idp.example.com"
+	tenant, admin, ann, bo, agent, svc, orphan := id(), id(), id(), id(), id(), id(), id()
+	self, cyA, cyB, bot, cal := id(), id(), id(), id(), id()
+	inTenant(t, conn, tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, "INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", tenant); err != nil {
+			return err
+		}
+		for _, p := range []struct {
+			id      uuid.UUID
+			kind    string
+			issuer  any
+			subject any
+			creator uuid.UUID
+		}{
+			{admin, "human", idp, "idp|admin", admin},
+			{ann, "human", nil, "idp|ann", admin},
+			{bo, "human", nil, "idp|bo", ann},
+			{agent, "agent", nil, nil, admin},
+			{svc, "service", nil, "svc|feed", agent},
+			{orphan, "human", nil, "idp|orphan", id()},
+			{self, "human", nil, "idp|self", self},
+			{cyA, "human", nil, "idp|cy-a", cyB},
+			{cyB, "human", nil, "idp|cy-b", cyA},
+			{bot, "agent", nil, "bot|ap", admin},
+			{cal, "service", nil, "svc|cal", bot},
+		} {
+			if err := exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by) VALUES ($1,$2,$3,$4,$5,'P','active',$6,$6)",
+				tenant, p.id, p.kind, p.issuer, p.subject, p.creator); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if _, err := Migrate(context.Background(), conn); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name    string
+		id      uuid.UUID
+		issuer  string
+		version int
+	}{
+		{"bound before", admin, idp, 1},
+		{"created by a bound principal", ann, idp, 2},
+		{"created by an unbound one", bo, idp, 2},
+		{"agent", agent, "(none)", 1},
+		{"created by an agent", svc, "erp-dev", 2},
+		{"creator unknown", orphan, "erp-dev", 2},
+		{"created by itself", self, "erp-dev", 2},
+		{"in a cycle of unbound creators", cyA, "erp-dev", 2},
+		{"the other in the cycle", cyB, "erp-dev", 2},
+		{"agent with a subject", bot, idp, 2},
+		{"created by an agent with a subject", cal, idp, 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var issuer string
+			var version int
+			if err := conn.QueryRow(context.Background(), "SELECT coalesce(external_issuer, '(none)'), version FROM identity.principal WHERE id = $1", c.id).Scan(&issuer, &version); err != nil {
+				t.Fatal(err)
+			}
+			if issuer != c.issuer {
+				t.Errorf("issuer: got %s, want %s", issuer, c.issuer)
+			}
+			if version != c.version {
+				t.Errorf("version: got %d, want %d", version, c.version)
+			}
+		})
 	}
 }
