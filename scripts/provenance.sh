@@ -14,7 +14,7 @@ repo="${GITHUB_REPOSITORY:-mustie7iy/agentic-erp}"
 commit="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 ref="${GITHUB_REF:-$(git symbolic-ref -q HEAD || echo detached)}"
 modified=false
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+if [ -n "$(git status --porcelain)" ]; then # untracked .go files are compiled too
   modified=true
 fi
 # GITHUB_WORKFLOW_REF is owner/repo/.github/workflows/<file>@<ref>.

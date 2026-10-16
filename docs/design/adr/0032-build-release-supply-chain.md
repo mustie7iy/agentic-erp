@@ -67,16 +67,17 @@ the test.
 
 **Checked before deployment.** `scripts/verify-image.sh` accepts an image
 only by digest, with a signature, an SBOM attestation and a provenance
-attestation by the release key, and, given `ERP_EXPECTED_COMMIT`, provenance
-naming that commit and a checkout without uncommitted changes (the caller
-must give the commit, or `any` to skip the check on purpose); `cosign
+attestation by the release key, and provenance naming `ERP_EXPECTED_COMMIT`
+(required; `any` skips the check on purpose) from a clean checkout. `cosign
 verify` alone would take an attestation for a signature, so it looks for an
-image signature itself. The release workflow runs it on what it pushed, delivery
-runs it again before a rollout (T40), and the clusters admit only images
-signed with the key. CI's signing job proves the round trip on every push
-against a registry made for the job, with a key pair made for the run:
-signed images pass, and another key, another commit, a tag or a missing
-signature are refused.
+image signature (type `cosign/sign/v1`) itself; the clusters' admission
+policy (T40) must require that type as well, not only the key. The release
+workflow runs it on what it pushed, delivery runs it again before a rollout
+(T40), and the clusters admit only images signed with the key. CI's signing
+job proves the round trip on every push against a registry made for the
+job, with a key pair made for the run: signed images pass, and another key,
+another commit, a tag, a missing signature, attestations without a
+signature and provenance from uncommitted changes are refused.
 
 **Versions and changelog.** Semantic `vX.Y.Z` tags on `main`, `0.y.z` until
 the pilot and `1.0.0` at its go-live. Major: an accepted contract break

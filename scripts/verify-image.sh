@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Checks images before they are deployed (ADR-0032): each REF (an image by
 # digest) must carry a signature by the release key, an SBOM attestation
-# and a build provenance attestation signed by the same key. The provenance
-# must name ERP_EXPECTED_COMMIT and a checkout without uncommitted changes;
+# and a build provenance attestation signed by the same key. The
+# provenance must name ERP_EXPECTED_COMMIT and a clean checkout;
 # ERP_EXPECTED_COMMIT=any skips that check and has to be asked for, so a
-# caller cannot forget it. It exits non-zero at the first image that fails. The release workflow runs it on
-# what it pushed; delivery runs it again before a rollout (T40).
+# caller cannot forget it. It exits non-zero at the first image that
+# fails. The release workflow runs it on what it pushed; delivery runs it
+# again before a rollout (T40).
 #
 # ERP_COSIGN_PUBLIC_KEY verifies: the KMS key reference
 # (awskms:///arn:...), whose public half cosign fetches, or a public key
@@ -28,8 +29,9 @@ for ref in "$@"; do
   fi
   # cosign verify also accepts an attestation as a signature: look for an
   # image signature among what it verified.
-  if ! $COSIGN verify "${verify[@]}" "$ref" | jq -e 'any(.[]; .critical.type == "https://sigstore.dev/cosign/sign/v1")' >/dev/null; then
-    echo "verify-image: $ref: no image signature by the key (attestations alone do not count)" >&2
+  verified="$($COSIGN verify "${verify[@]}" "$ref")"
+  if ! printf '%s\n' "$verified" | jq -e 'any(.[]; .critical.type == "https://sigstore.dev/cosign/sign/v1")' >/dev/null; then
+    echo "verify-image: $ref: no image signature by the key, only attestations" >&2
     exit 1
   fi
   $COSIGN verify-attestation "${verify[@]}" --type spdxjson "$ref" >/dev/null

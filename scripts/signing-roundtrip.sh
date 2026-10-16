@@ -30,7 +30,11 @@ commit="$(git rev-parse HEAD)"
 # with a commit refuses (checked below with a provenance made for it), so
 # such a run accepts its own images without the commit check.
 expected="$commit"
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+if [ -n "$(git status --porcelain)" ]; then
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "signing-roundtrip: CI's checkout has uncommitted changes; the commit check must run" >&2
+    exit 1
+  fi
   expected=any
   echo "signing-roundtrip: the checkout has uncommitted changes: images verified without the commit check"
 fi
