@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -203,6 +204,14 @@ func TestProvisioningIsAllOrNothing(t *testing.T) {
 	before := count(t, `SELECT count(*) FROM tenancy.tenant`)
 	p := provisioner(t)
 	p.Now = time.Now
+	// With an identity provider too: its registration's statements fail
+	// in turn as well.
+	withProvider := request(t)
+	withProvider.IdentityProvider = &identity.NewIdentityProvider{Issuer: "https://all-or-nothing-" + uuid.NewString() + ".example.com", Audience: "erp-api"}
+	if !everyStatementFails(t, p, pool, withProvider, count) {
+		return
+	}
+	before = count(t, `SELECT count(*) FROM tenancy.tenant`)
 	for n := 1; ; n++ {
 		var failing *pgtest.FailingTx
 		p.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -250,3 +259,31 @@ func TestProvisioningIsAllOrNothing(t *testing.T) {
 type uncommittable struct{ pgx.Tx }
 
 func (uncommittable) Commit(context.Context) error { return errors.New("connection lost") }
+
+// everyStatementFails provisions req with its first, second, ... statement
+// failing until it succeeds, checking that every failure is reported and
+// leaves no tenant.
+func everyStatementFails(t *testing.T, p *provisioning.Provisioner, pool *database.Pool, req provisioning.Request, count func(*testing.T, string) int) bool {
+	t.Helper()
+	ctx := context.Background()
+	before := count(t, `SELECT count(*) FROM tenancy.tenant`)
+	defer func() { p.Begin = nil }()
+	for n := 1; n < 2000; n++ {
+		p.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			return &pgtest.FailingTx{Tx: tx, FailAt: n}, err
+		}
+		if _, err := p.Provision(ctx, req); err == nil {
+			return count(t, `SELECT count(*) FROM tenancy.tenant`) == before+1
+		} else if !strings.Contains(err.Error(), pgtest.ErrInjected.Error()) {
+			t.Errorf("statement %d: %v", n, err)
+			return false
+		}
+		if count(t, `SELECT count(*) FROM tenancy.tenant`) != before {
+			t.Errorf("statement %d left a tenant behind", n)
+			return false
+		}
+	}
+	t.Error("still failing after 2000 statements")
+	return false
+}

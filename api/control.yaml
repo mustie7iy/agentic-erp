@@ -69,7 +69,7 @@ paths:
       tags:
         - tenants
       summary: Provision a tenant
-      description: "Creates a tenant with its first administrator (every permission, through the `tenant_admin` role), the roles its configuration names, an active legal entity per company of the configuration and the configuration as version 1, all in one transaction; the tenant is active when the response arrives. The request names the administrator's subject but no issuer, so the administrator is bound to the cell's single trusted tenant identity provider (`iss`) with that subject, and only that provider's tokens sign in as them (the public API names it as the principal's `external_issuer`); a cell that trusts several tenant identity providers refuses with 422 `provisioning.issuer_ambiguous`, until a per-tenant identity provider registry lets the request name the issuer. A retry with the same `Idempotency-Key` answers the tenant the first request created with `Idempotent-Replayed: true`; two concurrent requests with the same key create one tenant (409 for the loser, retry to get it)."
+      description: "Creates a tenant with its first administrator (every permission, through the `tenant_admin` role), the roles its configuration names, an active legal entity per company of the configuration and the configuration as version 1, all in one transaction; the tenant is active when the response arrives. With `identity_provider` the tenant's identity provider is registered with it, as `registerIdentityProvider` does (probed, claimed in the global directory, published as `IdentityProviderRegistered`), and the administrator is bound to its issuer with their subject (ADR-0031); with `ERP_ENV=production` it is required (422 `provisioning.identity_provider_required`). Without it, the administrator is bound to the cell's single deployment issuer (`ERP_OIDC_ISSUERS`, outside production); a cell that trusts several refuses with 422 `provisioning.issuer_ambiguous`. A retry with the same `Idempotency-Key` answers the tenant the first request created with `Idempotent-Replayed: true`; two concurrent requests with the same key create one tenant (409 for the loser, retry to get it)."
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -996,7 +996,7 @@ components:
       properties:
         subject:
           type: string
-          description: "The administrator's subject at the tenant's identity provider, the cell's single trusted tenant issuer."
+          description: "The administrator's subject at the tenant's identity provider: the request's `identity_provider`, or the cell's single deployment issuer."
           minLength: 1
           maxLength: 255
         display_name:
@@ -1037,6 +1037,8 @@ components:
           pattern: "^[A-Za-z]{3}$"
         administrator:
           $ref: "#/components/schemas/Administrator"
+        identity_provider:
+          $ref: "#/components/schemas/IdentityProviderCreate"
         configuration:
           type: object
           description: "The first configuration as a JSON object: the configuration-as-code document (`erp config generate` writes one as YAML; JSON is the same document). Activated as version 1; its companies become active legal entities and the roles its approval policies name are created empty."
@@ -1076,6 +1078,11 @@ components:
           type: string
           format: uuid
           description: "The `tenant_admin` role holding every permission."
+          readOnly: true
+        identity_provider_id:
+          type: string
+          format: uuid
+          description: "The tenant's identity provider, registered with it; absent when the request named none."
           readOnly: true
         roles:
           type: array

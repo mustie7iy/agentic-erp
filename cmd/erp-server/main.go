@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/app"
@@ -301,6 +302,15 @@ func cellIssuers(ctx context.Context, tx pgx.Tx) ([]directory.Issuer, error) {
 	return out, nil
 }
 
+// claim is how provisioning claims a tenant's provider in the global
+// directory, nil without one.
+func (s *server) claim() func(ctx context.Context, tenant, provider uuid.UUID, issuer, audience string) error {
+	if s.sync == nil {
+		return nil
+	}
+	return s.sync.ClaimIssuer
+}
+
 // controlPlane builds the operators' API, served when there is an issuer
 // for operator tokens.
 func (s *server) controlPlane(ctx context.Context) error {
@@ -312,7 +322,8 @@ func (s *server) controlPlane(ctx context.Context) error {
 		return err
 	}
 	service := &controlplane.Service{Pool: s.pool, AppRole: s.cfg.AppRole, ControlRole: s.cfg.ControlRole, Pages: s.pages,
-		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Issuers: s.cfg.TenantIssuers(), Configuration: app.Configuration(app.Config{FieldKeys: s.keys})},
+		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Issuers: s.cfg.TenantIssuers(), Configuration: app.Configuration(app.Config{FieldKeys: s.keys}),
+			Production: s.cfg.Environment == config.Production, Discover: s.providers.Probe, Claim: s.claim()},
 		Offboarding: s.offboarder, Directory: s.sync, Production: s.cfg.Environment == config.Production, Discover: s.providers.Probe}
 	s.control = controlplane.Handler(service, operators, s.log)
 	s.log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(s.cfg.OperatorIssuers), "dev_issuer", s.cfg.DevIssuer)

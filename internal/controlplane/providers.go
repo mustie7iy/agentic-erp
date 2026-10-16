@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -167,9 +166,10 @@ func (s *Service) GetProvider(ctx context.Context, tenant, id uuid.UUID) (Identi
 // a retry answers the provider the first request registered (replayed).
 // In production the issuer is https.
 func (s *Service) RegisterProvider(ctx context.Context, op Operator, tenant uuid.UUID, in identity.NewIdentityProvider, key *provisioning.Idempotency) (IdentityProvider, bool, error) {
-	if s.Production && !strings.HasPrefix(in.Issuer, "https://") {
-		return IdentityProvider{}, false, problem.Unprocessable("identity.invalid_provider", "The identity provider is invalid.",
-			problem.FieldError{Field: "issuer", Code: "invalid", Message: "an https URL in production"})
+	if s.Production {
+		if err := identity.ProductionIssuer(in.Issuer); err != nil {
+			return IdentityProvider{}, false, err
+		}
 	}
 	if err := s.probe(ctx, in.Issuer); err != nil {
 		return IdentityProvider{}, false, err
@@ -207,8 +207,7 @@ func (s *Service) probe(ctx context.Context, issuer string) error {
 		return nil
 	}
 	if err := s.Discover(ctx, issuer); err != nil {
-		return problem.Unprocessable("identity.provider_unreachable", "The identity provider's discovery document could not be read.",
-			problem.FieldError{Field: "issuer", Code: "unreachable", Message: "an issuer whose /.well-known/openid-configuration the cell can read"}).WithCause(err)
+		return identity.ProviderUnreachable(err)
 	}
 	return nil
 }

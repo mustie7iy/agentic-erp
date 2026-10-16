@@ -1017,6 +1017,7 @@ func TestDirectorySync(t *testing.T) {
 	env := environment(t, is, "")
 	directoryURL := pgtest.EmptyDatabase(t)
 	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"] // the control plane claims providers in the directory
 	ten := pgtest.NewTenant(t)
 	directoryInterval = 20 * time.Millisecond
 	defer func() { directoryInterval = time.Minute }()
@@ -1358,5 +1359,35 @@ func TestCellIssuersFailing(t *testing.T) {
 	got, err := cellIssuers(ctx, &pgtest.FailingTx{Tx: tx, FailAt: 1})
 	if !errors.Is(err, pgtest.ErrInjected) || got != nil {
 		t.Errorf("got %v, %v, want nil and the injected failure", got, err)
+	}
+}
+
+// TestProvisionWithAProvider: erp-server provision registers the tenant's
+// identity provider, probed first, and binds the administrator to it.
+func TestProvisionWithAProvider(t *testing.T) {
+	idp := authntest.NewSeparate(t)
+	env := environment(t, authntest.New(t), "")
+	delete(env, "ERP_OIDC_ISSUERS")
+	file := configFile(t)
+	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada",
+		"-config", file, "-idp-issuer", idp.URL, "-idp-audience", authntest.Audience}
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	var out struct {
+		TenantID string  `json:"tenant_id"`
+		Provider *string `json:"identity_provider_id"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || out.Provider == nil {
+		t.Fatalf("output: %v %s", err, stdout.String())
+	}
+	var issuer string
+	pgtest.Scan(t, `SELECT external_issuer FROM identity.principal WHERE tenant_id = $1 AND external_subject = 'ada'`, []any{out.TenantID}, &issuer)
+	if issuer != idp.URL {
+		t.Errorf("administrator's issuer: got %s, want %s", issuer, idp.URL)
+	}
+	if d, _ := idp.Fetches(); d != 1 {
+		t.Errorf("discovery fetches: got %d, want the probe's 1", d)
 	}
 }

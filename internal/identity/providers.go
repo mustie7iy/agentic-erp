@@ -579,3 +579,20 @@ func ProviderEntry(verb string, p IdentityProvider) audit.Entry {
 	return audit.Entry{Action: "identity.identity_provider." + verb, ObjectType: "identity.identity_provider", ObjectID: p.ID,
 		Detail: map[string]any{"issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues}}
 }
+
+// ProductionIssuer refuses an issuer other than https where production
+// runs: http on loopback is for a provider on a developer's machine.
+func ProductionIssuer(issuer string) error {
+	if strings.HasPrefix(issuer, "https://") {
+		return nil
+	}
+	return problem.Unprocessable("identity.invalid_provider", "The identity provider is invalid.",
+		problem.FieldError{Field: "issuer", Code: "invalid", Message: "an https URL in production"})
+}
+
+// ProviderUnreachable is the answer for a provider whose discovery document
+// could not be read when it was registered.
+func ProviderUnreachable(err error) error {
+	return problem.Unprocessable("identity.provider_unreachable", "The identity provider's discovery document could not be read.",
+		problem.FieldError{Field: "issuer", Code: "unreachable", Message: "an issuer whose /.well-known/openid-configuration the cell can read"}).WithCause(err)
+}

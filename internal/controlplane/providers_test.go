@@ -589,3 +589,21 @@ func TestRegistrationProbesTheProvider(t *testing.T) {
 		t.Errorf("a provider that answers: got %v, want registered", err)
 	}
 }
+
+// TestProvisioningWithAProviderThroughTheControlPlane: createTenant takes
+// the tenant's identity provider and answers its id.
+func TestProvisioningWithAProviderThroughTheControlPlane(t *testing.T) {
+	p := newPlane(t)
+	body := strings.TrimSuffix(strings.TrimSpace(tenantBody(t, "With a provider")), "}") +
+		`, "identity_provider": {"issuer": "https://idp-` + uuid.NewString() + `.example.com", "audience": "erp-api", "amr_values": ["mfa"]}}`
+	created, _ := p.must(201, "ops|alice", "POST", tenants, body, "Idempotency-Key", "key-"+uuid.NewString())
+	provisioned, _ := created["provisioned"].(map[string]any)
+	if provisioned["identity_provider_id"] == nil {
+		t.Fatalf("provisioned: got %v, want the identity provider's id", provisioned)
+	}
+	list, _ := p.must(200, "ops|alice", "GET", tenants+"/"+created["id"].(string)+"/identity-providers", "")
+	if items, _ := list["items"].([]any); len(items) != 1 || items[0].(map[string]any)["id"] != provisioned["identity_provider_id"] {
+		t.Errorf("providers: got %v, want the one provisioned", list)
+	}
+	p.problem(400, "request.invalid_body", "ops|alice", "POST", tenants, strings.Replace(body, `"audience"`, `"colour": "red", "audience"`, 1), "Idempotency-Key", "key-"+uuid.NewString())
+}
