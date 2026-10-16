@@ -1061,15 +1061,7 @@ func TestPrincipalsAreTheirIssuersSubjects(t *testing.T) {
 func TestPrincipalIssuerBackfill(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
-	var before []Migration
-	for _, m := range Migrations() {
-		if v, _ := m.Version(); v < 37 { // the names were checked by TestMigrationFiles
-			before = append(before, m)
-		}
-	}
-	if _, err := migrate(ctx, conn, before); err != nil {
-		t.Fatal(err)
-	}
+	migrateBefore(t, conn, 37)
 	tenant, human, agent := id(), id(), id()
 	for _, s := range []struct {
 		sql  string
