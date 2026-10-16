@@ -166,7 +166,7 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run) ([]candida
 	}
 	var out []candidate
 	for _, it := range open {
-		due := it.DocumentDate.AddDate(0, 0, payees[it.PartnerID].NetDays)
+		due := dueDate(it, payees[it.PartnerID])
 		if due.After(r.DueBy) || reserved[it.ItemRef] {
 			continue
 		}
@@ -262,6 +262,18 @@ type proposal struct {
 	itemAmounts                           []money.Minor
 	itemDue                               []time.Time
 	total                                 money.Minor
+}
+
+// dueDate is when an open item is due: an invoice (a credit on the supplier
+// account) its supplier's net days after its document date; a credit memo
+// (a debit) on its document date, as SAP has a credit memo without an
+// invoice reference due at once, so it nets with the next run that pays the
+// supplier (T34d).
+func dueDate(it ledger.PayableItem, payee partner.Payee) time.Time {
+	if it.Amount > 0 {
+		return it.DocumentDate
+	}
+	return it.DocumentDate.AddDate(0, 0, payee.NetDays)
 }
 
 // propose pays each candidate supplier its open items in one payment, or

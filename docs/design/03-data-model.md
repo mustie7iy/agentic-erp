@@ -997,6 +997,15 @@ erDiagram
     bytea sha256 }
 ```
 
+A proposal pays each supplier its open items due by the run's due date,
+netted in one payment: an invoice is due its supplier's net days after its
+document date, a credit memo (a debit on the supplier account) on its
+document date (T34d), as SAP has a credit memo without an invoice reference
+due at once, so it nets with the next run that pays the supplier. A
+supplier whose due items net to zero or a debit is excluded
+(`debit_balance`) and paid nothing: a credit memo never pays out alone,
+and stays open for a later run.
+
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run
 deactivates its items. The run also reserves its items in the ledger
