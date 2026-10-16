@@ -1,14 +1,21 @@
-name: nightly
+name: weekly
 
 on:
   schedule:
-    - cron: "15 2 * * *"
+    - cron: "15 2 * * 0" # Sundays
   workflow_dispatch:
     inputs:
       soak:
         description: Soak duration
         default: 2h
+      jobs:
+        description: Which jobs to run
+        type: choice
+        options: [all, shuffle, nfr]
+        default: all
 
+# Weekly, and on demand before a release (06 §6.5): about four hours of
+# runner time, which every night cost more than CI on every pull request.
 # The load and soak suites of 05-scalability §5.8 at length, and longer
 # fuzzing. Budgets are 01-requirements §1.3; the runner is far smaller than
 # a cell (about 110 requests/s against a laptop's 500 and a cell's 2,000),
@@ -23,6 +30,7 @@ on:
 # `go test -shuffle=<seed>` replays that order.
 jobs:
   shuffle:
+    if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'shuffle'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     services:
@@ -61,6 +69,7 @@ jobs:
         run: go test -race -shuffle=on -count=3 -timeout 45m ./...
 
   nfr:
+    if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'nfr'
     runs-on: ubuntu-latest
     timeout-minutes: 300
     services:

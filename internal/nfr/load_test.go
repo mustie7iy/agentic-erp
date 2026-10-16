@@ -15,10 +15,10 @@ import (
 //
 // ERP_LOAD_USERS (default 16), ERP_LOAD_DURATION (default 10s) and
 // ERP_LOAD_RPS (default 0: as fast as the users go) size the run; the
-// nightly suite runs it longer and at the largest tenant's rate.
+// weekly suite runs it longer and at the largest tenant's rate.
 func TestLoad(t *testing.T) {
 	if testing.Short() || raceDetector {
-		t.Skip("load suite: runs without -short and without the race detector (make load, nightly)")
+		t.Skip("load suite: runs without -short and without the race detector (make load, weekly)")
 	}
 	s := Start(t, Options{Users: int(Setting("ERP_LOAD_USERS", 16)), Events: true})
 	ctx := context.Background()

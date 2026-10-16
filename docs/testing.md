@@ -75,7 +75,7 @@ assertions as the functional suites.
 | Suite | What is proven | How to run |
 |---|---|---|
 | Load (`load_test.go`) | The mix of posting, lists, single reads, approval decisions and trial balance meets the p95 and p99 budgets of 01-requirements §1.3; the workers drain; the ledger is consistent afterwards. A hot principal is refused at the door while others are served | `make load` (`ERP_LOAD_USERS`, `ERP_LOAD_DURATION`, `ERP_LOAD_RPS`) |
-| Soak (`soak_test.go`) | Over windows of sustained load: no failed request, p95 within 1.5× of the first window or within budget, stable goroutines and heap, workers keeping up | `make soak` (`ERP_SOAK_DURATION`, `ERP_SOAK_WINDOW`); nightly for hours |
+| Soak (`soak_test.go`) | Over windows of sustained load: no failed request, p95 within 1.5× of the first window or within budget, stable goroutines and heap, workers keeping up | `make soak` (`ERP_SOAK_DURATION`, `ERP_SOAK_WINDOW`); weekly for hours |
 | Resilience (`resilience_test.go`) | Database connections killed under load: 503s for milliseconds, recovery within the RTO, retried posts post once; JetStream node stopped and started: events wait and arrive exactly once; workers killed mid-work (projector, relay, proposal worker): each entry projected, event delivered and proposal built once; shutdown under load: complete answers or connection errors, never half-written | `make resilience`; also in `make test` |
 | Performance (`perf_test.go`, `make perf`) | Budgets for analytics over a large fact set and configuration validation with 2k number ranges; database budgets live with their contexts (trial balance, payment proposal over 100,000 items) | `make perf` |
 | Fuzzing (per package) | Amount parsing round-trips; arbitrary configuration YAML never panics validation or diff; any commentary text is safe for the narrative check; bank files stay well-formed XML with exact control sums for any names; OData values | `make fuzz` |
@@ -83,11 +83,12 @@ assertions as the functional suites.
 Every suite ends with the consistency check: each reference posted once,
 every entry answered 201 in the journal, projected balances equal to the
 journal, audit chain intact. Load and soak skip under `-short` and the race
-detector. The nightly workflow (`.github/workflows/nightly.yml`) runs load
+detector. The weekly workflow (`.github/workflows/weekly.yml`, Sundays and
+on demand) runs load
 for two minutes, the resilience suite, a two-hour soak and five minutes of
 fuzzing per target. The runner is several times slower than a laptop (about
 110 requests/s with the database in a sidecar container), so its budgets are
-scaled by `ERP_BUDGET_SCALE` (4 nightly, 2 for the performance step of the
+scaled by `ERP_BUDGET_SCALE` (4 weekly, 2 for the performance step of the
 push pipeline, 1 by default): the scaled budgets catch a regression, the
 consistency checks still gate, and the budgets at scale 1 are for a
 cell-sized environment, which the largest tenant's peak needs anyway. Both
