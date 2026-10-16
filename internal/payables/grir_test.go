@@ -27,7 +27,8 @@ func (e env) grirOrder(t *testing.T, number string) uuid.UUID {
 		payment_term_code, status, valuation, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 'EUR', '2026-03-01', 'NT30', 'released', 'gr_ir', $6, $6)`,
 		e.Tenant.ID, id, number, e.DE, e.Supplier, e.Tenant.Human.ID)
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
-		price_unit, account_id, tax_code) VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3, 'V1'), ($1, $2, 2, 'Toner', 5, 'KG', 300, 1, $3, NULL)`,
+		price_unit, account_id, tax_code, valuation_price, valuation_price_unit)
+		VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3, 'V1', 1200, 1), ($1, $2, 2, 'Toner', 5, 'KG', 300, 1, $3, NULL, 300, 1)`,
 		e.Tenant.ID, id, e.expense)
 	return id
 }
@@ -129,7 +130,7 @@ func TestForeignInvoiceClearsGRIR(t *testing.T) {
 		payment_term_code, status, valuation, created_by, updated_by) VALUES ($1, $2, 'PO-USD', $3, $4, 'USD', '2026-03-01', 'NT30', 'released', 'gr_ir', $5, $5)`,
 		e.Tenant.ID, po, e.DE, e.Supplier, e.Tenant.Human.ID)
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
-		price_unit, account_id) VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3)`, e.Tenant.ID, po, e.expense)
+		price_unit, account_id, valuation_price, valuation_price_unit) VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3, 1200, 1)`, e.Tenant.ID, po, e.expense)
 	e.Must(201, "POST", "/v1/goods-receipts", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-05", "posting_date": "2026-03-05",
 		"items": [{"purchase_order_id": %q, "po_item_no": 1, "quantity": {"value": "10", "unit": "EA"}}]}`, e.DE, po), "")
 	position := func() [2]int64 {
@@ -194,4 +195,44 @@ func TestInvoiceOnARemovedOrderItem(t *testing.T) {
 		t.Fatalf("remove the order item: %v", err)
 	}
 	e.Problem(422, "payables.order_item_missing", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", e.tag(t, id(inv)))
+}
+
+// TestInvoiceAtTheValuationPrice: an invoice clears GR/IR at the price the
+// order item was released at, leaving what it does not invoice at that
+// price; a price changed since puts its difference on the price difference
+// account (T47a).
+func TestInvoiceAtTheValuationPrice(t *testing.T) {
+	f := fixture.New(t, append(perms, "procurement.receipt.post", "procurement.receipt.read")...)
+	e := env{Env: f, expense: f.Account(t, "2000", "520000"), tax: f.Account(t, "2000", "140000"), ap: f.Account(t, "2000", "211000")}
+	e.GRIR(t)
+	grir, diff := e.Account(t, "2000", "219000").String(), e.Account(t, "2000", "590000").String()
+	po := e.grirOrder(t, "PO-1")
+	e.Must(201, "POST", "/v1/goods-receipts", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-05", "posting_date": "2026-03-05",
+		"items": [{"purchase_order_id": %q, "po_item_no": 2, "quantity": {"value": "5", "unit": "KG"}}]}`, e.DE, po), "")
+	// The price changes after the release, as an order change will (T47f).
+	tx, err := pgtest.Admin(t).Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sql := range []string{`SET LOCAL session_replication_role = replica`,
+		`UPDATE procurement.purchase_order_item SET unit_price = 320 WHERE item_no = 2 AND purchase_order_id = '` + po.String() + `'`} {
+		if _, err := tx.Exec(t.Context(), sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-1", "6.40", "0.00", poItem(po, 2, "2", "KG", "6.40")), "")
+	if m := e.act(t, 200, id(inv), "match", ""); m["is_clean"] != true {
+		t.Fatalf("match: got %v, want clean", m["issues"])
+	}
+	posted := e.act(t, 200, id(inv), "post", `{"posting_date": "2026-03-15"}`)
+	got := e.entryLines(t, posted["journal_entry_id"])
+	// 2 of the 5 received leave 3 open at 3.00: GR/IR is debited 6.00, not
+	// the 5.40 that revaluing the open 3 at 3.20 would leave.
+	want := []line{{grir, "6.00", po.String()}, {diff, "0.40", nil}, {e.ap.String(), "-6.40", nil}}
+	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
+		t.Errorf("invoice lines: got %v, want %v", got, want)
+	}
 }

@@ -19675,6 +19675,12 @@ type PurchaseOrderItem struct {
 	ContractItemNo OptInt32 `json:"contract_item_no"`
 	// Derived: quantity received so far (101 receipts minus 102 reversals).
 	ReceivedQuantity OptQuantity `json:"received_quantity"`
+	// Price per `valuation_price_unit` the item's goods movements are valued at through GR/IR: its price
+	// when it was released, fixed from then on, so a later change of its price reaches GR/IR only through
+	// the invoice's price difference. Absent while the order is a draft.
+	ValuationPrice OptMoney `json:"valuation_price"`
+	// Quantity the valuation price refers to; set with `valuation_price`.
+	ValuationPriceUnit OptInt32 `json:"valuation_price_unit"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -19732,6 +19738,16 @@ func (s *PurchaseOrderItem) GetReceivedQuantity() OptQuantity {
 	return s.ReceivedQuantity
 }
 
+// GetValuationPrice returns the value of ValuationPrice.
+func (s *PurchaseOrderItem) GetValuationPrice() OptMoney {
+	return s.ValuationPrice
+}
+
+// GetValuationPriceUnit returns the value of ValuationPriceUnit.
+func (s *PurchaseOrderItem) GetValuationPriceUnit() OptInt32 {
+	return s.ValuationPriceUnit
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *PurchaseOrderItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -19785,6 +19801,16 @@ func (s *PurchaseOrderItem) SetContractItemNo(val OptInt32) {
 // SetReceivedQuantity sets the value of ReceivedQuantity.
 func (s *PurchaseOrderItem) SetReceivedQuantity(val OptQuantity) {
 	s.ReceivedQuantity = val
+}
+
+// SetValuationPrice sets the value of ValuationPrice.
+func (s *PurchaseOrderItem) SetValuationPrice(val OptMoney) {
+	s.ValuationPrice = val
+}
+
+// SetValuationPriceUnit sets the value of ValuationPriceUnit.
+func (s *PurchaseOrderItem) SetValuationPriceUnit(val OptInt32) {
+	s.ValuationPriceUnit = val
 }
 
 // One page of purchase orders.

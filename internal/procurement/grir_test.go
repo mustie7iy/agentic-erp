@@ -305,3 +305,47 @@ func TestReceiptsForeignAndMixed(t *testing.T) {
 		t.Errorf("mixed receipt lines: got %+v, want only the GR/IR order's %+v", lines, want)
 	}
 }
+
+// TestReceiptsAtTheValuationPrice: an order item is valued at the price it
+// was released at, which its goods movements post GR/IR at whatever its
+// price says later (T47a): a price change of a released order never
+// revalues its open GR/IR position.
+func TestReceiptsAtTheValuationPrice(t *testing.T) {
+	e := setup(t)
+	e.GRIR(t)
+	grir, office := e.Account(t, "2000", "219000"), uuid.MustParse(e.office)
+	order := e.grirOrder(t, "EUR")
+	got, _ := e.Must(200, "GET", "/v1/purchase-orders/"+order, "", "")
+	it := got["items"].([]any)[0].(map[string]any)
+	if v := it["valuation_price"]; fmt.Sprint(v) != "map[amount:2.50 currency:EUR]" {
+		t.Errorf("valuation price: got %v, want 2.50 EUR", v)
+	}
+	if v := it["valuation_price_unit"]; v != float64(1) {
+		t.Errorf("valuation price unit: got %v, want 1", v)
+	}
+	// The price changes after the release, as an order change will (T47f).
+	ctx := context.Background()
+	tx, err := pgtest.Admin(t).Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sql := range []string{`SET LOCAL session_replication_role = replica`,
+		`UPDATE procurement.purchase_order_item SET unit_price = 400 WHERE purchase_order_id = '` + order + `'`} {
+		if _, err := tx.Exec(ctx, sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	code, gr := e.receipt(t, order, "1:4:EA")
+	if code != 201 {
+		t.Fatalf("receipt: got %d %v, want 201", code, gr)
+	}
+	_, _, _, lines := e.entryOf(t, gr["journal_entry_id"])
+	o, minus4 := uuid.MustParse(order), "-4"
+	want := []entryLine{{grir, -1000, -1000, &minus4, &o}, {office, 1000, 1000, nil, nil}}
+	if !reflect.DeepEqual(lines, want) {
+		t.Errorf("receipt after a price change: got %+v, want %+v (4 at 2.50)", lines, want)
+	}
+}

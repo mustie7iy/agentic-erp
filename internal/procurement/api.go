@@ -100,6 +100,10 @@ func orderToAPI(o PurchaseOrder) gen.PurchaseOrder {
 			PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
 			TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: optInt(it.ContractItemNo),
 			ReceivedQuantity: gen.NewOptQuantity(gen.Quantity{Value: it.Received, Unit: it.Unit})}
+		if it.ValuationPrice != nil {
+			out.Items[i].ValuationPrice.SetTo(apitypes.Money(*it.ValuationPrice, o.Currency, o.Exponent))
+			out.Items[i].ValuationPriceUnit.SetTo(*it.ValuationPriceUnit)
+		}
 	}
 	return out
 }

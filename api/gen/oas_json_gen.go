@@ -26470,9 +26470,21 @@ func (s *PurchaseOrderItem) encodeFields(e *jx.Encoder) {
 			s.ReceivedQuantity.Encode(e)
 		}
 	}
+	{
+		if s.ValuationPrice.Set {
+			e.FieldStart("valuation_price")
+			s.ValuationPrice.Encode(e)
+		}
+	}
+	{
+		if s.ValuationPriceUnit.Set {
+			e.FieldStart("valuation_price_unit")
+			s.ValuationPriceUnit.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfPurchaseOrderItem = [11]string{
+var jsonFieldsNameOfPurchaseOrderItem = [13]string{
 	0:  "item_no",
 	1:  "material_id",
 	2:  "description",
@@ -26484,6 +26496,8 @@ var jsonFieldsNameOfPurchaseOrderItem = [11]string{
 	8:  "tax_code",
 	9:  "contract_item_no",
 	10: "received_quantity",
+	11: "valuation_price",
+	12: "valuation_price_unit",
 }
 
 // Decode decodes PurchaseOrderItem from json.
@@ -26609,6 +26623,26 @@ func (s *PurchaseOrderItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"received_quantity\"")
+			}
+		case "valuation_price":
+			if err := func() error {
+				s.ValuationPrice.Reset()
+				if err := s.ValuationPrice.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valuation_price\"")
+			}
+		case "valuation_price_unit":
+			if err := func() error {
+				s.ValuationPriceUnit.Reset()
+				if err := s.ValuationPriceUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valuation_price_unit\"")
 			}
 		default:
 			return d.Skip()

@@ -35,7 +35,7 @@ func (e *Endpoints) postMovement(ctx context.Context, id uuid.UUID, number strin
 		}
 		currency = oi.currency
 		items = append(items, ledger.GRIRItem{PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.POItemNo, Quantity: negated(it.Quantity), Unit: it.Unit,
-			UnitPrice: oi.unitPrice, PriceUnit: oi.priceUnit, OffsetAccountID: &current[i].account})
+			UnitPrice: oi.valuationPrice, PriceUnit: oi.valuationPriceUnit, OffsetAccountID: &current[i].account})
 	}
 	if len(items) == 0 {
 		return nil, nil, nil

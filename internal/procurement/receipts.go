@@ -108,8 +108,8 @@ type orderItem struct {
 	received            string
 	documentNumber      string
 	currency, valuation string
-	unitPrice           money.Minor
-	priceUnit           int32
+	valuationPrice      money.Minor // fixed at the item's release (T47a)
+	valuationPriceUnit  int32
 	account             uuid.UUID
 }
 
@@ -128,7 +128,7 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 			coalesce(trim_scale(i.quantity)::text, '0'), coalesce(trim_scale(i.over_delivery_pct)::text, '0'),
 			trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text, coalesce(o.document_number, ''),
-			coalesce(o.currency, ''), coalesce(o.valuation, ''), coalesce(i.unit_price, 0), coalesce(i.price_unit, 1), coalesce(i.account_id, $3)
+			coalesce(o.currency, ''), coalesce(o.valuation, ''), coalesce(i.valuation_price, 0), coalesce(i.valuation_price_unit, 1), coalesce(i.account_id, $3)
 		FROM unnest($1::uuid[], $2::int[]) WITH ORDINALITY AS x(o, n, ord)
 		LEFT JOIN procurement.purchase_order o ON o.id = x.o
 		LEFT JOIN procurement.purchase_order_item i ON i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND i.item_no = x.n AND NOT i.is_removed
@@ -136,7 +136,7 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 	var out []orderItem
 	var oi orderItem
 	_, err := pgx.ForEachRow(rows, []any{&oi.found, &oi.legalEntity, &oi.status, &oi.unit, &oi.ordered, &oi.tolerance, &oi.received, &oi.documentNumber,
-		&oi.currency, &oi.valuation, &oi.unitPrice, &oi.priceUnit, &oi.account},
+		&oi.currency, &oi.valuation, &oi.valuationPrice, &oi.valuationPriceUnit, &oi.account},
 		func() error { out = append(out, oi); return nil })
 	if err != nil {
 		return nil, fmt.Errorf("procurement: read %d purchase order items: %w", len(items), err)

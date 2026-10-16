@@ -888,8 +888,8 @@ func TestGoodsReceiptLimits(t *testing.T) {
 			VALUES ($1,$2,'4500000001',$3,$4,'USD','2026-08-01','NT30','released',$5,$5)`, f.tenant, po, f.entity, f.supplier, f.actor); err != nil {
 			return err
 		}
-		return exec(tx, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price, account_id, over_delivery_pct)
-			VALUES ($1,$2,10,'Paper',10,'EA',250,$3,10)`, f.tenant, po, f.expense)
+		return exec(tx, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price, account_id, over_delivery_pct,
+			valuation_price, valuation_price_unit) VALUES ($1,$2,10,'Paper',10,'EA',250,$3,10,250,1)`, f.tenant, po, f.expense)
 	})
 	receive := func(qty string, mt string, rev *uuid.UUID) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {

@@ -306,8 +306,8 @@ func grirItem(o procurement.Order, kind string, it Item) (ledger.GRIRItem, error
 	}
 	for _, oi := range o.Items {
 		if oi.ItemNo == *it.POItemNo {
-			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: quantity, Unit: it.Unit, UnitPrice: oi.UnitPrice,
-				PriceUnit: oi.PriceUnit, Invoiced: &amount, Text: it.Description}, nil
+			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: quantity, Unit: it.Unit, UnitPrice: oi.ValuationPrice,
+				PriceUnit: oi.ValuationPriceUnit, Invoiced: &amount, Text: it.Description}, nil
 		}
 	}
 	return ledger.GRIRItem{}, problem.Unprocessable("payables.order_item_missing",

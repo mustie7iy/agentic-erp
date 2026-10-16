@@ -48,7 +48,7 @@ func (e env) orderIn(t *testing.T, currency string, price int64) uuid.UUID {
 		payment_term_code, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, '2026-03-01', 'NT30', 'released', $7, $7)`,
 		e.Tenant.ID, id, "PO-"+currency+id.String()[30:], e.DE, e.Supplier, currency, e.Tenant.Human.ID)
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
-		price_unit, account_id) VALUES ($1, $2, 1, 'Paper', 10, 'EA', $3, 1, $4)`, e.Tenant.ID, id, price, e.expense)
+		price_unit, account_id, valuation_price, valuation_price_unit) VALUES ($1, $2, 1, 'Paper', 10, 'EA', $3, 1, $4, $3, 1)`, e.Tenant.ID, id, price, e.expense)
 	e.receive(t, id, 1, "10")
 	return id
 }

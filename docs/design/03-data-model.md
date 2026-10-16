@@ -767,6 +767,19 @@ entry and so its currency (422 `procurement.mixed_currencies`). A 102
 posts its own WE entry the other way; the ledger's `:reverse` refuses a
 WE entry.
 
+Each item of a released order carries its `valuation_price` and
+`valuation_price_unit` (migration 000061, T47a): its price when it was
+released, with its order or as an order change adds it. Goods movements
+post GR/IR at it, and invoices clear GR/IR at it, putting what they differ
+from it on `price_difference`; its `unit_price` is what invoices are matched
+against. The GR/IR engine values an item's whole open position at the price
+a posting gives it, so a later change of the item's price must not reach
+GR/IR: the valuation price never changes once set
+(`purchase_order_item_valuation_fixed`), a released order's items are
+valued (`purchase_order_items_valued`, on release and on adding an item),
+and items of orders released before T47a were valued at their price, which
+could not change after the release.
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid

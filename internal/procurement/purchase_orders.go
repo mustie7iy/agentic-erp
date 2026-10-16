@@ -53,7 +53,7 @@ const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purcha
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'over_delivery_pct', trim_scale(i.over_delivery_pct)::text, 'tax_code', i.tax_code,
-			'contract_item_no', i.contract_item_no,
+			'contract_item_no', i.contract_item_no, 'valuation_price', i.valuation_price, 'valuation_price_unit', i.valuation_price_unit,
 			'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
 		 FROM procurement.purchase_order_item i WHERE i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND NOT i.is_removed), '[]')
@@ -539,6 +539,12 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	valuation, err := e.valuation(ctx, o.LegalEntityID, loaded)
 	if err != nil {
 		return PurchaseOrder{}, err
+	}
+	// Its items are valued at their price as it is released (T47a), while
+	// the order is still a draft whose items may change.
+	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order_item SET valuation_price = unit_price, valuation_price_unit = price_unit
+		WHERE purchase_order_id = $1 AND NOT is_removed`, id); err != nil {
+		return PurchaseOrder{}, fmt.Errorf("procurement: value the items of purchase order %s: %w", id, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET status = 'released', valuation = $3, version = version + 1, updated_by = $2 WHERE id = $1`,
 		id, p.ID, valuation); err != nil {
