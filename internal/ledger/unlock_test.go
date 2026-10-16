@@ -85,7 +85,7 @@ func TestUnlockCallbacks(t *testing.T) {
 		pgtest.Exec(t, `UPDATE ledger.period_status SET unlock_request_id = $2, version = version + 1 WHERE id = $1`, id, request)
 	}
 	h := ledger.PeriodUnlocks{}
-	call := func(fn func(ctx context.Context) error) error {
+	call := func(t *testing.T, fn func(ctx context.Context) error) error {
 		t.Helper()
 		return apitest.Committed(t, e.ten, e.ten.Human, fn)
 	}
@@ -112,22 +112,22 @@ func TestUnlockCallbacks(t *testing.T) {
 		"approving another period":   func(ctx context.Context) error { return h.Approved(ctx, uuid.New(), request) },
 	} {
 		t.Run(what, func(t *testing.T) {
-			if err := call(fn); err == nil {
+			if err := call(t, fn); err == nil {
 				t.Error("got no error, want one")
 			}
 		})
 	}
-	if err := call(func(ctx context.Context) error { return h.Cancelled(ctx, id, request, "withdrawn") }); err != nil {
+	if err := call(t, func(ctx context.Context) error { return h.Cancelled(ctx, id, request, "withdrawn") }); err != nil {
 		t.Fatalf("cancelled: %v", err)
 	}
 	is("cancelled", "locked")
 	name()
-	if err := call(func(ctx context.Context) error { return h.Approved(ctx, id, request) }); err != nil {
+	if err := call(t, func(ctx context.Context) error { return h.Approved(ctx, id, request) }); err != nil {
 		t.Fatalf("approved: %v", err)
 	}
 	is("approved", "closed")
 	// A second callback for the same request finds the period closed.
-	if err := call(func(ctx context.Context) error { return h.Approved(ctx, id, request) }); err == nil {
+	if err := call(t, func(ctx context.Context) error { return h.Approved(ctx, id, request) }); err == nil {
 		t.Error("approved twice: got no error, want one")
 	}
 	if got := events(t, e.ten, "period_unlocked"); len(got) != 1 {
