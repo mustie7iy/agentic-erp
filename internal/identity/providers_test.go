@@ -771,10 +771,12 @@ func TestRequireActiveProvider(t *testing.T) {
 	check := func(t *testing.T, wrap func(pgx.Tx) pgx.Tx) error {
 		t.Helper()
 		var err error
-		_ = r.in(func(ctx context.Context, tx pgx.Tx) error {
+		if txErr := r.in(func(ctx context.Context, tx pgx.Tx) error {
 			err = identity.RequireActiveProvider(ctx, wrap(tx), r.tenant)
 			return nil
-		})
+		}); txErr != nil {
+			t.Fatal(txErr)
+		}
 		return err
 	}
 	plain := func(tx pgx.Tx) pgx.Tx { return tx }
@@ -792,6 +794,8 @@ func TestRequireActiveProvider(t *testing.T) {
 		if _, err := r.retire(first.ID, "*"); err != nil {
 			t.Fatal(err)
 		}
+		// The last one is retired by hand: RetireIdentityProvider keeps a
+		// tenant's last provider, which is the state a hand-made change leaves.
 		pgtest.Exec(t, `UPDATE identity.identity_provider SET status = 'retired', retired_at = now(), version = version + 1 WHERE tenant_id = $1 AND status = 'active'`, r.tenant)
 		wantProblem(t, check(t, plain), "identity.provider_required")
 	})
