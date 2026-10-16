@@ -328,3 +328,31 @@ func TestReversalClearsThePair(t *testing.T) {
 	// Nothing clears the pair again.
 	e.Problem(409, "ledger.entry_reversed", "POST", "/v1/clearings", clearing(e.de, "2026-03-31", ref{invoice, 2}, ref{reversal, 2}), "")
 }
+
+// TestMigratedClearingNeedsAnOpenPeriod: a migration clears items by an
+// entry already posted, on the source system's clearing date. That date is
+// held to the rule every clearing is (03-data-model §3.10): it falls in a
+// fiscal period of the legal entity, and the period is open.
+func TestMigratedClearingNeedsAnOpenPeriod(t *testing.T) {
+	e := setup(t)
+	bank, expense, ap := e.account(t, "2000", "100000"), e.account(t, "2000", "520000"), e.account(t, "2000", "211000")
+	sup := e.supplier.String()
+	inv, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-01", "EUR", line{expense, "10.00", ""}, line{ap, "-10.00", sup}), "")
+	pay, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-20", "EUR", line{ap, "10.00", sup}, line{bank, "-10.00", ""}), "")
+	p := migratedPair{uuid.MustParse(inv["id"].(string)), uuid.MustParse(pay["id"].(string))}
+	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE legal_entity_id = $1 AND fiscal_year = 2026 AND period = 4`, e.de)
+	for name, c := range map[string]struct{ date, code string }{
+		"in a closed period":  {"2026-04-02", "ledger.period_not_open"},
+		"in no fiscal period": {"2031-01-02", "ledger.no_fiscal_period"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+				_, err := postings().Clear(ctx, e.de, date(c.date), ledger.ItemRef{FiscalYear: 2026, EntryID: p.payment, LineNo: 1}, p.items())
+				return err
+			})
+			if got := problem.From(err).Code; got != c.code {
+				t.Errorf("code: got %s (%v), want %s", got, err, c.code)
+			}
+		})
+	}
+}

@@ -463,6 +463,73 @@ func TestPostingHoldsItsPeriod(t *testing.T) {
 	failsWith(t, err, "could not obtain lock on row in relation \"period_status\"")
 }
 
+// TestClearingsRespectPeriods: a clearing is dated in a fiscal period of
+// its entry's legal entity and ledger, and that period is open (000049,
+// 03-data-model §3.10), as an entry's posting date is. A clearing posts no
+// entry when a migration brings it over, so the rule is on the clearing.
+func TestClearingsRespectPeriods(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var pay uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		pay, err = f.entry(tx, 6, "2026-06-20", line{account: f.ap, amount: 700, partner: &f.supplier}, line{account: f.bank, amount: -700})
+		return err
+	})
+	if _, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = 'locked', version = version + 1 WHERE tenant_id = $1 AND period = 1`, f.tenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testDB.Exec(context.Background(), `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND period = 2`, f.tenant); err != nil {
+		t.Fatal(err)
+	}
+	clear := func(day string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by) VALUES ($1,$2,$3,$4,2026,$5,$6)",
+				f.tenant, id(), f.entity, day, pay, f.actor)
+		})
+	}
+	for name, c := range map[string]struct{ day, want string }{
+		"locked period":    {"2026-01-20", "is locked"},
+		"closed period":    {"2026-02-20", "is closed"},
+		"no fiscal period": {"2027-01-05", "no fiscal period"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, clear(c.day), c.want) })
+	}
+	if err := clear("2026-07-01"); err != nil {
+		t.Errorf("clearing in an open period: got %v, want none", err)
+	}
+}
+
+// TestClearingHoldsItsPeriod: inserting a clearing holds its period's
+// status row FOR SHARE until the transaction ends, as posting does, so a
+// close waits for it.
+func TestClearingHoldsItsPeriod(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	ctx := context.Background()
+	var pay uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		pay, err = f.entry(tx, 6, "2026-06-20", line{account: f.ap, amount: 700, partner: &f.supplier}, line{account: f.bank, amount: -700})
+		return err
+	})
+	closer, err := pgx.ConnectConfig(ctx, testDB.Config().Copy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = closer.Close(ctx) }() // a close error leaves nothing to undo: the session ends either way
+	err = asApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, "INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by) VALUES ($1,$2,$3,'2026-08-03',2026,$4,$5)",
+			f.tenant, id(), f.entity, pay, f.actor); err != nil {
+			return fmt.Errorf("clear: %w", err)
+		}
+		_, err := closer.Exec(ctx, `SELECT FROM ledger.period_status WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = 2026 AND period = 8
+			FOR UPDATE NOWAIT`, f.tenant, f.entity)
+		return err
+	})
+	failsWith(t, err, "could not obtain lock on row in relation \"period_status\"")
+}
+
 func TestReconciliationAccountsNeedPartner(t *testing.T) {
 	need(t)
 	f := newFixture(t)
