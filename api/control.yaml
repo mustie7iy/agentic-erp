@@ -1323,6 +1323,10 @@ components:
             minLength: 1
             maxLength: 64
           description: "`amr` values (RFC 8176) any one of which proves multi-factor authentication, e.g. `mfa`, `otp`, `hwk`."
+        certificate_bound_tokens:
+          type: boolean
+          default: false
+          description: "The provider binds the tokens it issues to the client's certificate (RFC 8705, `cnf.x5t#S256`); such a token is accepted only with the certificate it is bound to. With `ERP_ENV=production` an agent's token is accepted only from a provider that binds (ADR-0033)."
       examples:
         - issuer: "https://login.acme.example/"
           audience: erp-api
@@ -1351,6 +1355,9 @@ components:
             minLength: 1
             maxLength: 64
           description: "`amr` values that prove multi-factor authentication; replaced as a whole."
+        certificate_bound_tokens:
+          type: boolean
+          description: "Whether the provider binds its tokens to the client's certificate (RFC 8705, ADR-0033); not null."
       examples:
         - acr_values: ["urn:acme:loa:2"]
     IdentityProvider:
@@ -1364,6 +1371,7 @@ components:
         - tenant_claim
         - acr_values
         - amr_values
+        - certificate_bound_tokens
         - status
         - created_at
         - updated_at
@@ -1397,6 +1405,9 @@ components:
           items:
             type: string
           description: "`amr` values that prove multi-factor authentication."
+        certificate_bound_tokens:
+          type: boolean
+          description: "The provider binds the tokens it issues to the client's certificate (RFC 8705, `cnf.x5t#S256`); such a token is accepted only with the certificate it is bound to. With `ERP_ENV=production` an agent's token is accepted only from a provider that binds (ADR-0033)."
         status:
           type: string
           enum: ["active", "retired"]
@@ -1425,6 +1436,7 @@ components:
           tenant_claim: null
           acr_values: []
           amr_values: ["mfa"]
+          certificate_bound_tokens: false
           status: active
           created_at: "2026-10-16T09:00:00Z"
           updated_at: "2026-10-16T09:00:00Z"

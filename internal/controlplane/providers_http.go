@@ -64,6 +64,8 @@ type providerBody struct {
 	TenantClaim *string  `json:"tenant_claim"`
 	ACRValues   []string `json:"acr_values"`
 	AMRValues   []string `json:"amr_values"`
+	// CertificateBound is certificate_bound_tokens (ADR-0033).
+	CertificateBound bool `json:"certificate_bound_tokens"`
 }
 
 func (h *handler) register(w http.ResponseWriter, r *http.Request, tenant uuid.UUID) error {
@@ -76,7 +78,8 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request, tenant uuid.U
 		return err
 	}
 	p, replayed, err := h.s.RegisterProvider(r.Context(), operator(r.Context()), tenant,
-		identity.NewIdentityProvider{Issuer: in.Issuer, Audience: in.Audience, TenantClaim: in.TenantClaim, ACRValues: in.ACRValues, AMRValues: in.AMRValues}, key)
+		identity.NewIdentityProvider{Issuer: in.Issuer, Audience: in.Audience, TenantClaim: in.TenantClaim, ACRValues: in.ACRValues, AMRValues: in.AMRValues,
+			CertificateBound: in.CertificateBound}, key)
 	if err != nil {
 		return err
 	}
@@ -178,6 +181,7 @@ func providerChange(body []byte) (identity.IdentityProviderChange, error) {
 		TenantClaim json.RawMessage `json:"tenant_claim"`
 		ACRValues   json.RawMessage `json:"acr_values"`
 		AMRValues   json.RawMessage `json:"amr_values"`
+		Bound       json.RawMessage `json:"certificate_bound_tokens"`
 	}
 	var ch identity.IdentityProviderChange
 	if err := strictJSON(body, &patch); err != nil {
@@ -189,6 +193,13 @@ func providerChange(body []byte) (identity.IdentityProviderChange, error) {
 			return ch, problem.BadRequest("request.invalid_body", "tenant_claim must be a string or null.").WithCause(err)
 		}
 		ch.TenantClaim = &claim
+	}
+	if patch.Bound != nil {
+		var bound *bool
+		if err := json.Unmarshal(patch.Bound, &bound); err != nil || bound == nil {
+			return ch, problem.BadRequest("request.invalid_body", "certificate_bound_tokens must be true or false.")
+		}
+		ch.CertificateBound = bound
 	}
 	for _, f := range []struct {
 		raw json.RawMessage

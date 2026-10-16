@@ -1706,16 +1706,20 @@ func TestRegisterProviderCommand(t *testing.T) {
 	getenv := func(k string) string { return env[k] }
 	ten := pgtest.NewTenant(t)
 	var stdout, stderr bytes.Buffer
-	args := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", idp.URL, "-audience", authntest.Audience, "-amr", "mfa,otp"}
+	args := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", idp.URL, "-audience", authntest.Audience, "-amr", "mfa,otp", "-certificate-bound"}
 	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
 		t.Fatalf("register-provider: %d %s", code, stderr.String())
 	}
 	var registered struct {
-		ID        string   `json:"id"`
-		AMRValues []string `json:"amr_values"`
+		ID               string   `json:"id"`
+		AMRValues        []string `json:"amr_values"`
+		CertificateBound bool     `json:"certificate_bound_tokens"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &registered); err != nil || registered.ID == "" || strings.Join(registered.AMRValues, ",") != "mfa,otp" {
 		t.Fatalf("output: %v %s", err, stdout.String())
+	}
+	if !registered.CertificateBound {
+		t.Errorf("certificate_bound_tokens: got false, want true with -certificate-bound (ADR-0033)")
 	}
 	var audited int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'identity.identity_provider.register'`, []any{ten.ID}, &audited)

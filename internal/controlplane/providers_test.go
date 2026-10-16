@@ -56,8 +56,8 @@ func TestIdentityProvidersThroughTheControlPlane(t *testing.T) {
 	id := created["id"].(string)
 
 	t.Run("registered", func(t *testing.T) {
-		if created["issuer"] != iss || created["audience"] != "erp-api" || created["status"] != "active" || created["tenant_claim"] != nil {
-			t.Errorf("provider: got %v, want %s for erp-api, active, no tenant claim", created, iss)
+		if created["issuer"] != iss || created["audience"] != "erp-api" || created["status"] != "active" || created["tenant_claim"] != nil || created["certificate_bound_tokens"] != false {
+			t.Errorf("provider: got %v, want %s for erp-api, active, no tenant claim, tokens not certificate-bound", created, iss)
 		}
 		if h.Get("ETag") != `"1"` || h.Get("Location") != providers+"/"+id {
 			t.Errorf("headers: got ETag %s, Location %s, want \"1\", %s/%s", h.Get("ETag"), h.Get("Location"), providers, id)
@@ -100,6 +100,11 @@ func TestIdentityProvidersThroughTheControlPlane(t *testing.T) {
 		if _, op := auditAction(t, ten.ID, "identity.identity_provider.update"); op != "ops|alice" {
 			t.Errorf("audit: got operator %q, want ops|alice", op)
 		}
+		got, _ = p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"certificate_bound_tokens": true}`, "If-Match", `"3"`, "Content-Type", mergePatch)
+		if got["certificate_bound_tokens"] != true {
+			t.Errorf("patch binding: got %v, want certificate-bound tokens", got)
+		}
+		p.in(t).problem(400, "request.invalid_body", "ops|alice", "PATCH", providers+"/"+id, `{"certificate_bound_tokens": null}`, "If-Match", `"4"`, "Content-Type", mergePatch)
 		p.in(t).problem(412, "request.version_mismatch", "ops|alice", "PATCH", providers+"/"+id, `{}`, "If-Match", `"1"`, "Content-Type", mergePatch)
 	})
 	t.Run("retired", func(t *testing.T) {
@@ -114,6 +119,14 @@ func TestIdentityProvidersThroughTheControlPlane(t *testing.T) {
 			t.Errorf("events: got %v, want one", events)
 		}
 		p.in(t).problem(409, "identity.provider_retired", "ops|alice", "POST", providers+"/"+id+":retire", "", "If-Match", "*")
+	})
+	t.Run("registered as binding tokens to certificates", func(t *testing.T) {
+		iss := "https://bound-" + uuid.NewString() + ".example.com"
+		got, _ := p.in(t).must(201, "ops|alice", "POST", providers, `{"issuer": "`+iss+`", "audience": "erp-agents", "amr_values": ["mfa"], "certificate_bound_tokens": true}`,
+			"Idempotency-Key", "key-"+uuid.NewString())
+		if got["certificate_bound_tokens"] != true {
+			t.Errorf("provider: got %v, want certificate-bound tokens", got)
+		}
 	})
 }
 

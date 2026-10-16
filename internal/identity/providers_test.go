@@ -237,6 +237,16 @@ func TestUpdateIdentityProvider(t *testing.T) {
 			t.Errorf("provider: got claim %v, amr %v, acr %v, want nil, mfa,hwk, urn:loa:2", p.TenantClaim, p.AMRValues, p.ACRValues)
 		}
 	})
+	t.Run("certificate binding", func(t *testing.T) {
+		yes := true
+		p, err = r.update(p.ID, etag.Format(p.Version), identity.IdentityProviderChange{CertificateBound: &yes})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !p.CertificateBound || strings.Join(p.ACRValues, ",") != "urn:loa:2" {
+			t.Errorf("provider: got bound %v, acr %v, want bound, urn:loa:2 kept", p.CertificateBound, p.ACRValues)
+		}
+	})
 	t.Run("stale version", func(t *testing.T) {
 		_, err := r.update(p.ID, `"1"`, identity.IdentityProviderChange{})
 		if got := problem.From(err).Status; got != 412 {
@@ -412,6 +422,19 @@ func TestResolveIdentityProvider(t *testing.T) {
 		}
 		if reg.Policy.MFARequired || reg.Policy.SessionMaxAge != 12*time.Hour || reg.Policy.IdleTimeout != 30*time.Minute {
 			t.Errorf("policy: got %+v, want the defaults", reg.Policy)
+		}
+	})
+	t.Run("a provider binding tokens to certificates says so", func(t *testing.T) {
+		bound := issuer("bound")
+		if _, err := r.register(identity.NewIdentityProvider{Issuer: bound, Audience: "erp", AMRValues: []string{"mfa"}, CertificateBound: true}); err != nil {
+			t.Fatal(err)
+		}
+		reg, err := resolve(t, r.pool, bound, "erp")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reg.CertificateBound {
+			t.Error("CertificateBound: got false, want true")
 		}
 	})
 	t.Run("with the tenant's policy", func(t *testing.T) {

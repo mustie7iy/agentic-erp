@@ -69,30 +69,36 @@ type IdentityProvider struct {
 	TenantClaim *string // a claim that must carry the tenant's id; nil: none
 	ACRValues   []string
 	AMRValues   []string
-	Status      string
-	CreatedAt   time.Time
-	CreatedBy   uuid.UUID
-	UpdatedAt   time.Time
-	UpdatedBy   uuid.UUID
-	RetiredAt   *time.Time
-	Version     int32
+	// CertificateBound says the provider binds its tokens to the client's
+	// certificate (RFC 8705), which production requires of agents' tokens
+	// (ADR-0033).
+	CertificateBound bool
+	Status           string
+	CreatedAt        time.Time
+	CreatedBy        uuid.UUID
+	UpdatedAt        time.Time
+	UpdatedBy        uuid.UUID
+	RetiredAt        *time.Time
+	Version          int32
 }
 
 // NewIdentityProvider is a registration request.
 type NewIdentityProvider struct {
-	Issuer      string
-	Audience    string
-	TenantClaim *string
-	ACRValues   []string
-	AMRValues   []string
+	Issuer           string
+	Audience         string
+	TenantClaim      *string
+	ACRValues        []string
+	AMRValues        []string
+	CertificateBound bool
 }
 
 // IdentityProviderChange is a merge patch: nil fields are unchanged; a
 // TenantClaim pointing at nil clears it. Issuer and audience never change.
 type IdentityProviderChange struct {
-	TenantClaim **string
-	ACRValues   *[]string
-	AMRValues   *[]string
+	TenantClaim      **string
+	ACRValues        *[]string
+	AMRValues        *[]string
+	CertificateBound *bool
 }
 
 // AuthPolicy is a tenant's authentication policy.
@@ -121,15 +127,18 @@ type Registration struct {
 	TenantClaim *string
 	ACRValues   []string
 	AMRValues   []string
-	Policy      AuthPolicy
+	// CertificateBound says the provider binds its tokens to the client's
+	// certificate (ADR-0033).
+	CertificateBound bool
+	Policy           AuthPolicy
 }
 
-const providerColumns = `id, tenant_id, issuer, audience, tenant_claim, acr_values, amr_values, status,
+const providerColumns = `id, tenant_id, issuer, audience, tenant_claim, acr_values, amr_values, certificate_bound, status,
 	created_at, created_by, updated_at, updated_by, retired_at, version`
 
 func scanProvider(row pgx.Row) (IdentityProvider, error) {
 	var p IdentityProvider
-	err := row.Scan(&p.ID, &p.TenantID, &p.Issuer, &p.Audience, &p.TenantClaim, &p.ACRValues, &p.AMRValues, &p.Status,
+	err := row.Scan(&p.ID, &p.TenantID, &p.Issuer, &p.Audience, &p.TenantClaim, &p.ACRValues, &p.AMRValues, &p.CertificateBound, &p.Status,
 		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.RetiredAt, &p.Version)
 	return p, err //nolint:wrapcheck // callers wrap with the provider they read
 }
@@ -143,9 +152,9 @@ func RegisterIdentityProvider(ctx context.Context, tx pgx.Tx, actor uuid.UUID, i
 		return IdentityProvider{}, err
 	}
 	p, err := scanProvider(tx.QueryRow(ctx, `INSERT INTO identity.identity_provider
-		(tenant_id, id, issuer, audience, tenant_claim, acr_values, amr_values, created_by, updated_by)
-		VALUES (platform.current_tenant(), $1, $2, $3, $4, $5, $6, $7, $7) RETURNING `+providerColumns,
-		uuid.Must(uuid.NewV7()), in.Issuer, in.Audience, in.TenantClaim, values(in.ACRValues), values(in.AMRValues), actor))
+		(tenant_id, id, issuer, audience, tenant_claim, acr_values, amr_values, certificate_bound, created_by, updated_by)
+		VALUES (platform.current_tenant(), $1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING `+providerColumns,
+		uuid.Must(uuid.NewV7()), in.Issuer, in.Audience, in.TenantClaim, values(in.ACRValues), values(in.AMRValues), in.CertificateBound, actor))
 	if err != nil {
 		return p, fmt.Errorf("identity: register identity provider %s: %w", in.Issuer, err)
 	}
@@ -191,7 +200,8 @@ func UpdateIdentityProvider(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID,
 	if err != nil {
 		return p, err
 	}
-	in := NewIdentityProvider{Issuer: p.Issuer, Audience: p.Audience, TenantClaim: p.TenantClaim, ACRValues: p.ACRValues, AMRValues: p.AMRValues}
+	in := NewIdentityProvider{Issuer: p.Issuer, Audience: p.Audience, TenantClaim: p.TenantClaim, ACRValues: p.ACRValues, AMRValues: p.AMRValues,
+		CertificateBound: p.CertificateBound}
 	if ch.TenantClaim != nil {
 		in.TenantClaim = *ch.TenantClaim
 	}
@@ -201,6 +211,9 @@ func UpdateIdentityProvider(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID,
 	if ch.AMRValues != nil {
 		in.AMRValues = *ch.AMRValues
 	}
+	if ch.CertificateBound != nil {
+		in.CertificateBound = *ch.CertificateBound
+	}
 	if err := ValidateProvider(in); err != nil {
 		return p, err
 	}
@@ -208,8 +221,8 @@ func UpdateIdentityProvider(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID,
 		return p, err
 	}
 	p, err = scanProvider(tx.QueryRow(ctx, `UPDATE identity.identity_provider SET tenant_claim = $2, acr_values = $3, amr_values = $4,
-		updated_by = $5, version = version + 1 WHERE id = $1 RETURNING `+providerColumns,
-		id, in.TenantClaim, values(in.ACRValues), values(in.AMRValues), actor))
+		certificate_bound = $5, updated_by = $6, version = version + 1 WHERE id = $1 RETURNING `+providerColumns,
+		id, in.TenantClaim, values(in.ACRValues), values(in.AMRValues), in.CertificateBound, actor))
 	if err != nil {
 		return p, fmt.Errorf("identity: update identity provider %s: %w", id, err)
 	}
@@ -388,7 +401,7 @@ func mfaUnprovable() *problem.Problem {
 // registrations may require different proofs, and a token must say which
 // one it is for.
 func ResolveIdentityProvider(ctx context.Context, tx pgx.Tx, issuer string, audiences []string) (Registration, error) {
-	rows, _ := tx.Query(ctx, `SELECT p.id, p.tenant_id, p.issuer, p.audience, p.tenant_claim, p.acr_values, p.amr_values,
+	rows, _ := tx.Query(ctx, `SELECT p.id, p.tenant_id, p.issuer, p.audience, p.tenant_claim, p.acr_values, p.amr_values, p.certificate_bound,
 			coalesce(a.mfa_required, false), coalesce(extract(epoch FROM a.session_max_age)::bigint, $3),
 			coalesce(extract(epoch FROM a.idle_timeout)::bigint, $4)
 		FROM identity.identity_provider p LEFT JOIN identity.auth_policy a ON a.tenant_id = p.tenant_id
@@ -397,7 +410,7 @@ func ResolveIdentityProvider(ctx context.Context, tx pgx.Tx, issuer string, audi
 	regs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Registration, error) {
 		var r Registration
 		var age, idle int64
-		err := row.Scan(&r.ProviderID, &r.TenantID, &r.Issuer, &r.Audience, &r.TenantClaim, &r.ACRValues, &r.AMRValues,
+		err := row.Scan(&r.ProviderID, &r.TenantID, &r.Issuer, &r.Audience, &r.TenantClaim, &r.ACRValues, &r.AMRValues, &r.CertificateBound,
 			&r.Policy.MFARequired, &age, &idle)
 		r.Policy.SessionMaxAge, r.Policy.IdleTimeout = time.Duration(age)*time.Second, time.Duration(idle)*time.Second
 		return r, err //nolint:wrapcheck // wrapped below with the issuer
@@ -577,7 +590,8 @@ func RetiredEvent(p IdentityProvider) outbox.Event {
 // register, update, retire); the caller adds who made it.
 func ProviderEntry(verb string, p IdentityProvider) audit.Entry {
 	return audit.Entry{Action: "identity.identity_provider." + verb, ObjectType: "identity.identity_provider", ObjectID: p.ID,
-		Detail: map[string]any{"issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues}}
+		Detail: map[string]any{"issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues,
+			"certificate_bound": p.CertificateBound}}
 }
 
 // ProductionIssuer refuses an issuer other than https where production

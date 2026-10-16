@@ -24,7 +24,7 @@ import (
 // server, as the control plane's registerIdentityProvider does it (checked,
 // probed, claimed in the global directory, audited and published, ADR-0031):
 //
-//	erp-server register-provider -tenant <id> -issuer https://idp.example.com -audience erp-api [-acr ...] [-amr mfa]
+//	erp-server register-provider -tenant <id> -issuer https://idp.example.com -audience erp-api [-acr ...] [-amr mfa] [-certificate-bound]
 //
 // It is the remedy a production cell names when it refuses to start for an
 // active tenant without a provider: the control plane is served by the
@@ -37,6 +37,7 @@ func registerProviderCmd(ctx context.Context, args []string, cfg platformconfig.
 	audience := fs.String("audience", "", "the audience it issues the ERP's tokens for")
 	acr := fs.String("acr", "", "acr values proving multi-factor, comma-separated (optional)")
 	amr := fs.String("amr", "", "amr values proving multi-factor, comma-separated (optional)")
+	bound := fs.Bool("certificate-bound", false, "the provider binds its tokens to the client's certificate (RFC 8705); production accepts agents' tokens only from such a provider")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -48,7 +49,8 @@ func registerProviderCmd(ctx context.Context, args []string, cfg platformconfig.
 		fmt.Fprintln(stderr, "erp-server register-provider: -tenant must be the tenant's id")
 		return 2
 	}
-	p, err := registerProvider(ctx, cfg, id, identity.NewIdentityProvider{Issuer: *issuer, Audience: *audience, ACRValues: list(*acr), AMRValues: list(*amr)})
+	p, err := registerProvider(ctx, cfg, id, identity.NewIdentityProvider{Issuer: *issuer, Audience: *audience, ACRValues: list(*acr), AMRValues: list(*amr),
+		CertificateBound: *bound})
 	if err != nil {
 		fmt.Fprintln(stderr, "erp-server register-provider:", err)
 		return 1

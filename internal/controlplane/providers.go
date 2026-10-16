@@ -33,23 +33,26 @@ import (
 
 // IdentityProvider is the IdentityProvider schema of the contract.
 type IdentityProvider struct {
-	ID          uuid.UUID  `json:"id"`
-	TenantID    uuid.UUID  `json:"tenant_id"`
-	Issuer      string     `json:"issuer"`
-	Audience    string     `json:"audience"`
-	TenantClaim *string    `json:"tenant_claim"`
-	ACRValues   []string   `json:"acr_values"`
-	AMRValues   []string   `json:"amr_values"`
-	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	RetiredAt   *time.Time `json:"retired_at"`
-	Version     int32      `json:"version"`
+	ID          uuid.UUID `json:"id"`
+	TenantID    uuid.UUID `json:"tenant_id"`
+	Issuer      string    `json:"issuer"`
+	Audience    string    `json:"audience"`
+	TenantClaim *string   `json:"tenant_claim"`
+	ACRValues   []string  `json:"acr_values"`
+	AMRValues   []string  `json:"amr_values"`
+	// CertificateBound is certificate_bound_tokens: the provider binds its
+	// tokens to the client's certificate (RFC 8705, ADR-0033).
+	CertificateBound bool       `json:"certificate_bound_tokens"`
+	Status           string     `json:"status"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	RetiredAt        *time.Time `json:"retired_at"`
+	Version          int32      `json:"version"`
 }
 
 func providerView(p identity.IdentityProvider) IdentityProvider {
 	return IdentityProvider{ID: p.ID, TenantID: p.TenantID, Issuer: p.Issuer, Audience: p.Audience, TenantClaim: p.TenantClaim,
-		ACRValues: p.ACRValues, AMRValues: p.AMRValues, Status: p.Status, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		ACRValues: p.ACRValues, AMRValues: p.AMRValues, CertificateBound: p.CertificateBound, Status: p.Status, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 		RetiredAt: p.RetiredAt, Version: p.Version}
 }
 
