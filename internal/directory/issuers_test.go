@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -31,6 +32,27 @@ func claims(t *testing.T, dir *directory.Postgres) []string {
 		t.Fatal(err)
 	}
 	return out
+}
+
+// age makes every claim older than ClaimGrace, so a round may give it up.
+func age(t *testing.T, dir *directory.Postgres) {
+	t.Helper()
+	if err := dir.Pool.InTx(context.Background(), database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE directory.issuer SET updated_at = now() - interval '1 hour'`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// cellProviders is the server's wiring of Sync.Providers.
+func cellProviders(ctx context.Context, tx pgx.Tx) ([]directory.Issuer, error) {
+	keys, err := identity.ActiveIdentityProviders(ctx, tx)
+	out := make([]directory.Issuer, len(keys))
+	for i, k := range keys {
+		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID}
+	}
+	return out, err
 }
 
 func claim(issuer, audience string, tenant uuid.UUID, cell string) string {
@@ -91,6 +113,15 @@ func TestIssuerClaims(t *testing.T) {
 		if taken, err := dir.SyncIssuers(ctx, "c1", []directory.Issuer{y, z}); err != nil || taken != 0 {
 			t.Fatalf("round: %d taken, %v", taken, err)
 		}
+		t.Run("a fresh claim outlives a round that does not list it yet", func(t *testing.T) {
+			if _, err := dir.SyncIssuers(ctx, "c1", []directory.Issuer{y}); err != nil {
+				t.Fatal(err)
+			}
+			if got := claims(t, dir); !slices.Contains(got, claim(z.Issuer, "erp", a, "c1")) {
+				t.Errorf("claims: got %v, want z kept within the grace", got)
+			}
+		})
+		age(t, dir)
 		// x belongs to b on c2 now; c1's round listing it for a skips it and
 		// leaves it, and gives up z, which it no longer lists.
 		ofA := x
@@ -106,6 +137,7 @@ func TestIssuerClaims(t *testing.T) {
 		if got := claims(t, dir); !slices.Equal(got, want) {
 			t.Errorf("claims: got %v, want %v", got, want)
 		}
+		age(t, dir)
 		if _, err := dir.SyncIssuers(ctx, "c1", nil); err != nil {
 			t.Fatal(err)
 		}
@@ -167,7 +199,7 @@ func TestSyncClaimsIssuers(t *testing.T) {
 		pgtest.Exec(t, `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, status, retired_at, created_by, updated_by)
 			VALUES ($1, gen_random_uuid(), $2, 'erp', $3, CASE WHEN $3 = 'retired' THEN now() END, $1, $1)`, ten.ID, issuer, status)
 	}
-	s := &directory.Sync{Pool: pgtest.Pool(t), ControlRole: "erp_control", Directory: dir, Cell: "claims-cell", APIURL: "https://claims.example.com", Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	s := &directory.Sync{Pool: pgtest.Pool(t), ControlRole: "erp_control", Directory: dir, Cell: "claims-cell", APIURL: "https://claims.example.com", Providers: cellProviders, Log: slog.New(slog.NewTextHandler(&logs, nil))}
 	if _, err := s.RunOnce(ctx); err != nil {
 		t.Fatal(err)
 	}

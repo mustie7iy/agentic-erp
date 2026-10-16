@@ -276,8 +276,20 @@ func (s *server) openDirectory(ctx context.Context) (*directory.Postgres, error)
 		return nil, err
 	}
 	s.sync = &directory.Sync{Pool: s.pool, ControlRole: s.cfg.ControlRole, Directory: dir, Cell: s.cfg.Cell, APIURL: s.cfg.CellAPIURL,
-		Region: s.cfg.CellRegion, ControlURL: s.cfg.CellControlURL, Accepting: s.cfg.CellAccepting, Interval: directoryInterval, Log: s.log}
+		Region: s.cfg.CellRegion, ControlURL: s.cfg.CellControlURL, Accepting: s.cfg.CellAccepting, Providers: cellIssuers, Interval: directoryInterval, Log: s.log}
 	return dir, nil
+}
+
+// cellIssuers lists the cell's active identity providers for the global
+// directory's claims (ADR-0031): the server joins the identity context and
+// the directory, so neither imports the other.
+func cellIssuers(ctx context.Context, tx pgx.Tx) ([]directory.Issuer, error) {
+	keys, err := identity.ActiveIdentityProviders(ctx, tx)
+	out := make([]directory.Issuer, len(keys))
+	for i, k := range keys {
+		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID}
+	}
+	return out, err
 }
 
 // controlPlane builds the operators' API, served when there is an issuer

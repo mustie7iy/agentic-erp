@@ -460,8 +460,12 @@ type Sync struct {
 	Region     string
 	ControlURL string
 	Accepting  bool
-	Interval   time.Duration // between rounds; default 1 minute
-	Log        *slog.Logger
+	// Providers lists the cell's active identity providers' issuers and
+	// tenants in the round's transaction (identity.ActiveIdentityProviders,
+	// wired by the server); nil: the round claims no issuers.
+	Providers func(ctx context.Context, tx pgx.Tx) ([]Issuer, error)
+	Interval  time.Duration // between rounds; default 1 minute
+	Log       *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
 }

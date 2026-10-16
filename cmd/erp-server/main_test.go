@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1319,5 +1320,27 @@ func TestAPanickingWorkerIsContained(t *testing.T) {
 		if running {
 			t.Errorf("worker %s: got running, want stopped", name)
 		}
+	}
+}
+
+// TestCellIssuers: the directory's rounds claim the cell's active identity
+// providers' issuers for their tenants (ADR-0031).
+func TestCellIssuers(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	issuer := "https://cell-" + uuid.NewString() + ".example.com"
+	pgtest.Exec(t, `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, 'erp', $1, $1)`, ten.ID, issuer)
+	ctx := context.Background()
+	tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_control", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	got, err := cellIssuers(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := directory.Issuer{Issuer: issuer, Audience: "erp", TenantID: ten.ID}
+	if !slices.Contains(got, want) {
+		t.Errorf("issuers: got %d without %+v, want it listed", len(got), want)
 	}
 }

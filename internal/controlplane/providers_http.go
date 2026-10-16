@@ -241,8 +241,41 @@ func (h *handler) updatePolicy(w http.ResponseWriter, r *http.Request, tenant uu
 	if err := strictJSON(body, &patch); err != nil {
 		return err
 	}
+	if err := noNulls(body); err != nil {
+		return err
+	}
 	ch := identity.AuthPolicyChange{MFARequired: patch.MFARequired, SessionMaxAge: seconds(patch.SessionMaxAge), IdleTimeout: seconds(patch.IdleTimeout)}
-	return policyAnswer(w)(h.s.UpdateAuthPolicy(r.Context(), operator(r.Context()), tenant, r.Header.Get("If-Match"), ch))
+	p, err := h.s.UpdateAuthPolicy(r.Context(), operator(r.Context()), tenant, r.Header.Get("If-Match"), ch)
+	return policyAnswer(w)(p, contractFields(err))
+}
+
+// noNulls refuses null values in a policy patch: none of its fields can be
+// cleared (AuthPolicyUpdate), and null would otherwise read as unchanged.
+func noNulls(body []byte) error {
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(body, &fields) // strictJSON decoded the same body
+	for name, v := range fields {
+		if string(v) == "null" {
+			return problem.BadRequest("request.invalid_body", name+" cannot be null.",
+				problem.FieldError{Field: name, Code: "not_nullable", Message: "a value, or leave the field out"})
+		}
+	}
+	return nil
+}
+
+// contractFields names a policy problem's fields as the contract does: the
+// durations are in seconds there.
+func contractFields(err error) error {
+	if err == nil {
+		return nil
+	}
+	p := problem.From(err)
+	for i := range p.Errors {
+		if p.Errors[i].Field == "session_max_age" || p.Errors[i].Field == "idle_timeout" {
+			p.Errors[i].Field += "_seconds"
+		}
+	}
+	return p
 }
 
 // seconds is a duration of whole seconds, nil for nil. Out-of-range values

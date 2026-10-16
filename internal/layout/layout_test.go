@@ -51,7 +51,7 @@ var allowed = map[string][]string{
 	"capture":                 {"llm"},
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "operations"},
-	"controlplane":            {"audit", "config", "directory", "offboarding", "provisioning", "tenancy"},
+	"controlplane":            {"audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},
 	"delivery/migrationagent": {"apitools", "llm"},
 	"delivery/sapconfig":      {"config", "sap"},

@@ -115,7 +115,10 @@ func TestAuthPolicyThroughTheControlPlane(t *testing.T) {
 	if got["mfa_required"] != false || got["session_max_age_seconds"] != float64(43200) || got["idle_timeout_seconds"] != float64(1800) || h.Get("ETag") != `"1"` {
 		t.Errorf("defaults: got %v, ETag %s", got, h.Get("ETag"))
 	}
-	p.problem(422, "identity.invalid_policy", "ops|alice", "PATCH", policy, `{"idle_timeout_seconds": 60}`, "If-Match", "*")
+	invalid := p.problem(422, "identity.invalid_policy", "ops|alice", "PATCH", policy, `{"idle_timeout_seconds": 60}`, "If-Match", "*")
+	if errs, _ := invalid["errors"].([]any); len(errs) != 1 || errs[0].(map[string]any)["field"] != "idle_timeout_seconds" {
+		t.Errorf("field errors: got %v, want one on idle_timeout_seconds, the field the request names", invalid["errors"])
+	}
 	got, h = p.must(200, "ops|alice", "PATCH", policy, `{"mfa_required": true, "idle_timeout_seconds": 900}`, "If-Match", `"1"`)
 	if got["mfa_required"] != true || got["idle_timeout_seconds"] != float64(900) || h.Get("ETag") != `"2"` {
 		t.Errorf("changed: got %v, ETag %s", got, h.Get("ETag"))
@@ -163,6 +166,7 @@ func TestIdentityRequestsRefused(t *testing.T) {
 		{"a provider patch with a numeric claim", "PATCH", base + "/identity-providers/" + uuid.NewString(), `{"tenant_claim": 5}`, 400, "request.invalid_body", []string{"If-Match", "*"}},
 		{"a provider patch too large", "PATCH", base + "/identity-providers/" + uuid.NewString(), tooLarge, 413, "request.body_too_large", []string{"If-Match", "*"}},
 		{"a policy patch too large", "PATCH", base + "/auth-policy", tooLarge, 413, "request.body_too_large", []string{"If-Match", "*"}},
+		{"a policy patch with a null", "PATCH", base + "/auth-policy", `{"mfa_required": null}`, 400, "request.invalid_body", []string{"If-Match", "*"}},
 		{"a policy patch with a string", "PATCH", base + "/auth-policy", `{"mfa_required": "yes"}`, 400, "request.invalid_body", []string{"If-Match", "*"}},
 		{"an invalid provider", "POST", base + "/identity-providers", `{"issuer": "http://idp.example.com", "audience": "erp"}`, 422, "identity.invalid_provider", []string{"Idempotency-Key", key()}},
 		{"an unknown method", "POST", base + "/identity-providers/" + uuid.NewString() + ":promote", "", 404, "request.not_found", nil},
@@ -243,12 +247,13 @@ func TestRegistrationClaimsTheIssuer(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
 	in := identity.NewIdentityProvider{Issuer: "https://claimed-" + uuid.NewString() + ".example.com", Audience: "erp"}
-	if err := dir.ClaimIssuer(ctx, directory.Issuer{Issuer: in.Issuer, Audience: in.Audience, TenantID: uuid.New(), Cell: "elsewhere"}); err != nil {
+	elsewhere := directory.Issuer{Issuer: in.Issuer, Audience: in.Audience, TenantID: uuid.New(), Cell: "elsewhere"}
+	if err := dir.ClaimIssuer(ctx, elsewhere); err != nil {
 		t.Fatal(err)
 	}
 	_, _, err = s.RegisterProvider(ctx, op, ten.ID, in, nil)
 	pgtest.CheckErr(t, err, "identity.provider_taken")
-	if _, err := dir.SyncIssuers(ctx, "elsewhere", nil); err != nil { // the other cell gives the pair up
+	if err := dir.ReleaseIssuer(ctx, elsewhere); err != nil { // the other cell's tenant retires it
 		t.Fatal(err)
 	}
 	first, _, err := s.RegisterProvider(ctx, op, ten.ID, in, nil)

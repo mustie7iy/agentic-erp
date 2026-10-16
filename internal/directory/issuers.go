@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -20,7 +20,9 @@ import (
 // when the provider is retired, and every round replaces the cell's claims
 // with its tenants' active providers, so a claim whose registration failed,
 // or a release that did not reach the directory, heals itself. The router
-// resolves a token's tenant from them (T37d).
+// resolves a token's tenant from them (T37d). The cell's providers are read
+// by Sync.Providers, which the server wires to the identity context, so the
+// directory does not depend on it.
 
 // ErrIssuerTaken means another tenant holds the issuer with the audience.
 var ErrIssuerTaken = errors.New("directory: the issuer with this audience belongs to another tenant")
@@ -70,10 +72,10 @@ func (p *Postgres) ClaimIssuer(ctx context.Context, is Issuer) error {
 		}
 		return err
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrIssuerTaken) {
 		return fmt.Errorf("directory: %w", err)
 	}
-	return nil
+	return err
 }
 
 // ReleaseIssuer gives up the tenant's claim of the issuer with the
@@ -91,9 +93,16 @@ func (p *Postgres) ReleaseIssuer(ctx context.Context, is Issuer) error {
 	return nil
 }
 
+// ClaimGrace is how old a claim must be before a round of its cell may give
+// it up: a claim is made before its registration commits, so a round that
+// read the cell's providers just before the commit would otherwise drop
+// it, and another cell could then take the pair. It is well above the
+// longest a registration's transaction may run.
+const ClaimGrace = 5 * time.Minute
+
 // SyncIssuers makes the cell's claims the given ones: each is claimed, and
-// the cell's other claims are given up. It returns how many another tenant
-// holds; those are not taken over.
+// the cell's other claims older than ClaimGrace are given up. It returns
+// how many another tenant holds; those are not taken over.
 func (p *Postgres) SyncIssuers(ctx context.Context, cell string, issuers []Issuer) (int, error) {
 	taken := 0
 	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
@@ -108,8 +117,8 @@ func (p *Postgres) SyncIssuers(ctx context.Context, cell string, issuers []Issue
 			}
 			names[i], audiences[i] = is.Issuer, is.Audience
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM directory.issuer WHERE cell = $1
-			AND (issuer, audience) NOT IN (SELECT * FROM unnest($2::text[], $3::text[]))`, cell, names, audiences); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM directory.issuer WHERE cell = $1 AND updated_at < now() - make_interval(secs => $4)
+			AND (issuer, audience) NOT IN (SELECT * FROM unnest($2::text[], $3::text[]))`, cell, names, audiences, ClaimGrace.Seconds()); err != nil {
 			return fmt.Errorf("give up stale issuers of cell %s: %w", cell, err)
 		}
 		return nil
@@ -156,16 +165,15 @@ func (s *Sync) ReleaseIssuer(ctx context.Context, tenant uuid.UUID, issuer, audi
 // providers, read in the round's transaction as the control role.
 func (s *Sync) syncIssuers(ctx context.Context, tx pgx.Tx) error {
 	dir, ok := s.Directory.(Issuers)
-	if !ok {
+	if !ok || s.Providers == nil {
 		return nil
 	}
-	keys, err := identity.ActiveIdentityProviders(ctx, tx)
+	issuers, err := s.Providers(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("directory: read identity providers of cell %s: %w", s.Cell, err)
 	}
-	issuers := make([]Issuer, len(keys))
-	for i, k := range keys {
-		issuers[i] = Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID, Cell: s.Cell}
+	for i := range issuers {
+		issuers[i].Cell = s.Cell
 	}
 	taken, err := dir.SyncIssuers(ctx, s.Cell, issuers)
 	if err != nil {
