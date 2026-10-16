@@ -228,6 +228,18 @@
       "t": "F8b: ledger.check_entry_period reads the period status FOR SHARE (000043), so any insert holds its period against a close",
       "r": "db/migrations/000043 · T31",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Journal lines carry the purchase order item (GR/IR lines)",
+      "r": "ledger.Line · JournalLine.purchase_order_id · T33b",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "GR/IR balance per order item, GET /v1/gr-ir-balances",
+      "r": "T33e",
+      "c": []
      }
     ]
    },
@@ -1387,10 +1399,29 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "GR/IR clearing account postings",
       "r": "T33",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Schema and configuration for GR/IR: order items on journal lines, order valuation fixed at release, gr_ir and price_difference accounts, GR/IR posted only automatically",
+        "r": "db/migrations/000053 · config.AccountDetermination.GRIR/PriceDifference · ledger.Setup.Check · T33a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "GR/IR position per order item kept by the ledger: order price × (invoiced − received), moving value in local and group currency, price difference and FX on their own lines",
+        "r": "internal/ledger · ledger.GRIRItem/Posting.GRIR · grir.go · T33b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "GR 101/102 post Dr item account / Cr GR/IR at the order price",
+        "r": "T33c",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -1402,6 +1433,30 @@
       "s": "D",
       "t": "On foundation: insert-only goods receipts and reversals within the over-delivery tolerance",
       "r": "internal/procurement",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "GR/IR maintenance: clear residual positions on closed orders (SAP MR11)",
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "GR/IR regrouping at period end (SAP F.19)",
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Migrate open GR/IR positions from SAP (ACDOCA EBELN/EBELP)",
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Move open direct-valued orders onto GR/IR (optional)",
+      "r": "",
       "c": []
      }
     ]
@@ -1439,6 +1494,12 @@
       "s": "T",
       "t": "erp invoices settles every invoice when :post or :hold is refused (422) or :match finds the invoice no longer parked (409), lists it and fails at the end, as for a refused match",
       "r": "cmd/erp",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Invoice clears GR/IR at the order price; price difference and FX on their own lines",
+      "r": "T33d",
       "c": []
      }
     ]
