@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -89,8 +88,8 @@ func TestKeyset(t *testing.T) {
 	if len(args) != 3 {
 		t.Fatalf("first page args: got %v, want the mode and 2 of them", args)
 	}
-	if args[0] != pgx.QueryExecModeCacheDescribe {
-		t.Errorf("first page mode: got %v, want %v (planned for its arguments every call)", args[0], pgx.QueryExecModeCacheDescribe)
+	if args[0] != PlanPerCall {
+		t.Errorf("first page mode: got %v, want %v (planned for its arguments every call)", args[0], PlanPerCall)
 	}
 	if args[2] != 3 {
 		t.Errorf("first page limit: got %v, want 3", args[2])
@@ -118,8 +117,8 @@ func TestKeyset(t *testing.T) {
 	if len(args) != 4 {
 		t.Fatalf("next page args: got %v, want the mode and 3 of them", args)
 	}
-	if args[0] != pgx.QueryExecModeCacheDescribe {
-		t.Errorf("next page mode: got %v, want %v", args[0], pgx.QueryExecModeCacheDescribe)
+	if args[0] != PlanPerCall {
+		t.Errorf("next page mode: got %v, want %v", args[0], PlanPerCall)
 	}
 	if args[1] != "b" {
 		t.Errorf("next page cursor value: got %v, want b", args[1])
