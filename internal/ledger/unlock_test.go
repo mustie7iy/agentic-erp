@@ -89,14 +89,20 @@ func TestUnlockCallbacks(t *testing.T) {
 		t.Helper()
 		return apitest.Committed(t, e.ten, e.ten.Human, fn)
 	}
-	status := func() (string, *uuid.UUID) {
+	// is checks the period's status and that it names no request.
+	is := func(when, want string) {
 		t.Helper()
-		var s string
-		var r *uuid.UUID
-		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT status, unlock_request_id FROM ledger.period_status WHERE id = $1`, id).Scan(&s, &r); err != nil {
+		var status string
+		var named *uuid.UUID
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT status, unlock_request_id FROM ledger.period_status WHERE id = $1`, id).Scan(&status, &named); err != nil {
 			t.Fatal(err)
 		}
-		return s, r
+		if status != want {
+			t.Errorf("%s: status got %s, want %s", when, status, want)
+		}
+		if named != nil {
+			t.Errorf("%s: unlock_request_id got %v, want none", when, named)
+		}
 	}
 	name()
 	for what, fn := range map[string]func(ctx context.Context) error{
@@ -105,23 +111,21 @@ func TestUnlockCallbacks(t *testing.T) {
 		"cancelling another request": func(ctx context.Context) error { return h.Cancelled(ctx, id, uuid.New(), "c") },
 		"approving another period":   func(ctx context.Context) error { return h.Approved(ctx, uuid.New(), request) },
 	} {
-		if err := call(fn); err == nil {
-			t.Errorf("%s: got no error, want one", what)
-		}
+		t.Run(what, func(t *testing.T) {
+			if err := call(fn); err == nil {
+				t.Error("got no error, want one")
+			}
+		})
 	}
 	if err := call(func(ctx context.Context) error { return h.Cancelled(ctx, id, request, "withdrawn") }); err != nil {
 		t.Fatalf("cancelled: %v", err)
 	}
-	if s, r := status(); s != "locked" || r != nil {
-		t.Errorf("cancelled: got %s naming %v, want locked naming none", s, r)
-	}
+	is("cancelled", "locked")
 	name()
 	if err := call(func(ctx context.Context) error { return h.Approved(ctx, id, request) }); err != nil {
 		t.Fatalf("approved: %v", err)
 	}
-	if s, r := status(); s != "closed" || r != nil {
-		t.Errorf("approved: got %s naming %v, want closed naming none", s, r)
-	}
+	is("approved", "closed")
 	// A second callback for the same request finds the period closed.
 	if err := call(func(ctx context.Context) error { return h.Approved(ctx, id, request) }); err == nil {
 		t.Error("approved twice: got no error, want one")
