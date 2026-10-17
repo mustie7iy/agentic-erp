@@ -79,6 +79,9 @@ func engineConfig(s settings) (*config.Config, error) {
 	}
 	for name, store := range cfg.Persistence.DataStores {
 		if store.SQL != nil {
+			if err := verifiedSQL(store.SQL); err != nil {
+				return nil, fmt.Errorf("persistence.datastores.%s: %w", name, err)
+			}
 			store.SQL.Password = s.password
 			cfg.Persistence.DataStores[name] = store
 		}
@@ -96,6 +99,22 @@ func engineConfig(s settings) (*config.Config, error) {
 		return nil, errors.New("global.tls.systemWorker must present the engine's certificate")
 	}
 	return cfg, nil
+}
+
+// verifiedSQL refuses a store on a database server that Temporal would not
+// reach over TLS verifying the server's certificate and name
+// (sslmode=verify-full, ADR-0033): without TLS it falls back to disable,
+// without host verification to require, and a connection attribute
+// overrides both. SQLite is a file of the process, not a server.
+func verifiedSQL(sql *config.SQL) error {
+	if sql.PluginName == "sqlite" {
+		return nil
+	}
+	mode, set := sql.ConnectAttributes["sslmode"]
+	if sql.TLS == nil || !sql.TLS.Enabled || !sql.TLS.EnableHostVerification || set && mode != "verify-full" {
+		return errors.New("the database must be reached over TLS with sslmode verify-full (tls.enabled and tls.enableHostVerification, no other sslmode)")
+	}
+	return nil
 }
 
 // newServer is Temporal's server with the platform's authorization and TLS

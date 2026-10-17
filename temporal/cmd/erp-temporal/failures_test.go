@@ -264,3 +264,43 @@ func TestCheckConfig(t *testing.T) {
 		})
 	}
 }
+
+// TestDatabaseTLS: a store on a database server is reached over TLS that
+// verifies the server's certificate and name, as the platform's databases
+// are (ADR-0033); Temporal would otherwise fall back to sslmode=disable
+// or require, and a connection attribute would override both.
+func TestDatabaseTLS(t *testing.T) {
+	e := newEngine(t, true)
+	content, err := os.ReadFile(e.env["ERP_TEMPORAL_CONFIG"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	const verified = "tls: {enabled: true, enableHostVerification: true, caFile: /etc/temporal/rds/ca.pem}"
+	for name, c := range map[string]struct {
+		store  string
+		accept bool
+	}{
+		"verified":              {"connectAttributes: {}\n        " + verified, true},
+		"verify-full attribute": {"connectAttributes: {sslmode: verify-full}\n        " + verified, true},
+		"no TLS":                {"connectAttributes: {}", false},
+		"TLS off":               {"connectAttributes: {}\n        tls: {enabled: false}", false},
+		"unverified":            {"connectAttributes: {}\n        tls: {enabled: true, caFile: /etc/temporal/rds/ca.pem}", false},
+		"attribute overrides":   {"connectAttributes: {sslmode: require}\n        " + verified, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			yaml := strings.Replace(string(content), "pluginName: sqlite", "pluginName: postgres12_pgx", 1)
+			yaml = strings.Replace(yaml, "connectAttributes: {mode: memory, cache: shared}", c.store, 1)
+			file := filepath.Join(t.TempDir(), "temporal.yaml")
+			if err := os.WriteFile(file, []byte(yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := engineConfig(settings{configFile: file})
+			if c.accept && err != nil {
+				t.Errorf("got %v, want accepted", err)
+			}
+			if !c.accept && (err == nil || !strings.Contains(err.Error(), "verify-full")) {
+				t.Errorf("got %v, want refused for want of verified TLS", err)
+			}
+		})
+	}
+}
