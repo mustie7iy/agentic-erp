@@ -106,6 +106,12 @@ metadata:
   name: erp-migrate
   labels:
     {{- include "erp-cell.labels" (dict "root" . "component" "erp-migrate") | nindent 4 }}
+  # A hook, as its Job is: on an upgrade the default deny is already
+  # there, and the Job runs before the release's other resources.
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   podSelector:
     matchLabels:
@@ -193,6 +199,12 @@ metadata:
   name: erp-temporal-schema
   labels:
     {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal-schema") | nindent 4 }}
+  # A hook, as its Job is: on an upgrade the default deny is already
+  # there, and the Job runs before the release's other resources.
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   podSelector:
     matchLabels:

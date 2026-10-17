@@ -113,10 +113,13 @@ temporal:
     user: temporal
     name: temporal
     visibility: temporal_visibility
-    # Connections each replica opens to the writer, per database.
+    # Connections each of a replica's four services opens to the writer,
+    # per database: each service has pools of its own. At most
+    # (replicas + 1 during a rollout) x 4 x (default + visibility), 180
+    # here, beside PgBouncer's pool.
     maxConns:
-      default: 20
-      visibility: 10
+      default: 10
+      visibility: 5
   resources:
     requests: {cpu: 500m, memory: 1Gi}
     limits: {memory: 2Gi}

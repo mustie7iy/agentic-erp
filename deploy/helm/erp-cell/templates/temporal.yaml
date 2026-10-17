@@ -14,9 +14,10 @@
 # the login and the databases and applies the release's schema with the
 # master credentials, which the engine itself never holds. It connects to
 # the writer directly, not through PgBouncer: Temporal's persistence keeps
-# session state that transaction pooling breaks. Its connections, at most
-# replicas x (maxConns.default + maxConns.visibility), count against the
-# writer's limit beside PgBouncer's pool.
+# session state that transaction pooling breaks. Each of its four services
+# has pools of its own, so its connections, at most (replicas + 1 during a
+# rollout) x 4 x (maxConns.default + maxConns.visibility), count against
+# the writer's limit beside PgBouncer's pool.
 {{- $ns := .Release.Namespace }}
 {{- $prefix := required "secrets.prefix is required: erp/<cell>" .Values.secrets.prefix }}
 {{- $master := required "database.masterSecretArn is required" .Values.database.masterSecretArn }}

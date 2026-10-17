@@ -209,13 +209,22 @@ Kubernetes' restricted Pod Security profile):
   databases (`temporal`, `temporal_visibility`) are on the cell's writer,
   reached directly over verified TLS (Temporal's persistence keeps
   session state that PgBouncer's transaction mode breaks) as a login of
-  its own (`erp/<cell>/temporal-database-password`); at most 2 × (20 + 10)
-  connections, beside PgBouncer's 40, within the writer's budget above.
+  its own (`erp/<cell>/temporal-database-password`). Each of the four
+  services has pools of its own, so it opens at most (replicas + 1 in a
+  rollout) × 4 × (10 + 5) = 180 connections, beside PgBouncer's 40,
+  within the writer's budget above.
   An `erp-temporal-schema` hook Job creates the login and the databases
   with the master credentials, which the engine never holds, sets the
   login's password again (so a changed one takes effect with the next
   release) and applies the schema versions the binary embeds. `serve`
-  registers the namespace (retention 30 days) as the system worker.
+  registers the namespace (retention 30 days) as the system worker; a
+  later change of the retention applies to a new namespace only, an
+  existing one is changed with Temporal's own tools.
+  Membership (ringpop) runs over the internode TLS, and the internode
+  listeners and the engine's clients admit the engine's own identity
+  alone: no authorizer runs there, and every service of the environment
+  holds a certificate of the same authority. `serve` refuses a database
+  store reached without verified TLS (`verify-full`).
   `erp-temporal check-config` loads a configuration as `serve` does, and
   `helm-checks.sh` runs it on the chart's; `scripts/temporal-checks.sh`
   holds the module to the platform's lint, `-race` tests and 100%
