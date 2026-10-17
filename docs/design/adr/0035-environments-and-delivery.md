@@ -203,20 +203,22 @@ namespaces (`erp`, `erp-global`), the certificate ones over all:
   `pods/ephemeralcontainers`, the subresource `kubectl debug` adds
   containers through, since Kyverno generates the controllers' policies
   only for a policy on Pods alone.
-- `erp-service-certificates` judges every Certificate on `erp-subordinate`
-  (the issuer is cluster-wide) and every one in the governed namespaces:
+- `erp-service-certificates` judges every Certificate on an AWS Private CA
+  issuer (any of them runs as the issuer's role, and the issuer is
+  cluster-wide) and every one in the governed namespaces:
   only from `erp-subordinate` and only in those namespaces, a lifetime of
   at most 24 hours renewed with at least 8 left, no CA, `server auth`
   and/or `client auth` and no other extended usage (the issuer's role may
   use end-entity templates only), exactly one SPIFFE identity in the
-  environment's trust domain, and cluster service names at most (no
-  common name, address, e-mail or other name).
+  environment's trust domain, and its own namespace's service names at
+  most, without wildcards (no common name, address, e-mail or other
+  name).
 - `erp-service-certificate-requests`: a CertificateRequest reaches the
   issuer without a Certificate's checks, its names in a CSR no policy
   reads, and cert-manager approves every request. So only cert-manager's
-  controller may make one on `erp-subordinate` (from a Certificate judged
-  above), in the governed namespaces, with the same lifetime, CA and
-  usage rules.
+  controller may make one to an AWS Private CA issuer, that one
+  `erp-subordinate` (from a Certificate judged above), in the governed
+  namespaces, with the same lifetime, CA and usage rules.
 
 **Revocation (product owner, T40c).** By short lifetime, with no CRL or
 OCSP: service certificates live 24 hours and are renewed after 16, the

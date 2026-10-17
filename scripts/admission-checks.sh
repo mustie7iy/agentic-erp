@@ -93,23 +93,30 @@ image() {
 sign() { run sign.log "$COSIGN" sign --yes --key "$2/cosign.key" --signing-config signing-config.json "$1"; }
 attest() { run attest.log "$COSIGN" attest --yes --key "$2/cosign.key" --signing-config signing-config.json --type "$3" --predicate "$4" "$1"; }
 
-image full && full="$ref"
+image full
+full="$ref"
 sign "$full" release
 attest "$full" release spdxjson sbom.json
 attest "$full" release slsaprovenance1 provenance.json
-image unsigned && unsigned="$ref"
-image attested && attested="$ref"
+image unsigned
+unsigned="$ref"
+image attested
+attested="$ref"
 attest "$attested" release spdxjson sbom.json
 attest "$attested" release slsaprovenance1 provenance.json
-image signed && signed="$ref"
+image signed
+signed="$ref"
 sign "$signed" release
-image nosbom && nosbom="$ref"
+image nosbom
+nosbom="$ref"
 sign "$nosbom" release
 attest "$nosbom" release slsaprovenance1 provenance.json
-image noprovenance && noprovenance="$ref"
+image noprovenance
+noprovenance="$ref"
 sign "$noprovenance" release
 attest "$noprovenance" release spdxjson sbom.json
-image otherkey && otherkey="$ref"
+image otherkey
+otherkey="$ref"
 sign "$otherkey" other
 attest "$otherkey" other spdxjson sbom.json
 attest "$otherkey" other slsaprovenance1 provenance.json
@@ -190,6 +197,10 @@ done >namespaces.yaml
 expect() {
   local report="$1" ok=1 entry name want got
   shift
+  if [ "$#" -eq 0 ]; then
+    echo "admission-checks: nothing to expect of $report" >&2
+    exit 1
+  fi
   for entry in "$@"; do
     name="${entry%%:*}" want="${entry##*:}"
     got="$(python3 - "$report" "$name" <<'PY'

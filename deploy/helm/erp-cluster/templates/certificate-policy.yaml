@@ -1,8 +1,9 @@
 # The service certificates (ADR-0033, ADR-0035). The issuer is
 # cluster-wide, so these policies judge every namespace.
 #
-# A Certificate is judged when it names the issuer or lives in a governed
-# namespace. It
+# A Certificate is judged when it names an AWS Private CA issuer (any of
+# them runs as the issuer's role, whatever its name) or lives in a
+# governed namespace. It
 #   - comes from the environment's subordinate CA (erp-subordinate), and
 #     only in the platform's namespaces;
 #   - lives at most a day and is renewed with at least a third of it left:
@@ -11,8 +12,9 @@
 #     issuer picks an end-entity template (the only ones its role may use),
 #     and no other extended usage;
 #   - names exactly one SPIFFE identity in the environment's trust domain,
-#     cluster names (*.svc, *.svc.cluster.local) at most, and no address,
-#     e-mail or other name.
+#     at most its own namespace's service names (<service>.<namespace>.svc,
+#     .svc.cluster.local, no wildcard), and no address, e-mail or other
+#     name.
 # A CertificateRequest goes to the issuer without a Certificate's checks,
 # and its SANs sit in a CSR no policy can read; so only cert-manager's
 # controller may make one, from a Certificate judged above, and its
@@ -35,7 +37,7 @@ spec:
   matchConditions:
     - name: issuer-or-namespace
       expression: >-
-        object.spec.issuerRef.name == 'erp-subordinate' || object.metadata.namespace in {{ $namespaces | toJson }}
+        object.spec.issuerRef.?group.orValue('') == 'awspca.cert-manager.io' || object.metadata.namespace in {{ $namespaces | toJson }}
   variables:
     - name: usages
       expression: object.spec.?usages.orValue([])
@@ -66,10 +68,11 @@ spec:
         variables.uris.size() == 1 && variables.uris[0].startsWith({{ printf "spiffe://%s/" (required "trustDomain is required" .Values.trustDomain) | quote }})
       message: certificates name exactly one SPIFFE identity in the environment's trust domain
     - expression: >-
-        object.spec.?dnsNames.orValue([]).all(n, n.endsWith('.svc') || n.endsWith('.svc.cluster.local')) &&
+        object.spec.?dnsNames.orValue([]).all(n, !n.contains('*') &&
+          (n.endsWith('.' + object.metadata.namespace + '.svc') || n.endsWith('.' + object.metadata.namespace + '.svc.cluster.local'))) &&
         !has(object.spec.commonName) && !has(object.spec.ipAddresses) && !has(object.spec.emailAddresses) &&
         !has(object.spec.otherNames)
-      message: certificates name cluster services only (*.svc, *.svc.cluster.local), no common name, address, e-mail or other name
+      message: certificates name their own namespace's services only (<service>.<namespace>.svc, no wildcard), no common name, address, e-mail or other name
 ---
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
@@ -91,7 +94,7 @@ spec:
   matchConditions:
     - name: issuer
       expression: >-
-        object.spec.issuerRef.name == 'erp-subordinate'
+        object.spec.issuerRef.?group.orValue('') == 'awspca.cert-manager.io'
   variables:
     - name: usages
       expression: object.spec.?usages.orValue([])
@@ -101,7 +104,7 @@ spec:
       message: certificate requests to the subordinate CA come from cert-manager's controller, from a Certificate
     - expression: >-
         {{ $issuer }}
-      message: certificate requests name the subordinate CA's issuer exactly
+      message: certificate requests to AWS Private CA go to the subordinate CA's issuer only
     - expression: >-
         object.metadata.namespace in {{ $namespaces | toJson }}
       message: the subordinate CA issues to the platform's namespaces only
