@@ -50,8 +50,8 @@ func message(model, stop string, in, out, write, read int64) string {
 // cent): $4 in, $20 out, $5 cache write, $0.20 cache read.
 func priced(t *testing.T, model string) {
 	t.Helper()
-	pgtest.Exec(t, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read)
-		VALUES ($1, '2026-01-01', 'USD', 400000000, 2000000000, 500000000, 20000000) ON CONFLICT DO NOTHING`, model)
+	pgtest.Exec(t, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
+		VALUES ($1, '2026-01-01', 'USD', 400000000, 2000000000, 500000000, 20000000, 'test') ON CONFLICT DO NOTHING`, model)
 }
 
 // gateway is a gateway on the package database with p as provider.
@@ -295,8 +295,7 @@ func TestGatewayDatabaseFailures(t *testing.T) {
 				req, _ := http.NewRequestWithContext(reqctx.WithPrincipal(reqctx.WithTx(ctx, failing), principal(ten)), http.MethodPost, "http://gw/v1/messages",
 					strings.NewReader(`{"model": "erp-default", "max_tokens": 8, "messages": []}`))
 				req.Header.Set(agents.SessionHeader, session.String())
-				_, err := g.Transport().RoundTrip(req)
-				return err
+				return roundTrip(g, req)
 			})
 			if err == nil {
 				t.Errorf("statement %d failing: got answered, want the failure", at)
@@ -347,12 +346,12 @@ func TestTransportRefusals(t *testing.T) {
 	err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID}, func(ctx context.Context, tx pgx.Tx) error {
 		ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal(ten))
 		broken, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/messages", failingBody{})
-		if _, err := g.Transport().RoundTrip(broken); err == nil || !strings.Contains(err.Error(), "broken body") {
+		if err := roundTrip(g, broken); err == nil || !strings.Contains(err.Error(), "broken body") {
 			t.Errorf("unreadable body: got %v, want its error", err)
 		}
 		bad, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/messages", strings.NewReader(`{}`))
 		bad.Header.Set(agents.SessionHeader, "x")
-		if _, err := g.Transport().RoundTrip(bad); err == nil {
+		if err := roundTrip(g, bad); err == nil {
 			t.Error("a session header that is no id: got answered, want refused")
 		}
 		return nil
@@ -406,4 +405,14 @@ func TestAnthropic(t *testing.T) {
 			t.Error("got answered, want the read's error")
 		}
 	})
+}
+
+// roundTrip sends req through the gateway's in-process transport and
+// closes the answer's body, returning the transport's error.
+func roundTrip(g *agents.Gateway, req *http.Request) error {
+	resp, err := g.Transport().RoundTrip(req)
+	if err == nil {
+		_ = resp.Body.Close() // only the outcome is asserted
+	}
+	return err
 }

@@ -2326,7 +2326,14 @@ func TestModelCalls(t *testing.T) {
 		}), "session_cost_micro_check")
 	})
 	t.Run("prices are not negative", func(t *testing.T) {
-		_, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read) VALUES ('test-model', '2026-01-01', 'USD', -1, 0, 0, 0)")
+		_, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ('test-model', '2026-01-01', 'USD', -1, 0, 0, 0, 'ops')")
 		failsWith(t, err, "model_price_input_check")
+	})
+	t.Run("a recorded price stands", func(t *testing.T) {
+		if _, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ('test-model', '2026-02-01', 'USD', 1, 1, 1, 1, 'ops')"); err != nil {
+			t.Fatal(err)
+		}
+		_, err := testDB.Exec(context.Background(), "UPDATE ref.model_price SET input = 0 WHERE model = 'test-model'")
+		failsWith(t, err, "insert-only")
 	})
 }

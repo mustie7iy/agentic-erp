@@ -13,8 +13,13 @@ CREATE TABLE ref.model_price (
   output          bigint NOT NULL CHECK (output >= 0),
   cache_write     bigint NOT NULL CHECK (cache_write >= 0),
   cache_read      bigint NOT NULL CHECK (cache_read >= 0),
+  recorded_at     timestamptz NOT NULL DEFAULT now(),
+  recorded_by     text NOT NULL CHECK (length(recorded_by) BETWEEN 1 AND 200),  -- the operator who recorded it
   PRIMARY KEY (model, effective_from)
 );
+-- A price, once recorded, stands: a new one takes effect from its own date.
+-- The rows and who recorded them are the prices' audit trail.
+CREATE TRIGGER model_price_immutable BEFORE UPDATE OR DELETE ON ref.model_price FOR EACH ROW EXECUTE FUNCTION platform.forbid_mutation();
 ALTER TABLE ref.model_price OWNER TO erp_owner;
 GRANT SELECT ON ref.model_price TO erp_app, erp_readonly;
 
