@@ -170,7 +170,10 @@ func TestSchemaCommand(t *testing.T) {
 		"unreadable":   {env(verified, "file:"+filepath.Join(dir, "missing")), 2, "ERP_TEMPORAL_DATABASE_PASSWORD: read"},
 		"plaintext":    {env("postgres://master@localhost/postgres?sslmode=disable", "file:"+pw), 2, "sslmode must be verify-full"},
 		"fallback":     {env("postgres://master@localhost/postgres?sslmode=prefer", "file:"+pw), 2, "sslmode must be verify-full"},
-		"not a URL":    {env("postgres://master@localhost:port/x", "file:"+pw), 2, "ERP_TEMPORAL_ADMIN_URL: database"},
+		"not a URL":    {env("postgres://master@localhost:port/x", "file:"+pw), 2, "must be a postgres:// URL"},
+		"bad escape":   {env("postgres://master:a%zz@localhost/postgres?sslmode=verify-full", "file:"+pw), 2, "must be a postgres:// URL"},
+		"keywords":     {env("host=writer sslmode=verify-full", "file:"+pw), 2, "must be a postgres:// URL"},
+		"two hosts":    {env("postgres://master@a,b/postgres?sslmode=verify-full", "file:"+pw), 2, "one host"},
 		"unreachable":  {env(verified, "file:"+pw), 1, "connect"},
 	}
 	for name, c := range cases {
@@ -184,6 +187,18 @@ func TestSchemaCommand(t *testing.T) {
 			}
 		})
 	}
+	// The schema tool reads the URL's own sslmode, not libpq's environment,
+	// so the URL must say it.
+	t.Run("sslmode from the environment", func(t *testing.T) {
+		t.Setenv("PGSSLMODE", "verify-full")
+		var stderr bytes.Buffer
+		if got := cli(context.Background(), []string{"setup-schema"}, env("postgres://master@localhost:1/postgres?connect_timeout=1", "file:"+pw), &stderr); got != 2 {
+			t.Errorf("exit code: got %d, want 2 (%s)", got, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "sslmode must be verify-full") {
+			t.Errorf("stderr: got %q, want the URL's sslmode required", stderr.String())
+		}
+	})
 	t.Run("defaults", func(t *testing.T) {
 		s, err := loadSchemaSettings(env(verified, "file:"+pw))
 		if err != nil {
@@ -232,5 +247,17 @@ func TestSchemaCommandOverTLS(t *testing.T) {
 	var stderr bytes.Buffer
 	if got := cli(context.Background(), []string{"setup-schema"}, func(k string) string { return env[k] }, &stderr); got != 0 {
 		t.Fatalf("exit code: got %d, want 0 (%s)", got, stderr.String())
+	}
+}
+
+// TestSetupSchemaURL: a URL setupSchema cannot parse is refused before
+// anything connects, without the URL (and its password) in the error.
+func TestSetupSchemaURL(t *testing.T) {
+	err := setupSchema(context.Background(), schemaSettings{adminURL: "postgres://master:secret@localhost:port/x"})
+	if err == nil {
+		t.Fatal("got no error, want the URL refused")
+	}
+	if strings.Contains(err.Error(), "secret") {
+		t.Errorf("error: got %q, want no password in it", err)
 	}
 }

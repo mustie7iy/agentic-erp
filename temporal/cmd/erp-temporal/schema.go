@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	sqltool "go.temporal.io/server/tools/sql"
 )
 
@@ -45,7 +45,7 @@ func loadSchemaSettings(getenv func(string) string) (schemaSettings, error) {
 		visibility: or("ERP_TEMPORAL_VISIBILITY_DATABASE", "temporal_visibility"),
 	}
 	if s.adminURL != "" {
-		if err := requireVerifiedTLS(s.adminURL); err != nil {
+		if err := requireAdminURL(s.adminURL); err != nil {
 			errs = append(errs, fmt.Errorf("ERP_TEMPORAL_ADMIN_URL: %w (ADR-0033)", err))
 		}
 	}
@@ -70,6 +70,10 @@ func schemaCmd(ctx context.Context, getenv func(string) string, stderr io.Writer
 // database's schema to the version this binary embeds. Every step leaves
 // what exists as it is, so running it again changes nothing.
 func setupSchema(ctx context.Context, s schemaSettings) error {
+	admin, err := url.Parse(s.adminURL)
+	if err != nil {
+		return errors.New("admin URL: not a URL") // url's error would show the password
+	}
 	conn, err := pgx.Connect(ctx, s.adminURL)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
@@ -83,9 +87,8 @@ func setupSchema(ctx context.Context, s schemaSettings) error {
 			return err
 		}
 	}
-	u, _ := url.Parse(s.adminURL) // parsed by RequireVerifiedTLS in loadSchemaSettings
 	for db, schema := range map[string]string{s.database: "postgresql/v12/temporal", s.visibility: "postgresql/v12/visibility"} {
-		if err := migrateEngine(u, s, db, schema); err != nil {
+		if err := migrateEngine(admin, s, db, schema); err != nil {
 			return err
 		}
 	}
@@ -161,19 +164,22 @@ func portOf(u *url.URL) string {
 	return "5432"
 }
 
-// requireVerifiedTLS reports whether url, as pgx parses it, reaches every
-// host it may try over TLS that verifies the server's certificate and name
-// (sslmode=verify-full), production's rule for the platform's databases
-// (internal/platform/database.RequireVerifiedTLS, ADR-0033).
-func requireVerifiedTLS(url string) error {
-	cfg, err := pgconn.ParseConfig(url)
-	if err != nil {
-		return fmt.Errorf("database: %w", err) // pgconn's parse error redacts the password
+// requireAdminURL holds the master URL to what both pgx and Temporal's
+// schema tool read alike: a postgres:// URL naming one host, whose own
+// sslmode is verify-full, production's rule for the platform's databases
+// (ADR-0033). pgx alone would also take a keyword/value string, several
+// hosts, and libpq's PGSSLMODE from the environment, none of which reach
+// the tool, which is given the URL's host, port and sslmode (toolArgs).
+func requireAdminURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "postgres" && u.Scheme != "postgresql" {
+		return errors.New("must be a postgres:// URL naming one host") // url's error would show the password
 	}
-	for _, a := range append([]*pgconn.FallbackConfig{{TLSConfig: cfg.TLSConfig}}, cfg.Fallbacks...) {
-		if a.TLSConfig == nil || a.TLSConfig.InsecureSkipVerify {
-			return errors.New("sslmode must be verify-full")
-		}
+	if u.Hostname() == "" || strings.Contains(u.Host, ",") {
+		return errors.New("must name one host")
+	}
+	if u.Query().Get("sslmode") != "verify-full" {
+		return errors.New("sslmode must be verify-full, in the URL")
 	}
 	return nil
 }
