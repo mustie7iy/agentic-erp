@@ -72,3 +72,42 @@ func TestMicroAdd(t *testing.T) {
 		})
 	}
 }
+
+// TestMicroOf: a budget in minor units is the same amount in Micro, held
+// at the most an int64 holds (ADR-0036).
+func TestMicroOf(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		minor money.Minor
+		want  money.Micro
+	}{{"a hundred dollars", 10000, 10_000_000_000}, {"nothing", 0, 0}, {"held at the most", math.MaxInt64 / 1000, math.MaxInt64}} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := money.MicroOf(c.minor); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+// TestMicroReaches: whether spent has reached pct percent of a cap, exact
+// at the edge and at the largest amounts.
+func TestMicroReaches(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		spent, limit money.Micro
+		pct        int64
+		want       bool
+	}{
+		{"just under 80%", 799, 1000, 80, false},
+		{"at 80%", 800, 1000, 80, true},
+		{"past 100%", 1001, 1000, 100, true},
+		{"at the largest amounts", math.MaxInt64, math.MaxInt64, 100, true},
+		{"just under at the largest", math.MaxInt64 - 1, math.MaxInt64, 100, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.spent.Reaches(c.limit, c.pct); got != c.want {
+				t.Errorf("%d of %d at %d%%: got %v, want %v", c.spent, c.limit, c.pct, got, c.want)
+			}
+		})
+	}
+}

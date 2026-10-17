@@ -53,3 +53,22 @@ func TokenCost(tokens int64, perMillion Micro) (Micro, error) {
 	}
 	return Micro(cost.Int64()), nil
 }
+
+// MicroOf is m, an amount in minor units, in Micro: a budget compared with
+// costs. An amount past what Micro holds (some ninety billion dollars) is
+// held at that most.
+func MicroOf(m Minor) Micro {
+	if m > math.MaxInt64/microPerMinor {
+		return math.MaxInt64
+	}
+	return Micro(m * microPerMinor)
+}
+
+// Reaches reports whether m is at least pct percent of limit, exactly: the
+// products are taken in big integers, so the largest amounts compare
+// right.
+func (m Micro) Reaches(limit Micro, pct int64) bool {
+	spent := new(big.Int).Mul(big.NewInt(int64(m)), big.NewInt(100))
+	share := new(big.Int).Mul(big.NewInt(int64(limit)), big.NewInt(pct))
+	return spent.Cmp(share) >= 0
+}
