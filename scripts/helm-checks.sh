@@ -184,6 +184,7 @@ required() {
 }
 required cell region trustDomain vpcCidr trust.caBundle secrets.prefix \
   images.server.repository images.server.digest images.pgbouncer.repository images.pgbouncer.digest \
+  images.nats.repository images.nats.digest \
   server.roleArn server.operatorIssuers server.objectBucket server.fieldKmsKeyArn \
   server.awsEndpoints.sts server.awsEndpoints.kms server.awsEndpoints.s3 \
   database.writerHost database.masterSecretArn database.caBundle

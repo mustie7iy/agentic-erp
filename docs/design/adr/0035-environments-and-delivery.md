@@ -177,6 +177,18 @@ Kubernetes' restricted Pod Security profile):
   the regional endpoints, `ERP_AT_REST`), its secrets as files, its IRSA
   role, no service account token. NATS and Temporal settings come with
   T40c4.
+- NATS JetStream (T40c4): three nodes over the zones on `erp-encrypted`
+  volumes (`ERP_AT_REST` nats=volume), clients and routes over TLS 1.3.
+  Clients are authorized by SPIFFE identity (`verify_and_map`, ADR-0033):
+  the one user is `spiffe://<td>/<cell>/erp-server`, which may publish
+  `erp.<cell>.>` and create, update and read its streams, and nothing
+  else; another identity, another authority and a client without a
+  certificate are refused. NATS maps an e-mail address or DNS name before
+  a URI, so no user is named by either. The nodes route to each other
+  with certificates of the same CA, and the network policy lets only them
+  reach the cluster port. `scripts/nats-checks.sh` runs the chart's
+  configuration on the NATS server go.mod pins (the cells' image is that
+  version) and checks each of those grants and refusals.
 - The migrations hook Job described above, with the writer's URL and the
   RDS bundle as hooks of lower weight, so a first install has them.
 - PgBouncer: two replicas, transaction mode, `max_prepared_statements`

@@ -3,8 +3,9 @@
 # - The API and the admin listener (/control, metrics) take connections
 #   from the router and the global plane's namespace only; kubelet's
 #   probes are not subject to policies.
-# - The server reaches PgBouncer and, on 443, the AWS endpoints in the VPC
-#   and the tenants' identity providers outside it.
+# - The server reaches PgBouncer, NATS and, on 443, the AWS endpoints in
+#   the VPC and the tenants' identity providers outside it.
+# - NATS takes clients from the server and routes from its own nodes.
 # - PgBouncer and the migrations Job reach the writer, in the VPC, only.
 # - Every Pod resolves names through the cluster's DNS.
 {{- $vpc := required "vpcCidr is required: cell.cidr" .Values.vpcCidr }}
@@ -56,6 +57,12 @@ spec:
               {{- include "erp-cell.selector" (dict "root" . "component" "erp-pgbouncer") | nindent 14 }}
       ports:
         - {protocol: TCP, port: {{ $port }}}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 4222}
     - ports:
         - {protocol: TCP, port: 443}
 ---
@@ -101,3 +108,35 @@ spec:
             cidr: {{ $vpc }}
       ports:
         - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-nats
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-nats") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 4222}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 6222}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 6222}

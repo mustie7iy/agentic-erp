@@ -24,6 +24,9 @@ images:
   pgbouncer:
     repository: ""
     digest: ""
+  nats:
+    repository: ""
+    digest: ""
 
 # The environment's trust anchor (envs/<env> subordinate_ca_certificate,
 # PEM): the subordinate CA, not the root (ADR-0035, Revocation).
@@ -57,7 +60,7 @@ server:
   resources:
     requests: {cpu: 500m, memory: 512Mi}
     limits: {memory: 1Gi}
-  # Further settings, by name (T40c4 adds the bus and the engine).
+  # Further settings, by name.
   extraEnv: {}
 
 database:
@@ -81,6 +84,15 @@ pgbouncer:
   resources:
     requests: {cpu: 100m, memory: 64Mi}
     limits: {memory: 256Mi}
+
+nats:
+  # Three nodes: JetStream's replicated streams need a quorum.
+  replicas: 3
+  storage: 20Gi
+  maxFileStore: 16G
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
 
 migrations:
   # How long a release's migrations may take before the hook fails.

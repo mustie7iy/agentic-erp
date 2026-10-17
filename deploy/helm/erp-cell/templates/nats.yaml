@@ -1,0 +1,166 @@
+# The cell's bus (ADR-0007, ADR-0035): NATS JetStream, three nodes over the
+# zones on volumes encrypted with the cluster key (erp-encrypted).
+#
+# Clients are authorized by their SPIFFE identity (ADR-0033): every
+# connection is TLS 1.3 with a client certificate from the environment's
+# CA, and verify_and_map makes the certificate's identity the user. Only
+# the cell's server is a user, and it may publish its own events and the
+# JetStream calls it makes (stream create, update, info), nothing else.
+# NATS maps an e-mail address or DNS name before a URI, so no user is
+# named by either. The nodes join each other over TLS with certificates
+# of the same CA, and only they reach the cluster port (network policy).
+{{- $ns := .Release.Namespace }}
+{{- $replicas := int .Values.nats.replicas }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: erp-nats-tls
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-nats") | nindent 4 }}
+spec:
+  secretName: erp-nats-tls
+  duration: {{ .Values.certificates.duration }}
+  renewBefore: {{ .Values.certificates.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  # Server auth for clients; client auth as the routes between the nodes.
+  usages: [digital signature, server auth, client auth]
+  uris:
+    - {{ include "erp-cell.spiffe" (dict "root" . "service" "erp-nats") }}
+  dnsNames:
+    - erp-nats.{{ $ns }}.svc
+    - erp-nats.{{ $ns }}.svc.cluster.local
+    {{- range $i := until $replicas }}
+    - erp-nats-{{ $i }}.erp-nats.{{ $ns }}.svc
+    - erp-nats-{{ $i }}.erp-nats.{{ $ns }}.svc.cluster.local
+    {{- end }}
+  issuerRef:
+    group: awspca.cert-manager.io
+    kind: AWSPCAClusterIssuer
+    name: erp-subordinate
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erp-nats
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-nats") | nindent 4 }}
+data:
+  nats.conf: |
+    {{- include "erp-cell.nats.conf" . | trim | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: erp-nats
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-nats") | nindent 4 }}
+spec:
+  serviceName: erp-nats
+  replicas: {{ $replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "erp-cell.labels" (dict "root" . "component" "erp-nats") | nindent 8 }}
+      annotations:
+        erp.platform/config: {{ include "erp-cell.nats.conf" . | trim | sha256sum | trunc 16 | quote }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      # The image is scratch with the server alone: any non-root user.
+      securityContext:
+        {{- include "erp-cell.podSecurity" (dict "uid" 10001) | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 14 }}
+      containers:
+        - name: nats
+          image: {{ include "erp-cell.image" (dict "root" . "name" "nats") }}
+          args: [--config, /etc/nats/config/nats.conf]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef: {fieldPath: metadata.name}
+          ports:
+            - {name: client, containerPort: 4222}
+            - {name: cluster, containerPort: 6222}
+            - {name: monitor, containerPort: 8222}
+          startupProbe:
+            httpGet: {path: /healthz, port: monitor}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: "/healthz?js-enabled-only=true", port: monitor}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: "/healthz?js-enabled-only=true", port: monitor}
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            {{- include "erp-cell.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/nats/config, readOnly: true}
+            - {name: tls, mountPath: /etc/nats/tls, readOnly: true}
+            - {name: trust, mountPath: /etc/nats/trust, readOnly: true}
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: config
+          configMap:
+            name: erp-nats
+        - name: tls
+          secret:
+            secretName: erp-nats-tls
+        - name: trust
+          configMap:
+            name: erp-trust
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: erp-encrypted
+        resources:
+          requests:
+            storage: {{ .Values.nats.storage }}
+---
+# Headless: each node by name for the routes; the clients' name resolves
+# to the ready nodes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-nats
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-nats") | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 4 }}
+  ports:
+    - {name: client, port: 4222, targetPort: client}
+    - {name: cluster, port: 6222, targetPort: cluster}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: erp-nats
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-nats") | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 6 }}

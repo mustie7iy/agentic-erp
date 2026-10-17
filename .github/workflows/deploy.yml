@@ -17,6 +17,7 @@ on:
       - scripts/admission-checks.sh
       - scripts/mirror-images.sh
       - scripts/test-mirror-images.sh
+      - scripts/nats-checks.sh
       - scripts/lib/**
       - .github/workflows/deploy.yml
   pull_request:
@@ -98,3 +99,5 @@ jobs:
         run: ./scripts/helm-checks.sh
       - name: Mirroring of the upstream images
         run: ./scripts/test-mirror-images.sh
+      - name: NATS authorization by SPIFFE identity
+        run: ./scripts/nats-checks.sh

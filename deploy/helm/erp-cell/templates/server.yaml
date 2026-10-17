@@ -81,7 +81,10 @@ spec:
             # The VPC endpoint's private DNS answers for the regional name
             # only; the global default would leave through the NAT gateway.
             - {name: ERP_AWS_STS_ENDPOINT, value: {{ required "server.awsEndpoints.sts is required: cell.aws_endpoints.sts" $endpoints.sts | quote }}}
-            - {name: ERP_AT_REST, value: "postgres=storage-kms,objects=sse-kms"}
+            # The bus over TLS as the cell's identity (nats.yaml); its streams
+            # on volumes encrypted with the cluster key.
+            - {name: ERP_NATS_URL, value: {{ printf "tls://erp-nats.%s.svc:4222" .Release.Namespace | quote }}}
+            - {name: ERP_AT_REST, value: "postgres=storage-kms,objects=sse-kms,nats=volume"}
             {{- range $name, $value := .Values.server.extraEnv }}
             - {name: {{ $name }}, value: {{ $value | quote }}}
             {{- end }}
