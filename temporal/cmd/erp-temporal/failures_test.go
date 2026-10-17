@@ -233,6 +233,16 @@ func TestNewServerTLS(t *testing.T) {
 func TestCheckConfig(t *testing.T) {
 	good := newEngine(t, true).env["ERP_TEMPORAL_CONFIG"]
 	bad := newEngine(t, false).env["ERP_TEMPORAL_CONFIG"]
+	// A configuration Temporal's server would refuse when it starts: its
+	// visibility on a store the configuration does not define.
+	content, err := os.ReadFile(good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := filepath.Join(t.TempDir(), "invalid.yaml")
+	if err := os.WriteFile(invalid, []byte(strings.Replace(string(content), "visibilityStore: default", "visibilityStore: missing", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for name, c := range map[string]struct {
 		file string
 		code int
@@ -240,6 +250,7 @@ func TestCheckConfig(t *testing.T) {
 	}{
 		"accepted": {good, 0, "a configuration serve accepts"},
 		"refused":  {bad, 1, "must require client certificates"},
+		"invalid":  {invalid, 1, "missing"},
 		"none":     {"", 2, "ERP_TEMPORAL_CONFIG is required"},
 	} {
 		t.Run(name, func(t *testing.T) {

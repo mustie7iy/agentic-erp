@@ -71,6 +71,11 @@ func engineConfig(s settings) (*config.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configuration %s: %w", s.configFile, err)
 	}
+	// What Temporal's server checks only when it is built, here, so that
+	// check-config refuses it too.
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("configuration %s: %w", s.configFile, err)
+	}
 	for name, store := range cfg.Persistence.DataStores {
 		if store.SQL != nil {
 			store.SQL.Password = s.password
