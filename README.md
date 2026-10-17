@@ -114,10 +114,16 @@ export ERP_OPERATOR_TOKEN=$(./bin/erp token -subject ops)
 by its operationId: `-p name=value` for parameters, `-body` JSON or `@file`,
 `-if-match` the ETag the answer printed.
 
-Agents (need Anthropic credentials, `ANTHROPIC_API_KEY` or an `ant auth login`
-profile; the default model is `claude-opus-5-5`, override it with
-`ERP_AGENT_MODEL`) work through the API as their tools, in sessions recorded
-through the API, and only make recommendations or change requests:
+Agents call models only through their cell's model gateway
+([`api/model.yaml`](api/model.yaml), ADR-0036) with their own token
+(`ERP_AGENT_TOKEN`) and hold no provider key; they name a model alias
+(`erp-default`, or another with `ERP_AGENT_MODEL`), which the gateway
+routes, prices and records per call. The server holds the provider's key
+(`ERP_MODEL_API_KEY`, `ERP_MODEL_ENDPOINT`), and an operator records each
+model's published prices first (`erp-server prices load -file prices.json
+-by <operator>`): a model without a price is refused. Agents work through
+the API as their tools, in sessions recorded through the API, and only
+make recommendations or change requests:
 
 ```sh
 ./bin/erp agent config -draft draft.yaml "raise the price tolerance in company 1000 to 3%"

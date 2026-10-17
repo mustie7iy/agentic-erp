@@ -312,6 +312,17 @@ agent call carries the same permission, company and SoD checks and the same
 audit record. Operations marked `x-agent: false` (approval decisions, user
 and role administration) are never exposed as agent tools.
 
+Agents reach models only through their cell's **model gateway**, a third
+small contract, [`api/model.yaml`](../../api/model.yaml) (ADR-0036): the
+provider's Messages API at `POST /v1/model/v1/messages`, so an agent's SDK
+only changes its base URL. The request names a model alias, which the
+gateway routes to a model with a recorded price; each call is one row of
+the tenant's model call ledger (tokens, cost, never content) and adds to
+the agent session it names (`Erp-Agent-Session`). It needs
+`agents.model.invoke`, authenticates in a short transaction of its own and
+writes the ledger in another after the call: no unit of work is held
+while the model works.
+
 ## 4.14 Phase 1 resources
 
 | Context | Resources | Custom methods |
