@@ -16,6 +16,8 @@ for run in first second; do
   mkdir -p "$work/$run/gocache" "$work/$run/kocache"
   GOCACHE="$work/$run/gocache" KOCACHE="$work/$run/kocache" GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw" \
     "$(dirname "$0")/images.sh" "$work/$run/out" >/dev/null
+  # The module cache may hold read-only files; if chmod cannot fix one,
+  # the rm below fails loudly.
   chmod -R u+w "$work/$run/gocache" "$work/$run/kocache" 2>/dev/null || true
   rm -rf "$work/$run/gocache" "$work/$run/kocache"
   echo "images-reproducible: $run build done, $(df -h / | tail -1)"

@@ -23,7 +23,9 @@ digest, so a new base comes in a reviewed change.
 **Reproducible.** Layers are dated at the epoch and the binaries carry no
 path or build id, so an image's digest is a function of the commit and
 `.ko.yaml`. CI builds every image twice, each with empty Go and ko caches
-of its own, and fails unless the digests match.
+of its own, and fails unless the digests match: on a pull request for
+linux/amd64 only, which fits the runner's disk, and in the weekly run (and
+before a release, by starting it) for both platforms.
 
 **Version in the binary.** `internal/platform/buildinfo` reports the
 release version stamped at link time (`ERP_VERSION`, `devel` when unset)

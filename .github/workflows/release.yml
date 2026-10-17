@@ -103,6 +103,11 @@ jobs:
           ERP_VERSION: ${{ steps.version.outputs.version }}
         run: |
           echo "ERP_BUILD_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          # A release is every platform of .ko.yaml (scripts/images.sh).
+          if [ -n "${KO_PLATFORMS:-}" ]; then
+            echo "a release builds every platform; KO_PLATFORMS is set to $KO_PLATFORMS" >&2
+            exit 1
+          fi
           ./scripts/images.sh dist/images
           make image-scan
       - name: AWS credentials for the signing key
@@ -120,6 +125,10 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "$TOKEN" | go run github.com/google/ko@v0.19.1 login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
           cp dist/images/images.txt dist/scanned.txt
+          if [ -n "${KO_PLATFORMS:-}" ]; then
+            echo "a release builds every platform; KO_PLATFORMS is set to $KO_PLATFORMS" >&2
+            exit 1
+          fi
           KO_DOCKER_REPO="ghcr.io/${owner}/agentic-erp" KO_TAGS="$ERP_VERSION" PUSH=true ./scripts/images.sh dist/images
           if ! diff <(sed 's/.*@//' dist/scanned.txt) <(sed 's/.*@//' dist/images/images.txt); then
             echo "the pushed images are not the scanned ones" >&2

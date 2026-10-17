@@ -143,8 +143,12 @@ opinion rather than to repeating the slow gates:
 - The image reproducibility gate and the signing round trip run when their
   inputs change (`go.mod`, `go.sum`, `.ko.yaml`, `Makefile`, `cmd/`,
   `scripts/image*`, `scripts/sign*`, `scripts/verify-image.sh`,
-  `scripts/provenance.sh`, `release/`, `ci.yml`, `weekly.yml`); a pull
-  request otherwise builds the images once and scans them. A change to
+  `scripts/provenance.sh`, `scripts/free-disk.sh`, `release/`, `ci.yml`,
+  `weekly.yml`); a pull request otherwise builds the images once and scans
+  them. Pull requests build and sign linux/amd64 only, to fit the runner's
+  disk (`scripts/free-disk.sh` clears unused toolchains first); both
+  platforms are built twice and signed weekly, and a push to `main` whose
+  tree was tested skips them like the rest of the suite. A change to
   other Go code alone does not run the reproducibility gate; the weekly run
   does. The release scripts' tests run when those scripts, `cliff.toml`,
   the `Makefile` or a workflow that uses them change, and weekly.

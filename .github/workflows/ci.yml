@@ -96,7 +96,7 @@ jobs:
         run: ./scripts/free-disk.sh
       - name: Signing round trip
         # One platform on pull requests, to fit the runner's disk; the
-        # weekly run signs and verifies both.
+        # weekly run signs and verifies both platforms and their indexes.
         env:
           KO_PLATFORMS: ${{ github.event_name == 'pull_request' && 'linux/amd64' || '' }}
         run: |
@@ -264,8 +264,9 @@ jobs:
         # be checked against it. Nothing is pushed here; T39c's release
         # workflow pushes and signs. Only when the image inputs changed (the
         # weekly run does it regardless); otherwise one build for the scan.
-        # Pull requests build one platform, to fit the runner's disk; pushes
-        # to main and the weekly run build both.
+        # Pull requests build one platform, to fit the runner's disk; the
+        # weekly run builds both (a push to main whose tree was tested skips
+        # this job).
         env:
           IMAGES_CHANGED: ${{ needs.changes.outputs.images }}
           KO_PLATFORMS: ${{ github.event_name == 'pull_request' && 'linux/amd64' || '' }}

@@ -16,8 +16,8 @@
 # the attestation sign-images.sh signs. GOCACHE and KOCACHE are honoured, so the
 # reproducibility gate can give each build caches of its own. KO_PLATFORMS
 # (e.g. linux/amd64) builds those platforms instead of .ko.yaml's: pull
-# requests check one, to fit the runner's disk; releases and the weekly run
-# build them all.
+# requests check one, to fit the runner's disk; the weekly run builds them
+# all, and releases refuse the setting.
 set -euo pipefail
 OUT="${1:-dist/images}"
 KO="${KO:-go run github.com/google/ko@v0.19.1}"
