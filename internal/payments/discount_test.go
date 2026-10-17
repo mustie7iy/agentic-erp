@@ -1,12 +1,17 @@
 package payments_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -14,13 +19,26 @@ import (
 // within 30, net 45) and company 2000 a cash discount account (400000).
 func (e env) discountTerms(t *testing.T, suppliers ...uuid.UUID) {
 	t.Helper()
+	e.discountTermsOnly(t, suppliers...)
+	pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, 'cash_discount', $3, $4)`,
+		e.Tenant.ID, e.DE, e.Account(t, "2000", "400000"), e.Tenant.Human.ID)
+}
+
+// discountTermsOnly gives the suppliers term ZB01, with no cash discount
+// account.
+func (e env) discountTermsOnly(t *testing.T, suppliers ...uuid.UUID) {
+	t.Helper()
 	pgtest.Exec(t, `INSERT INTO partner.payment_term (tenant_id, code, description, net_days, discount_days, discount_pct, discount2_days, discount2_pct,
 		created_by, updated_by) VALUES ($1, 'ZB01', '3% 14, 2% 30, net 45', 45, 14, 3, 30, 2, $2, $2)`, e.Tenant.ID, e.Tenant.Human.ID)
 	for _, s := range suppliers {
 		pgtest.Exec(t, `UPDATE partner.supplier_company SET payment_term_code = 'ZB01', version = version + 1 WHERE tenant_id = $1 AND partner_id = $2`, e.Tenant.ID, s)
 	}
-	pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, 'cash_discount', $3, $4)`,
-		e.Tenant.ID, e.DE, e.Account(t, "2000", "400000"), e.Tenant.Human.ID)
+}
+
+// at sets up the payments test environment with the API's clock on the day.
+func at(t *testing.T, day string) env {
+	t.Helper()
+	return setupWith(t, nil, func(cfg *app.Config) { cfg.Now = func() time.Time { return date(day).Add(12 * time.Hour) } })
 }
 
 // memo posts a credit memo of the supplier naming the invoice ("" for
@@ -109,7 +127,7 @@ func TestCashDiscountInProposals(t *testing.T) {
 // the bank credited with what is paid and the discount on the cash
 // discount account, and the bank file pays exactly that.
 func TestDiscountedPaymentPosts(t *testing.T) {
-	e := setup(t)
+	e := at(t, "2026-03-12")
 	e.discountTerms(t, e.Supplier)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
@@ -131,6 +149,55 @@ func TestDiscountedPaymentPosts(t *testing.T) {
 	e.Must(202, "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
 	if xml := string(e.connector.files[0].Content); !strings.Contains(xml, `<InstdAmt Ccy="EUR">97.00</InstdAmt>`) {
 		t.Errorf("bank file: got\n%s\nwant it to pay 97.00", xml)
+	}
+	// Posting the payment again, as a retried activity does, posts nothing.
+	if err := apitest.Committed(t, e.Tenant, e.Approver, func(ctx context.Context) error {
+		r, err := payments.GetRun(ctx, uuidOf(id(run)))
+		if err != nil {
+			return err
+		}
+		posted, err := endpoints(e.connector).PostPayment(ctx, r, uuidOf(id(pay)))
+		if posted {
+			t.Error("payment posted again: got posted, want nothing posted")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var entries int
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.journal_entry WHERE tenant_id = $1 AND source_document_id = $2`,
+		e.Tenant.ID, uuidOf(id(pay))).Scan(&entries); err != nil {
+		t.Fatal(err)
+	}
+	if entries != 1 {
+		t.Errorf("payment entries: got %d, want 1", entries)
+	}
+}
+
+// TestDiscountRefusals: a run that takes a discount fails at proposal in a
+// company without a cash discount account; one released after the last
+// day of a discount it took is refused, to be proposed again.
+func TestDiscountRefusals(t *testing.T) {
+	e := setup(t)
+	e.discountTermsOnly(t, e.Supplier)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
+	op := e.propose(t, "2026-03-10", "2026-03-20")
+	work(t)
+	failed, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
+	why, _ := failed["error"].(map[string]any)
+	if got := why["code"]; got != "payments.no_cash_discount_account" {
+		t.Errorf("proposal without a cash discount account: got %v (operation %v), want payments.no_cash_discount_account", got, failed["status"])
+	}
+
+	late := at(t, "2026-03-16") // the 3% ran to 15 March
+	late.discountTerms(t, late.Supplier)
+	late.bankAccount(t, late.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	late.invoice(t, late.Supplier, "INV-1", "100.00", "2026-03-01")
+	run := late.run(t, "2026-03-10", "2026-03-20")
+	refused := late.decide(t, 409, run, "release", "")
+	if refused["code"] != "payments.discount_lapsed" {
+		t.Errorf("release after the discount's last day: got %v, want payments.discount_lapsed", refused["code"])
 	}
 }
 

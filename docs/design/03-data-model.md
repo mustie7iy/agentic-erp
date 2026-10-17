@@ -1219,7 +1219,21 @@ At release the settlement credits the bank with what is paid and the
 discounts to the legal entity's `cash_discount` account, both at the
 posting date's rates, so the items clear at their original amounts and
 what is left in local and group currency is the exchange difference
-(`ledger.Settle`; 422 `ledger.no_cash_discount_account` without one).
+(`ledger.Settle`). The discount is taken off the gross amount, so its tax
+share corrects the input tax (T36d, SAP's tax adjustment, §17 UStG): each
+item's discount is split by its entry's tax lines (a line with a tax code
+on that code's account) in proportion to the gross the entry owes the
+supplier, the tax share rounded half away from zero and divided among the
+tax lines by largest remainder, so net and tax add up to the discount; the
+net goes to `cash_discount`, each tax share to its tax line's account with
+its tax code, so the VAT return sees it. An entry without tax lines (a
+manual entry) puts all its discount on `cash_discount`. A run that takes a
+discount fails at proposal without a `cash_discount` account (422
+`payments.no_cash_discount_account`). A payment records the last day its
+discounts are earned (`discount_until`, migration 000068), and the release
+of a proposed run after it is refused (409 `payments.discount_lapsed`,
+days in UTC): the run is rejected and proposed again, at the discount then
+earned.
 
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run

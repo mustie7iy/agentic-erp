@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -130,6 +131,10 @@ func (c *candidate) takeDiscounts(on time.Time) error {
 			return fmt.Errorf("payments: the discount on item %d/%s/%d: %w", it.FiscalYear, it.EntryID, it.LineNo, err)
 		}
 		c.items[i].Discount = d
+		if d != 0 {
+			until := it.terms.Until(it.terms.Discounts[tierOn(it.terms, on)])
+			c.items[i].until = &until
+		}
 	}
 	return nil
 }
@@ -233,6 +238,9 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 	if err != nil {
 		return Run{}, err
 	}
+	if err := e.requireCashDiscountAccount(ctx, r, pr); err != nil {
+		return Run{}, err
+	}
 	if err := pr.insert(ctx, tx, p, r); err != nil {
 		return Run{}, err
 	}
@@ -262,6 +270,21 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 			"payment_count":   len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
 }
 
+// requireCashDiscountAccount fails a run that takes a cash discount in a
+// legal entity without a cash discount account (422
+// payments.no_cash_discount_account), at proposal rather than after its
+// approval, when its release would fail on it.
+func (e *Endpoints) requireCashDiscountAccount(ctx context.Context, r Run, pr proposal) error {
+	if !slices.ContainsFunc(pr.itemDiscounts, func(d money.Minor) bool { return d != 0 }) {
+		return nil
+	}
+	_, ok, err := e.Accounts.Determination(ctx, r.LegalEntityID, "cash_discount")
+	if err != nil || ok {
+		return err
+	}
+	return problem.Unprocessable("payments.no_cash_discount_account", "The run takes cash discounts, and the legal entity has no cash_discount account in its account determination.")
+}
+
 // lockProposals takes the legal entity's proposals lock until the
 // transaction ends. Proposals take it so two runs never reserve the same
 // item; whoever would change what a proposal pays (an invoice reversal,
@@ -286,6 +309,7 @@ type proposal struct {
 	itemLines                             []int32
 	itemAmounts, itemDiscounts            []money.Minor
 	itemDue                               []time.Time
+	untils                                []*time.Time
 	total, discount                       money.Minor
 }
 
@@ -355,10 +379,15 @@ func (pr *proposal) pay(c candidate, bank uuid.UUID, total money.Minor, r Run, e
 	id := uuid.Must(uuid.NewV7())
 	pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, c.supplier), append(pr.banks, bank), append(pr.amounts, total)
 	pr.discounts, pr.e2e = append(pr.discounts, discount), append(pr.e2e, fmt.Sprintf("%s-%s-%06d", entityCode, r.DocumentNumber, len(pr.payIDs)))
+	var until *time.Time
 	for _, it := range c.items {
+		if it.until != nil && (until == nil || it.until.Before(*until)) {
+			until = it.until
+		}
 		pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines = append(pr.itemPays, id), append(pr.itemYears, it.FiscalYear), append(pr.itemEntries, it.EntryID), append(pr.itemLines, it.LineNo)
 		pr.itemAmounts, pr.itemDiscounts, pr.itemDue = append(pr.itemAmounts, it.Amount), append(pr.itemDiscounts, it.Discount), append(pr.itemDue, it.DueDate.Time)
 	}
+	pr.untils = append(pr.untils, until)
 	return nil
 }
 
@@ -379,10 +408,11 @@ func owner(r Run) ledger.Owner {
 
 // insert stores the proposal's payments, items and exclusions.
 func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, discount_amount, currency,
-			end_to_end_id, created_by)
-		SELECT $1, i, $2, s, b, a, d, $3, x, $4 FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::bigint[], $10::text[]) AS t(i, s, b, a, d, x)`,
-		p.TenantID, r.ID, r.Currency, p.ID, pr.payIDs, pr.suppliers, pr.banks, pr.amounts, pr.discounts, pr.e2e); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, discount_amount,
+			discount_until, currency, end_to_end_id, created_by)
+		SELECT $1, i, $2, s, b, a, d, u, $3, x, $4
+		FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::bigint[], $10::date[], $11::text[]) AS t(i, s, b, a, d, u, x)`,
+		p.TenantID, r.ID, r.Currency, p.ID, pr.payIDs, pr.suppliers, pr.banks, pr.amounts, pr.discounts, pr.untils, pr.e2e); err != nil {
 		return fmt.Errorf("payments: insert the payments of run %s: %w", r.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount,
