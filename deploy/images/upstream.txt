@@ -1,0 +1,11 @@
+# Upstream images the cells run in the platform's namespaces (ADR-0035).
+# The admission policy admits only release-signed images from the release
+# registry, so the release copies each, by the digest pinned here, into
+# erp-<name> in that registry, writes its SBOM, and signs and attests it
+# like the platform's own (scripts/mirror-images.sh, then sign-images.sh).
+# Only the linux/arm64 image is copied: the cells' nodes are Graviton
+# (modules/cell). A new version is a change here, reviewed like code.
+#
+# name       source                            tag            linux/arm64 digest
+pgbouncer    ghcr.io/cloudnative-pg/pgbouncer  1.26.0-trixie  sha256:01f76846eb3d2b2c6f05fc0b45466d43364001cfdd68a4883067c69c8e14817f
+nats         docker.io/library/nats            2.12.15-scratch  sha256:98592a56e0411d781e39aaf3821bab9268882beb169c9049f38afee965bdee42
