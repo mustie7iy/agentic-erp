@@ -80,25 +80,23 @@ func (p *pgProxy) serve(ln net.Listener) {
 }
 
 // handle answers an SSLRequest with S and a handshake, then relays the
-// rest in plaintext; any other first message is relayed as it is.
+// rest in plaintext to the database. A connection that does not ask for
+// TLS first is closed, as a server requiring TLS (RDS's rds.force_ssl)
+// refuses it, so that a client reaching it without TLS fails the test.
 func (p *pgProxy) handle(c net.Conn) {
 	first := make([]byte, 8)
-	if _, err := io.ReadFull(c, first); err != nil {
+	if _, err := io.ReadFull(c, first); err != nil || !bytes.Equal(first, sslRequest) {
+		_ = c.Close() // the client went away, or did not ask for TLS
+		return
+	}
+	if _, err := c.Write([]byte{'S'}); err != nil {
 		_ = c.Close() // the client went away
 		return
 	}
-	client, pending := c, first
-	if bytes.Equal(first, sslRequest) {
-		if _, err := c.Write([]byte{'S'}); err != nil {
-			_ = c.Close() // the client went away
-			return
-		}
-		tc := tls.Server(c, p.cfg)
-		if err := tc.HandshakeContext(p.ctx); err != nil {
-			_ = c.Close() // the client refused the certificate
-			return
-		}
-		client, pending = tc, nil
+	client := tls.Server(c, p.cfg)
+	if err := client.HandshakeContext(p.ctx); err != nil {
+		_ = c.Close() // the client refused the certificate
+		return
 	}
 	server, err := (&net.Dialer{}).DialContext(p.ctx, "tcp", p.backend)
 	if err != nil {
@@ -106,11 +104,6 @@ func (p *pgProxy) handle(c net.Conn) {
 		return
 	}
 	p.track(server)
-	if _, err := server.Write(pending); err != nil {
-		_ = client.Close() // the database went away
-		_ = server.Close()
-		return
-	}
 	go func() { _, _ = io.Copy(server, client); _ = server.Close() }() // relays until either side closes
 	_, _ = io.Copy(client, server)
 	_ = client.Close()
