@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -133,4 +134,88 @@ func TestSettleTakesTheDiscount(t *testing.T) {
 		_, err := postings().Settle(ctx, in)
 		return err
 	})
+}
+
+// taxedPost posts a supplier invoice in EUR of company 2000 with an
+// expense line and the tax lines given (tax code to amount, on the input
+// tax account 140000), and returns its open item.
+func taxedPost(t *testing.T, e env, ref string, expense money.Minor, taxes map[string]money.Minor) ledger.ItemRef {
+	t.Helper()
+	gross := expense
+	lines := []ledger.PostingLine{{AccountID: settleAccount(t, e, "2000", "520000"), Amount: expense}}
+	for code, tax := range taxes {
+		lines = append(lines, ledger.PostingLine{AccountID: settleAccount(t, e, "2000", "140000"), Amount: tax, TaxCode: &code})
+		gross += tax
+	}
+	lines = append(lines, ledger.PostingLine{AccountID: settleAccount(t, e, "2000", "211000"), Amount: -gross, PartnerID: &e.supplier})
+	var entry ledger.Entry
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+		entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-01"),
+			PostingDate: date("2026-03-01"), Currency: "EUR", Reference: &ref, SourceContext: "payables", SourceDocumentID: uuid.New(), Lines: lines})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return ledger.ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: int32(len(lines))}
+}
+
+// taxLines are an entry's lines on the input tax account, as "code amount".
+func taxLines(entry ledger.Entry, account uuid.UUID) []string {
+	var out []string
+	for _, l := range entry.Lines {
+		if l.AccountID == account {
+			out = append(out, fmt.Sprintf("%v %d", *l.TaxCode, l.TC))
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// TestDiscountTaxAdjustment: a cash discount is taken off the gross
+// amount, so its tax share corrects the input tax (T36d, as SAP's tax
+// adjustment and §17 UStG require): split from the discount by the tax
+// lines of the item's entry, per tax code and on that code's account,
+// largest remainder first, so net and tax add up to the discount exactly;
+// an item without tax lines puts its whole discount on cash_discount.
+func TestDiscountTaxAdjustment(t *testing.T) {
+	e := setup(t)
+	cash, tax := settleAccount(t, e, "2000", "400000"), settleAccount(t, e, "2000", "140000")
+	determine(t, e, e.de, "cash_discount", cash)
+	for name, c := range map[string]struct {
+		expense  money.Minor
+		taxes    map[string]money.Minor
+		discount money.Minor
+		cash     money.Minor
+		tax      []string
+	}{
+		"one tax code":         {10000, map[string]money.Minor{"V1": 1900}, 238, -200, []string{"V1 -38"}},
+		"two codes, remainder": {10000, map[string]money.Minor{"V1": 7, "V0": 5}, 500, -499, []string{"V1 -1"}},
+		"no tax":               {10000, nil, 300, -300, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			item := taxedPost(t, e.in(t), "TAX-"+name, c.expense, c.taxes)
+			var entry ledger.Entry
+			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+				in := settlementOf(t, e, e.de, "2000", "EUR", "2026-03-10", item)
+				in.Discounts = []money.Minor{c.discount}
+				entry, err = postings().Settle(ctx, in)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var gotCash money.Minor
+			for _, l := range entry.Lines {
+				if l.AccountID == cash {
+					gotCash += l.TC
+				}
+			}
+			if gotCash != c.cash {
+				t.Errorf("cash discount line: got %d, want %d", gotCash, c.cash)
+			}
+			if got := taxLines(entry, tax); fmt.Sprint(got) != fmt.Sprint(c.tax) {
+				t.Errorf("tax adjustment lines: got %v, want %v", got, c.tax)
+			}
+		})
+	}
 }

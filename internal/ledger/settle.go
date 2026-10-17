@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -254,17 +256,19 @@ func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, 
 	lines := []Line{{AccountID: in.BankAccountID, TC: bankTC, LC: bank.lc, GC: bank.gc, Text: in.HeaderText}}
 	paid := bank
 	if discount != 0 {
-		d, err := discountLine(ctx, le.ID, bank, -discount, in.HeaderText)
+		dl, err := discountLines(ctx, tx, le.ID, bank, items, in, discount)
 		if err != nil {
 			return nil, settlementBank{}, err
 		}
-		lines = append(lines, d)
-		if paid.lc, err = money.Sum(bank.lc, d.LC); err == nil {
-			paid.gc, err = money.Sum(bank.gc, d.GC)
+		for _, d := range dl {
+			if paid.lc, err = money.Sum(paid.lc, d.LC); err == nil {
+				paid.gc, err = money.Sum(paid.gc, d.GC)
+			}
+			if err != nil {
+				return nil, settlementBank{}, errTotalTooLarge("items")
+			}
 		}
-		if err != nil {
-			return nil, settlementBank{}, errTotalTooLarge("items")
-		}
+		lines = append(lines, dl...)
 	}
 	fx, err := exchangeDifferenceLines(ctx, le.ID, total.lc, total.gc, paid, in.HeaderText)
 	return append(lines, fx...), bank, err
@@ -300,21 +304,33 @@ func settlementDiscount(in Settlement, items []item, tc money.Minor) (discount, 
 	return discount, bank, nil
 }
 
-// discountLine credits the discounts taken to the legal entity's
-// cash_discount account (SAP SKE), at the settlement's rates.
-func discountLine(ctx context.Context, legalEntity uuid.UUID, bank settlementBank, tc money.Minor, text *string) (Line, error) {
+// discountLines credit the discounts taken: their net part to the legal
+// entity's cash_discount account (SAP SKE), and their tax share to each
+// tax line's account with its tax code (discountTax), all at the
+// settlement's rates.
+func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, bank settlementBank, items []item, in Settlement, discount money.Minor) ([]Line, error) {
 	account, ok, err := Accounts{}.Determination(ctx, legalEntity, "cash_discount")
 	if err != nil {
-		return Line{}, err
+		return nil, err
 	}
 	if !ok {
-		return Line{}, problem.Unprocessable("ledger.no_cash_discount_account", "The payment takes a cash discount, and the legal entity has no cash_discount account in its account determination.")
+		return nil, problem.Unprocessable("ledger.no_cash_discount_account", "The payment takes a cash discount, and the legal entity has no cash_discount account in its account determination.")
 	}
-	lc, gc, err := bank.convert(tc)
+	taxes, tax, err := discountTax(ctx, tx, items, in.Discounts)
 	if err != nil {
-		return Line{}, err
+		return nil, err
 	}
-	return Line{AccountID: account, TC: tc, LC: lc, GC: gc, Text: text}, nil
+	lines := []Line{{AccountID: account, TC: -(discount - tax), Text: in.HeaderText}} // the tax share is part of the discount, of its sign
+	for _, k := range slices.SortedFunc(maps.Keys(taxes), compareTaxKeys) {
+		code := k.code
+		lines = append(lines, Line{AccountID: k.account, TC: -taxes[k], TaxCode: &code, Text: in.HeaderText})
+	}
+	for i := range lines {
+		if lines[i].LC, lines[i].GC, err = bank.convert(lines[i].TC); err != nil {
+			return nil, err
+		}
+	}
+	return lines, nil
 }
 
 // bankAmounts converts the settled transaction amount to local currency,
