@@ -199,6 +199,16 @@ func TestSchemaCommand(t *testing.T) {
 			t.Errorf("stderr: got %q, want the URL's sslmode required", stderr.String())
 		}
 	})
+	// The hook sets its login's password: the master's own would be
+	// changed under RDS, which manages it.
+	t.Run("the master's login", func(t *testing.T) {
+		getenv := func(k string) string {
+			return map[string]string{"ERP_TEMPORAL_ADMIN_URL": verified, "ERP_TEMPORAL_DATABASE_PASSWORD": "file:" + pw, "ERP_TEMPORAL_DATABASE_USER": "master"}[k]
+		}
+		if _, err := loadSchemaSettings(getenv); err == nil {
+			t.Error("got accepted, want the admin URL's user refused as the engine's login")
+		}
+	})
 	t.Run("defaults", func(t *testing.T) {
 		s, err := loadSchemaSettings(env(verified, "file:"+pw))
 		if err != nil {

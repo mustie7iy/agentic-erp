@@ -45,7 +45,7 @@ func loadSchemaSettings(getenv func(string) string) (schemaSettings, error) {
 		visibility: or("ERP_TEMPORAL_VISIBILITY_DATABASE", "temporal_visibility"),
 	}
 	if s.adminURL != "" {
-		if err := requireAdminURL(s.adminURL); err != nil {
+		if err := requireAdminURL(s.adminURL, s.user); err != nil {
 			errs = append(errs, fmt.Errorf("ERP_TEMPORAL_ADMIN_URL: %w (ADR-0033)", err))
 		}
 	}
@@ -128,7 +128,11 @@ func ensureDatabase(ctx context.Context, conn *pgx.Conn, name, owner string) err
 	return nil
 }
 
-// runTool is Temporal's schema tool, in process; replaced by tests.
+// runTool is Temporal's schema tool, in process; replaced by tests. On a
+// failure past its flags it logs and exits the process with 1 itself
+// (tools/sql's cliHandler), so its errors reach migrateEngine only for
+// bad flags; the Job fails either way. It also reads SQL_* variables
+// from the environment, which the Job does not set.
 var runTool = sqltool.RunTool
 
 // migrateEngine runs Temporal's own schema tool on one database, as the
@@ -170,7 +174,9 @@ func portOf(u *url.URL) string {
 // (ADR-0033). pgx alone would also take a keyword/value string, several
 // hosts, and libpq's PGSSLMODE from the environment, none of which reach
 // the tool, which is given the URL's host, port and sslmode (toolArgs).
-func requireAdminURL(raw string) error {
+// Its user must not be the engine's login, whose password setup-schema
+// sets: the master's is RDS's to manage.
+func requireAdminURL(raw, login string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "postgres" && u.Scheme != "postgresql" {
 		return errors.New("must be a postgres:// URL naming one host") // url's error would show the password
@@ -180,6 +186,9 @@ func requireAdminURL(raw string) error {
 	}
 	if u.Query().Get("sslmode") != "verify-full" {
 		return errors.New("sslmode must be verify-full, in the URL")
+	}
+	if u.User.Username() == login {
+		return errors.New("must not be the engine's login (ERP_TEMPORAL_DATABASE_USER), whose password the hook sets")
 	}
 	return nil
 }
