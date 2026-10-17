@@ -360,9 +360,58 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Credit memos and subsequent debits",
       "r": "T34",
+      "c": [
+       {
+        "s": "D",
+        "t": "Schema and configuration: kind (invoice, credit memo, subsequent debit, subsequent credit), reference invoice, quantity rules by kind, amounts not negative, a KG journal range",
+        "r": "migration 000059 · config.journalRules · T34a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Entered, edited and listed through the API by kind, with the reference invoice",
+        "r": "payables kinds.go · SupplierInvoice.kind · T34b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Matched, posted (KG/KR; GR/IR with −q or 0) and reversed by kind, with corrections and their invoice locked",
+        "r": "internal/payables · T34c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Credit memos due on their document date and netted in payment proposals, end to end",
+        "r": "payments.dueDate · TestCreditMemosNetInProposals · T34d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Capture reads credit memos as credit memos",
+        "r": "TestCreditMemoExitCriterion · T34e",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "T",
+      "t": "Quantity re-checked at :post under the order's lock (invoices and credit memos)",
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Load SAP credit memos and subsequent debits/credits by kind (RBKP XRECH/TBTKZ)",
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Capture subsequent debits/credits from documents (optional)",
+      "r": "",
       "c": []
      },
      {
@@ -496,7 +545,7 @@
      },
      {
       "s": "D",
-      "t": "On foundation: payment proposals as an operation built by a worker: due items netted per supplier (credit memos included), exclusions with reasons, items reserved; 100,000 items in about 1.3 s against a 60 s budget",
+      "t": "On foundation: payment proposals as an operation built by a worker: due items netted per supplier (credit memos included), every debit due on its document date (T34d), exclusions with reasons, items reserved; 100,000 items in about 1.3 s against a 60 s budget",
       "r": "internal/payments · Proposer · payment-runs:propose",
       "c": []
      },
@@ -1437,7 +1486,7 @@
      },
      {
       "s": "T",
-      "t": "Returns to vendor",
+      "t": "Returns to vendor (122 clears the GR/IR credit a credit memo for returned goods leaves)",
       "r": "T47",
       "c": []
      },
