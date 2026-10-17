@@ -71,11 +71,9 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	text := map[string]string{KindInvoice: "Supplier invoice ", KindCreditMemo: "Supplier credit memo ", KindSubsequentDebit: "Subsequent debit ",
-		KindSubsequentCredit: "Subsequent credit "}[v.Kind] + v.DocumentNumber
-	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: documentType(v.Kind), DocumentDate: v.InvoiceDate,
-		PostingDate: *date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
-		SourceDocumentID: id, Lines: lines, GRIR: grir})
+	posting := invoicePosting(v, id, *date)
+	posting.Lines, posting.GRIR = lines, grir
+	entry, err := e.Postings.Post(ctx, posting)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -93,6 +91,16 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 			"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
 			"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
 			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
+}
+
+// invoicePosting is the journal entry's header for invoice id of its
+// kind, posted on date; the caller adds the lines.
+func invoicePosting(v Invoice, id uuid.UUID, date time.Time) ledger.Posting {
+	text := map[string]string{KindInvoice: "Supplier invoice ", KindCreditMemo: "Supplier credit memo ", KindSubsequentDebit: "Subsequent debit ",
+		KindSubsequentCredit: "Subsequent credit "}[v.Kind] + v.DocumentNumber
+	return ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: documentType(v.Kind), DocumentDate: v.InvoiceDate,
+		PostingDate: date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
+		SourceDocumentID: id}
 }
 
 // requireReference lets a correction naming an invoice post only while
