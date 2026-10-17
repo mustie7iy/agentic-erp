@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -492,4 +493,40 @@ func roundTrip(g *agents.Gateway, req *http.Request) error {
 		_ = resp.Body.Close() // only the outcome is asserted
 	}
 	return err
+}
+
+// TestConcurrentCallsOfOneSession: calls of one session that finish
+// together each stand, and the session sums them all: its row is locked
+// before the calls' rows reference it, so no two of them deadlock.
+func TestConcurrentCallsOfOneSession(t *testing.T) {
+	priced(t, "claude-opus-5-5")
+	ten := pgtest.NewTenant(t)
+	session := startSession(t, ten)
+	g := gateway(t, &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 10, 1, 0, 0)})
+	const n = 8
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := httptest.NewRequest(http.MethodPost, agents.Route, strings.NewReader(`{"model": "erp-default", "max_tokens": 8, "messages": []}`))
+			r.Header.Set(agents.SessionHeader, session.String())
+			rec := httptest.NewRecorder()
+			g.ServeHTTP(rec, r.WithContext(reqctx.WithPrincipal(r.Context(), principal(ten))))
+			codes <- rec.Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	for code := range codes {
+		if code != http.StatusOK {
+			t.Errorf("a concurrent call: got %d, want 200", code)
+		}
+	}
+	var in int64
+	pgtest.Scan(t, `SELECT input_tokens FROM agents.session WHERE tenant_id = $1 AND id = $2`, []any{ten.ID, session}, &in)
+	if in != 10*n {
+		t.Errorf("session input tokens: got %d, want %d", in, 10*n)
+	}
 }

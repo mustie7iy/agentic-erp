@@ -299,9 +299,18 @@ func cost(r row, pr price) money.Micro {
 }
 
 // recordCall writes the ledger row and adds it to the session it belongs
-// to, whose row is read FOR UPDATE (ADR-0008): concurrent calls of one
-// session add up. A session ended while the call ran still counts it.
+// to. The session's row is locked first (FOR UPDATE, ADR-0008), before the
+// call's row references it: inserted first, each call's row would hold a
+// key share on the session that the other's lock waits on, and two calls
+// finishing together would deadlock. A session ended while the call ran
+// still counts it.
 func recordCall(ctx context.Context, tx pgx.Tx, p reqctx.Principal, session *uuid.UUID, r row) error {
+	var spent money.Micro
+	if session != nil {
+		if err := tx.QueryRow(ctx, `SELECT cost_micro FROM agents.session WHERE id = $1 AND agent_id = $2 FOR UPDATE`, *session, p.ID).Scan(&spent); err != nil {
+			return fmt.Errorf("agents: lock session %s: %w", *session, err)
+		}
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, session_id, alias, model, status, input_tokens, output_tokens,
 		cache_write_tokens, cache_read_tokens, cost_micro, currency, duration_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		p.TenantID, uuid.Must(uuid.NewV7()), p.ID, session, r.alias, r.model, r.status, r.input, r.output, r.write, r.read, r.cost, r.currency,
@@ -310,10 +319,6 @@ func recordCall(ctx context.Context, tx pgx.Tx, p reqctx.Principal, session *uui
 	}
 	if session == nil {
 		return nil
-	}
-	var spent money.Micro
-	if err := tx.QueryRow(ctx, `SELECT cost_micro FROM agents.session WHERE id = $1 AND agent_id = $2 FOR UPDATE`, *session, p.ID).Scan(&spent); err != nil {
-		return fmt.Errorf("agents: lock session %s: %w", *session, err)
 	}
 	spent = spent.Add(r.cost)
 	if _, err := tx.Exec(ctx, `UPDATE agents.session SET input_tokens = input_tokens + $2, output_tokens = output_tokens + $3,
