@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
@@ -138,8 +139,17 @@ func writeCSV(name string, r *analytics.Result) (err error) {
 // createFile creates a file the command writes; tests replace it.
 var createFile = func(name string) (io.WriteCloser, error) { return os.Create(name) }
 
-// newAgent makes the analytics agent; tests replace it.
-var newAgent = analytics.NewAgent
+// newAgent makes the analytics agent, calling models through the cell's
+// gateway as c's principal (ADR-0036); tests replace it.
+var newAgent = defaultAgent
+
+func defaultAgent(c *apitools.Client) *analytics.Agent {
+	r := gatewayRunner(c)
+	if getenv("ERP_AGENT_MODEL") == "" {
+		r.Model = analytics.Alias
+	}
+	return analytics.NewAgent(r.Client, r.Model)
+}
 
 // askCmd answers a plain-language question with an on-demand dashboard.
 func askCmd(ctx context.Context, args []string) error {
@@ -153,12 +163,16 @@ func askCmd(ctx context.Context, args []string) error {
 	if question == "" {
 		return fmt.Errorf(`ask a question, e.g. erp ask "monthly sales vs last year this time"`)
 	}
+	c, err := client("ERP_TOKEN")
+	if err != nil {
+		return err
+	}
 	sess, err := af.session(ctx)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintln(errOut, "Working on it...")
-	ans, err := newAgent().Ask(ctx, sess, question)
+	ans, err := newAgent(c).Ask(ctx, sess, question)
 	if err != nil {
 		return err
 	}

@@ -75,8 +75,12 @@ func printer() *bufio.Writer { return bufio.NewWriter(out) }
 var (
 	exit      = os.Exit
 	getenv    = os.Getenv
-	newRunner = llm.New
+	newRunner = gatewayRunner
 )
+
+// gatewayRunner calls models through the cell's model gateway as c's
+// principal: agents hold no provider key (ADR-0036).
+func gatewayRunner(c *apitools.Client) *llm.Runner { return llm.Gateway(c.BaseURL, c.Token, c.HTTP) }
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -143,7 +147,7 @@ the API (ERP_API_URL, ERP_TOKEN):
   ask            ask a question; the analytics agent builds a dashboard on demand
   report         rerun a saved report on current data
 
-agents (ERP_AGENT_TOKEN, Anthropic credentials):
+agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an alias):
   agent invoices | config | migration | test
 
 operators (ERP_CONTROL_URL, default localhost:9090; ERP_OPERATOR_TOKEN):

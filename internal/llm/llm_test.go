@@ -3,6 +3,9 @@ package llm_test
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -13,16 +16,60 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
-func TestNewUsesEnvironmentModel(t *testing.T) {
-	t.Setenv("ERP_AGENT_MODEL", "claude-sonnet-5-5")
-	if r := llm.New(); r.Model != "claude-sonnet-5-5" {
-		t.Fatalf("model %s", r.Model)
-	}
+// TestGateway: an agent's runner calls the cell's model gateway with the
+// agent's own token and no provider key, naming a model alias
+// (ERP_AGENT_MODEL, default erp-default; ADR-0036).
+func TestGateway(t *testing.T) {
+	var got *http.Request
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Clone(context.Background())
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"type":"message","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+	t.Setenv("ANTHROPIC_API_KEY", "sk-operator") // never sent to the gateway
 	t.Setenv("ERP_AGENT_MODEL", "")
-	if r := llm.New(); r.Model != llm.DefaultModel {
-		t.Fatalf("default model %s", r.Model)
+	r := llm.Gateway(srv.URL+"/", "agent-token", srv.Client())
+	if r.Model != llm.DefaultModel || llm.DefaultModel != "erp-default" {
+		t.Errorf("model: got %s, want erp-default", r.Model)
+	}
+	msg, err := r.Client.Beta.Messages.New(context.Background(), r.Params("system", anthropic.NewBetaTextBlock("hi")))
+	if err != nil || llm.Text(msg) != "ok" {
+		t.Fatalf("call: %v", err)
+	}
+	if got.URL.Path != "/v1/model/v1/messages" {
+		t.Errorf("path: got %s, want /v1/model/v1/messages", got.URL.Path)
+	}
+	if got.Header.Get("Authorization") != "Bearer agent-token" || got.Header.Get("X-Api-Key") != "" {
+		t.Errorf("credentials: got Authorization %q, X-Api-Key %q, want the agent's token alone", got.Header.Get("Authorization"), got.Header.Get("X-Api-Key"))
+	}
+	t.Setenv("ERP_AGENT_MODEL", "erp-analytics")
+	if r := llm.Gateway(srv.URL, "t", nil); r.Model != "erp-analytics" {
+		t.Errorf("model: got %s, want erp-analytics", r.Model)
 	}
 }
+
+// TestInProcess: the server's own runner calls the gateway's transport,
+// naming the alias it is given.
+func TestInProcess(t *testing.T) {
+	var got string
+	r := llm.InProcess(roundTrip(func(req *http.Request) (*http.Response, error) {
+		got = req.URL.Path
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(
+			`{"type":"message","role":"assistant","model":"m","content":[],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))}, nil
+	}), "erp-extraction")
+	if r.Model != "erp-extraction" {
+		t.Errorf("model: got %s, want erp-extraction", r.Model)
+	}
+	if _, err := r.Client.Beta.Messages.New(context.Background(), r.Params("s", anthropic.NewBetaTextBlock("x"))); err != nil || got != "/v1/messages" {
+		t.Errorf("call: got %s, %v, want /v1/messages", got, err)
+	}
+}
+
+// roundTrip is a transport made of a function.
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestResultHelpers(t *testing.T) {
 	r, err := llm.Result("plain")
@@ -50,7 +97,7 @@ func TestRunToolsTextAndRefusal(t *testing.T) {
 		t.Fatalf("%v %v", err, msg)
 	}
 	req := srv.Requests[0]
-	for _, frag := range []string{`"effort":"medium"`, `"fallbacks":"default"`, `"cache_control"`, `"model":"claude-opus-5-5"`} {
+	for _, frag := range []string{`"effort":"medium"`, `"fallbacks":"default"`, `"cache_control"`, `"model":"erp-default"`} {
 		if !strings.Contains(req, frag) {
 			t.Errorf("request: got %s, want it to contain %s", req, frag)
 		}

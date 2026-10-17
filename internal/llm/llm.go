@@ -8,29 +8,53 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 )
 
-// DefaultModel is used unless ERP_AGENT_MODEL says otherwise.
-const DefaultModel = "claude-opus-5-5"
+// DefaultModel is the model alias agents name unless ERP_AGENT_MODEL says
+// otherwise; the cell's gateway routes it to a model (ADR-0036).
+const DefaultModel = "erp-default"
 
 type Runner struct {
 	Client anthropic.Client
 	Model  string
 }
 
-// New uses the SDK's standard credential resolution (ANTHROPIC_API_KEY or
-// an `ant auth login` profile).
-func New() *Runner {
+// Gateway is an agent's runner: its calls go to the model gateway of the
+// API at apiURL (/v1/model, api/model.yaml) with the agent's own token,
+// never a provider key, which agents do not hold. client nil is the SDK's
+// default.
+func Gateway(apiURL, token string, client *http.Client) *Runner {
 	model := os.Getenv("ERP_AGENT_MODEL")
 	if model == "" {
 		model = DefaultModel
 	}
-	return &Runner{Client: anthropic.NewClient(), Model: model}
+	opts := []option.RequestOption{option.WithBaseURL(strings.TrimRight(apiURL, "/") + "/v1/model"), option.WithAuthToken(token),
+		option.WithHeaderDel("X-Api-Key")}
+	if client != nil {
+		opts = append(opts, option.WithHTTPClient(client))
+	}
+	return &Runner{Client: anthropic.NewClient(opts...), Model: model}
+}
+
+// New calls the provider directly with the SDK's own credentials. Only the
+// server still uses it, until it calls through its gateway.
+func New() *Runner {
+	return &Runner{Client: anthropic.NewClient(), Model: "claude-opus-5-5"}
+}
+
+// InProcess is the server's own runner: its calls go to the gateway's
+// in-process transport (agents.Gateway.Transport), as the request's
+// principal, naming alias.
+func InProcess(transport http.RoundTripper, alias string) *Runner {
+	return &Runner{Client: anthropic.NewClient(option.WithBaseURL("http://model-gateway.internal"), option.WithAPIKey("in-process"),
+		option.WithHTTPClient(&http.Client{Transport: transport}), option.WithMaxRetries(0)), Model: alias}
 }
 
 // Params builds a request with the platform defaults: cached system prompt,

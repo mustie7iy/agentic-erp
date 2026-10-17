@@ -254,7 +254,7 @@ func agentInvoices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	res, err := (&agent.Agent{LLM: newRunner(), API: c}).Review(ctx)
+	res, err := (&agent.Agent{LLM: newRunner(c), API: c}).Review(ctx)
 	if err != nil {
 		return err
 	}
@@ -305,7 +305,7 @@ func agentConfig(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := (&configagent.Agent{LLM: newRunner(), API: c}).Handle(ctx, request, draft)
+	res, err := (&configagent.Agent{LLM: newRunner(c), API: c}).Handle(ctx, request, draft)
 	if err != nil {
 		return err
 	}
@@ -325,7 +325,7 @@ func agentMigration(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	text, err := (&migrationagent.Agent{LLM: newRunner(), API: c}).Assess(ctx, *connector, strings.Split(*entities, ","), *year, *mode)
+	text, err := (&migrationagent.Agent{LLM: newRunner(c), API: c}).Assess(ctx, *connector, strings.Split(*entities, ","), *year, *mode)
 	if err != nil {
 		return err
 	}
@@ -343,7 +343,7 @@ func agentTest(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	rev, err := (&testagent.Agent{LLM: newRunner(), API: c}).Review(ctx, *cr)
+	rev, err := (&testagent.Agent{LLM: newRunner(c), API: c}).Review(ctx, *cr)
 	if err != nil {
 		return err
 	}

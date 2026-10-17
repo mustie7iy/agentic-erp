@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -459,9 +461,13 @@ func TestAnalyticsErrors(t *testing.T) {
 
 	fails(t, "flag provided", "ask", "-x")
 	fails(t, "ask a question", "ask")
+	fails(t, "missing.yaml", "ask", "-semantic", "missing.yaml", "how", "much")
 	ask := llmtest.New(t)
-	newAgent = func() *analytics.Agent { r := ask.Runner(); return &analytics.Agent{Client: r.Client, Model: r.Model} }
-	t.Cleanup(func() { newAgent = analytics.NewAgent })
+	newAgent = func(*apitools.Client) *analytics.Agent {
+		r := ask.Runner()
+		return &analytics.Agent{Client: r.Client, Model: r.Model}
+	}
+	t.Cleanup(func() { newAgent = defaultAgent })
 	fails(t, "script exhausted", "ask", "how", "much")
 	ask = llmtest.New(t,
 		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}),
@@ -740,5 +746,27 @@ func TestTenantsCommand(t *testing.T) {
 		if !strings.Contains(calls, want) {
 			t.Fatalf("calls: got\n%s\nwant them to contain %s", calls, want)
 		}
+	}
+}
+
+// TestAgentsUseTheGateway: the agents' and the analytics agent's model
+// clients name a model alias of the cell's gateway, the analytics agent
+// its own unless ERP_AGENT_MODEL says otherwise (ADR-0036).
+func TestAgentsUseTheGateway(t *testing.T) {
+	c := &apitools.Client{BaseURL: "https://erp.example.com", Token: "t"}
+	t.Setenv("ERP_AGENT_MODEL", "")
+	if r := gatewayRunner(c); r.Model != llm.DefaultModel {
+		t.Errorf("agents: got %s, want %s", r.Model, llm.DefaultModel)
+	}
+	env := map[string]string{}
+	getenv = func(k string) string { return env[k] }
+	t.Cleanup(func() { getenv = os.Getenv })
+	if a := defaultAgent(c); a.Model != analytics.Alias {
+		t.Errorf("analytics: got %s, want %s", a.Model, analytics.Alias)
+	}
+	env["ERP_AGENT_MODEL"] = "erp-default"
+	t.Setenv("ERP_AGENT_MODEL", "erp-default")
+	if a := defaultAgent(c); a.Model != "erp-default" {
+		t.Errorf("analytics with ERP_AGENT_MODEL: got %s, want erp-default", a.Model)
 	}
 }

@@ -541,7 +541,7 @@ func (f *fakeClaude) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// A failed write reaches the client as a broken answer, which the test sees there.
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"id": "msg_test", "type": "message", "role": "assistant", "model": defaultModel,
+		"id": "msg_test", "type": "message", "role": "assistant", "model": Alias,
 		"content": content, "stop_reason": stop, "stop_sequence": nil,
 		"usage": map[string]any{"input_tokens": 10, "output_tokens": 5},
 	})
@@ -554,7 +554,7 @@ func TestAgentAskBuildsValidatedDashboard(t *testing.T) {
 	defer srv.Close()
 	a := &Agent{
 		Client: anthropic.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("test"), option.WithMaxRetries(0)),
-		Model:  defaultModel,
+		Model:  Alias,
 		Today:  func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) },
 	}
 	ans, err := a.Ask(context.Background(), s, "monthly sales vs last year this time")
