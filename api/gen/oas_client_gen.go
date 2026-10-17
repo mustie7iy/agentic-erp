@@ -349,8 +349,9 @@ type Invoker interface {
 	EnableConnector(ctx context.Context, params EnableConnectorParams) (EnableConnectorRes, error)
 	// EndAgentSession invokes endAgentSession operation.
 	//
-	// Ends a running session with its outcome and the tokens and cost it used. Only the session's agent
-	// ends it. Requires status `running`.
+	// Ends a running session with its outcome. Its tokens and cost are those of the model calls made in it
+	// through the model gateway (api/model.yaml, ADR-0036); tokens and cost in the request are ignored.
+	// Only the session's agent ends it. Requires status `running`.
 	//
 	// POST /v1/agent-sessions/{id}:end
 	EndAgentSession(ctx context.Context, request *AgentSessionEnd, params EndAgentSessionParams) (EndAgentSessionRes, error)
@@ -7800,8 +7801,9 @@ func (c *Client) sendEnableConnector(ctx context.Context, params EnableConnector
 
 // EndAgentSession invokes endAgentSession operation.
 //
-// Ends a running session with its outcome and the tokens and cost it used. Only the session's agent
-// ends it. Requires status `running`.
+// Ends a running session with its outcome. Its tokens and cost are those of the model calls made in it
+// through the model gateway (api/model.yaml, ADR-0036); tokens and cost in the request are ignored.
+// Only the session's agent ends it. Requires status `running`.
 //
 // POST /v1/agent-sessions/{id}:end
 func (c *Client) EndAgentSession(ctx context.Context, request *AgentSessionEnd, params EndAgentSessionParams) (EndAgentSessionRes, error) {

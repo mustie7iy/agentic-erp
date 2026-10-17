@@ -675,11 +675,11 @@ type AgentSessionEnd struct {
 	// Outcome. Open enumeration: clients must accept and preserve values not listed here; values may be
 	// added within /v1.
 	Status string `json:"status"`
-	// Input tokens used.
+	// Ignored: the gateway's ledger counts the session's tokens (ADR-0036).
 	InputTokens int64 `json:"input_tokens"`
-	// Output tokens used.
+	// Ignored: the gateway's ledger counts the session's tokens (ADR-0036).
 	OutputTokens int64 `json:"output_tokens"`
-	// Cost, when known.
+	// Ignored: the gateway's ledger prices the session's calls (ADR-0036).
 	Cost OptMoney `json:"cost"`
 }
 
