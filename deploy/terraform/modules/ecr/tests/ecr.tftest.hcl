@@ -16,7 +16,7 @@ run "one_immutable_encrypted_scanned_repository_per_binary" {
   command = apply
 
   assert {
-    condition     = toset(keys(aws_ecr_repository.this)) == toset(["erp-server", "erp-router", "erp"])
+    condition     = toset(keys(aws_ecr_repository.this)) == toset(["erp-server", "erp-router", "erp", "erp-pgbouncer", "erp-nats"])
     error_message = "one repository per binary"
   }
   assert {
@@ -33,7 +33,7 @@ run "the_lifecycle_never_expires_untagged_signatures" {
   command = apply
 
   assert {
-    condition     = length(aws_ecr_lifecycle_policy.this) == 3 && alltrue([for p in aws_ecr_lifecycle_policy.this : length(jsondecode(p.policy).rules) == 1])
+    condition     = length(aws_ecr_lifecycle_policy.this) == 5 && alltrue([for p in aws_ecr_lifecycle_policy.this : length(jsondecode(p.policy).rules) == 1])
     error_message = "every repository has its one lifecycle rule"
   }
   assert {
@@ -89,4 +89,12 @@ run "no_replication_or_pull_policy_without_regions_or_accounts" {
     condition     = length(aws_ecr_replication_configuration.this) == 0 && length(aws_ecr_repository_policy.pull) == 0
     error_message = "nothing to replicate or share"
   }
+}
+
+run "a_repository_the_cells_cannot_read_is_refused" {
+  command = plan
+  variables {
+    repositories = ["erp-server", "pgbouncer"]
+  }
+  expect_failures = [var.repositories]
 }

@@ -12,9 +12,13 @@
 #   referrer is untagged, and deleting it would make its image unverifiable.
 
 variable "repositories" {
-  description = "Repository names, one per binary."
+  description = "Repository names: one per binary, and one per upstream image the cells run (deploy/images/upstream.txt), copied and signed by the release (scripts/mirror-images.sh)."
   type        = list(string)
-  default     = ["erp-server", "erp-router", "erp"]
+  default     = ["erp-server", "erp-router", "erp", "erp-pgbouncer", "erp-nats"]
+  validation {
+    condition     = alltrue([for name in var.repositories : startswith(name, "erp")])
+    error_message = "every repository's name starts with erp: the cells' roles read erp* (modules/cell irsa.tf)"
+  }
 }
 
 variable "replication_regions" {

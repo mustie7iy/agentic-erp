@@ -60,8 +60,8 @@ run "the_tooling_account_plans_and_wires_its_parts" {
     error_message = "ERP_COSIGN_KEY is the signing key's awskms reference"
   }
   assert {
-    condition     = length(output.repository_urls) == 3
-    error_message = "one repository per binary"
+    condition     = length(output.repository_urls) == 5
+    error_message = "one repository per binary and per mirrored upstream image"
   }
   assert {
     condition     = [for s in jsondecode(module.signing_key.policy).Statement : s.Principal.AWS if s.Sid == "Sign"][0] == ["arn:aws:iam::111111111111:role/erp-release"]

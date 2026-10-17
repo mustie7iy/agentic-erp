@@ -17,6 +17,9 @@ data "aws_rds_engine_version" "postgres" {
 locals {
   database_class      = coalesce(var.database_instance_class, var.zone_redundant ? "db.m6gd.large" : "db.t4g.medium")
   database_storage_gb = coalesce(var.database_storage_gb, var.zone_redundant ? 400 : 20)
+  database_master_secret_arn = (var.zone_redundant
+    ? one(flatten(aws_rds_cluster.cell[*].master_user_secret[*].secret_arn))
+  : one(flatten(aws_db_instance.cell[*].master_user_secret[*].secret_arn)))
   # Both shapes' parameter groups set these.
   database_parameters = {
     "rds.force_ssl"              = "1"

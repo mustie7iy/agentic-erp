@@ -44,10 +44,8 @@ output "database_reader_endpoint" {
 }
 
 output "database_master_secret_arn" {
-  description = "The RDS-managed master credentials in Secrets Manager."
-  value = (var.zone_redundant
-    ? one(flatten(aws_rds_cluster.cell[*].master_user_secret[*].secret_arn))
-  : one(flatten(aws_db_instance.cell[*].master_user_secret[*].secret_arn)))
+  description = "The RDS-managed master credentials in Secrets Manager, which External Secrets reads into the database URLs (deploy/helm/erp-cell)."
+  value       = local.database_master_secret_arn
 }
 
 output "object_bucket" {

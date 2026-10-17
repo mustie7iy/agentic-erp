@@ -6,7 +6,7 @@
 variable "secrets" {
   description = "Names of the cell's secrets, under erp/<cell>/ (values are set outside Terraform)."
   type        = list(string)
-  default     = ["page-token-key", "temporal-codec-key", "temporal-database-password"]
+  default     = ["page-token-key", "database-client-password", "temporal-codec-key", "temporal-database-password"]
 }
 
 resource "aws_s3_bucket" "objects" {

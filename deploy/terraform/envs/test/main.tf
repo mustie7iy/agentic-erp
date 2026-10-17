@@ -141,6 +141,11 @@ output "global" {
   }
 }
 
+output "subordinate_ca_certificate" {
+  description = "The environment's trust anchor (the erp-cell chart's trust.caBundle, ERP_TLS_CA)."
+  value       = module.subordinate_ca.ca_certificate
+}
+
 output "subordinate_ca_arn" {
   description = "The environment's subordinate CA (cert-manager's AWSPCAClusterIssuer, T40c)."
   value       = module.subordinate_ca.ca_arn

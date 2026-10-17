@@ -235,6 +235,10 @@ run "dev_and_test_run_a_single_instance_that_still_requires_tls_1_3" {
     condition     = output.database_endpoint == "erp-dev-1.abc.eu-central-1.rds.amazonaws.com" && output.database_master_secret_arn == "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1"
     error_message = "the outputs name the single instance's host and master secret"
   }
+  assert {
+    condition     = contains(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource, "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1")
+    error_message = "External Secrets reads the master credentials into the database URLs"
+  }
 }
 
 run "a_small_instance_may_have_small_storage" {

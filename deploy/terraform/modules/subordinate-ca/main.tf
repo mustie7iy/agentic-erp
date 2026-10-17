@@ -106,3 +106,8 @@ output "ca_arn" {
   description = "The environment's subordinate CA, for cert-manager's issuer."
   value       = aws_acmpca_certificate_authority.subordinate.arn
 }
+
+output "ca_certificate" {
+  description = "The subordinate's certificate (PEM): the trust anchor of the environment's services (ERP_TLS_CA), not the root, so a replaced subordinate is distrusted with its bundle (ADR-0035)."
+  value       = aws_acmpca_certificate.subordinate.certificate
+}

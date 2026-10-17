@@ -25,10 +25,11 @@ locals {
         { Sid = "ObjectKey", Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.data.arn },
       ]
     }
-    # The External Secrets Operator: the cell's secrets, read only.
+    # The External Secrets Operator: the cell's secrets and the database's
+    # RDS-managed master credentials, read only.
     external_secrets = {
       statements = [
-        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = [for secret in aws_secretsmanager_secret.cell : secret.arn] },
+        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = concat([for secret in aws_secretsmanager_secret.cell : secret.arn], compact([local.database_master_secret_arn])) },
         { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = aws_kms_key.data.arn },
       ]
     }
