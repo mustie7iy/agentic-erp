@@ -134,3 +134,16 @@ resource "aws_eks_node_group" "cell" {
     ignore_changes = [scaling_config[0].desired_size]
   }
 }
+
+# The EBS CSI driver as an EKS add-on, running as its IRSA role (irsa.tf):
+# the volumes of NATS JetStream, encrypted with the cluster key through the
+# erp-cluster chart's StorageClass (T40c).
+resource "aws_eks_addon" "ebs_csi" {
+  cluster_name                = aws_eks_cluster.cell.name
+  addon_name                  = "aws-ebs-csi-driver"
+  addon_version               = var.ebs_csi_addon_version
+  service_account_role_arn    = aws_iam_role.workload["ebs_csi"].arn
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "PRESERVE"
+  depends_on                  = [aws_eks_node_group.cell]
+}

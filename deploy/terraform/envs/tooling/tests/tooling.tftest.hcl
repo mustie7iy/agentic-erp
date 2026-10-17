@@ -8,8 +8,11 @@ mock_provider "aws" {
   mock_data "aws_partition" {
     defaults = { partition = "aws" }
   }
+  mock_data "aws_kms_public_key" {
+    defaults = { public_key_pem = "-----BEGIN PUBLIC KEY-----\nMFkw\n-----END PUBLIC KEY-----\n" }
+  }
   mock_resource "aws_kms_key" {
-    defaults = { arn = "arn:aws:kms:eu-central-1:111111111111:key/0000" }
+    defaults = { arn = "arn:aws:kms:eu-central-1:111111111111:key/0d5c2b1e-0000-4000-8000-000000000000" }
   }
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::111111111111:role/mock" }
@@ -49,7 +52,11 @@ run "the_tooling_account_plans_and_wires_its_parts" {
   command = apply
 
   assert {
-    condition     = output.cosign_key == "awskms:///arn:aws:kms:eu-central-1:111111111111:key/0000"
+    condition     = startswith(output.cosign_public_key, "-----BEGIN PUBLIC KEY-----")
+    error_message = "the admission policy's key is the release key's public half"
+  }
+  assert {
+    condition     = output.cosign_key == "awskms:///arn:aws:kms:eu-central-1:111111111111:key/0d5c2b1e-0000-4000-8000-000000000000"
     error_message = "ERP_COSIGN_KEY is the signing key's awskms reference"
   }
   assert {

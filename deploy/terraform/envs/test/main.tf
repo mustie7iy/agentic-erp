@@ -87,15 +87,16 @@ resource "aws_iam_service_linked_role" "autoscaling" {
 }
 
 module "cell" {
-  source               = "../../modules/cell"
-  name                 = "test-1"
-  autoscaling_role_arn = aws_iam_service_linked_role.autoscaling.arn
-  cidr                 = "10.32.0.0/16"
-  availability_zones   = var.availability_zones
-  admin_role_arns      = var.admin_role_arns
-  subordinate_ca_arn   = module.subordinate_ca.ca_arn
-  public_api_cidrs     = var.public_api_cidrs
-  node_scaling         = { min = 2, desired = 2, max = 4 }
+  source                    = "../../modules/cell"
+  name                      = "test-1"
+  autoscaling_role_arn      = aws_iam_service_linked_role.autoscaling.arn
+  image_registry_account_id = var.tooling_account_id
+  cidr                      = "10.32.0.0/16"
+  availability_zones        = var.availability_zones
+  admin_role_arns           = var.admin_role_arns
+  subordinate_ca_arn        = module.subordinate_ca.ca_arn
+  public_api_cidrs          = var.public_api_cidrs
+  node_scaling              = { min = 2, desired = 2, max = 4 }
   # The product owner's shape for dev and test: a single-AZ instance and
   # one zone's egress and endpoints. Staging and production keep the default.
   zone_redundant = false
@@ -118,6 +119,7 @@ output "cell" {
   description = "The cell test-1: cluster, database, bucket, keys and workload roles (the erp-cell chart's values, T40c)."
   value = {
     cluster_name               = module.cell.cluster_name
+    vpc_id                     = module.cell.vpc_id
     cluster_endpoint           = module.cell.cluster_endpoint
     database_endpoint          = module.cell.database_endpoint
     database_master_secret_arn = module.cell.database_master_secret_arn

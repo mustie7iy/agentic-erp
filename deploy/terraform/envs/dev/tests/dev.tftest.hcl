@@ -85,7 +85,7 @@ run "the_dev_environment_plans_and_wires_its_parts" {
     error_message = "the cell is dev-1"
   }
   assert {
-    condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi"])
+    condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi", "load_balancer", "kyverno"])
     error_message = "every workload of the cell has its role"
   }
   assert {

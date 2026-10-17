@@ -12,6 +12,8 @@ locals {
     external_secrets = { namespace = "external-secrets", name = "external-secrets" }
     cert_manager     = { namespace = "cert-manager", name = "aws-privateca-issuer" }
     ebs_csi          = { namespace = "kube-system", name = "ebs-csi-controller-sa" }
+    load_balancer    = { namespace = "kube-system", name = "aws-load-balancer-controller" }
+    kyverno          = { namespace = "kyverno", name = "kyverno-admission-controller" }
   }
 
   workloads = {
@@ -45,6 +47,25 @@ locals {
     ebs_csi = {
       statements = [
         { Sid = "VolumeKey", Effect = "Allow", Action = ["kms:CreateGrant", "kms:ListGrants", "kms:RevokeGrant", "kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"], Resource = aws_kms_key.cluster.arn },
+      ]
+    }
+    # The AWS Load Balancer Controller, for TargetGroupBinding only: it
+    # registers the router's pods in the target group Terraform made
+    # (modules/global) and creates no load balancer, listener or security
+    # group rule, so it reads and registers and nothing else.
+    load_balancer = {
+      statements = [
+        { Sid = "Read", Effect = "Allow", Action = ["elasticloadbalancing:Describe*", "ec2:DescribeInstances", "ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeVpcs", "ec2:DescribeAvailabilityZones"], Resource = "*" },
+        { Sid = "Targets", Effect = "Allow", Action = ["elasticloadbalancing:RegisterTargets", "elasticloadbalancing:DeregisterTargets"], Resource = "arn:${data.aws_partition.current.partition}:elasticloadbalancing:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:targetgroup/erp-*/*" },
+      ]
+    }
+    # Kyverno's admission controller: it reads the release images'
+    # signatures and attestations from the registry in tooling (any region,
+    # since images are replicated) to admit them (ADR-0035).
+    kyverno = {
+      statements = [
+        { Sid = "RegistryToken", Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
+        { Sid = "ReadImages", Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:DescribeImages", "ecr:ListImages"], Resource = "arn:${data.aws_partition.current.partition}:ecr:*:${var.image_registry_account_id}:repository/erp*" },
       ]
     }
   }

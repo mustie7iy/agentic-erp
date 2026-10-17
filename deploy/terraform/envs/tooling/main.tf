@@ -79,6 +79,15 @@ module "private_ca" {
   country      = var.ca_country
 }
 
+data "aws_kms_public_key" "release" {
+  key_id = module.signing_key.key_arn
+}
+
+output "cosign_public_key" {
+  description = "The release key's public half (PEM): the erp-cluster chart's admission policy verifies images with it (deploy/helm, T40c)."
+  value       = data.aws_kms_public_key.release.public_key_pem
+}
+
 output "cosign_key" {
   description = "ERP_COSIGN_KEY of the release environment, and ERP_COSIGN_PUBLIC_KEY of delivery."
   value       = module.signing_key.cosign_key

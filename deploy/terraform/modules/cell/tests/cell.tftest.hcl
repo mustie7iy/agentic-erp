@@ -47,12 +47,13 @@ mock_provider "aws" {
 }
 
 variables {
-  name                 = "dev-1"
-  cidr                 = "10.10.0.0/16"
-  availability_zones   = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
-  admin_role_arns      = ["arn:aws:iam::222222222222:role/platform-admin"]
-  subordinate_ca_arn   = "arn:aws:acm-pca:eu-central-1:222222222222:certificate-authority/1111"
-  autoscaling_role_arn = "arn:aws:iam::222222222222:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+  name                      = "dev-1"
+  cidr                      = "10.10.0.0/16"
+  availability_zones        = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
+  admin_role_arns           = ["arn:aws:iam::222222222222:role/platform-admin"]
+  subordinate_ca_arn        = "arn:aws:acm-pca:eu-central-1:222222222222:certificate-authority/1111"
+  image_registry_account_id = "111111111111"
+  autoscaling_role_arn      = "arn:aws:iam::222222222222:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
 }
 
 run "the_database_requires_tls_1_3_and_survives_a_zone" {
@@ -130,6 +131,31 @@ run "each_workload_role_trusts_its_service_account_only" {
       !contains(flatten([s.Action]), "secretsmanager:PutSecretValue")
     ])
     error_message = "the External Secrets Operator only reads"
+  }
+}
+
+run "the_controllers_may_do_what_the_charts_need_only" {
+  command = apply
+
+  assert {
+    condition     = toset(flatten([for st in jsondecode(aws_iam_role_policy.workload["load_balancer"].policy).Statement : st.Action if st.Sid == "Targets"])) == toset(["elasticloadbalancing:RegisterTargets", "elasticloadbalancing:DeregisterTargets"])
+    error_message = "the load balancer controller registers targets and changes nothing else"
+  }
+  assert {
+    condition     = alltrue([for st in jsondecode(aws_iam_role_policy.workload["load_balancer"].policy).Statement : alltrue([for a in flatten([st.Action]) : can(regex("^(elasticloadbalancing:(Describe\\*|RegisterTargets|DeregisterTargets)|ec2:Describe[A-Za-z]+)$", a))])])
+    error_message = "no load balancer, listener or security group change"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.workload["kyverno"].policy).Statement : st.Resource if st.Sid == "ReadImages"][0] == "arn:aws:ecr:*:111111111111:repository/erp*"
+    error_message = "Kyverno reads the release repositories in tooling, in any region"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["kyverno"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:kyverno:kyverno-admission-controller"
+    error_message = "the admission controller's service account only"
+  }
+  assert {
+    condition     = aws_eks_addon.ebs_csi.service_account_role_arn == aws_iam_role.workload["ebs_csi"].arn
+    error_message = "the EBS CSI add-on runs as its role"
   }
 }
 

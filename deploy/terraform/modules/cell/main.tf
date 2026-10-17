@@ -54,6 +54,21 @@ variable "autoscaling_role_arn" {
   }
 }
 
+variable "image_registry_account_id" {
+  description = "The account whose registry holds the release images (tooling), which Kyverno reads signatures from."
+  type        = string
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.image_registry_account_id))
+    error_message = "a 12-digit account id"
+  }
+}
+
+variable "ebs_csi_addon_version" {
+  description = "The EKS add-on version of the EBS CSI driver; null takes EKS's default for the cluster's Kubernetes version."
+  type        = string
+  default     = null
+}
+
 variable "kubernetes_version" {
   description = "EKS's Kubernetes version."
   type        = string

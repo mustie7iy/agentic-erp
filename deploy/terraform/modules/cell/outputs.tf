@@ -75,6 +75,6 @@ output "aws_endpoints" {
 }
 
 output "workload_role_arns" {
-  description = "IRSA roles by workload, for the service accounts' eks.amazonaws.com/role-arn annotation (T40c)."
+  description = "IRSA roles by workload, for the service accounts' eks.amazonaws.com/role-arn annotation (deploy/helm, T40c)."
   value       = { for name, role in aws_iam_role.workload : name => role.arn }
 }
