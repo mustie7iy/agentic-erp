@@ -15,7 +15,7 @@ import (
 
 // Price is a model's published price per million tokens, as an operator
 // records it: decimal amounts of the currency's major units (USD 4.00),
-// from EffectiveFrom (YYYY-MM-DD) on.
+// from EffectiveFrom (YYYY-MM-DD) on, in PriceCurrency.
 type Price struct {
 	Model         string `json:"model"`
 	EffectiveFrom string `json:"effective_from"`
@@ -25,6 +25,10 @@ type Price struct {
 	CacheWrite    string `json:"cache_write"`
 	CacheRead     string `json:"cache_read"`
 }
+
+// PriceCurrency is the one currency of model prices, and so of costs and
+// caps, which add up only in one currency (ADR-0036).
+const PriceCurrency = "USD"
 
 // modelID is a model's id as ref.model_price holds it.
 var modelID = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,99}$`)
@@ -50,12 +54,11 @@ func recordPrice(ctx context.Context, tx pgx.Tx, by string, p Price) error {
 	if _, err := time.Parse(time.DateOnly, p.EffectiveFrom); err != nil {
 		return errors.New("effective_from must be a date such as 2026-11-01")
 	}
+	if p.Currency != PriceCurrency {
+		return fmt.Errorf("prices are in %s, the one currency costs and caps add up in", PriceCurrency)
+	}
 	var exponent int
-	err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, p.Currency).Scan(&exponent)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return fmt.Errorf("currency %s is not in the reference data", p.Currency)
-	case err != nil:
+	if err := tx.QueryRow(ctx, `SELECT exponent FROM ref.currency WHERE code = $1`, p.Currency).Scan(&exponent); err != nil {
 		return fmt.Errorf("read currency %s: %w", p.Currency, err)
 	}
 	var amounts [4]money.Micro
@@ -68,7 +71,7 @@ func recordPrice(ctx context.Context, tx pgx.Tx, by string, p Price) error {
 		}
 		amounts[i] = money.Micro(m)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
+	_, err := tx.Exec(ctx, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, p.Model, p.EffectiveFrom, p.Currency, amounts[0], amounts[1], amounts[2], amounts[3], by)
 	var pg *pgconn.PgError
 	switch {

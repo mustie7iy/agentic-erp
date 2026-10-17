@@ -576,10 +576,13 @@ func TestAgentAskBuildsValidatedDashboard(t *testing.T) {
 	if ans.Summary == "" {
 		t.Error("summary: got none, want one")
 	}
-	for _, want := range []string{"Today is 8 October 2026", `"fallbacks":"default"`} {
-		if !strings.Contains(fake.bodies[0], want) {
-			t.Errorf("first request: got %s, want it to contain %s", fake.bodies[0], want)
-		}
+	if !strings.Contains(fake.bodies[0], "Today is 8 October 2026") {
+		t.Errorf("first request: got %s, want today's date in it", fake.bodies[0])
+	}
+	// No provider fallback: the gateway routes every call to the one model
+	// it prices (ADR-0036).
+	if strings.Contains(fake.bodies[0], "fallbacks") {
+		t.Errorf("first request: got %s, want no fallback", fake.bodies[0])
 	}
 	if _, err := ans.Report.Save(t.TempDir(), s.Results); err != nil {
 		t.Fatal(err)

@@ -16,6 +16,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1999,7 +2000,8 @@ func TestPricesLoad(t *testing.T) {
 	getenv := func(k string) string { return env[k] }
 	dir := t.TempDir()
 	good := filepath.Join(dir, "prices.json")
-	if err := os.WriteFile(good, []byte(`[{"model": "claude-load-1", "effective_from": "2026-11-01", "currency": "USD", "input": "4.00", "output": "20.00", "cache_write": "5.00", "cache_read": "0.20"}]`), 0o600); err != nil {
+	model := "claude-load-" + uuid.NewString()[:8] // prices are global; each run loads a model of its own
+	if err := os.WriteFile(good, []byte(`[{"model": "`+model+`", "effective_from": "2026-11-01", "currency": "USD", "input": "4.00", "output": "20.00", "cache_write": "5.00", "cache_read": "0.20"}]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	notJSON := filepath.Join(dir, "bad.json")
@@ -2014,7 +2016,7 @@ func TestPricesLoad(t *testing.T) {
 		t.Errorf("output: got %s", stdout.String())
 	}
 	var by string
-	pgtest.Scan(t, `SELECT recorded_by FROM ref.model_price WHERE model = 'claude-load-1'`, nil, &by)
+	pgtest.Scan(t, `SELECT recorded_by FROM ref.model_price WHERE model = $1`, []any{model}, &by)
 	if by != "ops|alice" {
 		t.Errorf("recorded by: got %q, want ops|alice", by)
 	}
@@ -2061,5 +2063,19 @@ func TestModelClient(t *testing.T) {
 	}
 	if _, ok := modelClient(material).Transport.(*http.Transport); !ok {
 		t.Error("with material: got the default transport, want the material's")
+	}
+	// A redirect is not followed: the provider's key would go with it.
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://elsewhere.example.com/", http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, redirect.URL, nil)
+	resp, err := modelClient(plain).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close() // only the status is asserted
+	if resp.StatusCode != http.StatusTemporaryRedirect {
+		t.Errorf("redirect: got %d, want it answered, not followed", resp.StatusCode)
 	}
 }

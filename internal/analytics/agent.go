@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/anthropics/anthropic-sdk-go/toolrunner"
 )
 
@@ -156,8 +155,6 @@ func (a *Agent) Ask(ctx context.Context, s *Session, question string) (*Answer, 
 				CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 			}},
 			OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortMedium},
-			Fallbacks:    anthropic.BetaFallbacksParamUnion{OfDefault: constant.ValueOf[constant.Default]()},
-			Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 			Messages: []anthropic.BetaMessageParam{
 				anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(fmt.Sprintf(
 					"Today is %s. Question from %s:\n%s", today().Format("2 January 2006"), s.Principal.ID, question))),

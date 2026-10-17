@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -27,13 +29,14 @@ func TestRecordPrices(t *testing.T) {
 		}
 		return tx.Commit(ctx)
 	}
-	price := agents.Price{Model: "claude-test-1", EffectiveFrom: "2026-11-01", Currency: "USD", Input: "4.00", Output: "20", CacheWrite: "5.00", CacheRead: "0.125"}
+	model := "claude-test-" + uuid.NewString()[:8] // prices are global; each run records a model of its own
+	price := agents.Price{Model: model, EffectiveFrom: "2026-11-01", Currency: "USD", Input: "4.00", Output: "20", CacheWrite: "5.00", CacheRead: "0.125"}
 	if err := in(price); err != nil {
 		t.Fatal(err)
 	}
 	var input, read int64
 	var by string
-	pgtest.Scan(t, `SELECT input, cache_read, recorded_by FROM ref.model_price WHERE model = 'claude-test-1'`, nil, &input, &read, &by)
+	pgtest.Scan(t, `SELECT input, cache_read, recorded_by FROM ref.model_price WHERE model = $1`, []any{model}, &input, &read, &by)
 	if input != 400_000_000 || read != 12_500_000 || by != "ops|alice" {
 		t.Errorf("recorded: got %d, %d by %s, want 400000000, 12500000 by ops|alice", input, read, by)
 	}
@@ -43,7 +46,7 @@ func TestRecordPrices(t *testing.T) {
 		want string
 	}{
 		{"recorded already", func(*agents.Price) {}, "already recorded"},
-		{"an unknown currency", func(p *agents.Price) { p.EffectiveFrom, p.Currency = "2026-12-01", "XXX" }, "currency XXX"},
+		{"another currency", func(p *agents.Price) { p.EffectiveFrom, p.Currency = "2026-12-01", "EUR" }, "prices are in USD"},
 		{"not a date", func(p *agents.Price) { p.EffectiveFrom = "soon" }, "effective_from"},
 		{"too fine a price", func(p *agents.Price) { p.EffectiveFrom, p.Input = "2026-12-01", "0.000000001" }, "input"},
 		{"a negative price", func(p *agents.Price) { p.EffectiveFrom, p.Output = "2026-12-01", "-1" }, "output"},

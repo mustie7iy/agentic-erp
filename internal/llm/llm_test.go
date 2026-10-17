@@ -97,13 +97,14 @@ func TestRunToolsTextAndRefusal(t *testing.T) {
 		t.Fatalf("%v %v", err, msg)
 	}
 	req := srv.Requests[0]
-	for _, frag := range []string{`"effort":"medium"`, `"fallbacks":"default"`, `"cache_control"`, `"model":"erp-default"`} {
+	for _, frag := range []string{`"effort":"medium"`, `"cache_control"`, `"model":"erp-default"`} {
 		if !strings.Contains(req, frag) {
 			t.Errorf("request: got %s, want it to contain %s", req, frag)
 		}
 	}
-	if !strings.Contains(srv.Headers[0].Get("anthropic-beta"), "server-side-fallback-2026-07-01") {
-		t.Fatal("fallback beta header")
+	// No provider fallback or beta: the gateway forwards neither (ADR-0036).
+	if got := srv.Headers[0].Get("anthropic-beta"); got != "" || strings.Contains(req, "fallbacks") {
+		t.Errorf("request: got beta %q and %s, want no fallback", got, req)
 	}
 	refuse := llmtest.New(t, llmtest.Step{StopReason: "refusal"})
 	r2 := refuse.Runner()

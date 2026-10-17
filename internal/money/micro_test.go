@@ -2,6 +2,7 @@ package money_test
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 
@@ -30,22 +31,44 @@ func TestTokenCost(t *testing.T) {
 			}
 		})
 	}
-	if _, err := money.TokenCost(math.MaxInt64/2, 400*1_000_000); !errors.Is(err, money.ErrOverflow) {
-		t.Errorf("overflow: got %v, want ErrOverflow", err)
-	}
-	if _, err := money.TokenCost(-1, 1); err == nil {
-		t.Error("negative tokens: got a cost, want an error")
-	}
+	t.Run("out of range", func(t *testing.T) {
+		if _, err := money.TokenCost(math.MaxInt64/2, 400*1_000_000); !errors.Is(err, money.ErrOverflow) {
+			t.Errorf("got %v, want ErrOverflow", err)
+		}
+	})
+	t.Run("negative tokens", func(t *testing.T) {
+		if _, err := money.TokenCost(-1, 1); err == nil {
+			t.Error("got a cost, want an error")
+		}
+	})
 }
 
-// TestMicroMinor: millionths show as minor units rounded half up.
+// TestMicroMinor: millionths show as minor units rounded half up, near
+// the most an int64 holds too.
 func TestMicroMinor(t *testing.T) {
 	for _, c := range []struct {
 		micro money.Micro
 		want  money.Minor
-	}{{0, 0}, {499_999, 0}, {500_000, 1}, {1_499_999, 1}, {1_500_000, 2}, {123_000_000, 123}} {
-		if got := c.micro.Minor(); got != c.want {
-			t.Errorf("%d micro: got %d minor, want %d", c.micro, got, c.want)
-		}
+	}{{0, 0}, {499_999, 0}, {500_000, 1}, {1_499_999, 1}, {1_500_000, 2}, {123_000_000, 123}, {math.MaxInt64, 9_223_372_036_855}} {
+		t.Run(fmt.Sprint(int64(c.micro)), func(t *testing.T) {
+			if got := c.micro.Minor(); got != c.want {
+				t.Errorf("got %d minor, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+// TestMicroAdd: costs add up exactly, held at the most an int64 holds
+// rather than wrapped.
+func TestMicroAdd(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		a, b, want money.Micro
+	}{{"exact", 4400, 5000, 9400}, {"held at the most", math.MaxInt64 - 1, 2, math.MaxInt64}} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.a.Add(c.b); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
 	}
 }

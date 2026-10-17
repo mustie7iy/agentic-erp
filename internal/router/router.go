@@ -20,6 +20,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
@@ -156,7 +157,13 @@ type Router struct {
 	// PeerOf is the SPIFFE ID the tenant's cell must present; nil: the
 	// transport's own rule.
 	PeerOf func(cell string) string
+	Now    func() time.Time // nil: time.Now
 }
+
+// ModelTimeout is how long a model call's answer may take to come back
+// through the router, as the cell's gateway allows (ADR-0036): the
+// listener's write timeout would cut it, and the SDK call again.
+const ModelTimeout = 10 * time.Minute
 
 // ServeHTTP implements http.Handler. /livez answers without a token; every
 // other request needs a tenant token and a routable directory entry.
@@ -170,6 +177,9 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		problem.Write(w, r, problem.From(err))
 		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/v1/model/") {
+		_ = http.NewResponseController(w).SetWriteDeadline(clock.Now(rt.Now).Add(ModelTimeout)) // a writer without deadlines has none to lift
 	}
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {

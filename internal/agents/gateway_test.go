@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -98,34 +100,41 @@ func TestGatewayCall(t *testing.T) {
 	p := &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 1000, 100, 200, 300)}
 	g := gateway(t, p)
 	rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 64, "messages": [{"role": "user", "content": "secret invoice text"}]}`,
-		map[string]string{agents.SessionHeader: session.String(), "anthropic-beta": "server-side-fallback-2026-07-01"})
+		map[string]string{agents.SessionHeader: session.String()})
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"stop_reason":"end_turn"`) {
 		t.Fatalf("answer: got %d %s, want the provider's message", rec.Code, rec.Body)
 	}
 	// 1000×4 + 100×20 + 200×5 + 300×0.2 cents per million = 0.706 cent.
 	const want = 1000*400 + 100*2000 + 200*500 + 300*20
-	if got := rec.Header().Get("Erp-Model-Cost"); got != "706000" || rec.Header().Get("Erp-Model") != "claude-opus-5-5" || rec.Header().Get("Erp-Model-Cost-Currency") != "USD" {
-		t.Errorf("headers: got cost %s, model %s, currency %s, want %d, claude-opus-5-5, USD", got, rec.Header().Get("Erp-Model"), rec.Header().Get("Erp-Model-Cost-Currency"), want)
+	check := func(what string, got, want any) {
+		t.Helper()
+		if got != want {
+			t.Errorf("%s: got %v, want %v", what, got, want)
+		}
 	}
+	check("Erp-Model-Cost", rec.Header().Get("Erp-Model-Cost"), "706000")
+	check("Erp-Model", rec.Header().Get("Erp-Model"), "claude-opus-5-5")
+	check("Erp-Model-Cost-Currency", rec.Header().Get("Erp-Model-Cost-Currency"), "USD")
 	var sent map[string]any
-	if err := json.Unmarshal(p.sent, &sent); err != nil || sent["model"] != "claude-opus-5-5" {
-		t.Errorf("forwarded: got %s, want the model in place of the alias", p.sent)
+	if err := json.Unmarshal(p.sent, &sent); err != nil {
+		t.Fatalf("forwarded: %s is not JSON: %v", p.sent, err)
 	}
-	if len(p.betas) != 1 || p.betas[0] != "server-side-fallback-2026-07-01" {
-		t.Errorf("betas: got %v, want the fallback beta", p.betas)
-	}
+	check("forwarded model", sent["model"], "claude-opus-5-5")
 	var status, alias string
 	var in, out, costMicro int64
 	pgtest.Scan(t, `SELECT status, alias, input_tokens, output_tokens, cost_micro FROM agents.model_call WHERE tenant_id = $1 AND session_id = $2`,
 		[]any{ten.ID, session}, &status, &alias, &in, &out, &costMicro)
-	if status != "succeeded" || alias != "erp-default" || in != 1000 || out != 100 || costMicro != want {
-		t.Errorf("ledger: got %s %s %d %d %d, want succeeded erp-default 1000 100 %d", status, alias, in, out, costMicro, want)
-	}
+	check("ledger status", status, "succeeded")
+	check("ledger alias", alias, "erp-default")
+	check("ledger input tokens", in, int64(1000))
+	check("ledger output tokens", out, int64(100))
+	check("ledger cost", costMicro, int64(want))
 	var sIn, sOut, sMicro, sCost int64
 	pgtest.Scan(t, `SELECT input_tokens, output_tokens, cost_micro, cost FROM agents.session WHERE tenant_id = $1 AND id = $2`, []any{ten.ID, session}, &sIn, &sOut, &sMicro, &sCost)
-	if sIn != 1500 || sOut != 100 || sMicro != want || sCost != 1 {
-		t.Errorf("session: got %d in, %d out, %d micro, %d cents, want 1500, 100, %d, 1", sIn, sOut, sMicro, sCost, want)
-	}
+	check("session input tokens (input and cache)", sIn, int64(1500))
+	check("session output tokens", sOut, int64(100))
+	check("session cost in millionths", sMicro, int64(want))
+	check("session cost in cents", sCost, int64(1))
 }
 
 // TestGatewayRefusals: what the gateway does not forward is refused before
@@ -150,7 +159,8 @@ func TestGatewayRefusals(t *testing.T) {
 		{"a concrete model", `{"model": "claude-opus-5-5", "max_tokens": 8, "messages": []}`, nil, 422, "agents.unknown_model"},
 		{"a server tool", `{"model": "erp-default", "max_tokens": 8, "messages": [], "tools": [{"type": "web_fetch_20260209", "name": "web_fetch"}]}`, nil, 400, "request.invalid_body"},
 		{"tools not a list", `{"model": "erp-default", "max_tokens": 8, "messages": [], "tools": {}}`, nil, 400, "request.invalid_body"},
-		{"a beta not forwarded", ok, map[string]string{"anthropic-beta": "web-fetch-2025-09-10"}, 400, "request.invalid_body"},
+		{"a provider beta", ok, map[string]string{"anthropic-beta": "server-side-fallback-2026-07-01"}, 400, "request.invalid_body"},
+		{"a fallback model", `{"model": "erp-default", "max_tokens": 8, "messages": [], "fallbacks": [{"model": "claude-unpriced-1", "speed": "fast"}]}`, nil, 400, "request.invalid_body"},
 		{"a session header that is no id", ok, map[string]string{agents.SessionHeader: "x"}, 400, "request.invalid_header"},
 		{"another tenant's session", ok, map[string]string{agents.SessionHeader: foreign.String()}, 404, "request.not_found"},
 		{"a model without a price", `{"model": "erp-unpriced", "max_tokens": 8, "messages": []}`, nil, 422, "agents.model_unpriced"},
@@ -197,6 +207,8 @@ func TestGatewayFailures(t *testing.T) {
 		ledger   string
 	}{
 		{"overloaded", &provider{status: 529, body: `{"type":"error","error":{"type":"overloaded_error"}}`}, 529, "failed"},
+		{"the cell's key refused", &provider{status: 401, body: `{"type":"error","error":{"type":"authentication_error"}}`}, 502, "failed"},
+		{"the cell's key forbidden", &provider{status: 403, body: `{"type":"error"}`}, 502, "failed"},
 		{"unreachable", &provider{err: errors.New("connection refused")}, 502, "failed"},
 		{"not a message", &provider{status: 200, body: `{`}, 200, "failed"},
 		{"refused", &provider{status: 200, body: message("", "refusal", 5, 0, 0, 0)}, 200, "refused"},
@@ -269,36 +281,101 @@ func TestGatewayTransport(t *testing.T) {
 			t.Errorf("got %v, want agents.unknown_model", err)
 		}
 	})
-	t.Run("the ledger cannot be written", func(t *testing.T) {
+	t.Run("a capture that fails afterwards keeps its call on record", func(t *testing.T) {
+		before := calls(t, ten)
 		err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID}, func(ctx context.Context, tx pgx.Tx) error {
-			failing := &pgtest.FailingTx{Tx: tx, FailAt: 2} // the ledger row, after the price
-			_, err := client.Messages.New(reqctx.WithPrincipal(reqctx.WithTx(ctx, failing), principal(ten)), params)
-			return err
+			if _, err := client.Messages.New(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal(ten)), params); err != nil {
+				return err
+			}
+			return errors.New("the capture fails after the call")
 		})
 		if err == nil {
-			t.Error("got answered, want the ledger's failure")
+			t.Fatal("got committed, want the capture's failure")
+		}
+		if got := calls(t, ten); got != before+1 {
+			t.Errorf("calls on record: got %d, want %d: the call stands though the request rolled back", got, before+1)
 		}
 	})
 }
 
-// TestGatewayDatabaseFailures: each statement failing in turn fails the
-// call, the provider not reached when the call cannot be priced.
+// calls is how many model calls the tenant has on record.
+func calls(t *testing.T, ten pgtest.Tenant) int {
+	t.Helper()
+	var n int
+	pgtest.Scan(t, `SELECT count(*) FROM agents.model_call WHERE tenant_id = $1`, []any{ten.ID}, &n)
+	return n
+}
+
+// TestGatewayDatabaseFailures: each statement of the gateway's own
+// transactions failing in turn (the session, the price; the ledger row,
+// the session's lock and its update), a transaction that cannot begin or
+// commit, each fails the call.
 func TestGatewayDatabaseFailures(t *testing.T) {
 	priced(t, "claude-opus-5-5")
 	ten := pgtest.NewTenant(t)
 	session := startSession(t, ten)
-	for at := 1; at <= 4; at++ {
-		t.Run("statement "+string(rune('0'+at)), func(t *testing.T) {
+	pool := pgtest.Pool(t)
+	cases := map[string]func() database.BeginFunc{
+		"no transaction": func() database.BeginFunc {
+			return func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+		},
+		"no commit": func() database.BeginFunc {
+			return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+				tx, err := pool.Begin(ctx, s)
+				return &pgtest.FailingTx{Tx: tx, FailCommit: true}, err
+			}
+		},
+	}
+	for at := 1; at <= 5; at++ {
+		cases[fmt.Sprintf("statement %d", at)] = func() database.BeginFunc {
+			count := 0
+			return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+				tx, err := pool.Begin(ctx, s)
+				return &pgtest.FailingTx{Tx: tx, FailAt: at, Count: &count}, err
+			}
+		}
+	}
+	for name, begin := range cases {
+		t.Run(name, func(t *testing.T) {
 			g := gateway(t, &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 1, 1, 0, 0)})
-			err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID}, func(ctx context.Context, tx pgx.Tx) error {
-				failing := &pgtest.FailingTx{Tx: tx, FailAt: at}
-				req, _ := http.NewRequestWithContext(reqctx.WithPrincipal(reqctx.WithTx(ctx, failing), principal(ten)), http.MethodPost, "http://gw/v1/messages",
-					strings.NewReader(`{"model": "erp-default", "max_tokens": 8, "messages": []}`))
-				req.Header.Set(agents.SessionHeader, session.String())
-				return roundTrip(g, req)
-			})
-			if err == nil {
-				t.Errorf("statement %d failing: got answered, want the failure", at)
+			g.Begin = begin()
+			rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, map[string]string{agents.SessionHeader: session.String()})
+			if rec.Code != http.StatusInternalServerError {
+				t.Errorf("got %d %s, want 500", rec.Code, rec.Body)
+			}
+		})
+	}
+}
+
+// deadlineWriter is a response writer that records the write deadline
+// asked of it, as http.ResponseController asks.
+type deadlineWriter struct {
+	*httptest.ResponseRecorder
+	deadline time.Time
+}
+
+func (d *deadlineWriter) SetWriteDeadline(t time.Time) error { d.deadline = t; return nil }
+
+// TestGatewayWriteDeadline: the answer may be written for the call's time,
+// not the listener's write timeout, which would cut a long answer short
+// and have the SDK retry, a call billed again.
+func TestGatewayWriteDeadline(t *testing.T) {
+	priced(t, "claude-opus-5-5")
+	ten := pgtest.NewTenant(t)
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name    string
+		timeout time.Duration
+		want    time.Duration
+	}{{"the default", 0, agents.DefaultTimeout}, {"configured", time.Minute, time.Minute}} {
+		t.Run(c.name, func(t *testing.T) {
+			g := gateway(t, &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 1, 1, 0, 0)})
+			g.Now, g.Timeout = func() time.Time { return now }, c.timeout
+			w := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
+			r := httptest.NewRequest(http.MethodPost, agents.Route, strings.NewReader(`{"model": "erp-default", "max_tokens": 8, "messages": []}`))
+			g.ServeHTTP(w, r.WithContext(reqctx.WithPrincipal(r.Context(), principal(ten))))
+			if !w.deadline.Equal(now.Add(c.want)) {
+				t.Errorf("write deadline: got %v, want %v", w.deadline, now.Add(c.want))
 			}
 		})
 	}

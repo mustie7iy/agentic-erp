@@ -14,7 +14,6 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 )
 
 // DefaultModel is the model alias agents name unless ERP_AGENT_MODEL says
@@ -51,16 +50,16 @@ func InProcess(transport http.RoundTripper, alias string) *Runner {
 		option.WithHTTPClient(&http.Client{Transport: transport}), option.WithMaxRetries(0)), Model: alias}
 }
 
-// Params builds a request with the platform defaults: cached system prompt,
-// medium effort, and server-side fallback if a request is declined.
+// Params builds a request with the platform defaults: cached system prompt
+// and medium effort. No provider fallback: the gateway routes every call to
+// the one model it prices (ADR-0036), and a declined request is the
+// caller's refusal.
 func (r *Runner) Params(system string, user ...anthropic.BetaContentBlockParamUnion) anthropic.BetaMessageNewParams {
 	return anthropic.BetaMessageNewParams{
 		Model:        anthropic.Model(r.Model),
 		MaxTokens:    16000,
 		System:       []anthropic.BetaTextBlockParam{{Text: system, CacheControl: anthropic.NewBetaCacheControlEphemeralParam()}},
 		OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortMedium},
-		Fallbacks:    anthropic.BetaFallbacksParamUnion{OfDefault: constant.ValueOf[constant.Default]()},
-		Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 		Messages:     []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(user...)},
 	}
 }

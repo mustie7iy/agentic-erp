@@ -1494,8 +1494,9 @@ activate, and orders under them are refused.
 (input, output, cache write, cache read) in millionths of the minor unit,
 versioned by `effective_from`; a call is priced at the version in force
 when it was made. It starts empty: an operator records published prices
-(`erp-server prices load`, audited), and the gateway refuses a model
-without a price.
+(`erp-server prices load`); a recorded price stands, and the rows with who
+recorded them are the prices' trail. Prices are in USD alone, so costs add
+up; the gateway refuses a model without a price.
 
 ## 3.15 Platform (`platform`) and per-context outbox
 

@@ -7,7 +7,8 @@
 CREATE TABLE ref.model_price (
   model           text NOT NULL CHECK (model ~ '^[a-z0-9][a-z0-9.-]{0,99}$'),
   effective_from  date NOT NULL,
-  currency        char(3) NOT NULL REFERENCES ref.currency,
+  -- One currency for every price, so that costs and caps add up (ADR-0036).
+  currency        char(3) NOT NULL REFERENCES ref.currency CONSTRAINT model_price_currency_check CHECK (currency = 'USD'),
   -- Per million tokens, in millionths of the minor unit.
   input           bigint NOT NULL CONSTRAINT model_price_input_check CHECK (input >= 0),
   output          bigint NOT NULL CHECK (output >= 0),
@@ -24,8 +25,9 @@ ALTER TABLE ref.model_price OWNER TO erp_owner;
 GRANT SELECT ON ref.model_price TO erp_app, erp_readonly;
 
 -- Empty here: an operator records each model's published prices with
--- their effective date (erp-server prices load), audited. The gateway
--- refuses a model without a price, so no call goes unmetered.
+-- their effective date (erp-server prices load). The gateway
+-- refuses a model without a price, so no call goes unmetered. The rows and
+-- who recorded them are the prices' trail.
 
 CREATE TABLE agents.model_call (
   tenant_id           uuid NOT NULL,

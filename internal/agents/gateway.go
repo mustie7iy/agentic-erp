@@ -46,11 +46,15 @@ const Route = "/v1/model/v1/messages"
 const MaxModelBody = 32 << 20
 
 // allowedFields are the Messages API request fields the gateway forwards.
+// Not fallbacks: a fallback model would answer unrouted and unpriced; the
+// gateway routes every call to the one model it prices.
 var allowedFields = []string{"model", "max_tokens", "messages", "system", "tools", "tool_choice", "output_config", "thinking",
-	"stop_sequences", "fallbacks", "metadata"}
+	"stop_sequences", "metadata"}
 
-// allowedBetas are the provider betas the gateway forwards.
-var allowedBetas = []string{"server-side-fallback-2026-07-01"}
+// DefaultTimeout bounds one model call, and the writing of its answer: a
+// long answer takes minutes, which the listener's write timeout would cut
+// short, and a cut answer is retried by the SDK, a call billed again.
+const DefaultTimeout = 10 * time.Minute
 
 // Provider sends a Messages API request to the model provider.
 type Provider interface {
@@ -60,20 +64,25 @@ type Provider interface {
 // Gateway is the model gateway of a cell.
 type Gateway struct {
 	Provider Provider
-	Routes   map[string]string // alias → model; nil: DefaultRoutes
-	Pool     *database.Pool    // the ledger's transactions on the public listener
+	Routes   map[string]string  // alias → model; nil: DefaultRoutes
+	Pool     *database.Pool     // the gateway's own transactions
+	Begin    database.BeginFunc // nil: Pool.Begin; tests inject failures
 	AppRole  string
 	Log      *slog.Logger
 	Now      func() time.Time
+	Timeout  time.Duration // a call's answer may be written for this long; 0: DefaultTimeout
 }
+
+// inTx runs fn in a transaction of the caller's tenant.
+type inTx func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error
 
 // call is one request to the gateway.
 type call struct {
 	body    []byte
 	betas   []string
 	session *uuid.UUID
-	// inTx runs fn in a transaction of the caller's tenant as the caller.
-	inTx func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error
+	check   inTx // the checks before the call
+	record  inTx // the ledger after it: always a transaction of its own, so the row stands whatever the caller does next
 }
 
 // answer is what the provider said and what the call cost.
@@ -97,11 +106,11 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 	if err != nil {
 		return answer{}, err
 	}
-	if err := checkBetas(c.betas); err != nil {
-		return answer{}, err
+	if len(c.betas) > 0 {
+		return answer{}, problem.BadRequest("request.invalid_body", "The gateway forwards no provider betas.")
 	}
 	var pr price
-	if err := c.inTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+	if err := c.check(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		if err := ownSession(ctx, tx, p, c.session); err != nil {
 			return err
 		}
@@ -114,11 +123,16 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 	status, raw, sendErr := g.Provider.Messages(ctx, body, c.betas)
 	rec := g.meter(status, raw, sendErr, model, pr)
 	rec.alias, rec.duration = alias, clock.Now(g.Now).Sub(started)
-	if err := c.inTx(context.WithoutCancel(ctx), func(ctx context.Context, tx pgx.Tx) error { return recordCall(ctx, tx, p, c.session, rec) }); err != nil {
+	if err := c.record(context.WithoutCancel(ctx), func(ctx context.Context, tx pgx.Tx) error { return recordCall(ctx, tx, p, c.session, rec) }); err != nil {
 		return answer{}, err
 	}
-	if sendErr != nil {
+	switch {
+	case sendErr != nil:
 		return answer{}, problem.New(http.StatusBadGateway, "agents.model_unreachable", "Model unreachable", "The model provider did not answer; try again.").WithCause(sendErr)
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		// The provider refused the cell's key, not the caller's token.
+		g.Log.ErrorContext(ctx, "the model provider refused the cell's key", "status", status)
+		return answer{}, problem.New(http.StatusBadGateway, "agents.model_unreachable", "Model unreachable", "The model provider refused this cell's credentials.")
 	}
 	return answer{status: status, body: raw, model: rec.model, cost: rec.cost, currency: pr.currency}, nil
 }
@@ -168,16 +182,6 @@ func checkTools(raw json.RawMessage) error {
 	for _, t := range tools {
 		if typ, ok := t["type"]; ok && string(typ) != `"custom"` {
 			return problem.BadRequest("request.invalid_body", "The gateway forwards the caller's own tools only, not server tools.")
-		}
-	}
-	return nil
-}
-
-// checkBetas refuses provider betas the gateway does not forward.
-func checkBetas(betas []string) error {
-	for _, b := range betas {
-		if !slices.Contains(allowedBetas, b) {
-			return problem.BadRequest("request.invalid_body", "The gateway does not forward the provider beta "+b+".")
 		}
 	}
 	return nil
@@ -242,7 +246,6 @@ func priceOf(ctx context.Context, tx pgx.Tx, model string, now time.Time) (price
 
 // usage is the part of the provider's message the ledger reads.
 type usage struct {
-	Model      string `json:"model"`
 	StopReason string `json:"stop_reason"`
 	Usage      struct {
 		Input      int64 `json:"input_tokens"`
@@ -273,16 +276,13 @@ func (g *Gateway) meter(status int, raw []byte, sendErr error, model string, pr 
 	if u.StopReason == "refusal" {
 		r.status = "refused"
 	}
-	if u.Model != "" {
-		r.model = u.Model
-	}
 	r.input, r.output, r.write, r.read = u.Usage.Input, u.Usage.Output, u.Usage.CacheWrite, u.Usage.CacheRead
 	r.cost = cost(r, pr)
 	return r
 }
 
-// cost prices the row's tokens; tokens no int64 can price are priced at
-// the most an int64 holds, never at nothing.
+// cost prices the row's tokens. A cost past what an int64 holds (some
+// ninety billion dollars) is held at that most, never wrapped.
 func cost(r row, pr price) money.Micro {
 	var total money.Micro
 	for _, part := range []struct {
@@ -298,7 +298,9 @@ func cost(r row, pr price) money.Micro {
 	return total
 }
 
-// recordCall writes the ledger row and adds it to the session it belongs to.
+// recordCall writes the ledger row and adds it to the session it belongs
+// to, whose row is read FOR UPDATE (ADR-0008): concurrent calls of one
+// session add up. A session ended while the call ran still counts it.
 func recordCall(ctx context.Context, tx pgx.Tx, p reqctx.Principal, session *uuid.UUID, r row) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, session_id, alias, model, status, input_tokens, output_tokens,
 		cache_write_tokens, cache_read_tokens, cost_micro, currency, duration_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
@@ -309,9 +311,14 @@ func recordCall(ctx context.Context, tx pgx.Tx, p reqctx.Principal, session *uui
 	if session == nil {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, `UPDATE agents.session SET input_tokens = input_tokens + $3, output_tokens = output_tokens + $4,
-		cost_micro = cost_micro + $5, cost = (cost_micro + $5 + 500000) / 1000000, cost_currency = $6, version = version + 1
-		WHERE id = $1 AND agent_id = $2 AND status = 'running'`, *session, p.ID, r.input+r.write+r.read, r.output, r.cost, r.currency); err != nil {
+	var spent money.Micro
+	if err := tx.QueryRow(ctx, `SELECT cost_micro FROM agents.session WHERE id = $1 AND agent_id = $2 FOR UPDATE`, *session, p.ID).Scan(&spent); err != nil {
+		return fmt.Errorf("agents: lock session %s: %w", *session, err)
+	}
+	spent = spent.Add(r.cost)
+	if _, err := tx.Exec(ctx, `UPDATE agents.session SET input_tokens = input_tokens + $2, output_tokens = output_tokens + $3,
+		cost_micro = $4, cost = $5, cost_currency = $6, version = version + 1 WHERE id = $1`,
+		*session, r.input+r.write+r.read, r.output, spent, spent.Minor(), r.currency); err != nil {
 		return fmt.Errorf("agents: add model call to session %s: %w", *session, err)
 	}
 	return nil
@@ -334,7 +341,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, r, problem.From(err))
 		return
 	}
-	a, err := g.serve(ctx, p, call{body: body, betas: betas(r.Header), session: session, inTx: g.ownTx(p)})
+	// The answer may take the call's time to come: the listener's write
+	// timeout is for other requests.
+	_ = http.NewResponseController(w).SetWriteDeadline(clock.Now(g.Now).Add(g.timeout())) // a writer without deadlines has none to lift
+	a, err := g.serve(ctx, p, call{body: body, betas: betas(r.Header), session: session, check: g.ownTx(p), record: g.ownTx(p)})
 	if err != nil {
 		g.fail(w, r, err)
 		return
@@ -359,17 +369,36 @@ func writeAnswer(w http.ResponseWriter, a answer) {
 	_, _ = w.Write(a.body) // the client went away if this fails; the call is recorded already
 }
 
-// ownTx runs the ledger's work in a transaction of p's tenant; the ledger
-// names p itself, so no actor is set.
-func (g *Gateway) ownTx(p reqctx.Principal) func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+func (g *Gateway) timeout() time.Duration {
+	if g.Timeout > 0 {
+		return g.Timeout
+	}
+	return DefaultTimeout
+}
+
+// ownTx runs the work in a transaction of p's tenant of its own; the
+// ledger names p itself, so no actor is set.
+func (g *Gateway) ownTx(p reqctx.Principal) inTx {
 	return func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
-		return g.Pool.InTx(ctx, database.Scope{Role: g.AppRole, TenantID: p.TenantID}, fn)
+		tx, err := database.BeginOr(ctx, g.Pool, g.Begin, database.Scope{Role: g.AppRole, TenantID: p.TenantID})
+		if err != nil {
+			return fmt.Errorf("agents: begin: %w", err)
+		}
+		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }() // a no-op after the commit; before it, fn's error is the one returned
+		if err := fn(ctx, tx); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("agents: commit: %w", err)
+		}
+		return nil
 	}
 }
 
 // Transport is the gateway for the server's own model calls (capture),
-// made inside a unit of work: the request's principal calls, and the
-// ledger is written in the request's transaction. A model SDK's client
+// made inside a unit of work: the request's principal calls, the checks
+// read in the request's transaction, and the ledger is written in one of
+// its own. A model SDK's client
 // uses it as its HTTP transport.
 func (g *Gateway) Transport() http.RoundTripper { return inProcess{g} }
 
@@ -389,9 +418,12 @@ func (t inProcess) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	a, err := t.g.serve(ctx, p, call{body: body, betas: betas(req.Header), session: session, inTx: func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	// The checks read in the request's transaction; the ledger is written
+	// in its own, so a capture that fails afterwards still leaves the call
+	// on record (ADR-0036).
+	a, err := t.g.serve(ctx, p, call{body: body, betas: betas(req.Header), session: session, check: func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
 		return fn(ctx, tx)
-	}})
+	}, record: t.g.ownTx(p)})
 	if err != nil {
 		return nil, err
 	}

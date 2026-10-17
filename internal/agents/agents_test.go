@@ -280,5 +280,3 @@ func TestDatabaseFailures(t *testing.T) {
 		})
 	}
 }
-
-

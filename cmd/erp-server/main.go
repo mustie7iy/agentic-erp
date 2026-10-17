@@ -418,10 +418,14 @@ const modelTimeout = 10 * time.Minute
 // modelClient reaches the model provider: the TLS material's client when
 // there is one (ADR-0033), within modelTimeout.
 func modelClient(cfg config.Config) *http.Client {
+	c := &http.Client{Timeout: modelTimeout}
 	if cfg.TLSMaterial != nil {
-		return cfg.TLSMaterial.HTTPClient(modelTimeout)
+		c = cfg.TLSMaterial.HTTPClient(modelTimeout)
 	}
-	return &http.Client{Timeout: modelTimeout}
+	// The provider's key travels in a header that a redirect would carry
+	// to wherever it points: the provider answers, or the call fails.
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return c
 }
 
 // collaborators sets up the optional outside services (document extraction,
@@ -429,7 +433,7 @@ func modelClient(cfg config.Config) *http.Client {
 func (s *server) collaborators() {
 	if s.cfg.Model.Enabled() {
 		s.gateway = &agents.Gateway{Provider: agents.Anthropic{Endpoint: s.cfg.Model.Endpoint, Key: s.cfg.Model.APIKey, Client: modelClient(s.cfg)},
-			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
+			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log, Timeout: modelTimeout}
 		// Capture's model calls go through the gateway too, in the
 		// request's unit of work (ADR-0036).
 		s.extractor = &capture.ClaudeExtractor{LLM: llm.InProcess(s.gateway.Transport(), "erp-extraction")}

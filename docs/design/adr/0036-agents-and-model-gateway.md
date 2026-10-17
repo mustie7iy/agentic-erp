@@ -30,7 +30,9 @@ client certificates in production (ADR-0033). Today:
 - **One gateway, in the cell.**
   - Every model call goes through the cell's model gateway: the agents'
     calls, and the server's own (capture). The gateway is
-    `internal/platform/modelgw`, served at `POST /v1/model/messages`.
+    `agents.Gateway` (`internal/agents`), served at
+    `POST /v1/model/v1/messages` (`api/model.yaml`, a hand-served contract
+    like the control plane's).
   - It speaks the provider's Messages API, so the agents keep their SDK
     and tool runner and only change the base URL. They authenticate with
     their bearer token (certificate-bound in production), never with a

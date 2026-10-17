@@ -2,6 +2,7 @@ package money
 
 import (
 	"errors"
+	"math"
 	"math/big"
 )
 
@@ -16,7 +17,22 @@ const microPerMinor = 1_000_000
 
 // Minor is the amount in minor units, rounded half up; costs are never
 // negative.
-func (m Micro) Minor() Minor { return Minor((int64(m) + microPerMinor/2) / microPerMinor) }
+func (m Micro) Minor() Minor {
+	q, r := int64(m)/microPerMinor, int64(m)%microPerMinor
+	if r >= microPerMinor/2 {
+		q++
+	}
+	return Minor(q)
+}
+
+// Add is m+n held at the most an int64 holds rather than wrapped: a sum of
+// costs past that (some ninety billion dollars) stays at it.
+func (m Micro) Add(n Micro) Micro {
+	if n > math.MaxInt64-m {
+		return math.MaxInt64
+	}
+	return m + n
+}
 
 // TokenCost is tokens at perMillion, a price per million tokens: exact in
 // Micro for any price of whole minor units, and rounded up at the

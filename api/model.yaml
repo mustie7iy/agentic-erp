@@ -10,7 +10,7 @@ info:
   description: |-
     Agents reach models only through their cell's gateway, with their own bearer tokens (certificate-bound in production, ADR-0033); they hold no provider key. The gateway speaks the provider's Messages API, so an agent keeps its SDK and points its base URL at `/v1/model`: the SDK's requests arrive at `POST /v1/model/v1/messages`.
 
-    The request names a model alias, `erp-default`, `erp-extraction` or `erp-analytics`, which the gateway routes to a concrete model; a concrete model id is refused. Only the fields listed in `ModelRequest` are forwarded; server tools and streaming are refused. Every call, answered or not, is one row of the tenant's model call ledger with its tokens and cost, never its content (ADR-0036); a model without a recorded price is refused before the call, so no call goes unmetered. A call made within an agent session (`Erp-Agent-Session`) adds its tokens and cost to the session.
+    The request names a model alias, `erp-default`, `erp-extraction` or `erp-analytics`, which the gateway routes to a concrete model; a concrete model id is refused. Only the fields listed in `ModelRequest` are forwarded; server tools, streaming and provider fallbacks are refused, so the model the alias routes to, and prices, is the one that answers. Every call, answered or not, is one row of the tenant's model call ledger with its tokens and cost, never its content (ADR-0036); a model without a recorded price is refused before the call, so no call goes unmetered. A call made within an agent session (`Erp-Agent-Session`) adds its tokens and cost to the session.
 
     The gateway authenticates in a short transaction of its own and writes the ledger in another after the call: no database transaction is held while the model works. A call is not idempotent: a retried call is another call, billed again.
   contact:
@@ -38,7 +38,7 @@ paths:
       tags:
         - models
       summary: Call a model
-      description: "Sends one Messages API request to the model the alias routes to and answers with the provider's message, unchanged but for the model it names. The answer carries `Erp-Model` (the model that answered) and `Erp-Model-Cost` (the call's cost in millionths of the currency's minor unit, with `Erp-Model-Cost-Currency`). A provider's error answer (429, 5xx and the like) is passed on as the provider sent it, so the SDK's retries apply; the call is recorded as failed. 422 `agents.unknown_model` for an alias the gateway does not route, 422 `agents.model_unpriced` for a model without a recorded price, 404 when `Erp-Agent-Session` names no running session of the caller's, 400 `request.invalid_body` for a field outside `ModelRequest`, a server tool or streaming, 502 `agents.model_unreachable` when the provider does not answer. Needs `agents.model.invoke`."
+      description: "Sends one Messages API request to the model the alias routes to and answers with the provider's message, unchanged but for the model it names. The answer carries `Erp-Model` (the model that answered) and `Erp-Model-Cost` (the call's cost in millionths of the currency's minor unit, with `Erp-Model-Cost-Currency`). A provider's error answer (429, 5xx and the like) is passed on as the provider sent it, so the SDK's retries apply; the call is recorded as failed. The provider refusing the cell's own key (401, 403) is 502 `agents.model_unreachable`, never the caller's authentication failure. 422 `agents.unknown_model` for an alias the gateway does not route, 422 `agents.model_unpriced` for a model without a recorded price, 404 when `Erp-Agent-Session` names no running session of the caller's, 400 `request.invalid_body` for a field outside `ModelRequest`, a server tool or streaming, 502 `agents.model_unreachable` when the provider does not answer. Needs `agents.model.invoke`."
       x-permission: agents.model.invoke
       parameters:
         - name: Erp-Agent-Session
@@ -52,11 +52,11 @@ paths:
         - name: anthropic-beta
           in: header
           required: false
-          description: "Provider betas, comma-separated; only `server-side-fallback-2026-07-01` is forwarded, others are refused (400)."
+          description: "Provider betas: none is forwarded, and a request naming one is refused (400)."
           schema:
             type: string
             maxLength: 200
-          example: server-side-fallback-2026-07-01
+          example: ""
       requestBody:
         description: The provider's Messages API request, limited to the fields below.
         required: true
@@ -173,9 +173,6 @@ components:
           items:
             type: string
           example: ["END"]
-        fallbacks:
-          description: The provider's server-side fallback (`default`).
-          example: default
         metadata:
           type: object
           description: The provider's request metadata.

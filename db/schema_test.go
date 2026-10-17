@@ -2277,6 +2277,8 @@ func TestModelCalls(t *testing.T) {
 	need(t)
 	a, b := newFixture(t), newFixture(t)
 	session, call := id(), id()
+	// Prices are global; each run prices a model of its own.
+	priced := "test-" + id().String()
 	mustApp(t, a.tenant, func(tx pgx.Tx) error {
 		var n int
 		if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM ref.model_price").Scan(&n); err != nil {
@@ -2326,14 +2328,18 @@ func TestModelCalls(t *testing.T) {
 		}), "session_cost_micro_check")
 	})
 	t.Run("prices are not negative", func(t *testing.T) {
-		_, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ('test-model', '2026-01-01', 'USD', -1, 0, 0, 0, 'ops')")
+		_, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ($1, '2026-01-01', 'USD', -1, 0, 0, 0, 'ops')", priced)
 		failsWith(t, err, "model_price_input_check")
 	})
+	t.Run("prices are in one currency", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ($1, '2026-03-01', 'EUR', 1, 1, 1, 1, 'ops')", priced)
+		failsWith(t, err, "model_price_currency_check")
+	})
 	t.Run("a recorded price stands", func(t *testing.T) {
-		if _, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ('test-model', '2026-02-01', 'USD', 1, 1, 1, 1, 'ops')"); err != nil {
+		if _, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ($1, '2026-02-01', 'USD', 1, 1, 1, 1, 'ops')", priced); err != nil {
 			t.Fatal(err)
 		}
-		_, err := testDB.Exec(context.Background(), "UPDATE ref.model_price SET input = 0 WHERE model = 'test-model'")
+		_, err := testDB.Exec(context.Background(), "UPDATE ref.model_price SET input = 0 WHERE model = $1", priced)
 		failsWith(t, err, "insert-only")
 	})
 }

@@ -44,19 +44,13 @@ func (s *Session) record(ctx context.Context, tool string, input map[string]any,
 	return nil
 }
 
-// End ends the session with its outcome. The session's tokens and cost
-// are its model calls' through the gateway, each of which made it a new
-// version, so the session is read first for its current one; the usage
-// sent is the contract's, which the server ignores (ADR-0036).
+// End ends the session with its outcome, whatever its version: each model
+// call through the gateway makes a new one, and the session is the
+// agent's own. The usage sent is the contract's, which the server ignores:
+// the session's tokens and cost are its calls' (ADR-0036).
 func (s *Session) End(ctx context.Context, status string, usage anthropic.BetaUsage) error {
-	resp, err := s.client.Do(ctx, http.MethodGet, "/v1/agent-sessions/"+s.ID, nil, nil, "")
-	if err == nil {
-		err = resp.Err()
-	}
-	if err == nil {
-		resp, err = s.client.Do(ctx, http.MethodPost, "/v1/agent-sessions/"+s.ID+":end", nil,
-			map[string]any{"status": status, "input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens}, resp.ETag)
-	}
+	resp, err := s.client.Do(ctx, http.MethodPost, "/v1/agent-sessions/"+s.ID+":end", nil,
+		map[string]any{"status": status, "input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens}, "*")
 	if err == nil {
 		err = resp.Err()
 	}
