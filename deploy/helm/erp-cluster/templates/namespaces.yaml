@@ -1,0 +1,16 @@
+# The platform's namespaces, which the policies govern. Kubernetes' own
+# Pod Security admission enforces the restricted profile in them: no
+# root, no privilege escalation, every capability dropped, the runtime's
+# seccomp profile (the erp-cell and erp-global charts' Pods comply).
+{{- range required "namespaces is required" .Values.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+{{- end }}
