@@ -11,6 +11,7 @@ import (
 
 	"go.temporal.io/server/common/authorization"
 	"go.temporal.io/server/common/config"
+	"go.temporal.io/server/common/dynamicconfig"
 	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/common/metrics"
 	"go.temporal.io/server/common/rpc/encryption"
@@ -98,7 +99,8 @@ func engineConfig(s settings) (*config.Config, error) {
 }
 
 // newServer is Temporal's server with the platform's authorization and TLS
-// 1.3; replaced by tests.
+// 1.3, its internode connections held to the engine's own identity;
+// replaced by tests.
 var newServer = func(cfg *config.Config, s settings, logger log.Logger) (temporal.Server, error) {
 	provider, err := encryption.NewTLSConfigProviderFromConfig(cfg.Global.TLS, metrics.NoopMetricsHandler, logger, nil)
 	if err != nil {
@@ -109,7 +111,10 @@ var newServer = func(cfg *config.Config, s settings, logger log.Logger) (tempora
 		temporal.WithConfig(cfg),
 		temporal.ForServices(temporal.DefaultServices),
 		temporal.WithLogger(logger),
-		temporal.WithTLSConfigFactory(spiffeauth.TLS13{TLSConfigProvider: provider}),
+		// Membership (ringpop) is plaintext unless this is on; on, it uses
+		// the internode configuration, TLS 1.3 to the engine's nodes alone.
+		temporal.WithDynamicConfigClient(dynamicconfig.StaticClient{dynamicconfig.EnableRingpopTLS.Key(): true}),
+		temporal.WithTLSConfigFactory(spiffeauth.TLS13{TLSConfigProvider: provider, Nodes: s.nodes}),
 		temporal.WithAuthorizer(spiffeauth.Authorizer()),
 		temporal.WithClaimMapper(func(*config.Config) authorization.ClaimMapper { return mapper }),
 	)

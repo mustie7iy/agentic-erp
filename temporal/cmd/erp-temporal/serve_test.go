@@ -110,6 +110,7 @@ type engine struct {
 	dir      string
 	ca       authority
 	frontend string
+	ports    []int // frontend, history, matching, worker: each gRPC, then membership
 	env      map[string]string
 	certs    map[string][2]string // name: certificate, key
 }
@@ -144,6 +145,7 @@ func newEngineWith(t *testing.T, o engineOptions) *engine {
 	e.certs["impostor"] = [2]string{c, k}
 	ports := freePorts(t, 8)
 	e.frontend = fmt.Sprintf("localhost:%d", ports[0])
+	e.ports = ports
 	var buf bytes.Buffer
 	unless := func(off bool, v string) string {
 		if off {
@@ -254,9 +256,10 @@ func TestServe(t *testing.T) {
 		if err == nil {
 			break
 		}
-		var missing *serviceerror.NamespaceNotFound
-		var unavailable *serviceerror.Unavailable
-		if !errors.As(err, &missing) && !errors.As(err, &unavailable) {
+		// Until then the frontend is unreachable, unavailable or without the
+		// namespace; a refusal is the one answer that will not change.
+		var denied *serviceerror.PermissionDenied
+		if errors.As(err, &denied) {
 			t.Fatalf("the cell's server was refused a workflow in its namespace: %v", err)
 		}
 		select {
@@ -272,6 +275,7 @@ func TestServe(t *testing.T) {
 		t.Errorf("workflow id: got %q, want check", run.GetID())
 	}
 	t.Run("refusals", func(t *testing.T) { refusals(t, e) })
+	t.Run("internode", func(t *testing.T) { internode(t, e) })
 
 	cancel()
 	select {
@@ -400,4 +404,64 @@ func TestUsage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// internode: the engine's own services and their membership ports speak
+// TLS 1.3 and admit its own nodes alone, not the cell's server, whose
+// certificate is of the same authority (ADR-0033).
+func internode(t *testing.T, e *engine) {
+	t.Helper()
+	// gRPC's listeners take HTTP/2 alone (ALPN h2); the membership ports
+	// speak TChannel.
+	grpc, membership := []string{"h2"}, []string(nil)
+	listeners := map[string]struct {
+		port  int
+		proto []string
+	}{
+		"frontend membership": {e.ports[1], membership}, "history": {e.ports[2], grpc}, "history membership": {e.ports[3], membership},
+		"matching": {e.ports[4], grpc}, "matching membership": {e.ports[5], membership},
+		"worker": {e.ports[6], grpc}, "worker membership": {e.ports[7], membership},
+	}
+	for name, l := range listeners {
+		t.Run(name+" admits the nodes", func(t *testing.T) {
+			if err := e.handshake(t, l.port, l.proto, "nodes"); err != nil {
+				t.Errorf("handshake as the engine's nodes: got %v, want admitted", err)
+			}
+		})
+		t.Run(name+" refuses the server", func(t *testing.T) {
+			if err := e.handshake(t, l.port, l.proto, "server"); err == nil {
+				t.Error("handshake as the cell's server: got admitted, want refused")
+			}
+		})
+	}
+}
+
+// handshake connects to port over TLS 1.3 as the named certificate and
+// reports whether the listener refused it. A TLS 1.3 server verifies the
+// client's certificate after the client's side of the handshake is done,
+// so the refusal arrives on the first read; on an admitted connection the
+// read gets the server's first message (HTTP/2's settings) or times out
+// waiting for the client's (TChannel's).
+func (e *engine) handshake(t *testing.T, port int, protos []string, name string) error {
+	t.Helper()
+	cert := e.certs[name]
+	cfg := e.ca.clientTLS(t, cert[0], cert[1], tls.VersionTLS13)
+	cfg.NextProtos = protos
+	d := tls.Dialer{Config: cfg}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }() // a probe's connection; nothing to report
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		return err
+	}
+	_, err = conn.Read(make([]byte, 1))
+	var timeout net.Error
+	if err == nil || errors.As(err, &timeout) && timeout.Timeout() {
+		return nil
+	}
+	return err
 }

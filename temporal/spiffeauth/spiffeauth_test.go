@@ -180,8 +180,76 @@ func TestTLS13(t *testing.T) {
 	})
 	t.Run("plain", func(t *testing.T) {
 		cfg, err := TLS13{TLSConfigProvider: provider{cfg: &tls.Config{}}}.GetFrontendClientConfig()
-		if err != nil || cfg.MinVersion != tls.VersionTLS13 || cfg.GetConfigForClient != nil {
-			t.Errorf("got %+v, %v, want TLS 1.3 and no per-connection callback", cfg, err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.MinVersion != tls.VersionTLS13 {
+			t.Errorf("minimum version: got %x, want TLS 1.3", cfg.MinVersion)
+		}
+		if cfg.GetConfigForClient != nil {
+			t.Error("per-connection callback: got one, want none")
+		}
+	})
+}
+
+// TestPin: the engine's own connections admit a verified peer of its own
+// identity alone, and still run the configuration's own verification.
+func TestPin(t *testing.T) {
+	state := func(uris ...string) tls.ConnectionState { return info(t, uris...).TLSConnection.State }
+	boom := errors.New("boom")
+	var ran bool
+	base := &tls.Config{VerifyConnection: func(tls.ConnectionState) error { ran = true; return nil }}
+	p := TLS13{TLSConfigProvider: provider{cfg: base}, Nodes: nodes}
+	for name, get := range map[string]func() (*tls.Config, error){
+		"internode server": p.GetInternodeServerConfig, "internode client": p.GetInternodeClientConfig,
+		"frontend client": p.GetFrontendClientConfig,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := get()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.VerifyConnection(state(server)); err == nil {
+				t.Error("the cell's server: got admitted, want refused")
+			}
+			if err := cfg.VerifyConnection(tls.ConnectionState{}); err == nil {
+				t.Error("no verified certificate: got admitted, want refused")
+			}
+			ran = false
+			if err := cfg.VerifyConnection(state(nodes)); err != nil {
+				t.Errorf("the engine's nodes: got %v, want admitted", err)
+			}
+			if !ran {
+				t.Error("the configuration's own verification did not run")
+			}
+		})
+	}
+	t.Run("own verification fails", func(t *testing.T) {
+		failing := TLS13{TLSConfigProvider: provider{cfg: &tls.Config{VerifyConnection: func(tls.ConnectionState) error { return boom }}}, Nodes: nodes}
+		cfg, err := failing.GetInternodeServerConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cfg.VerifyConnection(state(nodes)); !errors.Is(err, boom) {
+			t.Errorf("got %v, want %v", err, boom)
+		}
+	})
+	t.Run("frontend server", func(t *testing.T) {
+		cfg, err := p.GetFrontendServerConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cfg.VerifyConnection(state(server)); err != nil {
+			t.Errorf("the cell's server at the frontend: got %v, want admitted (the claims decide)", err)
+		}
+	})
+	t.Run("no own verification", func(t *testing.T) {
+		cfg, err := TLS13{TLSConfigProvider: provider{cfg: &tls.Config{}}, Nodes: nodes}.GetInternodeClientConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cfg.VerifyConnection(state(nodes)); err != nil {
+			t.Errorf("got %v, want admitted", err)
 		}
 	})
 }
