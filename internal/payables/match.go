@@ -39,6 +39,12 @@ const (
 	// IssueOrderItemMissing is an invoice item naming an order item its
 	// order does not have, which procurement's invariants should prevent.
 	IssueOrderItemMissing = "order_item_missing"
+	// IssueQtyInvoiced is a credit memo crediting more of an order item
+	// than is invoiced, net of other credit memos (T34).
+	IssueQtyInvoiced = "quantity_exceeds_invoiced"
+	// IssueNothingInvoiced is a subsequent debit or credit revaluing an
+	// order item nothing is invoiced of (T34).
+	IssueNothingInvoiced = "nothing_invoiced"
 )
 
 // Match is a row of payables.match_result.
@@ -124,9 +130,11 @@ func companyLimits(co *config.Company) (limits, error) {
 }
 
 // invoicedQuantities sums, per order item, what other posted invoices
-// already invoiced on the order.
+// already invoiced on the order, net of what posted credit memos credited
+// (subsequent debits and credits move no quantity).
 func invoicedQuantities(ctx context.Context, tx pgx.Tx, order, exclude uuid.UUID) (map[int32]string, error) {
-	rows, _ := tx.Query(ctx, `SELECT t.po_item_no, trim_scale(sum(t.quantity))::text FROM payables.supplier_invoice_item t
+	rows, _ := tx.Query(ctx, `SELECT t.po_item_no, trim_scale(sum(CASE WHEN i.kind = 'credit_memo' THEN -t.quantity ELSE t.quantity END))::text
+		FROM payables.supplier_invoice_item t
 		JOIN payables.supplier_invoice i ON i.tenant_id = t.tenant_id AND i.id = t.supplier_invoice_id
 		WHERE t.purchase_order_id = $1 AND i.status = 'posted' AND i.id <> $2 AND NOT t.is_removed GROUP BY 1`, order, exclude)
 	invoiced := map[int32]string{}
@@ -174,15 +182,43 @@ func evaluate(v Invoice, order procurement.Order, invoiced map[int32]string, lim
 			add(IssueOrderItemMissing, &it.ItemNo, "order item %d is not on purchase order %s", *it.POItemNo, order.DocumentNumber)
 			continue
 		}
-		oi := order.Items[i]
-		if why := priceVariance(it, oi, lim, conv, format); why != "" {
-			add(IssuePriceVariance, &it.ItemNo, "order item %d: %s", oi.ItemNo, why)
+		issues = append(issues, itemIssues(v.Kind, it, order.Items[i], money.ParseRat(cmp.Or(invoiced[*it.POItemNo], "0")), lim, conv, format)...)
+	}
+	return issues
+}
+
+// itemIssues are one item's issues against its order item by the
+// document's kind (T34), before matched the net quantity invoiced by
+// other posted documents:
+//   - an invoice is within the price tolerance and does not invoice more
+//     than received;
+//   - a credit memo is within the price tolerance and does not credit more
+//     than invoiced;
+//   - a subsequent debit or credit revalues an order item something is
+//     invoiced of, at whatever price.
+func itemIssues(kind string, it Item, oi procurement.OrderItem, before *big.Rat, lim limits, conv ledger.Conversion, format func(money.Minor) string) []Issue {
+	var issues []Issue
+	add := func(code, format string, a ...any) {
+		issues = append(issues, Issue{Code: code, ItemNo: &it.ItemNo, Message: fmt.Sprintf(format, a...)})
+	}
+	if subsequent(kind) {
+		if before.Sign() <= 0 {
+			add(IssueNothingInvoiced, "order item %d: nothing is invoiced to revalue", oi.ItemNo)
 		}
-		total := new(big.Rat).Add(money.ParseRat(it.Quantity), money.ParseRat(cmp.Or(invoiced[oi.ItemNo], "0")))
-		if total.Cmp(money.ParseRat(oi.Received)) > 0 {
-			add(IssueQtyReceived, &it.ItemNo, "order item %d: invoiced quantity %s exceeds received %s",
-				oi.ItemNo, total.FloatString(6), oi.Received)
+		return issues
+	}
+	if why := priceVariance(it, oi, lim, conv, format); why != "" {
+		add(IssuePriceVariance, "order item %d: %s", oi.ItemNo, why)
+	}
+	quantity := money.ParseRat(it.Quantity)
+	if kind == KindCreditMemo {
+		if quantity.Cmp(before) > 0 {
+			add(IssueQtyInvoiced, "order item %d: credited quantity %s exceeds invoiced %s", oi.ItemNo, it.Quantity, before.FloatString(6))
 		}
+		return issues
+	}
+	if total := new(big.Rat).Add(quantity, before); total.Cmp(money.ParseRat(oi.Received)) > 0 {
+		add(IssueQtyReceived, "order item %d: invoiced quantity %s exceeds received %s", oi.ItemNo, total.FloatString(6), oi.Received)
 	}
 	return issues
 }

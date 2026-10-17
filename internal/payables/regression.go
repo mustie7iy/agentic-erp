@@ -100,7 +100,8 @@ func (c *replayCache) conversion(ctx context.Context, rates Rates, v Invoice, to
 }
 
 // invoicesOnOrders reads the invoices on purchase orders of the window,
-// newest first, with their orders and what was invoiced before.
+// newest first, with their orders and what was invoiced before: every
+// kind, decided by its kind as :match decides it (T34).
 func invoicesOnOrders(ctx context.Context, src sources, since time.Time, limit int) ([]replayed, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

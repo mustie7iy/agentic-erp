@@ -1953,3 +1953,149 @@ func TestSessions(t *testing.T) {
 		}
 	})
 }
+
+// --- Credit memos and subsequent debits/credits (T34a, 000059) ---------------
+
+// invoiceOf inserts a parked supplier invoice of the kind, with its
+// purchase order, reference invoice and gross amount, and returns its id.
+func (f fixture) invoiceOf(kind string, order, reference *uuid.UUID, gross int64) (uuid.UUID, func(tx pgx.Tx) error) {
+	v := id()
+	return v, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
+			invoice_date, currency, gross_amount, tax_amount, status, source, kind, purchase_order_id, reference_invoice_id, created_by, updated_by)
+			VALUES ($1,$2,$3,$4,$5,$3,'2026-06-01','USD',$6,0,'parked','manual',$7,$8,$9,$10,$10)`,
+			f.tenant, v, v.String()[24:], f.entity, f.supplier, gross, kind, order, reference, f.actor)
+	}
+}
+
+// TestSupplierInvoiceKinds: an invoice is an invoice, a credit memo or a
+// subsequent debit or credit, fixed once entered; it may name the invoice
+// it corrects, never itself; subsequent debits and credits are on an order;
+// amounts are positive whatever the kind, which gives the direction.
+func TestSupplierInvoiceKinds(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	order := id()
+	invoice, ins := f.invoiceOf("invoice", nil, nil, 1000)
+	mustApp(t, f.tenant, ins)
+	for _, c := range []struct {
+		name, kind string
+		order      *uuid.UUID
+		reference  *uuid.UUID
+		gross      int64
+		fails      string
+	}{
+		{"credit memo on its invoice", "credit_memo", nil, &invoice, 300, ""},
+		{"subsequent debit on an order", "subsequent_debit", &order, nil, 50, ""},
+		{"subsequent credit without an order", "subsequent_credit", nil, &invoice, 50, "supplier_invoice_subsequent_on_order"},
+		{"unknown kind", "debit_memo", nil, nil, 50, "supplier_invoice_kind_check"},
+		{"unknown reference", "credit_memo", nil, &order, 50, "supplier_invoice_reference_fkey"},
+		{"negative amount", "credit_memo", nil, nil, -300, "supplier_invoice_amounts_not_negative"},
+		{"zero amount", "credit_memo", nil, nil, 0, ""},
+		{"invoice naming an invoice", "invoice", nil, &invoice, 300, "supplier_invoice_reference_corrects"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, ins := f.invoiceOf(c.kind, c.order, c.reference, c.gross)
+			err := asApp(t, f.tenant, ins)
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("its own reference", func(t *testing.T) {
+		memo, ins := f.invoiceOf("credit_memo", nil, nil, 100)
+		mustApp(t, f.tenant, ins)
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice SET reference_invoice_id = id, version = version + 1 WHERE id = $1", memo)
+		}), "supplier_invoice_not_its_own_reference")
+	})
+	t.Run("negative tax", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice SET tax_amount = -1, version = version + 1 WHERE id = $1", invoice)
+		}), "supplier_invoice_amounts_not_negative")
+	})
+	t.Run("kind set to itself", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice SET kind = kind, version = version + 1 WHERE id = $1", invoice)
+		})
+	})
+	t.Run("kind changed", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice SET kind = 'credit_memo', version = version + 1 WHERE id = $1", invoice)
+		}), "supplier_invoice_kind_fixed")
+	})
+}
+
+// TestSupplierInvoiceItemQuantities: a subsequent debit or credit moves no
+// quantity, so its items are order items with quantity 0; every other
+// kind's items have a positive quantity; a removed item no longer counts,
+// and writing it back counts again.
+func TestSupplierInvoiceItemQuantities(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	order := id()
+	documents := map[string]uuid.UUID{}
+	for _, kind := range []string{"invoice", "credit_memo", "subsequent_debit", "subsequent_credit"} {
+		v, ins := f.invoiceOf(kind, &order, nil, 50)
+		mustApp(t, f.tenant, ins)
+		documents[kind] = v
+	}
+	item := func(v uuid.UUID, qty string, onOrder, removed bool) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			var o *uuid.UUID
+			var po *int
+			if onOrder {
+				ten := 10
+				o, po = &order, &ten
+			}
+			return exec(tx, `INSERT INTO payables.supplier_invoice_item (tenant_id, supplier_invoice_id, item_no, purchase_order_id, po_item_no, quantity, uom_code,
+				amount, account_id, is_removed) SELECT $1, $2, coalesce(max(item_no), 0) + 1, $3, $4, $5::numeric, 'EA', 50, $6, $7
+				FROM payables.supplier_invoice_item WHERE supplier_invoice_id = $2`, f.tenant, v, o, po, qty, f.expense, removed)
+		}
+	}
+	for _, c := range []struct {
+		name, kind, qty string
+		onOrder         bool
+		removed         bool
+		fails           string
+	}{
+		{"invoice item with a quantity", "invoice", "2", true, false, ""},
+		{"invoice item without one", "invoice", "0", true, false, "supplier_invoice_item_quantity_kind"},
+		{"removed invoice item without one", "invoice", "0", true, true, ""},
+		{"credit memo item without a quantity", "credit_memo", "0", true, false, "supplier_invoice_item_quantity_kind"},
+		{"subsequent debit item without a quantity", "subsequent_debit", "0", true, false, ""},
+		{"subsequent debit item with one", "subsequent_debit", "2", true, false, "supplier_invoice_item_quantity_kind"},
+		{"subsequent debit item on an account", "subsequent_debit", "0", false, false, "supplier_invoice_item_quantity_kind"},
+		{"subsequent credit item without a quantity", "subsequent_credit", "0", true, false, ""},
+		{"subsequent credit item with one", "subsequent_credit", "2", true, false, "supplier_invoice_item_quantity_kind"},
+		{"negative quantity", "invoice", "-1", true, false, "supplier_invoice_item_quantity_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, item(documents[c.kind], c.qty, c.onOrder, c.removed))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	update := func(set string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice_item SET "+set+" WHERE supplier_invoice_id = $1 AND item_no = 1", documents["invoice"])
+		})
+	}
+	t.Run("invoice item updated to no quantity", func(t *testing.T) {
+		failsOn(t, update("quantity = 0"), "supplier_invoice_item_quantity_kind")
+	})
+	t.Run("removed item written back", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE payables.supplier_invoice_item SET is_removed = false WHERE supplier_invoice_id = $1 AND item_no = 2", documents["invoice"])
+		}), "supplier_invoice_item_quantity_kind")
+	})
+}

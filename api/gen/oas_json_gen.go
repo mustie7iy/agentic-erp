@@ -32367,6 +32367,18 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Kind.Set {
+			e.FieldStart("kind")
+			s.Kind.Encode(e)
+		}
+	}
+	{
+		if s.ReferenceInvoiceID.Set {
+			e.FieldStart("reference_invoice_id")
+			s.ReferenceInvoiceID.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("status")
 		e.Str(s.Status)
 	}
@@ -32418,7 +32430,7 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoice = [24]string{
+var jsonFieldsNameOfSupplierInvoice = [26]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -32434,15 +32446,17 @@ var jsonFieldsNameOfSupplierInvoice = [24]string{
 	12: "gross_amount",
 	13: "tax_amount",
 	14: "purchase_order_id",
-	15: "status",
-	16: "hold_reason",
-	17: "source",
-	18: "journal_entry_id",
-	19: "reversal_entry_id",
-	20: "workflow_request_id",
-	21: "items",
-	22: "extensions",
-	23: "expanded",
+	15: "kind",
+	16: "reference_invoice_id",
+	17: "status",
+	18: "hold_reason",
+	19: "source",
+	20: "journal_entry_id",
+	21: "reversal_entry_id",
+	22: "workflow_request_id",
+	23: "items",
+	24: "extensions",
+	25: "expanded",
 }
 
 // Decode decodes SupplierInvoice from json.
@@ -32450,7 +32464,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode SupplierInvoice to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -32624,8 +32638,28 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"purchase_order_id\"")
 			}
+		case "kind":
+			if err := func() error {
+				s.Kind.Reset()
+				if err := s.Kind.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "reference_invoice_id":
+			if err := func() error {
+				s.ReferenceInvoiceID.Reset()
+				if err := s.ReferenceInvoiceID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reference_invoice_id\"")
+			}
 		case "status":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -32647,7 +32681,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"hold_reason\"")
 			}
 		case "source":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Source = string(v)
@@ -32689,7 +32723,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"workflow_request_id\"")
 			}
 		case "items":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				s.Items = make([]SupplierInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -32707,7 +32741,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "extensions":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -32735,10 +32769,11 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11011111,
-		0b10110111,
-		0b01100010,
+		0b00110111,
+		0b10001010,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -32830,6 +32865,18 @@ func (s *SupplierInvoiceCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Kind.Set {
+			e.FieldStart("kind")
+			s.Kind.Encode(e)
+		}
+	}
+	{
+		if s.ReferenceInvoiceID.Set {
+			e.FieldStart("reference_invoice_id")
+			s.ReferenceInvoiceID.Encode(e)
+		}
+	}
+	{
 		if s.Source.Set {
 			e.FieldStart("source")
 			s.Source.Encode(e)
@@ -32851,7 +32898,7 @@ func (s *SupplierInvoiceCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoiceCreate = [11]string{
+var jsonFieldsNameOfSupplierInvoiceCreate = [13]string{
 	0:  "legal_entity_id",
 	1:  "supplier_id",
 	2:  "supplier_reference",
@@ -32860,9 +32907,11 @@ var jsonFieldsNameOfSupplierInvoiceCreate = [11]string{
 	5:  "gross_amount",
 	6:  "tax_amount",
 	7:  "purchase_order_id",
-	8:  "source",
-	9:  "items",
-	10: "extensions",
+	8:  "kind",
+	9:  "reference_invoice_id",
+	10: "source",
+	11: "items",
+	12: "extensions",
 }
 
 // Decode decodes SupplierInvoiceCreate from json.
@@ -32963,6 +33012,26 @@ func (s *SupplierInvoiceCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"purchase_order_id\"")
 			}
+		case "kind":
+			if err := func() error {
+				s.Kind.Reset()
+				if err := s.Kind.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "reference_invoice_id":
+			if err := func() error {
+				s.ReferenceInvoiceID.Reset()
+				if err := s.ReferenceInvoiceID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reference_invoice_id\"")
+			}
 		case "source":
 			if err := func() error {
 				s.Source.Reset()
@@ -32974,7 +33043,7 @@ func (s *SupplierInvoiceCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"source\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				s.Items = make([]SupplierInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -33012,7 +33081,7 @@ func (s *SupplierInvoiceCreate) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b01101111,
-		0b00000010,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -33631,6 +33700,12 @@ func (s *SupplierInvoiceUpdate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.ReferenceInvoiceID.Set {
+			e.FieldStart("reference_invoice_id")
+			s.ReferenceInvoiceID.Encode(e)
+		}
+	}
+	{
 		if s.Items != nil {
 			e.FieldStart("items")
 			e.ArrStart()
@@ -33648,15 +33723,16 @@ func (s *SupplierInvoiceUpdate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoiceUpdate = [8]string{
+var jsonFieldsNameOfSupplierInvoiceUpdate = [9]string{
 	0: "supplier_reference",
 	1: "invoice_date",
 	2: "posting_date",
 	3: "gross_amount",
 	4: "tax_amount",
 	5: "purchase_order_id",
-	6: "items",
-	7: "extensions",
+	6: "reference_invoice_id",
+	7: "items",
+	8: "extensions",
 }
 
 // Decode decodes SupplierInvoiceUpdate from json.
@@ -33726,6 +33802,16 @@ func (s *SupplierInvoiceUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"purchase_order_id\"")
+			}
+		case "reference_invoice_id":
+			if err := func() error {
+				s.ReferenceInvoiceID.Reset()
+				if err := s.ReferenceInvoiceID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reference_invoice_id\"")
 			}
 		case "items":
 			if err := func() error {

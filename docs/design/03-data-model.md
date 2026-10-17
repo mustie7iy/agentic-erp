@@ -784,6 +784,8 @@ erDiagram
     bigint gross_amount
     bigint tax_amount
     text status "parked | on_hold | posted | rejected | cancelled | reversed"
+    text kind "invoice | credit_memo | subsequent_debit | subsequent_credit"
+    uuid reference_invoice_id
     uuid purchase_order_id
     text source "manual | capture | edi | migration"
     uuid journal_entry_id
@@ -808,9 +810,81 @@ erDiagram
     int invoice_version }
 ```
 
+A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
+transactions are: `invoice`, `credit_memo`, `subsequent_debit` or
+`subsequent_credit`, fixed once entered (trigger
+`payables.check_kind_fixed`, constraint `supplier_invoice_kind_fixed`). Its
+gross and tax amounts are not negative whatever the kind
+(`supplier_invoice_amounts_not_negative`, 422 `payables.negative_amount` on
+entry); the kind gives the direction when it posts (credit memos and
+subsequent credits as journal type KG, number range `journal_kg`, which
+configuration requires wherever a company numbers supplier invoices). A credit memo or subsequent debit/credit may name the invoice it
+corrects, an invoice none (`supplier_invoice_reference_corrects`), never
+itself (`supplier_invoice_not_its_own_reference`). A subsequent debit or
+credit revalues order items without quantity: it is on a purchase order
+(`supplier_invoice_subsequent_on_order`) and its items are order items of
+quantity 0, every other kind's items have a positive quantity; a removed
+item no longer counts (trigger `payables.check_item_quantity`, constraint
+`supplier_invoice_item_quantity_kind`). The checks on existing rows were
+added `NOT VALID` (migration 000059) and validated by the next (000060). Entry (T34b) checks the same through the
+API: `kind` (default `invoice`; 422 `payables.unknown_kind`), the reference
+a posted invoice of the same supplier, legal entity and currency (422
+`payables.invalid_reference_invoice`; on an invoice 422
+`payables.reference_not_allowed`), a subsequent debit's or credit's items
+order items (422 `payables.po_item_required`) of quantity 0 (422
+`payables.quantity_not_zero`); every edit checks the reference again, so a
+correction whose invoice was reversed since is edited once its reference
+is cleared. `SupplierInvoiceCaptured` carries the kind
+and signs the gross and tax amounts by it (negative for credit memos and
+subsequent credits), as `SupplierInvoicePosted` and `SupplierInvoiceReversed`
+do (T34c).
+
+Each kind is matched and posted by its kind (T34c):
+
+- **Match**, per order item, against what other posted documents invoiced
+  net of credit memos:
+  - an invoice does not invoice more than received;
+  - a credit memo does not credit more than invoiced
+    (`quantity_exceeds_invoiced`);
+  - both are within the price tolerance;
+  - a subsequent debit or credit revalues an order item something is
+    invoiced of (`nothing_invoiced`), at any price.
+
+  Simulations and regression suites decide every kind the same way.
+- **Post**:
+  - credit memos and subsequent credits post the other way round, as KG:
+    Dr supplier, Cr items and tax;
+  - on an order valued through GR/IR, a credit memo credits GR/IR at the
+    order price of the quantity it credits;
+  - a subsequent debit or credit moves no quantity, so its amount goes to
+    `price_difference` whole; its GR/IR line of 0.00 (quantity 0) is
+    kept, deliberately, so the order item's position history shows the
+    revaluation.
+- **Corrections and their invoice**:
+  - a correction naming an invoice posts only while that invoice is
+    posted, read `FOR SHARE` at `:post` (409 `payables.reference_not_posted`);
+  - an invoice that posted corrections name is reversed only once they
+    are (409 `payables.invoice_has_corrections`);
+  - the reversal locks the invoice `FOR UPDATE` and does not lock the
+    corrections, so the two never wait for each other in a cycle.
+- **Capture** (T34e) reads a document as an `invoice` or a `credit_memo`
+  (the extraction's `document_kind`); subsequent debits and credits are
+  entered by hand, since a document does not say reliably that it
+  revalues without quantity. Amounts are entered unsigned: a credit memo
+  may print them, and its quantities, negative, as many do, and is entered
+  with their magnitudes; an invoice printing a negative amount, a credit memo
+  printing both signs, or another kind of document is not captured (422
+  `payables.unreadable_document`). The number of the invoice a credit memo
+  prints (`credited_invoice_number`) names, as its reference, the posted
+  invoice of the supplier with that supplier reference in the legal entity
+  and currency; a memo printing none corrects none; one whose number is no
+  such invoice is entered `on_hold` with the reason, for the reference to
+  be entered by hand rather than dropped; an invoice printing one is not
+  captured.
+
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
-level, not just detectable. `match_result` keeps the history of every match
+level, not just detectable, across kinds. `match_result` keeps the history of every match
 evaluation with the configuration version used and the invoice version the
 match left the invoice at (`invoice_version`, migration 000040, F13; after
 the hold or release the match itself causes). An invoice on a purchase
@@ -936,6 +1010,18 @@ erDiagram
     text object_ref
     bytea sha256 }
 ```
+
+A proposal pays each supplier its open items due by the run's due date,
+netted in one payment: an invoice is due its supplier's net days after its
+document date; every debit on the supplier account (a credit memo, whether
+or not it names an invoice, a subsequent credit, a manual or migrated
+debit) on its document date (T34d), so it nets with the next run that pays
+the supplier. SAP has a credit memo without an invoice reference due at
+once and gives one naming an invoice that invoice's due date; netting
+earlier never pays more than is owed. A
+supplier whose due items net to zero or a debit is excluded
+(`debit_balance`) and paid nothing: a credit memo never pays out alone,
+and stays open for a later run.
 
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run

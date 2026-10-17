@@ -335,3 +335,22 @@ func TestGRIRDetermination(t *testing.T) {
 		}
 	})
 }
+
+// TestCreditMemoJournalRanges: a company that numbers supplier invoices in
+// a fiscal year numbers their KG journal entries too (journal_kg): credit
+// memos and subsequent credits post as KG (T34c): a missing range is an
+// error.
+func TestCreditMemoJournalRanges(t *testing.T) {
+	c := fixture(t)
+	c.NumberRanges = []NumberRange{{Company: "1000", DocumentType: "supplier_invoice", FiscalYear: 2026, First: 1, Last: 9},
+		{Company: "1000", DocumentType: "journal_kg", FiscalYear: 2026, First: 1, Last: 9}}
+	missing := func(f Finding) bool { return f.Path == "number_ranges[1000/journal_kg/2026]" }
+	if fs := Validate(c, currency.Seeded()); slices.ContainsFunc(fs, missing) {
+		t.Errorf("with journal_kg: got %v, want no finding on it", fs)
+	}
+	c.NumberRanges = c.NumberRanges[:1]
+	fs := Validate(c, currency.Seeded())
+	if !slices.ContainsFunc(fs, func(f Finding) bool { return missing(f) && f.Severity == SevError }) {
+		t.Errorf("without journal_kg: got %v, want an error at number_ranges[1000/journal_kg/2026]", fs)
+	}
+}

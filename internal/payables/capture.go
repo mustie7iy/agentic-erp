@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,11 +93,11 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	if err != nil {
 		return operations.Operation{}, unreadable(err.Error())
 	}
-	in, err := e.capturedInput(ctx, tx, legalEntity, ext)
+	in, held, err := e.capturedInput(ctx, tx, legalEntity, ext)
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	status, reason, warnings := captureStatus(ext.Confidence)
+	status, reason, warnings := captureStatus(ext.Confidence, held)
 	v, err := e.insert(ctx, tx, p, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
 	if err != nil {
 		return operations.Operation{}, err
@@ -126,60 +127,141 @@ func (e *Endpoints) storeDocument(ctx context.Context, tenant uuid.UUID, sum [sh
 
 // capturedInput turns an extraction into invoice input: supplier and items
 // come from the purchase order the document prints, whose currency the
-// document must match.
-func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, ext *capture.Extraction) (Input, error) {
-	if ext.PurchaseOrder == "" {
-		return Input{}, problem.Unprocessable("payables.capture_needs_order",
-			"The document prints no purchase order number; enter invoices without an order by hand.")
-	}
-	po, ok, err := e.OrderNumbers.OrderByNumber(ctx, legalEntity, ext.PurchaseOrder)
-	if err != nil {
-		return Input{}, err
-	}
+// document must match; the kind is the one read (invoice or credit memo).
+// It returns, as the reason to hold the document, a credited invoice that
+// cannot be named (creditedInvoice).
+func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, ext *capture.Extraction) (Input, string, error) {
+	kind, ok := capturedKinds[ext.DocumentKind]
 	if !ok {
-		return Input{}, unreadable("the legal entity has no purchase order " + ext.PurchaseOrder)
+		return Input{}, "", unreadable("the document is a " + ext.DocumentKind + ", not an invoice or a credit memo")
 	}
-	order, _, err := e.Orders.Order(ctx, po)
+	po, order, err := e.capturedOrder(ctx, legalEntity, ext.PurchaseOrder)
 	if err != nil {
-		return Input{}, err
+		return Input{}, "", err
 	}
 	date, err := time.Parse(time.DateOnly, ext.InvoiceDate)
 	if err != nil {
-		return Input{}, unreadable("the invoice date " + ext.InvoiceDate + " is not a date")
+		return Input{}, "", unreadable("the document date " + ext.InvoiceDate + " is not a date")
 	}
 	if ext.InvoiceNumber == "" {
-		return Input{}, unreadable("there is no invoice number")
+		return Input{}, "", unreadable("there is no document number")
 	}
 	if ext.Currency != order.Currency {
-		return Input{}, unreadable("the invoice is in " + ext.Currency + " but the order in " + order.Currency)
+		return Input{}, "", unreadable("the document is in " + ext.Currency + " but the order in " + order.Currency)
 	}
 	exp, err := currency.Exponent(ctx, tx, order.Currency, nil) // the order's currency is in the reference data
 	if err != nil {
-		return Input{}, fmt.Errorf("payables: capture: %w", err)
+		return Input{}, "", fmt.Errorf("payables: capture: %w", err)
 	}
-	amountOf := func(s, what string) (Amount, error) {
-		m, err := money.ParseDecimal(s, exp)
-		if err != nil {
-			return Amount{}, unreadable(what + ": " + err.Error())
-		}
-		return Amount{Value: m.Plain(exp), Currency: order.Currency}, nil
+	a := &printed{exp: exp, currency: order.Currency, credit: kind == KindCreditMemo}
+	in := Input{LegalEntityID: legalEntity, SupplierID: order.SupplierID, SupplierReference: ext.InvoiceNumber, InvoiceDate: date, PurchaseOrderID: &po, Kind: kind}
+	if in.Gross, err = a.amount(ext.GrossAmount, "gross amount"); err != nil {
+		return Input{}, "", err
 	}
-	in := Input{LegalEntityID: legalEntity, SupplierID: order.SupplierID, SupplierReference: ext.InvoiceNumber, InvoiceDate: date, PurchaseOrderID: &po}
-	if in.Gross, err = amountOf(ext.GrossAmount, "gross amount"); err != nil {
-		return Input{}, err
+	if in.Tax, err = a.amount(ext.TaxAmount, "tax amount"); err != nil {
+		return Input{}, "", err
 	}
-	if in.Tax, err = amountOf(ext.TaxAmount, "tax amount"); err != nil {
-		return Input{}, err
+	if in.Items, err = capturedItems(ext.Lines, order, a); err != nil {
+		return Input{}, "", err
 	}
-	if in.Items, err = capturedItems(ext.Lines, order, amountOf); err != nil {
-		return Input{}, err
+	if a.negative && a.positive {
+		return Input{}, "", unreadable("the credit memo prints amounts of both signs")
 	}
-	return in, nil
+	held, err := creditedInvoice(ctx, tx, &in, ext.CreditedInvoiceNumber)
+	return in, held, err
+}
+
+// capturedKinds are the kinds a document is read as. Subsequent debits and
+// credits are entered by hand: a document does not say reliably that it
+// revalues without quantity.
+var capturedKinds = map[string]string{"invoice": KindInvoice, "credit_memo": KindCreditMemo}
+
+// capturedOrder is the purchase order the document prints the number of.
+func (e *Endpoints) capturedOrder(ctx context.Context, legalEntity uuid.UUID, number string) (uuid.UUID, procurement.Order, error) {
+	if number == "" {
+		return uuid.Nil, procurement.Order{}, problem.Unprocessable("payables.capture_needs_order",
+			"The document prints no purchase order number; enter invoices without an order by hand.")
+	}
+	po, ok, err := e.OrderNumbers.OrderByNumber(ctx, legalEntity, number)
+	if err != nil {
+		return uuid.Nil, procurement.Order{}, err
+	}
+	if !ok {
+		return uuid.Nil, procurement.Order{}, unreadable("the legal entity has no purchase order " + number)
+	}
+	order, _, err := e.Orders.Order(ctx, po)
+	return po, order, err
+}
+
+// printed reads a document's amounts in the order's currency as they are
+// entered: not negative, the kind giving the direction. A credit memo may
+// print its amounts negative, as many do; an invoice printing a negative
+// amount, or a credit memo printing both signs, is not read, since which
+// amounts credit is then a guess.
+type printed struct {
+	exp                int
+	currency           string
+	credit             bool
+	negative, positive bool
+}
+
+func (p *printed) amount(s, what string) (Amount, error) {
+	m, err := money.ParseDecimal(s, p.exp)
+	if err != nil {
+		return Amount{}, unreadable(what + ": " + err.Error())
+	}
+	switch {
+	case m < 0 && !p.credit:
+		return Amount{}, unreadable("the " + what + " is negative on an invoice")
+	case m < 0:
+		p.negative, m = true, -m
+	case m > 0:
+		p.positive = true
+	}
+	return Amount{Value: m.Plain(p.exp), Currency: p.currency}, nil
+}
+
+// quantity is a line's quantity as entered: a credit memo's printed
+// negative is its magnitude, whether or not the memo prints its amounts
+// negative too (both layouts are common, so quantities do not count
+// towards the signs of a memo); an invoice's is left for entry to refuse.
+func (p *printed) quantity(s string) string {
+	if p.credit {
+		return strings.TrimPrefix(s, "-")
+	}
+	return s
+}
+
+// creditedInvoice names, as the reference of a credit memo, the posted
+// invoice of the supplier whose number the memo prints (supplier
+// references are unique per supplier). A memo printing no number corrects
+// none, as one entered by hand may; one whose number is not a posted
+// invoice of the supplier is held, with the reason returned, for the
+// reference to be entered by hand rather than dropped. An invoice printing
+// a credited invoice is not read.
+func creditedInvoice(ctx context.Context, tx pgx.Tx, in *Input, number string) (string, error) {
+	if number == "" {
+		return "", nil
+	}
+	if in.Kind != KindCreditMemo {
+		return "", unreadable("an invoice credits no invoice, but the document names " + number)
+	}
+	var id uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT id FROM payables.supplier_invoice WHERE supplier_id = $1 AND supplier_reference_norm = platform.normalize_ref($2)
+		AND legal_entity_id = $3 AND currency = $4 AND kind = 'invoice' AND status = 'posted'`, in.SupplierID, number, in.LegalEntityID, in.Gross.Currency).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "The credit memo names the invoice " + number + ", which is not a posted invoice of the supplier; enter its reference by hand.", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("payables: capture: find the credited invoice %s: %w", number, err)
+	}
+	in.ReferenceInvoiceID = &id
+	return "", nil
 }
 
 // capturedItems maps the document's lines to items of the order: by the
 // order line printed on them, or by position when the counts agree.
-func capturedItems(lines []capture.Line, order procurement.Order, amountOf func(s, what string) (Amount, error)) ([]ItemInput, error) {
+func capturedItems(lines []capture.Line, order procurement.Order, p *printed) ([]ItemInput, error) {
 	if len(lines) == 0 {
 		return nil, unreadable("there are no invoice lines")
 	}
@@ -198,28 +280,35 @@ func capturedItems(lines []capture.Line, order procurement.Order, amountOf func(
 		if unit == "" {
 			return nil, unreadable("a line names no item of the order")
 		}
-		a, err := amountOf(l.Amount, "a line amount")
+		a, err := p.amount(l.Amount, "a line amount")
 		if err != nil {
 			return nil, err
 		}
 		description := l.Description
-		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: l.Quantity, Unit: unit, Amount: a})
+		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: p.quantity(l.Quantity), Unit: unit, Amount: a})
 	}
 	return items, nil
 }
 
 // captureStatus parks a captured invoice, or holds it when the extraction
-// is unsure; anything below high confidence is a warning.
-func captureStatus(confidence string) (status string, reason *string, warnings []string) {
-	status = Parked
+// is unsure or a credited invoice is to be named by hand (held); anything
+// below high confidence is a warning.
+func captureStatus(confidence, held string) (status string, reason *string, warnings []string) {
 	if confidence != "high" {
 		warnings = append(warnings, "extraction confidence is "+confidence)
 	}
+	var reasons []string
 	if confidence == "low" {
-		r := lowConfidence
-		status, reason = OnHold, &r
+		reasons = append(reasons, lowConfidence)
 	}
-	return status, reason, warnings
+	if held != "" {
+		reasons = append(reasons, held)
+	}
+	if len(reasons) == 0 {
+		return Parked, nil, warnings
+	}
+	r := strings.Join(reasons, " ")
+	return OnHold, &r, warnings
 }
 
 // Document returns the document an invoice was captured from, with its

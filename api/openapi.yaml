@@ -6088,6 +6088,12 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: kind
+          in: query
+          required: false
+          description: "Only documents of this kind: invoice, credit_memo, subsequent_debit, subsequent_credit."
+          schema:
+            type: string
         - name: invoice_date_from
           in: query
           required: false
@@ -15763,6 +15769,19 @@ components:
               type: string
               format: uuid
               description: Purchase order (PO-based invoices).
+            kind:
+              type: string
+              description: "What the document is, as SAP's invoice verification transactions: `invoice`, `credit_memo` (the supplier credits what was invoiced: Dr supplier when posted), `subsequent_debit` or `subsequent_credit` (a revaluation of order items already invoiced, without quantity). Amounts are not negative whatever the kind, which gives the direction. Fixed once entered. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - invoice
+                - credit_memo
+                - subsequent_debit
+                - subsequent_credit
+              readOnly: true
+            reference_invoice_id:
+              type: string
+              format: uuid
+              description: "The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal entity and currency); never on an invoice."
             status:
               type: string
               description: "Lifecycle status: `parked`, `on_hold` (`:hold`/`:release`), `posted` (`:post`), `cancelled` (`:cancel`, unposted only), `reversed` (`:reverse`), or `rejected` when the approval request for an invoice exception is rejected. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -15885,7 +15904,20 @@ components:
         purchase_order_id:
           type: string
           format: uuid
-          description: Purchase order.
+          description: "Purchase order; required on a subsequent debit or credit, whose items are its order items with quantity 0."
+        kind:
+          type: string
+          description: "What the document is, as SAP's invoice verification transactions: `invoice`, `credit_memo` (the supplier credits what was invoiced: Dr supplier when posted), `subsequent_debit` or `subsequent_credit` (a revaluation of order items already invoiced, without quantity). Amounts are not negative whatever the kind, which gives the direction. Fixed once entered. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - invoice
+            - credit_memo
+            - subsequent_debit
+            - subsequent_credit
+          default: invoice
+        reference_invoice_id:
+          type: string
+          format: uuid
+          description: "The posted invoice a credit memo or subsequent debit/credit corrects (optional); never on an invoice."
         source:
           type: string
           description: "How the invoice entered the system; scanned documents use `:capture`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -15954,6 +15986,12 @@ components:
             - "null"
           format: uuid
           description: Purchase order. Send null to clear.
+        reference_invoice_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: The posted invoice a credit memo or subsequent debit/credit corrects. Send null to clear.
         items:
           type: array
           items:

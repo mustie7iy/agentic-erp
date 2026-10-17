@@ -61,6 +61,10 @@ func (s *RequisitionItem) setDefaults() {
 // setDefaults set default value of fields.
 func (s *SupplierInvoiceCreate) setDefaults() {
 	{
+		val := string("invoice")
+		s.Kind.SetTo(val)
+	}
+	{
 		val := string("manual")
 		s.Source.SetTo(val)
 	}

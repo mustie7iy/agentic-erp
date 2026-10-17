@@ -60,10 +60,10 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
 			invoice_date, posting_date, currency, gross_amount, tax_amount, purchase_order_id, status, hold_reason, source, capture_object_ref,
-			capture_sha256, extensions, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)`,
+			capture_sha256, extensions, created_by, updated_by, kind, reference_invoice_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21)`,
 		p.TenantID, id, number, in.LegalEntityID, in.SupplierID, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax,
-		c.purchaseOrder, in.status, in.holdReason, in.source, ref, in.sha, in.Extensions, p.ID); err != nil {
+		c.purchaseOrder, in.status, in.holdReason, in.source, ref, in.sha, in.Extensions, p.ID, c.kind, in.ReferenceInvoiceID); err != nil {
 		return Invoice{}, fmt.Errorf("payables: insert invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
@@ -79,9 +79,9 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 		sha = &s
 	}
 	events := []outbox.Event{event(v, "supplier_invoice_captured", map[string]any{"document_number": v.DocumentNumber, "supplier_reference": v.SupplierReference,
-		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "gross_amount": money.EventAmount(v.Gross, v.Currency, v.Exponent),
-		"tax_amount": money.EventAmount(v.Tax, v.Currency, v.Exponent), "purchase_order_id": v.PurchaseOrderID, "source": v.Source,
-		"capture_sha256": sha, "status": v.Status})}
+		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "gross_amount": money.EventAmount(signed(v, v.Gross), v.Currency, v.Exponent),
+		"tax_amount": money.EventAmount(signed(v, v.Tax), v.Currency, v.Exponent), "purchase_order_id": v.PurchaseOrderID, "source": v.Source,
+		"capture_sha256": sha, "status": v.Status, "kind": v.Kind, "reference_invoice_id": v.ReferenceInvoiceID})}
 	if v.Status == OnHold {
 		events = append(events, heldEvent(v))
 	}
@@ -107,8 +107,11 @@ type Change struct {
 	PostingDate       **time.Time // set to nil to clear
 	Gross, Tax        *Amount
 	PurchaseOrderID   **uuid.UUID // set to nil to clear
-	Items             []ItemInput // nil: unchanged; the complete list otherwise
-	Extensions        map[string]any
+	// ReferenceInvoiceID names the invoice a correction corrects; set to nil
+	// to clear. The kind is fixed once entered.
+	ReferenceInvoiceID **uuid.UUID
+	Items              []ItemInput // nil: unchanged; the complete list otherwise
+	Extensions         map[string]any
 }
 
 func amountInput(minor money.Minor, currency string, exp int) Amount {
@@ -140,9 +143,10 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 		return Invoice{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
-			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, workflow_request_id = NULL, version = version + 1, updated_by = $10
+			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, workflow_request_id = NULL, version = version + 1, updated_by = $10,
+			reference_invoice_id = $11
 		WHERE id = $1`,
-		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID); err != nil {
+		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID, in.ReferenceInvoiceID); err != nil {
 		return Invoice{}, fmt.Errorf("payables: update invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
@@ -163,7 +167,7 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 func changed(v Invoice, ch Change) Input {
 	in := Input{LegalEntityID: v.LegalEntityID, SupplierID: v.SupplierID, SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate,
 		PostingDate: v.PostingDate, Gross: amountInput(v.Gross, v.Currency, v.Exponent), Tax: amountInput(v.Tax, v.Currency, v.Exponent),
-		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergepatch.Apply(v.Extensions, ch.Extensions)}
+		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergepatch.Apply(v.Extensions, ch.Extensions), Kind: v.Kind, ReferenceInvoiceID: v.ReferenceInvoiceID}
 	for _, it := range v.Items {
 		in.Items = append(in.Items, ItemInput{PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.POItemNo, Description: it.Description,
 			Quantity: it.Quantity, Unit: it.Unit, Amount: amountInput(it.Amount, v.Currency, v.Exponent), TaxCode: it.TaxCode, AccountID: it.AccountID})
@@ -185,6 +189,9 @@ func changed(v Invoice, ch Change) Input {
 	}
 	if ch.PurchaseOrderID != nil {
 		in.PurchaseOrderID = *ch.PurchaseOrderID
+	}
+	if ch.ReferenceInvoiceID != nil {
+		in.ReferenceInvoiceID = *ch.ReferenceInvoiceID
 	}
 	if ch.Items != nil {
 		in.Items = ch.Items

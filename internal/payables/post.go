@@ -3,6 +3,7 @@ package payables
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,11 @@ import (
 // debits GR/IR at the order price of its quantity and puts the rest on
 // the price difference account. PO-based invoices need a clean latest
 // match or an approved exception.
+//
+// The kind gives the direction (T34): a credit memo or subsequent credit
+// posts the other way round, as journal type KG (Dr supplier, Cr items and
+// tax), and a correction naming an invoice posts only while that invoice
+// stands, checked under a lock (requireReference).
 func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -38,6 +44,9 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 		return Invoice{}, err
 	}
 	if err := requireStatus(v, "post", Parked); err != nil {
+		return Invoice{}, err
+	}
+	if err := requireReference(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
 	if err := requireCleanMatch(ctx, tx, v); err != nil {
@@ -62,10 +71,9 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	text := "Supplier invoice " + v.DocumentNumber
-	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: DocumentType, DocumentDate: v.InvoiceDate,
-		PostingDate: *date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
-		SourceDocumentID: id, Lines: lines, GRIR: grir})
+	posting := invoicePosting(v, id, *date)
+	posting.Lines, posting.GRIR = lines, grir
+	entry, err := e.Postings.Post(ctx, posting)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -80,8 +88,66 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	return posted, record(ctx, "payables.supplier_invoice.post", id, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
 		event(posted, "supplier_invoice_posted", map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
 			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": date.Format(time.DateOnly),
-			"gross_amount": money.EventAmount(posted.Gross, posted.Currency, posted.Exponent), "tax_amount": money.EventAmount(posted.Tax, posted.Currency, posted.Exponent),
+			"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
+			"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
 			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
+}
+
+// invoicePosting is the journal entry's header for invoice id of its
+// kind, posted on date; the caller adds the lines.
+func invoicePosting(v Invoice, id uuid.UUID, date time.Time) ledger.Posting {
+	text := map[string]string{KindInvoice: "Supplier invoice ", KindCreditMemo: "Supplier credit memo ", KindSubsequentDebit: "Subsequent debit ",
+		KindSubsequentCredit: "Subsequent credit "}[v.Kind] + v.DocumentNumber
+	return ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: documentType(v.Kind), DocumentDate: v.InvoiceDate,
+		PostingDate: date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
+		SourceDocumentID: id}
+}
+
+// requireReference lets a correction naming an invoice post only while
+// that invoice is posted. The invoice's row is read FOR SHARE, so its
+// reversal, which locks it FOR UPDATE and refuses an invoice with posted
+// corrections (requireNoCorrections), waits for this posting to commit and
+// then sees the correction; a reversal that got there first leaves the
+// invoice reversed, which this refuses.
+func requireReference(ctx context.Context, tx pgx.Tx, v Invoice) error {
+	if v.ReferenceInvoiceID == nil {
+		return nil
+	}
+	var status, number string
+	if err := tx.QueryRow(ctx, `SELECT status, document_number FROM payables.supplier_invoice WHERE id = $1 FOR SHARE`, *v.ReferenceInvoiceID).
+		Scan(&status, &number); err != nil {
+		return fmt.Errorf("payables: lock invoice %s that %s corrects: %w", *v.ReferenceInvoiceID, v.DocumentNumber, err)
+	}
+	if status != Posted {
+		return problem.Conflict("payables.reference_not_posted", fmt.Sprintf("Invoice %s, which %s corrects, is %s; clear the reference or name a posted invoice.",
+			number, v.DocumentNumber, status))
+	}
+	return nil
+}
+
+// requireNoCorrections refuses to reverse an invoice that posted
+// corrections name: they are reversed first, so none stands against an
+// invoice that no longer does (T34).
+func requireNoCorrections(ctx context.Context, tx pgx.Tx, v Invoice) error {
+	rows, _ := tx.Query(ctx, `SELECT document_number FROM payables.supplier_invoice WHERE reference_invoice_id = $1 AND status = 'posted' ORDER BY 1`, v.ID)
+	numbers, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("payables: read the corrections of invoice %s: %w", v.ID, err)
+	}
+	if len(numbers) > 0 {
+		return problem.Conflict("payables.invoice_has_corrections", fmt.Sprintf("Posted corrections name invoice %s (%s); reverse them first.",
+			v.DocumentNumber, strings.Join(numbers, ", ")))
+	}
+	return nil
+}
+
+// documentType is the journal document type a kind posts as: KG for what
+// credits the supplier (credit memos, subsequent credits), KR otherwise.
+func documentType(kind string) string {
+	if credits(kind) {
+		return CreditDocumentType
+	}
+	return DocumentType
 }
 
 // postableSupplier is the invoice's supplier when it can be posted to. A
@@ -196,7 +262,7 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 			taxCode = it.TaxCode
 		}
 		if order != nil && it.POItemNo != nil {
-			item, err := grirItem(*order, it)
+			item, err := grirItem(*order, v.Kind, it)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -207,7 +273,7 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 			// Every item has an account: validation requires one on an item
 			// without an order item and fills it from the order item
 			// otherwise (orderItem).
-			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: it.Amount, TaxCode: it.TaxCode, Text: it.Description})
+			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: signed(v, it.Amount), TaxCode: it.TaxCode, Text: it.Description})
 		}
 	}
 	if v.Tax != 0 {
@@ -218,20 +284,30 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 		if !ok {
 			return nil, nil, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
 		}
-		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: v.Tax, TaxCode: taxCode})
+		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: signed(v, v.Tax), TaxCode: taxCode})
 	}
-	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -v.Gross, PartnerID: &v.SupplierID})
+	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -signed(v, v.Gross), PartnerID: &v.SupplierID})
 	return lines, grir, nil
 }
 
-// grirItem is an invoice item's GR/IR item: its quantity at its order
-// item's price, its amount the invoiced net. An order item the order no
-// longer has is refused, as the match flags it (order_item_missing).
-func grirItem(o procurement.Order, it Item) (ledger.GRIRItem, error) {
+// grirItem is an item's GR/IR item: its quantity at its order item's
+// price, its amount the invoiced net, both in its kind's direction: a
+// credit memo credits GR/IR for the quantity it credits, a subsequent debit
+// or credit moves no quantity, its amount going to price differences whole
+// (T34). An order item the order no longer has is refused, as the match
+// flags it (order_item_missing).
+func grirItem(o procurement.Order, kind string, it Item) (ledger.GRIRItem, error) {
+	quantity, amount := it.Quantity, it.Amount
+	if credits(kind) {
+		amount = -amount
+	}
+	if kind == KindCreditMemo {
+		quantity = "-" + quantity
+	}
 	for _, oi := range o.Items {
 		if oi.ItemNo == *it.POItemNo {
-			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: it.Quantity, Unit: it.Unit, UnitPrice: oi.UnitPrice,
-				PriceUnit: oi.PriceUnit, Invoiced: &it.Amount, Text: it.Description}, nil
+			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: quantity, Unit: it.Unit, UnitPrice: oi.UnitPrice,
+				PriceUnit: oi.PriceUnit, Invoiced: &amount, Text: it.Description}, nil
 		}
 	}
 	return ledger.GRIRItem{}, problem.Unprocessable("payables.order_item_missing",
@@ -270,6 +346,9 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	// A posted invoice always has its entry: the table's CHECK
 	// ((status IN ('posted', 'reversed')) = (journal_entry_id IS NOT NULL))
 	// and the pairing of id and year, migration 000007.
+	if err := requireNoCorrections(ctx, tx, v); err != nil {
+		return Invoice{}, err
+	}
 	cleared, err := e.Postings.IsCleared(ctx, *v.JournalEntryYear, *v.JournalEntryID)
 	if err != nil {
 		return Invoice{}, err
@@ -309,7 +388,8 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	}
 	return reversed, record(ctx, "payables.supplier_invoice.reverse", id, map[string]any{"reason": reason, "reversal_entry_id": rev.ID},
 		event(reversed, "supplier_invoice_reversed", map[string]any{"document_number": v.DocumentNumber,
-			"gross_amount": money.EventAmount(v.Gross, v.Currency, v.Exponent), "journal_entry_id": *v.JournalEntryID, "journal_entry_year": *v.JournalEntryYear,
-			"reversal_entry_id": rev.ID, "reversal_entry_year": rev.FiscalYear, "reversal_posting_date": rev.PostingDate.Format(time.DateOnly),
+			"gross_amount": money.EventAmount(signed(v, v.Gross), v.Currency, v.Exponent), "kind": v.Kind, "journal_entry_id": *v.JournalEntryID,
+			"journal_entry_year": *v.JournalEntryYear,
+			"reversal_entry_id":  rev.ID, "reversal_entry_year": rev.FiscalYear, "reversal_posting_date": rev.PostingDate.Format(time.DateOnly),
 			"status": Reversed}))
 }

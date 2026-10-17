@@ -23151,6 +23151,23 @@ func (c *Client) sendListSupplierInvoices(ctx context.Context, params ListSuppli
 		}
 	}
 	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "invoice_date_from" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "invoice_date_from",

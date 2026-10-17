@@ -105,7 +105,7 @@ func TestInvoiceOrder(t *testing.T) {
 	if o, err := (&Endpoints{}).invoiceOrder(context.Background(), Invoice{}); o != nil || err != nil {
 		t.Errorf("invoice without an order: got %v %v, want nil nil", o, err)
 	}
-	_, err := grirItem(procurement.Order{DocumentNumber: "4500000001"}, Item{POItemNo: &item})
+	_, err := grirItem(procurement.Order{DocumentNumber: "4500000001"}, KindInvoice, Item{POItemNo: &item})
 	if got := problem.From(err).Code; got != "payables.order_item_missing" {
 		t.Errorf("order item missing: got %v, want payables.order_item_missing", err)
 	}

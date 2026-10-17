@@ -38,7 +38,7 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 		UpdatedBy: gen.NewOptUUID(v.UpdatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, SupplierID: v.SupplierID,
 		SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate, GrossAmount: apitypes.Money(v.Gross, v.Currency, v.Exponent),
 		TaxAmount: apitypes.Money(v.Tax, v.Currency, v.Exponent), Status: v.Status, Source: v.Source, Extensions: apitypes.EncodeObject(v.Extensions),
-		Items: make([]gen.SupplierInvoiceItem, len(v.Items))}
+		Kind: gen.NewOptString(v.Kind), ReferenceInvoiceID: apitypes.OptUUID(v.ReferenceInvoiceID), Items: make([]gen.SupplierInvoiceItem, len(v.Items))}
 	if v.PostingDate != nil {
 		out.PostingDate.SetTo(*v.PostingDate)
 	}
@@ -112,7 +112,8 @@ func (e *Endpoints) CreateSupplierInvoice(ctx context.Context, req *gen.Supplier
 	v, err := e.CreateInvoice(ctx, Input{LegalEntityID: req.LegalEntityID, SupplierID: req.SupplierID, SupplierReference: req.SupplierReference,
 		InvoiceDate: req.InvoiceDate, PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Gross: Amount{req.GrossAmount.Amount, req.GrossAmount.Currency},
 		Tax: Amount{req.TaxAmount.Amount, req.TaxAmount.Currency}, PurchaseOrderID: apitypes.Ptr[uuid.UUID](req.PurchaseOrderID), Items: fromItems(req.Items),
-		Extensions: apitypes.DecodeObject(req.Extensions.Value)}, req.Source.Or("manual"))
+		Extensions: apitypes.DecodeObject(req.Extensions.Value), Kind: req.Kind.Or(KindInvoice), ReferenceInvoiceID: apitypes.Ptr[uuid.UUID](req.ReferenceInvoiceID)},
+		req.Source.Or("manual"))
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +174,7 @@ func (e *Endpoints) ListSupplierInvoices(ctx context.Context, params gen.ListSup
 	}
 	le, sup, po := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID), apitypes.Ptr[uuid.UUID](params.PurchaseOrderID)
 	from, to := apitypes.Ptr[time.Time](params.InvoiceDateFrom), apitypes.Ptr[time.Time](params.InvoiceDateTo)
-	scope := fmt.Sprintf("listSupplierInvoices|%s|%s|%s|%s|%s|%v|%v", le, sup, params.Status.Value, params.DocumentNumber.Value, po, from, to)
+	scope := fmt.Sprintf("listSupplierInvoices|%s|%s|%s|%s|%s|%v|%v|%s", le, sup, params.Status.Value, params.DocumentNumber.Value, po, from, to, params.Kind.Value)
 	ks, err := e.Pages.Keyset(invoiceSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -184,8 +185,9 @@ func (e *Endpoints) ListSupplierInvoices(ctx context.Context, params gen.ListSup
 	}
 	q, args := ks.SQL(invoiceSelect+` WHERE ($1 OR i.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR i.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR i.supplier_id = $4) AND ($5 = '' OR i.status = $5) AND ($6 = '' OR i.document_number = $6)
-		AND ($7::uuid IS NULL OR i.purchase_order_id = $7) AND ($8::date IS NULL OR i.invoice_date >= $8) AND ($9::date IS NULL OR i.invoice_date <= $9)`,
-		[]any{access.All, access.IDs, le, sup, params.Status.Value, params.DocumentNumber.Value, po, from, to})
+		AND ($7::uuid IS NULL OR i.purchase_order_id = $7) AND ($8::date IS NULL OR i.invoice_date >= $8) AND ($9::date IS NULL OR i.invoice_date <= $9)
+		AND ($10 = '' OR i.kind = $10)`,
+		[]any{access.All, access.IDs, le, sup, params.Status.Value, params.DocumentNumber.Value, po, from, to, params.Kind.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	invoices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
 	if err != nil {
@@ -220,6 +222,10 @@ func (e *Endpoints) UpdateSupplierInvoice(ctx context.Context, req *gen.Supplier
 	if req.PurchaseOrderID.Set {
 		po := apitypes.Ptr[uuid.UUID](req.PurchaseOrderID)
 		ch.PurchaseOrderID = &po
+	}
+	if req.ReferenceInvoiceID.Set {
+		ref := apitypes.Ptr[uuid.UUID](req.ReferenceInvoiceID)
+		ch.ReferenceInvoiceID = &ref
 	}
 	if g, ok := req.GrossAmount.Get(); ok {
 		ch.Gross = &Amount{g.Amount, g.Currency}

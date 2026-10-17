@@ -10,7 +10,7 @@ import (
 )
 
 func TestClaudeExtractor(t *testing.T) {
-	want := Extraction{VendorName: "Initech Components", InvoiceNumber: "A-1", InvoiceDate: "2026-10-01", Currency: "USD",
+	want := Extraction{DocumentKind: "credit_memo", CreditedInvoiceNumber: "A-0", VendorName: "Initech Components", InvoiceNumber: "A-1", InvoiceDate: "2026-10-01", Currency: "USD",
 		Lines: []Line{{Description: "Paper", Quantity: "1", Amount: "10.00"}}, TaxAmount: "0.80", GrossAmount: "10.80", Confidence: "high"}
 	b, _ := json.Marshal(want)
 	srv := llmtest.New(t, llmtest.Final(string(b)))
@@ -21,11 +21,17 @@ func TestClaudeExtractor(t *testing.T) {
 	if got.InvoiceNumber != "A-1" {
 		t.Errorf("invoice number: got %q, want %q", got.InvoiceNumber, "A-1")
 	}
+	if got.DocumentKind != "credit_memo" {
+		t.Errorf("document kind: got %q, want credit_memo", got.DocumentKind)
+	}
+	if got.CreditedInvoiceNumber != "A-0" {
+		t.Errorf("credited invoice: got %q, want A-0", got.CreditedInvoiceNumber)
+	}
 	if len(got.Lines) != 1 {
 		t.Errorf("lines: got %d, want 1 (%+v)", len(got.Lines), got.Lines)
 	}
 	req := srv.Requests[0]
-	for _, frag := range []string{`"type":"document"`, `"media_type":"application/pdf"`, `"json_schema"`, "untrusted data", `"fallbacks":"default"`} {
+	for _, frag := range []string{`"type":"document"`, `"media_type":"application/pdf"`, `"json_schema"`, `"document_kind"`, "untrusted data", `"fallbacks":"default"`} {
 		if !strings.Contains(req, frag) {
 			t.Errorf("request: got %s, want it to contain %s", req, frag)
 		}
