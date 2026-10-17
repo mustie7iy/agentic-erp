@@ -10,29 +10,39 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
-// storedTerms are an invoice's payment terms as invoiceSelect reads them
-// from payables.supplier_invoice_terms.
+// termsColumns are an invoice's payment terms as storedTerms scans them,
+// from payables.supplier_invoice_terms joined as st (null without them).
+const termsColumns = `st.payment_term_code, st.baseline_date, st.net_days, st.discount_days, trim_scale(st.discount_pct)::text, st.discount2_days,
+	trim_scale(st.discount2_pct)::text`
+
+// storedTerms are the terms columns of an invoice.
 type storedTerms struct {
-	Code     string  `json:"code"`
-	Baseline string  `json:"baseline"`
-	NetDays  int     `json:"net_days"`
-	Days1    *int    `json:"days1"`
-	Pct1     *string `json:"pct1"`
-	Days2    *int    `json:"days2"`
-	Pct2     *string `json:"pct2"`
+	code         *string
+	baseline     *time.Time
+	netDays      *int
+	days1, days2 *int
+	pct1, pct2   *string
 }
 
-// terms are the stored terms as the ledger keeps them with the open item.
+func (s *storedTerms) fields() []any {
+	return []any{&s.code, &s.baseline, &s.netDays, &s.days1, &s.pct1, &s.days2, &s.pct2}
+}
+
+// terms are the stored terms, or nil without them.
 func (s storedTerms) terms() *ledger.ItemTerms {
-	baseline, _ := time.Parse(time.DateOnly, s.Baseline) // a date column, written by json_build_object as YYYY-MM-DD
-	t := &ledger.ItemTerms{PaymentTermCode: s.Code, BaselineDate: baseline, NetDays: s.NetDays}
-	if s.Days1 != nil { // a tier's days and percent are null together (supplier_invoice_terms_pairs)
-		t.Discounts = append(t.Discounts, ledger.Discount{Days: *s.Days1, Percent: *s.Pct1})
+	if s.code == nil {
+		return nil
 	}
-	if s.Days2 != nil {
-		t.Discounts = append(t.Discounts, ledger.Discount{Days: *s.Days2, Percent: *s.Pct2})
+	t := &ledger.ItemTerms{PaymentTermCode: *s.code, BaselineDate: *s.baseline, NetDays: *s.netDays}
+	if s.days1 != nil { // a tier's days and percent are null together (supplier_invoice_terms_pairs)
+		t.Discounts = append(t.Discounts, ledger.Discount{Days: *s.days1, Percent: *s.pct1})
+	}
+	if s.days2 != nil {
+		t.Discounts = append(t.Discounts, ledger.Discount{Days: *s.days2, Percent: *s.pct2})
 	}
 	return t
 }
@@ -45,7 +55,7 @@ func (s storedTerms) terms() *ledger.ItemTerms {
 // its supplier's in the legal entity, counted from its invoice date. A
 // term that is not configured is refused (422
 // payables.unknown_payment_term).
-func (e *Endpoints) invoiceTerms(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier) (*ledger.ItemTerms, error) {
+func (e *Endpoints) invoiceTerms(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, order *procurement.Order) (*ledger.ItemTerms, error) {
 	if v.ReferenceInvoiceID != nil {
 		ref, err := load(ctx, tx, *v.ReferenceInvoiceID, false) // held FOR SHARE by requireReference
 		return ref.Terms, err
@@ -54,11 +64,7 @@ func (e *Endpoints) invoiceTerms(ctx context.Context, tx pgx.Tx, v Invoice, sup 
 		return nil, nil
 	}
 	code := sup.PaymentTermCode
-	if v.PurchaseOrderID != nil {
-		order, _, err := e.Orders.Order(ctx, *v.PurchaseOrderID) // an order not found has no term, refused below
-		if err != nil {
-			return nil, err
-		}
+	if order != nil {
 		code = order.PaymentTermCode
 	}
 	term, ok, err := e.Suppliers.PaymentTerm(ctx, code)
@@ -76,7 +82,7 @@ func (e *Endpoints) invoiceTerms(ctx context.Context, tx pgx.Tx, v Invoice, sup 
 }
 
 // keepTerms records the terms an invoice posted with, if any.
-func keepTerms(ctx context.Context, tx pgx.Tx, v Invoice, t *ledger.ItemTerms) error {
+func keepTerms(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, t *ledger.ItemTerms) error {
 	if t == nil {
 		return nil
 	}
@@ -87,8 +93,8 @@ func keepTerms(ctx context.Context, tx pgx.Tx, v Invoice, t *ledger.ItemTerms) e
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payables.supplier_invoice_terms (tenant_id, supplier_invoice_id, payment_term_code, baseline_date, net_days,
 			discount_days, discount_pct, discount2_days, discount2_pct)
-		SELECT tenant_id, id, $2, $3, $4, $5, $6::numeric, $7, $8::numeric FROM payables.supplier_invoice WHERE id = $1`,
-		v.ID, t.PaymentTermCode, t.BaselineDate, t.NetDays, days[0], pct[0], days[1], pct[1]); err != nil {
+		VALUES ($9, $1, $2, $3, $4, $5, $6::numeric, $7, $8::numeric)`,
+		v.ID, t.PaymentTermCode, t.BaselineDate, t.NetDays, days[0], pct[0], days[1], pct[1], p.TenantID); err != nil {
 		return fmt.Errorf("payables: keep the terms of invoice %s: %w", v.ID, err)
 	}
 	return nil

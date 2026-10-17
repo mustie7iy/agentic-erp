@@ -63,36 +63,55 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	order, err := e.invoiceOrder(ctx, v)
+	in, terms, err := e.posting(ctx, tx, v, sup, *date)
 	if err != nil {
 		return Invoice{}, err
 	}
-	lines, grir, err := e.invoiceLines(ctx, v, sup, *date, order)
+	entry, err := e.Postings.Post(ctx, in)
 	if err != nil {
 		return Invoice{}, err
 	}
-	terms, err := e.invoiceTerms(ctx, tx, v, sup)
-	if err != nil {
+	if err := markPosted(ctx, tx, p, v, entry, *date, terms); err != nil {
 		return Invoice{}, err
-	}
-	posting := invoicePosting(v, id, *date)
-	posting.Lines, posting.GRIR, posting.Terms = lines, grir, terms
-	entry, err := e.Postings.Post(ctx, posting)
-	if err != nil {
-		return Invoice{}, err
-	}
-	if err := keepTerms(ctx, tx, v, terms); err != nil {
-		return Invoice{}, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'posted', posting_date = $2, journal_entry_year = $3, journal_entry_id = $4,
-		version = version + 1, updated_by = $5 WHERE id = $1`, id, *date, entry.FiscalYear, entry.ID, p.ID); err != nil {
-		return Invoice{}, fmt.Errorf("payables: mark invoice %s posted: %w", id, err)
 	}
 	posted, err := load(ctx, tx, id, false)
 	if err != nil {
 		return Invoice{}, err
 	}
 	return posted, recordPosted(ctx, posted, entry)
+}
+
+// posting is the entry an invoice posts, with the payment terms it posts
+// with (invoiceTerms), which the ledger keeps with its open item.
+func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, date time.Time) (ledger.Posting, *ledger.ItemTerms, error) {
+	order, err := e.orderOf(ctx, v)
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	lines, grir, err := e.invoiceLines(ctx, v, sup, date, grirOnly(order))
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	terms, err := e.invoiceTerms(ctx, tx, v, sup, order)
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	posting := invoicePosting(v, v.ID, date)
+	posting.Lines, posting.GRIR, posting.Terms = lines, grir, terms
+	return posting, terms, nil
+}
+
+// markPosted records an invoice as posted with its entry and the terms it
+// posted with.
+func markPosted(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, entry ledger.Entry, date time.Time, terms *ledger.ItemTerms) error {
+	if err := keepTerms(ctx, tx, p, v, terms); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'posted', posting_date = $2, journal_entry_year = $3, journal_entry_id = $4,
+		version = version + 1, updated_by = $5 WHERE id = $1`, v.ID, date, entry.FiscalYear, entry.ID, p.ID); err != nil {
+		return fmt.Errorf("payables: mark invoice %s posted: %w", v.ID, err)
+	}
+	return nil
 }
 
 // recordPosted audits a posted invoice and publishes SupplierInvoicePosted,
@@ -252,14 +271,29 @@ func invoicePostingDate(ctx context.Context, tx pgx.Tx, v Invoice, postingDate *
 // order whose items its items clear, or nil: a directly valued order's
 // items post their own accounts, as an invoice without an order's do.
 func (e *Endpoints) invoiceOrder(ctx context.Context, v Invoice) (*procurement.Order, error) {
+	o, err := e.orderOf(ctx, v)
+	return grirOnly(o), err
+}
+
+// orderOf is the invoice's order, or nil without one; a missing order is
+// refused (replayCache.order).
+func (e *Endpoints) orderOf(ctx context.Context, v Invoice) (*procurement.Order, error) {
 	if v.PurchaseOrderID == nil {
 		return nil, nil
 	}
 	o, err := newReplayCache().order(ctx, e.Orders, v)
-	if err != nil || o.Valuation != procurement.ValuationGRIR {
+	if err != nil {
 		return nil, err
 	}
 	return &o, nil
+}
+
+// grirOnly is the order if it is valued through GR/IR, else nil.
+func grirOnly(o *procurement.Order) *procurement.Order {
+	if o == nil || o.Valuation != procurement.ValuationGRIR {
+		return nil
+	}
+	return o
 }
 
 // invoiceLines builds the entry: Dr expense per non-zero item, or a GR/IR

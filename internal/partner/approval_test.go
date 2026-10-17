@@ -2,6 +2,7 @@ package partner_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -142,8 +143,12 @@ func TestSuppliersPort(t *testing.T) {
 		if ok, _ := s.PaymentTermExists(ctx, "NT99"); ok {
 			t.Error("NT99 exists")
 		}
-		if term, ok, err := s.PaymentTerm(ctx, "NT30"); !ok || err != nil || term.NetDays != 30 || len(term.Discounts) != 0 {
-			t.Errorf("payment term NT30: got %+v %v %v, want net 30 days without discounts", term, ok, err)
+		term, ok, err := s.PaymentTerm(ctx, "NT30")
+		if !ok || err != nil {
+			t.Fatalf("payment term NT30: got found %v, error %v; want it found", ok, err)
+		}
+		if got := fmt.Sprintf("%d %v", term.NetDays, term.Discounts); got != "30 []" {
+			t.Errorf("payment term NT30: got %s, want 30 days net without discounts", got)
 		}
 		if _, ok, err := s.PaymentTerm(ctx, "NT99"); ok || err != nil {
 			t.Errorf("payment term NT99: got %v %v, want not found", ok, err)

@@ -53,8 +53,11 @@ func TestTermsFrozenOnOpenItems(t *testing.T) {
 	for _, it := range items {
 		got[it.EntryID] = it.Terms
 	}
-	if want := fmt.Sprintf("%+v", *terms); got[with.ID] == nil || fmt.Sprintf("%+v", *got[with.ID]) != want {
-		t.Errorf("payable item terms: got %+v, want %s", got[with.ID], want)
+	if got[with.ID] == nil {
+		t.Fatal("payable item terms: got none, want the posting's")
+	}
+	if got, want := fmt.Sprintf("%+v", *got[with.ID]), fmt.Sprintf("%+v", *terms); got != want {
+		t.Errorf("payable item terms: got %s, want %s", got, want)
 	}
 	if got[without.ID] != nil {
 		t.Errorf("payable item of an entry without terms: got %+v, want none", got[without.ID])

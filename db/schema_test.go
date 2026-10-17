@@ -2178,6 +2178,10 @@ func TestTermsFrozenAtPosting(t *testing.T) {
 			{"second tier not less", "14, 3, 30, 3", "tiers"},
 			{"second tier not later", "14, 3, 14, 2", "tiers"},
 			{"percent 100", "14, 100, NULL, NULL", "discount_pct_check"},
+			{"percent 0", "14, 0, NULL, NULL", "discount_pct_check"},
+			{"first tier days negative", "-1, 3, NULL, NULL", "discount_days_check"},
+			{"second tier days negative", "14, 3, -1, 2", "discount2_days_check"},
+			{"second tier percent 0", "14, 3, 30, 0", "discount2_pct_check"},
 		} {
 			t.Run(table+": "+c.name, func(t *testing.T) {
 				failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return insert(tx, 2, c.tiers) }), table+"_"+c.fails)
@@ -2185,11 +2189,27 @@ func TestTermsFrozenAtPosting(t *testing.T) {
 		}
 		t.Run(table+": two tiers, then frozen", func(t *testing.T) {
 			mustApp(t, f.tenant, func(tx pgx.Tx) error { return insert(tx, 2, "14, 3, 30, 2") })
-			_, err := testDB.Exec(context.Background(), "UPDATE "+map[string]string{"open_item_terms": "ledger", "supplier_invoice_terms": "payables"}[table]+
-				"."+table+" SET net_days = 60 WHERE tenant_id = $1", f.tenant)
+			name := map[string]string{"open_item_terms": "ledger", "supplier_invoice_terms": "payables"}[table] + "." + table
+			_, err := testDB.Exec(context.Background(), "UPDATE "+name+" SET net_days = 60 WHERE tenant_id = $1", f.tenant)
+			failsWith(t, err, "insert-only")
+			_, err = testDB.Exec(context.Background(), "DELETE FROM "+name+" WHERE tenant_id = $1", f.tenant)
 			failsWith(t, err, "insert-only")
 		})
 	}
+	for _, net := range []int{-1, 366} {
+		t.Run(fmt.Sprintf("net days %d", net), func(t *testing.T) {
+			failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date, net_days)
+					VALUES ($1, 2026, $2, 1, 'ZB01', '2026-04-02', $3)`, f.tenant, je, net)
+			}), "open_item_terms_net_days_check")
+		})
+	}
+	t.Run("terms of no invoice", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.supplier_invoice_terms (tenant_id, supplier_invoice_id, payment_term_code, baseline_date, net_days)
+				VALUES ($1, $2, 'ZB01', '2026-04-02', 30)`, f.tenant, id())
+		}), "supplier_invoice_terms_tenant_id_supplier_invoice_id_fkey")
+	})
 	t.Run("terms of no line", func(t *testing.T) {
 		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return tables["open_item_terms"](tx, 9, "NULL, NULL, NULL, NULL") }), "open_item_terms_line_fkey")
 	})
