@@ -173,10 +173,13 @@ func TestRemovedItemKeepsItsIdentity(t *testing.T) {
 	}
 	e.Problem(422, "procurement.invalid_change", "POST", path+"/changes",
 		`{"reason": "r", "items": `+items(item(e.office, "1", "EA", "2.50", "EUR", ""), item(e.expense, "1", "EA", "1.00", "EUR", ""))+`}`, "")
-	back := e.submitted(t, path, items(item(e.office, "1", "EA", "2.50", "EUR", ""), item(e.office, "1", "EA", "1.00", "EUR", "")))
+	back := e.submitted(t, path, items(item(e.office, "1", "EA", "2.50", "EUR", ""), item(e.office, "1", "EA", "1.20", "EUR", "")))
 	if back["status"] != "applied" {
 		t.Errorf("item 2 added back as it was: got %v, want applied", back["status"])
 	}
+	order, _ := e.Must(200, "GET", path, "", "")
+	want(t, "item added back", orderItem(t, order, 1)["unit_price"].(map[string]any), map[string]any{"amount": "1.20"})
+	want(t, "valuation of the item added back", orderItem(t, order, 1)["valuation_price"].(map[string]any), map[string]any{"amount": "1.00"})
 }
 
 // TestContractOrderChange: a contract order's change consumes the

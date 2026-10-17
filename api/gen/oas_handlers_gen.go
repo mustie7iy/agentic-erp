@@ -32385,10 +32385,10 @@ func (s *Server) handleSubmitChangeRequestRequest(args [1]string, argsEscaped bo
 // one that raises it waits for an `order_change` approval request by amount tier on its new total
 // (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`);
 // withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields
-// and items as its next `revision`: items it adds take their price as valuation price, a contract
-// order consumes the difference of its total (409 `procurement.contract_exceeded` when what remains
-// does not cover an increase), and `PurchaseOrderChanged` is published. Agents may submit; approving
-// is for people.
+// and items as its next `revision`: items it adds take their price as valuation price (an item added
+// back keeps the one it was released at), a contract order consumes the difference of its total (409
+// `procurement.contract_exceeded` when what remains does not cover an increase), and
+// `PurchaseOrderChanged` is published. Agents may submit; approving is for people.
 //
 // POST /v1/purchase-orders/{id}/changes/{change_id}:submit
 func (s *Server) handleSubmitPurchaseOrderChangeRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

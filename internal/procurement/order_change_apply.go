@@ -48,7 +48,10 @@ func (e *Endpoints) submitChange(ctx context.Context, order, id uuid.UUID, ifMat
 	if err != nil {
 		return PurchaseOrderChange{}, err
 	}
-	// A draft change's order is released (cancelOpenChange).
+	// A draft change's order is released (cancelOpenChange). The check is
+	// for validation only: the stored proposal is frozen once submitted
+	// (purchase_order_change_frozen), and what it was built from cannot
+	// drift, as a contract changes only as a draft.
 	if _, _, err := e.proposal(ctx, tx, o, ch.Proposed, ChangeInput{Items: proposedItems(ch)}); err != nil {
 		return PurchaseOrderChange{}, err
 	}
@@ -247,7 +250,8 @@ func endChange(ctx context.Context, change, request uuid.UUID, set, action, comm
 	if err != nil {
 		return err
 	}
-	if _, _, err := waitingChange(ctx, tx, change, request); err != nil {
+	o, _, err := waitingChange(ctx, tx, change, request)
+	if err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order_change SET `+set+`, version = version + 1, updated_by = $3
@@ -255,7 +259,7 @@ func endChange(ctx context.Context, change, request uuid.UUID, set, action, comm
 		return fmt.Errorf("procurement: %s order change %s: %w", action, change, err)
 	}
 	return audit.Record(ctx, "procurement.purchase_order_change."+action, "procurement.purchase_order_change", change,
-		map[string]any{"approval_request_id": request, "comment": comment})
+		map[string]any{"purchase_order_id": o.ID, "approval_request_id": request, "comment": comment})
 }
 
 // waitingChange locks the change's order, then the change, and returns

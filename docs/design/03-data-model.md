@@ -844,8 +844,8 @@ transaction; a rejection ends it (`rejected`), a withdrawn request returns
 it to draft, and closing or cancelling the order cancels its open change
 and withdraws the request. The application locks the order, then the
 change, and writes in the order the triggers require: the order names the
-change, its items are written (an item added, or added back as it was,
-valued at its price), the change records what the order read before
+change, its items are written (an item added valued at its price; one
+added back, as it was, keeps the valuation price it was released at), the change records what the order read before
 (`previous`, a non-empty object: `purchase_order_change_previous`) and the
 revision it makes, and the order takes the change's header fields as the
 name is cleared. A contract order consumes the difference of its total as a
