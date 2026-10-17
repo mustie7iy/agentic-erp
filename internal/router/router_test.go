@@ -18,7 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mustie7iy/agentic-erp/api"
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
@@ -493,10 +493,11 @@ func TestModelCallsMayTakeTheirTime(t *testing.T) {
 	ok := roundTrip(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Header: http.Header{}}, nil
 	})
-	// The router holds the answer longer than the cell's call may take, so
+	// The router holds the answer longer than the cell's gateway does, its
+	// call and its margin to write, since the router's deadline starts first:
 	// the cell, not the router, is the one to cut a call that overruns.
-	if router.ModelTimeout <= api.ModelCallTimeout {
-		t.Errorf("router's model timeout: got %v, want more than the call's %v", router.ModelTimeout, api.ModelCallTimeout)
+	if cell := agents.DefaultTimeout + agents.WriteMargin; router.ModelTimeout <= cell {
+		t.Errorf("router's model timeout: got %v, want more than the cell's %v", router.ModelTimeout, cell)
 	}
 	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 	rt := &router.Router{Verifier: v, Directory: lookup{m}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Transport: ok, Now: func() time.Time { return now }}

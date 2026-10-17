@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/mustie7iy/agentic-erp/api"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -19,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -162,10 +162,12 @@ type Router struct {
 }
 
 // ModelTimeout is how long a model call's answer may take to come back
-// through the router, as the cell's gateway allows, with a minute's margin
-// (api.ModelCallTimeout, ADR-0036): the listener's write timeout would cut
-// it, and the SDK call again.
-const ModelTimeout = api.ModelCallTimeout + time.Minute
+// through the router (api.ModelCallTimeout, ADR-0036): the listener's
+// write timeout would cut it, and the SDK call again. Its margin is twice
+// the cell's minute, since the router's deadline starts before it has
+// forwarded the request, so the cell is the one to cut a call that
+// overruns.
+const ModelTimeout = api.ModelCallTimeout + 2*time.Minute
 
 // ServeHTTP implements http.Handler. /livez answers without a token; every
 // other request needs a tenant token and a routable directory entry.

@@ -311,8 +311,8 @@ func calls(t *testing.T, ten pgtest.Tenant) int {
 }
 
 // TestGatewayDatabaseFailures: each statement of the gateway's own
-// transactions failing in turn (the session, the price; the ledger row,
-// the session's lock and its update), a transaction that cannot begin or
+// transactions failing in turn (the session, the price; the session's
+// lock, the ledger row and the session's update), a transaction that cannot begin or
 // commit, each fails the call.
 func TestGatewayDatabaseFailures(t *testing.T) {
 	priced(t, "claude-opus-5-5")
@@ -528,8 +528,18 @@ func TestConcurrentCallsOfOneSession(t *testing.T) {
 		}
 	}
 	var in int64
-	pgtest.Scan(t, `SELECT input_tokens FROM agents.session WHERE tenant_id = $1 AND id = $2`, []any{ten.ID, session}, &in)
+	var spent int64
+	pgtest.Scan(t, `SELECT input_tokens, cost_micro FROM agents.session WHERE tenant_id = $1 AND id = $2`, []any{ten.ID, session}, &in, &spent)
 	if in != 10*n {
 		t.Errorf("session input tokens: got %d, want %d", in, 10*n)
+	}
+	var rows int
+	var each int64
+	pgtest.Scan(t, `SELECT count(*), sum(cost_micro) / count(*) FROM agents.model_call WHERE tenant_id = $1 AND session_id = $2`, []any{ten.ID, session}, &rows, &each)
+	if rows != n {
+		t.Errorf("calls recorded: got %d, want %d", rows, n)
+	}
+	if each <= 0 || spent != each*int64(n) {
+		t.Errorf("session cost: got %d, want %d calls of %d", spent, n, each)
 	}
 }
