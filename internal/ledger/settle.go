@@ -320,9 +320,13 @@ func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, bank s
 	if err != nil {
 		return nil, err
 	}
-	// The tax share is part of the discount, of its sign and smaller
-	// (itemTaxShares), so the net is of the discount's sign too.
-	lines := []Line{{AccountID: account, TC: -(discount - tax), Text: in.HeaderText}}
+	// The tax share is part of the discount, of its sign and at most it
+	// (itemTaxShares), so the net is of the discount's sign or 0, when
+	// rounding gives the tax the whole of a small discount: no line then.
+	var lines []Line
+	if net := discount - tax; net != 0 {
+		lines = append(lines, Line{AccountID: account, TC: -net, Text: in.HeaderText})
+	}
 	for _, k := range slices.SortedFunc(maps.Keys(taxes), compareTaxKeys) {
 		code := k.code
 		lines = append(lines, Line{AccountID: k.account, TC: -taxes[k], TaxCode: &code, Text: in.HeaderText})

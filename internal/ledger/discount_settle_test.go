@@ -191,6 +191,7 @@ func TestDiscountTaxAdjustment(t *testing.T) {
 		"one tax code":         {10000, map[string]money.Minor{"V1": 1900}, 238, -200, []string{"V1 -38"}},
 		"two codes, remainder": {10000, map[string]money.Minor{"V1": 7, "V0": 5}, 500, -499, []string{"V1 -1"}},
 		"no tax":               {10000, nil, 300, -300, nil},
+		"all tax":              {1, map[string]money.Minor{"V1": 2}, 1, 0, []string{"V1 -1"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			item := taxedPost(t, e.in(t), "TAX-"+name, c.expense, c.taxes)
@@ -208,6 +209,9 @@ func TestDiscountTaxAdjustment(t *testing.T) {
 			for _, l := range entry.Lines {
 				if l.AccountID == cash {
 					gotCash += l.TC
+					if l.TC == 0 {
+						t.Error("cash discount line of 0.00: got one, want none")
+					}
 				}
 			}
 			if gotCash != c.cash {
