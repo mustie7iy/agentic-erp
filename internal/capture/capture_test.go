@@ -31,10 +31,15 @@ func TestClaudeExtractor(t *testing.T) {
 		t.Errorf("lines: got %d, want 1 (%+v)", len(got.Lines), got.Lines)
 	}
 	req := srv.Requests[0]
-	for _, frag := range []string{`"type":"document"`, `"media_type":"application/pdf"`, `"json_schema"`, `"document_kind"`, "untrusted data", `"fallbacks":"default"`} {
+	for _, frag := range []string{`"type":"document"`, `"media_type":"application/pdf"`, `"json_schema"`, `"document_kind"`, "untrusted data"} {
 		if !strings.Contains(req, frag) {
 			t.Errorf("request: got %s, want it to contain %s", req, frag)
 		}
+	}
+	// The gateway routes every call to the one model it prices, and refuses
+	// fallbacks, which would answer unrouted (ADR-0036).
+	if strings.Contains(req, `"fallbacks"`) {
+		t.Errorf("request: got %s, want no fallbacks", req)
 	}
 
 	for name, step := range map[string]llmtest.Step{
