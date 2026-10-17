@@ -84,21 +84,25 @@ The document is versioned with the code, and during a rolling upgrade a
 newer replica can activate a document with a key the previous version does
 not know. So:
 
-- Reading the active document tolerates unknown keys (`config.ParseActive`):
+- Reading the active document for use (the settings other contexts read,
+  the regression capture) tolerates unknown keys (`config.ParseActive`):
   they are ignored, each logged once per process, and the rest of the
   document is used. A document that does not read even so fails the call;
   a reader is never handed a missing document.
-- Submitting, validating, simulating and activating stay strict
-  (`config.Parse`): a proposal with a key this replica does not know is
-  refused here (simulation leaves it queued for a replica that knows it,
-  activation answers 422), because reading it without the key would drop it.
+- Assessing and storing a change is strict. A submitted proposal is
+  validated with `config.Parse`. A change based on a version with a key
+  this replica does not know, or a stored proposal with one, is refused
+  with 503 `config.unknown_keys` (retry: an upgraded replica takes it),
+  because this replica would assess the change without the key, or store
+  it without it. Its simulation fails the operation with that problem; the
+  user simulates again once the replica is upgraded.
 - A key is added before it is required. The release that adds it reads it
   as optional, with a defined meaning when absent (e.g. "no alerts"), and
   only a later release, once every replica knows it, may make validation
-  require it. A key that is required from its first release (T47c's order
-  release tiers, T47g's contract expiry notice) is safe only because of the
-  tolerant read above: an older replica keeps working with the documents
-  activated by a newer one.
+  require it. A key required from its first release (T47c's order release
+  tiers, T47g's contract expiry notice) works in a mixed cell only because
+  older replicas read such documents tolerantly and refuse to change them;
+  configuration changes wait until the upgrade completes.
 
 Migrations run as an administrative login that bypasses row-level security
 (the superuser in development). `erp_owner` owns the objects but is subject

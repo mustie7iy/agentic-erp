@@ -411,9 +411,9 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 	if err := requireStatus(c, "submit", Draft); err != nil {
 		return ChangeRequest{}, err
 	}
-	base, err := versionDocument(ctx, tx, c.BaseVersion)
+	base, err := assessableVersion(ctx, tx, c.BaseVersion)
 	if err != nil {
-		return ChangeRequest{}, fmt.Errorf("configuration: base of change request %s: %w", id, err)
+		return ChangeRequest{}, err
 	}
 	proposed, err := parse(c.Proposed, "proposed")
 	if err != nil {
@@ -543,7 +543,7 @@ func ActivateChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 	}
 	// Validated on submission, by this binary or a newer one: a key this one
 	// does not know refuses the activation, which would drop it.
-	doc, err := parse(c.Proposed, "proposed")
+	doc, err := storedProposal(c.Proposed)
 	if err != nil {
 		return ChangeRequest{}, err
 	}

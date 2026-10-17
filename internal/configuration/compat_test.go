@@ -39,6 +39,8 @@ func TestActiveDocumentWithUnknownKeys(t *testing.T) {
 	var logs bytes.Buffer
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	// Restored, so that the package's other tests (the simulation worker's
+	// rounds take every tenant's jobs) meet only proposals they can read.
 	t.Cleanup(func() { slog.SetDefault(previous) })
 	for range 2 {
 		err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
@@ -84,14 +86,18 @@ func newer(t *testing.T, cr string) {
 	t.Helper()
 	pgtest.Exec(t, `UPDATE config.change_request SET proposed = jsonb_set(proposed, '{purchasing,future_key}', '1'), version = version + 1 WHERE id = $1`,
 		uuid.MustParse(cr))
+	// Restored, so that the package's other tests (the simulation worker's
+	// rounds take every tenant's jobs) meet only proposals they can read.
 	t.Cleanup(func() {
 		pgtest.Exec(t, `UPDATE config.change_request SET proposed = proposed #- '{purchasing,future_key}', version = version + 1 WHERE id = $1`, uuid.MustParse(cr))
 	})
 }
 
 // TestNewerProposalRefused: a proposal with a key this binary does not
-// know is not activated here, which would drop the key; nor simulated:
-// it stays queued for a replica that knows it.
+// know is not activated here, which would drop the key (503
+// config.unknown_keys: retry, an upgraded replica takes it); nor
+// simulated: the operation fails, to be asked again on an upgraded
+// replica, rather than wait behind a retry limit.
 func TestNewerProposalRefused(t *testing.T) {
 	s := sim{fixture.New(t, append(perms, "platform.operation.read")...)}
 	doc := fixture.Document(t)
@@ -103,18 +109,34 @@ func TestNewerProposalRefused(t *testing.T) {
 		t.Fatalf("submitted: got status %v, want approved", got["status"])
 	}
 	newer(t, id)
-	s.Problem(422, "config.validation_failed", "POST", "/v1/change-requests/"+id+":activate", "", "*")
+	s.Problem(503, "config.unknown_keys", "POST", "/v1/change-requests/"+id+":activate", "", "*")
 
 	s.suite(t)
 	tier3, op := s.tier3(t, "11")
 	newer(t, apitest.String(t, tier3, "id"))
 	w := worker(t, &fakeSimulator{sim: configuration.Simulation{Passed: true, Summary: "fine", Detail: map[string]any{}}})
-	if _, err := w.RunOnce(context.Background()); err == nil {
-		t.Error("simulation of a newer proposal: got nil error, want it refused")
+	if _, err := w.RunOnce(context.Background()); err != nil {
+		t.Fatalf("simulation round: %v", err)
 	}
-	if queued := s.status(t, "/v1/operations/"+apitest.String(t, op, "id")); queued["status"] != "queued" {
-		t.Errorf("simulation of a newer proposal: got %v, want it queued for a newer replica", queued["status"])
+	failed := s.status(t, "/v1/operations/"+apitest.String(t, op, "id"))
+	if failed["status"] != "failed" {
+		t.Fatalf("simulation of a newer proposal: got %v, want failed", failed["status"])
 	}
+	if code := failed["error"].(map[string]any)["code"]; code != "config.unknown_keys" {
+		t.Errorf("simulation of a newer proposal: got error %v, want config.unknown_keys", code)
+	}
+}
+
+// TestNewerBaseRefused: a change based on a version with a key this binary
+// does not know is not assessed here: the change could drop the key
+// without the assessment seeing it.
+func TestNewerBaseRefused(t *testing.T) {
+	s := sim{fixture.New(t, perms...)}
+	activateDocument(t, s.Tenant.ID, `jsonb_set(document, '{purchasing,future_key}', '1')`)
+	doc := fixture.Document(t)
+	cr, _ := s.Must(201, "POST", "/v1/change-requests", fmt.Sprintf(`{"title": "Older", "rationale": "From an old export", "base_version": 2, "proposed": %s}`,
+		jsonOf(t, doc)), "")
+	s.Problem(503, "config.unknown_keys", "POST", "/v1/change-requests/"+apitest.String(t, cr, "id")+":submit", "", `"1"`)
 }
 
 // TestUnreadableVersion: a version whose document does not read fails what
