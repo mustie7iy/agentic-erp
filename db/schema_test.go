@@ -2559,3 +2559,74 @@ func TestExistingAgentsLevelTwo(t *testing.T) {
 		}
 	}
 }
+
+// TestSpecialGLItems: a down payment is a supplier line with special G/L
+// indicator A on the legal entity's down payment account (ADR-0037, T46a):
+// a line is on that account exactly when it carries the indicator, the
+// indicator needs a partner and is A, and the account is fixed once
+// determined.
+func TestSpecialGLItems(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	dp := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by)
+			VALUES ($1, $2, $3, '159000', 'Down payments made', 'asset', 'supplier', 'active', $4, $4)`, f.tenant, dp, f.chart, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1, $2, $3, $4, $4)`,
+			f.tenant, f.entity, dp, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, 'down_payment', $3, $4)`,
+			f.tenant, f.entity, dp, f.actor)
+	})
+	post := func(account uuid.UUID, partner *uuid.UUID, special any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			je := id()
+			if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+				document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+				VALUES ($1,2026,$2,$3,$4,4,'ZP',$5,'2026-04-02','2026-04-02','USD','USD','EUR',1,0.9,'payments',$6)`,
+				f.tenant, je, f.entity, f.ledger, je.String()[24:], f.actor); err != nil {
+				return err
+			}
+			if err := exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+				posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, special_gl) VALUES ($1,2026,$2,1,$3,$4,4,'2026-04-02',$5,100,100,90,$6,$7)`,
+				f.tenant, je, f.entity, f.ledger, account, partner, special); err != nil {
+				return err
+			}
+			return exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+				posting_date, account_id, amount_tc, amount_lc, amount_gc) VALUES ($1,2026,$2,2,$3,$4,4,'2026-04-02',$5,-100,-100,-90)`,
+				f.tenant, je, f.entity, f.ledger, f.bank)
+		}
+	}
+	for _, c := range []struct {
+		name    string
+		account uuid.UUID
+		partner *uuid.UUID
+		special any
+		fails   string
+	}{
+		{"a down payment", dp, &f.supplier, "A", ""},
+		{"the down payment account without the indicator", dp, &f.supplier, nil, "journal_line_special_gl_account"},
+		{"the indicator on the payables account", f.ap, &f.supplier, "A", "journal_line_special_gl_account"},
+		{"the indicator without a partner", f.expense, nil, "A", "journal_line_special_gl"},
+		{"another indicator", dp, &f.supplier, "B", "journal_line_special_gl"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, post(c.account, c.partner, c.special))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("the down payment account changed", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.account_determination SET account_id = $2, version = version + 1 WHERE tenant_id = $1 AND key = 'down_payment'`, f.tenant, f.ap)
+		}), "account_determination_down_payment_fixed")
+	})
+}
