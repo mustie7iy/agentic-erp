@@ -175,8 +175,9 @@ Kubernetes' restricted Pod Security profile):
   production settings only (TLS 1.3 as its certificate's SPIFFE identity,
   `ERP_TRUST_DOMAIN`, operators' issuers, the field key and bucket through
   the regional endpoints, `ERP_AT_REST`), its secrets as files, its IRSA
-  role, no service account token. NATS and Temporal settings come with
-  T40c4.
+  role, no service account token. It reaches NATS and Temporal as its
+  certificate's identity (T40c4), and seals workflow payloads with
+  `erp/<cell>/temporal-codec-key` before they reach the engine.
 - NATS JetStream (T40c4): three nodes over the zones on `erp-encrypted`
   volumes (`ERP_AT_REST` nats=volume), clients and routes over TLS 1.3.
   Clients are authorized by SPIFFE identity (`verify_and_map`, ADR-0033):
@@ -189,6 +190,37 @@ Kubernetes' restricted Pod Security profile):
   reach the cluster port. `scripts/nats-checks.sh` runs the chart's
   configuration on the NATS server go.mod pins (the cells' image is that
   version) and checks each of those grants and refusals.
+- Temporal (T40c4, product owner): `erp-temporal`, Temporal's server
+  (v1.32.1) with the platform's authorization, in a Go module of its own
+  under `temporal/`: the server brings about four hundred modules and
+  builds only with OpenTelemetry older than the platform's, so it cannot
+  share the main module, and the few lines it shares with the platform
+  (the SPIFFE ID rule, `file:` references, verified-TLS URLs) are
+  repeated there rather than imported. Its claim mapper gives
+  `spiffe://<td>/<cell>/erp-server` the writer role on the cell's one
+  namespace (`erp`) and the engine's own identity
+  (`spiffe://<td>/<cell>/erp-temporal`, its nodes and system worker) the
+  system admin role; any other identity, or none, may call the health
+  checks alone (Temporal's default authorizer). Every listener and client
+  is TLS 1.3 with a client certificate of the environment's CA required;
+  `serve` refuses a configuration that does not require one. Two replicas,
+  each running all four services, which find each other through the
+  database (512 history shards, fixed once the database exists). Its two
+  databases (`temporal`, `temporal_visibility`) are on the cell's writer,
+  reached directly over verified TLS (Temporal's persistence keeps
+  session state that PgBouncer's transaction mode breaks) as a login of
+  its own (`erp/<cell>/temporal-database-password`); at most 2 × (20 + 10)
+  connections, beside PgBouncer's 40, within the writer's budget above.
+  An `erp-temporal-schema` hook Job creates the login and the databases
+  with the master credentials, which the engine never holds, sets the
+  login's password again (so a changed one takes effect with the next
+  release) and applies the schema versions the binary embeds. `serve`
+  registers the namespace (retention 30 days) as the system worker.
+  `erp-temporal check-config` loads a configuration as `serve` does, and
+  `helm-checks.sh` runs it on the chart's; `scripts/temporal-checks.sh`
+  holds the module to the platform's lint, `-race` tests and 100%
+  coverage. Its image is built, signed and attested with the platform's
+  own (ADR-0032) once T39's release builds the `temporal/` module.
 - The migrations hook Job described above, with the writer's URL and the
   RDS bundle as hooks of lower weight, so a first install has them.
 - PgBouncer: two replicas, transaction mode, `max_prepared_statements`
@@ -204,14 +236,15 @@ Kubernetes' restricted Pod Security profile):
   they are released, and new ones opened between a rotation and the
   reload fail. In its connection string a single quote is doubled, in its
   user list a double quote.
-- Certificates for the server and PgBouncer as `erp-service-certificates`
+- Certificates for the server, PgBouncer, NATS and Temporal as `erp-service-certificates`
   requires (a day, renewed with 8 hours left, one SPIFFE identity, the
   service's own names); the environment's subordinate CA certificate is
   the trust anchor (`ERP_TLS_CA`, the clients of PgBouncer).
 - Network policies: default deny; the API and admin listener from the
-  router's namespace; the server to PgBouncer and to 443 (the VPC's AWS
-  endpoints and the tenants' identity providers); PgBouncer and the Job to
-  the writer in the VPC; DNS. The VPC CNI is a managed add-on of the cell
+  router's namespace; the server to PgBouncer, NATS, Temporal's frontend
+  and 443 (the VPC's AWS endpoints and the tenants' identity providers);
+  NATS's and Temporal's nodes to each other; PgBouncer, Temporal and the
+  Jobs to the writer in the VPC; DNS. The VPC CNI is a managed add-on of the cell
   with its network policy agent on, which enforces them; whether it lets
   kubelet's probes through is checked at the first install.
 - The cell's id is one rule everywhere: a letter, then lower-case letters

@@ -27,6 +27,10 @@ images:
   nats:
     repository: ""
     digest: ""
+  # erp-temporal (temporal/), built and signed with the platform's own.
+  temporal:
+    repository: ""
+    digest: ""
 
 # The environment's trust anchor (envs/<env> subordinate_ca_certificate,
 # PEM): the subordinate CA, not the root (ADR-0035, Revocation).
@@ -94,12 +98,37 @@ nats:
     requests: {cpu: 250m, memory: 512Mi}
     limits: {memory: 1Gi}
 
+temporal:
+  # Each replica runs all of the engine's services.
+  replicas: 2
+  # Fixed for the life of the cell's engine database: Temporal cannot
+  # change it once the schema exists. 512 serves the large shape too.
+  historyShards: 512
+  # The cell's one namespace (ERP_TEMPORAL_NAMESPACE) and how long it
+  # keeps a closed workflow's history.
+  namespace: erp
+  retention: 720h
+  logLevel: info
+  database:
+    user: temporal
+    name: temporal
+    visibility: temporal_visibility
+    # Connections each replica opens to the writer, per database.
+    maxConns:
+      default: 20
+      visibility: 10
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 2Gi}
+
 migrations:
   # How long a release's migrations may take before the hook fails.
   deadlineSeconds: 3600
 
 secrets:
-  # The cell's entries in Secrets Manager: <prefix>/page-token-key.
+  # The cell's entries in Secrets Manager: <prefix>/page-token-key,
+  # database-client-password, temporal-codec-key (base64 of 32 random
+  # bytes) and temporal-database-password.
   prefix: ""
   # The store of the erp-cluster chart.
   store: erp-cell

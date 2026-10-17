@@ -6,7 +6,10 @@
 # - The server reaches PgBouncer, NATS and, on 443, the AWS endpoints in
 #   the VPC and the tenants' identity providers outside it.
 # - NATS takes clients from the server and routes from its own nodes.
-# - PgBouncer and the migrations Job reach the writer, in the VPC, only.
+# - The workflow engine's frontend takes the server and the engine's own
+#   nodes; its other services and membership ports, its nodes alone. It
+#   reaches the writer, in the VPC.
+# - PgBouncer and the migrations Jobs reach the writer, in the VPC, only.
 # - Every Pod resolves names through the cluster's DNS.
 {{- $vpc := required "vpcCidr is required: cell.cidr" .Values.vpcCidr }}
 {{- $port := .Values.pgbouncer.port }}
@@ -63,6 +66,12 @@ spec:
               {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 14 }}
       ports:
         - {protocol: TCP, port: 4222}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 7233}
     - ports:
         - {protocol: TCP, port: 443}
 ---
@@ -140,3 +149,58 @@ spec:
               {{- include "erp-cell.selector" (dict "root" . "component" "erp-nats") | nindent 14 }}
       ports:
         - {protocol: TCP, port: 6222}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-temporal
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 7233}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 14 }}
+      ports:
+        {{- include "erp-cell.temporal.ports" . | nindent 8 }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 14 }}
+      ports:
+        {{- include "erp-cell.temporal.ports" . | nindent 8 }}
+    - to:
+        - ipBlock:
+            cidr: {{ $vpc }}
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-temporal-schema
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal-schema") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal-schema") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ $vpc }}
+      ports:
+        - {protocol: TCP, port: 5432}

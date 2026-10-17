@@ -11,7 +11,8 @@
 #     validated against the pinned add-ons' own CRDs, and must refuse to
 #     render without each value they require; erp-cell's workloads must
 #     pass deploy/helm/policy (non-root, read-only, digests, budgets,
-#     default deny);
+#     default deny); the workflow engine's configuration it renders must be
+#     one erp-temporal accepts (check-config, built from temporal/);
 #   - scripts/admission-checks.sh then runs its policies against signed
 #     images and certificates.
 # HELM, KUBECONFORM and CONFTEST (which turns YAML into JSON here) name the
@@ -166,6 +167,19 @@ grep -qF "password='{{ .password | replace \"'\" \"''\" }}'" "$work/erp-cell.yam
   { echo "helm-checks: erp-cell's pgbouncer.ini does not double the quotes of the master password" >&2; exit 1; }
 grep -qF '"erp" "{{ .clientPassword | replace "\"" "\"\"" }}"' "$work/erp-cell.yaml" ||
   { echo "helm-checks: erp-cell's user list does not double the quotes of the client password" >&2; exit 1; }
+# The engine's configuration, as erp-temporal serve would load it.
+"$CONFTEST" parse --parser yaml "$work/erp-cell.yaml" >"$work/erp-cell.json"
+python3 - "$work/erp-cell.json" "$work/temporal.yaml" <<'PY'
+import json, sys
+for d in json.load(open(sys.argv[1])):
+    if d and d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "erp-temporal":
+        open(sys.argv[2], "w").write(d["data"]["config.yaml"])
+        break
+else:
+    sys.exit("helm-checks: erp-cell renders no erp-temporal ConfigMap")
+PY
+(cd temporal && go build -o "$work/erp-temporal" ./cmd/erp-temporal)
+ERP_TEMPORAL_CONFIG="$work/temporal.yaml" "$work/erp-temporal" check-config
 # required VALUE...: each value, removed in turn, fails the render and
 # names itself.
 required() {
@@ -184,7 +198,7 @@ required() {
 }
 required cell region trustDomain vpcCidr trust.caBundle secrets.prefix \
   images.server.repository images.server.digest images.pgbouncer.repository images.pgbouncer.digest \
-  images.nats.repository images.nats.digest \
+  images.nats.repository images.nats.digest images.temporal.repository images.temporal.digest \
   server.roleArn server.operatorIssuers server.objectBucket server.fieldKmsKeyArn \
   server.awsEndpoints.sts server.awsEndpoints.kms server.awsEndpoints.s3 \
   database.writerHost database.masterSecretArn database.caBundle

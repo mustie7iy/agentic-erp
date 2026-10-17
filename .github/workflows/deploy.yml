@@ -18,6 +18,8 @@ on:
       - scripts/mirror-images.sh
       - scripts/test-mirror-images.sh
       - scripts/nats-checks.sh
+      - scripts/temporal-checks.sh
+      - temporal/**
       - scripts/lib/**
       - .github/workflows/deploy.yml
   pull_request:
@@ -101,3 +103,32 @@ jobs:
         run: ./scripts/test-mirror-images.sh
       - name: NATS authorization by SPIFFE identity
         run: ./scripts/nats-checks.sh
+
+  # The workflow engine's module (temporal/, ADR-0035), which the
+  # repository's CI does not reach: vet, lint, -race tests and 100%
+  # coverage, its schema tests on a PostgreSQL of the cell's version.
+  temporal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: temporal/go.mod
+          cache-dependency-path: temporal/go.sum
+      - name: Install golangci-lint (pinned)
+        run: |
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: erp-temporal checks
+        run: GOLANGCI=golangci-lint ./scripts/temporal-checks.sh

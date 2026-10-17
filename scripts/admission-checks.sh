@@ -261,7 +261,8 @@ echo "admission-checks: certificates: only day-long subordinate-CA certificates 
 "$HELM" template erp-cell "$root/deploy/helm/erp-cell" --namespace erp -f "$root/deploy/helm/erp-cell/tests/values.yaml" \
   --set "images.server.repository=${full%@*}" --set "images.server.digest=${full#*@}" \
   --set "images.pgbouncer.repository=${full%@*}" --set "images.pgbouncer.digest=${full#*@}" \
-  --set "images.nats.repository=${full%@*}" --set "images.nats.digest=${full#*@}" >cell-rendered.yaml
+  --set "images.nats.repository=${full%@*}" --set "images.nats.digest=${full#*@}" \
+  --set "images.temporal.repository=${full%@*}" --set "images.temporal.digest=${full#*@}" >cell-rendered.yaml
 # As Helm installs them: in the release's namespace, which the template
 # leaves out of the manifests.
 "$CONFTEST" parse --parser yaml cell-rendered.yaml | python3 -c '
@@ -273,5 +274,6 @@ print("\n---\n".join(json.dumps(d) for d in docs))
 ' >cell.yaml
 apply cell.json --resource cell.yaml --registry
 expect cell.json erp-server:admitted erp-pgbouncer:admitted erp-migrate:admitted erp-nats:admitted \
-  erp-server-tls:admitted erp-pgbouncer-tls:admitted erp-nats-tls:admitted
+  erp-temporal:admitted erp-temporal-schema:admitted \
+  erp-server-tls:admitted erp-pgbouncer-tls:admitted erp-nats-tls:admitted erp-temporal-tls:admitted
 echo "admission-checks: the erp-cell chart's workloads and certificates are admitted"
