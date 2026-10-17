@@ -57,7 +57,7 @@ if [ "$event" = pull_request ]; then
 else
   files="$(git diff --name-only "$base" "$head")"
 fi
-images="$(changed '^(go\.(mod|sum)|\.ko\.yaml|Makefile|cmd/|release/|scripts/(image|sign|verify-image|provenance)|\.github/workflows/(ci|weekly)\.yml)')"
+images="$(changed '^(go\.(mod|sum)|\.ko\.yaml|Makefile|cmd/|release/|scripts/(image|sign|verify-image|provenance|free-disk)|\.github/workflows/(ci|weekly)\.yml)')"
 release="$(changed '^(scripts/(next-version|changelog|test-release-scripts)\.sh|cliff\.toml|Makefile|\.github/workflows/(ci|release|weekly)\.yml)')"
 code="$(grep -Ev '^docs/|\.md$' <<<"$files" || true)"
 if [ -n "$files" ] && [ -z "$code" ]; then

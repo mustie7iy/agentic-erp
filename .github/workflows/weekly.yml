@@ -47,13 +47,21 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Free disk for the image builds
+        run: ./scripts/free-disk.sh
       - name: Container images, built twice and compared
-        run: make images-reproducible
+        run: |
+          make images-reproducible
+          df -h / | tail -1
       - name: Image scan
-        run: make image-scan
+        run: |
+          make image-scan
+          df -h / | tail -1
       - name: Signing round trip
         if: success() || failure()
-        run: make signing-roundtrip SIGNING_REGISTRY=localhost:5000/erp
+        run: |
+          make signing-roundtrip SIGNING_REGISTRY=localhost:5000/erp
+          df -h / | tail -1
       - name: Go vulnerabilities, standard library included
         # ko's SBOM lists the modules but not the standard library, where
         # most Go advisories are; govulncheck covers both, in the code that

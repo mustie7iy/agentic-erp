@@ -86,6 +86,9 @@ prev="$c"
 c="$(change scripts/sign-images.sh)"
 expect_out "a signing script runs the image checks" "$c" images true
 prev="$c"
+c="$(change scripts/free-disk.sh)"
+expect_out "the runner's disk clean-up runs the image checks" "$c" images true
+prev="$c"
 c="$(change cliff.toml)"
 expect_out "the changelog's configuration runs the release scripts" "$c" release true
 prev="$c"

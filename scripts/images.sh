@@ -14,14 +14,17 @@
 # verification, not by tag). A push also uploads ko's SBOMs as
 # sha256-<digest>.sbom tags: unsigned copies; the SBOM a verifier trusts is
 # the attestation sign-images.sh signs. GOCACHE and KOCACHE are honoured, so the
-# reproducibility gate can give each build caches of its own.
+# reproducibility gate can give each build caches of its own. KO_PLATFORMS
+# (e.g. linux/amd64) builds those platforms instead of .ko.yaml's: pull
+# requests check one, to fit the runner's disk; releases and the weekly run
+# build them all.
 set -euo pipefail
 OUT="${1:-dist/images}"
 KO="${KO:-go run github.com/google/ko@v0.19.1}"
 rm -rf "$OUT"
 mkdir -p "$OUT/sbom"
 KO_DOCKER_REPO="${KO_DOCKER_REPO:-erp.local}" ERP_VERSION="${ERP_VERSION:-}" $KO build --push="${PUSH:-false}" --base-import-paths \
-  --tags="${KO_TAGS:-latest}" \
+  --tags="${KO_TAGS:-latest}" ${KO_PLATFORMS:+--platform="$KO_PLATFORMS"} \
   --sbom=spdx --sbom-dir="$OUT/sbom" --image-refs="$OUT/images.txt" \
   ./cmd/erp-server ./cmd/erp-router ./cmd/erp >/dev/null
 cat "$OUT/images.txt"
