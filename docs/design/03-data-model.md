@@ -1489,6 +1489,8 @@ activate, and orders under them are refused.
 | `tool_call` | Every tool call with input, result summary, error flag (insert-only) |
 | `recommendation` | What the agent proposed, on which object, and what people decided |
 | `model_call` | One row per call through the model gateway (ADR-0036): principal, session, alias, the model that answered, tokens, cost in millionths of the minor unit, outcome, duration; never content (insert-only, 000068) |
+| `spend` | A model budget line's month: the tenant's (`principal_id` NULL; its cap is the AI policy's) or an agent's (`agent_profile.monthly_budget`); what it has spent in millionths of the minor unit, in USD, and the highest threshold announced, 80 or 100 (000069) |
+| `model_reservation` | The most a call in flight may cost, held against each of its lines from before it is forwarded until it is settled; it lapses at its expiry, the call's time and its margin later, so a call that never settles frees its line (000069) |
 
 `ref.model_price` (000068) holds each model's prices per million tokens
 (input, output, cache write, cache read) in millionths of the minor unit,
@@ -1497,6 +1499,16 @@ when it was made. It starts empty: an operator records published prices
 (`erp-server prices load`); a recorded price stands, and the rows with who
 recorded them are the prices' trail. Prices are in USD alone, so costs add
 up; the gateway refuses a model without a price.
+
+A call is held against its budget lines before it is forwarded: each
+line, read `FOR UPDATE` (ADR-0008), must fit what it has spent, what its
+unexpired, unsettled reservations hold and what the call may cost (all
+of `max_tokens` in output and its input estimated from its size), or the
+call is refused (429, audited). Lines are locked tenant first, then
+agent. Settling the call marks its reservations settled and adds its
+actual cost, which may pass the estimate; the application deletes no
+line or reservation. An agent's budget is identity's
+(`identity.AgentBudget`); agents reads no identity table.
 
 ## 3.15 Platform (`platform`) and per-context outbox
 

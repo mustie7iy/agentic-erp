@@ -2343,3 +2343,79 @@ func TestModelCalls(t *testing.T) {
 		failsWith(t, err, "insert-only")
 	})
 }
+
+// TestModelBudgets: a budget line is the tenant's or an agent's, one per
+// month and in the prices' currency, never spent below nothing, and
+// announces only 80% and 100%; a reservation holds a non-negative amount
+// until it expires, after it was made; the application settles
+// reservations but deletes neither them nor lines; another tenant sees
+// none (ADR-0036).
+func TestModelBudgets(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	tenantLine, agentLine := id(), id()
+	insertLine := func(line uuid.UUID, agent *uuid.UUID, month, currency string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO agents.spend (tenant_id, id, principal_id, month, currency) VALUES ($1, $2, $3, $4, $5)", a.tenant, line, agent, month, currency)
+		}
+	}
+	insertReservation := func(amount int64, reserved, expires string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO agents.model_reservation (tenant_id, id, spend_id, amount_micro, reserved_at, expires_at) VALUES ($1, gen_random_uuid(), $2, $3, $4, $5)`,
+				a.tenant, tenantLine, amount, reserved, expires)
+		}
+	}
+	agent := id()
+	mustApp(t, a.tenant, insertLine(tenantLine, nil, "2026-10-01", "USD"))
+	mustApp(t, a.tenant, insertLine(agentLine, &agent, "2026-10-01", "USD"))
+	mustApp(t, a.tenant, insertReservation(2000000, "2026-10-17T12:00:00Z", "2026-10-17T12:12:00Z"))
+	for _, c := range []struct {
+		name       string
+		insert     func(tx pgx.Tx) error
+		constraint string
+	}{
+		{"one tenant line a month", insertLine(id(), nil, "2026-10-01", "USD"), "spend_line_key"},
+		{"one line a month per agent", insertLine(id(), &agent, "2026-10-01", "USD"), "spend_line_key"},
+		{"a month is its first day", insertLine(id(), nil, "2026-11-02", "USD"), "spend_month_check"},
+		{"in the prices' currency", insertLine(id(), nil, "2026-12-01", "EUR"), "spend_currency_check"},
+		{"a reservation holds no negative amount", insertReservation(-1, "2026-10-17T12:00:00Z", "2026-10-17T12:12:00Z"), "model_reservation_amount_check"},
+		{"a reservation expires after it is made", insertReservation(1, "2026-10-17T12:00:00Z", "2026-10-17T12:00:00Z"), "model_reservation_expiry_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			failsOn(t, asApp(t, a.tenant, c.insert), c.constraint)
+		})
+	}
+	for _, c := range []struct {
+		name, set, constraint string
+	}{{"spend is not negative", "spent_micro = -1", "spend_spent_micro_check"}, {"only 80% and 100% are announced", "threshold = 50", "spend_threshold_check"}} {
+		t.Run(c.name, func(t *testing.T) {
+			failsOn(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE agents.spend SET "+c.set+", version = version + 1 WHERE tenant_id = $1 AND id = $2", a.tenant, agentLine)
+			}), c.constraint)
+		})
+	}
+	t.Run("a reservation is settled", func(t *testing.T) {
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.model_reservation SET settled_at = now(), version = version + 1 WHERE tenant_id = $1 AND spend_id = $2", a.tenant, tenantLine)
+		})
+	})
+	for _, table := range []string{"agents.model_reservation", "agents.spend"} {
+		t.Run("the application deletes no row of "+table, func(t *testing.T) {
+			failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "DELETE FROM "+table+" WHERE tenant_id = $1", a.tenant)
+			}), "permission denied")
+		})
+	}
+	t.Run("another tenant sees none", func(t *testing.T) {
+		mustApp(t, b.tenant, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), "SELECT (SELECT count(*) FROM agents.spend) + (SELECT count(*) FROM agents.model_reservation)").Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				return fmt.Errorf("budget rows visible to another tenant: %d", n)
+			}
+			return nil
+		})
+	})
+}
