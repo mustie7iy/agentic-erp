@@ -58,11 +58,7 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 		return err
 	}
 	defer dir.Close()
-	// A tenant's registered identity provider decides its tokens' tenant
-	// through the directory's claims (ADR-0031); the cell checks them again.
-	registry := &authn.RegistryCache{Registry: directory.IssuerRegistry{Directory: dir}, TTL: cfg.CacheTTL}
-	providers := &authn.Providers{Production: cfg.Environment == string(authn.Production)}
-	verifier, err := authn.NewRegistered(ctx, authn.Environment(cfg.Environment), registry, providers, cfg.Issuers, cfg.Static...)
+	verifier, err := newVerifier(ctx, cfg, dir)
 	if err != nil {
 		return err
 	}
@@ -78,15 +74,9 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	if err != nil {
 		return err
 	}
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
+	ln, adminLn, err := listen(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("erp-router: listen on %s: %w", cfg.Addr, err)
-	}
-	adminLn, err := lc.Listen(ctx, "tcp", cfg.AdminAddr)
-	if err != nil {
-		_ = ln.Close() // the admin listener's failure is the one reported
-		return fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
+		return err
 	}
 	ln, adminLn = secure(ctx, cfg, log, ln, adminLn)
 	servers := []*http.Server{
@@ -115,6 +105,30 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	}
 	log.Info("erp-router stopped")
 	return serveErr
+}
+
+// newVerifier trusts the tenants' registered identity providers, which
+// decide a token's tenant through the directory's claims (ADR-0031); the
+// cell checks them again.
+func newVerifier(ctx context.Context, cfg router.Config, dir *directory.Postgres) (*authn.Verifier, error) {
+	registry := &authn.RegistryCache{Registry: directory.IssuerRegistry{Directory: dir}, TTL: cfg.CacheTTL}
+	providers := &authn.Providers{Production: cfg.Environment == string(authn.Production)}
+	return authn.NewRegistered(ctx, authn.Environment(cfg.Environment), registry, providers, cfg.Issuers, cfg.Static...)
+}
+
+// listen opens the public and the admin listener, or neither.
+func listen(ctx context.Context, cfg router.Config) (net.Listener, net.Listener, error) {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("erp-router: listen on %s: %w", cfg.Addr, err)
+	}
+	adminLn, err := lc.Listen(ctx, "tcp", cfg.AdminAddr)
+	if err != nil {
+		_ = ln.Close() // the admin listener's failure is the one reported
+		return nil, nil, fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
+	}
+	return ln, adminLn, nil
 }
 
 // secure serves the public listener over TLS with the public certificate

@@ -120,18 +120,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		return err
 	}
 	defer s.pool.Close()
-	// The object store is checked first: a misconfigured cell is refused
-	// before it migrates anything.
-	if err := s.openObjects(ctx); err != nil {
-		return err
-	}
-	if err := s.prepareSchema(ctx); err != nil {
-		return err
-	}
-	if err := s.requireProviders(ctx); err != nil {
-		return err
-	}
-	if err := s.authenticate(ctx); err != nil {
+	if err := s.prepare(ctx); err != nil {
 		return err
 	}
 	dir, err := s.openDirectory(ctx)
@@ -169,6 +158,23 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		return s.stop(cancel, err)
 	}
 	return s.serve(ctx, cancel, started)
+}
+
+// prepare checks the object store, migrates the schema, requires the
+// tenants' identity providers and builds the verifier, in that order. The
+// object store is checked first: a misconfigured cell is refused before it
+// migrates anything.
+func (s *server) prepare(ctx context.Context) error {
+	if err := s.openObjects(ctx); err != nil {
+		return err
+	}
+	if err := s.prepareSchema(ctx); err != nil {
+		return err
+	}
+	if err := s.requireProviders(ctx); err != nil {
+		return err
+	}
+	return s.authenticate(ctx)
 }
 
 // stop stops the workers and waits for them, so that run's deferred closes
