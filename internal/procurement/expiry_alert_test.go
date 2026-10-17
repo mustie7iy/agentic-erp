@@ -224,9 +224,10 @@ func TestRenewalWhileAlerting(t *testing.T) {
 		r, err := x.Expire(ctx, e.Tenant.ID)
 		done <- result{r, err}
 	}()
+	admin := pgtest.Admin(t) // one connection for the whole wait
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var waiting bool
-		err := pgtest.Admin(t).QueryRow(ctx, `SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+		err := admin.QueryRow(ctx, `SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
 			AND query LIKE '%c.expiry_alerted_on IS NULL%' AND query LIKE '%FOR UPDATE OF c%')`).Scan(&waiting)
 		return err == nil && waiting
 	}, "the expirer never waited for the contract being renewed")
