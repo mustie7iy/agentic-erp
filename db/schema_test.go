@@ -2268,3 +2268,68 @@ func TestPaymentItemDiscounts(t *testing.T) {
 		failsWith(t, err, "only be deactivated")
 	})
 }
+
+// TestModelCalls: model prices are reference data the application reads;
+// a model call's row is the tenant's, never changed once written, with
+// non-negative tokens and cost and a known outcome; a session sums its
+// calls' cost in millionths of the minor unit (ADR-0036).
+func TestModelCalls(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	session, call := id(), id()
+	mustApp(t, a.tenant, func(tx pgx.Tx) error {
+		var n int
+		if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM ref.model_price WHERE model = 'claude-opus-5-5'").Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			return errors.New("no price for claude-opus-5-5")
+		}
+		if err := exec(tx, "INSERT INTO agents.session (tenant_id, id, agent_id, purpose, model, status, cost_currency) VALUES ($1,$2,$3,'test','erp-default','running','USD')", a.tenant, session, a.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, session_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency)
+			VALUES ($1,$2,$3,$4,'erp-default','claude-opus-5-5','succeeded',10,20,4400,'USD')`, a.tenant, call, a.actor, session)
+	})
+	t.Run("a call is never changed", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.model_call SET cost_micro = 0 WHERE tenant_id = $1 AND id = $2", a.tenant, call)
+		}), "model_call")
+	})
+	t.Run("tokens and cost are not negative", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency)
+				VALUES ($1, gen_random_uuid(), $2, 'erp-default', 'claude-opus-5-5', 'succeeded', -1, 0, 0, 'USD')`, a.tenant, a.actor)
+		}), "model_call_input_tokens_check")
+	})
+	t.Run("an outcome is known", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency)
+				VALUES ($1, gen_random_uuid(), $2, 'erp-default', 'claude-opus-5-5', 'maybe', 0, 0, 0, 'USD')`, a.tenant, a.actor)
+		}), "model_call_status_check")
+	})
+	t.Run("another tenant sees none", func(t *testing.T) {
+		mustApp(t, b.tenant, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM agents.model_call").Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				return fmt.Errorf("calls visible to another tenant: %d", n)
+			}
+			return nil
+		})
+	})
+	t.Run("a session's cost in millionths", func(t *testing.T) {
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.session SET cost_micro = cost_micro + 4400, version = version + 1 WHERE tenant_id = $1 AND id = $2", a.tenant, session)
+		})
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.session SET cost_micro = -1, version = version + 1 WHERE tenant_id = $1 AND id = $2", a.tenant, session)
+		}), "session_cost_micro_check")
+	})
+	t.Run("prices are not negative", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read) VALUES ('test-model', '2026-01-01', 'USD', -1, 0, 0, 0)")
+		failsWith(t, err, "model_price_input_check")
+	})
+}

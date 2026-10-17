@@ -1485,9 +1485,15 @@ activate, and orders under them are refused.
 
 | Table | Purpose |
 |---|---|
-| `session` | One agent run: agent principal, purpose, model, tokens, cost, linked operation |
+| `session` | One agent run: agent principal, purpose, model, tokens, cost (the sum of its model calls', exact in `cost_micro`), linked operation |
 | `tool_call` | Every tool call with input, result summary, error flag (insert-only) |
 | `recommendation` | What the agent proposed, on which object, and what people decided |
+| `model_call` | One row per call through the model gateway (ADR-0036): principal, session, alias, the model that answered, tokens, cost in millionths of the minor unit, outcome, duration; never content (insert-only, 000068) |
+
+`ref.model_price` (000068) holds each model's prices per million tokens
+(input, output, cache write, cache read) in millionths of the minor unit,
+versioned by `effective_from`; a call is priced at the version in force
+when it was made.
 
 ## 3.15 Platform (`platform`) and per-context outbox
 
