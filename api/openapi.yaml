@@ -17309,6 +17309,11 @@ components:
               $ref: "#/components/schemas/Money"
               description: "The cash discounts taken on the payment's items (T36c), their total, posted to the cash discount account when the payment posts; negative when the discounts credit memos give back exceed those of the invoices."
               readOnly: true
+            discount_until:
+              type: string
+              format: date
+              description: "The last day the payment's cash discounts are earned (T36d): a release of the run after it is refused with 409 `payments.discount_lapsed`. Absent when the payment takes no discount."
+              readOnly: true
             end_to_end_id:
               type: string
               description: ISO 20022 end-to-end id.

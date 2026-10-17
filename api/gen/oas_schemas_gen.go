@@ -17832,6 +17832,9 @@ type Payment struct {
 	// account when the payment posts; negative when the discounts credit memos give back exceed those of
 	// the invoices.
 	DiscountAmount OptMoney `json:"discount_amount"`
+	// The last day the payment's cash discounts are earned (T36d): a release of the run after it is
+	// refused with 409 `payments.discount_lapsed`. Absent when the payment takes no discount.
+	DiscountUntil OptDate `json:"discount_until"`
 	// ISO 20022 end-to-end id.
 	EndToEndID string `json:"end_to_end_id"`
 	// Payment journal entry, once posted.
@@ -17878,6 +17881,11 @@ func (s *Payment) GetAmount() Money {
 // GetDiscountAmount returns the value of DiscountAmount.
 func (s *Payment) GetDiscountAmount() OptMoney {
 	return s.DiscountAmount
+}
+
+// GetDiscountUntil returns the value of DiscountUntil.
+func (s *Payment) GetDiscountUntil() OptDate {
+	return s.DiscountUntil
 }
 
 // GetEndToEndID returns the value of EndToEndID.
@@ -17933,6 +17941,11 @@ func (s *Payment) SetAmount(val Money) {
 // SetDiscountAmount sets the value of DiscountAmount.
 func (s *Payment) SetDiscountAmount(val OptMoney) {
 	s.DiscountAmount = val
+}
+
+// SetDiscountUntil sets the value of DiscountUntil.
+func (s *Payment) SetDiscountUntil(val OptDate) {
+	s.DiscountUntil = val
 }
 
 // SetEndToEndID sets the value of EndToEndID.

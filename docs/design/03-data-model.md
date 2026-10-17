@@ -1237,7 +1237,8 @@ report driven by bases does not see the base reduction (input tax, as
 UStVA reports it, is corrected). A run that takes a
 discount fails at proposal without a `cash_discount` account (422
 `payments.no_cash_discount_account`). A payment records the last day its
-discounts are earned (`discount_until`, migration 000068), and the release
+discounts are earned (`discount_until`, migration 000068, shown on the
+payment so the approver knows the release-by date), and the release
 of a proposed run after it is refused (409 `payments.discount_lapsed`,
 days in UTC): the run is rejected and proposed again, at the discount then
 earned.

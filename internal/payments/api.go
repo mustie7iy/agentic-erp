@@ -39,6 +39,9 @@ func paymentToAPI(p Payment, currency string, exp int) gen.Payment {
 		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)),
 		EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID),
 		Items: make([]gen.PaymentItem, len(p.Items))}
+	if p.DiscountUntil != nil {
+		out.DiscountUntil.SetTo(*p.DiscountUntil)
+	}
 	for i, it := range p.Items {
 		out.Items[i] = gen.PaymentItem{FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
 			Amount: apitypes.Money(it.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(it.Discount, currency, exp)),
