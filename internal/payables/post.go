@@ -85,9 +85,15 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	return posted, record(ctx, "payables.supplier_invoice.post", id, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
+	return posted, recordPosted(ctx, posted, entry)
+}
+
+// recordPosted audits a posted invoice and publishes SupplierInvoicePosted,
+// with its amounts signed by its kind.
+func recordPosted(ctx context.Context, posted Invoice, entry ledger.Entry) error {
+	return record(ctx, "payables.supplier_invoice.post", posted.ID, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
 		event(posted, "supplier_invoice_posted", map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
-			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": date.Format(time.DateOnly),
+			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": posted.PostingDate.Format(time.DateOnly),
 			"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
 			"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
 			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
