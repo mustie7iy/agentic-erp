@@ -76,7 +76,8 @@ func (f *findings) add(path, format string, a ...any) {
 
 // checkCompany checks one proposed company against its legal entity: the
 // account numbers, the legal entity's existence and currency, the start
-// month of its calendar, and tax codes already changed today.
+// month of its calendar, tax codes already changed today, and a new GR/IR
+// account that is already posted.
 func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, out *findings) error {
 	p := "companies[" + co.Code + "]"
 	for _, a := range co.ChartOfAccounts {
@@ -104,7 +105,35 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, o
 	if len(months) > 0 && !slices.Contains(months, int32(co.FiscalYearStartMonth)) {
 		out.add(p+".fiscal_year_start_month", "the legal entity's fiscal calendar starts its years in month %d", months[0])
 	}
-	return checkTaxCodesChangedToday(ctx, tx, p, le.ID, co, out)
+	if err := checkTaxCodesChangedToday(ctx, tx, p, le.ID, co, out); err != nil {
+		return err
+	}
+	return checkGRIRUnposted(ctx, tx, p, le.ID, co, out)
+}
+
+// checkGRIRUnposted reports a GR/IR account that is not yet the legal
+// entity's but has postings other than a migration run's: the account's
+// balance must be the order items' positions from the start (T33), and a
+// reversal of such a posting would be refused once it is the GR/IR account.
+func checkGRIRUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, out *findings) error {
+	number := co.AccountDetermination.GRIR
+	if number == "" {
+		return nil
+	}
+	var posted bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.gl_account g
+		JOIN ledger.chart_of_accounts c ON c.tenant_id = g.tenant_id AND c.id = g.chart_id AND c.code = $2
+		JOIN ledger.journal_line l ON l.tenant_id = g.tenant_id AND l.legal_entity_id = $1 AND l.account_id = g.id
+		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+		WHERE g.number = $3 AND e.source_context <> 'integration'
+			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = g.tenant_id AND d.legal_entity_id = $1
+				AND d.key = 'gr_ir' AND d.account_id = g.id))`, le, co.Code, number).Scan(&posted); err != nil {
+		return fmt.Errorf("ledger: check company %s: GR/IR account %s: %w", co.Code, number, err)
+	}
+	if posted {
+		out.add(p+".account_determination.gr_ir", "account %s has postings other than a migration run's; the GR/IR account starts without any", number)
+	}
+	return nil
 }
 
 // checkTaxCodesChangedToday reports tax codes the proposal changes or
@@ -130,8 +159,8 @@ func checkTaxCodesChangedToday(ctx context.Context, tx pgx.Tx, p string, le uuid
 }
 
 // checkActivated reports changes the ledger cannot make to what is
-// activated: removing a company, or changing an account's type or
-// reconciliation kind.
+// activated: removing a company, changing an account's type or
+// reconciliation kind, or changing the GR/IR account.
 func checkActivated(base, proposed *config.Config, out *findings) {
 	for _, old := range base.Companies {
 		p := "companies[" + old.Code + "]"
@@ -139,6 +168,12 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 		if co == nil {
 			out.add(p, "a company cannot be removed once activated")
 			continue
+		}
+		// The open GR/IR positions are lines on the activated account, and
+		// orders released since are valued through it (T33): another
+		// account, or none, would strand them.
+		if was := old.AccountDetermination.GRIR; was != "" && co.AccountDetermination.GRIR != was {
+			out.add(p+".account_determination.gr_ir", "the GR/IR account cannot change once activated")
 		}
 		for _, was := range old.ChartOfAccounts {
 			a := co.Account(was.Number)
@@ -198,8 +233,8 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		SELECT $1, $2, k, g.id, $4 FROM unnest($5::text[], $6::text[]) AS x(k, n) JOIN ledger.gl_account g ON g.chart_id = $3 AND g.number = x.n
 		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
 		WHERE d.account_id <> EXCLUDED.account_id`,
-		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss"},
-		[]string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss}); err != nil {
+		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference"},
+		[]string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference}); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
 	if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {

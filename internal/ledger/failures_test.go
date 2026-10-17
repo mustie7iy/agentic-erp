@@ -112,6 +112,10 @@ func TestDatabaseFailures(t *testing.T) {
 				_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{PageSize: zero})
 				return err
 			},
+			"GR/IR balances": func(ctx context.Context) error {
+				_, err := h.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: e.de, PageSize: zero})
+				return err
+			},
 			"balances": func(ctx context.Context) error {
 				_, err := h.ListBalances(ctx, gen.ListBalancesParams{LegalEntityID: e.de, FiscalYear: 2026, PageSize: zero})
 				return err
@@ -223,6 +227,10 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 			_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{})
 			return err
 		},
+		"GR/IR balances": func(ctx context.Context) error {
+			_, err := h.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: e.de})
+			return err
+		},
 		"balances": func(ctx context.Context) error {
 			_, err := h.ListBalances(ctx, gen.ListBalancesParams{LegalEntityID: e.de, FiscalYear: 2026})
 			return err
@@ -277,6 +285,10 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 			_, err := setup.Check(ctx, document(t), document(t))
 			return err
 		},
+		"setup check GR/IR": func(ctx context.Context) error {
+			_, err := setup.Check(ctx, document(t), withGRIR(t))
+			return err
+		},
 		"setup apply": func(ctx context.Context) error { return setup.Apply(ctx, document(t)) },
 		"reconciliation account": func(ctx context.Context) error {
 			_, err := ledger.Accounts{}.IsReconciliationAccount(ctx, e.de, u(ap), "supplier")
@@ -287,7 +299,7 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 
 func TestConstraintProblems(t *testing.T) {
 	for name, code := range map[string]string{"reversal_pkey": "ledger.already_reversed", "clearing_item_pkey": "ledger.item_already_cleared",
-		"item_reserved_once": "ledger.item_reserved"} {
+		"item_reserved_once": "ledger.item_reserved", "account_determination_gr_ir_fixed": "ledger.gr_ir_account_fixed"} {
 		t.Run(name, func(t *testing.T) {
 			p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name})
 			if p.Code != code {

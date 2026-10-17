@@ -275,7 +275,7 @@ func (l *loader) orders(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if _, err := l.e.Orders.ReleaseOrder(ctx, o.ID, func(int32) error { return nil }); err != nil {
+			if _, err := l.e.Orders.ReleaseLoadedOrder(ctx, o.ID, func(int32) error { return nil }); err != nil {
 				return err
 			}
 			return l.addRef(ctx, "procurement.purchase_order", o.ID, "EKKO", h.EBELN)

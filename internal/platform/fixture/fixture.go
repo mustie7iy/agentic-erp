@@ -46,7 +46,7 @@ func Years() []int {
 }
 
 // DocumentTypes get a number range per company and year.
-var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "requisition": "PR", "purchase_order": "PO",
+var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_we": "", "requisition": "PR", "purchase_order": "PO",
 	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": "", "payment_run": "PR", "journal_zp": "",
 	"journal_re": "", "journal_kz": "", "journal_ob": ""}
 
@@ -211,4 +211,24 @@ func (e Env) Approve(tb testing.TB, objectID string) {
 func jsonNumber(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// GRIR gives company 2000 a GR/IR account (219000), a price difference
+// account (590000) and FX accounts (480000 gains, 690000 losses) in the
+// ledger, as an activated configuration with them would: orders released
+// from now on are valued through GR/IR (T33).
+func (e Env) GRIR(tb testing.TB) {
+	tb.Helper()
+	doc := Document(tb)
+	de := doc.Company("2000")
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "219000", Name: "GR/IR clearing", Type: config.Liability},
+		config.Account{Number: "590000", Name: "Price differences", Type: config.Expense},
+		config.Account{Number: "480000", Name: "FX gains", Type: config.Revenue}, config.Account{Number: "690000", Name: "FX losses", Type: config.Expense})
+	de.AccountDetermination.GRIR, de.AccountDetermination.PriceDifference = "219000", "590000"
+	de.AccountDetermination.FXGain, de.AccountDetermination.FXLoss = "480000", "690000"
+	if err := apitest.Committed(tb, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
+	}); err != nil {
+		tb.Fatal(err)
+	}
 }

@@ -9,8 +9,9 @@
 // invoice_exception approval request, whose approval returns the invoice to
 // parked and allows posting despite the issues. Posting books Dr expense
 // per item, Dr input tax, Cr the supplier's reconciliation account
-// (document type KR); goods receipts do not post (no GR/IR clearing until
-// inventory valuation arrives).
+// (document type KR). On an order valued through GR/IR (T33), whose goods
+// receipts post Cr GR/IR, an item on an order item debits GR/IR at the
+// order price instead, with the price difference on its own line.
 package payables
 
 import (

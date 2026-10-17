@@ -1435,3 +1435,307 @@ func TestLocalCurrencyIsFixed(t *testing.T) {
 		})
 	}
 }
+
+// --- GR/IR clearing (T33a, 000053) -------------------------------------------
+
+// failsOn asserts err is a PostgreSQL error raised for the named constraint,
+// the name the application maps to a problem (problem.RegisterConstraint).
+func failsOn(t *testing.T, err error, constraint string) {
+	t.Helper()
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) {
+		t.Fatalf("want a violation of %s, got %v", constraint, err)
+	}
+	if pg.ConstraintName != constraint {
+		t.Fatalf("constraint: got %q (%s), want %q", pg.ConstraintName, pg.Message, constraint)
+	}
+}
+
+// grIRAccount sets up a liability account in the fixture's legal entity and
+// makes it the entity's GR/IR account.
+func (f fixture) grIRAccount(t *testing.T) uuid.UUID {
+	t.Helper()
+	account := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'219000','GR/IR clearing','liability','none','active',$4,$4)`, f.tenant, account, f.chart, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)",
+			f.tenant, f.entity, account, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, "INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1,$2,'gr_ir',$3,$4)",
+			f.tenant, f.entity, account, f.actor)
+	})
+	return account
+}
+
+// TestAccountDeterminationKeys: price_difference is a key of the account
+// determination; a key outside the list is refused.
+func TestAccountDeterminationKeys(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	for _, c := range []struct{ key, fails string }{{"price_difference", ""}, {"price_variance", "account_determination_key_check"}} {
+		t.Run(c.key, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1,$2,$3,$4,$5)",
+					f.tenant, f.entity, c.key, f.expense, f.actor)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+}
+
+// grIRLine is a journal line with the order item it belongs to.
+type grIRLine struct {
+	account        uuid.UUID
+	amount         int64
+	order          *uuid.UUID
+	item, quantity *string
+}
+
+// grIREntry posts an entry of the source context whose lines may name an
+// order item.
+func (f fixture) grIREntry(source string, lines ...grIRLine) func(tx pgx.Tx) error {
+	return func(tx pgx.Tx) error {
+		je := id()
+		if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+			document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+			VALUES ($1,2026,$2,$3,$4,8,'WE',$5,'2026-08-05','2026-08-05','USD','USD','EUR',1,0.9,$6,$7)`,
+			f.tenant, je, f.entity, f.ledger, je.String()[24:], source, f.actor); err != nil {
+			return err
+		}
+		for i, l := range lines {
+			var unit *string
+			if l.quantity != nil {
+				ea := "EA"
+				unit = &ea
+			}
+			if err := exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+				posting_date, account_id, amount_tc, amount_lc, amount_gc, quantity, uom_code, purchase_order_id, po_item_no)
+				VALUES ($1,2026,$2,$3,$4,$5,8,'2026-08-05',$6,$7,$7,$8,$9::numeric,$10,$11,$12::int)`,
+				f.tenant, je, i+1, f.entity, f.ledger, l.account, l.amount, l.amount*9/10, l.quantity, unit, l.order, l.item); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// TestGRIRLines: a line names its order item with both the order and the
+// item and a quantity, and a line on the legal entity's GR/IR account names
+// its order item unless a migration run loaded it.
+func TestGRIRLines(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	grir := f.grIRAccount(t)
+	order, item, qty := id(), "10", "-4"
+	for _, c := range []struct {
+		name, source string
+		line         grIRLine
+		fails        string
+	}{
+		{"GR/IR line with its order item", "procurement", grIRLine{grir, -100, &order, &item, &qty}, ""},
+		{"order without its item", "procurement", grIRLine{grir, -100, &order, nil, &qty}, "journal_line_order_item_pair"},
+		{"item without its order", "procurement", grIRLine{grir, -100, nil, &item, &qty}, "journal_line_order_item_pair"},
+		{"order item without a quantity", "procurement", grIRLine{grir, -100, &order, &item, nil}, "journal_line_order_item_quantity"},
+		{"GR/IR line without an order item", "ledger", grIRLine{grir, -100, nil, nil, nil}, "journal_line_gr_ir_order_item"},
+		{"GR/IR line of another context without an order item", "payables", grIRLine{grir, -100, nil, nil, nil}, "journal_line_gr_ir_order_item"},
+		{"GR/IR line a migration run loaded", "integration", grIRLine{grir, -100, nil, nil, nil}, ""},
+		{"another account without an order item", "ledger", grIRLine{f.bank, -100, nil, nil, nil}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, f.grIREntry(c.source, c.line, grIRLine{account: f.expense, amount: 100}))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("post: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+}
+
+// TestOrderValuation: an order is valued directly or through GR/IR, decided
+// when it is released and fixed from then on; a draft is valued directly.
+func TestOrderValuation(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	order := func(status, valuation string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			o := id()
+			return exec(tx, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
+				payment_term_code, status, valuation, created_by, updated_by) VALUES ($1,$2,$3,$4,$5,'USD','2026-08-01','NT30',$6,$7,$8,$8)`,
+				f.tenant, o, o.String()[24:], f.entity, f.supplier, status, valuation, f.actor)
+		}
+	}
+	t.Run("unknown valuation", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, order("released", "standard")), "purchase_order_valuation_check")
+	})
+	t.Run("draft through GR/IR", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, order("draft", "gr_ir")), "purchase_order_draft_direct")
+	})
+	var draft uuid.UUID
+	mustApp(t, f.tenant, order("draft", "direct"))
+	if err := testDB.QueryRow(context.Background(), "SELECT id FROM procurement.purchase_order WHERE tenant_id = $1 AND status = 'draft'", f.tenant).Scan(&draft); err != nil {
+		t.Fatalf("read the draft: %v", err)
+	}
+	update := func(set string) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE procurement.purchase_order SET "+set+", version = version + 1 WHERE id = $1", draft)
+		})
+	}
+	// The cases run in order on one order: draft, released, closed.
+	for _, c := range []struct{ name, set, fails string }{
+		// Only the release decides it: a draft is not valued in advance.
+		{"valued on its draft", "valuation = 'gr_ir'", "purchase_order_valuation_fixed"},
+		{"released through GR/IR", "status = 'released', valuation = 'gr_ir'", ""},
+		{"changed once released", "valuation = 'direct'", "purchase_order_valuation_fixed"},
+		{"closed", "status = 'closed'", ""},
+		{"changed once closed", "valuation = 'direct'", "purchase_order_valuation_fixed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := update(c.set)
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("update: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+}
+
+// TestGoodsMovementEntry: a goods movement names its journal entry with
+// both the entry and its fiscal year, or neither.
+func TestGoodsMovementEntry(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	entry := id()
+	year := int16(2026)
+	for _, c := range []struct {
+		name  string
+		entry *uuid.UUID
+		year  *int16
+		fails string
+	}{
+		{"no entry", nil, nil, ""},
+		{"entry and year", &entry, &year, ""},
+		{"entry without its year", &entry, nil, "goods_movement_entry_pair"},
+		{"year without its entry", nil, &year, "goods_movement_entry_pair"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				gm := id()
+				return exec(tx, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, movement_type, document_date, posting_date,
+					posted_by, journal_entry_year, journal_entry_id) VALUES ($1,$2,$3,$4,'101','2026-08-05','2026-08-05',$5,$6,$7)`,
+					f.tenant, gm, gm.String()[24:], f.entity, f.actor, c.year, c.entry)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+}
+
+// TestGRIRPositionBackfill: migration 000054 projects each order item's
+// GR/IR position from its lines on the legal entity's GR/IR account in the
+// leading ledger: received (the procurement context's lines, negated),
+// invoiced (the payables context's), the balance in the three currencies
+// and the last posting date. Each position equals the sum of its lines.
+func TestGRIRPositionBackfill(t *testing.T) {
+	conn := emptyDatabase(t)
+	migrateBefore(t, conn, 54)
+	f := fixtureIDs()
+	order, other := id(), id()
+	item := "10"
+	qty := func(q string) *string { return &q }
+	inTenant(t, conn, f.tenant, f.seed)
+	grir := id()
+	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'219000','GR/IR clearing','liability','none','active',$4,$4)`, f.tenant, grir, f.chart, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)",
+			f.tenant, f.entity, grir, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, "INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1,$2,'gr_ir',$3,$4)",
+			f.tenant, f.entity, grir, f.actor)
+	})
+	inTenant(t, conn, f.tenant, f.grIREntry("procurement", grIRLine{grir, -300, &order, &item, qty("-3")}, grIRLine{account: f.expense, amount: 300}))
+	inTenant(t, conn, f.tenant, f.grIREntry("payables", grIRLine{grir, 110, &order, &item, qty("1")}, grIRLine{account: f.expense, amount: -110}))
+	inTenant(t, conn, f.tenant, f.grIREntry("procurement", grIRLine{grir, -50, &other, &item, qty("-1")}, grIRLine{account: f.expense, amount: 50}))
+	inTenant(t, conn, f.tenant, f.grIREntry("ledger", grIRLine{f.expense, -70, &order, &item, qty("-7")}, grIRLine{account: f.bank, amount: 70})) // not on GR/IR
+	var up Migration
+	for _, m := range Migrations() {
+		if v, _ := m.Version(); v == 54 {
+			up = m
+		}
+	}
+	if _, err := migrate(context.Background(), conn, []Migration{up}); err != nil {
+		t.Fatalf("migrate 000054: %v", err)
+	}
+	rows, _ := conn.Query(context.Background(), `SELECT purchase_order_id = $2, trim_scale(received)::text, trim_scale(invoiced)::text, amount_tc, amount_lc,
+		amount_gc, currency_tc, last_posting_date::text, is_open FROM ledger.gr_ir_position WHERE tenant_id = $1 ORDER BY 1 DESC`, f.tenant, order)
+	got, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (string, error) {
+		var first, open bool
+		var received, invoiced, currency, last string
+		var tc, lc, gc int64
+		err := r.Scan(&first, &received, &invoiced, &tc, &lc, &gc, &currency, &last, &open)
+		return fmt.Sprint(first, received, invoiced, tc, lc, gc, currency, last, open), err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{fmt.Sprint(true, "3", "1", -190, -190, -171, "USD", "2026-08-05", true), fmt.Sprint(false, "1", "0", -50, -50, -45, "USD", "2026-08-05", true)}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("positions: got %v, want %v", got, want)
+	}
+}
+
+// TestGRIRAccountIsFixed: once a legal entity has a GR/IR account its
+// determination does not change (000054): the positions are its lines, and
+// a reversal of one posted on another account would no longer be projected.
+// Other keys still change.
+func TestGRIRAccountIsFixed(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	f.grIRAccount(t)
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1,$2,'price_difference',$3,$4)",
+			f.tenant, f.entity, f.expense, f.actor)
+	})
+	for _, c := range []struct{ name, key, fails string }{
+		{"another price difference account", "price_difference", ""},
+		{"another GR/IR account", "gr_ir", "account_determination_gr_ir_fixed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE ledger.account_determination SET account_id = $3, version = version + 1 WHERE legal_entity_id = $1 AND key = $2",
+					f.entity, c.key, f.bank)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("update: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+}

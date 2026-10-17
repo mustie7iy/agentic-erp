@@ -79,7 +79,7 @@ func (n Note) String() string { return n.Path + ": " + n.Message }
 
 // documentTypes get number ranges in every company and fiscal year of the
 // extract, besides one journal range per SAP document type it holds.
-var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_zp": "", "journal_ob": "",
+var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_we": "", "journal_zp": "", "journal_ob": "",
 	"requisition": "PR", "purchase_order": "PO", "contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "payment_run": "PY",
 	"partner_change": ""}
 
@@ -188,6 +188,10 @@ func (g *gen) company(t sap.T001) config.Company {
 			co.AccountDetermination.InputTax = sap.Alpha(r.KONTS)
 		case "BNK":
 			co.AccountDetermination.Bank = sap.Alpha(r.KONTS)
+		case "WRX":
+			co.AccountDetermination.GRIR = g.oneAccount(p+".account_determination.gr_ir", r, co.AccountDetermination.GRIR)
+		case "PRD":
+			co.AccountDetermination.PriceDifference = g.oneAccount(p+".account_determination.price_difference", r, co.AccountDetermination.PriceDifference)
 		}
 	}
 	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)
@@ -226,6 +230,20 @@ func (g *gen) chartOfAccounts(p, company string) []config.Account {
 		out = append(out, config.Account{Number: num, Name: a.TXT50, Type: typ, VendorReconciliation: a.MITKZ == "K"})
 	}
 	return out
+}
+
+// oneAccount is the account of the first T030 row of a transaction key:
+// SAP keeps WRX and PRD per valuation modifier and class, the
+// configuration one per company, so rows naming another account are noted.
+func (g *gen) oneAccount(path string, r sap.T030, taken string) string {
+	account := sap.Alpha(r.KONTS)
+	if taken == "" {
+		return account
+	}
+	if account != taken {
+		g.note(path, fmt.Sprintf("T030 %s names accounts %s and %s; %s taken", r.KTOSL, taken, account, taken))
+	}
+	return taken
 }
 
 // apReconciliation is the account most vendors in this company post to.

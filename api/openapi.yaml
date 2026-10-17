@@ -3788,7 +3788,7 @@ paths:
       tags:
         - ledger
       summary: Post a journal entry
-      description: "Posts a manual journal entry. Journal entries are insert-only and have no draft state, so creating an entry is posting it: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected."
+      description: "Posts a manual journal entry. Journal entries are insert-only and have no draft state, so creating an entry is posting it: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it."
       x-permission: ledger.entry.post
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -3947,7 +3947,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry."
+      description: "Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry."
       x-permission: ledger.entry.post
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -4089,6 +4089,69 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OpenItemPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/gr-ir-balances:
+    get:
+      operationId: listGrIrBalances
+      tags:
+        - ledger
+      summary: List GR/IR balances
+      description: "The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once its received and invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable by: `purchase_order_id`, `last_posting_date`."
+      x-permission: ledger.entry.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: purchase_order_id
+          in: query
+          required: false
+          description: "Only the items of this purchase order; required with `posting_date_to`."
+          schema:
+            type: string
+            format: uuid
+        - name: posting_date_to
+          in: query
+          required: false
+          description: "Key date: the positions of the order named by `purchase_order_id` as they stood on this date, summed from its postings (a report, not a page of current positions). Without `purchase_order_id`: 400 `request.invalid_parameter`."
+          schema:
+            type: string
+            format: date
+        - name: open_only
+          in: query
+          required: false
+          description: "Only positions with a quantity or a balance in any currency that is not zero (default true)."
+          schema:
+            type: boolean
+            default: true
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of GR/IR balances.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrIrBalancePage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -12798,6 +12861,17 @@ components:
           $ref: "#/components/schemas/Quantity"
           description: Quantity, where relevant.
           readOnly: true
+        purchase_order_id:
+          type: string
+          format: uuid
+          description: "Purchase order whose item the line belongs to: set on GR/IR lines, which goods receipts and invoices post with the quantity they move."
+          readOnly: true
+        po_item_no:
+          type: integer
+          format: int32
+          description: Item of the purchase order, set with `purchase_order_id`.
+          minimum: 1
+          readOnly: true
         line_text:
           type: string
           description: Line text.
@@ -13264,6 +13338,108 @@ components:
             amount: "1080.00"
             currency: EUR
           document_number: "5100000123"
+    GrIrBalance:
+      type: object
+      description: "The GR/IR position of one purchase order item: identified by (purchase_order_id, po_item_no)."
+      required:
+        - legal_entity_id
+        - purchase_order_id
+        - po_item_no
+        - account_id
+        - received_quantity
+        - invoiced_quantity
+        - balance
+        - balance_lc
+        - balance_gc
+        - last_posting_date
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        purchase_order_id:
+          type: string
+          format: uuid
+          description: Purchase order.
+          readOnly: true
+        po_item_no:
+          type: integer
+          format: int32
+          description: Item of the purchase order.
+          minimum: 1
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: The GR/IR account.
+          readOnly: true
+        received_quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: Received by goods receipts less their reversals, in the order item's unit.
+          readOnly: true
+        invoiced_quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: Invoiced by posted invoices less their reversals.
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Money"
+          description: "Balance in the order's currency, signed: negative when more is received than invoiced."
+          readOnly: true
+        balance_lc:
+          $ref: "#/components/schemas/Money"
+          description: Balance in local currency, signed.
+          readOnly: true
+        balance_gc:
+          $ref: "#/components/schemas/Money"
+          description: Balance in group currency, signed.
+          readOnly: true
+        last_posting_date:
+          type: string
+          format: date
+          description: Posting date of the latest receipt, invoice or reversal on the item.
+          readOnly: true
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d5c"
+          po_item_no: 1
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          received_quantity:
+            value: "10"
+            unit: EA
+          invoiced_quantity:
+            value: "4"
+            unit: EA
+          balance:
+            amount: "-30.00"
+            currency: EUR
+          balance_lc:
+            amount: "-30.00"
+            currency: EUR
+          balance_gc:
+            amount: "-30.00"
+            currency: EUR
+          last_posting_date: "2026-03-15"
+    GrIrBalancePage:
+      type: object
+      description: One page of GR/IR balances.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrIrBalance"
+          description: The positions on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     OpenItemPage:
       type: object
       description: One page of open items.
@@ -14164,6 +14340,13 @@ components:
                 - closed
                 - cancelled
               readOnly: true
+            valuation:
+              type: string
+              description: "How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a GR/IR account (account determination `gr_ir`) at release. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - direct
+                - gr_ir
+              readOnly: true
             items:
               type: array
               items:
@@ -14737,6 +14920,18 @@ components:
               type: string
               format: uuid
               description: Receipt this one reverses (102 only).
+              readOnly: true
+            journal_entry_id:
+              type: string
+              format: uuid
+              description: "Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a receipt, the other way for a reversal. Only for items of orders valued `gr_ir`; absent when it has none."
+              readOnly: true
+            journal_entry_year:
+              type: integer
+              format: int32
+              description: Fiscal year of the journal entry, set with `journal_entry_id`.
+              minimum: 1900
+              maximum: 2999
               readOnly: true
             items:
               type: array

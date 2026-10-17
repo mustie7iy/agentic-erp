@@ -2235,6 +2235,8 @@ components:
               amount_gc: {$ref: '#/components/schemas/SignedMoney'}
               tax_code: {type: [string, 'null']}
               quantity: {$ref: '#/components/schemas/Quantity'}
+              purchase_order_id: {$ref: '#/components/schemas/NullableUuid', description: 'Purchase order whose item a GR/IR line belongs to.'}
+              po_item_no: {type: [integer, 'null'], minimum: 1, description: 'Item of the purchase order, set with purchase_order_id.'}
     JournalEntryReversedV1:
       type: object
       required: [journal_entry_id, fiscal_year, legal_entity_id, document_number, reversal_entry_id, reversal_fiscal_year, reversal_document_number, reversal_posting_date]
@@ -2312,6 +2314,7 @@ components:
         payment_term_code: {type: string}
         requisition_id: {$ref: '#/components/schemas/NullableUuid'}
         contract_id: {$ref: '#/components/schemas/NullableUuid'}
+        valuation: {type: string, description: 'Open enum: direct, gr_ir. How the order is booked, fixed at release.'}
         total_amount: {$ref: '#/components/schemas/Money'}
         items:
           type: array
@@ -2347,6 +2350,8 @@ components:
         document_date: {$ref: '#/components/schemas/Date'}
         posting_date: {$ref: '#/components/schemas/Date'}
         reference: {type: [string, 'null'], description: Delivery note.}
+        journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the receipt posted (items of orders valued gr_ir), else null.'}
+        journal_entry_year: {type: [integer, 'null'], description: 'Fiscal year of journal_entry_id.'}
         items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/GoodsMovementItem'}}
     GoodsReceiptReversedV1:
       type: object
@@ -2358,6 +2363,8 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         movement_type: {type: string, description: '102 (reversal of 101).'}
         posting_date: {$ref: '#/components/schemas/Date'}
+        journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the reversal posted (items of orders valued gr_ir), else null.'}
+        journal_entry_year: {type: [integer, 'null'], description: 'Fiscal year of journal_entry_id.'}
         items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/GoodsMovementItem'}}
 
     # ------------------------------------------------------------- payables

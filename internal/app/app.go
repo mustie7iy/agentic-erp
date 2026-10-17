@@ -182,7 +182,7 @@ func Integration(cfg Config) *integration.Endpoints {
 func procurementEndpoints(cfg Config) *procurement.Endpoints {
 	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
 		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
-		Settings: configuration.Settings{}, Approvals: opener(), Invoices: payables.Invoices{}}
+		Settings: configuration.Settings{}, Approvals: opener(), Invoices: payables.Invoices{}, Postings: postings()}
 }
 
 // payablesEndpoints is the payables context as the API wires it, capturing

@@ -405,7 +405,9 @@ erDiagram
     bigint amount_lc
     bigint amount_gc
     uuid partner_id
-    text tax_code }
+    text tax_code
+    uuid purchase_order_id "GR/IR lines"
+    int po_item_no }
   clearing { uuid id PK
     uuid legal_entity_id
     date clearing_date
@@ -490,14 +492,15 @@ Rules enforced in the database:
   reversed entry or of a reversal.
 - An entry posted for a document with a reversal of its own belongs to
   that document's context: today a supplier invoice's (`source_context`
-  `payables`). The ledger's `:reverse` refuses it (409
-  `ledger.entry_owned_elsewhere`, naming `supplier-invoices/{id}:reverse`),
-  whose reversal goes through `Postings.Reverse` and also changes the
-  invoice and applies its permission and checks. Manual entries, entries a
+  `payables`) and a goods movement's WE entry (`procurement`, T33). The
+  ledger's `:reverse` refuses them (409 `ledger.entry_owned_elsewhere`,
+  naming `supplier-invoices/{id}:reverse` or `goods-receipts/{id}:reverse`):
+  an invoice's reversal goes through `Postings.Reverse` and also changes the
+  invoice and applies its permission and checks; a receipt is reversed by a
+  102 movement that posts its own entry. Manual entries, entries a
   migration run loaded (`integration`) and payment entries stay reversible
-  through the ledger; entries of any other context (procurement,
-  receivables, assets) are refused with the same code until a reversal path
-  is decided for them.
+  through the ledger; entries of any other context (receivables, assets) are
+  refused with the same code until a reversal path is decided for them.
 - An open item another context is about to settle is reserved in
   `item_reservation` (owner context, owner document and its reference;
   migration 000034): at most one active reservation per line (partial unique
@@ -510,6 +513,67 @@ Rules enforced in the database:
   `Postings.Reserve`, which locks the entries exclusively and refuses items
   that are not open, reversed or held, and frees through `Postings.Release`;
   the ledger never reads the owner's tables.
+- A line may name the purchase order item it belongs to
+  (`purchase_order_id`, `po_item_no`; procurement context, no foreign key;
+  migration 000053, T33a): both or neither (`journal_line_order_item_pair`),
+  and with a quantity (`journal_line_order_item_quantity`). The ledger keeps
+  each order item's GR/IR position on these lines, as SAP's ACDOCA carries
+  EBELN/EBELP, so the positions add up to the GR/IR account's balance.
+- A line on the legal entity's GR/IR account (account determination
+  `gr_ir`) names its order item (trigger `ledger.check_gr_ir_line`,
+  constraint `journal_line_gr_ir_order_item`, 422 `ledger.automatic_account`):
+  only goods receipts and invoices post it, never a manual entry. Entries a
+  migration run loaded (`integration`) are exempt, as SAP's GR/IR lines
+  arrive without their order items. The ledger's `IsPostable` answers false
+  for the GR/IR account too, so no order or invoice item names it.
+- An order item's GR/IR position is the sum of its lines: quantity
+  (invoiced less received; a receipt's line is negative) and amounts in the
+  three currencies. Goods movements and invoices move it through
+  `Postings.Post` with `GRIR` items (T33b); the ledger books the GR/IR line,
+  its own reading of the position under the order's lock:
+  - in transaction currency the balance afterwards is the order price of the
+    new quantity (`money.Scale`), so rounding never adds up across partial
+    receipts and invoices;
+  - in local and group currency a position that grows takes the posting's
+    rates; one that shrinks keeps the value it was booked at, in the share
+    its transaction balance keeps (so a position in the local currency keeps
+    equal amounts; by quantity at a zero price);
+    one that reaches zero clears what is left; one that crosses zero clears
+    what is left and values the rest at the posting's rates;
+  - a goods movement's other line, on the order item's account, mirrors the
+    GR/IR line in all three currencies; an invoice item's net amount less
+    the GR/IR line is its price difference, on `price_difference`, and what
+    the GR/IR line's local and group amounts leave is an exchange
+    difference on `fx_gain` / `fx_loss`;
+  - the position is read from the lines on the GR/IR account only; a
+    quantity has at most six decimals, as a line keeps;
+  - an item posted in another currency than its position's is refused (422
+    `ledger.gr_ir_currency_mismatch`), as is a legal entity without a
+    `gr_ir` (422 `ledger.no_gr_ir_account`).
+  Each position is projected into `ledger.gr_ir_position` (migration
+  000054, T33f; RLS, key led by `tenant_id`), one row per legal entity and
+  order item: received quantity (the procurement context's lines, negated),
+  invoiced quantity (the payables context's), balance in the three
+  currencies, last posting date and `is_open`. The ledger adds each posted
+  entry's GR/IR lines to it in the posting's transaction, under the order's
+  GR/IR lock (`project`, after a GR/IR posting or a reversal), and reads
+  positions from it; the migration projected the lines posted before
+  (none where it runs: GR/IR postings ship in the same release). The
+  database holds a legal entity's GR/IR account once determined (trigger
+  `ledger.check_gr_ir_fixed`, constraint `account_determination_gr_ir_fixed`,
+  409 `ledger.gr_ir_account_fixed`), as the configuration does: a reversal
+  of lines on another account would not reach their positions.
+  `GET /v1/gr-ir-balances` (T33e) pages the current positions from it by an
+  index range scan (partial indexes `WHERE is_open` for the default,
+  open-only listing); together they are the leading ledger's GR/IR balance
+  from goods receipts and invoices (lines a migration run loaded without an
+  order item are on the account but in no position). A key date
+  (`posting_date_to`) is a report summed from one order's lines, so it
+  needs `purchase_order_id`.
+  A reversal mirrors its entry; where it brings an order item's quantity to
+  zero and rounding leaves a balance (the item moved since), it adds a
+  GR/IR line of quantity 0 that clears it against `price_difference`, so a
+  position is zero in every currency once its quantities agree.
 - `period_balance` is maintained by an idempotent projector (ADR-0006).
 - `journal_line` is partitioned by `fiscal_year`.
 - `period_status` (one row per legal entity, ledger, year and period) has a
@@ -529,8 +593,13 @@ otherwise.
 Other ledger tables: `ledger` (leading 0L, parallel ledgers), `exchange_rate`
 (rate type `average | bank_buying | bank_selling | planning`, currency pair,
 `valid_from`; insert-only), `account_determination` (which account
-automatic postings use per legal entity and key), `tax_code` (rate, account,
-direction).
+automatic postings use per legal entity and key: `ap_reconciliation`,
+`input_tax`, `bank`, `fx_gain`, `fx_loss`, and for GR/IR clearing (T33)
+`gr_ir` and `price_difference`; the GR/IR account is a liability that no
+tax code posts, starts without postings other than a migration run's, and
+stays once activated (configuration validation, `ledger.Setup.Check`); order
+items that named it before stay as they are, and posting them is refused),
+`tax_code` (rate, account, direction).
 
 ## 3.8 Procurement (`procurement`)
 
@@ -576,6 +645,7 @@ erDiagram
     uuid requisition_id
     uuid contract_id
     text status "draft | released | closed | cancelled"
+    text valuation "direct | gr_ir"
     int version }
   purchase_order_item { uuid purchase_order_id PK
     int item_no PK
@@ -586,7 +656,9 @@ erDiagram
   goods_movement { uuid id PK
     text movement_type "101 | 102"
     date posting_date
-    uuid reversal_of_id }
+    uuid reversal_of_id
+    uuid journal_entry_id "gr_ir orders"
+    smallint journal_entry_year }
   goods_movement_item { uuid goods_movement_id PK
     int item_no PK
     uuid purchase_order_id
@@ -599,6 +671,27 @@ counter updated in place). Received quantity per PO item is the sum of goods
 movement items (102 movements are negative). A materialized
 `po_item_receipt_summary` read model can be added for speed without changing
 the source of truth.
+
+An order's `valuation` (migration 000053, T33a) says how its receipts and
+invoices are booked: `direct` (invoices post the order item's account, goods
+receipts do not post) or `gr_ir` (goods receipts post Dr the order item's
+account / Cr GR/IR at the order price, invoices clear GR/IR). It is decided
+when the order is released, from the legal entity's `gr_ir` account
+determination, and fixed from then on (trigger
+`procurement.check_valuation_fixed`, constraint
+`purchase_order_valuation_fixed`); a draft is `direct`
+(`purchase_order_draft_direct`). Orders released before GR/IR was configured
+therefore keep the direct scheme to their end, and no posted invoice is
+migrated. A goods movement on a `gr_ir` order names the entry it posted
+(`journal_entry_id`, `journal_entry_year`: both or neither,
+`goods_movement_entry_pair`): document type WE (number range `journal_we`),
+on the movement's dates, through `ledger.Postings` with a GR/IR item per
+item of a `gr_ir` order (T33c). The entry is posted before the movement is
+written, so a receipt the ledger refuses (a period not open, no rate)
+leaves none; the items of `gr_ir` orders in one movement share its one
+entry and so its currency (422 `procurement.mixed_currencies`). A 102
+posts its own WE entry the other way; the ledger's `:reverse` refuses a
+WE entry.
 
 ## 3.9 Accounts payable (`payables`)
 
@@ -700,6 +793,24 @@ returns it (`decision`, F12b) without storing it, as the limit and the rate
 may change before the invoice is posted, and `erp invoices` acts on it
 instead of comparing amounts itself.
 
+Posting (document type KR) books Dr input tax and Cr the supplier's
+reconciliation account. Each item is booked by its order's valuation
+(T33d):
+
+- On an order valued directly, or without an order, the item is Dr its
+  account.
+- On an order valued through GR/IR, an item on an order item clears GR/IR
+  through a GR/IR item of `ledger.Postings`: GR/IR is debited at the order
+  price of the invoiced quantity, and what the item's net amount differs
+  from it goes to `price_difference`. An invoice beyond the receipts (an
+  approved exception) leaves a debit position that a later receipt clears.
+  An item whose order item the order no longer has is refused (422
+  `payables.order_item_missing`).
+
+A reversal mirrors the entry, and the ledger clears a rounding residue
+(§3.7). A simulation counts a changed `price_difference` against the order
+items of GR/IR orders.
+
 `upload` (ADR-0020) records a direct upload of a document above the
 request limit: purpose, content type, size limit, the object key the bytes
 go to, until when, and its status (`open`, `received` through the API,
@@ -783,9 +894,12 @@ locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
 `platform.require_tenant()` (migration 000039), which fails a transaction
 without one where a NULL key would take no lock), each set
 taken once per transaction in bucket order and before any posting period or
-number range (posting takes those). The lock order is entry buckets, then
-the `period_status` row of each period posted into (`FOR SHARE`), then the
-number range.
+number range (posting takes those). GR/IR locks (T33b) are advisory locks
+per purchase order (`'ledger.gr_ir:' || tenant || ':' || order`), taken in
+one sorted call by every posting that moves a GR/IR position and by a
+reversal of one, after its entry bucket. The lock order is entry buckets,
+then GR/IR orders, then the `period_status` row of each period posted into
+(`FOR SHARE`), then the number range.
 
 Every posting (manual entries, the ports other contexts post through,
 clearings, settlements, reversals and the migration load) reads its

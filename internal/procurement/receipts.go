@@ -52,14 +52,18 @@ type GoodsReceipt struct {
 	Reference      *string
 	ReversalOfID   *uuid.UUID
 	ReversedByID   *uuid.UUID
-	Items          []ReceiptItem
-	PostedAt       time.Time
-	PostedBy       uuid.UUID
+	// The WE entry the movement posted for its items of orders valued
+	// through GR/IR (T33), or nil when it has none.
+	JournalEntryYear *int16
+	JournalEntryID   *uuid.UUID
+	Items            []ReceiptItem
+	PostedAt         time.Time
+	PostedBy         uuid.UUID
 }
 
 const receiptSelect = `SELECT m.id, m.document_number, m.legal_entity_id, m.plant_id, m.movement_type, m.document_date, m.posting_date, m.reference,
 		m.reversal_of_id, (SELECT r.id FROM procurement.goods_movement r WHERE r.tenant_id = m.tenant_id AND r.reversal_of_id = m.id LIMIT 1) AS reversed_by,
-		m.posted_at, m.posted_by,
+		m.posted_at, m.posted_by, m.journal_entry_year, m.journal_entry_id,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'purchase_order_id', i.purchase_order_id, 'po_item_no', i.po_item_no,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code) ORDER BY i.item_no)
 		 FROM procurement.goods_movement_item i WHERE i.tenant_id = m.tenant_id AND i.goods_movement_id = m.id)
@@ -68,7 +72,7 @@ const receiptSelect = `SELECT m.id, m.document_number, m.legal_entity_id, m.plan
 func scanReceipt(row pgx.Row) (GoodsReceipt, error) {
 	var g GoodsReceipt
 	if err := row.Scan(&g.ID, &g.DocumentNumber, &g.LegalEntityID, &g.PlantID, &g.MovementType, &g.DocumentDate, &g.PostingDate, &g.Reference,
-		&g.ReversalOfID, &g.ReversedByID, &g.PostedAt, &g.PostedBy, &g.Items); err != nil {
+		&g.ReversalOfID, &g.ReversedByID, &g.PostedAt, &g.PostedBy, &g.JournalEntryYear, &g.JournalEntryID, &g.Items); err != nil {
 		return GoodsReceipt{}, fmt.Errorf("scan goods receipt: %w", err)
 	}
 	return g, nil
@@ -97,12 +101,16 @@ func GetReceipt(ctx context.Context, id uuid.UUID) (GoodsReceipt, error) {
 
 // orderItem is a purchase order item as a receipt sees it.
 type orderItem struct {
-	found              bool
-	legalEntity        uuid.UUID
-	status, unit       string
-	ordered, tolerance string
-	received           string
-	documentNumber     string
+	found               bool
+	legalEntity         uuid.UUID
+	status, unit        string
+	ordered, tolerance  string
+	received            string
+	documentNumber      string
+	currency, valuation string
+	unitPrice           money.Minor
+	priceUnit           int32
+	account             uuid.UUID
 }
 
 // lockItems locks the purchase order items a movement touches, in a fixed
@@ -119,14 +127,16 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 	rows, _ := tx.Query(ctx, `SELECT i.item_no IS NOT NULL, coalesce(o.legal_entity_id, $3), coalesce(o.status, ''), coalesce(i.uom_code, ''),
 			coalesce(trim_scale(i.quantity)::text, '0'), coalesce(trim_scale(i.over_delivery_pct)::text, '0'),
 			trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
-				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text, coalesce(o.document_number, '')
+				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text, coalesce(o.document_number, ''),
+			coalesce(o.currency, ''), coalesce(o.valuation, ''), coalesce(i.unit_price, 0), coalesce(i.price_unit, 1), coalesce(i.account_id, $3)
 		FROM unnest($1::uuid[], $2::int[]) WITH ORDINALITY AS x(o, n, ord)
 		LEFT JOIN procurement.purchase_order o ON o.id = x.o
 		LEFT JOIN procurement.purchase_order_item i ON i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND i.item_no = x.n AND NOT i.is_removed
 		ORDER BY x.ord`, orders, nos, uuid.Nil)
 	var out []orderItem
 	var oi orderItem
-	_, err := pgx.ForEachRow(rows, []any{&oi.found, &oi.legalEntity, &oi.status, &oi.unit, &oi.ordered, &oi.tolerance, &oi.received, &oi.documentNumber},
+	_, err := pgx.ForEachRow(rows, []any{&oi.found, &oi.legalEntity, &oi.status, &oi.unit, &oi.ordered, &oi.tolerance, &oi.received, &oi.documentNumber,
+		&oi.currency, &oi.valuation, &oi.unitPrice, &oi.priceUnit, &oi.account},
 		func() error { out = append(out, oi); return nil })
 	if err != nil {
 		return nil, fmt.Errorf("procurement: read %d purchase order items: %w", len(items), err)
@@ -134,17 +144,26 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 	return out, nil
 }
 
-// insertMovement writes a goods movement with its items and returns it.
-func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, g GoodsReceipt) (GoodsReceipt, error) {
+// insertMovement writes a goods movement with its items, posting its WE
+// entry first for the items of orders valued through GR/IR (current holds
+// each item's order item, as lockItems read it), and returns it. The
+// goods_receipt number range is procurement's own: no posting of the
+// ledger's that holds a GR/IR lock waits for it, so taking it first adds
+// no cycle to the ledger's lock order.
+func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, g GoodsReceipt, current []orderItem) (GoodsReceipt, error) {
 	number, err := e.number(ctx, g.LegalEntityID, "goods_receipt", g.PostingDate)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
+	year, entry, err := e.postMovement(ctx, id, number, g, current)
+	if err != nil {
+		return GoodsReceipt{}, err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, plant_id, movement_type,
-			document_date, posting_date, reference, reversal_of_id, posted_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, p.TenantID, id, number, g.LegalEntityID, g.PlantID, g.MovementType,
-		g.DocumentDate, g.PostingDate, g.Reference, g.ReversalOfID, p.ID); err != nil {
+			document_date, posting_date, reference, reversal_of_id, posted_by, journal_entry_year, journal_entry_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`, p.TenantID, id, number, g.LegalEntityID, g.PlantID, g.MovementType,
+		g.DocumentDate, g.PostingDate, g.Reference, g.ReversalOfID, p.ID, year, entry); err != nil {
 		return GoodsReceipt{}, fmt.Errorf("procurement: insert goods movement %s: %w", number, err)
 	}
 	n := len(g.Items)
@@ -226,7 +245,7 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 		}
 	}
 	g, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: le.ID, PlantID: in.PlantID, MovementType: Receipt, DocumentDate: in.DocumentDate,
-		PostingDate: in.PostingDate, Reference: in.Reference, Items: in.Items})
+		PostingDate: in.PostingDate, Reference: in.Reference, Items: in.Items}, current)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
@@ -234,7 +253,7 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 		"items": len(g.Items)}, event("goods_received", "goods_movement", g.ID, map[string]any{"goods_receipt_id": g.ID,
 		"document_number": g.DocumentNumber, "legal_entity_id": g.LegalEntityID, "plant_id": g.PlantID, "movement_type": Receipt,
 		"document_date": g.DocumentDate.Format(time.DateOnly), "posting_date": g.PostingDate.Format(time.DateOnly), "reference": g.Reference,
-		"items": movementItems(g)}))
+		"journal_entry_id": g.JournalEntryID, "journal_entry_year": g.JournalEntryYear, "items": movementItems(g)}))
 }
 
 // reverseReceipt posts a 102 that reverses a receipt, on the given date or
@@ -289,12 +308,13 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 		date = *postingDate
 	}
 	rev, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: orig.LegalEntityID, PlantID: orig.PlantID, MovementType: Reversal,
-		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items})
+		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items}, current)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
 	return rev, audit.Record(ctx, "procurement.goods_receipt.reverse", "procurement.goods_movement", orig.ID, map[string]any{"reversal_id": rev.ID},
 		event("goods_receipt_reversed", "goods_movement", orig.ID, map[string]any{"goods_receipt_id": orig.ID, "reversal_id": rev.ID,
 			"document_number": rev.DocumentNumber, "legal_entity_id": rev.LegalEntityID, "movement_type": Reversal,
-			"posting_date": rev.PostingDate.Format(time.DateOnly), "items": movementItems(rev)}))
+			"posting_date": rev.PostingDate.Format(time.DateOnly), "journal_entry_id": rev.JournalEntryID, "journal_entry_year": rev.JournalEntryYear,
+			"items": movementItems(rev)}))
 }

@@ -68,6 +68,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.purchasing(c)
 	v.payments(c)
 	v.numberRanges(c)
+	v.grIRJournalRanges(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -215,7 +216,9 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 }
 
 // accountDetermination checks that each determined account is in the chart
-// with the type its use needs; the FX accounts are optional.
+// with the type its use needs, a vendor reconciliation account where the
+// use is one and no other account; the FX accounts are optional, and the
+// GR/IR account comes with a price difference account.
 func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
@@ -229,6 +232,8 @@ func (v *validator) accountDetermination(p string, co *Company) {
 			v.err(p+".account_determination."+field, "account %s is %s, expected %s", number, a.Type, want)
 		case recon && !a.VendorReconciliation:
 			v.err(p+".account_determination."+field, "account %s is not a vendor reconciliation account", number)
+		case !recon && a.VendorReconciliation:
+			v.err(p+".account_determination."+field, "account %s is a vendor reconciliation account, posted only through the supplier's items", number)
 		}
 	}
 	check("ap_reconciliation", ad.APReconciliation, Liability, true)
@@ -239,6 +244,33 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	}
 	if ad.FXLoss != "" {
 		check("fx_loss", ad.FXLoss, Expense, false)
+	}
+	if ad.GRIR != "" {
+		check("gr_ir", ad.GRIR, Liability, false)
+	}
+	if ad.GRIR != "" || ad.PriceDifference != "" {
+		check("price_difference", ad.PriceDifference, Expense, false)
+	}
+}
+
+// grIRJournalRanges requires a WE journal range (journal_we) wherever a
+// company that values receipts through GR/IR numbers goods receipts: each
+// receipt on such an order posts a WE entry in its fiscal year (T33).
+func (v *validator) grIRJournalRanges(c *Config) {
+	have := map[string]bool{}
+	for _, n := range c.NumberRanges {
+		have[n.Key()] = true
+	}
+	for _, n := range c.NumberRanges {
+		co := c.Company(n.Company)
+		if n.DocumentType != "goods_receipt" || co == nil || co.AccountDetermination.GRIR == "" {
+			continue
+		}
+		we := NumberRange{Company: n.Company, DocumentType: "journal_we", FiscalYear: n.FiscalYear}
+		if !have[we.Key()] {
+			v.err("number_ranges["+we.Key()+"]", "goods receipts of company %s post WE entries to GR/IR in fiscal year %d; add a journal_we range",
+				n.Company, n.FiscalYear)
+		}
 	}
 }
 
@@ -255,8 +287,11 @@ func (v *validator) taxCodes(p string, co *Company) {
 		if r, ok := v.amount(tp+".rate_percent", t.RatePercent, 3); ok && r > 100_000 {
 			v.err(tp+".rate_percent", "rate above 100%%")
 		}
-		if a := co.Account(t.Account); a == nil {
+		switch a := co.Account(t.Account); {
+		case a == nil:
 			v.err(tp+".account", "account %s is not in the chart of accounts", t.Account)
+		case t.Account == co.AccountDetermination.GRIR:
+			v.err(tp+".account", "account %s is the GR/IR account, which only goods receipts and invoices' order items post", t.Account)
 		}
 	}
 	if len(co.TaxCodes) == 0 {

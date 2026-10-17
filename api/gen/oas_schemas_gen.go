@@ -2149,6 +2149,7 @@ func (*BadRequestHeaders) listContractsRes()              {}
 func (*BadRequestHeaders) listExchangeRatesRes()          {}
 func (*BadRequestHeaders) listFiscalPeriodsRes()          {}
 func (*BadRequestHeaders) listGoodsReceiptsRes()          {}
+func (*BadRequestHeaders) listGrIrBalancesRes()           {}
 func (*BadRequestHeaders) listJournalEntriesRes()         {}
 func (*BadRequestHeaders) listLegalEntitiesRes()          {}
 func (*BadRequestHeaders) listMatchResultsRes()           {}
@@ -8624,6 +8625,7 @@ func (*ForbiddenHeaders) listContractsRes()              {}
 func (*ForbiddenHeaders) listExchangeRatesRes()          {}
 func (*ForbiddenHeaders) listFiscalPeriodsRes()          {}
 func (*ForbiddenHeaders) listGoodsReceiptsRes()          {}
+func (*ForbiddenHeaders) listGrIrBalancesRes()           {}
 func (*ForbiddenHeaders) listJournalEntriesRes()         {}
 func (*ForbiddenHeaders) listLegalEntitiesRes()          {}
 func (*ForbiddenHeaders) listMatchResultsRes()           {}
@@ -10433,6 +10435,12 @@ type GoodsReceipt struct {
 	Reference OptString `json:"reference"`
 	// Receipt this one reverses (102 only).
 	ReversalOfID OptUUID `json:"reversal_of_id"`
+	// Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a
+	// receipt, the other way for a reversal. Only for items of orders valued `gr_ir`; absent when it has
+	// none.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// Fiscal year of the journal entry, set with `journal_entry_id`.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 	// Items.
 	Items []GoodsReceiptItem `json:"items"`
 }
@@ -10490,6 +10498,16 @@ func (s *GoodsReceipt) GetReference() OptString {
 // GetReversalOfID returns the value of ReversalOfID.
 func (s *GoodsReceipt) GetReversalOfID() OptUUID {
 	return s.ReversalOfID
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *GoodsReceipt) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *GoodsReceipt) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
 }
 
 // GetItems returns the value of Items.
@@ -10550,6 +10568,16 @@ func (s *GoodsReceipt) SetReference(val OptString) {
 // SetReversalOfID sets the value of ReversalOfID.
 func (s *GoodsReceipt) SetReversalOfID(val OptUUID) {
 	s.ReversalOfID = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *GoodsReceipt) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *GoodsReceipt) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
 }
 
 // SetItems sets the value of Items.
@@ -10919,6 +10947,223 @@ func (s *GoodsReceiptReverse) GetPostingDate() OptDate {
 func (s *GoodsReceiptReverse) SetPostingDate(val OptDate) {
 	s.PostingDate = val
 }
+
+// The GR/IR position of one purchase order item: identified by (purchase_order_id, po_item_no).
+// Ref: #/components/schemas/GrIrBalance
+type GrIrBalance struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Purchase order.
+	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// Item of the purchase order.
+	PoItemNo int32 `json:"po_item_no"`
+	// The GR/IR account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Received by goods receipts less their reversals, in the order item's unit.
+	ReceivedQuantity Quantity `json:"received_quantity"`
+	// Invoiced by posted invoices less their reversals.
+	InvoicedQuantity Quantity `json:"invoiced_quantity"`
+	// Balance in the order's currency, signed: negative when more is received than invoiced.
+	Balance Money `json:"balance"`
+	// Balance in local currency, signed.
+	BalanceLc Money `json:"balance_lc"`
+	// Balance in group currency, signed.
+	BalanceGc Money `json:"balance_gc"`
+	// Posting date of the latest receipt, invoice or reversal on the item.
+	LastPostingDate time.Time `json:"last_posting_date"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *GrIrBalance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *GrIrBalance) GetPurchaseOrderID() uuid.UUID {
+	return s.PurchaseOrderID
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *GrIrBalance) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *GrIrBalance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetReceivedQuantity returns the value of ReceivedQuantity.
+func (s *GrIrBalance) GetReceivedQuantity() Quantity {
+	return s.ReceivedQuantity
+}
+
+// GetInvoicedQuantity returns the value of InvoicedQuantity.
+func (s *GrIrBalance) GetInvoicedQuantity() Quantity {
+	return s.InvoicedQuantity
+}
+
+// GetBalance returns the value of Balance.
+func (s *GrIrBalance) GetBalance() Money {
+	return s.Balance
+}
+
+// GetBalanceLc returns the value of BalanceLc.
+func (s *GrIrBalance) GetBalanceLc() Money {
+	return s.BalanceLc
+}
+
+// GetBalanceGc returns the value of BalanceGc.
+func (s *GrIrBalance) GetBalanceGc() Money {
+	return s.BalanceGc
+}
+
+// GetLastPostingDate returns the value of LastPostingDate.
+func (s *GrIrBalance) GetLastPostingDate() time.Time {
+	return s.LastPostingDate
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *GrIrBalance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *GrIrBalance) SetPurchaseOrderID(val uuid.UUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *GrIrBalance) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *GrIrBalance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetReceivedQuantity sets the value of ReceivedQuantity.
+func (s *GrIrBalance) SetReceivedQuantity(val Quantity) {
+	s.ReceivedQuantity = val
+}
+
+// SetInvoicedQuantity sets the value of InvoicedQuantity.
+func (s *GrIrBalance) SetInvoicedQuantity(val Quantity) {
+	s.InvoicedQuantity = val
+}
+
+// SetBalance sets the value of Balance.
+func (s *GrIrBalance) SetBalance(val Money) {
+	s.Balance = val
+}
+
+// SetBalanceLc sets the value of BalanceLc.
+func (s *GrIrBalance) SetBalanceLc(val Money) {
+	s.BalanceLc = val
+}
+
+// SetBalanceGc sets the value of BalanceGc.
+func (s *GrIrBalance) SetBalanceGc(val Money) {
+	s.BalanceGc = val
+}
+
+// SetLastPostingDate sets the value of LastPostingDate.
+func (s *GrIrBalance) SetLastPostingDate(val time.Time) {
+	s.LastPostingDate = val
+}
+
+// One page of GR/IR balances.
+// Ref: #/components/schemas/GrIrBalancePage
+type GrIrBalancePage struct {
+	// The positions on this page.
+	Items []GrIrBalance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *GrIrBalancePage) GetItems() []GrIrBalance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *GrIrBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *GrIrBalancePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *GrIrBalancePage) SetItems(val []GrIrBalance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *GrIrBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *GrIrBalancePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// GrIrBalancePageHeaders wraps GrIrBalancePage with response headers.
+type GrIrBalancePageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           GrIrBalancePage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GrIrBalancePageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GrIrBalancePageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GrIrBalancePageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GrIrBalancePageHeaders) GetResponse() GrIrBalancePage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GrIrBalancePageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GrIrBalancePageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GrIrBalancePageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GrIrBalancePageHeaders) SetResponse(val GrIrBalancePage) {
+	s.Response = val
+}
+
+func (*GrIrBalancePageHeaders) listGrIrBalancesRes() {}
 
 // A posted journal entry. Insert-only: it never changes; corrections are reversals. The ETag is
 // derived from the representation (it changes when the entry is reversed).
@@ -11540,6 +11785,11 @@ type JournalLine struct {
 	TaxCode OptString `json:"tax_code"`
 	// Quantity, where relevant.
 	Quantity OptQuantity `json:"quantity"`
+	// Purchase order whose item the line belongs to: set on GR/IR lines, which goods receipts and invoices
+	// post with the quantity they move.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// Item of the purchase order, set with `purchase_order_id`.
+	PoItemNo OptInt32 `json:"po_item_no"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -11582,6 +11832,16 @@ func (s *JournalLine) GetTaxCode() OptString {
 // GetQuantity returns the value of Quantity.
 func (s *JournalLine) GetQuantity() OptQuantity {
 	return s.Quantity
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *JournalLine) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *JournalLine) GetPoItemNo() OptInt32 {
+	return s.PoItemNo
 }
 
 // GetLineText returns the value of LineText.
@@ -11627,6 +11887,16 @@ func (s *JournalLine) SetTaxCode(val OptString) {
 // SetQuantity sets the value of Quantity.
 func (s *JournalLine) SetQuantity(val OptQuantity) {
 	s.Quantity = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *JournalLine) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *JournalLine) SetPoItemNo(val OptInt32) {
+	s.PoItemNo = val
 }
 
 // SetLineText sets the value of LineText.
@@ -18257,6 +18527,12 @@ type PurchaseOrder struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
+	// How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post
+	// the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr
+	// GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a
+	// GR/IR account (account determination `gr_ir`) at release. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Valuation OptString `json:"valuation"`
 	// Items.
 	Items []PurchaseOrderItem `json:"items"`
 	// Derived total of the items.
@@ -18345,6 +18621,11 @@ func (s *PurchaseOrder) GetContractID() OptUUID {
 // GetStatus returns the value of Status.
 func (s *PurchaseOrder) GetStatus() string {
 	return s.Status
+}
+
+// GetValuation returns the value of Valuation.
+func (s *PurchaseOrder) GetValuation() OptString {
+	return s.Valuation
 }
 
 // GetItems returns the value of Items.
@@ -18445,6 +18726,11 @@ func (s *PurchaseOrder) SetContractID(val OptUUID) {
 // SetStatus sets the value of Status.
 func (s *PurchaseOrder) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetValuation sets the value of Valuation.
+func (s *PurchaseOrder) SetValuation(val OptString) {
+	s.Valuation = val
 }
 
 // SetItems sets the value of Items.
@@ -23744,6 +24030,7 @@ func (*TooManyRequestsHeaders) listContractsRes()              {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()          {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()          {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()          {}
+func (*TooManyRequestsHeaders) listGrIrBalancesRes()           {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()         {}
 func (*TooManyRequestsHeaders) listLegalEntitiesRes()          {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()           {}
@@ -23973,6 +24260,7 @@ func (*UnauthorizedHeaders) listContractsRes()              {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()          {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()          {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()          {}
+func (*UnauthorizedHeaders) listGrIrBalancesRes()           {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()         {}
 func (*UnauthorizedHeaders) listLegalEntitiesRes()          {}
 func (*UnauthorizedHeaders) listMatchResultsRes()           {}

@@ -27,6 +27,13 @@ func init() {
 	problem.RegisterConstraint("reversal_pkey", func() *problem.Problem {
 		return problem.Conflict("ledger.already_reversed", "The journal entry has already been reversed.")
 	})
+	problem.RegisterConstraint("account_determination_gr_ir_fixed", func() *problem.Problem {
+		return problem.Conflict("ledger.gr_ir_account_fixed", "The legal entity's GR/IR account cannot change once determined: its positions are the lines on it.")
+	})
+	problem.RegisterConstraint("journal_line_gr_ir_order_item", func() *problem.Problem {
+		return problem.Unprocessable("ledger.automatic_account", "The GR/IR account is posted only by goods receipts and invoices, which name the order item of each line.",
+			problem.FieldError{Field: "lines.account_id", Code: "automatic", Message: "an account other than the legal entity's GR/IR account"})
+	})
 	problem.RegisterConstraint("journal_line_uom_code_fkey", func() *problem.Problem {
 		return problem.Unprocessable("ledger.unknown_unit", "A quantity's unit of measure is not known.",
 			problem.FieldError{Field: "lines.quantity.unit", Code: "unknown", Message: "a unit of measure code from the reference data"})
@@ -77,6 +84,10 @@ type Line struct {
 	Quantity  *string     `json:"quantity"`
 	Unit      *string     `json:"unit"`
 	Text      *string     `json:"text"`
+	// The purchase order item a GR/IR line belongs to (T33), with the
+	// quantity it moves.
+	PurchaseOrderID *uuid.UUID `json:"purchase_order_id"`
+	POItemNo        *int32     `json:"po_item_no"`
 }
 
 const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
@@ -85,7 +96,7 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year,
 		e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
 		(SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount_tc, 'lc', l.amount_lc,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
-			'unit', l.uom_code, 'text', l.line_text) ORDER BY l.line_no)
+			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no) ORDER BY l.line_no)
 		 FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
 	FROM ledger.journal_entry e
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
@@ -220,18 +231,21 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 	nos, accounts, partners := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n)
 	tcs, lcs, gcs := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
+	orders, items := make([]*uuid.UUID, n), make([]*int32, n)
 	for i, l := range d.lines {
 		nos[i], accounts[i], partners[i] = int32(i+1), l.AccountID, l.PartnerID
 		tcs[i], lcs[i], gcs[i] = l.TC, l.LC, l.GC
 		taxes[i], quantities[i], units[i], texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
+		orders[i], items[i] = l.PurchaseOrderID, l.POItemNo
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
-			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text)
-		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t
-		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[])
-			AS x(n, a, tc, lc, gc, pa, tx, q, u, t)`,
+			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text,
+			purchase_order_id, po_item_no)
+		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i
+		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[],
+			$18::uuid[], $19::int[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i)`,
 		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.postingDate, nos, accounts, tcs, lcs, gcs, partners,
-		taxes, quantities, units, texts); err != nil {
+		taxes, quantities, units, texts, orders, items); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", id, err)
 	}
 	posted, err := getEntry(ctx, tx, id)
@@ -257,6 +271,9 @@ func postedEvent(e Entry) outbox.Event {
 			"amount_gc": money.EventAmount(l.GC, e.CurrencyGC, e.ExpGC)}
 		if l.Quantity != nil {
 			line["quantity"] = map[string]any{"value": *l.Quantity, "unit": *l.Unit}
+		}
+		if l.PurchaseOrderID != nil {
+			line["purchase_order_id"], line["po_item_no"] = *l.PurchaseOrderID, *l.POItemNo
 		}
 		lines[i] = line
 	}
@@ -742,7 +759,10 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if postingDate != nil {
 		date = *postingDate
 	}
-	lines := reversalLines(orig)
+	lines, err := grirAdjustments(ctx, tx, orig, reversalLines(orig))
+	if err != nil {
+		return Entry{}, err
+	}
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}
@@ -750,10 +770,14 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		text := "Reversal of " + orig.DocumentNumber
 		headerText = &text
 	}
-	return e.post(ctx, tx, p, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
+	rev, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
 		postingDate: date, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
 		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, lines: lines})
+	if err != nil {
+		return Entry{}, err
+	}
+	return rev, project(ctx, tx, rev)
 }
 
 // recordReversal links the reversal to its original, publishes
@@ -799,7 +823,9 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
 // only the owner knows what else the reversal must change (a supplier
 // invoice's status, its permission, the payment runs holding its item), so
 // it reverses the entry through Postings.Reverse. Today that is payables
-// (supplier-invoices/{id}:reverse). Entries of contexts without such a
+// (supplier-invoices/{id}:reverse), and procurement, whose goods receipts
+// are reversed by a 102 movement posting its own WE entry
+// (goods-receipts/{id}:reverse, T33). Entries of contexts without such a
 // reversal stay the ledger's to reverse: manual ones, those a migration run
 // loaded (their source document is the load run), and payments (whose
 // entries clear their items, so requireReversible refuses them anyway).
@@ -813,18 +839,21 @@ func requireOwnEntry(orig Entry) error {
 	case orig.SourceContext == "payables" && orig.SourceDocumentID != nil:
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for supplier invoice "+orig.SourceDocumentID.String()+
 			"; reverse it with POST /v1/supplier-invoices/"+orig.SourceDocumentID.String()+":reverse.")
+	case orig.SourceContext == "procurement" && orig.SourceDocumentID != nil:
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for goods movement "+orig.SourceDocumentID.String()+
+			"; goods receipts are reversed with POST /v1/goods-receipts/{receipt id}:reverse, which posts its own entry.")
 	}
 	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
 		" context, and no reversal path exists yet for that context's entries, so it cannot be reversed.")
 }
 
 // reversalLines are the entry's lines with every amount and quantity
-// negated.
+// negated, each on the order item of the line it reverses.
 func reversalLines(orig Entry) []Line {
 	lines := make([]Line, len(orig.Lines))
 	for i, l := range orig.Lines {
 		lines[i] = Line{AccountID: l.AccountID, TC: -l.TC, LC: -l.LC, GC: -l.GC, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
-			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text}
+			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo}
 	}
 	return lines
 }

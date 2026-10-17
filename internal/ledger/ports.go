@@ -51,10 +51,41 @@ type Posting struct {
 	SourceContext    string
 	SourceDocumentID uuid.UUID
 	Lines            []PostingLine
+	// GRIR moves purchase order items' GR/IR positions (T33): the ledger
+	// books each item's GR/IR line and its counter line next to Lines.
+	GRIR []GRIRItem
 }
 
-// Post posts the entry in the leading ledger.
+// GRIRItem moves one purchase order item's GR/IR position (T33). The
+// ledger books the GR/IR line, on the legal entity's gr_ir account, so
+// that the item's balance afterwards is the order price of its net
+// quantity, invoiced less received, and the counter line beside it.
+type GRIRItem struct {
+	PurchaseOrderID uuid.UUID
+	POItemNo        int32
+	// Quantity is signed like the GR/IR line, debit positive: the
+	// received quantity negated on a goods receipt (101), positive on its
+	// reversal (102), the invoiced quantity on an invoice.
+	Quantity, Unit string
+	// UnitPrice is the order price per PriceUnit, in minor units of the
+	// entry's currency (the order's).
+	UnitPrice money.Minor
+	PriceUnit int32
+	// A goods movement names the order item's account (expense or stock),
+	// whose line mirrors the GR/IR line in all three currencies. An invoice
+	// names its item's net amount instead: what it differs from the GR/IR
+	// line goes to the price_difference account.
+	OffsetAccountID *uuid.UUID
+	Invoiced        *money.Minor
+	Text            *string
+}
+
+// Post posts the entry in the leading ledger; one with GR/IR items books
+// their lines too (postGRIR).
 func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
+	if len(in.GRIR) > 0 {
+		return p.postGRIR(ctx, in)
+	}
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return Entry{}, err
@@ -113,8 +144,9 @@ func (Accounts) Determination(ctx context.Context, legalEntity uuid.UUID, key st
 }
 
 // IsPostable reports whether the account is active, set up and not blocked
-// for posting in the legal entity, and not a reconciliation account (those
-// are posted only through their subledger).
+// for posting in the legal entity, and neither a reconciliation account
+// (those are posted only through their subledger) nor the legal entity's
+// GR/IR account (posted only by goods receipts and invoices, T33).
 func (Accounts) IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -123,7 +155,9 @@ func (Accounts) IsPostable(ctx context.Context, legalEntity, account uuid.UUID) 
 	var ok bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
-		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none')`, legalEntity, account).Scan(&ok)
+		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none'
+			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
+				AND d.key = 'gr_ir' AND d.account_id = a.id))`, legalEntity, account).Scan(&ok)
 	if err != nil {
 		return ok, fmt.Errorf("ledger: is account %s postable in %s: %w", account, legalEntity, err)
 	}

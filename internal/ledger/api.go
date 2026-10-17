@@ -30,9 +30,12 @@ func entryToAPI(e Entry) gen.JournalEntry {
 	for i, l := range e.Lines {
 		line := gen.JournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, e.CurrencyTC, e.ExpTC),
 			AmountLc: apitypes.Money(l.LC, e.CurrencyLC, e.ExpLC), AmountGc: apitypes.Money(l.GC, e.CurrencyGC, e.ExpGC), PartnerID: apitypes.OptUUID(l.PartnerID),
-			TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text)}
+			TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text), PurchaseOrderID: apitypes.OptUUID(l.PurchaseOrderID)}
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
+		}
+		if l.POItemNo != nil {
+			line.PoItemNo.SetTo(*l.POItemNo)
 		}
 		out.Lines[i] = line
 	}

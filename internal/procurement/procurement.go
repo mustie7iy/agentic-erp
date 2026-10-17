@@ -2,7 +2,9 @@
 // purchase requisitions approved through the workflow context, purchasing
 // contracts, purchase orders and goods receipts (insert-only movements 101
 // and 102, limited by the ordered quantity plus the over-delivery
-// tolerance).
+// tolerance). Orders are valued at release, directly or through GR/IR;
+// movements on GR/IR orders post WE entries through the ledger's Postings
+// (T33, 03-data-model §3.8).
 package procurement
 
 import (
@@ -32,8 +34,10 @@ type Suppliers interface {
 	PaymentTermExists(ctx context.Context, code string) (bool, error)
 }
 
-// Accounts is what procurement asks the ledger about accounts and tax codes.
+// Accounts is what procurement asks the ledger about accounts, the account
+// determination and tax codes.
 type Accounts interface {
+	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
 }
@@ -70,6 +74,13 @@ type Endpoints struct {
 	Settings      Settings
 	Approvals     Opener
 	Invoices      Invoices
+	Postings      Postings
+}
+
+// Postings posts the WE entries of goods movements on orders valued
+// through GR/IR (ledger context, T33).
+type Postings interface {
+	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
 }
 
 // Invoices tells whether supplier invoices refer to a purchase order

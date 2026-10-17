@@ -341,12 +341,19 @@ func exchangeDifferenceLines(ctx context.Context, legalEntity uuid.UUID, lc, gc 
 	if err != nil {
 		return nil, err
 	}
+	return fxLines(ctx, legalEntity, diffLC, diffGC, text)
+}
+
+// fxLines books exchange differences in local and in group currency, debit
+// positive, on the fx_gain or fx_loss account of the account
+// determination: one line per currency with a difference.
+func fxLines(ctx context.Context, legalEntity uuid.UUID, diffLC, diffGC money.Minor, text *string) ([]Line, error) {
 	var lines []Line
 	for _, d := range []Line{{LC: diffLC}, {GC: diffGC}} {
 		if d.LC == 0 && d.GC == 0 {
 			continue
 		}
-		key := "fx_gain" // the payment cost less than the items were booked at
+		key := "fx_gain" // the posting settles for less than the items were booked at
 		if d.LC+d.GC > 0 {
 			key = "fx_loss"
 		}
@@ -355,7 +362,7 @@ func exchangeDifferenceLines(ctx context.Context, legalEntity uuid.UUID, lc, gc 
 			return nil, err
 		}
 		if !ok {
-			return nil, problem.Unprocessable("ledger.no_fx_account", "The payment realizes an exchange difference, and the legal entity has no "+key+
+			return nil, problem.Unprocessable("ledger.no_fx_account", "The posting realizes an exchange difference, and the legal entity has no "+key+
 				" account in its account determination.")
 		}
 		d.AccountID, d.Text = account, text

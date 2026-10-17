@@ -677,6 +677,17 @@ type Handler interface {
 	//
 	// GET /v1/goods-receipts
 	ListGoodsReceipts(ctx context.Context, params ListGoodsReceiptsParams) (ListGoodsReceiptsRes, error)
+	// ListGrIrBalances implements listGrIrBalances operation.
+	//
+	// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
+	// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
+	// positive: invoiced, not yet received). A position is zero in every currency once its received and
+	// invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to`
+	// the call reports one order's positions on that key date. Sortable by: `purchase_order_id`,
+	// `last_posting_date`.
+	//
+	// GET /v1/gr-ir-balances
+	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
 	// ListJournalEntries implements listJournalEntries operation.
 	//
 	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
@@ -843,7 +854,9 @@ type Handler interface {
 	//
 	// Posts a manual journal entry. Journal entries are insert-only and have no draft state, so creating
 	// an entry is posting it: the request is validated (balance in every currency, open period, postable
-	// accounts, partner on reconciliation lines) and either fully posted or rejected.
+	// accounts, partner on reconciliation lines) and either fully posted or rejected. A line on the legal
+	// entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods
+	// receipts and invoices post it.
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
@@ -975,9 +988,11 @@ type Handler interface {
 	// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
 	// Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
 	// payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
-	// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`.
-	// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
-	// them yet. Returns the new reversal entry.
+	// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a
+	// goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
+	// is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
+	// other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
+	// Returns the new reversal entry.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)

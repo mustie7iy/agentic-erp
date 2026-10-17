@@ -698,6 +698,17 @@ type Invoker interface {
 	//
 	// GET /v1/goods-receipts
 	ListGoodsReceipts(ctx context.Context, params ListGoodsReceiptsParams) (ListGoodsReceiptsRes, error)
+	// ListGrIrBalances invokes listGrIrBalances operation.
+	//
+	// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
+	// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
+	// positive: invoiced, not yet received). A position is zero in every currency once its received and
+	// invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to`
+	// the call reports one order's positions on that key date. Sortable by: `purchase_order_id`,
+	// `last_posting_date`.
+	//
+	// GET /v1/gr-ir-balances
+	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
 	// ListJournalEntries invokes listJournalEntries operation.
 	//
 	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
@@ -864,7 +875,9 @@ type Invoker interface {
 	//
 	// Posts a manual journal entry. Journal entries are insert-only and have no draft state, so creating
 	// an entry is posting it: the request is validated (balance in every currency, open period, postable
-	// accounts, partner on reconciliation lines) and either fully posted or rejected.
+	// accounts, partner on reconciliation lines) and either fully posted or rejected. A line on the legal
+	// entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods
+	// receipts and invoices post it.
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, request *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
@@ -996,9 +1009,11 @@ type Invoker interface {
 	// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
 	// Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
 	// payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
-	// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`.
-	// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
-	// them yet. Returns the new reversal entry.
+	// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a
+	// goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
+	// is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
+	// other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
+	// Returns the new reversal entry.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
@@ -17372,6 +17387,261 @@ func (c *Client) sendListGoodsReceipts(ctx context.Context, params ListGoodsRece
 	return result, nil
 }
 
+// ListGrIrBalances invokes listGrIrBalances operation.
+//
+// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
+// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
+// positive: invoiced, not yet received). A position is zero in every currency once its received and
+// invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to`
+// the call reports one order's positions on that key date. Sortable by: `purchase_order_id`,
+// `last_posting_date`.
+//
+// GET /v1/gr-ir-balances
+func (c *Client) ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error) {
+	res, err := c.sendListGrIrBalances(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (res ListGrIrBalancesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listGrIrBalances"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/gr-ir-balances"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListGrIrBalancesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/gr-ir-balances"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "purchase_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "purchase_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PurchaseOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "posting_date_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "posting_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PostingDateTo.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "open_only" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "open_only",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OpenOnly.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListGrIrBalancesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListGrIrBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListJournalEntries invokes listJournalEntries operation.
 //
 // Posted journal entries. Sortable by: `posting_date`, `document_number`.
@@ -23091,7 +23361,9 @@ func (c *Client) sendPostGoodsReceipt(ctx context.Context, request *GoodsReceipt
 //
 // Posts a manual journal entry. Journal entries are insert-only and have no draft state, so creating
 // an entry is posting it: the request is validated (balance in every currency, open period, postable
-// accounts, partner on reconciliation lines) and either fully posted or rejected.
+// accounts, partner on reconciliation lines) and either fully posted or rejected. A line on the legal
+// entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods
+// receipts and invoices post it.
 //
 // POST /v1/journal-entries
 func (c *Client) PostJournalEntry(ctx context.Context, request *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error) {
@@ -25461,9 +25733,11 @@ func (c *Client) sendReverseGoodsReceipt(ctx context.Context, request OptGoodsRe
 // clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
 // Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
 // payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
-// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`.
-// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
-// them yet. Returns the new reversal entry.
+// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a
+// goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
+// is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
+// other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
+// Returns the new reversal entry.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (c *Client) ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error) {

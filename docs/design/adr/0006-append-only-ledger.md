@@ -34,3 +34,10 @@ the highest-volume table (up to 10 billion lines per region per year).
 ## Consequences
 - Trial balance is a read over aggregates plus a small delta.
 - Reversals double the lines for corrections; that is the audit requirement.
+
+## Amendment (T33f, 2026-10-16)
+GR/IR positions (`ledger.gr_ir_position`) are the exception. They are
+updated in the posting transaction under the order's GR/IR advisory lock,
+because a posting must read its order item's position to value the next
+movement. Contention is per order item and already serialized by that
+lock. Period balances stay with the asynchronous projector.
