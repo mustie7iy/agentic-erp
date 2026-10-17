@@ -201,7 +201,6 @@ func TestProvisioningIsAllOrNothing(t *testing.T) {
 		}
 		return n
 	}
-	before := count(t, `SELECT count(*) FROM tenancy.tenant`)
 	p := provisioner(t)
 	p.Now = time.Now
 	// With an identity provider too: its registration's statements fail
@@ -211,7 +210,7 @@ func TestProvisioningIsAllOrNothing(t *testing.T) {
 	if !everyStatementFails(t, p, pool, withProvider, count) {
 		return
 	}
-	before = count(t, `SELECT count(*) FROM tenancy.tenant`)
+	before := count(t, `SELECT count(*) FROM tenancy.tenant`)
 	for n := 1; ; n++ {
 		var failing *pgtest.FailingTx
 		p.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {

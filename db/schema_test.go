@@ -1766,13 +1766,16 @@ func TestIdentityProviders(t *testing.T) {
 	need(t)
 	a, b := newFixture(t), newFixture(t)
 	p := id()
-	mustApp(t, a.tenant, registerProvider(a, p, "https://idp.example.com/a", "erp"))
+	// Unique per run: an active pair stays registered, and a rerun (-count)
+	// shares the database.
+	issuer := "https://idp.example.com/a-" + id().String()
+	mustApp(t, a.tenant, registerProvider(a, p, issuer, "erp"))
 
 	t.Run("an active pair belongs to one tenant", func(t *testing.T) {
-		failsWith(t, asApp(t, b.tenant, registerProvider(b, id(), "https://idp.example.com/a", "erp")), "identity_provider_issuer_audience")
+		failsWith(t, asApp(t, b.tenant, registerProvider(b, id(), issuer, "erp")), "identity_provider_issuer_audience")
 	})
 	t.Run("another audience is another registration", func(t *testing.T) {
-		if err := asApp(t, b.tenant, registerProvider(b, id(), "https://idp.example.com/a", "erp-b")); err != nil {
+		if err := asApp(t, b.tenant, registerProvider(b, id(), issuer, "erp-b")); err != nil {
 			t.Errorf("same issuer, another audience: got %v, want registered", err)
 		}
 	})
@@ -1801,7 +1804,7 @@ func TestIdentityProviders(t *testing.T) {
 	})
 	t.Run("a retired registration frees its pair and stays retired", func(t *testing.T) {
 		mustApp(t, a.tenant, changeProvider(a, p, "status = 'retired', retired_at = now()"))
-		if err := asApp(t, b.tenant, registerProvider(b, id(), "https://idp.example.com/a", "erp")); err != nil {
+		if err := asApp(t, b.tenant, registerProvider(b, id(), issuer, "erp")); err != nil {
 			t.Errorf("the retired pair registered by another tenant: got %v, want registered", err)
 		}
 		failsWith(t, asApp(t, a.tenant, changeProvider(a, p, "acr_values = '{x}'")), "is retired")
@@ -1852,7 +1855,7 @@ func TestAuthPolicy(t *testing.T) {
 func TestControlRoleReadsTheRegistry(t *testing.T) {
 	need(t)
 	f := newFixture(t)
-	mustApp(t, f.tenant, registerProvider(f, id(), "https://idp.example.com/control", "erp"))
+	mustApp(t, f.tenant, registerProvider(f, id(), "https://idp.example.com/control-"+id().String(), "erp")) // unique per run, as in TestIdentityProviders
 	asControl := func(sql string) error {
 		ctx := context.Background()
 		tx, err := testDB.Begin(ctx)
