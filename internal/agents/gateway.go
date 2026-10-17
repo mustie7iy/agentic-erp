@@ -1,0 +1,400 @@
+package agents
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"math"
+	"net/http"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+// The model gateway (api/model.yaml, ADR-0036): every model call an agent
+// or the server makes goes through it. It routes the alias a request names
+// to a model, refuses a model without a price, forwards the request to the
+// provider and records the call, its tokens and cost but never its
+// content, in agents.model_call.
+
+// DefaultRoutes are the aliases callers name and the models they route to
+// when nothing else is configured.
+var DefaultRoutes = map[string]string{"erp-default": "claude-opus-5-5", "erp-extraction": "claude-opus-5-5", "erp-analytics": "claude-opus-5-5"}
+
+// SessionHeader ties a call to the caller's agent session.
+const SessionHeader = "Erp-Agent-Session"
+
+// Route is the gateway's path on the public listener: an SDK whose base
+// URL is /v1/model sends its Messages requests there (api/model.yaml).
+const Route = "/v1/model/v1/messages"
+
+// MaxModelBody bounds a request: the provider takes 32 MB, documents
+// included.
+const MaxModelBody = 32 << 20
+
+// allowedFields are the Messages API request fields the gateway forwards.
+var allowedFields = []string{"model", "max_tokens", "messages", "system", "tools", "tool_choice", "output_config", "thinking",
+	"stop_sequences", "fallbacks", "metadata"}
+
+// allowedBetas are the provider betas the gateway forwards.
+var allowedBetas = []string{"server-side-fallback-2026-07-01"}
+
+// Provider sends a Messages API request to the model provider.
+type Provider interface {
+	Messages(ctx context.Context, body []byte, betas []string) (status int, answer []byte, err error)
+}
+
+// Gateway is the model gateway of a cell.
+type Gateway struct {
+	Provider Provider
+	Routes   map[string]string // alias → model; nil: DefaultRoutes
+	Pool     *database.Pool    // the ledger's transactions on the public listener
+	AppRole  string
+	Log      *slog.Logger
+	Now      func() time.Time
+}
+
+// call is one request to the gateway.
+type call struct {
+	body    []byte
+	betas   []string
+	session *uuid.UUID
+	// inTx runs fn in a transaction of the caller's tenant as the caller.
+	inTx func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error
+}
+
+// answer is what the provider said and what the call cost.
+type answer struct {
+	status   int
+	body     []byte
+	model    string
+	cost     money.Micro
+	currency string
+}
+
+// price is a model's prices per million tokens.
+type price struct {
+	input, output, cacheWrite, cacheRead money.Micro
+	currency                             string
+}
+
+// serve makes one call for p: routed, priced, forwarded and recorded.
+func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer, error) {
+	alias, model, body, err := g.prepare(c.body)
+	if err != nil {
+		return answer{}, err
+	}
+	if err := checkBetas(c.betas); err != nil {
+		return answer{}, err
+	}
+	var pr price
+	if err := c.inTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := ownSession(ctx, tx, p, c.session); err != nil {
+			return err
+		}
+		pr, err = priceOf(ctx, tx, model, clock.Now(g.Now))
+		return err
+	}); err != nil {
+		return answer{}, err
+	}
+	started := clock.Now(g.Now)
+	status, raw, sendErr := g.Provider.Messages(ctx, body, c.betas)
+	rec := g.meter(status, raw, sendErr, model, pr)
+	rec.alias, rec.duration = alias, clock.Now(g.Now).Sub(started)
+	if err := c.inTx(context.WithoutCancel(ctx), func(ctx context.Context, tx pgx.Tx) error { return recordCall(ctx, tx, p, c.session, rec) }); err != nil {
+		return answer{}, err
+	}
+	if sendErr != nil {
+		return answer{}, problem.New(http.StatusBadGateway, "agents.model_unreachable", "Model unreachable", "The model provider did not answer; try again.").WithCause(sendErr)
+	}
+	return answer{status: status, body: raw, model: rec.model, cost: rec.cost, currency: pr.currency}, nil
+}
+
+// prepare checks the request against the forwarded fields and routes its
+// alias, returning the body with the model in its place.
+func (g *Gateway) prepare(body []byte) (alias, model string, out []byte, err error) {
+	var req map[string]json.RawMessage
+	if err := json.Unmarshal(body, &req); err != nil {
+		return "", "", nil, problem.BadRequest("request.invalid_body", "The request is not a JSON object.").WithCause(err)
+	}
+	for field := range req {
+		if !slices.Contains(allowedFields, field) {
+			return "", "", nil, problem.BadRequest("request.invalid_body", "The gateway does not forward "+field+".")
+		}
+	}
+	if err := json.Unmarshal(req["model"], &alias); err != nil || alias == "" {
+		return "", "", nil, problem.BadRequest("request.invalid_body", "model must name a model alias.")
+	}
+	if err := checkTools(req["tools"]); err != nil {
+		return "", "", nil, err
+	}
+	routes := g.Routes
+	if routes == nil {
+		routes = DefaultRoutes
+	}
+	model, ok := routes[alias]
+	if !ok {
+		return "", "", nil, problem.Unprocessable("agents.unknown_model", "The gateway routes no model alias "+alias+".",
+			problem.FieldError{Field: "model", Code: "unknown", Message: "a model alias: erp-default, erp-extraction or erp-analytics"})
+	}
+	req["model"], _ = json.Marshal(model) // a string always encodes
+	out, _ = json.Marshal(req)            // raw messages of a decoded object always encode
+	return alias, model, out, nil
+}
+
+// checkTools refuses server tools: only the caller's own tools, which have
+// no type, are forwarded.
+func checkTools(raw json.RawMessage) error {
+	if raw == nil {
+		return nil
+	}
+	var tools []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tools); err != nil {
+		return problem.BadRequest("request.invalid_body", "tools must be a list of tool definitions.").WithCause(err)
+	}
+	for _, t := range tools {
+		if typ, ok := t["type"]; ok && string(typ) != `"custom"` {
+			return problem.BadRequest("request.invalid_body", "The gateway forwards the caller's own tools only, not server tools.")
+		}
+	}
+	return nil
+}
+
+// checkBetas refuses provider betas the gateway does not forward.
+func checkBetas(betas []string) error {
+	for _, b := range betas {
+		if !slices.Contains(allowedBetas, b) {
+			return problem.BadRequest("request.invalid_body", "The gateway does not forward the provider beta "+b+".")
+		}
+	}
+	return nil
+}
+
+// betas reads the anthropic-beta header's values.
+func betas(h http.Header) []string {
+	var out []string
+	for _, v := range h.Values("anthropic-beta") {
+		for _, b := range strings.Split(v, ",") {
+			if b = strings.TrimSpace(b); b != "" {
+				out = append(out, b)
+			}
+		}
+	}
+	return out
+}
+
+// sessionOf reads the session a call belongs to, if it names one.
+func sessionOf(h http.Header) (*uuid.UUID, error) {
+	s := h.Get(SessionHeader)
+	if s == "" {
+		return nil, nil
+	}
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return nil, problem.BadRequest("request.invalid_header", SessionHeader+" must be a session id.").WithCause(err)
+	}
+	return &id, nil
+}
+
+// ownSession checks that a named session is a running session of p's.
+func ownSession(ctx context.Context, tx pgx.Tx, p reqctx.Principal, session *uuid.UUID) error {
+	if session == nil {
+		return nil
+	}
+	var running bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM agents.session WHERE id = $1 AND agent_id = $2 AND status = 'running')`, *session, p.ID).Scan(&running); err != nil {
+		return fmt.Errorf("agents: read session %s: %w", *session, err)
+	}
+	if !running {
+		return problem.NotFoundOf("agent session")
+	}
+	return nil
+}
+
+// priceOf is the model's price in force at now, or 422 without one: no
+// call goes unmetered.
+func priceOf(ctx context.Context, tx pgx.Tx, model string, now time.Time) (price, error) {
+	var p price
+	err := tx.QueryRow(ctx, `SELECT input, output, cache_write, cache_read, currency FROM ref.model_price
+		WHERE model = $1 AND effective_from <= $2 ORDER BY effective_from DESC LIMIT 1`, model, now.UTC().Format(time.DateOnly)).
+		Scan(&p.input, &p.output, &p.cacheWrite, &p.cacheRead, &p.currency)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return p, problem.Unprocessable("agents.model_unpriced", "The model "+model+" has no recorded price; an operator records it with erp-server prices load.")
+	case err != nil:
+		return p, fmt.Errorf("agents: read the price of %s: %w", model, err)
+	}
+	return p, nil
+}
+
+// usage is the part of the provider's message the ledger reads.
+type usage struct {
+	Model      string `json:"model"`
+	StopReason string `json:"stop_reason"`
+	Usage      struct {
+		Input      int64 `json:"input_tokens"`
+		Output     int64 `json:"output_tokens"`
+		CacheWrite int64 `json:"cache_creation_input_tokens"`
+		CacheRead  int64 `json:"cache_read_input_tokens"`
+	} `json:"usage"`
+}
+
+// row is one ledger row.
+type row struct {
+	alias, model, status       string
+	input, output, write, read int64
+	cost                       money.Micro
+	currency                   string
+	duration                   time.Duration
+}
+
+// meter turns the provider's answer into a ledger row: an answer that is
+// not a message is a failed call with no tokens, priced at nothing.
+func (g *Gateway) meter(status int, raw []byte, sendErr error, model string, pr price) row {
+	r := row{model: model, status: "failed", currency: pr.currency}
+	var u usage
+	if sendErr != nil || status != http.StatusOK || json.Unmarshal(raw, &u) != nil {
+		return r
+	}
+	r.status = "succeeded"
+	if u.StopReason == "refusal" {
+		r.status = "refused"
+	}
+	if u.Model != "" {
+		r.model = u.Model
+	}
+	r.input, r.output, r.write, r.read = u.Usage.Input, u.Usage.Output, u.Usage.CacheWrite, u.Usage.CacheRead
+	r.cost = cost(r, pr)
+	return r
+}
+
+// cost prices the row's tokens; tokens no int64 can price are priced at
+// the most an int64 holds, never at nothing.
+func cost(r row, pr price) money.Micro {
+	var total money.Micro
+	for _, part := range []struct {
+		tokens int64
+		price  money.Micro
+	}{{r.input, pr.input}, {r.output, pr.output}, {r.write, pr.cacheWrite}, {r.read, pr.cacheRead}} {
+		c, err := money.TokenCost(part.tokens, part.price)
+		if err != nil || c > math.MaxInt64-total {
+			return math.MaxInt64
+		}
+		total += c
+	}
+	return total
+}
+
+// recordCall writes the ledger row and adds it to the session it belongs to.
+func recordCall(ctx context.Context, tx pgx.Tx, p reqctx.Principal, session *uuid.UUID, r row) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, session_id, alias, model, status, input_tokens, output_tokens,
+		cache_write_tokens, cache_read_tokens, cost_micro, currency, duration_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		p.TenantID, uuid.Must(uuid.NewV7()), p.ID, session, r.alias, r.model, r.status, r.input, r.output, r.write, r.read, r.cost, r.currency,
+		r.duration.Milliseconds()); err != nil {
+		return fmt.Errorf("agents: record model call: %w", err)
+	}
+	if session == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE agents.session SET input_tokens = input_tokens + $3, output_tokens = output_tokens + $4,
+		cost_micro = cost_micro + $5, cost = (cost_micro + $5 + 500000) / 1000000, cost_currency = $6, version = version + 1
+		WHERE id = $1 AND agent_id = $2 AND status = 'running'`, *session, p.ID, r.input+r.write+r.read, r.output, r.cost, r.currency); err != nil {
+		return fmt.Errorf("agents: add model call to session %s: %w", *session, err)
+	}
+	return nil
+}
+
+// ServeHTTP serves createModelMessage behind uow.Authenticated: the
+// principal is known, no transaction is held, and the ledger is written in
+// a transaction of its own.
+func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	p, _ := reqctx.PrincipalFrom(ctx) // uow.Authenticated put it there
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxModelBody))
+	if err != nil {
+		problem.Write(w, r, problem.New(http.StatusRequestEntityTooLarge, "request.body_too_large", "Request body too large",
+			"A model request holds at most 32 MB.").WithCause(err))
+		return
+	}
+	session, err := sessionOf(r.Header)
+	if err != nil {
+		problem.Write(w, r, problem.From(err))
+		return
+	}
+	a, err := g.serve(ctx, p, call{body: body, betas: betas(r.Header), session: session, inTx: g.ownTx(p)})
+	if err != nil {
+		g.fail(w, r, err)
+		return
+	}
+	writeAnswer(w, a)
+}
+
+func (g *Gateway) fail(w http.ResponseWriter, r *http.Request, err error) {
+	p := problem.From(err)
+	if p.Status >= 500 {
+		g.Log.ErrorContext(r.Context(), "model call failed", "error", err)
+	}
+	problem.Write(w, r, p)
+}
+
+func writeAnswer(w http.ResponseWriter, a answer) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Erp-Model", a.model)
+	w.Header().Set("Erp-Model-Cost", fmt.Sprint(int64(a.cost)))
+	w.Header().Set("Erp-Model-Cost-Currency", a.currency)
+	w.WriteHeader(a.status)
+	_, _ = w.Write(a.body) // the client went away if this fails; the call is recorded already
+}
+
+// ownTx runs the ledger's work in a transaction of p's tenant; the ledger
+// names p itself, so no actor is set.
+func (g *Gateway) ownTx(p reqctx.Principal) func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	return func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+		return g.Pool.InTx(ctx, database.Scope{Role: g.AppRole, TenantID: p.TenantID}, fn)
+	}
+}
+
+// Transport is the gateway for the server's own model calls (capture),
+// made inside a unit of work: the request's principal calls, and the
+// ledger is written in the request's transaction. A model SDK's client
+// uses it as its HTTP transport.
+func (g *Gateway) Transport() http.RoundTripper { return inProcess{g} }
+
+type inProcess struct{ g *Gateway }
+
+func (t inProcess) RoundTrip(req *http.Request) (*http.Response, error) {
+	ctx := req.Context()
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agents: model call outside a unit of work: %w", err)
+	}
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, fmt.Errorf("agents: read model request: %w", err)
+	}
+	session, err := sessionOf(req.Header)
+	if err != nil {
+		return nil, err
+	}
+	a, err := t.g.serve(ctx, p, call{body: body, betas: betas(req.Header), session: session, inTx: func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+		return fn(ctx, tx)
+	}})
+	if err != nil {
+		return nil, err
+	}
+	h := http.Header{"Content-Type": {"application/json"}}
+	return &http.Response{StatusCode: a.status, Header: h, Body: io.NopCloser(bytes.NewReader(a.body)), Request: req}, nil
+}
