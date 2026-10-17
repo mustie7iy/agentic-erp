@@ -214,8 +214,15 @@ func TestSchemaCommand(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if s.user != "temporal" || s.database != "temporal" || s.visibility != "temporal_visibility" || s.password != "secret" {
-			t.Errorf("settings: got %+v", s)
+		for name, c := range map[string]struct{ got, want string }{
+			"user":       {s.user, "temporal"},
+			"database":   {s.database, "temporal"},
+			"visibility": {s.visibility, "temporal_visibility"},
+			"password":   {s.password, "secret"},
+		} {
+			if c.got != c.want {
+				t.Errorf("%s: got %q, want %q", name, c.got, c.want)
+			}
 		}
 	})
 }
@@ -227,15 +234,22 @@ func TestToolArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Join(toolArgs(verified, s, "temporal"), " ")
-	if !strings.Contains(got, "--ep writer.example --port 5432") || !strings.Contains(got, "--tls --tls-ca-file /etc/rds/ca.pem") {
-		t.Errorf("verified: got %q, want the host, the default port and TLS against the URL's CA", got)
+	if !strings.Contains(got, "--ep writer.example --port 5432") {
+		t.Errorf("verified: got %q, want the host and the default port", got)
+	}
+	if !strings.Contains(got, "--tls --tls-ca-file /etc/rds/ca.pem") {
+		t.Errorf("verified: got %q, want TLS against the URL's CA", got)
 	}
 	plain, err := url.Parse("postgres://m@localhost:55432/postgres?sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(toolArgs(plain, s, "temporal"), " "); strings.Contains(got, "--tls") || !strings.Contains(got, "--port 55432") {
-		t.Errorf("plaintext (tests only): got %q", got)
+	got = strings.Join(toolArgs(plain, s, "temporal"), " ")
+	if strings.Contains(got, "--tls") {
+		t.Errorf("plaintext (tests only): got %q, want no TLS", got)
+	}
+	if !strings.Contains(got, "--port 55432") {
+		t.Errorf("plaintext (tests only): got %q, want the URL's port", got)
 	}
 }
 

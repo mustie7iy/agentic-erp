@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"maps"
 	"net/url"
 	"testing"
 	"time"
@@ -67,7 +68,7 @@ func TestClaims(t *testing.T) {
 			if got.System != c.system {
 				t.Errorf("system role: got %v, want %v", got.System, c.system)
 			}
-			if len(got.Namespaces) != len(c.namespaces) || got.Namespaces["erp"] != c.namespaces["erp"] {
+			if !maps.Equal(got.Namespaces, c.namespaces) {
 				t.Errorf("namespace roles: got %v, want %v", got.Namespaces, c.namespaces)
 			}
 		})

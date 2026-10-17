@@ -370,11 +370,18 @@ func TestServeSettings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if s.retention != 48*time.Hour || s.namespace != "erp" || s.server != idOf("erp-server") || s.nodes != idOf("erp-temporal") {
-			t.Errorf("settings: got %+v", s)
+		if s.retention != 48*time.Hour {
+			t.Errorf("retention: got %v, want 48h", s.retention)
 		}
-		if s.password != "pw" {
-			t.Errorf("password: got %q, want the file's content without its line break", s.password)
+		for name, c := range map[string]struct{ got, want string }{
+			"namespace": {s.namespace, "erp"},
+			"server":    {s.server, idOf("erp-server")},
+			"nodes":     {s.nodes, idOf("erp-temporal")},
+			"password":  {s.password, "pw"}, // the file's content without its line break
+		} {
+			if c.got != c.want {
+				t.Errorf("%s: got %q, want %q", name, c.got, c.want)
+			}
 		}
 	})
 }

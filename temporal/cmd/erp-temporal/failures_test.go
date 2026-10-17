@@ -126,7 +126,10 @@ func TestNamespace(t *testing.T) {
 			replace(t, &registerWait, c.wait)
 			replace(t, &newNamespaceClient, func(client.Options) (client.NamespaceClient, error) { return &fakeNamespaces{errs: c.errs}, nil })
 			err := ensureNamespace(context.Background(), cfg, s)
-			if c.want == "" && err != nil || c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)) {
+			switch {
+			case c.want == "" && err != nil:
+				t.Errorf("error: got %v, want none", err)
+			case c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)):
 				t.Errorf("error: got %v, want %q", err, c.want)
 			}
 		})
