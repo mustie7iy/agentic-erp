@@ -3,7 +3,7 @@
 # The base is distroless static, nonroot (uid 65532, no shell, CA
 # certificates and time zones included), pinned by the digest of its
 # multi-platform index: a base that moves under a tag would change the image
-# without a change in this repository. The nightly run fails when the tag
+# without a change in this repository. The weekly run fails when the tag
 # has moved (scripts/base-image-current.sh), so the digest is bumped in a
 # reviewed change.
 #

@@ -2,7 +2,7 @@
 # Fails when the tag of the base image in .ko.yaml now points at another
 # digest than the one pinned there (ADR-0032): a new distroless release,
 # usually with security fixes, that the images should take in a reviewed
-# change bumping the digest. The nightly run calls it.
+# change bumping the digest. The weekly run calls it.
 set -euo pipefail
 CRANE="${CRANE:-go run github.com/google/go-containerregistry/cmd/crane@v0.21.7}"
 pinned="$(sed -n 's/^defaultBaseImage: *//p' .ko.yaml)"

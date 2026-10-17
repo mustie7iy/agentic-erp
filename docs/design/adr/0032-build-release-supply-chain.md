@@ -17,7 +17,7 @@ and already build bit for bit the same from the same commit
 Dockerfile, on `gcr.io/distroless/static-debian12:nonroot` pinned by the
 digest of its multi-platform index: no shell or package manager, uid 65532,
 CA certificates and time zones included. Platforms linux/amd64 and
-linux/arm64. The nightly run fails when the tag has moved off the pinned
+linux/arm64. The weekly run fails when the tag has moved off the pinned
 digest, so a new base comes in a reviewed change.
 
 **Reproducible.** Layers are dated at the epoch and the binaries carry no
@@ -37,7 +37,7 @@ on a high or critical vulnerability that has a fix; accepted exceptions go
 in `.grype.yaml` with a reason and an expiry, which review enforces (grype
 does not). ko's SBOM does not list the Go standard library, where most Go
 advisories are: govulncheck covers it, and the modules, in the code that is
-called, on every push and again nightly. The nightly run repeats both scans
+called, on every push and again weekly. The weekly run repeats both scans
 on `main`.
 
 **Signature.** Images are signed with cosign using a key in AWS KMS

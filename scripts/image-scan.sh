@@ -4,7 +4,7 @@
 # base plus one Go binary, so two scans cover it:
 #   - each per-platform SBOM that images.sh wrote (the Go modules in the
 #     binary; ko's SBOM does not list the standard library, which
-#     govulncheck covers in CI and nightly);
+#     govulncheck covers in CI and weekly);
 #   - the base image by its digest from .ko.yaml, for each platform (its
 #     Debian packages, which ko's SBOM names but does not list).
 # Exceptions go in .grype.yaml, each with a reason and an expiry date.
