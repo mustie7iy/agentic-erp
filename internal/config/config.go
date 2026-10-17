@@ -8,6 +8,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 
@@ -162,6 +163,24 @@ func Parse(b []byte) (*Config, error) {
 		return nil, fmt.Errorf("configuration: %w", err)
 	}
 	return &c, nil
+}
+
+// ParseActive reads an activated document, tolerating keys this binary
+// does not know: during a rolling upgrade a newer replica may have
+// activated a document with keys added after this binary was built (06
+// §6.4). They are ignored and returned, one finding per key, for the
+// caller to log. Submission and validation use Parse, which refuses them.
+func ParseActive(b []byte) (*Config, []string, error) {
+	var c Config
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		return nil, nil, fmt.Errorf("configuration: %w", err)
+	}
+	var unknown []string
+	var te *yaml.TypeError
+	if _, err := Parse(b); errors.As(err, &te) { // only unknown keys remain: the document read without them
+		unknown = te.Errors
+	}
+	return &c, unknown, nil
 }
 
 func Load(path string) (*Config, error) {

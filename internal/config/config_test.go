@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"slices"
 	"strings"
@@ -352,5 +353,35 @@ func TestCreditMemoJournalRanges(t *testing.T) {
 	fs := Validate(c, currency.Seeded())
 	if !slices.ContainsFunc(fs, func(f Finding) bool { return missing(f) && f.Severity == SevError }) {
 		t.Errorf("without journal_kg: got %v, want an error at number_ranges[1000/journal_kg/2026]", fs)
+	}
+}
+
+// TestParseActive: an activated document is read without the keys this
+// binary does not know, which are reported; one that does not read is an
+// error. Parse refuses both.
+func TestParseActive(t *testing.T) {
+	b, err := os.ReadFile("testdata/valid.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := append(bytes.Clone(b), []byte("future_section:\n  enabled: true\n")...)
+	c, unknown, err := ParseActive(newer)
+	if err != nil {
+		t.Fatalf("a newer document: %v", err)
+	}
+	if len(c.Companies) == 0 {
+		t.Errorf("a newer document's companies: got none, want them read")
+	}
+	if len(unknown) != 1 || !strings.Contains(unknown[0], "future_section") {
+		t.Errorf("unknown keys: got %v, want one naming future_section", unknown)
+	}
+	if _, err := Parse(newer); err == nil {
+		t.Error("Parse of a newer document: got nil error, want the unknown key refused")
+	}
+	if _, unknown, err := ParseActive(b); err != nil || len(unknown) != 0 {
+		t.Errorf("a current document: got %v unknown, error %v; want none", unknown, err)
+	}
+	if c, _, err := ParseActive([]byte("payment_terms: none\n")); err == nil || c != nil {
+		t.Errorf("an unreadable document: got %v, %v; want an error and no document", c, err)
 	}
 }

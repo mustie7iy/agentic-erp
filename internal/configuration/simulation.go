@@ -203,12 +203,14 @@ func (w *SimulationWorker) process(ctx context.Context, tx pgx.Tx, actor reqctx.
 // regression suite are the evidence a tier needs (config.RequiredEvidence).
 // A problem fails the operation and returns no detail: the job is done.
 func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest, fail func(*problem.Problem) error) (bool, map[string]any, error) {
-	var baseDoc []byte
-	if err := tx.QueryRow(ctx, `SELECT document FROM config.config_version WHERE number = $1`, c.BaseVersion).Scan(&baseDoc); err != nil {
-		return false, nil, fmt.Errorf("configuration: read base version %d of change request %s: %w", c.BaseVersion, c.ID, err)
+	base, err := versionDocument(ctx, tx, c.BaseVersion)
+	if err != nil {
+		return false, nil, fmt.Errorf("configuration: base of change request %s: %w", c.ID, err)
 	}
-	base, _ := config.Parse(baseDoc)        // activated documents always parse
-	proposed, _ := config.Parse(c.Proposed) // validated on submission
+	proposed, err := parse(c.Proposed, "proposed") // validated on submission, by this binary or a newer one
+	if err != nil {
+		return false, nil, err
+	}
 	sim, err := w.Dependencies.Simulator.Simulate(ctx, base, proposed)
 	if err != nil {
 		return false, nil, failOrRetry(err, fail)

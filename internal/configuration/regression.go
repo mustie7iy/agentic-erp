@@ -103,11 +103,10 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	if err != nil {
 		return RegressionSuite{}, err
 	}
-	var raw []byte
-	if err := tx.QueryRow(ctx, `SELECT document FROM config.config_version WHERE number = $1`, number).Scan(&raw); err != nil {
-		return RegressionSuite{}, fmt.Errorf("configuration: read version %d: %w", number, err)
+	doc, err := versionDocument(ctx, tx, number)
+	if err != nil {
+		return RegressionSuite{}, err
 	}
-	doc, _ := config.Parse(raw) // activated documents always parse
 	cases, err := deps.Regressor.Capture(ctx, doc, time.Duration(in.WindowDays)*24*time.Hour, in.MaxCases)
 	if err != nil {
 		return RegressionSuite{}, err
