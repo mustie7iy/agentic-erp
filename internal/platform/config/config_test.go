@@ -96,17 +96,21 @@ func TestDefaults(t *testing.T) {
 		{"Objects retention", c.Objects.Retention, 87600 * time.Hour},
 		{"TenantQuota", c.TenantQuota, ratelimit.Quota{Rate: 2000, Burst: 10000}},
 		{"PrincipalQuota", c.PrincipalQuota, ratelimit.Quota{Rate: 50, Burst: 100}},
+		{"Model", c.Model, Model{Endpoint: "https://api.anthropic.com"}},
+		{"Model.Enabled", c.Model.Enabled(), false},
 	})
 }
 
 func TestOverrides(t *testing.T) {
 	m := valid()
 	m["ERP_CELL"], m["ERP_MIGRATE_ON_START"], m["ERP_LOG_LEVEL"], m["ERP_SHUTDOWN_TIMEOUT"], m["ERP_NATS_URL"] = "eu1", "true", "debug", "5s", "nats://n"
-	m["ANTHROPIC_API_KEY"], m["ERP_BANK_OUTBOX_DIR"], m["ERP_EXTRACT_DIR"] = "key", t.TempDir(), t.TempDir()
+	m["ERP_MODEL_API_KEY"], m["ERP_BANK_OUTBOX_DIR"], m["ERP_EXTRACT_DIR"] = "key", t.TempDir(), t.TempDir()
+	m["ERP_MODEL_ENDPOINT"] = "https://models.example.com"
 	m["ERP_REQUEST_TIMEOUT"], m["ERP_DB_MAX_CONNS"], m["ERP_RATE_LIMIT_TENANT"], m["ERP_RATE_LIMIT_PRINCIPAL"] = "10s", "40", "off", "5"
 	c := mustLoad(t, m)
 	checkFields(t, []field{
-		{"LLMEnabled", c.LLMEnabled, true},
+		{"Model", c.Model, Model{APIKey: "key", Endpoint: "https://models.example.com"}},
+		{"Model.Enabled", c.Model.Enabled(), true},
 		{"BankOutboxDir", c.BankOutboxDir, m["ERP_BANK_OUTBOX_DIR"]},
 		{"ExtractDir", c.ExtractDir, m["ERP_EXTRACT_DIR"]},
 		{"Cell", c.Cell, "eu1"},
@@ -613,6 +617,7 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production plaintext vault", prod(map[string]string{"ERP_VAULT_ADDR": "http://vault:8200", "ERP_VAULT_TOKEN": "t"}), []string{"ERP_VAULT_ADDR must be an https:// URL"}},
 		{"production vault", prod(map[string]string{"ERP_VAULT_ADDR": "https://vault:8200", "ERP_VAULT_TOKEN": "t"}), nil},
 		{"production plaintext STS", prod(map[string]string{"ERP_AWS_STS_ENDPOINT": "http://sts.internal"}), []string{"ERP_AWS_STS_ENDPOINT must be an https:// URL"}},
+		{"production plaintext model provider", prod(map[string]string{"ERP_MODEL_ENDPOINT": "http://models.internal"}), []string{"ERP_MODEL_ENDPOINT must be an https:// URL"}},
 		{"production instance metadata over IPv6", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://[fd00:ec2::254]"}), nil},
 		{"production instance metadata elsewhere", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://imds.example.com"}), []string{imdsOnly}},
 		{"production instance metadata on another port", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://169.254.169.254:8080"}), []string{imdsOnly}},

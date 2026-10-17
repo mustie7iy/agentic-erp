@@ -45,7 +45,7 @@ type Config struct {
 	Issuers         []authn.Issuer  // ERP_OIDC_ISSUERS, JSON list of {issuer, audience, tenant_claim}: issuers trusted for every tenant (optional; tenants register their own, ADR-0031)
 	OperatorIssuers []authn.Issuer  // ERP_OPERATOR_ISSUERS, the same for the operators' tokens; empty leaves the control plane off (unless ERP_DEV_ISSUER)
 	PageTokenKey    []byte          // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required)
-	LLMEnabled      bool            // ANTHROPIC_API_KEY is set: invoice capture reads documents with Claude
+	Model           Model           // ERP_MODEL_*: the model provider behind the cell's model gateway (ADR-0036); no key: no gateway, and invoice capture is off
 	BankOutboxDir   string          // ERP_BANK_OUTBOX_DIR, where transmitted bank files are dropped; empty disables transmission
 	ExtractDir      string          // ERP_EXTRACT_DIR, where sap_file connectors find SAP extracts; empty disables them
 	FieldKey        []byte          // ERP_FIELD_KEY, base64, at least 32 bytes: the legacy field encryption key (values sealed before tenant keys); required unless ERP_FIELD_KEYS is set
@@ -150,7 +150,7 @@ type Vault struct {
 // SecretSettings are the settings that may carry a secret reference
 // instead of a value.
 var SecretSettings = []string{"DATABASE_URL", "ERP_DIRECTORY_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
-	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL", "ERP_TEMPORAL_CODEC_KEY"}
+	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL", "ERP_TEMPORAL_CODEC_KEY", "ERP_MODEL_API_KEY"}
 
 // AtRest is how each store encrypts its data at rest, as ERP_AT_REST
 // states it ("postgres=storage-kms,objects=sse-kms,nats=volume"); empty:
@@ -170,6 +170,16 @@ var atRestValues = map[string][]string{
 	"objects":  {"sse-kms"},
 	"nats":     {"storage-kms", "volume", "jetstream-cipher"},
 }
+
+// Model is the model provider behind the gateway (ADR-0036): only the cell
+// holds its key; agents call the gateway with their own tokens.
+type Model struct {
+	APIKey   string // ERP_MODEL_API_KEY (a secret reference in production)
+	Endpoint string // ERP_MODEL_ENDPOINT (default https://api.anthropic.com)
+}
+
+// Enabled reports whether the gateway has a provider to call.
+func (m Model) Enabled() bool { return m.APIKey != "" }
 
 // Objects is the object storage configuration: a directory (development) or
 // an S3-compatible service, never both.
@@ -324,7 +334,7 @@ func (l *loader) basics() Config {
 		Cell:          get("ERP_CELL", "local"),
 		NATSURL:       getenv("ERP_NATS_URL"),
 		OTLPEndpoint:  getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
-		LLMEnabled:    getenv("ANTHROPIC_API_KEY") != "",
+		Model:         Model{APIKey: getenv("ERP_MODEL_API_KEY"), Endpoint: get("ERP_MODEL_ENDPOINT", "https://api.anthropic.com")},
 		BankOutboxDir: getenv("ERP_BANK_OUTBOX_DIR"),
 		ExtractDir:    getenv("ERP_EXTRACT_DIR"),
 	}
@@ -756,7 +766,7 @@ func isIMDS(endpoint string) bool {
 func checkEndpoints(c Config) []error {
 	var errs []error
 	endpoints := []setting{{"ERP_OBJECT_S3_ENDPOINT", c.Objects.Endpoint}, {"ERP_VAULT_ADDR", c.Vault.Address}, {"ERP_AWS_STS_ENDPOINT", c.AWS.STSEndpoint},
-		{"ERP_CELL_API_URL", c.CellAPIURL}, {"ERP_CELL_CONTROL_URL", c.CellControlURL}}
+		{"ERP_CELL_API_URL", c.CellAPIURL}, {"ERP_CELL_CONTROL_URL", c.CellControlURL}, {"ERP_MODEL_ENDPOINT", c.Model.Endpoint}}
 	if c.KMS.Enabled() {
 		endpoints = append(endpoints, setting{"ERP_FIELD_KMS_ENDPOINT", c.KMS.Endpoint})
 	}

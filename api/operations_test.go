@@ -170,4 +170,7 @@ func TestModelOperations(t *testing.T) {
 	if !strings.Contains(string(ModelSpec()), "\nopenapi: \"3.1") {
 		t.Fatal("model spec")
 	}
+	if len(MustModelOperations()) != 1 {
+		t.Error("MustModelOperations: got other than the one operation")
+	}
 }

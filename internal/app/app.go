@@ -109,6 +109,8 @@ type Config struct {
 	// RequireBoundAgents accepts agents' tokens only bound to their client
 	// certificates (production, ADR-0033).
 	RequireBoundAgents bool
+	// Model is the model gateway (agents.Gateway, ADR-0036); nil answers 503.
+	Model http.Handler
 }
 
 // New builds the public API handler.
@@ -151,6 +153,7 @@ func New(cfg Config) (http.Handler, error) {
 		// People's sessions, recorded per replica (ADR-0031).
 		Sessions:           &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now},
 		RequireBoundAgents: cfg.RequireBoundAgents,
+		Model:              cfg.Model,
 	})
 }
 

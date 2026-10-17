@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/mustie7iy/agentic-erp/db"
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
@@ -94,8 +95,10 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return importCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "register-provider":
 			return registerProviderCmd(ctx, args[1:], cfg, stdout, stderr)
+		case "prices":
+			return pricesCmd(ctx, args[1:], cfg, stdout, stderr)
 		}
-		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server migrate applies the pending migrations)\n", args[0])
+		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server migrate applies the pending migrations, erp-server prices load records models' prices)\n", args[0])
 		return 2
 	}
 	if err := run(ctx, cfg, log, started); err != nil {
@@ -216,7 +219,8 @@ type server struct {
 	metrics      *telemetry.Metrics
 	engine       *workflow.Temporal
 	engineClient workflow.Client
-	tls          *tlsconf.Store // nil: no TLS material configured (development)
+	tls          *tlsconf.Store  // nil: no TLS material configured (development)
+	gateway      *agents.Gateway // nil: no model provider configured
 	apiCfg       app.Config
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
@@ -407,11 +411,28 @@ func (s *server) controlPlane(ctx context.Context) error {
 	return nil
 }
 
+// modelTimeout bounds one call to the model provider: a long answer takes
+// minutes, which no request deadline would allow.
+const modelTimeout = 10 * time.Minute
+
+// modelClient reaches the model provider: the TLS material's client when
+// there is one (ADR-0033), within modelTimeout.
+func modelClient(cfg config.Config) *http.Client {
+	if cfg.TLSMaterial != nil {
+		return cfg.TLSMaterial.HTTPClient(modelTimeout)
+	}
+	return &http.Client{Timeout: modelTimeout}
+}
+
 // collaborators sets up the optional outside services (document extraction,
 // the bank connector) and the metrics with the queues' backlogs.
 func (s *server) collaborators() {
-	if s.cfg.LLMEnabled {
-		s.extractor = &capture.ClaudeExtractor{LLM: llm.New()}
+	if s.cfg.Model.Enabled() {
+		s.gateway = &agents.Gateway{Provider: agents.Anthropic{Endpoint: s.cfg.Model.Endpoint, Key: s.cfg.Model.APIKey, Client: modelClient(s.cfg)},
+			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
+		// Capture's model calls go through the gateway too, in the
+		// request's unit of work (ADR-0036).
+		s.extractor = &capture.ClaudeExtractor{LLM: llm.InProcess(s.gateway.Transport(), "erp-extraction")}
 	}
 	if s.cfg.BankOutboxDir != "" {
 		s.connector = payments.DirConnector{Dir: s.cfg.BankOutboxDir}
@@ -474,6 +495,9 @@ func (s *server) newAPI() error {
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 		RequireBoundAgents: cfg.Environment == config.Production,
+	}
+	if s.gateway != nil {
+		s.apiCfg.Model = s.gateway
 	}
 	var err error
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {

@@ -43,12 +43,6 @@ func Gateway(apiURL, token string, client *http.Client) *Runner {
 	return &Runner{Client: anthropic.NewClient(opts...), Model: model}
 }
 
-// New calls the provider directly with the SDK's own credentials. Only the
-// server still uses it, until it calls through its gateway.
-func New() *Runner {
-	return &Runner{Client: anthropic.NewClient(), Model: "claude-opus-5-5"}
-}
-
 // InProcess is the server's own runner: its calls go to the gateway's
 // in-process transport (agents.Gateway.Transport), as the request's
 // principal, naming alias.

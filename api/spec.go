@@ -120,6 +120,10 @@ func DirectoryOperations() (map[string]Operation, error) {
 // by hand-written handlers (internal/agents), ADR-0036.
 func ModelSpec() []byte { return modelYAML }
 
+// MustModelOperations is ModelOperations for program start, as
+// MustOperations is for the public API's.
+func MustModelOperations() map[string]Operation { return mustParse(modelYAML) }
+
 // ModelOperations returns the model gateway's operations by operationId;
 // they declare their x-permission, as the public API's do.
 func ModelOperations() (map[string]Operation, error) {
