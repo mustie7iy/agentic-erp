@@ -1,6 +1,8 @@
 package payments
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -87,5 +89,22 @@ func TestProposalDiscountsOutOfRange(t *testing.T) {
 	pr = proposal{discount: huge}
 	if err := pr.pay(candidate{supplier: supplier, items: []Item{{Amount: huge, Discount: huge - 1}}}, bank, 1, Run{}, "2000"); err == nil {
 		t.Error("a run's discounts beyond an amount: got none, want an error")
+	}
+}
+
+// failingAccounts is a ledger whose account determination fails.
+type failingAccounts struct{}
+
+func (failingAccounts) Determination(context.Context, uuid.UUID, string) (uuid.UUID, bool, error) {
+	return uuid.Nil, false, errors.New("ledger unavailable")
+}
+
+// TestCashDiscountAccountUnread: a run that takes a discount does not
+// propose when the cash discount account cannot be read.
+func TestCashDiscountAccountUnread(t *testing.T) {
+	e := &Endpoints{Accounts: failingAccounts{}}
+	err := e.requireCashDiscountAccount(context.Background(), Run{}, proposal{itemDiscounts: []money.Minor{0, 3}})
+	if err == nil || !strings.Contains(err.Error(), "ledger unavailable") {
+		t.Errorf("got %v, want the ledger's error", err)
 	}
 }

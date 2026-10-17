@@ -44,6 +44,8 @@ func TestSplitTax(t *testing.T) {
 		"owing nothing":           {discount: 100, paid: 0, taxes: map[taxKey]money.Minor{v1: 19}},
 		"tax against the payment": {discount: 100, paid: 119, taxes: map[taxKey]money.Minor{v1: -19}},
 		"no tax lines":            {discount: 100, paid: 119},
+		"tax beyond what is owed": {discount: 100, paid: 1400, taxes: map[taxKey]money.Minor{v1: 1900}},
+		"tax all that is owed":    {discount: 100, paid: 1900, taxes: map[taxKey]money.Minor{v1: 1900}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			shares, total, err := splitTax([]taxedItem{c})

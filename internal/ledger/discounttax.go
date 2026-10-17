@@ -87,8 +87,10 @@ func discountTax(ctx context.Context, tx pgx.Tx, items []item, discounts []money
 // share is the discount times the entry's tax over what it owes the
 // supplier, rounded half away from zero, divided among the tax lines by
 // largest remainder (ties in account and code order), so net and tax add
-// up to the discount exactly. An entry whose tax lines do not all run in
-// its payment's direction, or that owes nothing, is not split: its
+// up to the discount exactly, the tax smaller than it. An entry that owes
+// nothing, whose tax lines do not all run in its payment's direction
+// (§13b and intra-EU pairs among them), or whose tax is at least what it
+// owes the supplier (its supplier lines offset others), is not split: its
 // discount is all net.
 func splitTax(items []taxedItem) (map[taxKey]money.Minor, money.Minor, error) {
 	out := map[taxKey]money.Minor{}
@@ -123,6 +125,9 @@ func itemTaxShares(it taxedItem) map[taxKey]money.Minor {
 		}
 		weight.Add(weight, big.NewInt(int64(w.Abs())))
 	}
+	if weight.Cmp(gross) >= 0 { // tax of at least what is owed: the supplier lines offset others, so the gross is not the base
+		return nil
+	}
 	// The tax share, rounded half away from zero: (2·d·W + G) div 2G.
 	two := big.NewInt(2)
 	whole := new(big.Int).Mul(discount, weight)
@@ -143,7 +148,7 @@ func itemTaxShares(it taxedItem) map[taxKey]money.Minor {
 	}
 	shares := map[taxKey]money.Minor{}
 	for i, k := range keys {
-		share := money.Minor(floors[i].Int64()) // at most the discount, which is in range
+		share := money.Minor(floors[i].Int64()) // less than the discount, as the tax is less than the gross: in range
 		if it.discount < 0 {
 			share = -share
 		}

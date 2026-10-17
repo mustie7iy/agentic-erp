@@ -1226,8 +1226,15 @@ on that code's account) in proportion to the gross the entry owes the
 supplier, the tax share rounded half away from zero and divided among the
 tax lines by largest remainder, so net and tax add up to the discount; the
 net goes to `cash_discount`, each tax share to its tax line's account with
-its tax code, so the VAT return sees it. An entry without tax lines (a
-manual entry) puts all its discount on `cash_discount`. A run that takes a
+its tax code, so the VAT return sees it; the tax share is converted at
+the payment date's rate, like the rest of the payment. An entry without
+tax lines (a manual entry, or tax posted without a tax code), one whose
+tax lines do not all run in its payment's direction (§13b and intra-EU
+pairs, whose input and output tax corrections would net to zero), or
+one whose tax is at least what it owes the supplier, puts all its
+discount on `cash_discount`; the net line carries no tax code, so a VAT
+report driven by bases does not see the base reduction (input tax, as
+UStVA reports it, is corrected). A run that takes a
 discount fails at proposal without a `cash_discount` account (422
 `payments.no_cash_discount_account`). A payment records the last day its
 discounts are earned (`discount_until`, migration 000068), and the release
