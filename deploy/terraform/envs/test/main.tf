@@ -138,6 +138,7 @@ output "global" {
     directory_master_secret_arn = module.global.directory_master_secret_arn
     router_dns_name             = module.global.router_dns_name
     router_target_group_arn     = module.global.router_target_group_arn
+    router_proxy_sources        = module.global.router_proxy_sources
   }
 }
 

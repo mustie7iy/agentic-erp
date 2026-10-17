@@ -1,6 +1,12 @@
 # The internet-facing Network Load Balancer: TCP 443 straight to the
 # router's pods (ip targets), across the three zones. The health check is
 # TCP on the traffic port, since the router's /livez sits behind its TLS.
+#
+# Each connection begins with a PROXY protocol v2 header naming the
+# client, which the router reads from the balancer's own addresses alone
+# (ERP_ROUTER_PROXY_FROM: the public subnets, router_proxy_sources).
+# Client addresses are not preserved, so every connection to the router
+# comes from those subnets and carries the header.
 
 resource "aws_security_group" "router" {
   name        = "${local.prefix}-router-lb"
@@ -53,6 +59,8 @@ resource "aws_lb_target_group" "router" {
   port                 = var.router_port
   vpc_id               = var.vpc_id
   deregistration_delay = 30
+  proxy_protocol_v2    = true
+  preserve_client_ip   = false
   health_check {
     protocol            = "TCP"
     port                = "traffic-port"
@@ -70,4 +78,12 @@ resource "aws_lb_listener" "https" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.router.arn
   }
+}
+
+# The public subnets' ranges: the balancer's own addresses, the only ones
+# the router takes a PROXY header from.
+# (By count: the ids are unknown until the cell's subnets exist.)
+data "aws_subnet" "public" {
+  count = length(var.public_subnet_ids)
+  id    = var.public_subnet_ids[count.index]
 }

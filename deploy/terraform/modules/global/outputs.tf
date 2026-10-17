@@ -17,3 +17,8 @@ output "router_target_group_arn" {
   description = "Where the erp-global chart's TargetGroupBinding registers the router's pods (T40c)."
   value       = aws_lb_target_group.router.arn
 }
+
+output "router_proxy_sources" {
+  description = "The load balancer's subnets, whose connections carry a PROXY v2 header: the erp-global chart's router.proxyFrom (ERP_ROUTER_PROXY_FROM)."
+  value       = sort(distinct([for s in data.aws_subnet.public : s.cidr_block]))
+}

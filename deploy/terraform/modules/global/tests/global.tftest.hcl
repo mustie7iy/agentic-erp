@@ -8,6 +8,9 @@ mock_provider "aws" {
   mock_data "aws_region" {
     defaults = { region = "eu-central-1" }
   }
+  mock_data "aws_subnet" {
+    defaults = { cidr_block = "10.10.0.0/24" }
+  }
   mock_data "aws_rds_engine_version" {
     defaults = { version_actual = "17.6" }
   }
@@ -71,6 +74,14 @@ run "the_load_balancer_passes_tls_through_to_the_router" {
   assert {
     condition     = aws_vpc_security_group_ingress_rule.router_pods.security_group_id == var.cluster_security_group_id && aws_vpc_security_group_ingress_rule.router_pods.from_port == 8081
     error_message = "the cluster lets the load balancer reach the router's port only"
+  }
+  assert {
+    condition     = aws_lb_target_group.router.proxy_protocol_v2 && aws_lb_target_group.router.preserve_client_ip == "false"
+    error_message = "each connection names its client in a PROXY v2 header and comes from the load balancer's own addresses (T40c5)"
+  }
+  assert {
+    condition     = join(",", output.router_proxy_sources) == "10.10.0.0/24"
+    error_message = "the router takes the header from the public subnets' ranges"
   }
 }
 
