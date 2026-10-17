@@ -87,8 +87,6 @@ func newer(t *testing.T, cr string) {
 		uuid.MustParse(cr))
 	// Restored, so that the package's other tests (the simulation worker's
 	// rounds take every tenant's jobs) meet only proposals they can read.
-	// Restored, so that the package's other tests (the simulation worker's
-	// rounds take every tenant's jobs) meet only proposals they can read.
 	t.Cleanup(func() {
 		pgtest.Exec(t, `UPDATE config.change_request SET proposed = proposed #- '{purchasing,future_key}', version = version + 1 WHERE id = $1`, uuid.MustParse(cr))
 	})
