@@ -1,3 +1,4 @@
+REVOKE SELECT (expiry_alerted_on) ON procurement.contract FROM erp_worker;
 DROP TRIGGER contract_renewal ON procurement.contract;
 DROP FUNCTION procurement.check_contract_renewal();
 DROP INDEX procurement.contract_renewed_once;

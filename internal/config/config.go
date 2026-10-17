@@ -133,6 +133,9 @@ type Purchasing struct {
 	// an approved requisition, and changes that raise a released order's
 	// total, by the order's total, as RequisitionApproval does (T47c).
 	OrderReleaseApproval []ApprovalTier `yaml:"order_release_approval" json:"order_release_approval"`
+	// ContractExpiryNoticeDays is how many days before an active contract
+	// ends, without a renewal, ContractExpiring is published (T47g).
+	ContractExpiryNoticeDays int `yaml:"contract_expiry_notice_days" json:"contract_expiry_notice_days"`
 }
 
 type ApprovalTier struct {

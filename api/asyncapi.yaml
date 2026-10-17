@@ -229,6 +229,7 @@ channels:
       RequisitionOrdered: {$ref: '#/components/messages/RequisitionOrdered'}
       PurchaseOrderClosed: {$ref: '#/components/messages/PurchaseOrderClosed'}
       ContractExpired: {$ref: '#/components/messages/ContractExpired'}
+      ContractExpiring: {$ref: '#/components/messages/ContractExpiring'}
   payables:
     address: 'erp.{cell}.payables.{tenant}.{event}'
     title: Accounts payable events
@@ -396,6 +397,7 @@ operations:
       - $ref: '#/channels/procurement/messages/RequisitionOrdered'
       - $ref: '#/channels/procurement/messages/PurchaseOrderClosed'
       - $ref: '#/channels/procurement/messages/ContractExpired'
+      - $ref: '#/channels/procurement/messages/ContractExpiring'
   publishPayablesEvents:
     action: send
     title: Payables publishes
@@ -2028,6 +2030,22 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000064", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expired.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-10-01T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "previous_status": "active", "status": "expired"}
+    ContractExpiring:
+      name: ContractExpiring
+      title: Contract expiring
+      summary: "An active contract without a renewal ends within the notice period."
+      description: "Emitted once per contract (its `expiry_alerted_on` is set once), by a scheduled job, so the actor is a service, when an active contract that no live renewal continues ends within `purchasing.contract_expiry_notice_days`. An alert only: buyers renew it by `contracts/{id}:renew` or let it expire. Subject is the contract id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.contract_expiring.v1}
+      payload: {$ref: '#/components/schemas/ContractExpiringV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000065", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expiring.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-08-31T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "days_left": 30, "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "target_value": {"amount": "250000.00", "currency": "EUR"}}
     InvoiceHoldReleased:
       name: InvoiceHoldReleased
       title: Invoice hold released
@@ -3291,6 +3309,18 @@ components:
         consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at expiry."}
         previous_status: {"type": "string", "description": "Open enum; active in v1."}
         status: {"type": "string", "description": "Open enum; expired in v1."}
+    ContractExpiringV1:
+      type: object
+      required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "days_left", "consumed_value", "target_value"]
+      properties:
+        contract_id: {"$ref": "#/components/schemas/Uuid"}
+        document_number: {"type": "string"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        valid_to: {"$ref": "#/components/schemas/Date"}
+        days_left: {"type": "integer", "minimum": 0, "description": "Days from the alert to valid_to."}
+        consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at the alert."}
+        target_value: {"$ref": "#/components/schemas/Money"}
     InvoiceHoldReleasedV1:
       type: object
       required: ["supplier_invoice_id", "supplier_id", "legal_entity_id", "previous_status", "status"]

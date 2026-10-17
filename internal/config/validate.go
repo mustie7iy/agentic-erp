@@ -337,6 +337,9 @@ func (v *validator) paymentTerms(c *Config) {
 func (v *validator) purchasing(c *Config) {
 	v.tiers("purchasing.requisition_approval", c.Purchasing.RequisitionApproval, c)
 	v.tiers("purchasing.order_release_approval", c.Purchasing.OrderReleaseApproval, c)
+	if d := c.Purchasing.ContractExpiryNoticeDays; d < 1 || d > 365 {
+		v.err("purchasing.contract_expiry_notice_days", "must be 1-365")
+	}
 }
 
 // tiers checks approval tiers by amount: at least one, in increasing

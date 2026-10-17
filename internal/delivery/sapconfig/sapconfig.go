@@ -99,7 +99,8 @@ func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {
 		{Steps: []config.ApprovalStep{{Role: approver, Approvals: 1}, {Role: "process_owner", Approvals: 1}}},
 	}
 	g.note("purchasing.order_release_approval", "SAP release strategies for purchase orders are not in the extract; generated the requisition tiers")
-	c.Purchasing = config.Purchasing{RequisitionApproval: tiers, OrderReleaseApproval: slices.Clone(tiers)}
+	g.note("purchasing.contract_expiry_notice_days", "no SAP equivalent in the extract; contracts are alerted 30 days before they end")
+	c.Purchasing = config.Purchasing{RequisitionApproval: tiers, OrderReleaseApproval: slices.Clone(tiers), ContractExpiryNoticeDays: 30}
 	c.Payments = config.Payments{ReleaseRole: opts.ReleaseRole, ReleaseApprovals: 1, BankChangeHoldDays: 5, VendorApproverRole: opts.VendorApproverRole}
 	g.note("payments.bank_change_hold_days", "no SAP equivalent; payments to a vendor are held for 5 days after a bank change")
 	c.NumberRanges = g.numberRanges()

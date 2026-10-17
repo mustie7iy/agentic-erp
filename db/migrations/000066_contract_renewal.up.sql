@@ -38,3 +38,6 @@ END $$;
 ALTER FUNCTION procurement.check_contract_renewal() OWNER TO erp_owner;
 CREATE TRIGGER contract_renewal BEFORE INSERT OR UPDATE ON procurement.contract
   FOR EACH ROW EXECUTE FUNCTION procurement.check_contract_renewal();
+
+-- The expirer finds the tenants with contracts to alert across the cell.
+GRANT SELECT (expiry_alerted_on) ON procurement.contract TO erp_worker;

@@ -756,7 +756,17 @@ renewal at a time, a cancelled one not counting (`contract_renewed_once`,
 409 `procurement.contract_renewed`). The successor is changed, released
 and cancelled as any draft; its `ContractActivated` names the contract it
 renews. `expiry_alerted_on` is the day the contract's coming expiry was
-alerted (`ContractExpiring`), set once (`contract_alerted_once`). Received quantity per PO item is the sum of goods
+alerted (`ContractExpiring`), set once (`contract_alerted_once`).
+
+The contract expirer (`ContractExpirer`, hourly) runs one transaction per
+tenant: it expires the active contracts past their validity
+(`ContractExpired`) and alerts the active ones that no live renewal
+continues and that end within `purchasing.contract_expiry_notice_days`
+(1 to 365, operational; 30 from the SAP generator, which has no equivalent)
+by `ContractExpiring` with the days left, setting `expiry_alerted_on`. An
+alert is an event only: buyers renew the contract or let it expire. A
+configuration activated before the key existed reads 0: the round alerts
+nothing and logs a warning until a change request adds it. Received quantity per PO item is the sum of goods
 movement items (102 movements are negative). A materialized
 `po_item_receipt_summary` read model can be added for speed without changing
 the source of truth.
