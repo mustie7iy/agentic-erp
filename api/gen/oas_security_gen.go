@@ -201,6 +201,7 @@ var operationRolesOidc = map[string][]string{
 	ReleasePaymentRunOperation:          []string{},
 	ReleasePurchaseOrderOperation:       []string{},
 	ReleaseSupplierInvoiceOperation:     []string{},
+	RenewContractOperation:              []string{},
 	ReportBankFileStatusOperation:       []string{},
 	RequestBankAccountChangeOperation:   []string{},
 	RequestBankAccountEndOperation:      []string{},

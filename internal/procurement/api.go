@@ -131,7 +131,11 @@ func contractToAPI(c Contract) gen.Contract {
 	out := gen.Contract{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), DocumentNumber: c.DocumentNumber, LegalEntityID: c.LegalEntityID, SupplierID: c.SupplierID,
 		Currency: c.Currency, ValidFrom: c.ValidFrom, ValidTo: c.ValidTo, TargetValue: apitypes.Money(c.TargetValue, c.Currency, c.Exponent),
-		ConsumedValue: apitypes.Money(c.ConsumedValue, c.Currency, c.Exponent), Status: c.Status, Items: make([]gen.ContractItem, len(c.Items))}
+		ConsumedValue: apitypes.Money(c.ConsumedValue, c.Currency, c.Exponent), Status: c.Status, RenewalOfID: apitypes.OptUUID(c.RenewalOfID),
+		RenewedByID: apitypes.OptUUID(c.RenewedByID), Items: make([]gen.ContractItem, len(c.Items))}
+	if c.ExpiryAlertedOn != nil {
+		out.ExpiryAlertedOn.SetTo(*c.ExpiryAlertedOn)
+	}
 	for i, it := range c.Items {
 		out.Items[i] = gen.ContractItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), MaterialKey: it.MaterialKey,
 			Description: it.Description, UnitPrice: apitypes.Money(it.UnitPrice, c.Currency, c.Exponent), PriceUnit: gen.NewOptInt32(it.PriceUnit),
@@ -326,7 +330,8 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 		return nil, err
 	}
 	le, supplier := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID)
-	ks, err := e.Pages.Keyset(contractSort, fmt.Sprintf("listContracts|%s|%s|%s", le, supplier, params.Status.Value),
+	before := apitypes.Ptr[time.Time](params.ExpiringBefore)
+	ks, err := e.Pages.Keyset(contractSort, fmt.Sprintf("listContracts|%s|%s|%s|%v", le, supplier, params.Status.Value, before),
 		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -336,7 +341,8 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 		return nil, err
 	}
 	q, args := ks.SQL(contractSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR c.supplier_id = $4) AND ($5 = '' OR c.status = $5)`, []any{access.All, access.IDs, le, supplier, params.Status.Value})
+		AND ($4::uuid IS NULL OR c.supplier_id = $4) AND ($5 = '' OR c.status = $5) AND ($6::date IS NULL OR c.valid_to < $6)`,
+		[]any{access.All, access.IDs, le, supplier, params.Status.Value, before})
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Contract, error) { return scanContract(r) })
 	if err != nil {
@@ -383,6 +389,16 @@ func (e *Endpoints) CancelContract(ctx context.Context, params gen.CancelContrac
 		return nil, err
 	}
 	return contractOK(c), nil
+}
+
+// RenewContract implements POST /v1/contracts/{id}:renew.
+func (e *Endpoints) RenewContract(ctx context.Context, req *gen.ContractRenew, params gen.RenewContractParams) (gen.RenewContractRes, error) {
+	c, err := e.renewContract(ctx, params.ID, etag.IfMatch(params.IfMatch), req.ValidTo, req.TargetValue.Amount, req.TargetValue.Currency)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ContractHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Location: gen.NewOptString("/v1/contracts/" + c.ID.String()),
+		Response: contractToAPI(c)}, nil
 }
 
 // TerminateContract implements POST /v1/contracts/{id}:terminate.

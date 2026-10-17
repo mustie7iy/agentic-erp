@@ -2196,6 +2196,7 @@ func (*BadRequestHeaders) releaseContractRes()            {}
 func (*BadRequestHeaders) releasePaymentRunRes()          {}
 func (*BadRequestHeaders) releasePurchaseOrderRes()       {}
 func (*BadRequestHeaders) releaseSupplierInvoiceRes()     {}
+func (*BadRequestHeaders) renewContractRes()              {}
 func (*BadRequestHeaders) reportBankFileStatusRes()       {}
 func (*BadRequestHeaders) requestBankAccountChangeRes()   {}
 func (*BadRequestHeaders) requestBankAccountEndRes()      {}
@@ -5911,6 +5912,7 @@ func (*ConflictHeaders) releaseContractRes()           {}
 func (*ConflictHeaders) releasePaymentRunRes()         {}
 func (*ConflictHeaders) releasePurchaseOrderRes()      {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()    {}
+func (*ConflictHeaders) renewContractRes()             {}
 func (*ConflictHeaders) reportBankFileStatusRes()      {}
 func (*ConflictHeaders) requestBankAccountChangeRes()  {}
 func (*ConflictHeaders) requestBankAccountEndRes()     {}
@@ -6423,6 +6425,13 @@ type Contract struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
+	// The contract this one renews (`contracts/{id}:renew`): it continues it from the day after it ends.
+	RenewalOfID OptUUID `json:"renewal_of_id"`
+	// The contract renewing this one, unless cancelled; a renewed contract raises no expiry alert.
+	RenewedByID OptUUID `json:"renewed_by_id"`
+	// The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days`
+	// before it ends.
+	ExpiryAlertedOn OptDate `json:"expiry_alerted_on"`
 	// Items.
 	Items []ContractItem `json:"items"`
 }
@@ -6500,6 +6509,21 @@ func (s *Contract) GetConsumedValue() Money {
 // GetStatus returns the value of Status.
 func (s *Contract) GetStatus() string {
 	return s.Status
+}
+
+// GetRenewalOfID returns the value of RenewalOfID.
+func (s *Contract) GetRenewalOfID() OptUUID {
+	return s.RenewalOfID
+}
+
+// GetRenewedByID returns the value of RenewedByID.
+func (s *Contract) GetRenewedByID() OptUUID {
+	return s.RenewedByID
+}
+
+// GetExpiryAlertedOn returns the value of ExpiryAlertedOn.
+func (s *Contract) GetExpiryAlertedOn() OptDate {
+	return s.ExpiryAlertedOn
 }
 
 // GetItems returns the value of Items.
@@ -6580,6 +6604,21 @@ func (s *Contract) SetConsumedValue(val Money) {
 // SetStatus sets the value of Status.
 func (s *Contract) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetRenewalOfID sets the value of RenewalOfID.
+func (s *Contract) SetRenewalOfID(val OptUUID) {
+	s.RenewalOfID = val
+}
+
+// SetRenewedByID sets the value of RenewedByID.
+func (s *Contract) SetRenewedByID(val OptUUID) {
+	s.RenewedByID = val
+}
+
+// SetExpiryAlertedOn sets the value of ExpiryAlertedOn.
+func (s *Contract) SetExpiryAlertedOn(val OptDate) {
+	s.ExpiryAlertedOn = val
 }
 
 // SetItems sets the value of Items.
@@ -6758,6 +6797,7 @@ func (s *ContractHeaders) SetResponse(val Contract) {
 }
 
 func (*ContractHeaders) createContractRes() {}
+func (*ContractHeaders) renewContractRes()  {}
 
 // A contract item.
 // Ref: #/components/schemas/ContractItem
@@ -6951,6 +6991,35 @@ func (s *ContractPageHeaders) SetResponse(val ContractPage) {
 }
 
 func (*ContractPageHeaders) listContractsRes() {}
+
+// The renewal of a contract.
+// Ref: #/components/schemas/ContractRenew
+type ContractRenew struct {
+	// Last day of the renewal; it starts the day after the contract it renews ends.
+	ValidTo time.Time `json:"valid_to"`
+	// Target value of the renewal; positive, in the contract's currency.
+	TargetValue Money `json:"target_value"`
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *ContractRenew) GetValidTo() time.Time {
+	return s.ValidTo
+}
+
+// GetTargetValue returns the value of TargetValue.
+func (s *ContractRenew) GetTargetValue() Money {
+	return s.TargetValue
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *ContractRenew) SetValidTo(val time.Time) {
+	s.ValidTo = val
+}
+
+// SetTargetValue sets the value of TargetValue.
+func (s *ContractRenew) SetTargetValue(val Money) {
+	s.TargetValue = val
+}
 
 // Merge patch of a draft contract.
 // Ref: #/components/schemas/ContractUpdate
@@ -8692,6 +8761,7 @@ func (*ForbiddenHeaders) releaseContractRes()            {}
 func (*ForbiddenHeaders) releasePaymentRunRes()          {}
 func (*ForbiddenHeaders) releasePurchaseOrderRes()       {}
 func (*ForbiddenHeaders) releaseSupplierInvoiceRes()     {}
+func (*ForbiddenHeaders) renewContractRes()              {}
 func (*ForbiddenHeaders) reportBankFileStatusRes()       {}
 func (*ForbiddenHeaders) requestBankAccountChangeRes()   {}
 func (*ForbiddenHeaders) requestBankAccountEndRes()      {}
@@ -13754,6 +13824,7 @@ func (*NotFoundHeaders) releaseContractRes()            {}
 func (*NotFoundHeaders) releasePaymentRunRes()          {}
 func (*NotFoundHeaders) releasePurchaseOrderRes()       {}
 func (*NotFoundHeaders) releaseSupplierInvoiceRes()     {}
+func (*NotFoundHeaders) renewContractRes()              {}
 func (*NotFoundHeaders) reportBankFileStatusRes()       {}
 func (*NotFoundHeaders) requestBankAccountChangeRes()   {}
 func (*NotFoundHeaders) requestBankAccountEndRes()      {}
@@ -18543,6 +18614,7 @@ func (*PreconditionFailedHeaders) releaseContractRes()           {}
 func (*PreconditionFailedHeaders) releasePaymentRunRes()         {}
 func (*PreconditionFailedHeaders) releasePurchaseOrderRes()      {}
 func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes()    {}
+func (*PreconditionFailedHeaders) renewContractRes()             {}
 func (*PreconditionFailedHeaders) reportBankFileStatusRes()      {}
 func (*PreconditionFailedHeaders) requestBankAccountEndRes()     {}
 func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()       {}
@@ -18689,6 +18761,7 @@ func (*PreconditionRequiredHeaders) releaseContractRes()           {}
 func (*PreconditionRequiredHeaders) releasePaymentRunRes()         {}
 func (*PreconditionRequiredHeaders) releasePurchaseOrderRes()      {}
 func (*PreconditionRequiredHeaders) releaseSupplierInvoiceRes()    {}
+func (*PreconditionRequiredHeaders) renewContractRes()             {}
 func (*PreconditionRequiredHeaders) reportBankFileStatusRes()      {}
 func (*PreconditionRequiredHeaders) requestBankAccountChangeRes()  {}
 func (*PreconditionRequiredHeaders) requestBankAccountEndRes()     {}
@@ -23795,6 +23868,7 @@ func (*ServiceUnavailableHeaders) releaseContractRes()            {}
 func (*ServiceUnavailableHeaders) releasePaymentRunRes()          {}
 func (*ServiceUnavailableHeaders) releasePurchaseOrderRes()       {}
 func (*ServiceUnavailableHeaders) releaseSupplierInvoiceRes()     {}
+func (*ServiceUnavailableHeaders) renewContractRes()              {}
 func (*ServiceUnavailableHeaders) reportBankFileStatusRes()       {}
 func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()   {}
 func (*ServiceUnavailableHeaders) requestBankAccountEndRes()      {}
@@ -25541,6 +25615,7 @@ func (*TooManyRequestsHeaders) releaseContractRes()            {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()          {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()       {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()     {}
+func (*TooManyRequestsHeaders) renewContractRes()              {}
 func (*TooManyRequestsHeaders) reportBankFileStatusRes()       {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()   {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()      {}
@@ -25783,6 +25858,7 @@ func (*UnauthorizedHeaders) releaseContractRes()            {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()          {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()       {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()     {}
+func (*UnauthorizedHeaders) renewContractRes()              {}
 func (*UnauthorizedHeaders) reportBankFileStatusRes()       {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()   {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()      {}
@@ -25932,6 +26008,7 @@ func (*UnprocessableHeaders) releaseContractRes()           {}
 func (*UnprocessableHeaders) releasePaymentRunRes()         {}
 func (*UnprocessableHeaders) releasePurchaseOrderRes()      {}
 func (*UnprocessableHeaders) releaseSupplierInvoiceRes()    {}
+func (*UnprocessableHeaders) renewContractRes()             {}
 func (*UnprocessableHeaders) reportBankFileStatusRes()      {}
 func (*UnprocessableHeaders) requestBankAccountChangeRes()  {}
 func (*UnprocessableHeaders) requestBankAccountEndRes()     {}

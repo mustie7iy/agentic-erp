@@ -5826,6 +5826,13 @@ paths:
               - expired
               - terminated
               - cancelled
+        - name: expiring_before
+          in: query
+          required: false
+          description: "Only contracts whose validity ends before this date, e.g. active ones to renew."
+          schema:
+            type: string
+            format: date
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -6121,6 +6128,65 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/contracts/{id}:renew":
+    post:
+      operationId: renewContract
+      tags:
+        - procurement
+      summary: Renew a contract
+      description: "Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status` otherwise): valid from the day after it ends to `valid_to`, for `target_value`, with its legal entity, supplier, currency and items (each checked again as a new contract's are), naming it in `renewal_of_id`. A contract has one live renewal at a time (409 `procurement.contract_renewed`; a cancelled renewal does not count), and a renewed contract raises no expiry alert. The successor is changed, released and cancelled as any draft contract; released, its `ContractActivated` names the contract it renews."
+      x-permission: procurement.contract.manage
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The validity and target value of the renewal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContractRenew"
+      responses:
+        "201":
+          description: "Created; the renewal, a draft contract."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
             RateLimit-Limit:
@@ -10601,6 +10667,26 @@ components:
         - outcome: rejected
           reference: "pain.002-2026-10-12-0002"
           reason: "AC01 Incorrect account number"
+    ContractRenew:
+      type: object
+      description: The renewal of a contract.
+      required:
+        - valid_to
+        - target_value
+      properties:
+        valid_to:
+          type: string
+          format: date
+          description: "Last day of the renewal; it starts the day after the contract it renews ends."
+        target_value:
+          $ref: "#/components/schemas/Money"
+          description: "Target value of the renewal; positive, in the contract's currency."
+      additionalProperties: false
+      examples:
+        - valid_to: "2027-12-31"
+          target_value:
+            amount: "50000.00"
+            currency: EUR
     ReasonInput:
       type: object
       description: Body of a transition that requires a reason.
@@ -15770,6 +15856,21 @@ components:
                 - expired
                 - terminated
                 - cancelled
+              readOnly: true
+            renewal_of_id:
+              type: string
+              format: uuid
+              description: "The contract this one renews (`contracts/{id}:renew`): it continues it from the day after it ends."
+              readOnly: true
+            renewed_by_id:
+              type: string
+              format: uuid
+              description: "The contract renewing this one, unless cancelled; a renewed contract raises no expiry alert."
+              readOnly: true
+            expiry_alerted_on:
+              type: string
+              format: date
+              description: "The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days` before it ends."
               readOnly: true
             items:
               type: array

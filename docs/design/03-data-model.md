@@ -711,7 +711,9 @@ erDiagram
     date valid_from
     date valid_to
     bigint target_value
-    text status }
+    text status
+    uuid renewal_of_id
+    date expiry_alerted_on }
   contract_release { uuid contract_id PK
     uuid purchase_order_id PK
     bigint value }
@@ -743,7 +745,18 @@ erDiagram
 ```
 
 Contract consumption is the sum of insert-only `contract_release` rows (no
-counter updated in place). Received quantity per PO item is the sum of goods
+counter updated in place).
+
+A contract is renewed (`contracts/{id}:renew`, migration 000066, T47g) by a
+draft successor naming it in `renewal_of_id`: valid from the day after it
+ends, in its legal entity, with its supplier, currency and items (trigger
+`contract_renewal`, constraint `contract_renewal_continues`, 422
+`procurement.invalid_renewal`); an active or expired contract has one live
+renewal at a time, a cancelled one not counting (`contract_renewed_once`,
+409 `procurement.contract_renewed`). The successor is changed, released
+and cancelled as any draft; its `ContractActivated` names the contract it
+renews. `expiry_alerted_on` is the day the contract's coming expiry was
+alerted (`ContractExpiring`), set once (`contract_alerted_once`). Received quantity per PO item is the sum of goods
 movement items (102 movements are negative). A materialized
 `po_item_receipt_summary` read model can be added for speed without changing
 the source of truth.

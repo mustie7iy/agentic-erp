@@ -1561,7 +1561,7 @@ components:
       examples:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e0000000004d", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_activated.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
-          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_from": "2026-10-01", "valid_to": "2027-09-30", "target_value": {"amount": "250000.00", "currency": "EUR"}, "previous_status": "draft", "status": "active"}
+          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_from": "2026-10-01", "valid_to": "2027-09-30", "target_value": {"amount": "250000.00", "currency": "EUR"}, "renewal_of_id": null, "previous_status": "draft", "status": "active"}
     ContractTerminated:
       name: ContractTerminated
       title: Contract terminated
@@ -3011,6 +3011,7 @@ components:
         valid_from: {"$ref": "#/components/schemas/Date"}
         valid_to: {"$ref": "#/components/schemas/Date"}
         target_value: {"$ref": "#/components/schemas/Money"}
+        renewal_of_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The contract this one renews, if any."}
         previous_status: {"type": "string", "description": "Open enum; draft in v1."}
         status: {"type": "string", "description": "Open enum; active in v1."}
     ContractTerminatedV1:

@@ -25,6 +25,7 @@ func TestContractRenewal(t *testing.T) {
 	need(t)
 	// predecessor is an active contract of 2026.
 	predecessor := func(t *testing.T, f fixture) uuid.UUID {
+		t.Helper()
 		var c uuid.UUID
 		mustApp(t, f.tenant, func(tx pgx.Tx) (err error) {
 			c, err = f.contract(tx, "active", "2026-01-01", "2026-12-31", nil)

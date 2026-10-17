@@ -601,6 +601,10 @@ type ReleaseSupplierInvoiceRes interface {
 	releaseSupplierInvoiceRes()
 }
 
+type RenewContractRes interface {
+	renewContractRes()
+}
+
 type ReportBankFileStatusRes interface {
 	reportBankFileStatusRes()
 }

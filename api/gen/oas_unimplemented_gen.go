@@ -1507,6 +1507,21 @@ func (UnimplementedHandler) ReleaseSupplierInvoice(ctx context.Context, req OptD
 	return r, ht.ErrNotImplemented
 }
 
+// RenewContract implements renewContract operation.
+//
+// Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status`
+// otherwise): valid from the day after it ends to `valid_to`, for `target_value`, with its legal
+// entity, supplier, currency and items (each checked again as a new contract's are), naming it in
+// `renewal_of_id`. A contract has one live renewal at a time (409 `procurement.contract_renewed`; a
+// cancelled renewal does not count), and a renewed contract raises no expiry alert. The successor is
+// changed, released and cancelled as any draft contract; released, its `ContractActivated` names the
+// contract it renews.
+//
+// POST /v1/contracts/{id}:renew
+func (UnimplementedHandler) RenewContract(ctx context.Context, req *ContractRenew, params RenewContractParams) (r RenewContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ReportBankFileStatus implements reportBankFileStatus operation.
 //
 // Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to

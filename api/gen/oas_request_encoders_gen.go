@@ -788,6 +788,20 @@ func encodeReleaseSupplierInvoiceRequest(
 	return nil
 }
 
+func encodeRenewContractRequest(
+	req *ContractRenew,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeReportBankFileStatusRequest(
 	req *BankStatusReport,
 	r *http.Request,
