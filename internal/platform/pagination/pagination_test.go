@@ -85,11 +85,14 @@ func TestKeyset(t *testing.T) {
 	if want := "SELECT * FROM t WHERE a = $1 ORDER BY created_at DESC, id DESC LIMIT $2"; q != want {
 		t.Errorf("first page SQL: got %s, want %s", q, want)
 	}
-	if len(args) != 2 {
-		t.Fatalf("first page args: got %v, want 2 of them", args)
+	if len(args) != 3 {
+		t.Fatalf("first page args: got %v, want the mode and 2 of them", args)
 	}
-	if args[1] != 3 {
-		t.Errorf("first page limit: got %v, want 3", args[1])
+	if args[0] != PlanPerCall {
+		t.Errorf("first page mode: got %v, want %v (planned for its arguments every call)", args[0], PlanPerCall)
+	}
+	if args[2] != 3 {
+		t.Errorf("first page limit: got %v, want 3", args[2])
 	}
 	type row struct {
 		v  string
@@ -111,17 +114,20 @@ func TestKeyset(t *testing.T) {
 	if want := "SELECT * FROM t WHERE true AND (created_at, id) < (CAST($1::text AS timestamptz), $2) ORDER BY created_at DESC, id DESC LIMIT $3"; q != want {
 		t.Errorf("next page SQL: got %s, want %s", q, want)
 	}
-	if len(args) != 3 {
-		t.Fatalf("next page args: got %v, want 3 of them", args)
+	if len(args) != 4 {
+		t.Fatalf("next page args: got %v, want the mode and 3 of them", args)
 	}
-	if args[0] != "b" {
-		t.Errorf("next page cursor value: got %v, want b", args[0])
+	if args[0] != PlanPerCall {
+		t.Errorf("next page mode: got %v, want %v", args[0], PlanPerCall)
 	}
-	if args[1] != rows[1].id {
-		t.Errorf("next page cursor id: got %v, want %v", args[1], rows[1].id)
+	if args[1] != "b" {
+		t.Errorf("next page cursor value: got %v, want b", args[1])
 	}
-	if args[2] != DefaultSize+1 {
-		t.Errorf("next page limit: got %v, want %d", args[2], DefaultSize+1)
+	if args[2] != rows[1].id {
+		t.Errorf("next page cursor id: got %v, want %v", args[2], rows[1].id)
+	}
+	if args[3] != DefaultSize+1 {
+		t.Errorf("next page limit: got %v, want %d", args[3], DefaultSize+1)
 	}
 	// A token is bound to its order.
 	if _, err := c.Keyset(sort, "s", Request{OrderBy: "created_at asc", PageToken: tok, PageTokenSet: true}); problem.From(err).Code != "request.invalid_page_token" {

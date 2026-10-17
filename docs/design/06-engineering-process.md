@@ -69,6 +69,7 @@ against the same schema at the same time.
 | Add a column | Nullable or with a constant default (no table rewrite); backfill in batches; add `NOT NULL` later via a `NOT VALID` check, then `VALIDATE` |
 | Rename a column or table | Never in place. Add the new one, write both, backfill, switch reads, stop writing the old one, drop it in a later release |
 | Add an index | `CREATE INDEX CONCURRENTLY` in its own migration file (the runner applies such files outside a transaction) |
+| Add an index to a partitioned table | PostgreSQL cannot build one concurrently on the parent. Before the pilot: a plain `CREATE INDEX` in a transaction, with the reason in the migration (000055); writes to the table wait while it builds, reads do not, and partitions created later inherit the index. Before production-sized data, the runner gains the per-partition build (index `ON ONLY` the parent, `CREATE INDEX CONCURRENTLY` per partition, `ATTACH PARTITION`, under a `lock_timeout`); tracked |
 | Add a foreign key or check | `NOT VALID` first, `VALIDATE CONSTRAINT` in a later migration |
 | Change a type | New column + backfill + switch, as for a rename |
 | Drop anything | Only after no running version reads it, at least one release later |

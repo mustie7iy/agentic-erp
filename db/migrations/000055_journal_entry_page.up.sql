@@ -1,0 +1,21 @@
+-- A page of journal entries reads only the entries on it (05-scalability
+-- §5.8, the nightly soak). The list sorts by posting date or document
+-- number, then id; journal_entry_posting has no id, so a page read every
+-- entry of the legal entity with the same posting date and sorted them.
+-- These indexes match both sorts exactly. journal_entry_posting is a prefix
+-- of the first and is dropped by a later contract step.
+--
+-- Built in a transaction, not concurrently, which departs from
+-- 06-engineering-process §6.4. PostgreSQL cannot build an index on a
+-- partitioned table concurrently. The way around it is an index ON ONLY the
+-- parent, one CREATE INDEX CONCURRENTLY per partition, then ATTACH PARTITION
+-- for each; but the runner's no-transaction mode runs a single statement,
+-- and the partitions differ between databases (EnsurePartitions adds years
+-- ahead), so that sequence cannot be a fixed migration. A plain build holds
+-- a SHARE lock on each partition: postings wait while it runs, reads do not.
+-- Before the pilot the journal holds test and demo data and the build takes
+-- seconds. A journal of production size needs the per-partition build in
+-- the runner first. Partitions created later get both indexes from the
+-- parent.
+CREATE INDEX journal_entry_page_posting ON ledger.journal_entry (tenant_id, legal_entity_id, posting_date, id);
+CREATE INDEX journal_entry_page_number ON ledger.journal_entry (tenant_id, legal_entity_id, document_number, id);

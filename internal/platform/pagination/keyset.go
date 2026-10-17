@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -101,9 +102,23 @@ func badOrder(s Sort) error {
 // Field is the name of the field the listing is sorted by.
 func (k *Keyset) Field() string { return k.field.Name }
 
+// PlanPerCall is the pgx Query option every listing runs with: passed as
+// the first argument, it makes pgx run the query as an unnamed statement,
+// which PostgreSQL plans for its arguments every time. Listings filter
+// with optional conditions ($n IS NULL OR column = $n). Run as a cached
+// prepared statement, PostgreSQL may switch to a generic plan after five
+// runs; that plan cannot drop the conditions that do not apply nor use the
+// index of the sort, so every page read the whole table (the nightly
+// soak's drift). Planning each call costs far less than that. It works
+// only with Query (a Batch does not read the mode) and needs pgx's
+// description cache (description_cache_capacity above zero). Keyset.SQL
+// adds it; a listing that pages by other means passes it itself.
+const PlanPerCall = pgx.QueryExecModeCacheDescribe
+
 // SQL completes a query whose WHERE clause is where (args numbered from $1)
 // with the cursor condition, the order and the limit. It fetches one row
-// more than the page so Page can tell whether another page follows.
+// more than the page so Page can tell whether another page follows. The
+// arguments it returns start with PlanPerCall, for pgx's Query.
 func (k *Keyset) SQL(query string, args []any) (string, []any) {
 	cmp, dir := ">", "ASC"
 	if k.desc {
@@ -115,7 +130,7 @@ func (k *Keyset) SQL(query string, args []any) (string, []any) {
 		query += fmt.Sprintf(" AND (%s, id) %s (CAST($%d::text AS %s), $%d)", col, cmp, len(args)-1, k.field.Type, len(args))
 	}
 	args = append(args, k.size+1)
-	return query + fmt.Sprintf(" ORDER BY %s %s, id %s LIMIT $%d", col, dir, dir, len(args)), args
+	return query + fmt.Sprintf(" ORDER BY %s %s, id %s LIMIT $%d", col, dir, dir, len(args)), append([]any{PlanPerCall}, args...)
 }
 
 // Page trims rows to the page and returns the token of the next page, or ""

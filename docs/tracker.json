@@ -5545,15 +5545,21 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Journal and approvals lists read a page, not the table: an index for the sort and plans made for the filters given, with a rows-read regression test",
-        "r": "db/migrations · internal/platform/pagination · list-plans",
+        "s": "D",
+        "t": "Journal, audit and operations lists read a page, not the table: indexes for the journal's two sorts (000055) and plans made for the filters given (pagination.PlanPerCall), with rows-read regression tests",
+        "r": "db/migrations/000055 · internal/platform/pagination · TestListReadsOnlyItsPage · TestObjectHistoryReadsOnlyItsEvents",
         "c": []
        },
        {
         "s": "T",
         "t": "Sweep the remaining catch-all filter lists (68 sites in 26 files) onto the list helper",
         "r": "",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Confirm the two-hour weekly soak passes once the list fix and the log limit are on main",
+        "r": ".github/workflows/weekly.yml",
         "c": []
        }
       ]
@@ -5568,6 +5574,24 @@
       "s": "D",
       "t": "Resilience suite: database connections killed, JetStream node lost, workers killed mid-work, shutdown under load; exactly-once and audit chain checked after each",
       "r": "internal/nfr/resilience_test.go · make resilience",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Contract step: drop ledger.journal_entry_posting, replaced by journal_entry_page_posting (000055)",
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Migration runner builds an index on a partitioned table per partition CONCURRENTLY and attaches it, under lock_timeout (needed before production-sized journals; 06 §6.4)",
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Indexes ending in (sort column, id) for the other lists' sorts: purchase orders by order_date per legal entity, requisitions by created_at",
+      "r": "",
       "c": []
      }
     ]

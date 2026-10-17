@@ -25,6 +25,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -153,7 +154,7 @@ func list(ctx context.Context, tx pgx.Tx, f filter) ([]Operation, error) {
 	if f.After != uuid.Nil {
 		after = &f.After
 	}
-	rows, _ := tx.Query(ctx, q, f.Status, f.Kind, after, f.Limit)
+	rows, _ := tx.Query(ctx, q, pagination.PlanPerCall, f.Status, f.Kind, after, f.Limit)
 	ops, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Operation, error) { return scan(r) })
 	if err != nil {
 		return nil, fmt.Errorf("operations: list operations: %w", err)

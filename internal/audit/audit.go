@@ -93,7 +93,7 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 		FROM audit.audit_event WHERE ($1 = '' OR object_type = $1) AND ($2::uuid IS NULL OR object_id = $2)
 			AND ($3::timestamptz IS NULL OR occurred_at >= $3) AND ($4::timestamptz IS NULL OR occurred_at <= $4)
 			AND ($5::bigint IS NULL OR seq `+cmp+` $5)
-		ORDER BY seq `+dir+` LIMIT $6`, params.ObjectType.Value, objectID, from, to, after, size+1)
+		ORDER BY seq `+dir+` LIMIT $6`, pagination.PlanPerCall, params.ObjectType.Value, objectID, from, to, after, size+1)
 	events, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Event, error) {
 		var v Event
 		err := r.Scan(&v.Seq, &v.OccurredAt, &v.ActorID, &v.ActorKind, &v.Action, &v.ObjectType, &v.ObjectID, &v.Outcome, &v.Detail, &v.TraceID)
