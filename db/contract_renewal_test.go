@@ -42,6 +42,8 @@ func TestContractRenewal(t *testing.T) {
 		{"renewed overlapping", "UPDATE procurement.contract SET valid_from = '2026-12-31', version = version + 1 WHERE id = $1", "from the day after it ends"},
 		{"renewed with another supplier", "UPDATE procurement.contract SET supplier_id = (SELECT id FROM partner.business_partner WHERE number = 'S0002'), version = version + 1 WHERE id = $1",
 			"from the day after it ends"},
+		{"renewed in another legal entity", "UPDATE procurement.contract SET legal_entity_id = gen_random_uuid(), version = version + 1 WHERE id = $1",
+			"from the day after it ends"},
 		{"renewed in another currency", "UPDATE procurement.contract SET currency = 'EUR', version = version + 1 WHERE id = $1", "from the day after it ends"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

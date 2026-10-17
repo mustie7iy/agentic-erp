@@ -24,11 +24,11 @@ import (
 // the database refuses a second alert.
 func (x *ContractExpirer) alertDue(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time) (int, error) {
 	doc, _, err := x.Settings.Document(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor))
-	if problem.From(err).Code == "config.not_bootstrapped" {
-		x.Log.WarnContext(ctx, "the tenant has no configuration: contracts are not alerted before they expire", "tenant", actor.TenantID)
-		return 0, nil
-	}
 	if err != nil {
+		if problem.From(err).Code == "config.not_bootstrapped" {
+			x.Log.WarnContext(ctx, "the tenant has no configuration: contracts are not alerted before they expire", "tenant", actor.TenantID)
+			return 0, nil
+		}
 		return 0, err
 	}
 	days := doc.Purchasing.ContractExpiryNoticeDays
@@ -45,12 +45,17 @@ func (x *ContractExpirer) alertDue(ctx context.Context, tx pgx.Tx, actor reqctx.
 	if err != nil {
 		return 0, fmt.Errorf("procurement: list contracts to alert in tenant %s: %w", actor.TenantID, err)
 	}
+	n := 0
 	for _, d := range due {
-		if err := alertContract(ctx, tx, actor, now, d); err != nil {
+		alerted, err := alertContract(ctx, tx, actor, now, d)
+		if err != nil {
 			return 0, err
 		}
+		if alerted {
+			n++
+		}
 	}
-	return len(due), nil
+	return n, nil
 }
 
 // expiring is a contract to alert and the days until it ends.
@@ -60,22 +65,31 @@ type expiring struct {
 }
 
 // alertContract records the alert on the contract, publishes
-// ContractExpiring and audits it.
-func alertContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, d expiring) error {
+// ContractExpiring and audits it, and reports whether it did. The update
+// checks again that no live renewal continues the contract: a renewal
+// locks the contract it renews without changing it, so one committed
+// while the list of contracts to alert waited for the lock is seen only
+// by this later statement.
+func alertContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, d expiring) (bool, error) {
+	tag, err := tx.Exec(ctx, `UPDATE procurement.contract c SET expiry_alerted_on = current_date, version = version + 1, updated_by = $2
+		WHERE c.id = $1 AND c.status = 'active' AND c.expiry_alerted_on IS NULL AND NOT EXISTS (SELECT FROM procurement.contract r
+			WHERE r.tenant_id = c.tenant_id AND r.renewal_of_id = c.id AND r.status <> 'cancelled')`, d.ID, actor.ID)
+	if err != nil {
+		return false, fmt.Errorf("procurement: alert contract %s: %w", d.ID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
 	c, err := scanContract(tx.QueryRow(ctx, contractSelect+` WHERE c.id = $1`, d.ID))
 	if err != nil {
-		return fmt.Errorf("procurement: alert contract %s: %w", d.ID, err)
-	}
-	if _, err := tx.Exec(ctx, `UPDATE procurement.contract SET expiry_alerted_on = current_date, version = version + 1, updated_by = $2 WHERE id = $1`,
-		d.ID, actor.ID); err != nil {
-		return fmt.Errorf("procurement: alert contract %s: %w", d.ID, err)
+		return false, fmt.Errorf("procurement: alert contract %s: %w", d.ID, err)
 	}
 	payload := map[string]any{"contract_id": d.ID, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
 		"valid_to": c.ValidTo.Format(time.DateOnly), "days_left": d.DaysLeft, "consumed_value": money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent),
 		"target_value": money.EventAmount(c.TargetValue, c.Currency, c.Exponent)}
 	if _, err := outbox.Write(ctx, tx, actor.TenantID, actor.ID, "", event("contract_expiring", "contract", d.ID, payload)); err != nil {
-		return err
+		return false, err
 	}
-	return audit.Write(ctx, tx, actor, "", now, audit.Entry{Action: "procurement.contract.alert_expiry", ObjectType: "procurement.contract", ObjectID: d.ID,
+	return true, audit.Write(ctx, tx, actor, "", now, audit.Entry{Action: "procurement.contract.alert_expiry", ObjectType: "procurement.contract", ObjectID: d.ID,
 		Outcome: "succeeded", Detail: map[string]any{"valid_to": c.ValidTo.Format(time.DateOnly), "days_left": d.DaysLeft}})
 }

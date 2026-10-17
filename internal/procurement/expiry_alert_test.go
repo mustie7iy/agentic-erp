@@ -188,3 +188,59 @@ func TestExpiryAlertFailures(t *testing.T) {
 		t.Errorf("contract after the rounds: got no alert, want one")
 	}
 }
+
+// TestRenewalWhileAlerting: a contract renewed while the expirer waits for
+// it is not alerted. The renewal locks the contract it renews without
+// changing it, so the alert's choice of contracts, made before the
+// renewal committed, is checked again as the alert is written.
+func TestRenewalWhileAlerting(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	c, path := e.ending(t, 10)
+	renewing, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: e.Tenant.ID})
+	if err != nil {
+		t.Fatalf("begin the renewal: %v", err)
+	}
+	defer renewing.Rollback(context.WithoutCancel(ctx))
+	if err := database.SetActor(ctx, renewing, e.Tenant.Human.ID); err != nil {
+		t.Fatalf("renewal actor: %v", err)
+	}
+	if _, err := renewing.Exec(ctx, `SELECT FROM procurement.contract WHERE id = $1 FOR UPDATE`, uuidOf(c)); err != nil {
+		t.Fatalf("lock the contract: %v", err)
+	}
+	if _, err := renewing.Exec(ctx, `INSERT INTO procurement.contract (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, valid_from,
+			valid_to, target_value, status, renewal_of_id, created_by, updated_by)
+		SELECT tenant_id, gen_random_uuid(), 'R' || document_number, legal_entity_id, supplier_id, currency, valid_to + 1, valid_to + 365, target_value,
+			'draft', id, $2, $2 FROM procurement.contract WHERE id = $1`, uuidOf(c), e.Tenant.Human.ID); err != nil {
+		t.Fatalf("insert the renewal: %v", err)
+	}
+	x := expirer(t, &pgtest.SyncBuffer{}, configuration.Settings{})
+	type result struct {
+		round procurement.Round
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		r, err := x.Expire(ctx, e.Tenant.ID)
+		done <- result{r, err}
+	}()
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var waiting bool
+		err := pgtest.Admin(t).QueryRow(ctx, `SELECT EXISTS (SELECT FROM pg_stat_activity WHERE wait_event_type = 'Lock'
+			AND query LIKE '%c.expiry_alerted_on IS NULL%' AND query LIKE '%FOR UPDATE OF c%')`).Scan(&waiting)
+		return err == nil && waiting
+	}, "the expirer never waited for the contract being renewed")
+	if err := renewing.Commit(ctx); err != nil {
+		t.Fatalf("commit the renewal: %v", err)
+	}
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("round: %v", got.err)
+	}
+	if got.round.Alerted != 0 {
+		t.Errorf("round: got %d alerted, want 0: the contract was renewed", got.round.Alerted)
+	}
+	if contract, _ := e.Must(200, "GET", path, "", ""); contract["expiry_alerted_on"] != nil {
+		t.Errorf("renewed contract: got alerted on %v, want no alert", contract["expiry_alerted_on"])
+	}
+}

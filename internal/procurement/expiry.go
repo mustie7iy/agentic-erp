@@ -51,7 +51,9 @@ func (x *ContractExpirer) begin(ctx context.Context, s database.Scope) (pgx.Tx, 
 
 // due lists the tenants holding active contracts past their validity, or
 // not yet alerted and ending within the longest notice (365 days), as the
-// worker role; the day is the database's.
+// worker role; the day is the database's. The second is a deliberate
+// superset: the worker role cannot read the tenant's notice, nor need it
+// see renewals, so the tenant's round picks the contracts to alert.
 func (x *ContractExpirer) due(ctx context.Context) ([]uuid.UUID, error) {
 	tx, err := x.begin(ctx, database.Scope{Role: x.WorkerRole, ReadOnly: true})
 	if err != nil {
