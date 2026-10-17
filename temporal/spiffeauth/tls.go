@@ -40,7 +40,9 @@ func (p TLS13) GetFrontendServerConfig() (*tls.Config, error) {
 	return harden("")(p.TLSConfigProvider.GetFrontendServerConfig())
 }
 
-// GetFrontendClientConfig implements encryption.TLSConfigProvider.
+// GetFrontendClientConfig implements encryption.TLSConfigProvider. The
+// frontend presents the engine's own certificate (the erp-cell chart), so
+// the engine's clients of it hold it to Nodes too.
 func (p TLS13) GetFrontendClientConfig() (*tls.Config, error) {
 	return harden(p.Nodes)(p.TLSConfigProvider.GetFrontendClientConfig())
 }
