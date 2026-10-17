@@ -1,10 +1,12 @@
 // Package natsbus publishes domain events to NATS JetStream (ADR-0007): one
 // stream per context and cell, binary-mode CloudEvents, and de-duplication on
-// the event id so a relay retry never delivers an event twice.
+// the event id so a relay retry never delivers an event twice. TLS
+// connects with the process's certificate over TLS 1.3 (ADR-0033).
 package natsbus
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
 
 // DuplicateWindow is how long JetStream remembers event ids for de-duplication.
@@ -22,6 +25,19 @@ const DuplicateWindow = 10 * time.Minute
 type Bus struct {
 	nc *nats.Conn
 	js jetstream.JetStream
+}
+
+// TLS is the options that connect over TLS 1.3 with the store's material
+// (ADR-0033): the server is verified against the store's roots, and the
+// store's certificate, when it has one, is the cell's identity. Both are
+// taken from the store on every connection, so a renewed certificate is
+// used on the next reconnect.
+func TLS(s *tlsconf.Store) []nats.Option {
+	var cert nats.TLSCertHandler
+	if s.HasCertificate() {
+		cert = s.Certificate
+	}
+	return []nats.Option{nats.Secure(&tls.Config{MinVersion: tlsconf.Internal}), nats.ClientTLSConfig(cert, s.RootCAs)}
 }
 
 // Connect opens a connection to the NATS cluster.

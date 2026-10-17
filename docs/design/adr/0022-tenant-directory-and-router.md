@@ -54,3 +54,16 @@ survives a tenant moving.
   per tenant per cache period.
 - Moving a tenant (05 §5.4) now has its directory steps; the row copy and
   verification are still manual.
+
+## Amendment (2026-10-16, ADR-0031)
+
+The router finds a token's tenant from the token's issuer and audience in a
+`directory.issuer` table, written by the tenant's cell when a provider is
+registered (a claim that keeps the pair unique across cells) and reconciled
+in rounds, rather than from a claim; the tenant's cell is then looked up as
+before. A token whose issuer and audience no tenant registered is refused
+before any cell is reached.
+- Transport (amended 2026-10-16, ADR-0033): cells register https URLs in
+  production, and the router (and the global plane in it) reaches them
+  over mutual TLS as `spiffe://<domain>/global/erp-router`, the one
+  identity a cell's API and `/control` serve.

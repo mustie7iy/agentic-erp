@@ -35,3 +35,5 @@ new record. Status values: proposed, accepted, superseded.
 | [0028](0028-key-rotation-policy.md) | Tenant keys older than a configured age are rotated by a worker, as an operator would | proposed |
 | [0029](0029-reonboarding-from-export.md) | A tenant comes back from its export, verified against the manifest; the row copy of a move between cells | proposed |
 | [0030](0030-cross-cell-verification.md) | A tenant's fingerprint (rows per table, audit chain head) on each cell; the global plane compares two cells before a move switches | proposed |
+| [0031](0031-per-tenant-identity-providers-and-sessions.md) | Identity providers registered per tenant decide a token's tenant; multi-factor by acr/amr where the tenant demands it; server-side sessions with lifetime and idle timeout | accepted |
+| [0033](0033-transport-encryption-and-service-identity.md) | TLS on every connection, verified, plaintext refused in production; certificates from secret references, re-read while running; SPIFFE service identities authorize hops, never principals; agent tokens bound to client certificates (RFC 8705); encryption at rest stated and checked at start | accepted |

@@ -9189,7 +9189,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: "OAuth 2.0 bearer access token (OIDC) issued by the tenant's identity provider; validated for signature, issuer and audience at the gateway and again in the service (ADR-0010). Agents and services use client-credentials tokens tied to their own principal. Authorization (permission, legal entity access, segregation of duties) is checked per operation; the required permission is the operation's `x-permission`."
+      description: "OAuth 2.0 bearer access token (OIDC) issued by the tenant's identity provider; validated for signature, issuer and audience at the gateway and again in the service (ADR-0010). Agents and services use client-credentials tokens tied to their own principal. Authorization (permission, legal entity access, segregation of duties) is checked per operation; the required permission is the operation's `x-permission`. The identity provider the tenant registered decides the token's tenant (ADR-0031); a token of an issuer no tenant registered is 401 `authn.invalid_token`, and while the provider's keys or the registry cannot be read the answer is 503 (`platform.identity_provider_unavailable`, `platform.unavailable`). Where the tenant requires multi-factor authentication, a person's token must prove it by the provider's `acr` or `amr` values, or is answered 401 `identity.mfa_required` with the step-up challenge of RFC 9470 (`WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` with the `acr_values` to ask the provider for); service and agent tokens are not asked. A person's session (one authentication at the provider: its `sid`, or the subject's `auth_time`) lasts the tenant's session lifetime from that authentication and ends after its idle timeout without a request: 401 `identity.session_expired` or `identity.session_idle`, and an ended session never resumes, even with a refreshed token. A person's token with neither `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer than the session lifetime (`exp` − `iat`) 401 `identity.session_expired`."
   parameters:
     Id:
       name: id
@@ -9390,7 +9390,7 @@ components:
         format: int32
         minimum: 0
     WwwAuthenticate:
-      description: Bearer challenge (RFC 6750).
+      description: "Bearer challenge (RFC 6750); `error=\"insufficient_user_authentication\"` with `acr_values` asks for a step-up (RFC 9470)."
       schema:
         type: string
   schemas:
@@ -17519,17 +17519,17 @@ components:
         RateLimit-Reset:
           $ref: "#/components/headers/RateLimitReset"
     Unauthorized:
-      description: Missing, expired or invalid bearer token.
+      description: "Missing, expired or invalid bearer token (`authn.invalid_token`), or a person's token without the multi-factor authentication the tenant requires (`identity.mfa_required`, with the RFC 9470 challenge in `WWW-Authenticate`), or of a session that has ended (`identity.session_expired`, `identity.session_idle`) or cannot be told (`identity.session_unknown`)."
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
           example:
-            type: "https://errors.example.com/identity/unauthenticated"
-            title: Unauthenticated
+            type: "https://errors.example.com/authn/invalid-token"
+            title: Unauthorized
             status: 401
-            code: identity.unauthenticated
-            detail: The access token has expired.
+            code: authn.invalid_token
+            detail: The bearer token is invalid or expired.
             instance: /v1/supplier-invoices
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
       headers:

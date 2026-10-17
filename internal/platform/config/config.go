@@ -12,16 +12,20 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
 
 // Config is the server configuration.
@@ -38,7 +42,7 @@ type Config struct {
 	Cell            string          // ERP_CELL, part of event subjects (default local)
 	NATSURL         string          // ERP_NATS_URL; empty disables the event relay
 	OTLPEndpoint    string          // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT; empty keeps traces local
-	Issuers         []authn.Issuer  // ERP_OIDC_ISSUERS, JSON list of {issuer, audience, tenant_claim} (required)
+	Issuers         []authn.Issuer  // ERP_OIDC_ISSUERS, JSON list of {issuer, audience, tenant_claim}: issuers trusted for every tenant (optional; tenants register their own, ADR-0031)
 	OperatorIssuers []authn.Issuer  // ERP_OPERATOR_ISSUERS, the same for the operators' tokens; empty leaves the control plane off (unless ERP_DEV_ISSUER)
 	PageTokenKey    []byte          // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required)
 	LLMEnabled      bool            // ANTHROPIC_API_KEY is set: invoice capture reads documents with Claude
@@ -68,6 +72,10 @@ type Config struct {
 	CellAccepting   bool            // ERP_CELL_ACCEPTING: whether this cell takes new tenants (default true)
 	Vault           Vault           // ERP_VAULT_*: where vault: references are resolved
 	AWS             AWS             // ambient AWS credentials for S3 and KMS when no access keys are set (ADR-0024)
+	TLS             tlsconf.Source  // ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: secret references to the CA bundle and the cell's certificate, read again while it runs (ADR-0033)
+	TLSMaterial     *tlsconf.Store  // TLS read when the configuration loads; nil without it (development)
+	TrustDomain     string          // ERP_TRUST_DOMAIN: the SPIFFE trust domain of the services' identities; set, the API serves the router alone and /control the global plane (ADR-0033)
+	AtRest          AtRest          // ERP_AT_REST: how each store encrypts at rest, stated per environment and checked at start (ADR-0033)
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
 	Secrets secrets.Resolver
@@ -109,6 +117,17 @@ func (c Config) TenantIssuers() []string {
 // Enabled reports whether a KMS master is configured.
 func (k KMS) Enabled() bool { return k.Key != "" }
 
+// HTTPClient is the client to providers' HTTPS endpoints (S3, KMS, STS):
+// the TLS material's, which also trusts ERP_TLS_CA and makes each
+// connection with the material read last (ADR-0033); nil without
+// material, which leaves each client its default.
+func (c Config) HTTPClient() *http.Client {
+	if c.TLSMaterial == nil {
+		return nil
+	}
+	return c.TLSMaterial.HTTPClient(10 * time.Second)
+}
+
 // AWS is where ambient credentials come from when the S3 store or the KMS
 // master has no access keys of its own: the AWS_* environment, a web
 // identity (AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN, exchanged at
@@ -132,6 +151,25 @@ type Vault struct {
 // instead of a value.
 var SecretSettings = []string{"DATABASE_URL", "ERP_DIRECTORY_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
 	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
+
+// AtRest is how each store encrypts its data at rest, as ERP_AT_REST
+// states it ("postgres=storage-kms,objects=sse-kms,nats=volume"); empty:
+// not stated (development). The cell checks what it can see itself, the
+// object store's KMS encryption; the infrastructure's policy tests check
+// the rest (T40, ADR-0033).
+type AtRest struct {
+	Postgres string // storage-kms (the managed service's storage under a KMS key) or volume (an encrypted volume)
+	Objects  string // sse-kms: S3 server-side encryption under KMS, asked on every write and required of the bucket
+	NATS     string // storage-kms, volume, or jetstream-cipher (JetStream's own encryption)
+}
+
+// atRestValues are the encryptions each store may state, in the order
+// errors list them.
+var atRestValues = map[string][]string{
+	"postgres": {"storage-kms", "volume"},
+	"objects":  {"sse-kms"},
+	"nats":     {"storage-kms", "volume", "jetstream-cipher"},
+}
 
 // Objects is the object storage configuration: a directory (development) or
 // an S3-compatible service, never both.
@@ -162,6 +200,9 @@ type Temporal struct {
 	Namespace string
 	TaskQueue string
 	CodecKey  []byte // ERP_TEMPORAL_CODEC_KEY, base64 of 32 bytes: payloads sealed before they reach the engine (ADR-0012)
+	// ServerName is ERP_TEMPORAL_SERVER_NAME, the name the frontend's
+	// certificate is verified for; empty: the address's host (ADR-0033).
+	ServerName string
 	// EscalateAfter is the period a pending approval request waits for a
 	// decision before it is escalated (ERP_APPROVAL_ESCALATE_AFTER, default
 	// 48h; 0 disables escalation), Escalations how often (ERP_APPROVAL_ESCALATIONS, default 3).
@@ -176,10 +217,12 @@ type Temporal struct {
 func Load(getenv func(string) string) (Config, error) {
 	l := newLoader(getenv)
 	c := l.basics()
+	l.tls(&c)
 	l.issuers(&c)
 	l.fieldKeys(&c)
 	l.kms(&c)
 	l.objects(&c)
+	l.atRest(&c)
 	l.lifetimes(&c)
 	l.temporal(&c)
 	l.directory(&c)
@@ -267,8 +310,34 @@ func (l *loader) basics() Config {
 	return c
 }
 
-// issuers reads who may sign tokens: the development issuer, the tenants'
-// OIDC issuers (optional with the development issuer) and the operators'.
+// tls reads the TLS material (ADR-0033). The references are kept, for the
+// server to read them again while it runs; the material is read now too,
+// so that material that cannot be read stops every command at start, the
+// server's subcommands included.
+func (l *loader) tls(c *Config) {
+	c.TLS = tlsconf.Source{CA: l.raw("ERP_TLS_CA"), Cert: l.raw("ERP_TLS_CERT"), Key: l.raw("ERP_TLS_KEY")}
+	if c.TrustDomain = l.getenv("ERP_TRUST_DOMAIN"); !ValidTrustDomain(c.TrustDomain) {
+		l.errs = append(l.errs, ErrTrustDomain)
+	}
+	if c.TrustDomain != "" && c.TLS.Cert == "" {
+		l.errs = append(l.errs, errors.New("ERP_TRUST_DOMAIN needs ERP_TLS_CERT and ERP_TLS_KEY: the API and /control serve the router by its certificate, over TLS (ADR-0033)"))
+	}
+	switch {
+	case (c.TLS.Cert == "") != (c.TLS.Key == ""):
+		l.errs = append(l.errs, errors.New("ERP_TLS_CERT and ERP_TLS_KEY go together: the certificate the cell presents and its key"))
+	case c.TLS.Enabled():
+		store := &tlsconf.Store{Source: c.TLS, Resolver: l.resolver}
+		if err := store.Refresh(context.Background()); err != nil {
+			l.errs = append(l.errs, fmt.Errorf("ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: %w", err))
+			return
+		}
+		c.TLSMaterial = store
+	}
+}
+
+// issuers reads who may sign tokens: the development issuer, the
+// deployment's own tenant issuers (optional: tenants register theirs,
+// ADR-0031) and the operators'.
 func (l *loader) issuers(c *Config) {
 	getenv := l.getenv
 	dev, err := strconv.ParseBool(l.get("ERP_DEV_ISSUER", "false"))
@@ -276,9 +345,9 @@ func (l *loader) issuers(c *Config) {
 		l.errs = append(l.errs, errors.New("ERP_DEV_ISSUER must be true or false"))
 	}
 	c.DevIssuer = dev
-	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" || !c.DevIssuer {
+	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.Issuers); err != nil || len(c.Issuers) == 0 {
-			l.errs = append(l.errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} (optional with ERP_DEV_ISSUER=true)`))
+			l.errs = append(l.errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} when set`))
 		}
 	}
 	if raw := getenv("ERP_OPERATOR_ISSUERS"); raw != "" {
@@ -353,6 +422,39 @@ func (l *loader) objects(c *Config) {
 	}
 }
 
+// atRest reads ERP_AT_REST.
+func (l *loader) atRest(c *Config) {
+	raw := strings.TrimSpace(l.getenv("ERP_AT_REST"))
+	if raw == "" {
+		return
+	}
+	stated := map[string]string{}
+	for _, part := range strings.Split(raw, ",") {
+		store, value, ok := strings.Cut(part, "=")
+		store, value = strings.TrimSpace(store), strings.TrimSpace(value)
+		allowed, known := atRestValues[store]
+		switch {
+		case !ok:
+			l.errs = append(l.errs, errors.New(`ERP_AT_REST must be "store=encryption,..." such as "postgres=storage-kms,objects=sse-kms"`))
+			return
+		case !known:
+			l.errs = append(l.errs, fmt.Errorf("ERP_AT_REST: unknown store %q (postgres, objects, nats)", store))
+			return
+		case !slices.Contains(allowed, value):
+			l.errs = append(l.errs, fmt.Errorf("ERP_AT_REST: %s=%s is not one of %s", store, value, strings.Join(allowed, ", ")))
+			return
+		case stated[store] != "":
+			l.errs = append(l.errs, fmt.Errorf("ERP_AT_REST states %s twice", store))
+			return
+		}
+		stated[store] = value
+	}
+	c.AtRest = AtRest{Postgres: stated["postgres"], Objects: stated["objects"], NATS: stated["nats"]}
+	if c.AtRest.Objects != "" && c.Objects.Endpoint == "" {
+		l.errs = append(l.errs, errors.New("ERP_AT_REST objects=sse-kms needs ERP_OBJECT_S3_ENDPOINT: a directory cannot be asked to encrypt"))
+	}
+}
+
 // lifetimes reads how long data and keys live: the anchors' lock, the
 // offboarding grace, the audit verification and key rotation periods; and
 // the public URL that upload links are made from.
@@ -383,7 +485,8 @@ func (l *loader) lifetimes(c *Config) {
 func (l *loader) temporal(c *Config) {
 	get := l.get
 	var err error
-	c.Temporal = Temporal{Address: l.getenv("ERP_TEMPORAL_ADDRESS"), Namespace: get("ERP_TEMPORAL_NAMESPACE", "default"), TaskQueue: get("ERP_TEMPORAL_TASK_QUEUE", "erp")}
+	c.Temporal = Temporal{Address: l.getenv("ERP_TEMPORAL_ADDRESS"), Namespace: get("ERP_TEMPORAL_NAMESPACE", "default"), TaskQueue: get("ERP_TEMPORAL_TASK_QUEUE", "erp"),
+		ServerName: l.getenv("ERP_TEMPORAL_SERVER_NAME")}
 	if raw := l.getenv("ERP_TEMPORAL_CODEC_KEY"); raw != "" {
 		if key, err := base64.StdEncoding.DecodeString(raw); err != nil || len(key) != 32 {
 			l.errs = append(l.errs, errors.New("ERP_TEMPORAL_CODEC_KEY must be base64 of 32 random bytes, the same on every replica and kept secret"))
@@ -500,6 +603,12 @@ func checkEnvironment(c Config) []error {
 	if c.DevIssuer {
 		errs = append(errs, errors.New("ERP_DEV_ISSUER must not be set with ERP_ENV=production: it mints tokens for any subject of any tenant"))
 	}
+	if len(c.Issuers) > 0 {
+		errs = append(errs, errors.New("ERP_OIDC_ISSUERS must not be set with ERP_ENV=production: it trusts its issuers for every tenant; register each tenant's identity provider instead (ADR-0031)"))
+	}
+	if len(c.OperatorIssuers) == 0 {
+		errs = append(errs, errors.New("ERP_OPERATOR_ISSUERS is required with ERP_ENV=production: without operators no tenant's identity provider is registered and no principal is bound"))
+	}
 	if c.Temporal.Address != "" && c.Temporal.CodecKey == nil {
 		errs = append(errs, errors.New("ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production and a workflow engine: without it payloads reach the engine unsealed"))
 	}
@@ -509,7 +618,130 @@ func checkEnvironment(c Config) []error {
 	if c.AuditVerify == 0 {
 		errs = append(errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production: audit chains would go unverified against their anchors"))
 	}
+	errs = append(errs, checkAtRest(c)...)
+	return append(errs, checkTransport(c)...)
+}
+
+// checkAtRest refuses, in production, a store whose encryption at rest is
+// not stated, and objects kept anywhere but a KMS-encrypted S3 bucket
+// (ADR-0033).
+func checkAtRest(c Config) []error {
+	var errs []error
+	if c.Objects.Dir != "" {
+		errs = append(errs, errors.New("ERP_OBJECT_DIR must not be set with ERP_ENV=production: objects are kept in an S3 bucket encrypted under KMS (ADR-0033)"))
+	}
+	if c.AtRest == (AtRest{}) {
+		return append(errs, errors.New(`ERP_AT_REST is required with ERP_ENV=production: state how each store encrypts at rest, such as "postgres=storage-kms,objects=sse-kms" (ADR-0033)`))
+	}
+	if c.AtRest.Postgres == "" {
+		errs = append(errs, errors.New("ERP_AT_REST must state postgres with ERP_ENV=production (storage-kms or volume)"))
+	}
+	if c.AtRest.Objects != "sse-kms" {
+		errs = append(errs, errors.New("ERP_AT_REST must state objects=sse-kms with ERP_ENV=production"))
+	}
+	if c.NATSURL != "" && c.AtRest.NATS == "" {
+		errs = append(errs, errors.New("ERP_AT_REST must state nats with ERP_ENV=production and a bus (storage-kms, volume or jetstream-cipher)"))
+	}
 	return errs
+}
+
+// checkTransport refuses, in production, a connection that may go without
+// verified TLS (ADR-0033).
+func checkTransport(c Config) []error {
+	var errs []error
+	for _, s := range []setting{{"DATABASE_URL", c.DatabaseURL}, {"ERP_DIRECTORY_URL", c.DirectoryURL}} {
+		if s.value == "" {
+			continue // DATABASE_URL is required on its own; no directory is a single cell
+		}
+		if err := CheckDatabaseTLS(s.name, s.value); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c.TLS.Cert == "" {
+		errs = append(errs, errors.New("ERP_TLS_CERT and ERP_TLS_KEY are required with ERP_ENV=production: the listeners serve TLS only, as the cell's certificate (ADR-0033)"))
+	}
+	if c.TrustDomain == "" {
+		errs = append(errs, errors.New("ERP_TRUST_DOMAIN is required with ERP_ENV=production: the API serves the router alone, /control the global plane, by their SPIFFE identities (ADR-0033)"))
+	}
+	errs = append(errs, checkNATS(c)...)
+	if c.Temporal.Address != "" && c.TLS.Cert == "" {
+		errs = append(errs, errors.New("ERP_TEMPORAL_ADDRESS needs ERP_TLS_CERT and ERP_TLS_KEY with ERP_ENV=production: the cell reaches the engine over TLS as its certificate's identity (ADR-0033)"))
+	}
+	return append(errs, checkEndpoints(c)...)
+}
+
+// checkNATS refuses a NATS server named without TLS, and NATS without the
+// certificate the cell connects as.
+func checkNATS(c Config) []error {
+	if c.NATSURL == "" {
+		return nil
+	}
+	var errs []error
+	// The servers are named as nats.go splits them; the URLs may carry
+	// credentials, so the errors do not repeat them.
+	for _, server := range strings.Split(c.NATSURL, ",") {
+		if u, err := url.Parse(strings.TrimSpace(server)); err != nil || u.Scheme != "tls" {
+			errs = append(errs, errors.New("ERP_NATS_URL must name tls:// servers only with ERP_ENV=production (ADR-0033)"))
+			break
+		}
+	}
+	if c.TLS.Cert == "" {
+		errs = append(errs, errors.New("ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY with ERP_ENV=production: the cell connects as its certificate's identity (ADR-0033)"))
+	}
+	return errs
+}
+
+// trustDomainPattern is a SPIFFE trust domain: a DNS name in lower case.
+var trustDomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+
+// ErrTrustDomain reports an ERP_TRUST_DOMAIN that is not a trust domain.
+var ErrTrustDomain = errors.New("ERP_TRUST_DOMAIN must be a DNS name in lower case, such as erp.example.com: the SPIFFE trust domain")
+
+// ValidTrustDomain reports whether d is empty or a SPIFFE trust domain;
+// the router checks its own setting with it.
+func ValidTrustDomain(d string) bool { return d == "" || trustDomainPattern.MatchString(d) }
+
+// imdsHosts are the instance metadata service's link-local addresses, the
+// one endpoint reached without TLS: its traffic never leaves the host.
+var imdsHosts = map[string]bool{"169.254.169.254": true, "fd00:ec2::254": true}
+
+// isIMDS reports whether endpoint is exactly the instance metadata
+// service: http, one of its addresses, nothing else in the URL.
+func isIMDS(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	return err == nil && u.Scheme == "http" && imdsHosts[u.Hostname()] && u.Port() == "" && strings.Trim(u.Path, "/") == "" &&
+		u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == ""
+}
+
+// checkEndpoints refuses providers' endpoints (S3, KMS, Vault, STS) that
+// are not https, and an instance metadata endpoint other than the
+// service's own addresses.
+func checkEndpoints(c Config) []error {
+	var errs []error
+	endpoints := []setting{{"ERP_OBJECT_S3_ENDPOINT", c.Objects.Endpoint}, {"ERP_VAULT_ADDR", c.Vault.Address}, {"ERP_AWS_STS_ENDPOINT", c.AWS.STSEndpoint},
+		{"ERP_CELL_API_URL", c.CellAPIURL}, {"ERP_CELL_CONTROL_URL", c.CellControlURL}}
+	if c.KMS.Enabled() {
+		endpoints = append(endpoints, setting{"ERP_FIELD_KMS_ENDPOINT", c.KMS.Endpoint})
+	}
+	for _, s := range endpoints {
+		if u, err := url.Parse(s.value); s.value != "" && (err != nil || u.Scheme != "https") {
+			errs = append(errs, fmt.Errorf("%s must be an https:// URL with ERP_ENV=production (ADR-0033)", s.name))
+		}
+	}
+	if !isIMDS(c.AWS.IMDSEndpoint) {
+		errs = append(errs, errors.New("ERP_AWS_IMDS_ENDPOINT must be http://169.254.169.254 or http://[fd00:ec2::254] with ERP_ENV=production: the one endpoint reached without TLS is the link-local instance metadata service (ADR-0033)"))
+	}
+	return errs
+}
+
+// CheckDatabaseTLS is production's check of a database URL, the setting
+// name: verified TLS on every host pgx may try (ADR-0033). The router
+// applies it to its directory too.
+func CheckDatabaseTLS(name, url string) error {
+	if err := database.RequireVerifiedTLS(url); err != nil {
+		return fmt.Errorf("%s: %w (required with ERP_ENV=production, ADR-0033)", name, err)
+	}
+	return nil
 }
 
 // DefaultK8sJWTFile is where Kubernetes mounts the service account token.

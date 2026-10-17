@@ -126,7 +126,14 @@ type Service struct {
 	Offboarding *offboarding.Worker // erases exported tenants on request; nil: erasure answers 503
 	Directory   *directory.Sync     // records tenants in the global directory after a change; nil: a single cell
 	Pages       *pagination.Codec
-	Now         func() time.Time
+	Production  bool // ERP_ENV=production: identity providers' issuers are https (ADR-0031)
+	// Discover reads a provider's discovery document before it is
+	// registered (authn.Providers.Probe); nil reads none.
+	Discover func(ctx context.Context, issuer string) error
+	// WriteTimeout bounds a registry or policy write's transaction; 0:
+	// DefaultWriteTimeout, which must stay below directory.ClaimGrace.
+	WriteTimeout time.Duration
+	Now          func() time.Time
 	// Begin starts a transaction; nil means Pool.Begin. Tests replace it to
 	// inject database failures.
 	Begin database.BeginFunc

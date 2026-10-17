@@ -173,6 +173,18 @@ erDiagram
   agent_profile { uuid principal_id PK
     smallint autonomy_level "0-3"
     text model }
+  identity_provider { uuid id PK
+    text issuer "OIDC iss"
+    text audience "aud; (issuer, audience) active unique"
+    text tenant_claim "optional cross-check"
+    text_array acr_values "prove multi-factor"
+    text_array amr_values "prove multi-factor (RFC 8176)"
+    bool certificate_bound "binds tokens to client certificates (RFC 8705)"
+    text status "active | retired" }
+  auth_policy { uuid tenant_id PK
+    bool mfa_required
+    interval session_max_age "15 min to 24 h, default 12 h"
+    interval idle_timeout "5 min to 8 h, default 30 min" }
 ```
 
 Agents are principals like people, with their own roles. A trigger rejects
@@ -209,7 +221,10 @@ one, and, where none is found, to the development issuer `erp-dev`, as
 000037 did. A migration cannot read which issuers the cell trusts, and
 `ERP_ENV=production` refuses `erp-dev`, so outside development such a
 principal is refused until an operator binds it to its real issuer (T37):
-it fails closed rather than guess. 000047 `VALIDATE`s the check, and 000048
+it fails closed rather than guess. The control plane lists a tenant's
+unbound principals (those whose issuer is no active registered provider
+of the tenant) and binds one to a provider with its subject there
+(`bindPrincipal`, `erp:admin`, audited, published as `PrincipalBound`). 000047 `VALIDATE`s the check, and 000048
 drops `principal_subject` (the subject alone unique per tenant)
 concurrently; `principal_issuer_subject` carries uniqueness. A person or
 service now always has an issuer, and the new release refuses to create one
@@ -217,6 +232,46 @@ whose issuer it cannot tell: `CreatePrincipal` answers 422
 `identity.creator_without_issuer` when the creating actor (an agent, a job
 acting through `uow.Act`) is bound to no issuer, and writes nothing; agents,
 which have no subject, need none.
+
+A tenant's **identity providers** (ADR-0031, T37) are registered in
+`identity_provider`: the active registration holding a token's issuer and
+audience decides the token's tenant, so the pair is unique across tenants
+among active registrations (`identity_provider_issuer_audience`, the one key
+in a tenant schema not led by `tenant_id`). Issuer and audience never change
+and a retired registration stays retired (`check_identity_provider_update`),
+which frees the pair; a tenant keeps at least one active provider (checked
+when one is retired, its providers read `FOR UPDATE`). `auth_policy` holds the
+tenant's policy, one row or none for the defaults: whether people must prove
+multi-factor authentication (by a provider's `acr` or `amr` values; a policy
+requiring it while an active provider can prove neither is refused), the
+session lifetime and the idle timeout. A provider's `certificate_bound`
+(000058, ADR-0033) says it binds its tokens to the client's certificate
+(`cnf.x5t#S256`); in production agents' tokens are accepted only from a
+provider that does. The control role `erp_control` reads,
+across tenants, the columns that resolve a token (issuer, audience, tenant
+claim, the values, status and policy) and the principals' bindings, never who
+changed them nor e-mails. Migration 000056 adds both tables. A production
+cell refuses to start while an active tenant has no active provider: its
+people could not sign in (provisioning registers one, the last one cannot
+be retired and a production import refuses a tenant without one, so a
+change by hand or a tenant from before gets there); the remedy,
+`erp-server register-provider`, needs no running server.
+
+People's **sessions** are kept in `session` (T37f, migration 000057): one
+row per authentication at the identity provider, keyed per principal by a
+sha256 of the issuer and `sid`, or of the issuer, subject and
+`auth_time` (`session_principal_key`). It starts at `auth_time` (or its first
+sighting) and is touched at most once a minute per replica, in a
+transaction of its own; past the tenant's session lifetime or idle timeout
+it is ended (`ended_at`, `end_reason` expired, idle or revoked) and never
+resumes (`check_session_update`: only `last_seen_at` and the end change).
+Starts and ends are audited; a session nobody returns to is ended (idle,
+audited) by the sweeper once idle longer than any tenant allows. The check
+runs before the request's transaction. Sessions are ephemeral: not
+exported, imported or fingerprinted; `erp_worker` deletes those ended a
+week ago, or 90 days ago for one keyed by `sid` alone
+(`authenticated_at` NULL), whose ended row is what refuses a refreshed
+token.
 
 Role permissions, role assignments, company access and SoD rules are
 **effective-dated assignments**: each has its own id, a validity range that

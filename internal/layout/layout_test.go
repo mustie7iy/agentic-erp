@@ -33,7 +33,7 @@ const compositionRoot = "app"
 // ship test machinery and, through fixture, half the contexts.
 var testSupport = map[string]bool{
 	"platform/pgtest": true, "platform/fixture": true, "app/apitest": true,
-	"platform/authn/authntest": true, "platform/natsbus/natstest": true,
+	"platform/authn/authntest": true, "platform/natsbus/natstest": true, "platform/tlsconf/tlstest": true,
 	"platform/blobstore/blobstoretest": true, "platform/fieldcrypt/kmstest": true,
 	"platform/secrets/vaulttest": true, "platform/workflow/workflowtest": true,
 	"llm/llmtest": true, "nfr": true,
@@ -51,7 +51,7 @@ var allowed = map[string][]string{
 	"capture":                 {"llm"},
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "operations"},
-	"controlplane":            {"audit", "config", "directory", "offboarding", "provisioning", "tenancy"},
+	"controlplane":            {"audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},
 	"delivery/migrationagent": {"apitools", "llm"},
 	"delivery/sapconfig":      {"config", "sap"},

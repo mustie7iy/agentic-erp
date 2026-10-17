@@ -166,7 +166,17 @@ func expiry(token, s string) (time.Time, error) {
 // service, version 2 (a session token first).
 type IMDS struct {
 	Endpoint string       // default http://169.254.169.254
-	Client   *http.Client // nil: a client with a 2 s timeout, the service being link-local
+	Client   *http.Client // nil: imdsClient, direct with a 2 s timeout, the service being link-local
+}
+
+// imdsClient reaches the service directly, never through HTTP_PROXY: its
+// plaintext is exempt from TLS only because it never leaves the host
+// (ADR-0033), and Go's proxy rules exempt loopback, not link-local
+// addresses, so the role's credentials would otherwise cross the network.
+func imdsClient() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // the standard library's default is an *http.Transport
+	t.Proxy = nil
+	return &http.Client{Timeout: 2 * time.Second, Transport: t}
 }
 
 // Credentials implements Provider; an absent service is ErrNone.
@@ -177,7 +187,7 @@ func (m IMDS) Credentials(ctx context.Context) (Credentials, error) {
 	}
 	c := m.Client
 	if c == nil {
-		c = &http.Client{Timeout: 2 * time.Second}
+		c = imdsClient()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint+"/latest/api/token", nil)
 	if err != nil {
@@ -287,14 +297,16 @@ func (c *Cached) Credentials(ctx context.Context) (Credentials, error) {
 
 // Default is the ambient chain of a deployment: the environment, a web
 // identity, the instance metadata service; with static keys given they come
-// first. Temporary credentials are cached.
-func Default(static Static, getenv func(string) string, stsEndpoint, imdsEndpoint string) Provider {
+// first. Temporary credentials are cached. STS is reached with stsClient
+// (nil: a client with a 10 s timeout); the instance metadata service,
+// link-local, with its own.
+func Default(static Static, getenv func(string) string, stsEndpoint, imdsEndpoint string, stsClient *http.Client) Provider {
 	get := getenv
 	if get == nil {
 		get = os.Getenv
 	}
 	return &Cached{Provider: Chain{static, Env{Getenv: get},
-		WebIdentity{TokenFile: get("AWS_WEB_IDENTITY_TOKEN_FILE"), RoleARN: get("AWS_ROLE_ARN"), SessionName: get("AWS_ROLE_SESSION_NAME"), Endpoint: stsEndpoint},
+		WebIdentity{TokenFile: get("AWS_WEB_IDENTITY_TOKEN_FILE"), RoleARN: get("AWS_ROLE_ARN"), SessionName: get("AWS_ROLE_SESSION_NAME"), Endpoint: stsEndpoint, Client: stsClient},
 		IMDS{Endpoint: imdsEndpoint}}}
 }
 

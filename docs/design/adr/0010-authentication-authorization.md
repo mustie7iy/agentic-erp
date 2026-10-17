@@ -44,3 +44,29 @@ a principal created through the API is bound to the issuer its creating
 administrator signed in with, and a new tenant's first administrator to
 the cell's only tenant issuer; a cell that trusts several refuses to
 provision. (03-data-model §3.4 has the schema and the backfill.)
+
+## Amendment (2026-10-16, ADR-0031)
+
+Trust in an identity provider is per tenant: a tenant's providers are
+registered in its identity schema, and a token's tenant is the tenant whose
+active registration holds the token's issuer and audience, not whichever
+tenant a claim names. Multi-factor authentication is required where the
+tenant's policy demands it, proven by the provider's `acr`/`amr` values, and
+people's sessions have a lifetime and an idle timeout. Outside development
+`ERP_OIDC_ISSUERS`, which trusts an issuer for every tenant, is refused. An
+operator binds a principal whose issuer is not an active provider of its
+tenant (such as `erp-dev` after 000046) to a registered provider. ADR-0031
+has the design.
+
+**Amended 2026-10-16 (T38d, ADR-0033).** Agents' tokens are bound to the
+agent's client certificate (RFC 8705, `cnf.x5t#S256`). The router asks
+every public client for a certificate and forwards its thumbprint to the
+cell, which trusts it only from the router's SPIFFE identity. A bound
+token, anyone's, is accepted only with its certificate, checked before
+its session is touched; a confirmation other than a certificate's
+(`cnf.jkt` of DPoP, a malformed `cnf`) is refused, and so is a bound
+operator token, whose control planes see no certificate. In production an
+agent's token is accepted only bound, from a provider registered with
+`certificate_bound_tokens`; otherwise it is 401, logged. People and
+services are not asked. The token remains the principal; the certificate
+only proves the token's holder.

@@ -142,7 +142,7 @@ channels:
   identity:
     address: 'erp.{cell}.identity.{tenant}.{event}'
     title: Identity events
-    description: Principals, roles and company access.
+    description: Principals, roles and company access; identity providers and the authentication policy.
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -158,6 +158,10 @@ channels:
       RoleDeactivated: {$ref: '#/components/messages/RoleDeactivated'}
       RolePermissionGranted: {$ref: '#/components/messages/RolePermissionGranted'}
       RolePermissionEnded: {$ref: '#/components/messages/RolePermissionEnded'}
+      IdentityProviderRegistered: {$ref: '#/components/messages/IdentityProviderRegistered'}
+      IdentityProviderRetired: {$ref: '#/components/messages/IdentityProviderRetired'}
+      AuthPolicyChanged: {$ref: '#/components/messages/AuthPolicyChanged'}
+      PrincipalBound: {$ref: '#/components/messages/PrincipalBound'}
   configuration:
     address: 'erp.{cell}.configuration.{tenant}.{event}'
     title: Configuration events
@@ -327,6 +331,10 @@ operations:
       - $ref: '#/channels/identity/messages/RoleDeactivated'
       - $ref: '#/channels/identity/messages/RolePermissionGranted'
       - $ref: '#/channels/identity/messages/RolePermissionEnded'
+      - $ref: '#/channels/identity/messages/IdentityProviderRegistered'
+      - $ref: '#/channels/identity/messages/IdentityProviderRetired'
+      - $ref: '#/channels/identity/messages/AuthPolicyChanged'
+      - $ref: '#/channels/identity/messages/PrincipalBound'
   publishConfigurationEvents:
     action: send
     title: Configuration publishes
@@ -1778,6 +1786,70 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e0000000005c", "source": "/erp/eu-1/identity", "type": "com.example.erp.identity.role_permission_ended.v1", "subject": "0192a000-0000-7000-8000-000000000907", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000102"}
           payload: {"role_permission_id": "0192a000-0000-7000-8000-000000000907", "role_id": "0192a000-0000-7000-8000-000000000903", "permission_code": "payables.invoice.post", "valid_from": "2026-10-01", "valid_to": "2026-11-01", "ended_at": "2026-10-31T16:00:00Z"}
+    IdentityProviderRegistered:
+      name: IdentityProviderRegistered
+      title: Identity provider registered
+      summary: "An identity provider was registered for the tenant; its tokens for its audience authenticate the tenant's principals bound to it."
+      description: "Emitted by the control plane's `registerIdentityProvider` (ADR-0031). Subject is the identity provider id; the actor is the operator's derived id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.identity.identity_provider_registered.v1}
+      payload: {$ref: '#/components/schemas/IdentityProviderRegisteredV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000301", "source": "/erp/eu-1/identity", "type": "com.example.erp.identity.identity_provider_registered.v1", "subject": "0192a000-0000-7000-8000-000000000301", "time": "2026-10-16T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"provider_id": "0192a000-0000-7000-8000-000000000301", "issuer": "https://login.acme.example/", "audience": "erp-api", "tenant_claim": null, "acr_values": [], "amr_values": ["mfa"]}
+    IdentityProviderRetired:
+      name: IdentityProviderRetired
+      title: Identity provider retired
+      summary: "An identity provider of the tenant was retired; its tokens authenticate no one any more."
+      description: "Emitted by the control plane's `retireIdentityProvider` (ADR-0031). Consumers drop sessions of principals bound to it. Subject is the identity provider id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.identity.identity_provider_retired.v1}
+      payload: {$ref: '#/components/schemas/IdentityProviderRetiredV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000302", "source": "/erp/eu-1/identity", "type": "com.example.erp.identity.identity_provider_retired.v1", "subject": "0192a000-0000-7000-8000-000000000301", "time": "2026-10-16T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"provider_id": "0192a000-0000-7000-8000-000000000301", "issuer": "https://login.acme.example/", "audience": "erp-api", "retired_at": "2026-10-16T09:00:00Z"}
+    AuthPolicyChanged:
+      name: AuthPolicyChanged
+      title: Authentication policy changed
+      summary: "The tenant's authentication policy changed: multi-factor requirement, session lifetime or idle timeout."
+      description: "Emitted by the control plane's `updateAuthPolicy` (ADR-0031). Subject is the tenant id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.identity.auth_policy_changed.v1}
+      payload: {$ref: '#/components/schemas/AuthPolicyChangedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000303", "source": "/erp/eu-1/identity", "type": "com.example.erp.identity.auth_policy_changed.v1", "subject": "0192a000-0000-7000-8000-000000000001", "time": "2026-10-16T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"mfa_required": true, "session_max_age_seconds": 43200, "idle_timeout_seconds": 900}
+    PrincipalBound:
+      name: PrincipalBound
+      title: Principal bound
+      summary: "A principal was bound to an identity provider of the tenant: that provider's tokens with its subject sign in as it."
+      description: "Emitted by the control plane's `bindPrincipal` (ADR-0031). The subject is left out. Subject is the principal id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.identity.principal_bound.v1}
+      payload: {$ref: '#/components/schemas/PrincipalBoundV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000304", "source": "/erp/eu-1/identity", "type": "com.example.erp.identity.principal_bound.v1", "subject": "0192a000-0000-7000-8000-000000000107", "time": "2026-10-16T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"principal_id": "0192a000-0000-7000-8000-000000000107", "previous_issuer": "erp-dev", "external_issuer": "https://login.acme.example/"}
     PartnerChangeRejected:
       name: PartnerChangeRejected
       title: Partner change rejected
@@ -2999,6 +3071,38 @@ components:
         valid_from: {"$ref": "#/components/schemas/Date"}
         valid_to: {"$ref": "#/components/schemas/Date", "description": "Exclusive end; first day without the permission."}
         ended_at: {"$ref": "#/components/schemas/Instant"}
+    IdentityProviderRegisteredV1:
+      type: object
+      required: ["provider_id", "issuer", "audience", "tenant_claim", "acr_values", "amr_values"]
+      properties:
+        provider_id: {"$ref": "#/components/schemas/Uuid", "description": "`identity.identity_provider.id`."}
+        issuer: {"type": "string", "description": "The OIDC issuer (iss)."}
+        audience: {"type": "string", "description": "The audience (aud)."}
+        tenant_claim: {"type": ["string", "null"], "description": "A claim that must carry the tenant's id; null when there is none."}
+        acr_values: {"type": "array", "items": {"type": "string"}, "description": "acr values that prove multi-factor authentication."}
+        amr_values: {"type": "array", "items": {"type": "string"}, "description": "amr values that prove multi-factor authentication."}
+    IdentityProviderRetiredV1:
+      type: object
+      required: ["provider_id", "issuer", "audience", "retired_at"]
+      properties:
+        provider_id: {"$ref": "#/components/schemas/Uuid", "description": "`identity.identity_provider.id`."}
+        issuer: {"type": "string", "description": "The OIDC issuer (iss)."}
+        audience: {"type": "string", "description": "The audience (aud)."}
+        retired_at: {"$ref": "#/components/schemas/Instant"}
+    AuthPolicyChangedV1:
+      type: object
+      required: ["mfa_required", "session_max_age_seconds", "idle_timeout_seconds"]
+      properties:
+        mfa_required: {"type": "boolean", "description": "Whether people must prove multi-factor authentication."}
+        session_max_age_seconds: {"type": "integer", "description": "Session lifetime from the authentication at the provider."}
+        idle_timeout_seconds: {"type": "integer", "description": "Session lifetime without a request."}
+    PrincipalBoundV1:
+      type: object
+      required: ["principal_id", "previous_issuer", "external_issuer"]
+      properties:
+        principal_id: {"$ref": "#/components/schemas/Uuid"}
+        previous_issuer: {"type": ["string", "null"], "description": "The issuer the principal was bound to before; null when it had none."}
+        external_issuer: {"type": "string", "description": "The identity provider (OIDC iss) it is bound to now."}
     PartnerChangeRejectedV1:
       type: object
       required: ["partner_change_id", "number", "kind", "partner_id", "previous_status", "status"]

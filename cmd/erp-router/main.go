@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/router"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
@@ -51,32 +53,32 @@ func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, star
 }
 
 func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(api, admin net.Listener)) error {
-	verifier, err := authn.New(ctx, authn.Environment(cfg.Environment), cfg.Issuers, cfg.Static...)
-	if err != nil {
-		return err
-	}
 	dir, err := directory.Open(ctx, cfg.DirectoryURL)
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
+	verifier, err := newVerifier(ctx, cfg, dir)
+	if err != nil {
+		return err
+	}
 	metrics := telemetry.NewMetrics()
 	traced := telemetry.Middleware(log, metrics, tracenoop.NewTracerProvider())
-	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: cfg.Transport})
+	transport := cfg.Transport
+	if transport == nil && cfg.Identity != nil {
+		transport = cellClient(cfg).Transport
+	}
+	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: transport,
+		RequireTLS: cfg.Identity != nil, PeerOf: peerOf(cfg)})
 	admin, err := adminMux(ctx, cfg, dir, metrics, traced, log)
 	if err != nil {
 		return err
 	}
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
+	ln, adminLn, err := listen(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("erp-router: listen on %s: %w", cfg.Addr, err)
+		return err
 	}
-	adminLn, err := lc.Listen(ctx, "tcp", cfg.AdminAddr)
-	if err != nil {
-		_ = ln.Close() // the admin listener's failure is the one reported
-		return fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
-	}
+	ln, adminLn = secure(ctx, cfg, log, ln, adminLn)
 	servers := []*http.Server{
 		{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
 		{Handler: admin, ReadHeaderTimeout: 5 * time.Second},
@@ -105,6 +107,70 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 	return serveErr
 }
 
+// newVerifier trusts the tenants' registered identity providers, which
+// decide a token's tenant through the directory's claims (ADR-0031); the
+// cell checks them again.
+func newVerifier(ctx context.Context, cfg router.Config, dir *directory.Postgres) (*authn.Verifier, error) {
+	registry := &authn.RegistryCache{Registry: directory.IssuerRegistry{Directory: dir}, TTL: cfg.CacheTTL}
+	providers := &authn.Providers{Production: cfg.Environment == string(authn.Production)}
+	return authn.NewRegistered(ctx, authn.Environment(cfg.Environment), registry, providers, cfg.Issuers, cfg.Static...)
+}
+
+// listen opens the public and the admin listener, or neither.
+func listen(ctx context.Context, cfg router.Config) (net.Listener, net.Listener, error) {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("erp-router: listen on %s: %w", cfg.Addr, err)
+	}
+	adminLn, err := lc.Listen(ctx, "tcp", cfg.AdminAddr)
+	if err != nil {
+		_ = ln.Close() // the admin listener's failure is the one reported
+		return nil, nil, fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
+	}
+	return ln, adminLn, nil
+}
+
+// secure serves the public listener over TLS with the public certificate
+// and the admin listener over TLS 1.3 as the router's identity, verifying
+// a client's certificate when one is given, when the router has them; and
+// keeps both read again until ctx ends (ADR-0033).
+func secure(ctx context.Context, cfg router.Config, log *slog.Logger, ln, adminLn net.Listener) (net.Listener, net.Listener) {
+	if cfg.Public != nil {
+		go cfg.Public.Run(ctx, tlsconf.RefreshInterval, log)
+		// Agents present client certificates, self-signed or not: the
+		// handshake proves they hold the key, and the cell checks a
+		// certificate-bound token against it (RFC 8705, ADR-0033).
+		ln = tls.NewListener(ln, cfg.Public.ServerConfig(tlsconf.External, tls.RequestClientCert))
+	}
+	if cfg.Identity != nil {
+		go cfg.Identity.Run(ctx, tlsconf.RefreshInterval, log)
+		if cfg.Identity.HasCertificate() {
+			adminLn = tls.NewListener(adminLn, cfg.Identity.ServerConfig(tlsconf.Internal, tls.VerifyClientCertIfGiven))
+		}
+	}
+	return ln, adminLn
+}
+
+// cellClient reaches the cells as the router's identity, each only as
+// the identity peerOf names for it; nil without an identity, which leaves
+// the callers their defaults (ADR-0033).
+func cellClient(cfg router.Config) *http.Client {
+	if cfg.Identity == nil {
+		return nil
+	}
+	return cfg.Identity.InternalClient(30 * time.Second)
+}
+
+// peerOf names the identity of the cell the directory names, which alone
+// the router accepts for it (ADR-0033); nil without an identity.
+func peerOf(cfg router.Config) func(cell string) string {
+	if cfg.Identity == nil {
+		return nil
+	}
+	return func(cell string) string { return tlsconf.ID(cfg.TrustDomain, cell, "erp-server") }
+}
+
 // adminMux is the admin listener's handler: liveness, metrics, and with
 // operator issuers the global control plane (api/directory.yaml).
 func adminMux(ctx context.Context, cfg router.Config, dir *directory.Postgres, metrics *telemetry.Metrics, traced func(http.Handler) http.Handler, log *slog.Logger) (*http.ServeMux, error) {
@@ -120,7 +186,8 @@ func adminMux(ctx context.Context, cfg router.Config, dir *directory.Postgres, m
 			return nil, err
 		}
 		pages, _ := pagination.NewCodec(cfg.PageTokenKey) // the key's length was checked with the configuration
-		admin.Handle(globalplane.Base+"/", traced(globalplane.Handler(&globalplane.Service{Directory: dir, Pages: pages}, operators, log)))
+		plane := &globalplane.Service{Directory: dir, Pages: pages, Client: cellClient(cfg), RequireTLS: cfg.Identity != nil, PeerOf: peerOf(cfg)}
+		admin.Handle(globalplane.Base+"/", traced(globalplane.Handler(plane, operators, log)))
 		log.Info("global control plane served on the admin listener", "path", globalplane.Base, "operator_issuers", len(cfg.OperatorIssuers))
 	}
 	return admin, nil

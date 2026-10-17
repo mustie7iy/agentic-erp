@@ -4,6 +4,8 @@
 package natstest
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"net"
 	"testing"
 	"time"
@@ -24,9 +26,25 @@ func Plain(tb testing.TB) string {
 	return start(tb, false)
 }
 
+// TLS starts JetStream that speaks only TLS 1.3, presents cert and
+// requires a client certificate that clientCAs signed (ADR-0033); it
+// returns its tls:// URL.
+func TLS(tb testing.TB, cert tls.Certificate, clientCAs *x509.CertPool) string {
+	tb.Helper()
+	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, ClientCAs: clientCAs, ClientAuth: tls.RequireAndVerifyClientCert, MinVersion: tls.VersionTLS13}
+	s := run(tb, &server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: tb.TempDir(), NoLog: true, NoSigs: true,
+		TLS: true, TLSVerify: true, TLSConfig: cfg})
+	return "tls://" + s.Addr().String()
+}
+
 func start(tb testing.TB, jetstream bool) string {
 	tb.Helper()
-	s, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: jetstream, StoreDir: tb.TempDir(), NoLog: true, NoSigs: true})
+	return run(tb, &server.Options{Host: "127.0.0.1", Port: -1, JetStream: jetstream, StoreDir: tb.TempDir(), NoLog: true, NoSigs: true}).ClientURL()
+}
+
+func run(tb testing.TB, o *server.Options) *server.Server {
+	tb.Helper()
+	s, err := server.NewServer(o)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -35,7 +53,7 @@ func start(tb testing.TB, jetstream bool) string {
 		tb.Fatal("natstest: server not ready")
 	}
 	tb.Cleanup(s.Shutdown)
-	return s.ClientURL()
+	return s
 }
 
 // Restartable is a JetStream server that can be stopped and started again

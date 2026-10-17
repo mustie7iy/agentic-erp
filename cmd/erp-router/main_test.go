@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -176,7 +180,8 @@ func TestExitCodes(t *testing.T) {
 func TestProductionOperatorWithoutRoles(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is)
-	env["ERP_ENV"] = "production"
+	ca := production(t, env)
+	client := trusting(ca)
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs bytes.Buffer
 	adminAddr := make(chan string, 1)
@@ -193,7 +198,7 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	var base string
 	select {
 	case a := <-adminAddr:
-		base = "http://" + a
+		base = "https://" + a // the admin listener serves TLS as the router's identity (ADR-0033)
 	case code := <-done:
 		done <- code // the deferred stop reads the exit code again
 		t.Fatalf("stopped before serving: %d %s", code, logs.String())
@@ -201,7 +206,7 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	get := func(extra map[string]any) int {
 		req, _ := http.NewRequestWithContext(t.Context(), "GET", base+"/directory/v1/tenants/"+uuid.NewString(), nil)
 		req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", extra))
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -213,6 +218,142 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	}
 	if got := get(map[string]any{"tenant_id": nil, "roles": []string{"erp:read"}}); got != http.StatusNotFound {
 		t.Errorf("with erp:read: got %d, want 404 (an unknown tenant, past the role check)", got)
+	}
+}
+
+const trustDomain = "erp.example"
+
+// production turns a configuration into production's (ADR-0031,
+// ADR-0033): no shared issuers, the directory over verified TLS, the
+// router's SPIFFE identity, a public certificate and the trust domain.
+// It returns the authority that issued them all.
+func production(t *testing.T, env map[string]string) *tlstest.CA {
+	t.Helper()
+	ca, dir := tlstest.NewCA(t), t.TempDir()
+	id := ca.Issue(t, tlstest.Options{URIs: []string{tlsconf.ID(trustDomain, "global", "erp-router")}})
+	public := ca.Issue(t, tlstest.Options{})
+	env["ERP_ENV"] = "production"
+	delete(env, "ERP_OIDC_ISSUERS") // production trusts tenants' registered providers only (ADR-0031)
+	env["ERP_DIRECTORY_URL"] = pgtest.TLS(t, env["ERP_DIRECTORY_URL"])
+	env["ERP_TLS_CA"] = "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM)
+	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", id.CertPEM)
+	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", id.KeyPEM)
+	env["ERP_ROUTER_PUBLIC_CERT"] = "file:" + tlstest.WriteFile(t, dir, "public.crt", public.CertPEM)
+	env["ERP_ROUTER_PUBLIC_KEY"] = "file:" + tlstest.WriteFile(t, dir, "public.key", public.KeyPEM)
+	env["ERP_TRUST_DOMAIN"] = trustDomain
+	return ca
+}
+
+// trusting is a client that trusts ca, presenting no certificate.
+func trusting(ca *tlstest.CA) *http.Client {
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: ca.Pool()}}}
+}
+
+// TestRoutesOverMutualTLS: with its TLS material the router serves the
+// public over TLS with its public certificate and reaches each cell over
+// mutual TLS 1.3 as its SPIFFE identity, accepting only a cell's identity in the
+// trust domain; a cell whose URL is not https, or whose certificate names
+// another service, is not reached (ADR-0033).
+func TestRoutesOverMutualTLS(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is)
+	issuers := env["ERP_OIDC_ISSUERS"]
+	ca := production(t, env)
+	// Development's shared issuer, whose tokens name their tenant; the rest
+	// is production's: with an identity the router reaches cells over TLS
+	// only.
+	env["ERP_OIDC_ISSUERS"], env["ERP_ENV"] = issuers, "development"
+	var forwarded atomic.Value
+	cell := func(id string) (*httptest.Server, *atomic.Value) {
+		var peer atomic.Value
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			peer.Store(tlsconf.PeerID(r.TLS))
+			forwarded.Store(r.Header.Get(tlsconf.ClientCertHeader))
+			w.Write([]byte(`{}`))
+		}))
+		srv.TLS = &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{ca.Issue(t, tlstest.Options{URIs: []string{id}}).Pair(t)},
+			ClientCAs: ca.Pool(), ClientAuth: tls.RequireAndVerifyClientCert}
+		srv.StartTLS()
+		t.Cleanup(srv.Close)
+		return srv, &peer
+	}
+	eu1, peer := cell(tlsconf.ID(trustDomain, "eu-1", "erp-server"))
+	impostor, _ := cell(tlsconf.ID(trustDomain, "global", "erp-router"))
+	// A cell's genuine certificate, but another cell's than the directory
+	// names: a stolen cell certificate impersonates no other cell.
+	eu2, _ := cell(tlsconf.ID(trustDomain, "eu-2", "erp-server"))
+	dir, err := directory.Open(context.Background(), pgtest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	good, plain, wrong, otherCell := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for tenant, url := range map[uuid.UUID]string{good: eu1.URL, plain: strings.Replace(eu1.URL, "https://", "http://", 1), wrong: impostor.URL, otherCell: eu2.URL} {
+		if err := dir.Upsert(context.Background(), directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: url, Status: directory.Active}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var logs pgtest.SyncBuffer // the router logs on its goroutines while the test reads
+	addrs := make(chan [2]string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, func(k string) string { return env[k] }, &logs, func(ln, admin net.Listener) { addrs <- [2]string{ln.Addr().String(), admin.Addr().String()} })
+	}()
+	defer func() {
+		cancel()
+		if code := <-done; code != 0 {
+			t.Errorf("stop: exit code got %d, want 0 (logs %s)", code, logs.String())
+		}
+	}()
+	var a [2]string
+	select {
+	case a = <-addrs:
+	case code := <-done:
+		done <- code // the deferred stop reads the exit code again
+		t.Fatalf("stopped before serving: %d %s", code, logs.String())
+	}
+	// An agent's own certificate, from no authority the router knows: the
+	// handshake proves it holds the key, and the cell gets its thumbprint.
+	agent := tlstest.NewCA(t).Issue(t, tlstest.Options{}).Pair(t)
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: ca.Pool(), Certificates: []tls.Certificate{agent}}}}
+	for _, c := range []struct {
+		name   string
+		tenant uuid.UUID
+		want   int
+	}{
+		{"the tenant's cell", good, http.StatusOK},
+		{"a cell without https", plain, http.StatusServiceUnavailable},
+		{"a certificate of another service", wrong, http.StatusBadGateway},
+		{"a certificate of another cell", otherCell, http.StatusBadGateway},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			req, _ := http.NewRequestWithContext(t.Context(), "GET", "https://"+a[0]+"/v1/balances", nil)
+			req.Header.Set("Authorization", "Bearer "+is.Token(t, c.tenant, "ada", nil))
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close() // only the status is asserted
+			if resp.StatusCode != c.want {
+				t.Errorf("status: got %d, want %d", resp.StatusCode, c.want)
+			}
+		})
+	}
+	if got, want := peer.Load(), tlsconf.ID(trustDomain, "global", "erp-router"); got != want {
+		t.Errorf("the cell's peer: got %v, want %s", got, want)
+	}
+	if got, want := forwarded.Load(), tlsconf.Thumbprint(agent.Leaf); got != want {
+		t.Errorf("forwarded thumbprint: got %v, want the agent's certificate's %s", got, want)
+	}
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", "https://"+a[1]+"/livez", nil)
+	resp, err := trusting(ca).Do(req)
+	if err != nil {
+		t.Fatalf("admin probe over TLS without a certificate: %v", err)
+	}
+	_ = resp.Body.Close() // only the status is asserted
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("admin /livez: got %d, want 200", resp.StatusCode)
 	}
 }
 

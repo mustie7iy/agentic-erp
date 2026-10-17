@@ -2883,9 +2883,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Single sign-on (OIDC)",
-      "r": "T37",
+      "r": "ADR-0031 · T37",
       "c": []
      },
      {
@@ -3953,9 +3953,9 @@
         "c": []
        },
        {
-        "s": "P",
+        "s": "D",
         "t": "Per-tenant identity provider registry (T2)",
-        "r": "T37",
+        "r": "T37a · T37c · T37d",
         "c": [
          {
           "s": "D",
@@ -3966,22 +3966,29 @@
         ]
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Multi-factor authentication through the IdP",
-        "r": "T37",
+        "r": "T37e",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Session management and timeouts",
-        "r": "T37",
+        "r": "T37f",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Service and agent identities with mTLS",
-        "r": "T38",
-        "c": []
+        "r": "internal/platform/tlsconf · ADR-0033 · T38c · T38d",
+        "c": [
+         {
+          "s": "D",
+          "t": "Agents' tokens bound to their client certificates (RFC 8705, cnf.x5t#S256): a provider registered with certificate_bound_tokens (000058), production refuses an agent's unbound token, the router forwards client certificate thumbprints",
+          "r": "internal/platform/authn · identity_provider.certificate_bound · ADR-0033 · T38d",
+          "c": []
+         }
+        ]
        },
        {
         "s": "D",
@@ -3996,15 +4003,57 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Operators bind or re-bind a principal to an issuer (a person left unbound by a rollout, an issuer being retired), audited",
-        "r": "internal/controlplane · T37",
+        "r": "internal/controlplane · T37g",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Trusted issuers checked at start: non-empty, at most 2048 characters (the contract's limit), https in production",
+        "r": "internal/platform/config · T37h",
         "c": []
        },
        {
         "s": "T",
-        "t": "Trusted issuers checked at start: non-empty, at most 2048 characters (the contract's limit), https in production",
-        "r": "internal/platform/config · T37",
+        "t": "Before rollout: production agents need a provider registered with certificate_bound_tokens",
+        "r": "T38d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A CHECK migration on the acr and amr values a policy may require",
+        "r": "",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The cost of the session sweeper's ranking query, measured and bounded",
+        "r": "",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An -operator flag for the CLI register-provider and provision commands",
+        "r": "",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Session revocation",
+        "r": "",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tenant self-service for identity providers",
+        "r": "",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SCIM and just-in-time provisioning of principals from the identity provider",
+        "r": "",
         "c": []
        }
       ]
@@ -4021,16 +4070,42 @@
       "r": "",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "TLS on every connection",
-        "r": "T38",
-        "c": []
+        "r": "internal/platform/tlsconf · ADR-0033 · T38a–c",
+        "c": [
+         {
+          "s": "D",
+          "t": "TLS material store (certificates from secret references, re-read while running); PostgreSQL over verify-full TLS and NATS over mutual TLS, both refused in plaintext in production",
+          "r": "internal/platform/tlsconf · internal/platform/natsbus · ADR-0033 · T38a",
+          "c": []
+         },
+         {
+          "s": "D",
+          "t": "Temporal over TLS; S3, KMS, STS and identity providers over https only, with no proxy; instance metadata the one plaintext exemption, by its exact address",
+          "r": "internal/platform/tlsconf · internal/platform/workflow · ADR-0033 · T38b",
+          "c": []
+         },
+         {
+          "s": "D",
+          "t": "Router and cells over mutual TLS with SPIFFE identities; the router accepts from each cell exactly that cell's identity",
+          "r": "internal/platform/tlsconf · internal/router · ADR-0033 · T38c",
+          "c": []
+         }
+        ]
        },
        {
-        "s": "T",
+        "s": "P",
         "t": "Encryption at rest (database, files, backups)",
-        "r": "T38",
-        "c": []
+        "r": "ADR-0033 · T38e · backups and PostgreSQL/JetStream checks in T40",
+        "c": [
+         {
+          "s": "D",
+          "t": "Encryption at rest stated per environment and checked at start; every S3 write asks for the bucket's KMS key and the bucket's default encryption is checked; erp_at_rest_info reports the statement",
+          "r": "internal/platform/blobstore · internal/platform/telemetry · cmd/erp-server · ADR-0033 · T38e",
+          "c": []
+         }
+        ]
        },
        {
         "s": "P",

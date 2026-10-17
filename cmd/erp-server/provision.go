@@ -10,6 +10,9 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/directory"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
@@ -34,14 +37,20 @@ func provisionCmd(ctx context.Context, args []string, cfg platformconfig.Config,
 	adminName := fs.String("admin-name", "", "the administrator's display name")
 	email := fs.String("admin-email", "", "the administrator's email (optional)")
 	file := fs.String("config", "", "the first configuration (YAML)")
+	idpIssuer := fs.String("idp-issuer", "", "the tenant's identity provider's issuer (required with ERP_ENV=production)")
+	idpAudience := fs.String("idp-audience", "", "the audience the provider issues the ERP's tokens for")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return 2
 	}
-	res, err := provision(ctx, cfg, provisioning.Request{Name: *name, Region: *region, GroupCurrency: *currency,
-		Administrator: provisioning.Administrator{Subject: *subject, DisplayName: *adminName, Email: optional(*email)}, Operator: "erp-server provision"}, *file)
+	req := provisioning.Request{Name: *name, Region: *region, GroupCurrency: *currency,
+		Administrator: provisioning.Administrator{Subject: *subject, DisplayName: *adminName, Email: optional(*email)}, Operator: "erp-server provision"}
+	if *idpIssuer != "" {
+		req.IdentityProvider = &identity.NewIdentityProvider{Issuer: *idpIssuer, Audience: *idpAudience}
+	}
+	res, err := provision(ctx, cfg, req, *file)
 	if err != nil {
 		fmt.Fprintln(stderr, "erp-server provision:", err)
 		return 1
@@ -49,7 +58,7 @@ func provisionCmd(ctx context.Context, args []string, cfg platformconfig.Config,
 	// Ids, names and counts always encode.
 	out, _ := json.MarshalIndent(map[string]any{"tenant_id": res.TenantID, "administrator_id": res.AdministratorID,
 		"administrator_role": provisioning.AdministratorRole, "roles": res.Roles, "legal_entities": res.LegalEntities,
-		"configuration_version": res.ConfigurationVersion}, "", "  ")
+		"configuration_version": res.ConfigurationVersion, "identity_provider_id": res.IdentityProviderID}, "", "  ")
 	fmt.Fprintln(stdout, string(out))
 	return 0
 }
@@ -81,5 +90,18 @@ func provision(ctx context.Context, cfg platformconfig.Config, req provisioning.
 		return provisioning.Result{}, fmt.Errorf("provision: field keys: %w", err)
 	}
 	deps := app.Configuration(app.Config{FieldKeys: keys})
-	return (&provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Issuers: cfg.TenantIssuers(), Configuration: deps}).Provision(ctx, req)
+	production := cfg.Environment == platformconfig.Production
+	p := &provisioning.Provisioner{Pool: pool, AppRole: cfg.AppRole, Keys: keys, Issuers: cfg.TenantIssuers(), Configuration: deps,
+		Production: production, Discover: (&authn.Providers{Production: production}).Probe}
+	// With a global directory the provider's issuer is claimed there before
+	// the commit, as the control plane does (ADR-0031).
+	if cfg.DirectoryURL != "" {
+		dir, err := directory.Open(ctx, cfg.DirectoryURL)
+		if err != nil {
+			return provisioning.Result{}, err
+		}
+		defer dir.Close()
+		p.Claim = (&directory.Sync{Directory: dir, Cell: cfg.Cell}).ClaimIssuer
+	}
+	return p.Provision(ctx, req)
 }

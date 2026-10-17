@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -126,6 +129,12 @@ func TestOverrides(t *testing.T) {
 	if _, err := Load(env(m)); err == nil {
 		t.Fatal("empty issuer list accepted")
 	}
+	// Without either, tenants' tokens come from their registered identity
+	// providers alone (ADR-0031).
+	m = valid()
+	delete(m, "ERP_OIDC_ISSUERS")
+	c = mustLoad(t, m)
+	checkFields(t, []field{{"DevIssuer", c.DevIssuer, false}, {"Issuers", len(c.Issuers), 0}})
 	// Master keys: a ring from ERP_FIELD_KEYS, or one master from the legacy key.
 	m = valid()
 	c = mustLoad(t, m)
@@ -538,14 +547,47 @@ func TestEscalationsFitTheCount(t *testing.T) {
 // refused, and so is none: there is no default, so a production replica
 // whose ERP_ENV went missing does not start with development's allowances.
 func TestProductionFailsClosed(t *testing.T) {
+	// pgx reads the process's PG* settings, not the injected environment.
+	t.Setenv("PGSSLMODE", "")
 	codec := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("c", 32)))
 	const devRefused, codecRefused = "ERP_DEV_ISSUER must not be set with ERP_ENV=production", "ERP_TEMPORAL_CODEC_KEY is required with ERP_ENV=production"
 	const envRequired = "ERP_ENV is required: set ERP_ENV=development on a developer's machine or in tests, ERP_ENV=production everywhere else"
 	const storeRefused, verifyRefused = "object storage (ERP_OBJECT_DIR or ERP_OBJECT_S3_*) is required with ERP_ENV=production", "ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production"
 	// prod is a production configuration that starts: object storage and
 	// the default audit verification interval.
+	// Production trusts tenants' registered identity providers only, and
+	// needs operators to register them (ADR-0031).
+	const sharedRefused, operatorsRequired = "ERP_OIDC_ISSUERS must not be set with ERP_ENV=production", "ERP_OPERATOR_ISSUERS is required with ERP_ENV=production"
+	operators := `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`
+	// Production reaches its databases over verified TLS only (ADR-0033).
+	const verified = "postgres://u:p@db.example.com/erp?sslmode=verify-full"
+	const dbRefused, dirRefused = "DATABASE_URL: sslmode must be verify-full", "ERP_DIRECTORY_URL: sslmode must be verify-full"
+	// Production speaks to NATS over TLS only, as the cell's certificate.
+	const natsPlain, natsIdentity = "ERP_NATS_URL must name tls:// servers only", "ERP_NATS_URL needs ERP_TLS_CERT and ERP_TLS_KEY"
+	identity := tlsFiles(t)
+	noIdentity := map[string]string{"ERP_TLS_CERT": "", "ERP_TLS_KEY": ""}
+	// The listeners serve TLS only, as the cell's SPIFFE identity in the
+	// trust domain (ADR-0033).
+	const listenersIdentity = "ERP_TLS_CERT and ERP_TLS_KEY are required with ERP_ENV=production"
+	// Production states how each store encrypts at rest and keeps objects
+	// in a KMS-encrypted S3 bucket, never a directory (ADR-0033).
+	const statement = "postgres=storage-kms,objects=sse-kms"
+	const atRestRequired, objectDirRefused = "ERP_AT_REST is required with ERP_ENV=production", "ERP_OBJECT_DIR must not be set with ERP_ENV=production"
+	// The engine is reached as the cell's certificate; providers' endpoints
+	// over https only, but for the instance metadata service, which is
+	// link-local (ADR-0033).
+	const engineIdentity = "ERP_TEMPORAL_ADDRESS needs ERP_TLS_CERT and ERP_TLS_KEY"
+	const imdsOnly = "ERP_AWS_IMDS_ENDPOINT must be http://169.254.169.254 or http://[fd00:ec2::254]"
+	directory := map[string]string{"ERP_DIRECTORY_URL": verified, "ERP_CELL_API_URL": "https://eu1.example.com", "ERP_CELL_REGION": "eu-west", "ERP_CELL_CONTROL_URL": "https://eu1-admin.example.com"}
+	with := func(base map[string]string, set map[string]string) map[string]string {
+		m := maps.Clone(base)
+		maps.Copy(m, set)
+		return m
+	}
 	prod := func(set map[string]string) map[string]string {
-		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp"}
+		m := map[string]string{"ERP_ENV": "production", "ERP_OBJECT_S3_ENDPOINT": "https://s3.example.com", "ERP_OBJECT_S3_BUCKET": "erp",
+			"ERP_OIDC_ISSUERS": "", "ERP_OPERATOR_ISSUERS": operators, "DATABASE_URL": verified, "ERP_AT_REST": statement, "ERP_TRUST_DOMAIN": "erp.example"}
+		maps.Copy(m, identity) // listeners serve TLS as the cell's certificate
 		for k, v := range set {
 			m[k] = v
 		}
@@ -560,16 +602,52 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"development dev issuer", map[string]string{"ERP_ENV": "development", "ERP_DEV_ISSUER": "true"}, nil},
 		{"development engine without codec", map[string]string{"ERP_ENV": "development", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
 		{"development without verification", map[string]string{"ERP_ENV": "development", "ERP_AUDIT_VERIFY_INTERVAL": "0"}, nil},
-		{"production", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233", "ERP_TEMPORAL_CODEC_KEY": codec}), nil},
+		{"production", prod(with(identity, map[string]string{"ERP_TEMPORAL_ADDRESS": "temporal:7233", "ERP_TEMPORAL_CODEC_KEY": codec})), nil},
+		{"production engine without a certificate", prod(with(noIdentity, map[string]string{"ERP_TEMPORAL_ADDRESS": "temporal:7233", "ERP_TEMPORAL_CODEC_KEY": codec})), []string{engineIdentity}},
+		{"production plaintext object store", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "http://minio:9000"}), []string{"ERP_OBJECT_S3_ENDPOINT must be an https:// URL"}},
+		{"production plaintext KMS", prod(map[string]string{"ERP_FIELD_KMS_KEY": "alias/erp", "ERP_FIELD_KMS_ENDPOINT": "http://kms.internal"}), []string{"ERP_FIELD_KMS_ENDPOINT must be an https:// URL"}},
+		{"production KMS by default", prod(map[string]string{"ERP_FIELD_KMS_KEY": "alias/erp"}), nil},
+		{"production plaintext vault", prod(map[string]string{"ERP_VAULT_ADDR": "http://vault:8200", "ERP_VAULT_TOKEN": "t"}), []string{"ERP_VAULT_ADDR must be an https:// URL"}},
+		{"production vault", prod(map[string]string{"ERP_VAULT_ADDR": "https://vault:8200", "ERP_VAULT_TOKEN": "t"}), nil},
+		{"production plaintext STS", prod(map[string]string{"ERP_AWS_STS_ENDPOINT": "http://sts.internal"}), []string{"ERP_AWS_STS_ENDPOINT must be an https:// URL"}},
+		{"production instance metadata over IPv6", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://[fd00:ec2::254]"}), nil},
+		{"production instance metadata elsewhere", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://imds.example.com"}), []string{imdsOnly}},
+		{"production instance metadata on another port", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://169.254.169.254:8080"}), []string{imdsOnly}},
+		{"production instance metadata with credentials", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://u:p@169.254.169.254"}), []string{imdsOnly}},
+		{"production instance metadata with a query", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://169.254.169.254?x=1"}), []string{imdsOnly}},
+		{"production instance metadata with a fragment", prod(map[string]string{"ERP_AWS_IMDS_ENDPOINT": "http://169.254.169.254#x"}), []string{imdsOnly}},
+		{"development plaintext endpoints", map[string]string{"ERP_ENV": "development", "ERP_OBJECT_S3_ENDPOINT": "http://localhost:9000", "ERP_OBJECT_S3_BUCKET": "erp",
+			"ERP_AWS_IMDS_ENDPOINT": "http://localhost:1338", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}, nil},
 		{"production without an engine", prod(nil), nil},
-		{"production with an object directory", map[string]string{"ERP_ENV": "production", "ERP_OBJECT_DIR": t.TempDir()}, nil},
+		{"production with an object directory", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": "", "ERP_OBJECT_DIR": t.TempDir()}), []string{objectDirRefused}},
+		{"production without an encryption statement", prod(map[string]string{"ERP_AT_REST": ""}), []string{atRestRequired}},
+		{"production without the database's", prod(map[string]string{"ERP_AT_REST": "objects=sse-kms"}), []string{"ERP_AT_REST must state postgres"}},
+		{"production without the objects'", prod(map[string]string{"ERP_AT_REST": "postgres=volume"}), []string{"ERP_AT_REST must state objects=sse-kms"}},
+		{"production without the bus's", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats:4222"})), []string{"ERP_AT_REST must state nats"}},
+		{"production with the bus's", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats:4222", "ERP_AT_REST": statement + ",nats=jetstream-cipher"})), nil},
+		{"production issuers for every tenant", prod(map[string]string{"ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}), []string{sharedRefused}},
+		{"production without operators", prod(map[string]string{"ERP_OPERATOR_ISSUERS": ""}), []string{operatorsRequired}},
 		{"production dev issuer", prod(map[string]string{"ERP_DEV_ISSUER": "true"}), []string{devRefused}},
 		{"production engine without codec", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{codecRefused}},
 		{"production both", prod(map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{devRefused, codecRefused}},
-		{"production without object storage", map[string]string{"ERP_ENV": "production"}, []string{storeRefused}},
+		{"production without object storage", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": ""}), []string{storeRefused}},
 		{"production without verification", prod(map[string]string{"ERP_AUDIT_VERIFY_INTERVAL": "0"}), []string{verifyRefused}},
-		{"production without either", map[string]string{"ERP_ENV": "production", "ERP_AUDIT_VERIFY_INTERVAL": "0s"}, []string{storeRefused, verifyRefused}},
+		{"production without either", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": "", "ERP_AUDIT_VERIFY_INTERVAL": "0s"}), []string{storeRefused, verifyRefused}},
 		{"unknown environment", map[string]string{"ERP_ENV": "staging"}, []string{"must be development or production"}},
+		{"development database without TLS", map[string]string{"ERP_ENV": "development", "DATABASE_URL": "postgres://u:p@localhost/erp?sslmode=disable"}, nil},
+		{"production database without verified TLS", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp?sslmode=require"}), []string{dbRefused}},
+		{"production database by default", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp"}), []string{dbRefused}},
+		{"production directory", prod(directory), nil},
+		{"production directory without verified TLS", prod(with(directory, map[string]string{"ERP_DIRECTORY_URL": "postgres://u:p@dir.example.com/erp?sslmode=prefer"})), []string{dirRefused}},
+		{"development NATS without TLS", map[string]string{"ERP_ENV": "development", "ERP_NATS_URL": "nats://localhost:4222"}, nil},
+		{"production NATS over mutual TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,tls://nats-2:4222", "ERP_AT_REST": statement + ",nats=volume"})), nil},
+		{"production NATS without TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,nats://nats-2:4222"})), []string{natsPlain}},
+		{"production NATS unparseable", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,%zz"})), []string{natsPlain}},
+		{"production NATS without a certificate", prod(with(noIdentity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222"})), []string{natsIdentity}},
+		{"production without a certificate", prod(noIdentity), []string{listenersIdentity}},
+		{"production without a trust domain", prod(map[string]string{"ERP_TRUST_DOMAIN": ""}), []string{"ERP_TRUST_DOMAIN is required with ERP_ENV=production"}},
+		{"production plaintext cell URLs", prod(with(directory, map[string]string{"ERP_CELL_API_URL": "http://eu1.internal", "ERP_CELL_CONTROL_URL": "http://eu1-admin.internal:9090"})),
+			[]string{"ERP_CELL_API_URL must be an https:// URL", "ERP_CELL_CONTROL_URL must be an https:// URL"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -618,6 +696,131 @@ func TestTenantIssuers(t *testing.T) {
 			m["ERP_OIDC_ISSUERS"], m["ERP_DEV_ISSUER"] = c.issuers, c.dev
 			if got := mustLoad(t, m).TenantIssuers(); !slices.Equal(got, c.want) {
 				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// tlsFiles are TLS settings naming an authority, a certificate and its
+// key written to files of the test.
+func tlsFiles(t *testing.T) map[string]string {
+	t.Helper()
+	ca, dir := tlstest.NewCA(t), t.TempDir()
+	leaf := ca.Issue(t, tlstest.Options{})
+	return map[string]string{
+		"ERP_TLS_CA":   "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM),
+		"ERP_TLS_CERT": "file:" + tlstest.WriteFile(t, dir, "tls.crt", leaf.CertPEM),
+		"ERP_TLS_KEY":  "file:" + tlstest.WriteFile(t, dir, "tls.key", leaf.KeyPEM),
+	}
+}
+
+// TestTLSSettings: the TLS material is read with the configuration, so a
+// bundle or certificate that cannot be read stops every command at start,
+// and the references are kept for the server to read again while it runs
+// (ADR-0033); certificate and key go together. Without material there is
+// no store and no client of its own.
+func TestTLSSettings(t *testing.T) {
+	m := valid()
+	files := tlsFiles(t)
+	maps.Copy(m, files)
+	c := mustLoad(t, m)
+	if want := (tlsconf.Source{CA: files["ERP_TLS_CA"], Cert: files["ERP_TLS_CERT"], Key: files["ERP_TLS_KEY"]}); c.TLS != want {
+		t.Errorf("TLS: got %+v, want %+v", c.TLS, want)
+	}
+	if c.TLSMaterial == nil || !c.TLSMaterial.HasCertificate() {
+		t.Errorf("TLSMaterial: got %v, want the certificate read", c.TLSMaterial)
+	}
+	if c.HTTPClient() == nil {
+		t.Error("HTTPClient: got nil, want the material's client")
+	}
+	for _, missing := range []string{"ERP_TLS_CERT", "ERP_TLS_KEY"} {
+		t.Run("without "+missing, func(t *testing.T) {
+			mm := copyOf(m)
+			delete(mm, missing)
+			_, err := Load(env(mm))
+			pgtest.CheckErr(t, err, "ERP_TLS_CERT and ERP_TLS_KEY go together")
+		})
+	}
+	t.Run("unreadable bundle", func(t *testing.T) {
+		mm := copyOf(m)
+		mm["ERP_TLS_CA"] = "file:/nonexistent/ca.crt"
+		_, err := Load(env(mm))
+		pgtest.CheckErr(t, err, "ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: tlsconf: CA bundle")
+	})
+	t.Run("none", func(t *testing.T) {
+		c := mustLoad(t, valid())
+		if c.TLSMaterial != nil || c.HTTPClient() != nil {
+			t.Errorf("without material: got %v, %v, want no store and no client", c.TLSMaterial, c.HTTPClient())
+		}
+	})
+}
+
+// TestAtRest: ERP_AT_REST states how each store encrypts at rest, from a
+// fixed vocabulary (ADR-0033); objects=sse-kms needs an S3 store.
+func TestAtRest(t *testing.T) {
+	for _, c := range []struct {
+		name, value string
+		s3          bool
+		want        AtRest
+		wantErr     string
+	}{
+		{"none", "", false, AtRest{}, ""},
+		{"every store", "postgres = storage-kms, objects=sse-kms, nats=volume", true, AtRest{Postgres: "storage-kms", Objects: "sse-kms", NATS: "volume"}, ""},
+		{"unknown store", "redis=volume", false, AtRest{}, `ERP_AT_REST: unknown store "redis"`},
+		{"unknown encryption", "postgres=rot13", false, AtRest{}, `ERP_AT_REST: postgres=rot13 is not one of storage-kms, volume`},
+		{"not a pair", "postgres", false, AtRest{}, `ERP_AT_REST must be "store=encryption,..."`},
+		{"stated twice", "postgres=volume,postgres=storage-kms", false, AtRest{}, `ERP_AT_REST states postgres twice`},
+		{"KMS objects without S3", "objects=sse-kms", false, AtRest{}, "ERP_AT_REST objects=sse-kms needs ERP_OBJECT_S3_ENDPOINT"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			m["ERP_AT_REST"] = c.value
+			if c.s3 {
+				m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"] = "https://s3.example.com", "erp"
+			}
+			cfg, err := Load(env(m))
+			if c.wantErr != "" {
+				pgtest.CheckErr(t, err, c.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.AtRest != c.want {
+				t.Errorf("AtRest: got %+v, want %+v", cfg.AtRest, c.want)
+			}
+		})
+	}
+}
+
+// TestTrustDomain: ERP_TRUST_DOMAIN names the SPIFFE trust domain, a DNS
+// name in lower case.
+func TestTrustDomain(t *testing.T) {
+	for _, c := range []struct {
+		name, value, wantErr string
+	}{
+		{"none", "", ""},
+		{"a domain", "erp.example.com", ""}, // with the certificate set below
+		{"upper case", "ERP.example", "ERP_TRUST_DOMAIN must be"},
+		{"a URL", "spiffe://erp.example", "ERP_TRUST_DOMAIN must be"},
+		{"without a certificate", "erp.example", "ERP_TRUST_DOMAIN needs ERP_TLS_CERT"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			m["ERP_TRUST_DOMAIN"] = c.value
+			if c.name != "without a certificate" {
+				maps.Copy(m, tlsFiles(t))
+			}
+			cfg, err := Load(env(m))
+			if c.wantErr != "" {
+				pgtest.CheckErr(t, err, c.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.TrustDomain != c.value {
+				t.Errorf("TrustDomain: got %q, want %q", cfg.TrustDomain, c.value)
 			}
 		})
 	}

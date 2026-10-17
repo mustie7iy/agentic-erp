@@ -29,6 +29,12 @@ type Service struct {
 	Directory *directory.Postgres
 	Pages     *pagination.Codec
 	Client    *http.Client // reaches the cells' control planes; nil: a client with a 30 s timeout
+	// RequireTLS refuses a cell whose control URL is not https
+	// (production, ADR-0033).
+	RequireTLS bool
+	// PeerOf is the SPIFFE ID a cell must present; nil: the client's own
+	// rule.
+	PeerOf func(cell string) string
 }
 
 func (s *Service) client() *http.Client {

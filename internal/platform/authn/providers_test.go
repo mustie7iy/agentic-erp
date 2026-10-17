@@ -521,3 +521,24 @@ func TestProvidersStopTrustingKeysTheyCannotRefresh(t *testing.T) {
 	c.Advance(authn.DefaultMinRefresh)
 	wantStatus(t, verify(p, is, tok), 503)
 }
+
+// TestProvidersProbe: registering a provider first reads its discovery
+// document, afresh and without keeping it, so a mistyped issuer is told at
+// once and a fixed one is accepted on the next try.
+func TestProvidersProbe(t *testing.T) {
+	is := authntest.NewSeparate(t)
+	p := providers(newClock())
+	if err := p.Probe(context.Background(), is.URL); err != nil {
+		t.Errorf("a provider that answers: got %v, want none", err)
+	}
+	is.FailNext(1)
+	if err := p.Probe(context.Background(), is.URL); err == nil {
+		t.Error("a provider that fails: got no error, want one")
+	}
+	if err := p.Probe(context.Background(), is.URL); err != nil {
+		t.Errorf("the next try: got %v, want none (a failed probe is not kept)", err)
+	}
+	if err := (&authn.Providers{Production: true}).Probe(context.Background(), is.URL); err == nil {
+		t.Error("an http issuer in production: got no error, want one")
+	}
+}

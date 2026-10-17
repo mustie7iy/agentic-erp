@@ -57,6 +57,12 @@ type Pipeline struct {
 	Tracer  trace.TracerProvider
 	Meter   metric.MeterProvider // per-operation metrics of the generated server
 	Now     func() time.Time
+	// Sessions checks people's sessions in the unit of work (ADR-0031);
+	// nil checks none.
+	Sessions uow.Sessions
+	// RequireBoundAgents accepts agents' tokens only bound to their client
+	// certificates (production, ADR-0033).
+	RequireBoundAgents bool
 }
 
 // New builds the public API around h, the generated Handler the contexts
@@ -79,7 +85,7 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now}
+	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents}
 	chain := unit.Wrap(srv)
 	if p.Limits != nil {
 		chain = p.Limits.Middleware(chain)

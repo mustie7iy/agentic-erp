@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -46,6 +47,20 @@ type Middleware struct {
 	// Begin starts the request transaction; nil means Pool.Begin. Tests
 	// replace it to inject database failures.
 	Begin database.BeginFunc
+	// Sessions checks a person's session (identity.Sessions, ADR-0031);
+	// nil checks none.
+	Sessions Sessions
+	// RequireBoundAgents accepts an agent's token only bound to its client
+	// certificate by a provider that binds tokens (production, ADR-0033).
+	RequireBoundAgents bool
+}
+
+// Sessions checks a person's session: its lifetime and idle timeout. It
+// runs before the request's transaction begins and reads what it needs in
+// its own, so a request never holds one connection while it waits for
+// another.
+type Sessions interface {
+	Check(ctx context.Context, c reqctx.Claims) error
 }
 
 func (m *Middleware) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -114,6 +129,9 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		return err
 	}
 	ctx := r.Context()
+	if err := m.admit(ctx, claims); err != nil {
+		return err
+	}
 	tx, err := m.begin(ctx, database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: req == nil})
 	if err != nil {
 		return err
@@ -122,6 +140,9 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 
 	principal, err := resolve(ctx, tx, claims)
 	if err != nil {
+		return err
+	}
+	if err := m.authorize(ctx, claims, principal); err != nil {
 		return err
 	}
 	info := reqctx.InfoFrom(ctx)
@@ -148,6 +169,41 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		return err
 	}
 	rec.send(w)
+	return nil
+}
+
+// admit checks what the token alone decides, before the transaction. A
+// bound token without its certificate is refused before its session is
+// touched: replayed by whoever stole it, it would otherwise keep its
+// owner's session alive (ADR-0033).
+func (m *Middleware) admit(ctx context.Context, claims reqctx.Claims) error {
+	if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), false); err != nil {
+		m.Log.WarnContext(ctx, "certificate binding refused", "issuer", claims.Issuer, "subject", claims.Subject, "bound", true)
+		return err
+	}
+	if m.Sessions != nil {
+		return m.Sessions.Check(ctx, claims)
+	}
+	return nil
+}
+
+// authorize checks what the token must prove for the principal it
+// resolved to. Multi-factor is asked of people only: services and agents
+// use their own credentials, which prove no second factor (ADR-0031).
+// identity.Sessions applies the same rule to decide which tokens start or
+// touch a session; the two stay in step.
+func (m *Middleware) authorize(ctx context.Context, claims reqctx.Claims, principal reqctx.Principal) error {
+	if principal.Kind == reqctx.KindHuman {
+		if err := authn.CheckMFA(claims); err != nil {
+			return err
+		}
+	}
+	if m.RequireBoundAgents && principal.Kind == reqctx.KindAgent {
+		if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), true); err != nil {
+			m.Log.WarnContext(ctx, "certificate binding refused", "principal_id", principal.ID, "kind", principal.Kind, "bound", claims.CertThumbprint != "")
+			return err
+		}
+	}
 	return nil
 }
 

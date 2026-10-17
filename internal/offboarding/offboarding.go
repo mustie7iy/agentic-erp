@@ -223,6 +223,9 @@ func (w *Worker) writeExport(ctx context.Context, tenant uuid.UUID) (Export, err
 	m := manifest{TenantID: tenant, Tenant: row, ExportedAt: now}
 	var ex Export
 	for _, t := range list {
+		if Ephemeral(t.Name) {
+			continue
+		}
 		parts, rows, err := w.exportTable(ctx, tx, tenant, t, dir, opts)
 		if err != nil {
 			return Export{}, err

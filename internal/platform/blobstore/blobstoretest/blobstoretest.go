@@ -34,6 +34,8 @@ type Object struct {
 	ContentType string
 	RetainUntil string // the x-amz-object-lock-retain-until-date header, "" without lock
 	LockMode    string
+	Encryption  string // the x-amz-server-side-encryption header, "" without
+	KeyID       string // the x-amz-server-side-encryption-aws-kms-key-id header
 }
 
 // Server is the running double.
@@ -52,6 +54,11 @@ type Server struct {
 	Now func() time.Time
 	// PageSize is how many keys a listing page holds (default 1000).
 	PageSize int
+	// BucketEncryption is the bucket's default encryption algorithm that
+	// GetBucketEncryption reports ("": none configured).
+	BucketEncryption string
+	// BucketKeyID is the KMS key of that default ("": the AWS managed key).
+	BucketKeyID string
 }
 
 // New starts a server that stops when the test ends.
@@ -109,6 +116,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.list(w, r)
 		return
 	}
+	if r.URL.Path == "/"+Bucket && r.Method == http.MethodGet && r.URL.Query().Has("encryption") {
+		s.encryption(w)
+		return
+	}
 	key, ok := strings.CutPrefix(r.URL.Path, "/"+Bucket+"/")
 	if !ok {
 		s.answer(w, http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.")
@@ -145,7 +156,8 @@ func (s *Server) object(w http.ResponseWriter, r *http.Request, key string, body
 			return
 		}
 		s.Objects[key] = Object{Content: body, ContentType: r.Header.Get("Content-Type"), RetainUntil: r.Header.Get("x-amz-object-lock-retain-until-date"),
-			LockMode: r.Header.Get("x-amz-object-lock-mode")}
+			LockMode: r.Header.Get("x-amz-object-lock-mode"), Encryption: r.Header.Get("x-amz-server-side-encryption"),
+			KeyID: r.Header.Get("x-amz-server-side-encryption-aws-kms-key-id")}
 		w.WriteHeader(http.StatusOK)
 	case http.MethodGet:
 		o, exists := s.Objects[key]
@@ -214,6 +226,18 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</ListBucketResult>")
 	w.Header().Set("Content-Type", "application/xml")
 	w.Write([]byte(b.String()))
+}
+
+// encryption answers GetBucketEncryption with BucketEncryption, or S3's
+// error when the bucket has none.
+func (s *Server) encryption(w http.ResponseWriter) {
+	if s.BucketEncryption == "" {
+		s.answer(w, http.StatusNotFound, "ServerSideEncryptionConfigurationNotFoundError", "The server side encryption configuration was not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><ServerSideEncryptionConfiguration><Rule><ApplyServerSideEncryptionByDefault><SSEAlgorithm>` +
+		s.BucketEncryption + `</SSEAlgorithm><KMSMasterKeyID>` + s.BucketKeyID + `</KMSMasterKeyID></ApplyServerSideEncryptionByDefault></Rule></ServerSideEncryptionConfiguration>`))
 }
 
 func (s *Server) answer(w http.ResponseWriter, status int, code, message string) {

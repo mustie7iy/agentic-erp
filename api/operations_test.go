@@ -122,7 +122,12 @@ func TestControlOperations(t *testing.T) {
 	}
 	want := map[string]string{"listTenants": "GET /control/v1/tenants", "createTenant": "POST /control/v1/tenants", "getTenant": "GET /control/v1/tenants/{id}",
 		"suspendTenant": "POST /control/v1/tenants/{id}:suspend", "resumeTenant": "POST /control/v1/tenants/{id}:resume", "offboardTenant": "POST /control/v1/tenants/{id}:offboard",
-		"rotateTenantKey": "POST /control/v1/tenants/{id}:rotateKey", "eraseTenant": "POST /control/v1/tenants/{id}:erase", "getTenantFingerprint": "GET /control/v1/tenants/{id}/fingerprint"}
+		"rotateTenantKey": "POST /control/v1/tenants/{id}:rotateKey", "eraseTenant": "POST /control/v1/tenants/{id}:erase", "getTenantFingerprint": "GET /control/v1/tenants/{id}/fingerprint",
+		"listIdentityProviders": "GET /control/v1/tenants/{id}/identity-providers", "registerIdentityProvider": "POST /control/v1/tenants/{id}/identity-providers",
+		"getIdentityProvider": "GET /control/v1/tenants/{id}/identity-providers/{provider_id}", "updateIdentityProvider": "PATCH /control/v1/tenants/{id}/identity-providers/{provider_id}",
+		"retireIdentityProvider": "POST /control/v1/tenants/{id}/identity-providers/{provider_id}:retire",
+		"getAuthPolicy":          "GET /control/v1/tenants/{id}/auth-policy", "updateAuthPolicy": "PATCH /control/v1/tenants/{id}/auth-policy",
+		"listTenantPrincipals": "GET /control/v1/tenants/{id}/principals", "bindPrincipal": "POST /control/v1/tenants/{id}/principals/{principal_id}:bind"}
 	if len(ops) != len(want) {
 		t.Fatalf("operations: got %d, want %d", len(ops), len(want))
 	}

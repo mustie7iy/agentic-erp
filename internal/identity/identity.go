@@ -1,8 +1,9 @@
-// Package identity is the identity context (03-data-model §3.4, ADR-0010):
-// principals (people, agents, services), roles and the effective-dated
-// grants that give principals permissions and company access, and the
-// segregation-of-duties rules that limit which permissions one principal
-// may hold together.
+// Package identity is the identity context (03-data-model §3.4, ADR-0010,
+// ADR-0031): principals (people, agents, services), roles and the
+// effective-dated grants that give principals permissions and company
+// access, the segregation-of-duties rules that limit which permissions one
+// principal may hold together, and the tenant's identity providers and
+// authentication policy.
 //
 // Grants are insert-only except for ending them, so the access a principal
 // had on any past date can be reconstructed: they cannot start in the past,

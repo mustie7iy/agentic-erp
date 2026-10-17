@@ -1246,7 +1246,8 @@ before expiry. The S3 store and the KMS master take a provider; the signer
 signs session tokens (`SignWith`, `PresignWith`). `ERP_OBJECT_S3_*` and
 `ERP_FIELD_KMS_*` access keys are optional (both or neither);
 `ERP_AWS_STS_ENDPOINT` and `ERP_AWS_IMDS_ENDPOINT` point tests and
-emulators elsewhere. The exit criteria are the `awscreds` suite (every
+emulators elsewhere (production: https STS, the metadata service's own
+link-local address only; ADR-0033). The exit criteria are the `awscreds` suite (every
 provider against a double, the chain, the cache), `TestAmbientCredentials`
 (blobstore) and `TestKMSAmbientCredentials` (fieldcrypt), and the ambient
 case of `TestObjectStores` (a server anchoring through the S3 double with

@@ -145,3 +145,18 @@ func TestGaugesAreReadOnScrape(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// TestInfo: an info metric is one sample of 1 per row of label values,
+// for facts that hold for the process's life (ADR-0033's statement of
+// encryption at rest).
+func TestInfo(t *testing.T) {
+	m := NewMetrics()
+	m.Info("erp_test_info", "Facts.", []string{"store", "encryption"}, [][]string{{"postgres", "volume"}, {"objects", "sse-kms"}})
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	for _, want := range []string{`erp_test_info{encryption="volume",store="postgres"} 1`, `erp_test_info{encryption="sse-kms",store="objects"} 1`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("got %s, want %s", rec.Body.String(), want)
+		}
+	}
+}

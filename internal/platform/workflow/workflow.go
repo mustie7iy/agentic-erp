@@ -1,11 +1,13 @@
 // Package workflow is the platform's port to the workflow engine (ADR-0012):
 // long-running work runs as Temporal workflows whose activities are the
 // application's services in a unit of work. The API sees a workflow as an
-// Operation; this package starts, cancels and hosts them.
+// Operation; this package starts, cancels and hosts them. The engine is
+// dialled over TLS with a configuration made per connection (ADR-0033).
 package workflow
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 
@@ -13,6 +15,7 @@ import (
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+	"google.golang.org/grpc"
 )
 
 // Start describes a workflow to start: its id (derived from the business
@@ -40,6 +43,10 @@ type Config struct {
 	Address   string // host:port of the Temporal frontend
 	Namespace string // one per environment (ADR-0012)
 	Codec     *Codec // seals payloads before they reach the engine; nil: plain
+	// TLS makes the configuration of each connection to the frontend,
+	// so renewed material reaches new connections (ADR-0033); nil:
+	// plaintext, development only.
+	TLS func() (*tls.Config, error)
 }
 
 // Temporal is the Client on a Temporal cluster, and hosts workers.
@@ -49,7 +56,13 @@ type Temporal struct {
 
 // Dial connects; the SDK checks the cluster answers before returning.
 func Dial(ctx context.Context, cfg Config) (*Temporal, error) {
-	c, err := client.DialContext(ctx, client.Options{HostPort: cfg.Address, Namespace: cfg.Namespace, DataConverter: dataConverter(cfg.Codec)})
+	opts := client.Options{HostPort: cfg.Address, Namespace: cfg.Namespace, DataConverter: dataConverter(cfg.Codec)}
+	if cfg.TLS != nil {
+		// The SDK puts the caller's dial options after its own, so these
+		// credentials replace its plaintext ones.
+		opts.ConnectionOptions.DialOptions = []grpc.DialOption{grpc.WithTransportCredentials(reloading{config: cfg.TLS})}
+	}
+	c, err := client.DialContext(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("workflow: connecting to %s: %w", cfg.Address, err)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
@@ -13,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
@@ -174,8 +176,14 @@ func short(hash string) string {
 
 // call sends one request to a cell's control plane and reads its answer
 // whole; the cell not answering is reported as 502, a control URL that
-// cannot be used as 503.
+// cannot be used, or one not https with RequireTLS, as 503.
 func (s *Service) call(ctx context.Context, cell directory.Cell, method, path string, body []byte, headers map[string]string) (int, []byte, http.Header, error) {
+	if u, err := url.Parse(cell.ControlURL); s.RequireTLS && (err != nil || u.Scheme != "https") {
+		return 0, nil, nil, problem.Unavailable("Cell "+cell.Name+" has no https control URL.", 60)
+	}
+	if s.PeerOf != nil {
+		ctx = tlsconf.ExpectPeer(ctx, s.PeerOf(cell.Name))
+	}
 	var reader io.Reader
 	if body != nil {
 		reader = strings.NewReader(string(body))

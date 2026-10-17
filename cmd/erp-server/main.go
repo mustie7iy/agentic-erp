@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/app"
@@ -47,10 +49,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -84,8 +88,10 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return rewrapCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "import":
 			return importCmd(ctx, args[1:], cfg, stdout, stderr)
+		case "register-provider":
+			return registerProviderCmd(ctx, args[1:], cfg, stdout, stderr)
 		}
-		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in)\n", args[0])
+		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider)\n", args[0])
 		return 2
 	}
 	if err := run(ctx, cfg, log, started); err != nil {
@@ -109,18 +115,14 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	// OTEL_GO_X_OBSERVABILITY instruments aside, which are not enabled);
 	// spans the last export loses are reported through otel's error handler.
 	defer func() { _ = tp.Shutdown(context.WithoutCancel(ctx)) }()
-	s := &server{cfg: cfg, log: log, tp: tp, failed: make(chan struct{})}
+	s := &server{cfg: cfg, log: log, tp: tp, tls: cfg.TLSMaterial, failed: make(chan struct{})}
 	if s.pool, err = openPool(ctx, cfg); err != nil {
 		return err
 	}
 	defer s.pool.Close()
-	if err := s.prepareSchema(ctx); err != nil {
+	if err := s.prepare(ctx); err != nil {
 		return err
 	}
-	if err := s.authenticate(ctx); err != nil {
-		return err
-	}
-	s.openObjects()
 	dir, err := s.openDirectory(ctx)
 	if err != nil {
 		return err
@@ -158,6 +160,23 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	return s.serve(ctx, cancel, started)
 }
 
+// prepare checks the object store, migrates the schema, requires the
+// tenants' identity providers and builds the verifier, in that order. The
+// object store is checked first: a misconfigured cell is refused before it
+// migrates anything.
+func (s *server) prepare(ctx context.Context) error {
+	if err := s.openObjects(ctx); err != nil {
+		return err
+	}
+	if err := s.prepareSchema(ctx); err != nil {
+		return err
+	}
+	if err := s.requireProviders(ctx); err != nil {
+		return err
+	}
+	return s.authenticate(ctx)
+}
+
 // stop stops the workers and waits for them, so that run's deferred closes
 // (the pool, the engine, the directory) never run under a worker still using
 // them, and returns err joined with a critical worker's failure, when one
@@ -180,6 +199,8 @@ type server struct {
 	static       []authn.Static
 	dev          *authn.DevIssuer
 	verifier     *authn.Verifier
+	beginCheck   database.BeginFunc // the startup check's transaction; nil: the pool's (tests inject failures)
+	providers    *authn.Providers   // tenants' identity providers' documents and keys (ADR-0031)
 	pages        *pagination.Codec
 	keys         *fieldcrypt.Keyring
 	store        blobstore.Store
@@ -191,6 +212,7 @@ type server struct {
 	metrics      *telemetry.Metrics
 	engine       *workflow.Temporal
 	engineClient workflow.Client
+	tls          *tlsconf.Store // nil: no TLS material configured (development)
 	apiCfg       app.Config
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
@@ -226,6 +248,46 @@ func (s *server) prepareSchema(ctx context.Context) error {
 	return partitions(ctx, s.pool, s.log)
 }
 
+// requireProviders refuses, in production, to start while an active tenant
+// has no active identity provider: its people could not sign in, and
+// nothing else would say so (ADR-0031). Provisioning registers one, the
+// last one cannot be retired and a production import refuses a tenant
+// without one, so a change by hand gets here, or a tenant from before; the
+// remedy, erp-server register-provider, needs no running server.
+func (s *server) requireProviders(ctx context.Context) error {
+	if s.cfg.Environment != config.Production {
+		return nil
+	}
+	tx, err := database.BeginOr(ctx, s.pool, s.beginCheck, database.Scope{Role: s.cfg.ControlRole, ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("erp-server: check identity providers: %w", err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	tenants, err := tenancy.AllTenants(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("erp-server: read tenants: %w", err)
+	}
+	keys, err := identity.ActiveIdentityProviders(ctx, tx)
+	if err != nil {
+		return err
+	}
+	with := map[uuid.UUID]bool{}
+	for _, k := range keys {
+		with[k.TenantID] = true
+	}
+	var without []string
+	for _, t := range tenants {
+		if t.Status == "active" && !with[t.ID] {
+			without = append(without, t.ID.String())
+		}
+	}
+	if len(without) > 0 {
+		return fmt.Errorf("erp-server: ERP_ENV=production: active tenants without an active identity provider, whose people cannot sign in: %s; "+
+			"register one with erp-server register-provider -tenant <id> -issuer <url> -audience <aud>, which needs no running server, then start again", strings.Join(without, ", "))
+	}
+	return nil
+}
+
 // authenticate sets up who the API trusts (the configured issuers and the
 // development issuer), the page-token codec and the field encryption ring.
 func (s *server) authenticate(ctx context.Context) error {
@@ -235,7 +297,12 @@ func (s *server) authenticate(ctx context.Context) error {
 		s.log.Warn("ERP_DEV_ISSUER is set: the admin listener mints tokens for any subject of any tenant, and operator tokens (POST /dev/token); never in production, where ERP_ENV=production refuses it")
 	}
 	var err error
-	if s.verifier, err = authn.New(ctx, authn.Environment(s.cfg.Environment), s.cfg.Issuers, s.static...); err != nil {
+	// Tenants' tokens come from the identity providers they registered,
+	// resolved by issuer and audience in the cell (ADR-0031), and from the
+	// issuers the deployment configures for every tenant.
+	registry := &authn.RegistryCache{Registry: identity.Registry{Pool: s.pool, ControlRole: s.cfg.ControlRole}}
+	s.providers = &authn.Providers{Production: s.cfg.Environment == config.Production}
+	if s.verifier, err = authn.NewRegistered(ctx, authn.Environment(s.cfg.Environment), registry, s.providers, s.cfg.Issuers, s.static...); err != nil {
 		return err
 	}
 	if s.pages, err = pagination.NewCodec(s.cfg.PageTokenKey); err != nil {
@@ -249,10 +316,22 @@ func (s *server) authenticate(ctx context.Context) error {
 
 // openObjects opens the object store and, where there is one, the worker
 // that exports and erases offboarded tenants.
-func (s *server) openObjects() {
-	s.store = objects(s.cfg.Objects, s.cfg.AWS)
+func (s *server) openObjects(ctx context.Context) error {
+	s.store = objects(s.cfg)
 	if s.store == nil {
 		s.log.Warn("no object storage configured (ERP_OBJECT_DIR or ERP_OBJECT_S3_*): documents and bank files are not kept, the audit chain is not anchored, offboarded tenants are not exported (ERP_ENV=production refuses this)")
+	}
+	// Objects stated as KMS-encrypted are kept only in a bucket whose
+	// default encryption is KMS, which covers the presigned uploads too;
+	// the store's own writes ask for the same algorithm and key (ADR-0033).
+	// The configuration made sure the store is S3.
+	if s3, ok := s.store.(blobstore.S3); ok && s.cfg.AtRest.Objects == "sse-kms" {
+		enc, err := s3.BucketEncryption(ctx)
+		if err != nil {
+			return fmt.Errorf("erp-server: object store: %w", err)
+		}
+		s3.Encryption = enc
+		s.store = s3
 	}
 	// The control plane trusts the operator issuers, and the development
 	// issuer's operator tokens; without either it is not served.
@@ -262,6 +341,7 @@ func (s *server) openObjects() {
 		s.offboarder = &offboarding.Worker{Pool: s.pool, Store: s.store, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Interval: offboardInterval,
 			Grace: s.cfg.OffboardGrace, Retention: s.cfg.Objects.Retention, Log: s.log}
 	}
+	return nil
 }
 
 // openDirectory connects the global directory (ADR-0022), where there is
@@ -276,8 +356,32 @@ func (s *server) openDirectory(ctx context.Context) (*directory.Postgres, error)
 		return nil, err
 	}
 	s.sync = &directory.Sync{Pool: s.pool, ControlRole: s.cfg.ControlRole, Directory: dir, Cell: s.cfg.Cell, APIURL: s.cfg.CellAPIURL,
-		Region: s.cfg.CellRegion, ControlURL: s.cfg.CellControlURL, Accepting: s.cfg.CellAccepting, Interval: directoryInterval, Log: s.log}
+		Region: s.cfg.CellRegion, ControlURL: s.cfg.CellControlURL, Accepting: s.cfg.CellAccepting, Providers: cellIssuers, Interval: directoryInterval, Log: s.log}
 	return dir, nil
+}
+
+// cellIssuers lists the cell's active identity providers for the global
+// directory's claims (ADR-0031): the server joins the identity context and
+// the directory, so neither imports the other.
+func cellIssuers(ctx context.Context, tx pgx.Tx) ([]directory.Issuer, error) {
+	keys, err := identity.ActiveIdentityProviders(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]directory.Issuer, len(keys))
+	for i, k := range keys {
+		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID, ProviderID: k.ID}
+	}
+	return out, nil
+}
+
+// claim is how provisioning claims a tenant's provider in the global
+// directory, nil without one.
+func (s *server) claim() func(ctx context.Context, tenant, provider uuid.UUID, issuer, audience string) error {
+	if s.sync == nil {
+		return nil
+	}
+	return s.sync.ClaimIssuer
 }
 
 // controlPlane builds the operators' API, served when there is an issuer
@@ -291,8 +395,9 @@ func (s *server) controlPlane(ctx context.Context) error {
 		return err
 	}
 	service := &controlplane.Service{Pool: s.pool, AppRole: s.cfg.AppRole, ControlRole: s.cfg.ControlRole, Pages: s.pages,
-		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Issuers: s.cfg.TenantIssuers(), Configuration: app.Configuration(app.Config{FieldKeys: s.keys})},
-		Offboarding: s.offboarder, Directory: s.sync}
+		Keys: s.keys, Provisioner: &provisioning.Provisioner{Pool: s.pool, AppRole: s.cfg.AppRole, Keys: s.keys, Issuers: s.cfg.TenantIssuers(), Configuration: app.Configuration(app.Config{FieldKeys: s.keys}),
+			Production: s.cfg.Environment == config.Production, Discover: s.providers.Probe, Claim: s.claim()},
+		Offboarding: s.offboarder, Directory: s.sync, Production: s.cfg.Environment == config.Production, Discover: s.providers.Probe}
 	s.control = controlplane.Handler(service, operators, s.log)
 	s.log.Info("control plane served on the admin listener", "path", controlplane.Base, "operator_issuers", len(s.cfg.OperatorIssuers), "dev_issuer", s.cfg.DevIssuer)
 	return nil
@@ -309,6 +414,24 @@ func (s *server) collaborators() {
 	}
 	s.metrics = telemetry.NewMetrics()
 	backlogs(s.pool, s.cfg, s.metrics)
+	atRest(s.cfg.AtRest, s.metrics, s.log)
+}
+
+// atRest states how each store encrypts at rest, in the log and as
+// erp_at_rest_info, as ERP_AT_REST says (ADR-0033).
+func atRest(a config.AtRest, m *telemetry.Metrics, log *slog.Logger) {
+	if a == (config.AtRest{}) {
+		log.Warn("ERP_AT_REST not set: how the stores encrypt at rest is not stated (ERP_ENV=production refuses this)")
+		return
+	}
+	log.Info("encryption at rest", "postgres", a.Postgres, "objects", a.Objects, "nats", a.NATS)
+	var rows [][]string
+	for _, r := range [][]string{{"postgres", a.Postgres}, {"objects", a.Objects}, {"nats", a.NATS}} {
+		if r[1] != "" {
+			rows = append(rows, r)
+		}
+	}
+	m.Info("erp_at_rest_info", "How each store encrypts its data at rest, as ERP_AT_REST states it (ADR-0033).", []string{"store", "encryption"}, rows)
 }
 
 // dialEngine connects the workflow engine (ADR-0012): with
@@ -325,7 +448,11 @@ func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
 	} else {
 		s.log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed (ERP_ENV=production refuses this)")
 	}
-	engine, err := workflow.Dial(ctx, workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec})
+	wc := workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec}
+	if s.tls != nil {
+		wc.TLS = func() (*tls.Config, error) { return s.tls.ClientConfig(tlsconf.Internal, s.cfg.Temporal.ServerName) }
+	}
+	engine, err := workflow.Dial(ctx, wc)
 	if err != nil {
 		return nil, err
 	}
@@ -342,6 +469,7 @@ func (s *server) newAPI() error {
 		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
+		RequireBoundAgents: cfg.Environment == config.Production,
 	}
 	var err error
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {
@@ -399,8 +527,8 @@ func (s *server) startOperations(runCtx context.Context) {
 	s.spawn("dispatcher", func() { dispatcher.Run(runCtx) })
 }
 
-// startMaintenance starts the partition maintenance and, with a global
-// directory, the directory sync.
+// startMaintenance starts the partition maintenance, with a global
+// directory the directory sync, and with TLS material its re-reading.
 func (s *server) startMaintenance(runCtx context.Context) {
 	pool, log := s.pool, s.log
 	s.spawn("maintenance", func() {
@@ -408,6 +536,9 @@ func (s *server) startMaintenance(runCtx context.Context) {
 	})
 	if s.sync != nil {
 		s.spawn("directory sync", func() { s.sync.Run(runCtx) })
+	}
+	if s.tls != nil {
+		s.spawn("tls", func() { s.tls.Run(runCtx, tlsconf.RefreshInterval, s.log) })
 	}
 }
 
@@ -430,6 +561,10 @@ func (s *server) startAudit(runCtx context.Context) {
 	// contract's ContractExpired is the job's).
 	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log}
 	s.spawn("expirer", func() { expirer.Run(runCtx) })
+	// People's sessions ended or idle for a week are deleted in rounds
+	// (ADR-0031).
+	sweeper := &identity.SessionSweeper{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: sweepInterval, Log: log}
+	s.spawn("session sweeper", func() { sweeper.Run(runCtx) })
 	// Every tenant's audit chain is verified against its anchors in rounds
 	// (ADR-0011); a chain that stops verifying is an alarm.
 	if cfg.AuditVerify == 0 {
@@ -447,7 +582,10 @@ func (s *server) connectBus() (*natsbus.Bus, error) {
 		s.log.Warn("ERP_NATS_URL not set: events stay in the outbox until a relay runs")
 		return nil, nil
 	}
-	return natsbus.Connect(s.cfg.NATSURL)
+	if s.tls == nil {
+		return natsbus.Connect(s.cfg.NATSURL)
+	}
+	return natsbus.Connect(s.cfg.NATSURL, natsbus.TLS(s.tls)...)
 }
 
 // startRelay makes sure the cell's streams exist and starts the outbox
@@ -472,9 +610,11 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 	if err != nil {
 		return s.stop(cancel, err)
 	}
+	apiLn, adminLn = s.secure(apiLn, adminLn)
+	api, control := s.peers(s.apiHandler, traced(s.control, s.log, s.metrics, s.tp))
 	servers := []*http.Server{
-		{Handler: s.apiHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
-		{Handler: httpapi.Admin(ready(s.pool), s.metrics, devHandler(s.dev), traced(s.control, s.log, s.metrics, s.tp)), ReadHeaderTimeout: 5 * time.Second},
+		{Handler: api, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
+		{Handler: httpapi.Admin(ready(s.pool), s.metrics, devHandler(s.dev), control), ReadHeaderTimeout: 5 * time.Second},
 	}
 	errc := make(chan error, 2)
 	for i, ln := range []net.Listener{apiLn, adminLn} {
@@ -502,6 +642,40 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 	err = s.stop(cancel, serveErr) // nil after a requested shutdown; set when a listener or a critical worker failed
 	s.log.Info("erp-server stopped")
 	return err
+}
+
+// secure serves both listeners over TLS 1.3 as the cell's certificate,
+// when it has one (ADR-0033). With a trust domain the API asks every
+// client for a certificate, the router being its one caller; the admin
+// listener verifies one when given, so probes connect without and
+// /control is left to the global plane's.
+func (s *server) secure(apiLn, adminLn net.Listener) (net.Listener, net.Listener) {
+	if s.tls == nil || !s.tls.HasCertificate() {
+		return apiLn, adminLn
+	}
+	apiAuth := tls.VerifyClientCertIfGiven
+	if s.cfg.TrustDomain != "" {
+		apiAuth = tls.RequireAndVerifyClientCert
+	}
+	return tls.NewListener(apiLn, s.tls.ServerConfig(tlsconf.Internal, apiAuth)),
+		tls.NewListener(adminLn, s.tls.ServerConfig(tlsconf.Internal, tls.VerifyClientCertIfGiven))
+}
+
+// peers restricts, with a trust domain, the API and the control plane to
+// the router's identity, which is also the global plane's: the router
+// forwards every public request, with the thumbprint of the client's
+// certificate the cell then trusts, the global plane calls /control, and
+// the operator's token is still required there (ADR-0033). Without a
+// trust domain the thumbprint is not trusted.
+func (s *server) peers(api, control http.Handler) (http.Handler, http.Handler) {
+	if s.cfg.TrustDomain == "" {
+		return httpapi.ClientCertificate(false, api), control
+	}
+	router := tlsconf.ID(s.cfg.TrustDomain, "global", "erp-router")
+	if control != nil {
+		control = httpapi.RequirePeer(router, s.log, control)
+	}
+	return httpapi.RequirePeer(router, s.log, httpapi.ClientCertificate(true, api)), control
 }
 
 // listen opens the API and admin listeners; when the second fails the
@@ -584,6 +758,7 @@ var (
 	directoryInterval   = time.Minute
 	rotationInterval    = time.Hour
 	expiryInterval      = time.Hour
+	sweepInterval       = time.Hour
 	dispatchInterval    = time.Second
 )
 
@@ -593,8 +768,9 @@ var (
 func keyring(cfg config.Config, pool *database.Pool) (*fieldcrypt.Keyring, error) {
 	ring := &fieldcrypt.Keyring{Pool: pool, AppRole: cfg.AppRole}
 	if cfg.KMS.Enabled() {
+		client := cfg.HTTPClient()
 		ring.Masters = append(ring.Masters, fieldcrypt.KMS{Name: cfg.KMS.Name, KeyID: cfg.KMS.Key, Endpoint: cfg.KMS.Endpoint, Region: cfg.KMS.Region,
-			Credentials: credentials(cfg.AWS, cfg.KMS.AccessKey, cfg.KMS.SecretKey)})
+			Credentials: credentials(cfg.AWS, cfg.KMS.AccessKey, cfg.KMS.SecretKey, client), Client: client})
 	}
 	for _, mk := range cfg.FieldKeys {
 		m, err := fieldcrypt.NewLocalMaster(mk.ID, mk.Secret)
@@ -624,18 +800,22 @@ func uploadKey(pageTokenKey []byte) []byte {
 }
 
 // credentials are an AWS client's: the access keys from settings when set,
-// else the deployment's ambient ones (ADR-0024), cached.
-func credentials(aws config.AWS, accessKey, secretKey string) awscreds.Provider {
-	return awscreds.Default(awscreds.Static{AccessKey: accessKey, SecretKey: secretKey}, aws.Getenv, aws.STSEndpoint, aws.IMDSEndpoint)
+// else the deployment's ambient ones (ADR-0024), cached; STS is reached
+// with client (nil: its default).
+func credentials(aws config.AWS, accessKey, secretKey string, client *http.Client) awscreds.Provider {
+	return awscreds.Default(awscreds.Static{AccessKey: accessKey, SecretKey: secretKey}, aws.Getenv, aws.STSEndpoint, aws.IMDSEndpoint, client)
 }
 
-// objects opens the configured object store, or nil without one.
-func objects(o config.Objects, aws config.AWS) blobstore.Store {
+// objects opens the configured object store, or nil without one; an S3
+// service is reached with the configuration's TLS client (ADR-0033).
+func objects(cfg config.Config) blobstore.Store {
+	o, aws := cfg.Objects, cfg.AWS
 	switch {
 	case o.Dir != "":
 		return blobstore.Dir{Root: o.Dir}
 	case o.Endpoint != "":
-		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey)}
+		client := cfg.HTTPClient()
+		return blobstore.S3{Endpoint: o.Endpoint, Bucket: o.Bucket, Region: o.Region, Credentials: credentials(aws, o.AccessKey, o.SecretKey, client), Client: client}
 	}
 	return nil
 }

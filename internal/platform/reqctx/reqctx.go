@@ -7,6 +7,7 @@ package reqctx
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -28,6 +29,47 @@ type Claims struct {
 	// Roles are an operator token's roles (ADR-0027): nil when the token
 	// carries no roles claim, which the control planes treat as every role.
 	Roles []string
+	// ProviderID is the registered identity provider whose registration
+	// decided the tenant (ADR-0031); zero for a token of a static issuer.
+	ProviderID uuid.UUID
+	// The token's facts multi-factor and sessions are decided on: when the
+	// person authenticated at the provider (auth_time; zero when absent),
+	// when the token was issued, how (acr, amr) and in which provider
+	// session (sid). Absent or malformed claims leave them empty.
+	AuthTime  time.Time
+	IssuedAt  time.Time
+	Expiry    time.Time
+	ACR       string
+	AMR       []string
+	SessionID string
+	// MFA is the registered provider's multi-factor rule (ADR-0031), which
+	// the unit of work applies once it knows the principal is a person.
+	MFA MFA
+	// Session is the tenant's session rule for people; zero for a token
+	// of a deployment's own issuer, which no tenant's policy covers.
+	Session SessionRule
+	// CertThumbprint is the token's cnf.x5t#S256: the SHA-256 thumbprint
+	// of the client certificate it is bound to (RFC 8705); empty when the
+	// token is not bound.
+	CertThumbprint string
+	// CertificateBound says the token's registered provider binds its
+	// tokens to certificates (ADR-0033).
+	CertificateBound bool
+}
+
+// SessionRule is how long a person's session lasts from the
+// authentication at the provider, and without a request.
+type SessionRule struct {
+	MaxAge time.Duration
+	Idle   time.Duration
+}
+
+// MFA is whether the tenant requires multi-factor authentication of
+// people, and the acr and amr values by which their provider proves it.
+type MFA struct {
+	Required  bool
+	ACRValues []string
+	AMRValues []string
 }
 
 // Principal is the authenticated actor resolved in the tenant's identity data.
@@ -44,7 +86,20 @@ const (
 	principalKey
 	txKey
 	traceKey
+	clientCertKey
 )
+
+// WithClientCert records the thumbprint (RFC 8705 x5t#S256) of the client
+// certificate the request was made with, as the router forwarded it.
+func WithClientCert(ctx context.Context, thumbprint string) context.Context {
+	return context.WithValue(ctx, clientCertKey, thumbprint)
+}
+
+// ClientCertFrom is the request's client certificate thumbprint, or "".
+func ClientCertFrom(ctx context.Context) string {
+	t, _ := ctx.Value(clientCertKey).(string)
+	return t
+}
 
 func WithClaims(ctx context.Context, c Claims) context.Context {
 	return context.WithValue(ctx, claimsKey, c)

@@ -220,6 +220,26 @@ at most one bank file.
 - OAuth 2.0 bearer tokens (OIDC) from the tenant's identity provider; the
   gateway validates signature, issuer and audience. Agents and services use
   client-credentials tokens tied to their `principal`.
+- The identity provider a tenant registered decides a token's tenant
+  (ADR-0031): the cell resolves the token's issuer and audience to the one
+  active registration (as `erp_control`, cached 30 s) and the router to the
+  directory's claim of them, whatever tenant a claim names; a registered
+  tenant claim must name that tenant. An issuer no tenant registered is
+  401 and never fetched; a registry or provider that cannot answer is 503
+  `platform.identity_provider_unavailable` (keys) or `platform.unavailable`
+  (registry). Issuers configured for every tenant (`ERP_OIDC_ISSUERS`) keep
+  the tenant claim and are for development: production refuses them, and
+  refuses to start without operator issuers or while an active tenant has
+  no active identity provider; `erp-server register-provider` registers
+  one without a running server, and a production import refuses a tenant
+  without one.
+- Where the tenant requires multi-factor authentication (its policy on
+  the control plane), a person's token must prove it by the provider's
+  `acr` or `amr` values; otherwise the answer is 401
+  `identity.mfa_required` with the step-up challenge of RFC 9470
+  (`WWW-Authenticate: Bearer error="insufficient_user_authentication",
+  acr_values="…"`). Services and agents are not asked: the unit of work
+  applies the rule once it knows the principal is a person.
 - Every operation in the spec declares its permission with
   `x-permission: payables.invoice.post`. The generated router refuses to start
   if a handler has no permission, and a test checks that every permission in
@@ -359,16 +379,25 @@ which is reachable only inside the platform (ADR-0015).
 | Operation | Method | Notes |
 |---|---|---|
 | `listTenants` | `GET /control/v1/tenants` | `status` filter; `order_by` `created_at` (default, newest first) or `name`; cursor pages |
-| `createTenant` | `POST /control/v1/tenants` | `Idempotency-Key` required; the tenant, its administrator, roles, legal entities and configuration v1 in one transaction; 201 with the tenant and what was provisioned |
+| `createTenant` | `POST /control/v1/tenants` | `Idempotency-Key` required; the tenant, its administrator, roles, legal entities, configuration v1 and, with `identity_provider` (required in production), its identity provider in one transaction; 201 with the tenant and what was provisioned |
 | `getTenant` | `GET /control/v1/tenants/{id}` | `ETag` = version |
 | `suspendTenant`, `resumeTenant`, `offboardTenant` | `POST /control/v1/tenants/{id}:verb` | `If-Match` required; 409 `tenancy.invalid_transition` outside active → suspended → active, active or suspended → offboarded (final) |
 | `rotateTenantKey` | `POST /control/v1/tenants/{id}:rotateKey` | `If-Match` required; a new field-encryption key, every sensitive field re-sealed (ADR-0018) |
 | `eraseTenant` | `POST /control/v1/tenants/{id}:erase` | `If-Match` required; an offboarded, exported tenant's data erased before its grace period ends (ADR-0021); `offboarding` on the tenant shows the stages |
 | `getTenantFingerprint` | `GET /control/v1/tenants/{id}/fingerprint` | The tenant with its fingerprint: rows per table (outboxes left out) and the audit chain head in one snapshot (ADR-0030); read role; `ETag` = version |
+| `listIdentityProviders`, `registerIdentityProvider` | `GET`, `POST /control/v1/tenants/{id}/identity-providers` | The tenant's identity providers (ADR-0031); registering needs `erp:admin` and an `Idempotency-Key`, claims the issuer and audience in the global directory first (409 `identity.provider_taken`, 503 while it cannot be reached), and publishes `IdentityProviderRegistered` |
+| `getIdentityProvider`, `updateIdentityProvider` | `GET`, `PATCH /control/v1/tenants/{id}/identity-providers/{provider_id}` | Merge patch of the tenant claim and the `acr`/`amr` values; issuer and audience never change; `If-Match` required; `erp:admin` |
+| `retireIdentityProvider` | `POST /control/v1/tenants/{id}/identity-providers/{provider_id}:retire` | `If-Match` required; 409 `identity.last_provider` for the tenant's last active one; publishes `IdentityProviderRetired`; `erp:admin` |
+| `listTenantPrincipals` | `GET /control/v1/tenants/{id}/principals` | `binding=unbound` (default: those whose issuer is no active provider of the tenant) or `all`; cursor pages; `erp:read` |
+| `bindPrincipal` | `POST /control/v1/tenants/{id}/principals/{principal_id}:bind` | Binds the principal to an active provider with its subject there; `If-Match` required; publishes `PrincipalBound`; `erp:admin` |
+| `getAuthPolicy`, `updateAuthPolicy` | `GET`, `PATCH /control/v1/tenants/{id}/auth-policy` | Multi-factor requirement, session lifetime and idle timeout; merge patch with `If-Match`; publishes `AuthPolicyChanged`; `erp:admin` |
 
 The control plane follows this document's rules (problems, pagination,
 idempotency, concurrency) with these differences:
 
+- **A production cell needs operators.** It refuses to start without
+  `ERP_OPERATOR_ISSUERS`: tenants' identity providers are registered and
+  principals bound here (ADR-0031).
 - **Callers are operators, not principals.** Tokens come from the operator
   identity providers (`ERP_OPERATOR_ISSUERS`) and must name no tenant; a
   tenant's token is refused, and an operator token is refused by the public

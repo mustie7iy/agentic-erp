@@ -168,7 +168,7 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 |---|---|
 | `api/openapi.yaml`, `api/asyncapi.yaml`, `api/control.yaml`, `api/directory.yaml` | The API, event, control-plane and global control-plane contracts; `api/gen` is the server generated from the API contract by ogen (`make generate`) |
 | `db/migrations` | The data model as versioned PostgreSQL migrations, applied by the embedded runner (`db.Migrate`) |
-| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `blobstore` (write-once object storage: directory or S3), `secrets` (references to the environment, mounted files or Vault), `pagination`, `etag`, `config`, `httpapi` (wiring) |
+| `internal/platform/*` | Request pipeline: `telemetry`, `authn` (OIDC), `ratelimit` (quotas per tenant and principal), `uow` (transaction, tenant and actor, idempotency, audit flush), `authz` (contract permissions), `problem` (RFC 9457), `audit` (hash chain), `outbox` (writer and relay), `natsbus` (JetStream), `tlsconf` (the TLS material: CA bundle and certificate, re-read while running), `blobstore` (write-once object storage: directory or S3), `secrets` (references to the environment, mounted files or Vault), `pagination`, `etag`, `config`, `httpapi` (wiring) |
 | `internal/operations` | Long-running operations: the first context on the foundation (`/v1/operations`) |
 | `internal/provisioning`, `internal/controlplane` | Tenant provisioning in one transaction, and the operators' control plane (`/control/v1/tenants`: list, create, suspend, resume, offboard) on the admin listener |
 | `cmd/erp-server` | The API server: public listener, admin listener (`/livez`, `/readyz`, `/metrics`, `/control/v1`), outbox relay and workers (balance projector, payment proposer, configuration simulator, audit anchorer and verifier, offboarding, directory sync) |
@@ -188,13 +188,19 @@ reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
 
 ```sh
 make db-up                      # PostgreSQL 17 in Docker on :55432
-export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"erp-api"}]'
+export ERP_OPERATOR_ISSUERS='[{"issuer":"https://your-ops-idp.example.com","audience":"erp-control"}]'   # operators: the control plane, where each tenant's identity provider is registered
+export ERP_OIDC_ISSUERS='[{"issuer":"https://your-idp.example.com","audience":"erp-api"}]'   # optional, development only: issuers trusted for every tenant
 export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
 export ERP_NATS_URL=nats://localhost:4222   # optional; without it events wait in the outbox
+export ERP_TLS_CA=file:/etc/erp/tls/ca.crt  # optional in development: secret references (ADR-0017) to the CA bundle trusted beside the system roots and to the cell's certificate and key
+export ERP_TLS_CERT=file:/etc/erp/tls/tls.crt ERP_TLS_KEY=file:/etc/erp/tls/tls.key   # re-read every minute, so renewed certificates need no restart; with any of them set, NATS is reached over TLS (ADR-0033)
+export ERP_TRUST_DOMAIN=erp.example.com   # optional in development, required in production: the SPIFFE trust domain; with a certificate the listeners serve TLS 1.3, the API only to spiffe://<domain>/global/erp-router, /control only to it too (probes need no certificate) (ADR-0033)
 export ERP_TEMPORAL_ADDRESS=localhost:7233   # optional; the workflow engine (ADR-0012): `temporal server start-dev` locally; without it in-process workers run the long-running work
+export ERP_TEMPORAL_SERVER_NAME=temporal.internal   # optional: the name the engine's certificate is verified for, with ERP_TLS_* (default: the address's host)
 export ERP_TEMPORAL_CODEC_KEY=$(head -c 32 /dev/urandom | base64)   # seals workflow payloads before they reach the engine; required with an engine in production
-export ERP_ENV=development                   # required, no default (make run-server sets it); production refuses ERP_DEV_ISSUER, an engine without ERP_TEMPORAL_CODEC_KEY, no object storage and ERP_AUDIT_VERIFY_INTERVAL=0
-export ERP_OBJECT_DIR=$PWD/data/objects      # or ERP_OBJECT_S3_ENDPOINT, _BUCKET, _ACCESS_KEY, _SECRET_KEY for an S3-compatible store
+export ERP_ENV=development                   # required, no default (make run-server sets it); production refuses ERP_DEV_ISSUER, ERP_OIDC_ISSUERS, no ERP_OPERATOR_ISSUERS, an engine without ERP_TEMPORAL_CODEC_KEY or ERP_TLS_CERT, an S3, KMS, Vault or STS endpoint that is not https:// (instance metadata only at its link-local address), no object storage or ERP_OBJECT_DIR, no ERP_AT_REST, ERP_AUDIT_VERIFY_INTERVAL=0, an active tenant without an identity provider, a database URL (DATABASE_URL, ERP_DIRECTORY_URL) without sslmode=verify-full, no ERP_TLS_CERT or ERP_TRUST_DOMAIN, ERP_CELL_API_URL or ERP_CELL_CONTROL_URL not https://, and ERP_NATS_URL without tls:// servers or without ERP_TLS_CERT (ADR-0033)
+export ERP_OBJECT_DIR=$PWD/data/objects      # or ERP_OBJECT_S3_ENDPOINT, _BUCKET, _ACCESS_KEY, _SECRET_KEY for an S3-compatible store (production: S3 only)
+export ERP_AT_REST=postgres=storage-kms,objects=sse-kms   # optional in development, required in production: how each store encrypts at rest (postgres: storage-kms or volume; objects: sse-kms, the bucket's default KMS encryption checked at start and its key asked on every write; nats: storage-kms, volume or jetstream-cipher), logged and exported as erp_at_rest_info (ADR-0033)
 make run-server                 # migrates, then serves :8080 (API) and :9090 (admin)
 ```
 
@@ -222,10 +228,19 @@ instance metadata service; [ADR-0024](docs/design/adr/0024-ambient-aws-credentia
 `/livez`, `/readyz` (schema version and partition horizon), `/metrics`
 (request latency per operation, worker backlogs) and, with
 `ERP_OPERATOR_ISSUERS` set, the operators' control plane under
-`/control/v1` ([ADR-0015](docs/design/adr/0015-control-plane.md)). With
+`/control/v1` ([ADR-0015](docs/design/adr/0015-control-plane.md)), where
+each tenant's identity providers and authentication policy are kept: a
+tenant's tokens are trusted from the providers it registered, which decide
+its tenant, with multi-factor and session rules per tenant
+([ADR-0031](docs/design/adr/0031-per-tenant-identity-providers-and-sessions.md));
+`erp-server register-provider -tenant <id> -issuer <url> -audience <aud>`
+registers one without a running server, the remedy when a production cell
+refuses to start for an active tenant without one. With
 `ERP_DIRECTORY_URL` and `ERP_CELL_API_URL` set, the cell records its tenants
-in the global directory, and `erp-router` (same `ERP_ENV`, `ERP_OIDC_ISSUERS`,
-`ERP_DIRECTORY_URL`, `ERP_ROUTER_ADDR`) forwards each request to its
+in the global directory, and `erp-router` (same `ERP_ENV`,
+`ERP_DIRECTORY_URL`, `ERP_ROUTER_ADDR`; `ERP_OIDC_ISSUERS` outside
+production) resolves a token's tenant from its provider's claim in the
+directory and forwards each request to its
 tenant's cell ([ADR-0022](docs/design/adr/0022-tenant-directory-and-router.md));
 with `ERP_OPERATOR_ISSUERS` and `ERP_PAGE_TOKEN_KEY` its admin listener
 (`ERP_ROUTER_ADMIN_ADDR`) serves the global control plane
@@ -234,6 +249,18 @@ platform, provisioning placed in a cell of the region, moves between cells
 verified by comparing the two cells' fingerprints with `erp directory verify`,
 [ADR-0030](docs/design/adr/0030-cross-cell-verification.md);
 `erp directory`, [ADR-0023](docs/design/adr/0023-global-control-plane.md)).
+With `ERP_TLS_CA`, `ERP_TLS_CERT`, `ERP_TLS_KEY` (env: or file:
+references) and `ERP_TRUST_DOMAIN` the router reaches the cells over
+mutual TLS 1.3 as `spiffe://<domain>/global/erp-router`, only cells whose
+URLs are https and whose certificates name the cell the directory names,
+`spiffe://<domain>/<cell>/erp-server`,
+and serves its admin listener over TLS; with `ERP_ROUTER_PUBLIC_CERT` and
+`ERP_ROUTER_PUBLIC_KEY` its public listener serves TLS with a public CA's
+certificate, asking every client for its own certificate and forwarding
+its thumbprint to the cell, which checks agents' certificate-bound tokens
+against it (RFC 8705; in production an agent's token must be bound, by a
+provider registered with `certificate_bound_tokens`). Production requires all of them
+([ADR-0033](docs/design/adr/0033-transport-encryption-and-service-identity.md)).
 Each cell registers itself with `ERP_CELL_REGION`, `ERP_CELL_CONTROL_URL`
 and `ERP_CELL_ACCEPTING`. Tokens must
 carry the tenant id in the `tenant_id` claim, and their issuer and subject

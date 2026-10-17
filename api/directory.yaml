@@ -554,7 +554,7 @@ components:
               updated_at: "2026-10-12T09:00:00Z"
     PlacedTenantCreate:
       type: object
-      description: "The cell control plane's `TenantCreate` (name, region, group currency, administrator, configuration), with an optional `cell` to place the tenant in; every other field is forwarded unchanged."
+      description: "The cell control plane's `TenantCreate` (name, region, group currency, administrator, identity provider, configuration), with an optional `cell` to place the tenant in; every other field is forwarded unchanged."
       required:
         - name
         - region
@@ -582,6 +582,10 @@ components:
         configuration:
           type: object
           description: The first configuration document.
+          additionalProperties: true
+        identity_provider:
+          type: object
+          description: "The tenant's identity provider (the cell contract's `IdentityProviderCreate`), registered with it; required with `ERP_ENV=production`."
           additionalProperties: true
         cell:
           type: string

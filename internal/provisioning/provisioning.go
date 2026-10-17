@@ -49,7 +49,12 @@ type Request struct {
 	Administrator Administrator
 	Document      *config.Config // the first configuration, activated as version 1
 	Operator      string         // who asked (the command's user, an operator token's subject), for the audit entry
-	Idempotency   *Idempotency   // the request's Idempotency-Key, when it came through the control plane
+	// IdentityProvider is the tenant's identity provider, registered with
+	// the tenant; its administrator is bound to it (ADR-0031). Required in
+	// production; without it, the administrator is bound to the cell's one
+	// deployment issuer.
+	IdentityProvider *identity.NewIdentityProvider
+	Idempotency      *Idempotency // the request's Idempotency-Key, when it came through the control plane
 }
 
 // Idempotency is the Idempotency-Key of a provisioning request (04 §4.3).
@@ -76,6 +81,7 @@ type Result struct {
 	Roles                []string             `json:"roles"`          // roles the configuration's approval policies name, created empty
 	LegalEntities        map[string]uuid.UUID `json:"legal_entities"` // the configuration's companies, by code, created active
 	ConfigurationVersion int32                `json:"configuration_version"`
+	IdentityProviderID   *uuid.UUID           `json:"identity_provider_id,omitempty"` // the tenant's registered identity provider, when the request named one
 }
 
 func init() {
@@ -92,15 +98,54 @@ type Provisioner struct {
 	AppRole       string              // erp_app: the role the tenant's own rows are written as
 	Keys          *fieldcrypt.Keyring // gives the tenant its own data key; nil leaves it on the legacy key
 	Configuration configuration.Dependencies
-	// Issuers are the identity providers (OIDC iss) of tenants' tokens the
-	// cell trusts. A new administrator is bound to the only one with their
-	// subject (ADR-0010); when there are several provisioning is refused,
-	// since the contract cannot name the administrator's issuer yet.
+	// Issuers are the deployment's own tenant issuers (OIDC iss), trusted
+	// for every tenant outside production. A request naming no identity
+	// provider binds its administrator to the only one (ADR-0010); when
+	// there are several it is refused, since it names no issuer.
 	Issuers []string
-	Now     func() time.Time
+	// Production requires the request to name the tenant's identity
+	// provider, with an https issuer (ADR-0031).
+	Production bool
+	// Discover reads the provider's discovery document before it is
+	// registered (authn.Providers.Probe); nil reads none.
+	Discover func(ctx context.Context, issuer string) error
+	// Claim claims the provider's issuer and audience for the tenant in the
+	// global directory before the commit (directory.Sync.ClaimIssuer); nil
+	// claims nothing (a single cell).
+	Claim func(ctx context.Context, tenant, provider uuid.UUID, issuer, audience string) error
+	Now   func() time.Time
 	// Begin starts the transaction; nil means Pool.Begin. Tests replace it
 	// to inject database failures.
 	Begin database.BeginFunc
+}
+
+// adminIssuer is the issuer the first administrator is bound to: the
+// request's identity provider's, probed first, or else, outside
+// production, the cell's one deployment issuer.
+func (p *Provisioner) adminIssuer(ctx context.Context, req Request) (string, error) {
+	in := req.IdentityProvider
+	switch {
+	case in == nil && p.Production:
+		return "", problem.Unprocessable("provisioning.identity_provider_required",
+			"In production a tenant is provisioned with its identity provider (identity_provider).",
+			problem.FieldError{Field: "identity_provider", Code: "required", Message: "the tenant's identity provider"})
+	case in == nil:
+		return p.issuer()
+	}
+	if err := identity.ValidateProvider(*in); err != nil { // before the issuer is fetched
+		return "", err
+	}
+	if p.Production {
+		if err := identity.ProductionIssuer(in.Issuer); err != nil {
+			return "", err
+		}
+	}
+	if p.Discover != nil {
+		if err := p.Discover(ctx, in.Issuer); err != nil {
+			return "", identity.ProviderUnreachable(err)
+		}
+	}
+	return in.Issuer, nil
 }
 
 // issuer is the one tenant issuer the first administrator is bound to. No
@@ -158,7 +203,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	if err := req.check(); err != nil {
 		return Result{}, err
 	}
-	issuer, err := p.issuer()
+	issuer, err := p.adminIssuer(ctx, req)
 	if err != nil {
 		return Result{}, err
 	}
@@ -180,6 +225,9 @@ func (p *Provisioner) Provision(ctx context.Context, req Request) (Result, error
 	if err := p.recordIdempotency(ctx, tx, req.Idempotency, res); err != nil {
 		return Result{}, err
 	}
+	if err := p.claim(ctx, req, res); err != nil {
+		return Result{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Result{}, fmt.Errorf("provisioning: commit: %w", err)
 	}
@@ -196,6 +244,9 @@ func (p *Provisioner) populate(ctx context.Context, tx pgx.Tx, issuer string, re
 		}
 	}
 	if err := createAdministrator(ctx, tx, issuer, req, res); err != nil {
+		return err
+	}
+	if err := p.registerProvider(ctx, tx, req, res); err != nil {
 		return err
 	}
 	if err := createRolesAndEntities(ctx, req, res); err != nil {
@@ -216,6 +267,38 @@ func (p *Provisioner) populate(ctx context.Context, tx pgx.Tx, issuer string, re
 		Detail: map[string]any{"name": req.Name, "region": req.Region, "group_currency": req.GroupCurrency, "administrator_id": res.AdministratorID,
 			"operator": req.Operator}})
 	return nil
+}
+
+// registerProvider registers the request's identity provider as the
+// administrator, published and audited; its issuer is claimed last
+// (claim).
+func (p *Provisioner) registerProvider(ctx context.Context, tx pgx.Tx, req Request, res *Result) error {
+	if req.IdentityProvider == nil {
+		return nil
+	}
+	prov, err := identity.RegisterIdentityProvider(ctx, tx, res.AdministratorID, *req.IdentityProvider)
+	if err != nil {
+		return err
+	}
+	res.IdentityProviderID = &prov.ID
+	if _, err := outbox.Add(ctx, identity.RegisteredEvent(prov)); err != nil {
+		return err
+	}
+	entry := identity.ProviderEntry("register", prov)
+	entry.Outcome, entry.Detail["operator"] = "succeeded", req.Operator
+	_ = audit.Add(ctx, entry) // uow.Act gave ctx a buffer, so Add cannot fail
+	return nil
+}
+
+// claim claims the registered provider's issuer in the global directory,
+// the last step before the commit: a sync round leaves a claim alone for
+// directory.ClaimGrace only, so the provisioning's long work (roles,
+// configuration) runs before it, not after.
+func (p *Provisioner) claim(ctx context.Context, req Request, res Result) error {
+	if p.Claim == nil || res.IdentityProviderID == nil {
+		return nil
+	}
+	return p.Claim(ctx, res.TenantID, *res.IdentityProviderID, req.IdentityProvider.Issuer, req.IdentityProvider.Audience)
 }
 
 // createTenant writes the tenant row as the connection's own role, then

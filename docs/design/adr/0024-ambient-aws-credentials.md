@@ -30,7 +30,10 @@ unset, the ambient chain applies. Half a pair is a configuration error.
 of a presigned URL, as the services require for role credentials.
 
 **Endpoints are settings for tests and emulators.** `ERP_AWS_STS_ENDPOINT`
-and `ERP_AWS_IMDS_ENDPOINT` default to the real services.
+and `ERP_AWS_IMDS_ENDPOINT` default to the real services. In production (amended
+2026-10-16, ADR-0033) STS must be https and the metadata endpoint exactly
+`http://169.254.169.254` or `http://[fd00:ec2::254]`, reached directly,
+never through a proxy.
 
 ## Alternatives
 - **The AWS SDK's credential chain.** It would bring the SDK for its

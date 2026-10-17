@@ -64,3 +64,12 @@ plane deletes nothing.
   control plane manages one cell.
 - Operator roles (read-only, provisioning) would need a claim the verifier
   checks; today the operator identity provider decides.
+
+## Amendment (2026-10-16, ADR-0031)
+
+The control plane also administers each tenant's identity providers and
+authentication policy, and binds principals to a registered provider. These
+operations run in the tenant's scope and are recorded in its audit trail and
+outbox like a status change; they need the `erp:admin` role (ADR-0027),
+listing and reading them `erp:read`. Provisioning registers the tenant's
+first provider with its first administrator; in production it is required.

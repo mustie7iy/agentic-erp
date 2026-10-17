@@ -3,17 +3,20 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -36,11 +39,14 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 )
@@ -676,6 +682,88 @@ func (s *devLogin) shutdown(t *testing.T) {
 	}
 }
 
+// production turns a configuration into production's (ADR-0031,
+// ADR-0033): operators but no shared issuers, the database over verified
+// TLS, the cell's SPIFFE identity in a trust domain, and objects in a
+// KMS-encrypted S3 bucket reached over TLS, stated in ERP_AT_REST. It
+// returns the bucket and the authority, which issues the router's
+// certificate for calls to the cell.
+func production(t *testing.T, env map[string]string) (*blobstoretest.Server, *tlstest.CA) {
+	t.Helper()
+	ca := tlstest.NewCA(t)
+	cell, dir := ca.Issue(t, tlstest.Options{URIs: []string{tlsconf.ID(trustDomain, env["ERP_CELL"], "erp-server")}}), t.TempDir()
+	env["ERP_TLS_CA"] = "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM)
+	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", cell.CertPEM)
+	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", cell.KeyPEM)
+	env["ERP_TRUST_DOMAIN"] = trustDomain
+	env["ERP_ENV"], env["ERP_OPERATOR_ISSUERS"] = "production", env["ERP_OIDC_ISSUERS"]
+	delete(env, "ERP_OIDC_ISSUERS")
+	env["DATABASE_URL"] = pgtest.TLS(t, env["DATABASE_URL"])
+	s3 := blobstoretest.New(t)
+	s3.BucketEncryption = blobstore.SSEKMS
+	delete(env, "ERP_OBJECT_DIR")
+	env["ERP_OBJECT_S3_ENDPOINT"] = "https://" + tlstest.Proxy(t, strings.TrimPrefix(s3.URL, "http://"), ca.Issue(t, tlstest.Options{}).Pair(t), nil)
+	env["ERP_OBJECT_S3_BUCKET"], env["ERP_OBJECT_S3_REGION"] = blobstoretest.Bucket, blobstoretest.Region
+	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
+	env["ERP_AT_REST"] = "postgres=storage-kms,objects=sse-kms"
+	return s3, ca
+}
+
+// trustDomain is the SPIFFE trust domain of the production tests.
+const trustDomain = "erp.example"
+
+// peerClient calls a cell over TLS as the service id that ca certified,
+// or as no one with an empty id.
+func peerClient(t *testing.T, ca *tlstest.CA, id string) *http.Client {
+	t.Helper()
+	cfg := &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: ca.Pool()}
+	if id != "" {
+		cfg.Certificates = []tls.Certificate{ca.Issue(t, tlstest.Options{URIs: []string{id}}).Pair(t)}
+	}
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: cfg}}
+}
+
+// checkAPIPeers: a production cell's API serves the router alone (ADR-0033):
+// a client without a certificate fails the handshake, another service
+// is refused with 403, and the router's request reaches the API (401
+// without a token).
+func checkAPIPeers(t *testing.T, ca *tlstest.CA, addr string) {
+	t.Helper()
+	url := "https://" + addr + "/v1/operations"
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+	if resp, err := peerClient(t, ca, "").Do(req); err == nil {
+		_ = resp.Body.Close() // the failure is what is reported
+		t.Errorf("API without a certificate: got %d, want the handshake refused", resp.StatusCode)
+	}
+	for _, c := range []struct {
+		id   string
+		want int
+	}{
+		{tlsconf.ID(trustDomain, "eu2", "erp-server"), http.StatusForbidden},
+		{tlsconf.ID(trustDomain, "global", "erp-router"), http.StatusUnauthorized},
+	} {
+		t.Run("API from "+c.id, func(t *testing.T) {
+			req, _ := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+			if got := statusWith(t, peerClient(t, ca, c.id), req); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+// statusWith is the status of req sent by client.
+func statusWith(t *testing.T, client *http.Client, req *http.Request) int {
+	t.Helper()
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode
+}
+
 // TestProductionOperatorWithoutRoles: the server passes ERP_ENV through to
 // the operator verifier, so in production an operator token without a roles
 // claim holds no role on the control plane (ADR-0027, amended), while one
@@ -684,21 +772,23 @@ func (s *devLogin) shutdown(t *testing.T) {
 func TestProductionOperatorWithoutRoles(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
-	env["ERP_ENV"] = "production"
-	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"]
+	env["DATABASE_URL"] = pgtest.EmptyDatabase(t) // a cell whose active tenants each have one
+	_, ca := production(t, env)
+	router := peerClient(t, ca, tlsconf.ID(trustDomain, "global", "erp-router"))
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
-	admin := make(chan string, 1)
+	admin, apiAddr := make(chan string, 1), make(chan string, 1)
 	done := make(chan int, 1)
 	go func() {
-		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(_, a net.Listener) { admin <- a.Addr().String() })
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(api, a net.Listener) { apiAddr <- api.Addr().String(); admin <- a.Addr().String() })
 	}()
 	stop := sync.OnceValue(func() int { cancel(); return <-done })
 	defer stop()
 	var base string
 	select {
 	case a := <-admin:
-		base = "http://" + a + "/control/v1/tenants/"
+		base = "https://" + a + "/control/v1/tenants/"
+		checkAPIPeers(t, ca, <-apiAddr)
 	case code := <-done:
 		done <- code // the deferred stop reads the exit code again
 		t.Fatalf("stopped before serving: %d\n%s", code, logs.String())
@@ -706,7 +796,22 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	get := func(extra map[string]any) int {
 		req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
 		req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", extra))
-		return status(t, req)
+		return statusWith(t, router, req)
+	}
+	// The admin listener serves TLS only; probes connect without a
+	// certificate, /control only as the global plane (ADR-0033).
+	livez, _ := http.NewRequestWithContext(t.Context(), "GET", strings.Replace(base, "/control/v1/tenants/", "/livez", 1), nil)
+	if got := statusWith(t, peerClient(t, ca, ""), livez); got != http.StatusOK {
+		t.Errorf("a probe without a certificate: got %d, want 200", got)
+	}
+	for name, client := range map[string]*http.Client{"no certificate": peerClient(t, ca, ""), "another service": peerClient(t, ca, tlsconf.ID(trustDomain, "eu2", "erp-server"))} {
+		t.Run("/control from "+name, func(t *testing.T) {
+			req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
+			req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil, "roles": []string{"erp:read"}}))
+			if got := statusWith(t, client, req); got != http.StatusForbidden {
+				t.Errorf("got %d, want 403", got)
+			}
+		})
 	}
 	if got := get(map[string]any{"tenant_id": nil}); got != http.StatusForbidden {
 		t.Errorf("no roles claim: got %d, want 403", got)
@@ -879,6 +984,32 @@ func TestImportCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	wipeTrail(t, created.TenantID)
+	// In production a tenant whose export holds no active identity provider
+	// (one provisioned in development) is not imported: its people could not
+	// sign in, and the cell would refuse its next start (ADR-0031).
+	prod := maps.Clone(env)
+	bucket, _ := production(t, prod)
+	s3 := bucket.Store()
+	keys, err := store.List(context.Background(), "tenants/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range keys { // the export, in production's bucket
+		content, ctype, err := store.Get(context.Background(), k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s3.Put(context.Background(), k, content, blobstore.PutOptions{ContentType: ctype}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stderr.Reset()
+	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, func(k string) string { return prod[k] }, &stdout, &stderr, nil); code == 0 {
+		t.Fatalf("a production import without a provider: got imported, want refused")
+	}
+	if !strings.Contains(stderr.String(), "identity provider") {
+		t.Errorf("refusal: got %s, want the missing identity provider named", stderr.String())
+	}
 	stdout.Reset()
 	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, getenv, &stdout, &stderr, nil); code != 0 || !strings.Contains(stdout.String(), `"identity.principal"`) {
 		t.Fatalf("import: %d %s %s", code, stdout.String(), stderr.String())
@@ -1016,6 +1147,7 @@ func TestDirectorySync(t *testing.T) {
 	env := environment(t, is, "")
 	directoryURL := pgtest.EmptyDatabase(t)
 	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"] // the control plane claims providers in the directory
 	ten := pgtest.NewTenant(t)
 	directoryInterval = 20 * time.Millisecond
 	defer func() { directoryInterval = time.Minute }()
@@ -1319,5 +1451,492 @@ func TestAPanickingWorkerIsContained(t *testing.T) {
 		if running {
 			t.Errorf("worker %s: got running, want stopped", name)
 		}
+	}
+}
+
+// TestCellIssuers: the directory's rounds claim the cell's active identity
+// providers' issuers for their tenants (ADR-0031).
+func TestCellIssuers(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	issuer := "https://cell-" + uuid.NewString() + ".example.com"
+	pgtest.Exec(t, `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, 'erp', $1, $1)`, ten.ID, issuer)
+	ctx := context.Background()
+	tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_control", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	got, err := cellIssuers(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(got, func(is directory.Issuer) bool {
+		return is.Issuer == issuer && is.Audience == "erp" && is.TenantID == ten.ID && is.ProviderID != uuid.Nil
+	}) {
+		t.Errorf("issuers: got %d without %s of the tenant, want it listed with its provider", len(got), issuer)
+	}
+}
+
+// TestCellIssuersFailing: a failed read hands the round nothing, with the
+// error.
+func TestCellIssuersFailing(t *testing.T) {
+	ctx := context.Background()
+	tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_control", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	got, err := cellIssuers(ctx, &pgtest.FailingTx{Tx: tx, FailAt: 1})
+	if !errors.Is(err, pgtest.ErrInjected) || got != nil {
+		t.Errorf("got %v, %v, want nil and the injected failure", got, err)
+	}
+}
+
+// TestProvisionWithAProvider: erp-server provision registers the tenant's
+// identity provider, probed first, and binds the administrator to it.
+func TestProvisionWithAProvider(t *testing.T) {
+	idp := authntest.NewSeparate(t)
+	env := environment(t, authntest.New(t), "")
+	delete(env, "ERP_OIDC_ISSUERS")
+	file := configFile(t)
+	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada",
+		"-config", file, "-idp-issuer", idp.URL, "-idp-audience", authntest.Audience}
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	var out struct {
+		TenantID string  `json:"tenant_id"`
+		Provider *string `json:"identity_provider_id"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || out.Provider == nil {
+		t.Fatalf("output: %v %s", err, stdout.String())
+	}
+	var issuer string
+	pgtest.Scan(t, `SELECT external_issuer FROM identity.principal WHERE tenant_id = $1 AND external_subject = 'ada'`, []any{out.TenantID}, &issuer)
+	if issuer != idp.URL {
+		t.Errorf("administrator's issuer: got %s, want %s", issuer, idp.URL)
+	}
+	if d, _ := idp.Fetches(); d != 1 {
+		t.Errorf("discovery fetches: got %d, want the probe's 1", d)
+	}
+}
+
+// TestRegisteredProviderEndToEnd runs the server with no deployment
+// issuer for tenants (ADR-0031): an operator provisions a tenant with its
+// identity provider, and that provider's token for the administrator signs
+// in through the registry, the provider's keys, the session check and the
+// unit of work; a token of an issuer the tenant did not register is
+// refused.
+func TestRegisteredProviderEndToEnd(t *testing.T) {
+	ops, idp := authntest.New(t), authntest.NewSeparate(t)
+	env := environment(t, ops, "")
+	delete(env, "ERP_OIDC_ISSUERS")
+	env["ERP_OPERATOR_ISSUERS"] = `[{"issuer": "` + ops.URL + `", "audience": "` + authntest.Audience + `"}]`
+	ctx, cancel := context.WithCancel(context.Background())
+	addrs, done := make(chan [2]string, 1), make(chan int, 1)
+	var logs pgtest.SyncBuffer
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(api, admin net.Listener) {
+			addrs <- [2]string{api.Addr().String(), admin.Addr().String()}
+		})
+	}()
+	defer func() {
+		cancel()
+		if code := <-done; code != 0 {
+			t.Errorf("exit %d\n%s", code, logs.String())
+		}
+	}()
+	a := <-addrs
+	doc, _ := json.Marshal(fixture.Document(t))
+	body := `{"name": "Registered", "region": "eu-west", "group_currency": "EUR", "administrator": {"subject": "ada", "display_name": "Ada"},
+		"identity_provider": {"issuer": "` + idp.URL + `", "audience": "` + authntest.Audience + `"}, "configuration": ` + string(doc) + `}`
+	req := request(t, "POST", "http://"+a[1]+"/control/v1/tenants", body)
+	req.Header.Set("Authorization", "Bearer "+ops.Token(t, uuid.Nil, "ops|e2e", map[string]any{"tenant_id": nil}))
+	req.Header.Set("Idempotency-Key", "key-"+uuid.NewString())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]any
+	readJSON(t, resp, &created)
+	if resp.StatusCode != 201 {
+		t.Fatalf("provision: %d %v", resp.StatusCode, created)
+	}
+	tenant := created["id"].(string)
+	get := func(token string) int {
+		r := request(t, "GET", "http://"+a[0]+"/v1/roles", "")
+		r.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close() // the status is what is asserted
+		return resp.StatusCode
+	}
+	admin := idp.Token(t, uuid.Nil, "ada", map[string]any{"tenant_id": nil, "sid": "e2e", "auth_time": time.Now().Unix()})
+	if code := get(admin); code != 200 {
+		t.Fatalf("the administrator through the registered provider: got %d, want 200\n%s", code, logs.String())
+	}
+	var sessions int
+	pgtest.Scan(t, `SELECT count(*) FROM identity.session WHERE tenant_id = $1`, []any{tenant}, &sessions)
+	if sessions != 1 {
+		t.Errorf("sessions: got %d, want the administrator's", sessions)
+	}
+	if code := get(ops.Token(t, uuid.MustParse(tenant), "ada", nil)); code != 401 {
+		t.Errorf("an issuer the tenant did not register: got %d, want 401", code)
+	}
+}
+
+// TestProvisionClaimsInTheDirectory: erp-server provision on a cell with a
+// global directory claims the provider's issuer there before it commits,
+// as the control plane does.
+func TestProvisionClaimsInTheDirectory(t *testing.T) {
+	idp := authntest.NewSeparate(t)
+	env := environment(t, authntest.New(t), "")
+	delete(env, "ERP_OIDC_ISSUERS")
+	directoryURL := pgtest.EmptyDatabase(t)
+	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada",
+		"-config", configFile(t), "-idp-issuer", idp.URL, "-idp-audience", authntest.Audience}
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("provision: %d %s", code, stderr.String())
+	}
+	dir, err := directory.Open(context.Background(), directoryURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	claims, err := dir.LookupIssuer(context.Background(), idp.URL, []string{authntest.Audience})
+	if err != nil || len(claims) != 1 || claims[0].Cell != "test" {
+		t.Errorf("claims: got %v, %v, want the provider's, by this cell", claims, err)
+	}
+	env["ERP_DIRECTORY_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	stderr.Reset()
+	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code == 0 {
+		t.Error("a directory that cannot be reached: got provisioned, want refused")
+	}
+}
+
+// TestProductionRequiresProviders: in production a cell refuses to start
+// while an active tenant has no active identity provider, naming the
+// tenants, and starts once each has one (ADR-0031).
+func TestProductionRequiresProviders(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["DATABASE_URL"] = pgtest.EmptyDatabase(t)
+	_, _ = production(t, env) // the bucket and authority go unused: the start is what is tested
+	start := func() (int, string) {
+		ctx, cancel := context.WithCancel(context.Background())
+		var logs pgtest.SyncBuffer
+		done := make(chan int, 1)
+		go func() {
+			done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(net.Listener, net.Listener) { cancel() })
+		}()
+		code := <-done
+		cancel()
+		return code, logs.String()
+	}
+	if code, logs := start(); code != 0 { // an empty cell: nothing to require; it migrates its database
+		t.Fatalf("an empty cell: exit %d\n%s", code, logs)
+	}
+	conn, err := pgx.Connect(context.Background(), env["DATABASE_URL"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }() // the test is over
+	tenant := uuid.New()
+	if _, err := conn.Exec(context.Background(), `INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Bare', 'eu-west', 'EUR', 'active')`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	code, logs := start()
+	if code == 0 {
+		t.Fatalf("an active tenant without a provider: exit 0, want a refusal\n%s", logs)
+	}
+	if !strings.Contains(logs, tenant.String()) {
+		t.Errorf("refusal: got %s, want the tenant %s named", logs, tenant)
+	}
+	if !strings.Contains(logs, "erp-server register-provider") {
+		t.Errorf("refusal: got %s, want the command that registers a provider named", logs)
+	}
+	if _, err := conn.Exec(context.Background(), `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by)
+		VALUES ($1, gen_random_uuid(), 'https://bare.example.com', 'erp', $1, $1)`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if code, logs := start(); code != 0 {
+		t.Errorf("with a provider: exit %d, want started\n%s", code, logs)
+	}
+}
+
+// TestRequireProvidersFailures: the production check's reads failing stop
+// the start.
+func TestRequireProvidersFailures(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	_, _ = production(t, env) // the bucket and authority go unused: the start is what is tested
+	cfg := load(t, env)
+	pool := pgtest.Pool(t)
+	for name, begin := range map[string]database.BeginFunc{
+		"no transaction": func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") },
+		"tenants": func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			return &pgtest.FailingTx{Tx: tx, FailAt: 1}, err
+		},
+		"providers": func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			return &pgtest.FailingTx{Tx: tx, FailAt: 2}, err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &server{cfg: cfg, pool: pool, beginCheck: begin}
+			if err := s.requireProviders(context.Background()); err == nil {
+				t.Error("got started, want the failure")
+			}
+		})
+	}
+}
+
+// TestRegisterProviderCommand: erp-server register-provider registers a
+// tenant's identity provider without the server, as the control plane
+// does (audited, published): the remedy a production cell names when it
+// refuses to start for a tenant without one.
+func TestRegisterProviderCommand(t *testing.T) {
+	idp := authntest.NewSeparate(t)
+	env := environment(t, authntest.New(t), "")
+	getenv := func(k string) string { return env[k] }
+	ten := pgtest.NewTenant(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", idp.URL, "-audience", authntest.Audience, "-amr", "mfa,otp", "-certificate-bound"}
+	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("register-provider: %d %s", code, stderr.String())
+	}
+	var registered struct {
+		ID               string   `json:"id"`
+		AMRValues        []string `json:"amr_values"`
+		CertificateBound bool     `json:"certificate_bound_tokens"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &registered); err != nil || registered.ID == "" || strings.Join(registered.AMRValues, ",") != "mfa,otp" {
+		t.Fatalf("output: %v %s", err, stdout.String())
+	}
+	if !registered.CertificateBound {
+		t.Errorf("certificate_bound_tokens: got false, want true with -certificate-bound (ADR-0033)")
+	}
+	var audited int
+	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'identity.identity_provider.register'`, []any{ten.ID}, &audited)
+	if audited != 1 {
+		t.Errorf("registrations audited: got %d, want 1", audited)
+	}
+	for name, c := range map[string]struct {
+		args []string
+		code int
+	}{
+		"no tenant":      {[]string{"register-provider", "-issuer", idp.URL, "-audience", "a"}, 2},
+		"bad flag":       {[]string{"register-provider", "-colour", "red"}, 2},
+		"help":           {[]string{"register-provider", "-h"}, 0},
+		"unknown tenant": {[]string{"register-provider", "-tenant", uuid.NewString(), "-issuer", idp.URL, "-audience", "a"}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if code := cli(context.Background(), c.args, getenv, io.Discard, io.Discard, nil); code != c.code {
+				t.Errorf("exit: got %d, want %d", code, c.code)
+			}
+		})
+	}
+	t.Run("with a global directory", func(t *testing.T) {
+		other := authntest.NewSeparate(t)
+		directoryURL := pgtest.EmptyDatabase(t)
+		env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+		defer delete(env, "ERP_DIRECTORY_URL")
+		withDir := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", other.URL, "-audience", authntest.Audience}
+		if code := cli(context.Background(), withDir, getenv, io.Discard, &stderr, nil); code != 0 {
+			t.Fatalf("register-provider: %d %s", code, stderr.String())
+		}
+		dir, err := directory.Open(context.Background(), directoryURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer dir.Close()
+		if claims, err := dir.LookupIssuer(context.Background(), other.URL, []string{authntest.Audience}); err != nil || len(claims) != 1 {
+			t.Errorf("claims: got %v, %v, want the provider's", claims, err)
+		}
+		env["ERP_DIRECTORY_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+		if code := cli(context.Background(), withDir, getenv, io.Discard, io.Discard, nil); code != 1 {
+			t.Errorf("a directory that cannot be reached: exit %d, want 1", code)
+		}
+	})
+	env["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	if code := cli(context.Background(), args, getenv, io.Discard, io.Discard, nil); code != 1 {
+		t.Errorf("no database: exit %d, want 1", code)
+	}
+}
+
+// TestRelaysOverMutualTLS: with TLS material the cell reaches NATS over
+// TLS 1.3 as its certificate, the store's re-reading runs among the
+// workers, and the server comes up (ADR-0033). The bus requires a client
+// certificate, so a cell that connected without one would not start.
+func TestRelaysOverMutualTLS(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	natsURL := natstest.TLS(t, ca.Issue(t, tlstest.Options{}).Pair(t), ca.Pool())
+	cell, dir := ca.Issue(t, tlstest.Options{}), t.TempDir()
+	env := environment(t, authntest.New(t), natsURL)
+	env["ERP_TLS_CA"] = "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM)
+	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", cell.CertPEM)
+	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", cell.KeyPEM)
+	var s *server
+	startWorkersHook = func(srv *server, runCtx context.Context) { s = srv; srv.startWorkers(runCtx) }
+	defer func() { startWorkersHook = (*server).startWorkers }()
+	ctx, cancel := context.WithCancel(context.Background())
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(net.Listener, net.Listener) { cancel() })
+	}()
+	if code := <-done; code != 0 {
+		t.Fatalf("exit %d, want started and stopped\n%s", code, logs.String())
+	}
+	if s == nil {
+		t.Fatal("got no workers started, want them started")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.running["tls"]; !ok {
+		t.Error("tls: got not started, want the material re-read while the server runs")
+	}
+}
+
+// tlsEnvironment is a valid configuration with TLS material: an authority
+// the test's servers present certificates of, and the cell's certificate.
+func tlsEnvironment(t *testing.T, ca *tlstest.CA) map[string]string {
+	t.Helper()
+	env := environment(t, authntest.New(t), "")
+	maps.Copy(env, tlsSettings(t, ca))
+	return env
+}
+
+// tlsSettings are the TLS settings alone: the authority, and the cell's
+// certificate and key it issued, in files of the test.
+func tlsSettings(t *testing.T, ca *tlstest.CA) map[string]string {
+	t.Helper()
+	cell, dir := ca.Issue(t, tlstest.Options{}), t.TempDir()
+	return map[string]string{
+		"ERP_TLS_CA":   "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM),
+		"ERP_TLS_CERT": "file:" + tlstest.WriteFile(t, dir, "tls.crt", cell.CertPEM),
+		"ERP_TLS_KEY":  "file:" + tlstest.WriteFile(t, dir, "tls.key", cell.KeyPEM),
+	}
+}
+
+// TestProvidersOverTLS: with TLS material the cell reaches its object
+// store with the material's client, which trusts ERP_TLS_CA: an S3 service
+// behind a certificate only that authority signed receives the anchors
+// (ADR-0033). The KMS master is given the same client.
+func TestProvidersOverTLS(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	s3 := blobstoretest.New(t)
+	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `INSERT INTO audit.chain_head (tenant_id, seq, hash) VALUES ($1, 1, decode(repeat('ef', 32), 'hex'))`, ten.ID)
+	backend := strings.TrimPrefix(s3.URL, "http://")
+	env := tlsEnvironment(t, ca)
+	delete(env, "ERP_OBJECT_DIR")
+	env["ERP_OBJECT_S3_ENDPOINT"] = "https://" + tlstest.Proxy(t, backend, ca.Issue(t, tlstest.Options{}).Pair(t), nil)
+	env["ERP_OBJECT_S3_BUCKET"], env["ERP_OBJECT_S3_REGION"] = blobstoretest.Bucket, blobstoretest.Region
+	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
+	env["ERP_FIELD_KMS_KEY"], env["ERP_FIELD_KMS_REGION"] = kmstest.KeyID, kmstest.Region
+	env["ERP_FIELD_KMS_ACCESS_KEY"], env["ERP_FIELD_KMS_SECRET_KEY"] = kmstest.AccessKey, kmstest.SecretKey
+	cfg := load(t, env)
+	ring, err := keyring(cfg, pgtest.Pool(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kms, ok := ring.Masters[0].(fieldcrypt.KMS); !ok || kms.Client == nil {
+		t.Errorf("KMS master: got %#v, want one with the material's client", ring.Masters[0])
+	}
+	delete(env, "ERP_FIELD_KMS_KEY") // the server would wrap keys at the stub-less KMS
+	anchorInterval = 20 * time.Millisecond
+	defer func() { anchorInterval = time.Minute }()
+	stop := background(load(t, env), quiet())
+	defer func() { _ = stop() }() // stops a server a failed wait left running before anchorInterval is reset; the wait's failure is the one reported
+	key := "tenants/" + ten.ID.String() + "/audit/anchors/000000000001.json"
+	pgtest.Eventually(t, 30*time.Second, func() bool { _, ok := s3.Object(key); return ok }, "no anchor %s in S3 over TLS: %v", key, lazy(func() string { return fmt.Sprint(s3.Keys()) }))
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestEngineOverMutualTLS: with TLS material the cell dials the workflow
+// engine over TLS 1.3 as its certificate, verifying the frontend for
+// ERP_TEMPORAL_SERVER_NAME (ADR-0033): a frontend that requires a client
+// certificate serves it, and the server starts.
+func TestEngineOverMutualTLS(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	frontend := tlstest.Proxy(t, workflowtest.Server(t), ca.Issue(t, tlstest.Options{DNS: []string{"temporal.internal"}}).Pair(t), ca.Pool(), "h2")
+	env := tlsEnvironment(t, ca)
+	env["ERP_TEMPORAL_ADDRESS"], env["ERP_TEMPORAL_SERVER_NAME"] = frontend, "temporal.internal"
+	ctx, cancel := context.WithCancel(context.Background())
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(net.Listener, net.Listener) { cancel() })
+	}()
+	if code := <-done; code != 0 {
+		t.Fatalf("exit %d, want started and stopped\n%s", code, logs.String())
+	}
+	if !strings.Contains(logs.String(), "workflow engine connected") {
+		t.Errorf("logs: got %s, want the engine connected", logs.String())
+	}
+}
+
+// TestAtRestStatedAndChecked: with ERP_AT_REST the cell logs how each
+// store encrypts at rest and exports it as erp_at_rest_info; with
+// objects=sse-kms it asks for KMS encryption on every write and starts
+// only on a bucket whose default encryption is KMS (ADR-0033).
+func TestAtRestStatedAndChecked(t *testing.T) {
+	s3 := blobstoretest.New(t)
+	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `INSERT INTO audit.chain_head (tenant_id, seq, hash) VALUES ($1, 1, decode(repeat('a1', 32), 'hex'))`, ten.ID)
+	env := environment(t, authntest.New(t), "")
+	delete(env, "ERP_OBJECT_DIR")
+	env["ERP_OBJECT_S3_ENDPOINT"], env["ERP_OBJECT_S3_BUCKET"], env["ERP_OBJECT_S3_REGION"] = s3.URL, blobstoretest.Bucket, blobstoretest.Region
+	env["ERP_OBJECT_S3_ACCESS_KEY"], env["ERP_OBJECT_S3_SECRET_KEY"] = blobstoretest.AccessKey, blobstoretest.SecretKey
+	env["ERP_AT_REST"] = "postgres=storage-kms,objects=sse-kms"
+	// A bucket encrypted with S3's own keys, not KMS: the cell does not start.
+	s3.BucketEncryption = "AES256"
+	refused, cancelRefused := context.WithTimeout(context.Background(), 30*time.Second) // a server that starts anyway stops, and fails the check
+	defer cancelRefused()
+	if err := run(refused, load(t, env), quiet(), nil); err == nil || !strings.Contains(err.Error(), "bucket's default encryption") {
+		t.Fatalf("a bucket without KMS encryption: got %v, want the start refused", err)
+	}
+	s3.BucketEncryption, s3.BucketKeyID = "aws:kms", "arn:aws:kms:eu-west-1:111122223333:key/erp"
+	anchorInterval = 20 * time.Millisecond
+	defer func() { anchorInterval = time.Minute }()
+	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
+	ctx, cancel := context.WithCancel(context.Background())
+	addrs := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(_, admin net.Listener) { addrs <- admin.Addr().String() })
+	}()
+	stop := sync.OnceValue(func() int { cancel(); return <-done })
+	defer stop()
+	admin := <-addrs
+	key := "tenants/" + ten.ID.String() + "/audit/anchors/000000000001.json"
+	pgtest.Eventually(t, 30*time.Second, func() bool { _, ok := s3.Object(key); return ok }, "no anchor %s: %v", key, lazy(func() string { return fmt.Sprint(s3.Keys()) }))
+	if o, _ := s3.Object(key); o.Encryption != "aws:kms" || o.KeyID != s3.BucketKeyID {
+		t.Errorf("anchor's encryption: got %q under %q, want aws:kms under the bucket's key %q", o.Encryption, o.KeyID, s3.BucketKeyID)
+	}
+	resp, err := http.DefaultClient.Do(request(t, "GET", "http://"+admin+"/metrics", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close() // read whole
+	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("metrics: got %s, want %s", body, want)
+		}
+	}
+	if code := stop(); code != 0 {
+		t.Fatalf("exit %d\n%s", code, logs.String())
+	}
+	if !strings.Contains(logs.String(), `"msg":"encryption at rest","postgres":"storage-kms","objects":"sse-kms","nats":""`) {
+		t.Errorf("logs: got %s, want the statement logged", logs.String())
 	}
 }

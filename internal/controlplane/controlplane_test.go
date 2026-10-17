@@ -692,8 +692,10 @@ func TestContractIsServed(t *testing.T) {
 	}
 }
 
-// TestControlRoleIsReadOnly: the control role reads tenants and idempotency
-// keys and nothing else; status changes go through the application role.
+// TestControlRoleIsReadOnly: the control role reads tenants, idempotency
+// keys, and the columns that resolve a token and list unbound principals
+// (ADR-0031), and nothing else; status changes go through the application
+// role.
 func TestControlRoleIsReadOnly(t *testing.T) {
 	pool := pgtest.Pool(t)
 	ctx := context.Background()
@@ -708,7 +710,8 @@ func TestControlRoleIsReadOnly(t *testing.T) {
 	}
 	for name, sql := range map[string]string{
 		"update tenants":         `UPDATE tenancy.tenant SET name = name, version = version + 1`,
-		"read principals":        `SELECT count(*) FROM identity.principal`,
+		"read principals' email": `SELECT email FROM identity.principal`,
+		"register a provider":    `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by) VALUES (gen_random_uuid(), gen_random_uuid(), 'https://x', 'a', gen_random_uuid(), gen_random_uuid())`,
 		"insert idempotency key": `INSERT INTO platform.idempotency_key (tenant_id, key, principal_id, request_hash, status, expires_at) VALUES (gen_random_uuid(), 'control|x', gen_random_uuid(), '', 'completed', now())`,
 	} {
 		t.Run(name, func(t *testing.T) {
