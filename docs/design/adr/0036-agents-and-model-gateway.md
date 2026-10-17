@@ -59,13 +59,34 @@ client certificates in production (ADR-0033). Today:
 - **Budgets and caps.** These apply per agent per month
   (`agent_profile.monthly_budget`) and per tenant per month (the AI
   policy's cap).
-  - Before forwarding, the gateway reserves the call's maximum cost,
-    `max_tokens` plus an input estimate, against both, in
-    `agents.spend` read `FOR UPDATE`. After the answer it settles the
-    actual cost. Concurrent calls therefore cannot overspend.
+  - Caps are in the prices' currency (USD). An agent budget in another
+    currency refuses the agent's calls (422 `agents.budget_currency`)
+    rather than leaving them uncapped. The agent's budget is read through
+    identity's published API (`identity.AgentBudget`), not its tables.
+  - Before forwarding, the gateway reserves what the call may cost
+    against both lines: all of `max_tokens` in output plus an input
+    estimate (a token per three bytes, at most a million tokens). Each
+    line is a row of `agents.spend`, read `FOR UPDATE`, which holds only
+    what the line has spent. A reservation is a row of
+    `agents.model_reservation`, committed before the call is forwarded.
+    After the answer the gateway marks it settled and adds the actual
+    cost.
+  - A reservation expires after the call's timeout and margin
+    (12 minutes). A call whose settlement is lost, for example when the
+    server stops mid-call, then frees its line instead of holding it
+    until the month ends.
+  - The cap holds up to the input estimate's error. Concurrent calls
+    cannot spend past it by more than that error; a call that costs more
+    than it reserved (tokens its body does not show, such as the
+    provider's tool prompt or a page's image) can take its line past the
+    cap, and the 100% event announces when it is reached.
   - A call that does not fit is refused with 429
-    `agents.budget_exhausted`, with Retry-After set to the next month.
-  - An event fires once at 80% and once at 100%.
+    `agents.budget_exhausted` and is not forwarded. Retry-After is the
+    next month when the budget is spent, or 10 seconds when calls in
+    flight hold it. Every refused attempt is audited, so an SDK's
+    retries are audited each time.
+  - `BudgetThresholdReached` fires once a month per line at 80% and once
+    at 100%, for an agent's line and for the tenant's.
 - **Kill switch.** The AI policy has `enabled`, set by the tenant's
   administrators, and `suspended`, set by operators on the control plane.
   The operator's setting wins. While off:

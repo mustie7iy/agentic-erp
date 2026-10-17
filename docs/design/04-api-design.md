@@ -321,7 +321,14 @@ the tenant's model call ledger (tokens, cost, never content) and adds to
 the agent session it names (`Erp-Agent-Session`). It needs
 `agents.model.invoke`, authenticates in a short transaction of its own and
 writes the ledger in another after the call: no unit of work is held
-while the model works.
+while the model works. Each call is held against the agent's monthly
+budget and the tenant's cap before it is forwarded, at all of
+`max_tokens` and an estimate of its input, and settled at its cost
+after: one that does not fit is 429 `agents.budget_exhausted`, with
+`Retry-After` at the next month when the budget is spent, or of seconds
+when calls in flight hold it. Each line's 80% and 100% are announced
+once a month (`BudgetThresholdReached`); since the input is estimated, a
+line may end its month past its cap by the estimate's error.
 
 ## 4.14 Phase 1 resources
 

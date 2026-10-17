@@ -121,7 +121,10 @@ Agents call models only through their cell's model gateway
 routes, prices and records per call. The server holds the provider's key
 (`ERP_MODEL_API_KEY`, `ERP_MODEL_ENDPOINT`), and an operator records each
 model's published prices first (`erp-server prices load -file prices.json
--by <operator>`): a model without a price is refused. Agents work through
+-by <operator>`): a model without a price is refused. Each call is held
+against the agent's monthly budget (`monthly_budget`, in USD) and the
+tenant's cap before it is forwarded; one that does not fit is refused
+(429) until the month ends. Agents work through
 the API as their tools, in sessions recorded through the API, and only
 make recommendations or change requests:
 

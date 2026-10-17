@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"io"
@@ -1956,7 +1957,9 @@ func TestModelGateway(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
 	env["ERP_MODEL_API_KEY"], env["ERP_MODEL_ENDPOINT"] = "sk-cell", model.URL
-	allowed, denied := pgtest.NewTenant(t, "agents.model.invoke"), pgtest.NewTenant(t)
+	allowed, denied, broke := pgtest.NewTenant(t, "agents.model.invoke"), pgtest.NewTenant(t), pgtest.NewTenant(t, "agents.model.invoke")
+	pgtest.Exec(t, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, model, monthly_budget, budget_currency, description, created_by, updated_by)
+		VALUES ($1, $2, 1, 'erp-default', 0, 'USD', 'no budget left', $3, $3)`, broke.ID, broke.Agent.ID, broke.Human.ID)
 	ctx, cancel := context.WithCancel(context.Background())
 	addr := make(chan string, 1)
 	done := make(chan int, 1)
@@ -1968,7 +1971,7 @@ func TestModelGateway(t *testing.T) {
 	base := "http://" + <-addr
 	call := func(ten pgtest.Tenant) (string, error) {
 		r := llm.Gateway(base, is.Token(t, ten.ID, ten.Agent.Subject, nil), nil)
-		msg, err := r.Client.Beta.Messages.New(t.Context(), r.Params("system", anthropic.NewBetaTextBlock("hi")))
+		msg, err := r.Client.Beta.Messages.New(t.Context(), r.Params("system", anthropic.NewBetaTextBlock("hi")), option.WithMaxRetries(0))
 		if err != nil {
 			return "", err
 		}
@@ -1987,6 +1990,10 @@ func TestModelGateway(t *testing.T) {
 	}
 	if _, err := call(denied); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Errorf("an agent without the permission: got %v, want 403", err)
+	}
+	// The agent's budget is identity's, read through its published API.
+	if _, err := call(broke); err == nil || !strings.Contains(err.Error(), "agents.budget_exhausted") {
+		t.Errorf("an agent with no budget left: got %v, want 429 agents.budget_exhausted", err)
 	}
 	if code := stop(); code != 0 {
 		t.Errorf("stop: exit %d", code)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -45,6 +44,11 @@ func (p *provider) Messages(_ context.Context, body []byte, betas []string) (int
 	return p.status, []byte(p.body), p.err
 }
 
+// providerFunc is a provider that answers as the function does.
+type providerFunc func() (int, []byte, error)
+
+func (f providerFunc) Messages(context.Context, []byte, []string) (int, []byte, error) { return f() }
+
 // message is a provider's answer with usage.
 func message(model, stop string, in, out, write, read int64) string {
 	b, _ := json.Marshal(map[string]any{"type": "message", "model": model, "stop_reason": stop, "content": []any{map[string]any{"type": "text", "text": "ok"}},
@@ -64,7 +68,7 @@ func priced(t *testing.T, model string) {
 func gateway(t *testing.T, p agents.Provider) *agents.Gateway {
 	t.Helper()
 	return &agents.Gateway{Provider: p, Routes: map[string]string{"erp-default": "claude-opus-5-5", "erp-unpriced": "claude-unpriced-1"},
-		Pool: pgtest.Pool(t), AppRole: "erp_app", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		Pool: pgtest.Pool(t), AppRole: "erp_app", Log: slog.New(slog.NewTextHandler(io.Discard, nil)), AgentBudget: budgetOf}
 }
 
 // post sends body to the gateway as the principal.
@@ -241,8 +245,9 @@ func TestGatewayFailures(t *testing.T) {
 }
 
 // TestGatewayTransport: the server's own model calls go through the
-// gateway in process, as the request's principal and in the request's
-// transaction; an SDK client uses it as its transport.
+// gateway in process, as the request's principal, with their checks and
+// ledger in transactions of their own; an SDK client uses it as its
+// transport.
 func TestGatewayTransport(t *testing.T) {
 	priced(t, "claude-opus-5-5")
 	ten := pgtest.NewTenant(t)
@@ -272,6 +277,30 @@ func TestGatewayTransport(t *testing.T) {
 	t.Run("outside a unit of work", func(t *testing.T) {
 		if _, err := client.Messages.New(context.Background(), params); err == nil {
 			t.Error("got answered, want refused outside a unit of work")
+		}
+	})
+	t.Run("a call in flight holds its reservation where other calls see it", func(t *testing.T) {
+		held := -1
+		seeing := providerFunc(func() (int, []byte, error) {
+			// Another connection than the request's, as another call's.
+			pgtest.Scan(t, `SELECT count(*) FROM agents.model_reservation WHERE tenant_id = $1 AND settled_at IS NULL`, []any{ten.ID}, &held)
+			return http.StatusOK, []byte(message("claude-opus-5-5", "end_turn", 10, 2, 0, 0)), nil
+		})
+		g := gateway(t, seeing)
+		client := anthropic.NewClient(option.WithBaseURL("http://model-gateway.internal"), option.WithAPIKey("in-process"),
+			option.WithHTTPClient(&http.Client{Transport: g.Transport()}), option.WithMaxRetries(0))
+		err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID}, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := client.Messages.New(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal(ten)), params)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if held != 2 {
+			t.Errorf("reservations seen while the call was in flight: got %d, want 2 (the tenant's line and the agent's)", held)
+		}
+		if n := count(t, ten, `SELECT count(*) FROM agents.model_reservation WHERE tenant_id = $1 AND settled_at IS NULL`); n != 0 {
+			t.Errorf("reservations held after the call: got %d, want 0", n)
 		}
 	})
 	t.Run("a refused call", func(t *testing.T) {
@@ -311,44 +340,51 @@ func calls(t *testing.T, ten pgtest.Tenant) int {
 }
 
 // TestGatewayDatabaseFailures: each statement of the gateway's own
-// transactions failing in turn (the session, the price; the session's
-// lock, the ledger row and the session's update), a transaction that cannot begin or
-// commit, each fails the call.
+// transactions failing in turn (the session and the price, the budget
+// lines and the reservation; the session's lock, the ledger row, the
+// session's update and the settlement), a transaction that cannot begin
+// or commit, each fails the call.
 func TestGatewayDatabaseFailures(t *testing.T) {
 	priced(t, "claude-opus-5-5")
 	ten := pgtest.NewTenant(t)
-	session := startSession(t, ten)
 	pool := pgtest.Pool(t)
-	cases := map[string]func() database.BeginFunc{
-		"no transaction": func() database.BeginFunc {
-			return func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
-		},
-		"no commit": func() database.BeginFunc {
-			return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-				tx, err := pool.Begin(ctx, s)
-				return &pgtest.FailingTx{Tx: tx, FailCommit: true}, err
-			}
-		},
+	try := func(t *testing.T, begin database.BeginFunc) int {
+		t.Helper()
+		g := gateway(t, &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 1, 1, 0, 0)})
+		g.Begin = begin
+		return post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, map[string]string{agents.SessionHeader: startSession(t, ten).String()}).Code
 	}
-	for at := 1; at <= 5; at++ {
-		cases[fmt.Sprintf("statement %d", at)] = func() database.BeginFunc {
+	t.Run("no transaction", func(t *testing.T) {
+		if code := try(t, func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }); code != http.StatusInternalServerError {
+			t.Errorf("got %d, want 500", code)
+		}
+	})
+	t.Run("no commit", func(t *testing.T) {
+		if code := try(t, func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			return &pgtest.FailingTx{Tx: tx, FailCommit: true}, err
+		}); code != http.StatusInternalServerError {
+			t.Errorf("got %d, want 500", code)
+		}
+	})
+	t.Run("each statement", func(t *testing.T) {
+		for at := 1; ; at++ {
 			count := 0
-			return func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			code := try(t, func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 				tx, err := pool.Begin(ctx, s)
 				return &pgtest.FailingTx{Tx: tx, FailAt: at, Count: &count}, err
+			})
+			if count < at { // every statement ran: none was failed
+				if code != http.StatusOK {
+					t.Errorf("with no statement failed: got %d, want 200", code)
+				}
+				return
+			}
+			if code != http.StatusInternalServerError {
+				t.Fatalf("statement %d failed: got %d, want 500", at, code)
 			}
 		}
-	}
-	for name, begin := range cases {
-		t.Run(name, func(t *testing.T) {
-			g := gateway(t, &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 1, 1, 0, 0)})
-			g.Begin = begin()
-			rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, map[string]string{agents.SessionHeader: session.String()})
-			if rec.Code != http.StatusInternalServerError {
-				t.Errorf("got %d %s, want 500", rec.Code, rec.Body)
-			}
-		})
-	}
+	})
 }
 
 // deadlineWriter is a response writer that records the write deadline

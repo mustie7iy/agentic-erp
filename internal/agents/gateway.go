@@ -78,6 +78,12 @@ type Gateway struct {
 	Log      *slog.Logger
 	Now      func() time.Time
 	Timeout  time.Duration // a call's answer may be written for this long; 0: DefaultTimeout
+	// TenantCap is the tenant's monthly cap on model spending (the AI
+	// policy's); nil: none, the tenant's line is metered only.
+	TenantCap TenantCap
+	// AgentBudget reads an agent's monthly budget (identity.AgentBudget);
+	// nil: agents are held by the tenant's cap only.
+	AgentBudget AgentBudget
 }
 
 // inTx runs fn in a transaction of the caller's tenant.
@@ -107,30 +113,37 @@ type price struct {
 	currency                             string
 }
 
-// serve makes one call for p: routed, priced, forwarded and recorded.
+// request is a call's request, checked and routed.
+type request struct {
+	alias, model string
+	body         []byte // with the model in place of the alias
+	maxTokens    int64
+}
+
+// serve makes one call for p: routed, priced, held against its budgets,
+// forwarded, recorded and settled.
 func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer, error) {
-	alias, model, body, err := g.prepare(c.body)
+	req, err := g.prepare(c.body)
 	if err != nil {
 		return answer{}, err
 	}
 	if len(c.betas) > 0 {
 		return answer{}, problem.BadRequest("request.invalid_body", "The gateway forwards no provider betas.")
 	}
-	var pr price
-	if err := c.check(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		if err := ownSession(ctx, tx, p, c.session); err != nil {
-			return err
-		}
-		pr, err = priceOf(ctx, tx, model, clock.Now(g.Now))
-		return err
-	}); err != nil {
+	pr, res, err := g.admit(ctx, p, c, req)
+	if err != nil {
 		return answer{}, err
 	}
 	started := clock.Now(g.Now)
-	status, raw, sendErr := g.Provider.Messages(ctx, body, c.betas)
-	rec := g.meter(status, raw, sendErr, model, pr)
-	rec.alias, rec.duration = alias, clock.Now(g.Now).Sub(started)
-	if err := c.record(context.WithoutCancel(ctx), func(ctx context.Context, tx pgx.Tx) error { return recordCall(ctx, tx, p, c.session, rec) }); err != nil {
+	status, raw, sendErr := g.Provider.Messages(ctx, req.body, c.betas)
+	rec := g.meter(status, raw, sendErr, req.model, pr)
+	rec.id, rec.alias, rec.duration = res.call, req.alias, clock.Now(g.Now).Sub(started)
+	if err := c.record(context.WithoutCancel(ctx), func(ctx context.Context, tx pgx.Tx) error {
+		if err := recordCall(ctx, tx, p, c.session, rec); err != nil {
+			return err
+		}
+		return settle(ctx, tx, p, res, rec.cost, clock.Now(g.Now))
+	}); err != nil {
 		return answer{}, err
 	}
 	switch {
@@ -144,36 +157,90 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 	return answer{status: status, body: raw, model: rec.model, cost: rec.cost, currency: pr.currency}, nil
 }
 
+// admit runs the checks before the call, in their own transaction, which
+// commits before the call is forwarded so that its reservation holds
+// against the calls after it: the session is p's and running, the model is
+// priced, and the most the call may cost fits its budgets. A refusal for
+// the budget commits its audit entry.
+func (g *Gateway) admit(ctx context.Context, p reqctx.Principal, c call, req request) (price, reservation, error) {
+	var pr price
+	var res reservation
+	var refused *problem.Problem
+	err := c.check(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := ownSession(ctx, tx, p, c.session); err != nil {
+			return err
+		}
+		now := clock.Now(g.Now)
+		var err error
+		if pr, err = priceOf(ctx, tx, req.model, now); err != nil {
+			return err
+		}
+		res, refused, err = g.reserve(ctx, tx, p, mostOf(req, pr), now)
+		return err
+	})
+	if err == nil && refused != nil {
+		err = refused
+	}
+	return pr, res, err
+}
+
+// MaxInputTokens bounds a call's input estimate: no model takes more,
+// and a document's bytes, base64 images and pages, far overstate its
+// tokens.
+const MaxInputTokens = 1_000_000
+
+// mostOf is what a call is held at: all of max_tokens in output, and its
+// body in input at a token per three bytes, at most MaxInputTokens, priced
+// as cache writes when those cost more. The input is an estimate: tokens
+// the body does not show (the provider's tool prompt, a page's image)
+// may make the call cost more, and its line then ends past its cap by
+// that much, announced at 100%. Held at the most an int64 holds.
+func mostOf(req request, pr price) money.Micro {
+	in := max(pr.input, pr.cacheWrite)
+	inCost, err1 := money.TokenCost(min((int64(len(req.body))+2)/3, MaxInputTokens), in)
+	outCost, err2 := money.TokenCost(req.maxTokens, pr.output)
+	if err1 != nil || err2 != nil {
+		return math.MaxInt64
+	}
+	return inCost.Add(outCost)
+}
+
 // prepare checks the request against the forwarded fields and routes its
 // alias, returning the body with the model in its place.
-func (g *Gateway) prepare(body []byte) (alias, model string, out []byte, err error) {
+func (g *Gateway) prepare(body []byte) (request, error) {
+	var out request
 	var req map[string]json.RawMessage
 	if err := json.Unmarshal(body, &req); err != nil {
-		return "", "", nil, problem.BadRequest("request.invalid_body", "The request is not a JSON object.").WithCause(err)
+		return out, problem.BadRequest("request.invalid_body", "The request is not a JSON object.").WithCause(err)
 	}
 	for field := range req {
 		if !slices.Contains(allowedFields, field) {
-			return "", "", nil, problem.BadRequest("request.invalid_body", "The gateway does not forward "+field+".")
+			return out, problem.BadRequest("request.invalid_body", "The gateway does not forward "+field+".")
 		}
 	}
-	if err := json.Unmarshal(req["model"], &alias); err != nil || alias == "" {
-		return "", "", nil, problem.BadRequest("request.invalid_body", "model must name a model alias.")
+	if err := json.Unmarshal(req["model"], &out.alias); err != nil || out.alias == "" {
+		return out, problem.BadRequest("request.invalid_body", "model must name a model alias.")
+	}
+	// The budget holds all of max_tokens, so it must be known.
+	if err := json.Unmarshal(req["max_tokens"], &out.maxTokens); err != nil || out.maxTokens <= 0 {
+		return out, problem.BadRequest("request.invalid_body", "max_tokens must be a positive whole number.")
 	}
 	if err := checkTools(req["tools"]); err != nil {
-		return "", "", nil, err
+		return out, err
 	}
 	routes := g.Routes
 	if routes == nil {
 		routes = DefaultRoutes
 	}
-	model, ok := routes[alias]
+	model, ok := routes[out.alias]
 	if !ok {
-		return "", "", nil, problem.Unprocessable("agents.unknown_model", "The gateway routes no model alias "+alias+".",
+		return out, problem.Unprocessable("agents.unknown_model", "The gateway routes no model alias "+out.alias+".",
 			problem.FieldError{Field: "model", Code: "unknown", Message: "a model alias: erp-default, erp-extraction or erp-analytics"})
 	}
+	out.model = model
 	req["model"], _ = json.Marshal(model) // a string always encodes
-	out, _ = json.Marshal(req)            // raw messages of a decoded object always encode
-	return alias, model, out, nil
+	out.body, _ = json.Marshal(req)       // raw messages of a decoded object always encode
+	return out, nil
 }
 
 // checkTools refuses server tools: only the caller's own tools, which have
@@ -264,6 +331,7 @@ type usage struct {
 
 // row is one ledger row.
 type row struct {
+	id                         uuid.UUID // the call's, as its reservations name it
 	alias, model, status       string
 	input, output, write, read int64
 	cost                       money.Micro
@@ -320,7 +388,7 @@ func recordCall(ctx context.Context, tx pgx.Tx, p reqctx.Principal, session *uui
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, session_id, alias, model, status, input_tokens, output_tokens,
 		cache_write_tokens, cache_read_tokens, cost_micro, currency, duration_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-		p.TenantID, uuid.Must(uuid.NewV7()), p.ID, session, r.alias, r.model, r.status, r.input, r.output, r.write, r.read, r.cost, r.currency,
+		p.TenantID, r.id, p.ID, session, r.alias, r.model, r.status, r.input, r.output, r.write, r.read, r.cost, r.currency,
 		r.duration.Milliseconds()); err != nil {
 		return fmt.Errorf("agents: record model call: %w", err)
 	}
@@ -408,17 +476,16 @@ func (g *Gateway) ownTx(p reqctx.Principal) inTx {
 }
 
 // Transport is the gateway for the server's own model calls (capture),
-// made inside a unit of work: the request's principal calls, the checks
-// read in the request's transaction, and the ledger is written in one of
-// its own. A model SDK's client
-// uses it as its HTTP transport.
+// made inside a unit of work: the request's principal calls, and the
+// checks and the ledger run in transactions of their own. A model SDK's
+// client uses it as its HTTP transport.
 func (g *Gateway) Transport() http.RoundTripper { return inProcess{g} }
 
 type inProcess struct{ g *Gateway }
 
 func (t inProcess) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
-	tx, p, err := reqctx.Request(ctx)
+	_, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agents: model call outside a unit of work: %w", err)
 	}
@@ -430,12 +497,11 @@ func (t inProcess) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The checks read in the request's transaction; the ledger is written
-	// in its own, so a capture that fails afterwards still leaves the call
-	// on record (ADR-0036).
-	a, err := t.g.serve(ctx, p, call{body: body, betas: betas(req.Header), session: session, check: func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
-		return fn(ctx, tx)
-	}, record: t.g.ownTx(p)})
+	// The checks and the ledger run in transactions of their own, not the
+	// request's: the call's reservation must hold against other calls
+	// while it is in flight, and a capture that fails afterwards still
+	// leaves the call on record (ADR-0036).
+	a, err := t.g.serve(ctx, p, call{body: body, betas: betas(req.Header), session: session, check: t.g.ownTx(p), record: t.g.ownTx(p)})
 	if err != nil {
 		return nil, err
 	}
