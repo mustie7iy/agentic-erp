@@ -3,7 +3,11 @@
 # event (06 §6.5) and writes run=true|false and reason=... for
 # GITHUB_OUTPUT. They are skipped when only documentation changed (docs/,
 # Markdown files): no test reads it, and secret scanning runs on every
-# event regardless. Anything it cannot establish runs them.
+# event regardless. Anything it cannot establish runs them. When they run,
+# it also writes images=true|false and release=true|false: whether the
+# image reproducibility gate and the signing round trip, and the release
+# scripts' tests, have to run, which they do when their inputs changed
+# (the weekly run does them regardless).
 #
 # EVENT is pull_request or push, BASE the commit to compare with (the pull
 # request's base), HEAD the commit under test (default HEAD). A push to
@@ -18,10 +22,24 @@ head="${HEAD:-$(git rev-parse HEAD)}"
 base="${BASE:-}"
 GH="${GH:-gh}"
 
+images=true
+release=true
 decide() {
   echo "run=$1"
   echo "reason=$2"
+  if [ "$1" = true ]; then
+    echo "images=$images"
+    echo "release=$release"
+  else
+    echo "images=false"
+    echo "release=false"
+  fi
   exit 0
+}
+
+# changed prints true when a changed file matches the pattern $1.
+changed() {
+  if grep -Eq "$1" <<<"$files"; then echo true; else echo false; fi
 }
 
 if [ "$event" = push ]; then
@@ -39,6 +57,8 @@ if [ "$event" = pull_request ]; then
 else
   files="$(git diff --name-only "$base" "$head")"
 fi
+images="$(changed '^(go\.(mod|sum)|\.ko\.yaml|Makefile|cmd/|release/|scripts/(image|sign|verify-image|provenance)|\.github/workflows/(ci|weekly)\.yml)')"
+release="$(changed '^(scripts/(next-version|changelog|test-release-scripts)\.sh|cliff\.toml|Makefile|\.github/workflows/(ci|release|weekly)\.yml)')"
 code="$(grep -Ev '^docs/|\.md$' <<<"$files" || true)"
 if [ -n "$files" ] && [ -z "$code" ]; then
   decide false "only documentation changed"

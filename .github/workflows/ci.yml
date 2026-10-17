@@ -30,6 +30,8 @@ jobs:
       actions: read # the last green run on main, which a push is compared with
     outputs:
       run: ${{ steps.decide.outputs.run }}
+      images: ${{ steps.decide.outputs.images }}
+      release: ${{ steps.decide.outputs.release }}
     env:
       GITLEAKS_VERSION: 8.30.1
       GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
@@ -76,8 +78,9 @@ jobs:
     # job: images pushed, signed and attested (SBOM, provenance) with a key
     # pair made for the run, standing in for the release KMS key; verified;
     # and refused with another key, another commit, a tag or no signature.
+    # Only when its inputs changed; the weekly run does it regardless.
     needs: changes
-    if: needs.changes.outputs.run != 'false'
+    if: needs.changes.outputs.images != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -95,9 +98,9 @@ jobs:
   release-scripts:
     # The version rules and the changelog of ADR-0032 on throwaway
     # repositories (scripts/test-release-scripts.sh), with the git-cliff the
-    # release workflow installs.
+    # release workflow installs. Only when those scripts changed.
     needs: changes
-    if: needs.changes.outputs.run != 'false'
+    if: needs.changes.outputs.release != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -244,8 +247,16 @@ jobs:
         # and ko caches of its own, and fails unless every digest matches:
         # an image that cannot be rebuilt bit for bit from its commit cannot
         # be checked against it. Nothing is pushed here; T39c's release
-        # workflow pushes and signs.
-        run: make images-reproducible
+        # workflow pushes and signs. Only when the image inputs changed (the
+        # weekly run does it regardless); otherwise one build for the scan.
+        env:
+          IMAGES_CHANGED: ${{ needs.changes.outputs.images }}
+        run: |
+          if [ "$IMAGES_CHANGED" != false ]; then
+            make images-reproducible
+          else
+            make images
+          fi
       - name: Image scan
         # grype on each image's SBOM and on the pinned base image, failing on
         # a high or critical vulnerability that has a fix (.grype.yaml lists

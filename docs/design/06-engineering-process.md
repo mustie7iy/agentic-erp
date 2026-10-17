@@ -99,9 +99,9 @@ Every change passes, before it is merged:
 | Performance budgets | `-run Budget`, `-run Perf` |
 | Coverage gate | `scripts/coverage.sh`, 100% of production statements |
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
-| Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032) |
-| Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032) |
-| Build and container images | `make build`; `make images-reproducible`: the three images built with ko twice, with private caches, and their digests compared; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability (ADR-0032) |
+| Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
+| Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
+| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the three images built with ko twice, with private caches, and their digests compared) when image inputs change, and weekly (ADR-0032) |
 
 The checks are split between the author's machine and GitHub (the hybrid
 check, since 2026-10-18), so runner minutes go to the independent second
@@ -140,6 +140,14 @@ opinion rather than to repeating the slow gates:
   them directly would let a failed `changes` skip them into a pass.
 - A newer push cancels the running check of the same pull request or of
   `main`; the older commit then shows `ci-ok` failed, which is expected.
+- The image reproducibility gate and the signing round trip run when their
+  inputs change (`go.mod`, `go.sum`, `.ko.yaml`, `Makefile`, `cmd/`,
+  `scripts/image*`, `scripts/sign*`, `scripts/verify-image.sh`,
+  `scripts/provenance.sh`, `release/`, `ci.yml`, `weekly.yml`); a pull
+  request otherwise builds the images once and scans them. A change to
+  other Go code alone does not run the reproducibility gate; the weekly run
+  does. The release scripts' tests run when those scripts, `cliff.toml`,
+  the `Makefile` or a workflow that uses them change, and weekly.
 - The tools run at pinned versions (`scripts/ci-tools.sh`), built once in
   the job that uses them and cached until that file or the Go version
   changes. The `changes` job builds nothing: it gates every other job and
@@ -148,8 +156,9 @@ opinion rather than to repeating the slow gates:
 
 Weekly (Sundays) and on demand before a release: the load and soak suites
 (05 §5.8), the whole suite three times in random order, longer fuzzing, the
-image scan of `main` again and a check that the pinned base image is still
-its tag's digest (ADR-0032), dependency updates. Latency budgets on the shared runner are scaled by `ERP_BUDGET_SCALE`
+reproducibility gate, the signing round trip, the image scan of `main` again
+and a check that the pinned base image is still its tag's digest (ADR-0032),
+dependency updates. Latency budgets on the shared runner are scaled by `ERP_BUDGET_SCALE`
 (docs/testing.md); the budgets at scale 1 are checked in a cell-sized
 environment.
 
