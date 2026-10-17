@@ -200,6 +200,7 @@ channels:
       PeriodClosed: {$ref: '#/components/messages/PeriodClosed'}
       PeriodLocked: {$ref: '#/components/messages/PeriodLocked'}
       PeriodUnlocked: {$ref: '#/components/messages/PeriodUnlocked'}
+      ParkedJournalEntryChanged: {$ref: '#/components/messages/ParkedJournalEntryChanged'}
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
   procurement:
     address: 'erp.{cell}.procurement.{tenant}.{event}'
@@ -362,6 +363,7 @@ operations:
       - $ref: '#/channels/ledger/messages/PeriodClosed'
       - $ref: '#/channels/ledger/messages/PeriodLocked'
       - $ref: '#/channels/ledger/messages/PeriodUnlocked'
+      - $ref: '#/channels/ledger/messages/ParkedJournalEntryChanged'
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
   publishProcurementEvents:
     action: send
@@ -817,6 +819,30 @@ components:
         - name: sep-2026
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000083, source: /erp/eu-1/ledger, type: com.example.erp.ledger.period_unlocked.v1, subject: 0192a000-0000-7000-8000-000000000205, time: '2026-10-22T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: closed, previous_status: locked}
+    ParkedJournalEntryChanged:
+      name: ParkedJournalEntryChanged
+      title: Parked journal entry changed
+      summary: A manual journal entry was parked, or its status changed before or as it was posted.
+      description: |
+        Emitted when a manual journal entry is parked (`parked-journal-entries`,
+        `previous_status` null) and on every later change of its status:
+        submitted for approval, withdrawn, posted, rejected or cancelled (T35).
+        `created_by_kind` `agent` marks an agent's proposal, which only a
+        person can post. `amount` is the entry's debit total in its
+        transaction currency. Posting also publishes `JournalEntryPosted`,
+        whose `source_document_id` is the parked entry. Subject is the parked
+        entry id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.parked_journal_entry_changed.v1}
+      payload: {$ref: '#/components/schemas/ParkedJournalEntryChangedV1'}
+      examples:
+        - name: agent-proposal
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000084, source: /erp/eu-1/ledger, type: com.example.erp.ledger.parked_journal_entry_changed.v1, subject: 0192a000-0000-7000-8000-000000000207, time: '2026-10-09T14:03:11Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000103}
+          payload: {parked_entry_id: 0192a000-0000-7000-8000-000000000207, legal_entity_id: 0192a000-0000-7000-8000-000000000201, posting_date: '2026-10-09', amount: {amount: '1200.00', currency: EUR}, status: parked, previous_status: null, created_by_kind: agent, owner_id: null, approval_request_id: null, journal_entry_id: null}
 
     # ------------------------------------------------------------ procurement
     RequisitionSubmitted:
@@ -2285,6 +2311,20 @@ components:
         end_date: {$ref: '#/components/schemas/Date'}
         status: {type: string, description: 'Open enum: open, closed, locked.'}
         previous_status: {type: [string, 'null'], description: Null when the period status row was created by this change.}
+    ParkedJournalEntryChangedV1:
+      type: object
+      required: [parked_entry_id, legal_entity_id, posting_date, amount, status, previous_status, created_by_kind, owner_id, approval_request_id, journal_entry_id]
+      properties:
+        parked_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.parked_entry.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        posting_date: {$ref: '#/components/schemas/Date'}
+        amount: {$ref: '#/components/schemas/Money', description: Debit total in transaction currency.}
+        status: {type: string, description: 'Open enum: parked, pending_approval, posted, rejected, cancelled.'}
+        previous_status: {type: [string, 'null'], description: Null when the entry was parked by this change.}
+        created_by_kind: {type: string, description: 'Open enum: human, agent, service.'}
+        owner_id: {$ref: '#/components/schemas/NullableUuid', description: The person who owns the entry; null for an agent's entry no person has taken on.}
+        approval_request_id: {$ref: '#/components/schemas/NullableUuid', description: The manual_entry approval request the entry waits for or was decided on.}
+        journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: The journal entry it was posted as.}
 
     # ---------------------------------------------------------- procurement
     RequisitionSubmittedV1:

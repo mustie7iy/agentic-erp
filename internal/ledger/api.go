@@ -209,8 +209,8 @@ func (e *Endpoints) UnlockFiscalPeriod(ctx context.Context, req *gen.ReasonInput
 	return &gen.CloseFiscalPeriodOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: periodToAPI(p)}, nil
 }
 
-// PostJournalEntry implements POST /v1/journal-entries.
-func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryCreate, _ gen.PostJournalEntryParams) (gen.PostJournalEntryRes, error) {
+// newEntry is the manual entry a create request describes.
+func newEntry(req *gen.JournalEntryCreate) NewEntry {
 	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), DocumentType: req.DocumentType.Or("SA"),
 		DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
 		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
@@ -222,7 +222,12 @@ func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryC
 		}
 		in.Lines[i] = line
 	}
-	je, err := e.postJournalEntry(ctx, in)
+	return in
+}
+
+// PostJournalEntry implements POST /v1/journal-entries.
+func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryCreate, _ gen.PostJournalEntryParams) (gen.PostJournalEntryRes, error) {
+	je, err := e.postDirect(ctx, newEntry(req))
 	if err != nil {
 		return nil, err
 	}

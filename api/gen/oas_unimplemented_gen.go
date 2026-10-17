@@ -48,7 +48,10 @@ func (UnimplementedHandler) ActivateOrgUnit(ctx context.Context, params Activate
 // `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 // object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 // request is `approved` when the last step is complete, and the object moves on (a requisition becomes
-// `approved`, a partner change is applied, a change request becomes `approved`).
+// `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
+// is posted). A manual entry is checked again as it is posted: when that refuses it (409
+// `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the
+// parked entry's), the approval is refused and the request stays pending.
 //
 // POST /v1/approval-requests/{id}:approve
 func (UnimplementedHandler) ApproveApprovalRequest(ctx context.Context, req OptDecisionInput, params ApproveApprovalRequestParams) (r ApproveApprovalRequestRes, _ error) {
@@ -120,6 +123,19 @@ func (UnimplementedHandler) CancelContract(ctx context.Context, params CancelCon
 //
 // POST /v1/operations/{id}:cancel
 func (UnimplementedHandler) CancelOperation(ctx context.Context, params CancelOperationParams) (r CancelOperationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CancelParkedJournalEntry implements cancelParkedJournalEntry operation.
+//
+// Cancels a parked journal entry in status `parked` for good (status `cancelled`,
+// `ParkedJournalEntryChanged`); nothing was posted, so nothing is reversed. An entry waiting for
+// approval is withdrawn first by cancelling its approval request, which returns it to `parked`. Only
+// its owner cancels it (403 `ledger.not_entry_owner`): the person who parked it, a person taking on an
+// agent's entry no person owns, or the agent that parked an entry no person has taken on.
+//
+// POST /v1/parked-journal-entries/{id}:cancel
+func (UnimplementedHandler) CancelParkedJournalEntry(ctx context.Context, req *ReasonInput, params CancelParkedJournalEntryParams) (r CancelParkedJournalEntryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -680,6 +696,15 @@ func (UnimplementedHandler) GetOrgUnit(ctx context.Context, params GetOrgUnitPar
 	return r, ht.ErrNotImplemented
 }
 
+// GetParkedJournalEntry implements getParkedJournalEntry operation.
+//
+// Returns one parked journal entry with its lines.
+//
+// GET /v1/parked-journal-entries/{id}
+func (UnimplementedHandler) GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (r GetParkedJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetPartnerChange implements getPartnerChange operation.
 //
 // Returns one partner change.
@@ -1077,6 +1102,16 @@ func (UnimplementedHandler) ListOrgUnits(ctx context.Context, params ListOrgUnit
 	return r, ht.ErrNotImplemented
 }
 
+// ListParkedJournalEntries implements listParkedJournalEntries operation.
+//
+// Manual journal entries parked before they are posted, newest first: entries people or agents
+// proposed, entries waiting for approval and what became of them. Sortable by: `created_at`.
+//
+// GET /v1/parked-journal-entries
+func (UnimplementedHandler) ListParkedJournalEntries(ctx context.Context, params ListParkedJournalEntriesParams) (r ListParkedJournalEntriesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListPartnerChanges implements listPartnerChanges operation.
 //
 // Governed changes to business partners. Sortable by: `created_at`.
@@ -1236,6 +1271,22 @@ func (UnimplementedHandler) OpenFiscalPeriod(ctx context.Context, params OpenFis
 	return r, ht.ErrNotImplemented
 }
 
+// ParkJournalEntry implements parkJournalEntry operation.
+//
+// Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
+// posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation
+// lines, tax codes) except for the open period and the exchange rates, which are checked when it is
+// posted. An entry that could never be posted is refused as posting would refuse it: a line on the
+// legal entity's GR/IR account (422 `ledger.automatic_account`; only goods receipts and invoices post
+// it) or a quantity in an unknown unit (422 `ledger.unknown_unit`). Nothing is posted and no document
+// number is drawn. Agents may park: this is how they propose an entry, which only a person can post. A
+// person owns what they park; an agent's entry has no owner until a person takes it on.
+//
+// POST /v1/parked-journal-entries
+func (UnimplementedHandler) ParkJournalEntry(ctx context.Context, req *JournalEntryCreate, params ParkJournalEntryParams) (r ParkJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PostGoodsReceipt implements postGoodsReceipt operation.
 //
 // Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals.
@@ -1247,14 +1298,38 @@ func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsRece
 
 // PostJournalEntry implements postJournalEntry operation.
 //
-// Posts a manual journal entry. Journal entries are insert-only and have no draft state, so creating
-// an entry is posting it: the request is validated (balance in every currency, open period, postable
-// accounts, partner on reconciliation lines) and either fully posted or rejected. A line on the legal
-// entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods
-// receipts and invoices post it.
+// Posts a manual journal entry at once: the request is validated (balance in every currency, open
+// period, postable accounts, partner on reconciliation lines) and either fully posted or rejected.
+// Journal entries are insert-only; an entry that should wait, for a person to post it or for approval,
+// is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal
+// entity's currency at the average rate of its posting date, exceed the company's
+// `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
+// closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
+// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
+// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only:
+// agents propose entries by parking them.
 //
 // POST /v1/journal-entries
 func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (r PostJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PostParkedJournalEntry implements postParkedJournalEntry operation.
+//
+// Posts a parked journal entry, or asks for its approval. Its debits, converted exactly into the legal
+// entity's currency at the average rate of its posting date, are measured against the company's
+// `manual_entry_approval_limit`. Within it the entry is posted at once (`posted`, `journal_entry_id`;
+// the journal entry's `source_document_id` is the parked entry). Above it a `manual_entry` approval
+// request is opened (`pending_approval`, `approval_request_id`); when someone else approves it the
+// entry is posted in the same transaction, when it is rejected it is `rejected` for good, and when the
+// requester withdraws it (`approval-requests/{id}:cancel`) it returns to `parked`. The caller is the
+// requester and can never approve it. Requires status `parked` (409 `ledger.invalid_parked_status`)
+// and the entry's owner (403 `ledger.not_entry_owner`; a person posting an agent's proposal takes it
+// on). Posting checks the entry again, with the open period (409 `ledger.period_not_open`) and the
+// rates. Human-only: agents propose, never post.
+//
+// POST /v1/parked-journal-entries/{id}:post
+func (UnimplementedHandler) PostParkedJournalEntry(ctx context.Context, params PostParkedJournalEntryParams) (r PostParkedJournalEntryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1432,7 +1507,7 @@ func (UnimplementedHandler) ReverseGoodsReceipt(ctx context.Context, req OptGood
 // goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
 // is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
 // other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
-// Returns the new reversal entry.
+// Returns the new reversal entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (UnimplementedHandler) ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (r ReverseJournalEntryRes, _ error) {
@@ -1610,6 +1685,21 @@ func (UnimplementedHandler) UpdateLegalEntity(ctx context.Context, req *LegalEnt
 //
 // PATCH /v1/org-units/{id}
 func (UnimplementedHandler) UpdateOrgUnit(ctx context.Context, req *OrgUnitUpdate, params UpdateOrgUnitParams) (r UpdateOrgUnitRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateParkedJournalEntry implements updateParkedJournalEntry operation.
+//
+// Changes a parked journal entry in status `parked` (409 `ledger.invalid_parked_status` otherwise).
+// JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference` or
+// `header_text`, and `lines` replaces the lines as a whole. The legal entity does not change. The
+// entry is checked again as parking checks it. Only its owner changes it (403
+// `ledger.not_entry_owner`): the person who parked it; a person who changes an agent's entry no person
+// owns takes it on and becomes its owner; an agent changes only an entry it parked that no person has
+// taken on.
+//
+// PATCH /v1/parked-journal-entries/{id}
+func (UnimplementedHandler) UpdateParkedJournalEntry(ctx context.Context, req *ParkedJournalEntryUpdate, params UpdateParkedJournalEntryParams) (r UpdateParkedJournalEntryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

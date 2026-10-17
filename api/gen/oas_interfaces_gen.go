@@ -45,6 +45,10 @@ type CancelOperationRes interface {
 	cancelOperationRes()
 }
 
+type CancelParkedJournalEntryRes interface {
+	cancelParkedJournalEntryRes()
+}
+
 type CancelPurchaseOrderRes interface {
 	cancelPurchaseOrderRes()
 }
@@ -277,6 +281,10 @@ type GetOrgUnitRes interface {
 	getOrgUnitRes()
 }
 
+type GetParkedJournalEntryRes interface {
+	getParkedJournalEntryRes()
+}
+
 type GetPartnerChangeRes interface {
 	getPartnerChangeRes()
 }
@@ -449,6 +457,10 @@ type ListOrgUnitsRes interface {
 	listOrgUnitsRes()
 }
 
+type ListParkedJournalEntriesRes interface {
+	listParkedJournalEntriesRes()
+}
+
 type ListPartnerChangesRes interface {
 	listPartnerChangesRes()
 }
@@ -517,12 +529,20 @@ type OpenFiscalPeriodRes interface {
 	openFiscalPeriodRes()
 }
 
+type ParkJournalEntryRes interface {
+	parkJournalEntryRes()
+}
+
 type PostGoodsReceiptRes interface {
 	postGoodsReceiptRes()
 }
 
 type PostJournalEntryRes interface {
 	postJournalEntryRes()
+}
+
+type PostParkedJournalEntryRes interface {
+	postParkedJournalEntryRes()
 }
 
 type PostSupplierInvoiceRes interface {
@@ -651,6 +671,10 @@ type UpdateLegalEntityRes interface {
 
 type UpdateOrgUnitRes interface {
 	updateOrgUnitRes()
+}
+
+type UpdateParkedJournalEntryRes interface {
+	updateParkedJournalEntryRes()
 }
 
 type UpdatePrincipalRes interface {

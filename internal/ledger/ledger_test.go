@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -23,7 +24,7 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"ledger.account.read", "ledger.period.read", "ledger.period.manage", "ledger.period.lock", "ledger.entry.read", "ledger.entry.post",
+var perms = []string{"ledger.account.read", "ledger.period.read", "ledger.period.manage", "ledger.period.lock", "ledger.entry.read", "ledger.entry.post", "ledger.entry.park",
 	"ledger.rate.read", "ledger.rate.maintain", "ledger.clearing.post"}
 
 // document is the prototype's configuration (companies 1000 in USD and
@@ -37,6 +38,11 @@ func document(tb testing.TB) *config.Config {
 	c, err := config.Parse(b)
 	if err != nil {
 		tb.Fatal(err)
+	}
+	// The ledger's tests post amounts of every size directly; the approval
+	// limit is tested end to end (internal/app, TestManualEntries*).
+	for i := range c.Companies {
+		c.Companies[i].ManualEntryApprovalLimit = "92233720368547758.07"
 	}
 	for _, co := range []string{"1000", "2000"} {
 		for _, dt := range []string{"journal_sa", "journal_ab"} {
@@ -53,7 +59,8 @@ func deps() configuration.Dependencies {
 
 func endpoints() *ledger.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &ledger.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}
+	return &ledger.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
+		Approvals: fixture.Approvals()}
 }
 
 type env struct {

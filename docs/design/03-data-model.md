@@ -473,7 +473,26 @@ Rules enforced in the database:
   `created_by`); an agent's entry has no owner until a person changes or
   posts it, an entry is submitted or posted only with an owner, and the
   owner never changes: the requester an approval excludes is the one person
-  who wrote the entry. Agents may hold `ledger.entry.park`;
+  who wrote the entry. People and agents park entries through
+  `parked-journal-entries` (T35c), checked as a posting is except for the
+  open period and the rates; nothing is posted and no number is drawn
+  until the entry is posted, so cancelled and rejected entries leave no
+  gaps in the journal's number ranges. The owner changes a parked entry
+  (`PATCH`, lines replaced as a whole) or cancels it (`:cancel`) while it
+  is parked (T35d); a person who changes or cancels an agent's proposal
+  takes it on, and an agent acts only on its own unowned proposals.
+  Posting it (`:post`, people only, T35e) asks the approval policy: within
+  its company's `manual_entry_approval_limit` it is posted at once, above it
+  a `manual_entry` request is opened, raised by the owner, who can never
+  approve it. The approval posts the entry in the deciding transaction,
+  checked again (a period closed meanwhile refuses the decision, which stays
+  pending); the approver need not act in the legal entity, as the request
+  authorises the posting. A rejection ends the entry; a withdrawal returns it
+  to parked. A manual entry posted at once (`POST /v1/journal-entries`) is
+  measured the same way after it is converted and refused above the limit
+  (409 `ledger.approval_required`, T35f); entries other contexts post
+  through `Postings` are not manual and no limit applies. Only people post
+  or reverse manual entries (`x-agent: false`). Agents may hold `ledger.entry.park`;
   `ledger.entry.approve` is an approval permission (agents never hold it).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger

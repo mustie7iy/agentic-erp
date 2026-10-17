@@ -105,6 +105,20 @@ func encodeCancelApprovalRequestRequest(
 	return nil
 }
 
+func encodeCancelParkedJournalEntryRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCancelSupplierInvoiceRequest(
 	req *ReasonInput,
 	r *http.Request,
@@ -602,6 +616,20 @@ func encodeHoldSupplierInvoiceRequest(
 	return nil
 }
 
+func encodeParkJournalEntryRequest(
+	req *JournalEntryCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodePostGoodsReceiptRequest(
 	req *GoodsReceiptCreate,
 	r *http.Request,
@@ -956,6 +984,20 @@ func encodeUpdateLegalEntityRequest(
 
 func encodeUpdateOrgUnitRequest(
 	req *OrgUnitUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateParkedJournalEntryRequest(
+	req *ParkedJournalEntryUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

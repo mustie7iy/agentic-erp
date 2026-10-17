@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -24,9 +26,22 @@ func TestPostingTotalOutOfRange(t *testing.T) {
 				entry(e.de, "2026-03-15", "EUR", line{bank, largest, ""}, line{bank, largest, ""}, line{revenue, last, ""}), "")
 		})
 	}
-	// Terms that net to zero post, whatever their order.
-	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, largest, ""}, line{revenue, largest, ""},
-		line{bank, "-" + largest, ""}, line{revenue, "-" + largest, ""}), "")
+	// Terms that net to zero post, whatever their order, as another
+	// context's posting. Posted by hand they are refused: a manual entry is
+	// measured by its debits, which here add up to more than can be posted
+	// (T35f).
+	const largestMinor = money.Minor(1<<63 - 1)
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		_, err := postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-15"),
+			PostingDate: date("2026-03-15"), Currency: "EUR", SourceContext: "integration", SourceDocumentID: uuid.New(), Lines: []ledger.PostingLine{
+				{AccountID: uuid.MustParse(bank), Amount: largestMinor}, {AccountID: uuid.MustParse(revenue), Amount: largestMinor},
+				{AccountID: uuid.MustParse(bank), Amount: -largestMinor}, {AccountID: uuid.MustParse(revenue), Amount: -largestMinor}}})
+		return err
+	}); err != nil {
+		t.Errorf("terms netting to zero: got %v, want them posted", err)
+	}
+	e.Problem(422, "ledger.amount_too_large", "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, largest, ""},
+		line{revenue, largest, ""}, line{bank, "-" + largest, ""}, line{revenue, "-" + largest, ""}), "")
 }
 
 // The debits of a fiscal year are summed exactly: accounts whose debits
