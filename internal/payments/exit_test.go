@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -28,7 +26,7 @@ import (
 // 2.70 to cash discount and its tax share 0.51 to input tax V1, and clears
 // both items at their full amounts; the bank file pays 103.89.
 func TestCashDiscountExitCriterion(t *testing.T) {
-	e := setupWith(t, nil, func(cfg *app.Config) { cfg.Now = func() time.Time { return date("2026-03-12") } })
+	e := at(t, "2026-03-12")
 	doc := fixture.Document(t)
 	doc.PaymentTerms = append(doc.PaymentTerms, config.PaymentTerm{Key: "ZB01", Description: "3% 14, 2% 30, net 45", NetDays: 45,
 		Discounts: []config.Discount{{Days: 14, Percent: "3"}, {Days: 30, Percent: "2"}}})
@@ -68,11 +66,19 @@ func TestCashDiscountExitCriterion(t *testing.T) {
 	if got, want := e.paid(t, run, e.Supplier), "103.89 3.21 [119.00-3.57 -11.90--0.36]"; got != want {
 		t.Errorf("proposed payment: got %s, want %s", got, want)
 	}
-	if until := e.payments(t, run)[0].(map[string]any)["discount_until"]; until != "2026-03-15" {
+	proposed := e.payments(t, run)
+	if len(proposed) != 1 {
+		t.Fatalf("payments: got %d, want 1", len(proposed))
+	}
+	if until := proposed[0].(map[string]any)["discount_until"]; until != "2026-03-15" {
 		t.Errorf("payment's discount earned until: got %v, want 2026-03-15, the first tier's last day", until)
 	}
 	run = e.release(t, run, "")
-	pay := e.payments(t, run)[0].(map[string]any)
+	paid := e.payments(t, run)
+	if len(paid) != 1 {
+		t.Fatalf("payments after the release: got %d, want 1", len(paid))
+	}
+	pay := paid[0].(map[string]any)
 	je, _ := e.Must(200, "GET", fmt.Sprintf("/v1/journal-entries/%v", pay["journal_entry_id"]), "", "")
 	got := map[string]string{}
 	for _, l := range je["lines"].([]any) {
@@ -94,7 +100,11 @@ func TestCashDiscountExitCriterion(t *testing.T) {
 		t.Errorf("supplier's open items after the payment: got %v, want none (both cleared)", items)
 	}
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
-	file := files["items"].([]any)[0].(map[string]any)
+	listed := files["items"].([]any)
+	if len(listed) != 1 {
+		t.Fatalf("bank files: got %d, want 1", len(listed))
+	}
+	file := listed[0].(map[string]any)
 	e.Must(202, "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
 	if xml := string(e.connector.files[0].Content); !strings.Contains(xml, `<InstdAmt Ccy="EUR">103.89</InstdAmt>`) {
 		t.Errorf("bank file: got\n%s\nwant it to pay 103.89", xml)

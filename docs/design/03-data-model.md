@@ -1241,7 +1241,8 @@ discounts are earned (`discount_until`, migration 000068, shown on the
 payment so the approver knows the release-by date), and the release
 of a proposed run after it is refused (409 `payments.discount_lapsed`,
 days in UTC): the run is rejected and proposed again, at the discount then
-earned.
+earned; a release being resumed is not refused, since some of its
+payments may have posted.
 
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run
