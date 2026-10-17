@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -51,10 +52,16 @@ const MaxModelBody = 32 << 20
 var allowedFields = []string{"model", "max_tokens", "messages", "system", "tools", "tool_choice", "output_config", "thinking",
 	"stop_sequences", "metadata"}
 
-// DefaultTimeout bounds one model call, and the writing of its answer: a
-// long answer takes minutes, which the listener's write timeout would cut
-// short, and a cut answer is retried by the SDK, a call billed again.
-const DefaultTimeout = 10 * time.Minute
+// DefaultTimeout bounds one model call; its answer may take WriteMargin
+// more to write. A long answer takes minutes, which the listener's write
+// timeout would cut short, and a cut answer is retried by the SDK, a call
+// billed again.
+const DefaultTimeout = api.ModelCallTimeout
+
+// WriteMargin is the time past the call's own that its answer may take to
+// write: the deadline is set before the checks, the provider's timeout
+// only once it is called.
+const WriteMargin = time.Minute
 
 // Provider sends a Messages API request to the model provider.
 type Provider interface {
@@ -348,7 +355,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// The answer may take the call's time to come: the listener's write
 	// timeout is for other requests.
-	_ = http.NewResponseController(w).SetWriteDeadline(clock.Now(g.Now).Add(g.timeout())) // a writer without deadlines has none to lift
+	_ = http.NewResponseController(w).SetWriteDeadline(clock.Now(g.Now).Add(g.timeout() + WriteMargin)) // a writer without deadlines has none to lift
 	a, err := g.serve(ctx, p, call{body: body, betas: betas(r.Header), session: session, check: g.ownTx(p), record: g.ownTx(p)})
 	if err != nil {
 		g.fail(w, r, err)

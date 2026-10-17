@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/app"
@@ -412,8 +413,8 @@ func (s *server) controlPlane(ctx context.Context) error {
 }
 
 // modelTimeout bounds one call to the model provider: a long answer takes
-// minutes, which no request deadline would allow.
-const modelTimeout = 10 * time.Minute
+// minutes, which no request deadline would allow (api.ModelCallTimeout).
+const modelTimeout = api.ModelCallTimeout
 
 // modelClient reaches the model provider: the TLS material's client when
 // there is one (ADR-0033), within modelTimeout.

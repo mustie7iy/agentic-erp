@@ -375,8 +375,8 @@ func TestGatewayWriteDeadline(t *testing.T) {
 			w := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
 			r := httptest.NewRequest(http.MethodPost, agents.Route, strings.NewReader(`{"model": "erp-default", "max_tokens": 8, "messages": []}`))
 			g.ServeHTTP(w, r.WithContext(reqctx.WithPrincipal(r.Context(), principal(ten))))
-			if !w.deadline.Equal(now.Add(c.want)) {
-				t.Errorf("write deadline: got %v, want %v", w.deadline, now.Add(c.want))
+			if want := now.Add(c.want + agents.WriteMargin); !w.deadline.Equal(want) {
+				t.Errorf("write deadline: got %v, want %v", w.deadline, want)
 			}
 		})
 	}

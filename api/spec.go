@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -114,6 +115,13 @@ func DirectorySpec() []byte { return directoryYAML }
 func DirectoryOperations() (map[string]Operation, error) {
 	return parseOperations(directoryYAML, false)
 }
+
+// ModelCallTimeout is how long a model call through the gateway may take:
+// the provider's client gives up after it, and the cell and the router keep
+// the answer's connection open for it and a minute more, past their
+// listeners' write timeouts (ADR-0036). It is here, beside the gateway's
+// contract, because the cell and the router share it.
+const ModelCallTimeout = 10 * time.Minute
 
 // ModelSpec is the embedded model gateway contract (model.yaml): every
 // model call, served on the public listener outside the generated server
