@@ -1,0 +1,20 @@
+# cert-manager: issues the cell's service certificates through
+# aws-privateca-issuer (ADR-0035). Its CRDs come with it and stay when the
+# release goes, so removing it cannot delete every Certificate.
+crds:
+  enabled: true
+  keep: true
+replicaCount: 2
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+webhook:
+  replicaCount: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+cainjector:
+  replicaCount: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1

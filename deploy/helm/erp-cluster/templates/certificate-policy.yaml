@@ -1,0 +1,47 @@
+# The service certificates of the governed namespaces (ADR-0033,
+# ADR-0035). Each
+#   - comes from the environment's subordinate CA (erp-subordinate);
+#   - lives at most a day and is renewed with at least a third of it left:
+#     revocation is by short lifetime, with no CRL or OCSP (product owner);
+#   - declares server auth and/or client auth, from which the issuer picks
+#     an end-entity template, the only ones its role may use;
+#   - names exactly one SPIFFE identity in the environment's trust domain.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: erp-service-certificates
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  matchConstraints:
+    {{- include "erp-cluster.namespaceSelector" . | nindent 4 }}
+    resourceRules:
+      - apiGroups: [cert-manager.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [certificates]
+  variables:
+    - name: usages
+      expression: object.spec.?usages.orValue([])
+    - name: uris
+      expression: object.spec.?uris.orValue([])
+  validations:
+    - expression: >-
+        object.spec.issuerRef.name == 'erp-subordinate' &&
+        object.spec.issuerRef.kind == 'AWSPCAClusterIssuer' &&
+        object.spec.issuerRef.?group.orValue('') == 'awspca.cert-manager.io'
+      message: certificates come from the environment's subordinate CA (erp-subordinate)
+    - expression: >-
+        has(object.spec.duration) && duration(object.spec.duration) <= duration({{ .Values.certificates.maxDuration | quote }})
+      message: {{ printf "certificates live at most %s (duration)" .Values.certificates.maxDuration | quote }}
+    - expression: >-
+        has(object.spec.renewBefore) && duration(object.spec.renewBefore) >= duration({{ .Values.certificates.minRenewBefore | quote }}) &&
+        duration(object.spec.renewBefore) < duration(object.spec.duration)
+      message: {{ printf "certificates are renewed with at least %s left (renewBefore)" .Values.certificates.minRenewBefore | quote }}
+    - expression: >-
+        (variables.usages.exists(u, u == 'server auth') || variables.usages.exists(u, u == 'client auth')) &&
+        variables.usages.all(u, u in ['digital signature', 'key encipherment', 'server auth', 'client auth'])
+      message: certificates declare server auth and/or client auth, and no other extended usage
+    - expression: >-
+        variables.uris.size() == 1 && variables.uris[0].startsWith({{ printf "spiffe://%s/" (required "trustDomain is required" .Values.trustDomain) | quote }})
+      message: certificates name exactly one SPIFFE identity in the environment's trust domain

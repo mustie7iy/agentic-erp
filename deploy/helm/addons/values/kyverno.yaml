@@ -1,0 +1,22 @@
+# Kyverno, which enforces the erp-cluster chart's admission policies
+# (ADR-0035). Its admission controller reads the release images'
+# signatures from tooling's registry as the cell's kyverno IRSA role,
+# which trusts kyverno/kyverno-admission-controller only; the environment
+# sets the role (cell.workload_role_arns.kyverno):
+#   admissionController.rbac.serviceAccount.annotations."eks.amazonaws.com/role-arn"
+# Three admission replicas, since a policy that fails closed denies every
+# Pod of the platform while none answers.
+admissionController:
+  replicas: 3
+  rbac:
+    serviceAccount:
+      name: kyverno-admission-controller
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+backgroundController:
+  replicas: 2
+cleanupController:
+  replicas: 2
+reportsController:
+  replicas: 2

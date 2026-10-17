@@ -1,0 +1,10 @@
+apiVersion: v2
+name: erp-cluster
+description: >-
+  A cell cluster's own configuration on top of its add-ons (ADR-0035): the
+  certificate issuer on the environment's subordinate CA, the secret store,
+  the encrypted storage class, and the admission policies that admit only
+  release-signed images and short-lived service certificates.
+type: application
+version: 0.1.0
+kubeVersion: ">=1.33.0-0"

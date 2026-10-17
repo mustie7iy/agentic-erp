@@ -150,9 +150,8 @@ Balancer, TCP 443 to the router's pods as IP targets (registered by the
 `erp-global` chart's TargetGroupBinding, T40c), health-checked over TCP,
 protected from deletion. The router sees the load balancer's addresses,
 not the clients': passing the client address (proxy protocol v2, which the
-router must then read) comes with the router's TLS in T40c. Revocation
-(CRL or OCSP) is decided there too, with cert-manager's certificate
-lifetimes.
+router must then read) comes with the router's TLS in T40c. Revocation is
+by short lifetime (see Revocation).
 
 **Helm (T40c).** An `erp-cell` chart (the server, PgBouncer, NATS,
 Temporal) and an `erp-global` chart (the router); non-root, read-only root
@@ -168,6 +167,63 @@ the server's pods keep `ERP_MIGRATE_ON_START=false` and become ready only on
 the schema they were built for. Kyverno admits only images signed with the
 release key, requiring a `cosign/sign/v1` signature (cosign alone takes an
 attestation for one, T39b) and both attestations.
+
+**Cluster add-ons and policies (T40c2).** Each cell runs five upstream
+charts, pinned by version and by their archive's SHA-256 in
+`deploy/helm/addons/charts.txt`, each a release of its own in its
+namespace: cert-manager, aws-privateca-issuer, the External Secrets
+Operator, the AWS Load Balancer Controller (for TargetGroupBinding only:
+it registers targets and creates no load balancer, listener or security
+group rule) and Kyverno. Each runs as an IRSA role of the cell
+(`workload_role_arns`) trusting exactly its service account; the EBS CSI
+driver is an EKS add-on with its role. The `erp-cluster` chart, installed
+after them, holds the cell's own resources: the `AWSPCAClusterIssuer` on
+the environment's subordinate, the `ClusterSecretStore` usable from the
+platform's namespaces only, the `erp-encrypted` StorageClass on the
+cluster key, and three Kyverno policies over the governed namespaces
+(`erp`, `erp-global`):
+- `erp-release-signed` (an ImageValidatingPolicy) admits an image only with
+  three in-toto statements signed by the release key: the
+  `https://sigstore.dev/cosign/sign/v1` statement that cosign v3 writes for
+  a signature, the SPDX SBOM and the SLSA provenance. Requiring the
+  signature by its statement type is what refuses an image that carries
+  only attestations: a signature check alone accepts them (T39b), which the
+  checks show. The key is the release key's public half (envs/tooling
+  `cosign_public_key`) in the policy, so verification needs no KMS call;
+  Kyverno reads the bundles from tooling's registry as its IRSA role.
+- `erp-release-images` refuses any image from elsewhere, and any image by
+  tag. Upstream images the platform runs in its namespaces (PgBouncer,
+  NATS) are therefore copied into the release registry and signed by the
+  release pipeline (T40c3).
+- `erp-service-certificates` admits a Certificate only from
+  `erp-subordinate`, with a lifetime of at most 24 hours renewed with at
+  least 8 left, `server auth` and/or `client auth` (the issuer's role may
+  use end-entity templates only) and exactly one SPIFFE identity in the
+  environment's trust domain.
+
+**Revocation (product owner, T40c).** By short lifetime, with no CRL or
+OCSP: service certificates live 24 hours and are renewed after 16, the
+policy above enforcing both; each environment trusts its own subordinate
+CA's certificate as the anchor in `ERP_TLS_CA`, not the root, so a
+compromised subordinate is distrusted by replacing it and its bundle, and
+no environment's certificate is trusted in another. None of the
+platform's TLS clients checks revocation (Go's crypto/tls, pgx, the NATS
+and Temporal SDKs), so a CRL or OCSP responder would cost money and
+change nothing; a CRL bucket would also need an exception to the
+encryption policy. ADR-0033 records it with the transport (T40c4).
+
+`scripts/helm-checks.sh` checks all of it without a cluster: the add-ons
+pulled and verified against their pins, rendered with an environment's
+values and validated with kubeconform, each running as the service account
+its role trusts; the erp-cluster chart validated against the pinned
+add-ons' CRDs and refusing to render without any value it requires; and
+`scripts/admission-checks.sh`, which signs and attests images with cosign
+v3 as the release does in a local registry with the referrers API (zot)
+and has Kyverno's CLI admit only the fully signed ones, by digest, from
+the release registry (and refuse attestations without a signature, a
+missing SBOM or provenance, another key, a tag, a foreign registry, an
+unsigned init container and an unsigned Deployment), and judge
+certificates likewise.
 
 **Delivery (T40d).** Argo CD in tooling pulls `deploy/`. A release is
 promoted by a pull request that pins its image digests per environment:
