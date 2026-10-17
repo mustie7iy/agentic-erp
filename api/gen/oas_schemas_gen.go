@@ -24570,6 +24570,11 @@ type SupplierInvoice struct {
 	Source string `json:"source"`
 	// Journal entry posted for the invoice (statuses `posted` and `reversed`).
 	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The payment terms the invoice posted with (T36b): its order's term, else its supplier's in the legal
+	// entity, counted from the invoice date; a correction naming an invoice has that invoice's. Absent
+	// before posting, on a credit memo or subsequent credit naming no invoice (due at once, no discount),
+	// and on invoices posted before terms were kept.
+	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
 	// Journal entry that reversed the posting (status `reversed`).
 	ReversalEntryID OptUUID `json:"reversal_entry_id"`
 	// Approval request for an invoice exception, if any.
@@ -24685,6 +24690,11 @@ func (s *SupplierInvoice) GetSource() string {
 // GetJournalEntryID returns the value of JournalEntryID.
 func (s *SupplierInvoice) GetJournalEntryID() OptUUID {
 	return s.JournalEntryID
+}
+
+// GetPaymentTerms returns the value of PaymentTerms.
+func (s *SupplierInvoice) GetPaymentTerms() OptItemPaymentTerms {
+	return s.PaymentTerms
 }
 
 // GetReversalEntryID returns the value of ReversalEntryID.
@@ -24815,6 +24825,11 @@ func (s *SupplierInvoice) SetSource(val string) {
 // SetJournalEntryID sets the value of JournalEntryID.
 func (s *SupplierInvoice) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
+}
+
+// SetPaymentTerms sets the value of PaymentTerms.
+func (s *SupplierInvoice) SetPaymentTerms(val OptItemPaymentTerms) {
+	s.PaymentTerms = val
 }
 
 // SetReversalEntryID sets the value of ReversalEntryID.

@@ -142,6 +142,12 @@ func TestSuppliersPort(t *testing.T) {
 		if ok, _ := s.PaymentTermExists(ctx, "NT99"); ok {
 			t.Error("NT99 exists")
 		}
+		if term, ok, err := s.PaymentTerm(ctx, "NT30"); !ok || err != nil || term.NetDays != 30 || len(term.Discounts) != 0 {
+			t.Errorf("payment term NT30: got %+v %v %v, want net 30 days without discounts", term, ok, err)
+		}
+		if _, ok, err := s.PaymentTerm(ctx, "NT99"); ok || err != nil {
+			t.Errorf("payment term NT99: got %v %v, want not found", ok, err)
+		}
 		return nil
 	})
 	if err != nil {
@@ -150,6 +156,7 @@ func TestSuppliersPort(t *testing.T) {
 	for name, call := range map[string]func(ctx context.Context) error{
 		"supplier": func(ctx context.Context) error { _, _, err := s.Supplier(ctx, f.Supplier, f.DE); return err },
 		"terms":    func(ctx context.Context) error { _, err := s.PaymentTermExists(ctx, "NT30"); return err },
+		"term":     func(ctx context.Context) error { _, _, err := s.PaymentTerm(ctx, "NT30"); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if call(context.Background()) == nil {

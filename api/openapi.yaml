@@ -16504,6 +16504,10 @@ components:
               format: uuid
               description: "Journal entry posted for the invoice (statuses `posted` and `reversed`)."
               readOnly: true
+            payment_terms:
+              $ref: "#/components/schemas/ItemPaymentTerms"
+              description: "The payment terms the invoice posted with (T36b): its order's term, else its supplier's in the legal entity, counted from the invoice date; a correction naming an invoice has that invoice's. Absent before posting, on a credit memo or subsequent credit naming no invoice (due at once, no discount), and on invoices posted before terms were kept."
+              readOnly: true
             reversal_entry_id:
               type: string
               format: uuid

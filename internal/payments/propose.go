@@ -271,10 +271,16 @@ type proposal struct {
 // it nets with the next run that pays the supplier (T34d). SAP has a credit
 // memo without an invoice reference due at once and gives one naming an
 // invoice that invoice's due date; netting earlier never pays more than is
-// owed.
+// owed. A credit posted with payment terms (T36b) is due on its net due
+// date by the terms it was posted with, so a later change to the term does
+// not move it; one posted without them (before T36, manual, migrated) by
+// its supplier's net days now.
 func dueDate(it ledger.PayableItem, payee partner.Payee) time.Time {
-	if it.Amount > 0 {
+	switch {
+	case it.Amount > 0:
 		return it.DocumentDate
+	case it.Terms != nil:
+		return it.Terms.NetDueDate()
 	}
 	return it.DocumentDate.AddDate(0, 0, payee.NetDays)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -44,6 +45,9 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 	}
 	if v.HoldReason != nil {
 		out.HoldReason.SetTo(*v.HoldReason)
+	}
+	if v.Terms != nil {
+		out.PaymentTerms.SetTo(ledger.TermsToAPI(*v.Terms))
 	}
 	out.PurchaseOrderID, out.JournalEntryID, out.ReversalEntryID, out.WorkflowRequestID =
 		apitypes.OptUUID(v.PurchaseOrderID), apitypes.OptUUID(v.JournalEntryID), apitypes.OptUUID(v.ReversalEntryID), apitypes.OptUUID(v.WorkflowRequestID)

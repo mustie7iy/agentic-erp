@@ -1044,6 +1044,17 @@ Each kind is matched and posted by its kind (T34c):
   such invoice is entered `on_hold` with the reason, for the reference to
   be entered by hand rather than dropped; an invoice printing one is not
   captured.
+- **Payment terms** (T36b): a document posts with the payment terms SAP's
+  invoice verification would give it, kept in `supplier_invoice_terms`
+  (migration 000066, insert-only) and passed to the ledger for its open
+  item (§3.7): a correction naming an invoice has that invoice's terms
+  (none for one posted before terms were kept); a credit memo or
+  subsequent credit naming none has none, as it is due at once and earns
+  no discount; any other document has its order's term, else its
+  supplier's in the legal entity, counted from its invoice date (422
+  `payables.unknown_payment_term` for a term that is not configured). The
+  invoice resource and `SupplierInvoicePosted` show them as
+  `payment_terms`; a later change to the term changes neither.
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
@@ -1175,8 +1186,9 @@ erDiagram
 ```
 
 A proposal pays each supplier its open items due by the run's due date,
-netted in one payment: an invoice is due its supplier's net days after its
-document date; every debit on the supplier account (a credit memo, whether
+netted in one payment: an invoice is due on the net due date of the terms
+it was posted with (T36b), or, posted without them (before T36, manual,
+migrated), its supplier's net days after its document date; every debit on the supplier account (a credit memo, whether
 or not it names an invoice, a subsequent credit, a manual or migrated
 debit) on its document date (T34d), so it nets with the next run that pays
 the supplier. SAP has a credit memo without an invoice reference due at

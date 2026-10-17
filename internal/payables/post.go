@@ -71,10 +71,17 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
+	terms, err := e.invoiceTerms(ctx, tx, v, sup)
+	if err != nil {
+		return Invoice{}, err
+	}
 	posting := invoicePosting(v, id, *date)
-	posting.Lines, posting.GRIR = lines, grir
+	posting.Lines, posting.GRIR, posting.Terms = lines, grir, terms
 	entry, err := e.Postings.Post(ctx, posting)
 	if err != nil {
+		return Invoice{}, err
+	}
+	if err := keepTerms(ctx, tx, v, terms); err != nil {
 		return Invoice{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'posted', posting_date = $2, journal_entry_year = $3, journal_entry_id = $4,
@@ -96,7 +103,8 @@ func recordPosted(ctx context.Context, posted Invoice, entry ledger.Entry) error
 			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": posted.PostingDate.Format(time.DateOnly),
 			"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
 			"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
-			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
+			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted,
+			"payment_terms": termsEvent(posted.Terms)}))
 }
 
 // invoicePosting is the journal entry's header for invoice id of its

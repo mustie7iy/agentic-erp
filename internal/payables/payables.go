@@ -89,6 +89,7 @@ type LegalEntities interface {
 // Suppliers is what payables reads about suppliers (partner context).
 type Suppliers interface {
 	Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID) (partner.Supplier, bool, error)
+	PaymentTerm(ctx context.Context, code string) (partner.PaymentTerm, bool, error)
 }
 
 // Orders is what payables reads about purchase orders (procurement context).
@@ -211,12 +212,14 @@ type Invoice struct {
 	Extensions         map[string]any
 	Kind               string     // KindInvoice, KindCreditMemo, KindSubsequentDebit or KindSubsequentCredit (T34)
 	ReferenceInvoiceID *uuid.UUID // the posted invoice a correction names
-	Items              []Item
-	Version            int32
-	CreatedAt          time.Time
-	CreatedBy          uuid.UUID
-	UpdatedAt          time.Time
-	UpdatedBy          uuid.UUID
+	// Terms are the payment terms the invoice posted with (T36b), or nil.
+	Terms     *ledger.ItemTerms
+	Items     []Item
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
 }
 
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
@@ -226,15 +229,22 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supp
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
 			'account_id', t.account_id) ORDER BY t.item_no)
 		 FROM payables.supplier_invoice_item t WHERE t.tenant_id = i.tenant_id AND t.supplier_invoice_id = i.id AND NOT t.is_removed), '[]'),
+		(SELECT json_build_object('code', t.payment_term_code, 'baseline', t.baseline_date, 'net_days', t.net_days, 'days1', t.discount_days,
+			'pct1', trim_scale(t.discount_pct)::text, 'days2', t.discount2_days, 'pct2', trim_scale(t.discount2_pct)::text)
+		 FROM payables.supplier_invoice_terms t WHERE t.tenant_id = i.tenant_id AND t.supplier_invoice_id = i.id),
 		i.version, i.created_at, i.created_by, i.updated_at, i.updated_by
 	FROM payables.supplier_invoice i JOIN ref.currency c ON c.code = i.currency`
 
 func scanInvoice(row pgx.Row) (Invoice, error) {
 	var v Invoice
+	var terms *storedTerms
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.SupplierID, &v.SupplierReference, &v.InvoiceDate, &v.PostingDate,
 		&v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256, &v.CaptureObjectRef,
 		&v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions, &v.Kind, &v.ReferenceInvoiceID,
-		&v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+		&v.Items, &terms, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+	if terms != nil {
+		v.Terms = terms.terms()
+	}
 	return v, errs.Wrapf(err, "scan invoice")
 }
 

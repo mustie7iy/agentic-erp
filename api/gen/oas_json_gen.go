@@ -33835,6 +33835,12 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentTerms.Set {
+			e.FieldStart("payment_terms")
+			s.PaymentTerms.Encode(e)
+		}
+	}
+	{
 		if s.ReversalEntryID.Set {
 			e.FieldStart("reversal_entry_id")
 			s.ReversalEntryID.Encode(e)
@@ -33866,7 +33872,7 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoice = [26]string{
+var jsonFieldsNameOfSupplierInvoice = [27]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -33888,11 +33894,12 @@ var jsonFieldsNameOfSupplierInvoice = [26]string{
 	18: "hold_reason",
 	19: "source",
 	20: "journal_entry_id",
-	21: "reversal_entry_id",
-	22: "workflow_request_id",
-	23: "items",
-	24: "extensions",
-	25: "expanded",
+	21: "payment_terms",
+	22: "reversal_entry_id",
+	23: "workflow_request_id",
+	24: "items",
+	25: "extensions",
+	26: "expanded",
 }
 
 // Decode decodes SupplierInvoice from json.
@@ -34138,6 +34145,16 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
+		case "payment_terms":
+			if err := func() error {
+				s.PaymentTerms.Reset()
+				if err := s.PaymentTerms.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_terms\"")
+			}
 		case "reversal_entry_id":
 			if err := func() error {
 				s.ReversalEntryID.Reset()
@@ -34159,7 +34176,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"workflow_request_id\"")
 			}
 		case "items":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				s.Items = make([]SupplierInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -34177,7 +34194,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "extensions":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -34208,8 +34225,8 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 	for i, mask := range [4]uint8{
 		0b11011111,
 		0b00110111,
-		0b10001010,
-		0b00000001,
+		0b00001010,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -170,6 +170,47 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 	return s, true, nil
 }
 
+// PaymentTerm is a payment term as payables posts with it: its net days
+// and up to two cash discount tiers, earliest first (T36a).
+type PaymentTerm struct {
+	Code      string
+	NetDays   int
+	Discounts []Discount
+}
+
+// Discount is a cash discount tier: Percent (a plain decimal) off for
+// payment within Days of the baseline date.
+type Discount struct {
+	Days    int
+	Percent string
+}
+
+// PaymentTerm returns the configured payment term, or ok = false.
+func (Suppliers) PaymentTerm(ctx context.Context, code string) (PaymentTerm, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return PaymentTerm{}, false, err
+	}
+	t := PaymentTerm{Code: code}
+	var days1, days2 *int
+	var pct1, pct2 *string
+	err = tx.QueryRow(ctx, `SELECT net_days, discount_days, trim_scale(discount_pct)::text, discount2_days, trim_scale(discount2_pct)::text
+		FROM partner.payment_term WHERE code = $1`, code).Scan(&t.NetDays, &days1, &pct1, &days2, &pct2)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PaymentTerm{}, false, nil
+	}
+	if err != nil {
+		return PaymentTerm{}, false, fmt.Errorf("partner: read payment term %s: %w", code, err)
+	}
+	if days1 != nil { // a tier's days and percent are null together (000004, 000065)
+		t.Discounts = append(t.Discounts, Discount{Days: *days1, Percent: *pct1})
+	}
+	if days2 != nil {
+		t.Discounts = append(t.Discounts, Discount{Days: *days2, Percent: *pct2})
+	}
+	return t, true, nil
+}
+
 // PaymentTermExists reports whether the payment terms are configured.
 func (Suppliers) PaymentTermExists(ctx context.Context, code string) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
