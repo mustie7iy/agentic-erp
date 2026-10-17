@@ -147,3 +147,15 @@ resource "aws_eks_addon" "ebs_csi" {
   resolve_conflicts_on_update = "PRESERVE"
   depends_on                  = [aws_eks_node_group.cell]
 }
+
+# The VPC CNI as a managed add-on with its network policy agent on: without
+# it Kubernetes NetworkPolicies are accepted and not enforced, and the
+# charts' default deny would be a comment (deploy/helm/erp-cell).
+resource "aws_eks_addon" "vpc_cni" {
+  cluster_name                = aws_eks_cluster.cell.name
+  addon_name                  = "vpc-cni"
+  addon_version               = var.vpc_cni_addon_version
+  configuration_values        = jsonencode({ enableNetworkPolicy = "true" })
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "PRESERVE"
+}

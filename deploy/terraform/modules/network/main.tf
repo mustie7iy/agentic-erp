@@ -12,7 +12,7 @@
 # endpoint: the tenants' identity providers, banks, model APIs.
 
 variable "name" {
-  description = "The cell's name, e.g. dev-1; prefixes every resource."
+  description = "The cell's name, e.g. dev1; prefixes every resource."
   type        = string
 }
 

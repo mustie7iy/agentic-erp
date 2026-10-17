@@ -1,7 +1,7 @@
 # A cell's values for the checks (scripts/helm-checks.sh): what an
 # environment's Terraform outputs and a release give a real one. The
 # admission checks replace the images with ones they signed.
-cell: dev-1
+cell: dev1
 region: eu-central-1
 trustDomain: dev.erp.example
 vpcCidr: 10.16.0.0/16
@@ -18,20 +18,20 @@ trust:
     MIIBdzCCAR2gAwIBAgIUSubordinateForTheChecks0wCgYIKoZIzj0EAwIwEjEQ
     -----END CERTIFICATE-----
 server:
-  roleArn: arn:aws:iam::222222222222:role/erp-dev-1-server
+  roleArn: arn:aws:iam::222222222222:role/erp-dev1-server
   operatorIssuers: '[{"issuer":"https://operators.example.com","audience":"erp-control"}]'
-  objectBucket: erp-dev-1-objects-x
+  objectBucket: erp-dev1-objects-x
   fieldKmsKeyArn: arn:aws:kms:eu-central-1:222222222222:key/0d5c2b1e-0000-4000-8000-000000000000
   awsEndpoints:
     sts: https://sts.eu-central-1.amazonaws.com
     kms: https://kms.eu-central-1.amazonaws.com
     s3: https://s3.eu-central-1.amazonaws.com
 database:
-  writerHost: erp-dev-1.abc.eu-central-1.rds.amazonaws.com
+  writerHost: erp-dev1.abc.eu-central-1.rds.amazonaws.com
   masterSecretArn: "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1"
   caBundle: |
     -----BEGIN CERTIFICATE-----
     MIIBdzCCAR2gAwIBAgIURdsBundleForTheChecks000wCgYIKoZIzj0EAwIwEjEQ
     -----END CERTIFICATE-----
 secrets:
-  prefix: erp/dev-1
+  prefix: erp/dev1

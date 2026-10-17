@@ -2,4 +2,4 @@
 # Terraform's outputs give a real one.
 serviceAccount:
   annotations:
-    "eks.amazonaws.com/role-arn": arn:aws:iam::222222222222:role/erp-dev-1-cert-manager
+    "eks.amazonaws.com/role-arn": arn:aws:iam::222222222222:role/erp-dev1-cert-manager

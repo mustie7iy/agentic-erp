@@ -180,12 +180,12 @@ required cell region trustDomain vpcCidr trust.caBundle secrets.prefix \
   server.roleArn server.operatorIssuers server.objectBucket server.fieldKmsKeyArn \
   server.awsEndpoints.sts server.awsEndpoints.kms server.awsEndpoints.s3 \
   database.writerHost database.masterSecretArn database.caBundle
-for bad in 'images.server.digest=latest' 'images.server.repository=registry.example/erp-server@sha256:1'; do
+for bad in 'images.server.digest=latest' 'images.server.repository=registry.example/erp-server@sha256:1' 'cell=dev-1'; do
   if "$HELM" template erp-cell "$chart" --namespace erp -f "$values" --set "$bad" >/dev/null 2>&1; then
     echo "helm-checks: erp-cell took $bad" >&2
     exit 1
   fi
 done
-echo "helm-checks: erp-cell refuses to render without each value it requires, or with an image not by digest"
+echo "helm-checks: erp-cell refuses to render without each value it requires, with an image not by digest, or a cell id ERP_CELL refuses"
 
 CRDS="$work/crds.yaml" HELM="$HELM" CONFTEST="$CONFTEST" ./scripts/admission-checks.sh

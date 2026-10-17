@@ -22,7 +22,7 @@ mock_provider "aws" {
   }
   mock_resource "aws_eks_cluster" {
     defaults = {
-      arn      = "arn:aws:eks:eu-central-1:222222222222:cluster/erp-test-1"
+      arn      = "arn:aws:eks:eu-central-1:222222222222:cluster/erp-test1"
       identity = [{ oidc = [{ issuer = "https://oidc.eks.eu-central-1.amazonaws.com/id/ABC" }] }]
     }
   }
@@ -39,13 +39,13 @@ mock_provider "aws" {
     defaults = { arn = "arn:aws:iam::222222222222:role/mock" }
   }
   mock_resource "aws_s3_bucket" {
-    defaults = { arn = "arn:aws:s3:::erp-test-1-objects-x" }
+    defaults = { arn = "arn:aws:s3:::erp-test1-objects-x" }
   }
   mock_resource "aws_launch_template" {
     defaults = { id = "lt-0123456789abcdef0", latest_version = 1 }
   }
   mock_resource "aws_secretsmanager_secret" {
-    defaults = { arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/test-1/x" }
+    defaults = { arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/test1/x" }
   }
   mock_resource "aws_lb" {
     defaults = { arn = "arn:aws:elasticloadbalancing:eu-central-1:222222222222:loadbalancer/net/erp-test-router/0" }
@@ -81,8 +81,8 @@ run "the_test_environment_plans_and_wires_its_parts" {
     error_message = "the environment's subordinate CA lives in the test account"
   }
   assert {
-    condition     = output.cell.cluster_name == "erp-test-1" && output.cell.object_bucket != null
-    error_message = "the cell is test-1"
+    condition     = output.cell.cluster_name == "erp-test1" && output.cell.object_bucket != null
+    error_message = "the cell is test1"
   }
   assert {
     condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi", "load_balancer", "kyverno"])

@@ -1,4 +1,4 @@
-# The test environment (ADR-0035): one cell, test-1, its global tier and the
+# The test environment (ADR-0035): one cell, test1, its global tier and the
 # environment's subordinate CA. Regions, administrator roles and the CA's
 # subject are settled at first apply, in a terraform.tfvars kept out of the
 # repository.
@@ -9,7 +9,7 @@ variable "account_id" {
 }
 
 variable "region" {
-  description = "The region of the cell test-1."
+  description = "The region of the cell test1."
   type        = string
 }
 
@@ -88,7 +88,7 @@ resource "aws_iam_service_linked_role" "autoscaling" {
 
 module "cell" {
   source                    = "../../modules/cell"
-  name                      = "test-1"
+  name                      = "test1"
   autoscaling_role_arn      = aws_iam_service_linked_role.autoscaling.arn
   image_registry_account_id = var.tooling_account_id
   cidr                      = "10.32.0.0/16"
@@ -116,7 +116,7 @@ module "global" {
 }
 
 output "cell" {
-  description = "The cell test-1: cluster, database, bucket, keys and workload roles (the erp-cell chart's values, T40c)."
+  description = "The cell test1: cluster, database, bucket, keys and workload roles (the erp-cell chart's values, T40c)."
   value = {
     cluster_name               = module.cell.cluster_name
     vpc_id                     = module.cell.vpc_id

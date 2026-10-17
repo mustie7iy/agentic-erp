@@ -4,4 +4,4 @@ admissionController:
   rbac:
     serviceAccount:
       annotations:
-        "eks.amazonaws.com/role-arn": arn:aws:iam::222222222222:role/erp-dev-1-kyverno
+        "eks.amazonaws.com/role-arn": arn:aws:iam::222222222222:role/erp-dev1-kyverno

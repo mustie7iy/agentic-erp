@@ -34,11 +34,12 @@ spec:
         {{- include "erp-cell.labels" (dict "root" . "component" "erp-pgbouncer") | nindent 8 }}
     spec:
       automountServiceAccountToken: false
+      enableServiceLinks: false
       # The reloader signals PgBouncer across the containers.
       shareProcessNamespace: true
-      # The image's pgbouncer user (deploy/images/upstream.txt).
+      # The image's pgbouncer user and group (deploy/images/upstream.txt).
       securityContext:
-        {{- include "erp-cell.podSecurity" (dict "uid" 998) | nindent 8 }}
+        {{- include "erp-cell.podSecurity" (dict "uid" 998 "gid" 996) | nindent 8 }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone

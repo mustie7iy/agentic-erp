@@ -182,13 +182,16 @@ Kubernetes' restricted Pod Security profile):
 - PgBouncer: two replicas, transaction mode, `max_prepared_statements`
   for pgx, TLS 1.3 to its clients (its certificate) and to the writer
   (verified against RDS's bundle). The cell logs in to it with a static
-  password operators set (`erp/<cell>/database-client-password`); it logs
+  password operators set (`erp/<cell>/database-client-password`, letters
+  and digits, since it goes into a URL); it logs
   in to the writer with the RDS-managed master credentials, which RDS
   rotates weekly. External Secrets refreshes them every five minutes and
   a sidecar of the same image sends PgBouncer SIGHUP when its
   configuration or its daily-renewed certificate changes, so the rotation
-  reaches no other component and drops no open connection; new server
-  connections opened between a rotation and the reload fail.
+  reaches no other component; PgBouncer replaces its server connections as
+  they are released, and new ones opened between a rotation and the
+  reload fail. In its connection string a single quote is doubled, in its
+  user list a double quote.
 - Certificates for the server and PgBouncer as `erp-service-certificates`
   requires (a day, renewed with 8 hours left, one SPIFFE identity, the
   service's own names); the environment's subordinate CA certificate is
@@ -196,13 +199,25 @@ Kubernetes' restricted Pod Security profile):
 - Network policies: default deny; the API and admin listener from the
   router's namespace; the server to PgBouncer and to 443 (the VPC's AWS
   endpoints and the tenants' identity providers); PgBouncer and the Job to
-  the writer in the VPC; DNS.
+  the writer in the VPC; DNS. The VPC CNI is a managed add-on of the cell
+  with its network policy agent on, which enforces them; whether it lets
+  kubelet's probes through is checked at the first install.
+- The cell's id is one rule everywhere: a letter, then lower-case letters
+  or digits, at most 20 (the platform's `ERP_CELL`), so Terraform's cell
+  name, `ERP_CELL` and the SPIFFE path agree (`dev1`, `test1`).
 - Images by digest from the release registry. The upstream PgBouncer and
   NATS images are pinned by their linux/arm64 digests in
   `deploy/images/upstream.txt` and copied into `erp-pgbouncer` and
   `erp-nats` with their SBOM by `scripts/mirror-images.sh`, which the
   release runs before `sign-images.sh`, so they are signed and attested
-  like the platform's own.
+  like the platform's own. Their provenance says what they are, a copy of
+  `source@digest` by the release, not a build from this repository: the
+  script writes it, and `sign-images.sh` attests it in place of the build
+  provenance once T39's release and T40 meet. The script refuses an index,
+  another platform, a source that serves another manifest and a release
+  tag that names another image.
+- The migrations' time is bounded by the installer's timeout (Helm's
+  `--timeout`, Argo CD's sync in T40d) as much as by the Job's deadline.
 
 `scripts/helm-checks.sh` renders it, validates it against the add-ons'
 CRDs, refuses a render missing any value it requires or naming an image by

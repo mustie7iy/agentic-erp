@@ -16,7 +16,7 @@ mock_provider "aws" {
   }
   mock_resource "aws_eks_cluster" {
     defaults = {
-      arn      = "arn:aws:eks:eu-central-1:222222222222:cluster/erp-dev-1"
+      arn      = "arn:aws:eks:eu-central-1:222222222222:cluster/erp-dev1"
       identity = [{ oidc = [{ issuer = "https://oidc.eks.eu-central-1.amazonaws.com/id/ABC" }] }]
     }
   }
@@ -30,24 +30,24 @@ mock_provider "aws" {
     defaults = { arn = "arn:aws:iam::222222222222:role/mock" }
   }
   mock_resource "aws_s3_bucket" {
-    defaults = { arn = "arn:aws:s3:::erp-dev-1-objects-x" }
+    defaults = { arn = "arn:aws:s3:::erp-dev1-objects-x" }
   }
   mock_resource "aws_launch_template" {
     defaults = { id = "lt-0123456789abcdef0", latest_version = 1 }
   }
   mock_resource "aws_db_instance" {
     defaults = {
-      address            = "erp-dev-1.abc.eu-central-1.rds.amazonaws.com"
+      address            = "erp-dev1.abc.eu-central-1.rds.amazonaws.com"
       master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1", kms_key_id = "k", secret_status = "active" }]
     }
   }
   mock_resource "aws_secretsmanager_secret" {
-    defaults = { arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/dev-1/x" }
+    defaults = { arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/dev1/x" }
   }
 }
 
 variables {
-  name                      = "dev-1"
+  name                      = "dev1"
   cidr                      = "10.10.0.0/16"
   availability_zones        = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
   admin_role_arns           = ["arn:aws:iam::222222222222:role/platform-admin"]
@@ -161,6 +161,10 @@ run "the_controllers_may_do_what_the_charts_need_only" {
     condition     = aws_eks_addon.ebs_csi.service_account_role_arn == aws_iam_role.workload["ebs_csi"].arn
     error_message = "the EBS CSI add-on runs as its role"
   }
+  assert {
+    condition     = jsondecode(aws_eks_addon.vpc_cni.configuration_values).enableNetworkPolicy == "true"
+    error_message = "the VPC CNI enforces network policies"
+  }
 }
 
 run "only_the_server_unwraps_tenant_keys" {
@@ -232,7 +236,7 @@ run "dev_and_test_run_a_single_instance_that_still_requires_tls_1_3" {
     error_message = "in the zone of the NAT gateway and the endpoints"
   }
   assert {
-    condition     = output.database_endpoint == "erp-dev-1.abc.eu-central-1.rds.amazonaws.com" && output.database_master_secret_arn == "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1"
+    condition     = output.database_endpoint == "erp-dev1.abc.eu-central-1.rds.amazonaws.com" && output.database_master_secret_arn == "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1"
     error_message = "the outputs name the single instance's host and master secret"
   }
   assert {
@@ -277,7 +281,7 @@ run "secrets_and_objects_are_encrypted_with_the_data_key" {
   command = apply
 
   assert {
-    condition     = alltrue([for s in aws_secretsmanager_secret.cell : s.kms_key_id == aws_kms_key.data.arn && startswith(s.name, "erp/dev-1/")])
+    condition     = alltrue([for s in aws_secretsmanager_secret.cell : s.kms_key_id == aws_kms_key.data.arn && startswith(s.name, "erp/dev1/")])
     error_message = "the cell's secrets are under erp/<cell>/ and encrypted with its data key"
   }
   assert {
@@ -295,4 +299,12 @@ run "a_second_cell_in_the_region_leaves_the_account_defaults_alone" {
     condition     = length(aws_ebs_encryption_by_default.cell) == 0 && length(aws_ebs_default_kms_key.cell) == 0
     error_message = "only one cell manages the account's EBS defaults"
   }
+}
+
+run "a_cell_name_the_platform_refuses_is_refused" {
+  command = plan
+  variables {
+    name = "dev-1"
+  }
+  expect_failures = [var.name]
 }

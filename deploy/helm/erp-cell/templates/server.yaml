@@ -36,6 +36,9 @@ spec:
         {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 8 }}
     spec:
       serviceAccountName: erp-server
+      # No Service variables in the environment: the server reads ERP_*
+      # settings, and ERP_SERVER_* would be among them.
+      enableServiceLinks: false
       # IRSA's token is projected by EKS; the Kubernetes API is not called.
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
@@ -56,7 +59,7 @@ spec:
             - {name: admin, containerPort: 9090}
           env:
             - {name: ERP_ENV, value: production}
-            - {name: ERP_CELL, value: {{ required "cell is required" .Values.cell | quote }}}
+            - {name: ERP_CELL, value: {{ include "erp-cell.cell" . | quote }}}
             - {name: ERP_TRUST_DOMAIN, value: {{ required "trustDomain is required" .Values.trustDomain | quote }}}
             - {name: ERP_HTTP_ADDR, value: ":8080"}
             - {name: ERP_ADMIN_ADDR, value: ":9090"}

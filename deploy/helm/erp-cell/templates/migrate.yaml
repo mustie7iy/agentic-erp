@@ -6,7 +6,9 @@
 # reads only that URL (config.LoadSchema), so it holds no key, issuer or
 # store; the URL's ExternalSecret and the RDS bundle are hooks of lower
 # weight, there before it. The pods keep ERP_MIGRATE_ON_START=false and are
-# ready only on the schema they were built for.
+# ready only on the schema they were built for. What bounds a release's
+# migrations is the installer's timeout (helm --timeout, Argo CD's sync,
+# T40d) as much as migrations.deadlineSeconds: give it as much.
 {{- $master := required "database.masterSecretArn is required" .Values.database.masterSecretArn }}
 {{- $writer := required "database.writerHost is required: cell.database_endpoint" .Values.database.writerHost }}
 apiVersion: external-secrets.io/v1
@@ -18,7 +20,8 @@ metadata:
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "-10"
-    helm.sh/hook-delete-policy: before-hook-creation
+    # The master URL lives only while the release's hooks run.
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   refreshInterval: 1h
   secretStoreRef:

@@ -13,11 +13,13 @@
 # Temporal's databases live on the cell's DB cluster.
 
 variable "name" {
-  description = "The cell's name, e.g. dev-1."
+  description = "The cell's name, e.g. dev1."
   type        = string
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{1,20}$", var.name))
-    error_message = "lower-case letters, digits and hyphens, at most 21 characters"
+    # The platform's own rule for ERP_CELL, which the cell's name is
+    # (config: 1-20 lower-case letters or digits), and its SPIFFE path.
+    condition     = can(regex("^[a-z][a-z0-9]{1,19}$", var.name))
+    error_message = "a letter, then lower-case letters or digits, at most 20 characters: ERP_CELL's rule"
   }
 }
 
@@ -61,6 +63,12 @@ variable "image_registry_account_id" {
     condition     = can(regex("^[0-9]{12}$", var.image_registry_account_id))
     error_message = "a 12-digit account id"
   }
+}
+
+variable "vpc_cni_addon_version" {
+  description = "The EKS add-on version of the VPC CNI; null takes EKS's default for the cluster's Kubernetes version."
+  type        = string
+  default     = null
 }
 
 variable "ebs_csi_addon_version" {

@@ -12,9 +12,19 @@
 {{- printf "%s@%s" $repository $digest -}}
 {{- end -}}
 
+{{/* The cell's id: ERP_CELL, the SPIFFE path, Terraform's cell name, by
+the platform's one rule. */}}
+{{- define "erp-cell.cell" -}}
+{{- $cell := required "cell is required" .Values.cell -}}
+{{- if not (regexMatch "^[a-z][a-z0-9]{1,19}$" $cell) -}}
+{{- fail (printf "cell %q must be a letter, then lower-case letters or digits, at most 20 (ERP_CELL's rule)" $cell) -}}
+{{- end -}}
+{{- $cell -}}
+{{- end -}}
+
 {{/* The SPIFFE identity of a service of this cell. */}}
 {{- define "erp-cell.spiffe" -}}
-{{- printf "spiffe://%s/%s/%s" (required "trustDomain is required" .root.Values.trustDomain) (required "cell is required" .root.Values.cell) .service -}}
+{{- printf "spiffe://%s/%s/%s" (required "trustDomain is required" .root.Values.trustDomain) (include "erp-cell.cell" .root) .service -}}
 {{- end -}}
 
 {{/* Labels of a component. */}}
@@ -22,7 +32,7 @@
 app.kubernetes.io/name: {{ .component }}
 app.kubernetes.io/part-of: erp
 app.kubernetes.io/instance: {{ .root.Release.Name }}
-erp.platform/cell: {{ required "cell is required" .root.Values.cell }}
+erp.platform/cell: {{ include "erp-cell.cell" .root }}
 {{- end -}}
 
 {{- define "erp-cell.selector" -}}
@@ -34,8 +44,8 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- define "erp-cell.podSecurity" -}}
 runAsNonRoot: true
 runAsUser: {{ .uid }}
-runAsGroup: {{ .uid }}
-fsGroup: {{ .uid }}
+runAsGroup: {{ .gid | default .uid }}
+fsGroup: {{ .gid | default .uid }}
 seccompProfile:
   type: RuntimeDefault
 {{- end -}}

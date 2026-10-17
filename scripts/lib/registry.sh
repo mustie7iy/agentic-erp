@@ -43,5 +43,10 @@ push_image() {
     cat "$layer.log" >&2
     return 1
   }
+  # A linux/arm64 image, as the cells run.
+  "${CRANE:-crane}" mutate --insecure --set-platform linux/arm64 "$registry/$1:$2" >/dev/null 2>"$layer.log" || {
+    cat "$layer.log" >&2
+    return 1
+  }
   "${CRANE:-crane}" digest --insecure "$registry/$1:$2"
 }

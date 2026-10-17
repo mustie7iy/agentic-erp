@@ -5,7 +5,7 @@ mock_provider "aws" {
 }
 
 variables {
-  name               = "dev-1"
+  name               = "dev1"
   cidr               = "10.10.0.0/16"
   availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
 }

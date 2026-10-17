@@ -1,8 +1,8 @@
 # An environment's values for the checks (scripts/helm-checks.sh): what
 # Terraform's outputs give a real one.
-clusterName: erp-dev-1
+clusterName: erp-dev1
 region: eu-central-1
 vpcId: vpc-0123456789abcdef0
 serviceAccount:
   annotations:
-    "eks.amazonaws.com/role-arn": arn:aws:iam::222222222222:role/erp-dev-1-load-balancer
+    "eks.amazonaws.com/role-arn": arn:aws:iam::222222222222:role/erp-dev1-load-balancer

@@ -3,7 +3,7 @@
 # digests, T40d). Every one without a default is required: rendering fails
 # without it.
 
-# The cell's name (ERP_CELL, the SPIFFE path), e.g. dev-1.
+# The cell's name (ERP_CELL, the SPIFFE path), e.g. dev1.
 cell: ""
 # The cell's region.
 region: ""

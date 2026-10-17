@@ -37,7 +37,9 @@ got="$("$CRANE" digest --insecure "$registry/erp-proxy:1.0")"
 [ "$(cat out/images.txt)" = "$registry/erp-proxy@$digest" ] || fail "images.txt: $(cat out/images.txt)"
 first="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["packages"][0]["name"])' out/sbom/erp-proxy.spdx.json)"
 [ "$first" = "$digest" ] || fail "the SBOM's first package is $first, want $digest"
-echo "test-mirror-images: copied by digest, listed, with its SBOM"
+copied="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["buildDefinition"]["externalParameters"]["digest"])' out/provenance/erp-proxy.json)"
+[ "$copied" = "$digest" ] || fail "the provenance names $copied, want $digest"
+echo "test-mirror-images: copied by digest, listed, with its SBOM and a provenance of the copy"
 
 mirror list.txt again || { cat again.log >&2; fail "a second release failed"; }
 grep -q "erp-proxy@$digest" again/images.txt || fail "a second release did not list the image"
@@ -59,4 +61,14 @@ echo '# nothing' >empty.txt
 refused empty.txt "lists no image"
 printf 'proxy %s/upstream/proxy 1.0 latest\n' "$registry" >malformed.txt
 refused malformed.txt "is not a sha256 digest"
-echo "test-mirror-images: unserved pins, taken tags, empty lists and malformed digests are refused"
+printf 'proxy %s/upstream/proxy 1.0 sha256:%064d\n' "$registry" 0 | tr 0 Z >nothex.txt
+refused nothex.txt "is not a sha256 digest"
+printf '../x %s/upstream/proxy 1.0 %s\n' "$registry" "$digest" >badname.txt
+refused badname.txt "is not a repository name"
+index="$("$CRANE" index append --insecure -m "$registry/upstream/proxy@$digest" -t "$registry/upstream/proxy:index" 2>/dev/null | sed 's/.*@//')"
+printf 'proxy %s/upstream/proxy index %s\n' "$registry" "$index" >index.txt
+refused index.txt "want one linux/arm64 image"
+amd64="$("$CRANE" mutate --insecure --set-platform linux/amd64 "$registry/upstream/proxy@$digest" -t "$registry/upstream/proxy:amd64" 2>/dev/null | sed 's/.*@//')"
+printf 'proxy %s/upstream/proxy amd64 %s\n' "$registry" "$amd64" >amd64.txt
+refused amd64.txt "is linux/amd64, want one linux/arm64 image"
+echo "test-mirror-images: unserved pins, taken tags, empty lists, malformed digests and names, indexes and other platforms are refused"
