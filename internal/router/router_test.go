@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"maps"
@@ -94,6 +95,7 @@ func TestLoadConfig(t *testing.T) {
 		"bad cache":           {"ERP_DIRECTORY_CACHE": "0"},
 		"bad shutdown":        {"ERP_SHUTDOWN_TIMEOUT": "soon"},
 		"bad level":           {"ERP_LOG_LEVEL": "loud"},
+		"bad proxy sources":   {"ERP_ROUTER_PROXY_FROM": "10.0.0.0/33"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := map[string]string{}
@@ -113,6 +115,7 @@ func TestLoadConfig(t *testing.T) {
 		m[k] = v
 	}
 	m["ERP_ROUTER_ADDR"], m["ERP_DIRECTORY_CACHE"], m["ERP_LOG_LEVEL"] = "127.0.0.1:0", "5s", "debug"
+	m["ERP_ROUTER_PROXY_FROM"] = "10.1.0.0/20, 10.1.16.5/20,"
 	if c, err = router.LoadConfig(env(m)); err != nil {
 		t.Fatalf("overrides: %v", err)
 	}
@@ -120,6 +123,7 @@ func TestLoadConfig(t *testing.T) {
 	check("AdminAddr", c.AdminAddr, ":9091")
 	check("overridden CacheTTL", c.CacheTTL, 5*time.Second)
 	check("overridden LogLevel", c.LogLevel, slog.LevelDebug)
+	check("ProxyFrom", fmt.Sprint(c.ProxyFrom), "[10.1.0.0/20 10.1.16.0/20]")
 	if c.OperatorIssuers != nil {
 		t.Errorf("OperatorIssuers: got %v, want nil", c.OperatorIssuers)
 	}

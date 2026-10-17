@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -45,6 +46,7 @@ type Config struct {
 	Identity        *tlsconf.Store    // ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY (env: or file:): the router's SPIFFE identity, to the cells and on the admin listener; nil without (development)
 	Public          *tlsconf.Store    // ERP_ROUTER_PUBLIC_CERT, ERP_ROUTER_PUBLIC_KEY (env: or file:): the public listener's certificate, a public CA's; nil: plaintext (development)
 	TrustDomain     string            // ERP_TRUST_DOMAIN: the cells the router reaches are spiffe://<domain>/<cell>/erp-server (ADR-0033)
+	ProxyFrom       []netip.Prefix    // ERP_ROUTER_PROXY_FROM, CIDRs: the load balancer's subnets, whose connections begin with a PROXY v2 header naming the client (ADR-0035); empty: none
 }
 
 // LoadConfig reads and validates the configuration.
@@ -79,7 +81,26 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
 	}
 	errs = append(errs, c.loadTLS(getenv)...)
+	if c.ProxyFrom, err = proxyFrom(getenv("ERP_ROUTER_PROXY_FROM")); err != nil {
+		errs = append(errs, err)
+	}
 	return c, errors.Join(errs...)
+}
+
+// proxyFrom parses ERP_ROUTER_PROXY_FROM, a comma-separated list of CIDRs.
+func proxyFrom(raw string) ([]netip.Prefix, error) {
+	var from []netip.Prefix
+	for part := range strings.SplitSeq(raw, ",") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(part)
+		if err != nil {
+			return nil, fmt.Errorf("ERP_ROUTER_PROXY_FROM must be a comma-separated list of CIDRs (the load balancer's subnets), not %q", part)
+		}
+		from = append(from, p.Masked())
+	}
+	return from, nil
 }
 
 // loadIssuers reads the static issuers and the operators' issuers, with
