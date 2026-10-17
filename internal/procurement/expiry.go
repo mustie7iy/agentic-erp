@@ -73,35 +73,49 @@ func (x *ContractExpirer) Expire(ctx context.Context, tenant uuid.UUID) (int, er
 	if err := database.SetActor(ctx, tx, ExpirerActor); err != nil {
 		return 0, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id FROM procurement.contract WHERE status = 'active' AND valid_to < current_date ORDER BY id FOR UPDATE`)
-	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-	if err != nil {
-		return 0, fmt.Errorf("procurement: list contracts due in tenant %s: %w", tenant, err)
-	}
 	actor := reqctx.Principal{ID: ExpirerActor, Kind: reqctx.KindSystem, TenantID: tenant}
-	now := clock.Now(x.Now).UTC()
-	for _, id := range ids {
-		c, err := scanContract(tx.QueryRow(ctx, contractSelect+` WHERE c.id = $1`, id))
-		if err != nil {
-			return 0, fmt.Errorf("procurement: expire contract %s: %w", id, err)
-		}
-		if _, err := tx.Exec(ctx, `UPDATE procurement.contract SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, Expired, ExpirerActor); err != nil {
-			return 0, fmt.Errorf("procurement: expire contract %s: %w", id, err)
-		}
-		payload := map[string]any{"contract_id": id, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
-			"valid_to": c.ValidTo.Format(time.DateOnly), "consumed_value": money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent), "previous_status": Active, "status": Expired}
-		if _, err := outbox.Write(ctx, tx, tenant, ExpirerActor, "", event("contract_expired", "contract", id, payload)); err != nil {
-			return 0, err
-		}
-		if err := audit.Write(ctx, tx, actor, "", now, audit.Entry{Action: "procurement.contract.expire", ObjectType: "procurement.contract", ObjectID: id, Outcome: "succeeded",
-			Detail: map[string]any{"from_status": Active, "valid_to": c.ValidTo.Format(time.DateOnly)}}); err != nil {
-			return 0, err
-		}
+	n, err := expireDue(ctx, tx, actor, clock.Now(x.Now).UTC())
+	if err != nil {
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("procurement: commit contract expiry in tenant %s: %w", tenant, err)
 	}
+	return n, nil
+}
+
+// expireDue expires the tenant's active contracts past their validity.
+func expireDue(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time) (int, error) {
+	rows, _ := tx.Query(ctx, `SELECT id FROM procurement.contract WHERE status = 'active' AND valid_to < current_date ORDER BY id FOR UPDATE`)
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return 0, fmt.Errorf("procurement: list contracts due in tenant %s: %w", actor.TenantID, err)
+	}
+	for _, id := range ids {
+		if err := expireContract(ctx, tx, actor, now, id); err != nil {
+			return 0, err
+		}
+	}
 	return len(ids), nil
+}
+
+// expireContract expires one contract, publishes ContractExpired and
+// audits it.
+func expireContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, id uuid.UUID) error {
+	c, err := scanContract(tx.QueryRow(ctx, contractSelect+` WHERE c.id = $1`, id))
+	if err != nil {
+		return fmt.Errorf("procurement: expire contract %s: %w", id, err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE procurement.contract SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, Expired, actor.ID); err != nil {
+		return fmt.Errorf("procurement: expire contract %s: %w", id, err)
+	}
+	payload := map[string]any{"contract_id": id, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
+		"valid_to": c.ValidTo.Format(time.DateOnly), "consumed_value": money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent), "previous_status": Active, "status": Expired}
+	if _, err := outbox.Write(ctx, tx, actor.TenantID, actor.ID, "", event("contract_expired", "contract", id, payload)); err != nil {
+		return err
+	}
+	return audit.Write(ctx, tx, actor, "", now, audit.Entry{Action: "procurement.contract.expire", ObjectType: "procurement.contract", ObjectID: id, Outcome: "succeeded",
+		Detail: map[string]any{"from_status": Active, "valid_to": c.ValidTo.Format(time.DateOnly)}})
 }
 
 // RunOnce expires every contract due across the cell and returns how many.
