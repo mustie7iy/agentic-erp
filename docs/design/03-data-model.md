@@ -826,7 +826,7 @@ credit revalues order items without quantity: it is on a purchase order
 quantity 0, every other kind's items have a positive quantity; a removed
 item no longer counts (trigger `payables.check_item_quantity`, constraint
 `supplier_invoice_item_quantity_kind`). The checks on existing rows were
-added `NOT VALID` (migration 000059) and are validated by a later one. Entry (T34b) checks the same through the
+added `NOT VALID` (migration 000059) and validated by the next (000060). Entry (T34b) checks the same through the
 API: `kind` (default `invoice`; 422 `payables.unknown_kind`), the reference
 a posted invoice of the same supplier, legal entity and currency (422
 `payables.invalid_reference_invoice`; on an invoice 422
