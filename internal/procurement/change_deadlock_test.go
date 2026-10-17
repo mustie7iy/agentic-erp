@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -37,7 +39,14 @@ func TestApproveAndCloseAtOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin the decision: %v", err)
 	}
-	defer decide.Rollback(context.WithoutCancel(ctx))
+	closed := make(chan int, 1)
+	drained := false
+	defer func() { // release the close, then wait for it, however the test ends
+		_ = decide.Rollback(context.WithoutCancel(ctx)) // after a commit there is nothing to roll back
+		if !drained {
+			<-closed
+		}
+	}()
 	if err := database.SetActor(ctx, decide, e.Approver.ID); err != nil {
 		t.Fatalf("decision actor: %v", err)
 	}
@@ -46,11 +55,11 @@ func TestApproveAndCloseAtOnce(t *testing.T) {
 	if _, err := decide.Exec(ctx, `SELECT FROM workflow.approval_request WHERE id = $1 FOR UPDATE`, request); err != nil {
 		t.Fatalf("lock the request: %v", err)
 	}
-	// The close, through the API: the order, then the request.
-	closed := make(chan int, 1)
+	// The close, through the API: the order, then the request. The token is
+	// minted here, so that nothing on the goroutine reports to t.
+	auth := http.Header{"Authorization": {"Bearer " + e.API.Issuer.Token(t, e.Tenant.ID, e.Tenant.Human.Subject, nil)}}
 	go func() {
-		code, _, _ := e.Do("POST", path+":close", "", "*")
-		closed <- code
+		closed <- e.API.Do(apitest.Req{Method: "POST", Path: path + ":close", Key: apitest.NewKey(), IfMatch: "*", Header: auth}).Code
 	}()
 	admin := pgtest.Admin(t)
 	pgtest.Eventually(t, 10*time.Second, func() bool {
@@ -70,6 +79,7 @@ func TestApproveAndCloseAtOnce(t *testing.T) {
 		}
 	}
 	closeCode := <-closed
+	drained = true
 	var pg *pgconn.PgError
 	approveLost := errors.As(approveErr, &pg) && pg.Code == "40P01"
 	switch {

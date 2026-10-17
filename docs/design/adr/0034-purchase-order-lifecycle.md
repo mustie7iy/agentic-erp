@@ -69,13 +69,15 @@ committed meanwhile.
 locks the order, then the change; the expiry alert locks the contract.
 The approval Decider locks the request first and then calls the handler,
 which locks the order; closing or cancelling an order locks the order and
-then withdraws its request. An approval and a close of the same order at
+then withdraws its request (its release request while it waits in
+`pending_approval`, its open change's request once released). An approval,
+of a release or of a change, and a close or cancel of the same order at
 the same moment therefore deadlock. PostgreSQL detects it and aborts one
 (40P01, answered as a retryable 503 by the problem mapping); the other
 completes, and the order, the change and the request agree either way
-(`TestApproveAndCloseAtOnce`). This is accepted: the collision needs two
-people acting on the same order within the deadlock timeout, and the
-retry is safe. Taking the order's lock before the request's in the Decider
+(`TestApproveAndCloseAtOnce` shows it for a change's approval and a
+close). This is accepted: the collision needs two people acting on the
+same order within the deadlock timeout, and the retry is safe. Taking the order's lock before the request's in the Decider
 would remove it, at the cost of the approvals context knowing each object
 type's row.
 
@@ -83,7 +85,8 @@ type's row.
 (`purchasing.order_release_approval`, `purchasing.contract_expiry_notice_days`)
 are required by validation from their first release. That is safe during a
 rolling upgrade only because the active document is read tolerantly by an
-older replica (06 §6.4, `config.ParseActive`); a document activated before
+older replica (06 §6.4, `config.ParseActive`, from the fix-config-compat
+change, which must reach main before this one); a document activated before
 a key existed reads its zero value, which means "no alerts" for the expiry
 notice and "refused, `workflow.no_policy`" for the release tiers.
 
@@ -108,5 +111,6 @@ notice and "refused, `workflow.no_policy`" for the release tiers.
   order read before each) are its history.
 - Contract consumption is the sum of releases, change deltas (negative for
   a decrease) and cancellations; it is never updated in place.
-- Approve-versus-close on the same order can answer 503 to one of the two
-  people; their retry succeeds or is refused for the state the other left.
+- An approval (of a release or a change) at the same moment as a close or
+  cancel of the same order can answer 503 to one of the two people; their
+  retry succeeds or is refused for the state the other left.

@@ -15,11 +15,14 @@ func TestReturnClearedByCreditMemo(t *testing.T) {
 	e := setupWith(t, []string{"procurement.order.read", "procurement.order.create", "procurement.order.release", "procurement.receipt.post",
 		"payables.invoice.review"}, func(*app.Config) {})
 	e.GRIR(t)
-	grir, expense := e.Account(t, "2000", "219000").String(), e.expense.String()
+	grir, expense, diff, tax, ap := e.Account(t, "2000", "219000").String(), e.expense.String(), e.Account(t, "2000", "590000").String(),
+		e.Account(t, "2000", "140000").String(), e.Account(t, "2000", "211000").String()
 	po, _ := e.receivedOrder(t) // 10 EA at 12.00, received
+	// Invoiced above the order price: the return is valued at the
+	// valuation price (12.00), not the invoice's (12.50).
 	invoice, _ := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": "INV-1",
-		"invoice_date": "2026-03-10", "gross_amount": {"amount": "142.80", "currency": "EUR"}, "tax_amount": {"amount": "22.80", "currency": "EUR"},
-		"items": [%s]}`, e.DE, e.Supplier, orderItem(po, "10", "120.00")), "")
+		"invoice_date": "2026-03-10", "gross_amount": {"amount": "148.75", "currency": "EUR"}, "tax_amount": {"amount": "23.75", "currency": "EUR"},
+		"items": [%s]}`, e.DE, e.Supplier, orderItem(po, "10", "125.00")), "")
 	e.matchedAndPosted(t, invoice, "2026-03-10")
 	e.position(t, "invoiced as received", po, "10", "10", "0.00")
 
@@ -30,9 +33,10 @@ func TestReturnClearedByCreditMemo(t *testing.T) {
 	e.position(t, "after the return", po, "8", "10", "24.00")
 
 	memo, _ := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": "CM-1",
-		"invoice_date": "2026-03-12", "kind": "credit_memo", "reference_invoice_id": %q, "gross_amount": {"amount": "28.56", "currency": "EUR"},
-		"tax_amount": {"amount": "4.56", "currency": "EUR"}, "items": [%s]}`, e.DE, e.Supplier, id(invoice), orderItem(po, "2", "24.00")), "")
-	e.matchedAndPosted(t, memo, "2026-03-12")
+		"invoice_date": "2026-03-12", "kind": "credit_memo", "reference_invoice_id": %q, "gross_amount": {"amount": "29.75", "currency": "EUR"},
+		"tax_amount": {"amount": "4.75", "currency": "EUR"}, "items": [%s]}`, e.DE, e.Supplier, id(invoice), orderItem(po, "2", "25.00")), "")
+	posted := e.matchedAndPosted(t, memo, "2026-03-12")
+	e.entry(t, "credit memo", posted["journal_entry_id"], "KG", map[string]string{grir: "-24.00", diff: "-1.00", tax: "-4.75", ap: "29.75"})
 	e.position(t, "after the credit memo", po, "8", "8", "0.00")
 }
 
