@@ -150,7 +150,7 @@ type Vault struct {
 // SecretSettings are the settings that may carry a secret reference
 // instead of a value.
 var SecretSettings = []string{"DATABASE_URL", "ERP_DIRECTORY_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
-	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
+	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL", "ERP_TEMPORAL_CODEC_KEY"}
 
 // AtRest is how each store encrypts its data at rest, as ERP_AT_REST
 // states it ("postgres=storage-kms,objects=sse-kms,nats=volume"); empty:

@@ -240,6 +240,8 @@ func TestSecretReferences(t *testing.T) {
 	m := valid()
 	m["DATABASE_URL"] = "vault:secret/erp/db#url"
 	m["ERP_FIELD_KEY"] = "file:" + filepath.Join(dir, "field-key")
+	// The engine's codec key, as the erp-cell chart mounts it.
+	m["ERP_TEMPORAL_CODEC_KEY"] = "file:" + filepath.Join(dir, "field-key")
 	m["ERP_PAGE_TOKEN_KEY"] = "env:PAGE_KEY"
 	m["PAGE_KEY"] = key
 	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"] = "http://localhost:9000", "erp"
@@ -250,6 +252,7 @@ func TestSecretReferences(t *testing.T) {
 	checkFields(t, []field{
 		{"DatabaseURL", c.DatabaseURL, "postgres://erp:pw@db/erp"},
 		{"FieldKey length", len(c.FieldKey), 32},
+		{"Temporal codec key length", len(c.Temporal.CodecKey), 32},
 		{"PageTokenKey length", len(c.PageTokenKey), 32},
 		{"Objects access key", c.Objects.AccessKey, "AK"},
 		{"Objects secret key", c.Objects.SecretKey, "SK"},
