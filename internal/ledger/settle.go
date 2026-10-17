@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -286,7 +287,7 @@ func settlementDiscount(in Settlement, items []item, tc money.Minor) (discount, 
 	}
 	for i, d := range in.Discounts {
 		paid := -items[i].tc
-		if d != 0 && ((d > 0) != (paid > 0) || d.Abs() >= paid.Abs()) {
+		if d != 0 && (d == math.MinInt64 || (d > 0) != (paid > 0) || d.Abs() >= paid.Abs()) {
 			return 0, 0, invalid(fmt.Sprintf("are of their item's sign and smaller than it: %d on an item paid at %d", d, paid))
 		}
 	}

@@ -17828,8 +17828,9 @@ type Payment struct {
 	BankAccountID uuid.UUID `json:"bank_account_id"`
 	// Amount paid, after the cash discounts taken on the items; positive. The bank file pays it.
 	Amount Money `json:"amount"`
-	// The cash discounts taken on the payment's items (T36c), credited to the cash discount account when
-	// it posts.
+	// The cash discounts taken on the payment's items (T36c), their total, posted to the cash discount
+	// account when the payment posts; negative when the discounts credit memos give back exceed those of
+	// the invoices.
 	DiscountAmount OptMoney `json:"discount_amount"`
 	// ISO 20022 end-to-end id.
 	EndToEndID string `json:"end_to_end_id"`

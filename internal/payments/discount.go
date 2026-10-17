@@ -28,8 +28,8 @@ func tierOn(t *ledger.ItemTerms, on time.Time) int {
 // this run although it is not yet due, as SAP's payment run pays an item
 // whose discount would lapse before the next run.
 func losesDiscount(t *ledger.ItemTerms, runDate, dueBy time.Time) bool {
-	now := tierOn(t, runDate)
-	return now >= 0 && tierOn(t, dueBy) != now
+	now, later := tierOn(t, runDate), tierOn(t, dueBy)
+	return now >= 0 && (later < 0 || later > now)
 }
 
 // discountOn is the cash discount on an item paid (in the sign it is paid
@@ -39,7 +39,7 @@ func losesDiscount(t *ledger.ItemTerms, runDate, dueBy time.Time) bool {
 // always pays something (payment_item_discount_within).
 func discountOn(t *ledger.ItemTerms, paid money.Minor, on time.Time) (money.Minor, error) {
 	i := tierOn(t, on)
-	if i < 0 {
+	if i < 0 || paid == 0 { // a zero item has nothing to take a discount off
 		return 0, nil
 	}
 	d, err := money.Scale(paid, t.Discounts[i].Percent, 100)

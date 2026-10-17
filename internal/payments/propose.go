@@ -123,7 +123,7 @@ func (c candidate) total() (money.Minor, error) {
 }
 
 // takeDiscounts sets the cash discount each item takes on the date.
-func (c candidate) takeDiscounts(on time.Time) error {
+func (c *candidate) takeDiscounts(on time.Time) error {
 	for i, it := range c.items {
 		d, err := discountOn(it.terms, it.Amount, on)
 		if err != nil {

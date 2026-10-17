@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"math"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -25,5 +26,9 @@ func TestSettlementDiscountsOutOfRange(t *testing.T) {
 				t.Errorf("got %v, want ledger.amount_too_large", err)
 			}
 		})
+	}
+	_, _, err := settlementDiscount(Settlement{Discounts: []money.Minor{math.MinInt64}}, []item{{tc: 5}}, 5)
+	if p := problem.From(err); p == nil || p.Code != "ledger.invalid_discount" {
+		t.Errorf("a discount of the smallest amount: got %v, want ledger.invalid_discount", err)
 	}
 }

@@ -133,3 +133,20 @@ func TestDiscountedPaymentPosts(t *testing.T) {
 		t.Errorf("bank file: got\n%s\nwant it to pay 97.00", xml)
 	}
 }
+
+// TestDebitBalanceAfterDiscount: a supplier whose items net to nothing only
+// after their discount is excluded with its debit balance, the net amount.
+func TestDebitBalanceAfterDiscount(t *testing.T) {
+	e := setup(t)
+	e.discountTerms(t, e.Supplier)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
+	e.memo(t, e.Supplier, "CM-1", "97.00", "2026-03-05", "")
+	run := e.run(t, "2026-03-10", "2026-03-20")
+	if got := e.paid(t, run, e.Supplier); got != "none" {
+		t.Errorf("payment: got %s, want none", got)
+	}
+	if got := e.exclusions(t, run)[e.Supplier.String()]; got != "debit_balance 0.00" {
+		t.Errorf("exclusion: got %q, want debit_balance 0.00 (100.00 less its 3.00 discount less the memo's 97.00)", got)
+	}
+}

@@ -1211,7 +1211,8 @@ item, computed exactly and rounded half away from zero to the currency's
 minor unit, item by item; one that would round to the whole item is a
 minor unit less, so an item always pays something. `payment_item` keeps
 each item's discount (`discount_amount`, of the item's sign and smaller
-than it, migration 000067), `payment` their total, and a payment's amount
+than it, migration 000067), `payment` their total (derived when the
+proposal writes both), and a payment's amount
 is what it pays after them: the bank file pays it, and a supplier whose
 items net to nothing after their discounts is excluded (`debit_balance`).
 At release the settlement credits the bank with what is paid and the

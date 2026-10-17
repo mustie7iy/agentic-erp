@@ -34,6 +34,7 @@ func TestDiscountRounding(t *testing.T) {
 		"the whole amount, less a unit": {"99.9", 1, 0},
 		"a credit, less a unit":         {"99.9", -2, -1},
 		"three decimals":                {"2.125", 10000, 213},
+		"a zero item":                   {"3", 0, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := discountOn(terms(c.pct), c.paid, day("2026-03-05"))
@@ -42,6 +43,22 @@ func TestDiscountRounding(t *testing.T) {
 			}
 			if got != c.want {
 				t.Errorf("discount of %s%% on %d: got %d, want %d", c.pct, c.paid, got, c.want)
+			}
+		})
+	}
+	two := &ledger.ItemTerms{BaselineDate: day("2026-03-01"), NetDays: 45, Discounts: []ledger.Discount{{Days: 14, Percent: "3"}, {Days: 30, Percent: "2"}}}
+	for name, c := range map[string]struct {
+		run, dueBy string
+		want       bool
+	}{
+		"a tier lapsing before the due-by date": {"2026-03-10", "2026-03-20", true},
+		"the same tier on the due-by date":      {"2026-03-10", "2026-03-12", false},
+		"a due-by date before the run date":     {"2026-03-20", "2026-03-10", false},
+		"no tier on the run date":               {"2026-04-10", "2026-04-12", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := losesDiscount(two, day(c.run), day(c.dueBy)); got != c.want {
+				t.Errorf("loses discount paying on %s rather than %s: got %v, want %v", c.dueBy, c.run, got, c.want)
 			}
 		})
 	}

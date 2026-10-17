@@ -17307,7 +17307,7 @@ components:
               readOnly: true
             discount_amount:
               $ref: "#/components/schemas/Money"
-              description: "The cash discounts taken on the payment's items (T36c), credited to the cash discount account when it posts."
+              description: "The cash discounts taken on the payment's items (T36c), their total, posted to the cash discount account when the payment posts; negative when the discounts credit memos give back exceed those of the invoices."
               readOnly: true
             end_to_end_id:
               type: string
