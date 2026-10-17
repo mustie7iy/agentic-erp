@@ -152,6 +152,12 @@ type NewContract struct {
 
 // createContract creates a draft contract.
 func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contract, error) {
+	return e.draftContract(ctx, in, nil)
+}
+
+// draftContract creates a draft contract, renewing renewalOf when it is
+// not nil.
+func (e *Endpoints) draftContract(ctx context.Context, in NewContract, renewalOf *uuid.UUID) (Contract, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Contract{}, err
@@ -188,9 +194,9 @@ func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contrac
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, valid_from,
-			valid_to, target_value, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $10)`,
-		p.TenantID, id, number, le.ID, in.SupplierID, in.Currency, in.ValidFrom, in.ValidTo, target, p.ID); err != nil {
+			valid_to, target_value, status, renewal_of_id, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $11, $11)`,
+		p.TenantID, id, number, le.ID, in.SupplierID, in.Currency, in.ValidFrom, in.ValidTo, target, renewalOf, p.ID); err != nil {
 		return Contract{}, fmt.Errorf("procurement: create contract %s: %w", number, err)
 	}
 	if err := writeContractItems(ctx, tx, p.TenantID, id, items); err != nil {
