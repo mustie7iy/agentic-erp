@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // Upgrade compatibility (06 §6.4): during a rolling upgrade a newer
@@ -39,9 +40,7 @@ func TestActiveDocumentWithUnknownKeys(t *testing.T) {
 	var logs bytes.Buffer
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	// Restored, so that the package's other tests (the simulation worker's
-	// rounds take every tenant's jobs) meet only proposals they can read.
-	t.Cleanup(func() { slog.SetDefault(previous) })
+	t.Cleanup(func() { slog.SetDefault(previous) }) // the process's logger, for the tests after this one
 	for range 2 {
 		err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
 			doc, _, err := configuration.Settings{}.Document(ctx)
@@ -88,6 +87,8 @@ func newer(t *testing.T, cr string) {
 		uuid.MustParse(cr))
 	// Restored, so that the package's other tests (the simulation worker's
 	// rounds take every tenant's jobs) meet only proposals they can read.
+	// Restored, so that the package's other tests (the simulation worker's
+	// rounds take every tenant's jobs) meet only proposals they can read.
 	t.Cleanup(func() {
 		pgtest.Exec(t, `UPDATE config.change_request SET proposed = proposed #- '{purchasing,future_key}', version = version + 1 WHERE id = $1`, uuid.MustParse(cr))
 	})
@@ -122,8 +123,8 @@ func TestNewerProposalRefused(t *testing.T) {
 	if failed["status"] != "failed" {
 		t.Fatalf("simulation of a newer proposal: got %v, want failed", failed["status"])
 	}
-	if code := failed["error"].(map[string]any)["code"]; code != "config.unknown_keys" {
-		t.Errorf("simulation of a newer proposal: got error %v, want config.unknown_keys", code)
+	if got, ok := failed["error"].(map[string]any); !ok || got["code"] != "config.unknown_keys" {
+		t.Errorf("simulation of a newer proposal: got error %v, want config.unknown_keys", failed["error"])
 	}
 }
 
@@ -137,6 +138,14 @@ func TestNewerBaseRefused(t *testing.T) {
 	cr, _ := s.Must(201, "POST", "/v1/change-requests", fmt.Sprintf(`{"title": "Older", "rationale": "From an old export", "base_version": 2, "proposed": %s}`,
 		jsonOf(t, doc)), "")
 	s.Problem(503, "config.unknown_keys", "POST", "/v1/change-requests/"+apitest.String(t, cr, "id")+":submit", "", `"1"`)
+	// The refusal's cause names the key, for the log.
+	err := apitest.InRequest(t, s.Tenant, s.Tenant.Human, func(ctx context.Context) error {
+		_, err := configuration.SubmitChangeRequest(ctx, fixture.Deps(), uuid.MustParse(apitest.String(t, cr, "id")), func(int32) error { return nil })
+		return err
+	})
+	if !strings.Contains(fmt.Sprint(problem.Cause(problem.From(err))), "future_key") {
+		t.Errorf("refusal cause: got %v, want it to name future_key", problem.Cause(problem.From(err)))
+	}
 }
 
 // TestUnreadableVersion: a version whose document does not read fails what

@@ -77,11 +77,14 @@ func storedProposal(raw []byte) (*config.Config, error) {
 // whole reads a document this replica must read without ignoring a key.
 func whole(raw []byte, what string) (*config.Config, error) {
 	c, unknown, err := config.ParseActive(raw)
-	if err != nil || len(unknown) > 0 {
+	if err == nil && len(unknown) > 0 {
+		err = fmt.Errorf("configuration: keys this binary does not know: %v", unknown)
+	}
+	if err != nil { // the cause names the key, for the log and the failed operation
 		p := problem.New(http.StatusServiceUnavailable, "config.unknown_keys", "Service unavailable",
 			what+" has configuration this replica cannot read; retry: an upgraded replica will take it.")
 		p.RetryAfter = 5
-		return nil, p
+		return nil, p.WithCause(err)
 	}
 	return c, nil
 }
