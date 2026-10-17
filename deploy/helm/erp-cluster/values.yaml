@@ -36,3 +36,6 @@ certificates:
   # OCSP).
   maxDuration: 24h
   minRenewBefore: 8h
+  # The only maker of certificate requests to the subordinate CA:
+  # cert-manager's controller (deploy/helm/addons, release cert-manager).
+  requester: system:serviceaccount:cert-manager:cert-manager

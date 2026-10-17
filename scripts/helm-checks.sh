@@ -78,7 +78,7 @@ PY
 }
 
 # runs_as JSON NAMESPACE NAME: the documents of JSON hold that service
-# account, annotated with an IRSA role.
+# account, annotated with an IRSA role, and a Deployment running as it.
 runs_as() {
   python3 - "$@" <<'PY'
 import json, sys
@@ -91,11 +91,15 @@ for d in docs:
         break
 else:
     sys.exit("helm-checks: no ServiceAccount %s/%s, the one its IRSA role trusts" % (namespace, name))
+if not any(d and d.get("kind") == "Deployment" and d["metadata"].get("namespace") == namespace
+           and d["spec"]["template"]["spec"].get("serviceAccountName") == name for d in docs):
+    sys.exit("helm-checks: no Deployment in %s runs as %s, the service account its IRSA role trusts" % (namespace, name))
 PY
 }
 
 : >"$work/crds.yaml"
-while read -r name namespace repository chart version sha256; do
+# The pins on descriptor 3, so that the commands in the loop cannot read them.
+while read -r -u 3 name namespace repository chart version sha256; do
   case "$name" in '' | '#'*) continue ;; esac
   echo "== add-on $name $version"
   "$HELM" pull "$chart" --repo "$repository" --version "$version" --destination "$work" >/dev/null
@@ -118,7 +122,7 @@ while read -r name namespace repository chart version sha256; do
       exit 1
     fi
   fi
-done <deploy/helm/addons/charts.txt
+done 3<deploy/helm/addons/charts.txt
 
 echo "== erp-cluster"
 chart=deploy/helm/erp-cluster

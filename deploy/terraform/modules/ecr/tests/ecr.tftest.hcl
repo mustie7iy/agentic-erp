@@ -69,6 +69,14 @@ run "replicated_to_every_cell_region_and_pulled_by_the_environments" {
     condition     = !contains(jsondecode(aws_ecr_repository_policy.pull["erp-server"].policy).Statement[0].Action, "ecr:PutImage")
     error_message = "the environment accounts may not push"
   }
+  assert {
+    condition     = toset(jsondecode(aws_ecr_repository_policy.pull["erp-server"].policy).Statement[0].Action) == toset(["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:DescribeImages", "ecr:ListImages"])
+    error_message = "the environments pull and read signatures (referrers, tags): the same actions as Kyverno's role (modules/cell irsa.tf)"
+  }
+  assert {
+    condition     = alltrue([for t in aws_ecr_repository_creation_template.replicas : toset(jsondecode(t.repository_policy).Statement[0].Action) == toset(["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:DescribeImages", "ecr:ListImages"])])
+    error_message = "replicas grant the environments the same"
+  }
 }
 
 run "no_replication_or_pull_policy_without_regions_or_accounts" {

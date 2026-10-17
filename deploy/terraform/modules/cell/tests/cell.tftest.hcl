@@ -150,6 +150,10 @@ run "the_controllers_may_do_what_the_charts_need_only" {
     error_message = "Kyverno reads the release repositories in tooling, in any region"
   }
   assert {
+    condition     = toset(flatten([for st in jsondecode(aws_iam_role_policy.workload["kyverno"].policy).Statement : st.Action if st.Sid == "ReadImages"])) == toset(["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:DescribeImages", "ecr:ListImages"])
+    error_message = "the same read actions as the repositories grant the environments (modules/ecr pull_actions)"
+  }
+  assert {
     condition     = jsondecode(aws_iam_role.workload["kyverno"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:kyverno:kyverno-admission-controller"
     error_message = "the admission controller's service account only"
   }

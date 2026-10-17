@@ -82,7 +82,7 @@ jobs:
           tar -xzf kyverno.tgz -C bin kyverno
           fetch bin/zot "https://github.com/project-zot/zot/releases/download/v${ZOT_VERSION}/zot-linux-amd64-minimal" "$ZOT_SHA256"
           chmod +x bin/zot
-          # The cosign the release signs with (scripts/sign-images.sh).
+          # The cosign the release signs with (ADR-0032).
           GOBIN="$RUNNER_TEMP/bin" go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1
           GOBIN="$RUNNER_TEMP/bin" go install github.com/google/go-containerregistry/cmd/crane@v0.20.6
           GOBIN="$RUNNER_TEMP/bin" go install github.com/open-policy-agent/conftest@v0.71.0

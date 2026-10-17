@@ -65,7 +65,9 @@ locals {
     kyverno = {
       statements = [
         { Sid = "RegistryToken", Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
-        { Sid = "ReadImages", Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:DescribeImages", "ecr:ListImages"], Resource = "arn:${data.aws_partition.current.partition}:ecr:*:${var.image_registry_account_id}:repository/erp*" },
+        # The same actions as the repositories grant the environments
+        # (modules/ecr pull_actions): cross-account, both sides must allow.
+        { Sid = "ReadImages", Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:DescribeImages", "ecr:ListImages"], Resource = "arn:${data.aws_partition.current.partition}:ecr:*:${var.image_registry_account_id}:repository/erp*" },
       ]
     }
   }

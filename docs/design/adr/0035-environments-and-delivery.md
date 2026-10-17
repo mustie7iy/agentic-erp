@@ -180,8 +180,8 @@ driver is an EKS add-on with its role. The `erp-cluster` chart, installed
 after them, holds the cell's own resources: the `AWSPCAClusterIssuer` on
 the environment's subordinate, the `ClusterSecretStore` usable from the
 platform's namespaces only, the `erp-encrypted` StorageClass on the
-cluster key, and three Kyverno policies over the governed namespaces
-(`erp`, `erp-global`):
+cluster key, and Kyverno policies, the image ones over the governed
+namespaces (`erp`, `erp-global`), the certificate ones over all:
 - `erp-release-signed` (an ImageValidatingPolicy) admits an image only with
   three in-toto statements signed by the release key: the
   `https://sigstore.dev/cosign/sign/v1` statement that cosign v3 writes for
@@ -190,16 +190,33 @@ cluster key, and three Kyverno policies over the governed namespaces
   only attestations: a signature check alone accepts them (T39b), which the
   checks show. The key is the release key's public half (envs/tooling
   `cosign_public_key`) in the policy, so verification needs no KMS call;
-  Kyverno reads the bundles from tooling's registry as its IRSA role.
+  Kyverno reads the bundles from tooling's registry as its IRSA role,
+  with the same read actions the repositories grant the environment
+  accounts (pull, describe and list images: referrers or signature tags).
+  An update is verified again only when it changes an image, so a
+  registry outage or a key rotation does not block finalizers and labels
+  of running Pods; the webhook waits up to 30 seconds.
 - `erp-release-images` refuses any image from elsewhere, and any image by
   tag. Upstream images the platform runs in its namespaces (PgBouncer,
   NATS) are therefore copied into the release registry and signed by the
-  release pipeline (T40c3).
-- `erp-service-certificates` admits a Certificate only from
-  `erp-subordinate`, with a lifetime of at most 24 hours renewed with at
-  least 8 left, `server auth` and/or `client auth` (the issuer's role may
-  use end-entity templates only) and exactly one SPIFFE identity in the
-  environment's trust domain.
+  release pipeline (T40c3). Both image policies have a twin on
+  `pods/ephemeralcontainers`, the subresource `kubectl debug` adds
+  containers through, since Kyverno generates the controllers' policies
+  only for a policy on Pods alone.
+- `erp-service-certificates` judges every Certificate on `erp-subordinate`
+  (the issuer is cluster-wide) and every one in the governed namespaces:
+  only from `erp-subordinate` and only in those namespaces, a lifetime of
+  at most 24 hours renewed with at least 8 left, no CA, `server auth`
+  and/or `client auth` and no other extended usage (the issuer's role may
+  use end-entity templates only), exactly one SPIFFE identity in the
+  environment's trust domain, and cluster service names at most (no
+  common name, address, e-mail or other name).
+- `erp-service-certificate-requests`: a CertificateRequest reaches the
+  issuer without a Certificate's checks, its names in a CSR no policy
+  reads, and cert-manager approves every request. So only cert-manager's
+  controller may make one on `erp-subordinate` (from a Certificate judged
+  above), in the governed namespaces, with the same lifetime, CA and
+  usage rules.
 
 **Revocation (product owner, T40c).** By short lifetime, with no CRL or
 OCSP: service certificates live 24 hours and are renewed after 16, the
@@ -222,8 +239,10 @@ v3 as the release does in a local registry with the referrers API (zot)
 and has Kyverno's CLI admit only the fully signed ones, by digest, from
 the release registry (and refuse attestations without a signature, a
 missing SBOM or provenance, another key, a tag, a foreign registry, an
-unsigned init container and an unsigned Deployment), and judge
-certificates likewise.
+unsigned init container and an unsigned Deployment; the CLI cannot
+model the ephemeral-container subresource, so the twins are checked to
+be the same policies), and judge certificates and requests, each case
+differing from an admitted one in one respect.
 
 **Delivery (T40d).** Argo CD in tooling pulls `deploy/`. A release is
 promoted by a pull request that pins its image digests per environment:

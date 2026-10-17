@@ -20,3 +20,10 @@ createIngressClassResource: false
 enableShield: false
 enableWaf: false
 enableWafv2: false
+# No shared backend security group: its role may not create one, and the
+# router's NLB reaches the pods through a rule Terraform made.
+enableBackendSecurityGroup: false
+# The webhook's certificate from cert-manager (installed before it): the
+# chart's own would be generated anew on every render, and Argo CD would
+# see a change on every sync (T40d).
+enableCertManager: true

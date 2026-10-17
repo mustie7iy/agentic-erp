@@ -94,6 +94,17 @@ resource "aws_ecr_lifecycle_policy" "this" {
   })
 }
 
+locals {
+  # What the environments may do on the images: pull them (the nodes), and
+  # list and describe them, which reading a signature or attestation needs
+  # (Kyverno's admission controller follows the OCI referrers, or cosign's
+  # sha256-<digest> tags, T40c). Nothing that writes or deletes.
+  pull_actions = [
+    "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability",
+    "ecr:DescribeImages", "ecr:ListImages",
+  ]
+}
+
 resource "aws_ecr_repository_policy" "pull" {
   for_each   = length(var.pull_account_ids) == 0 ? {} : aws_ecr_repository.this
   repository = each.value.name
@@ -103,7 +114,7 @@ resource "aws_ecr_repository_policy" "pull" {
       Sid       = "EnvironmentsPull"
       Effect    = "Allow"
       Principal = { AWS = [for id in var.pull_account_ids : "arn:${data.aws_partition.current.partition}:iam::${id}:root"] }
-      Action    = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
+      Action    = local.pull_actions
     }]
   })
 }
@@ -132,7 +143,7 @@ resource "aws_ecr_repository_creation_template" "replicas" {
       Sid       = "EnvironmentsPull"
       Effect    = "Allow"
       Principal = { AWS = [for id in var.pull_account_ids : "arn:${data.aws_partition.current.partition}:iam::${id}:root"] }
-      Action    = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
+      Action    = local.pull_actions
     }]
   })
 }

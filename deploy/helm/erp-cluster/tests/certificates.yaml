@@ -1,74 +1,57 @@
 # Certificates for scripts/admission-checks.sh, judged by the chart rendered
 # with tests/values.yaml (trust domain dev.erp.example). Each "want" line
-# names a certificate and whether the policy must admit it.
+# names a certificate and whether the policy must admit it; each case
+# differs from "admitted" in one respect.
 # want: admitted:admitted
 # want: client-only:admitted
+# want: no-dns-names:admitted
 # want: other-issuer:refused
 # want: issuer-kind:refused
+# want: other-namespace:refused
 # want: no-duration:refused
 # want: two-days:refused
 # want: late-renewal:refused
 # want: no-usages:refused
 # want: code-signing:refused
+# want: is-ca:refused
 # want: no-spiffe:refused
 # want: two-identities:refused
 # want: other-domain:refused
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: admitted, namespace: erp}
-spec: {"secretName": "admitted", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+# want: public-name:refused
+# want: ip-address:refused
+# want: email:refused
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "admitted", "namespace": "erp"}, "spec": {"secretName": "admitted", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: client-only, namespace: erp}
-spec: {"secretName": "client-only", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "client-only", "namespace": "erp"}, "spec": {"secretName": "client-only", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: other-issuer, namespace: erp}
-spec: {"secretName": "other-issuer", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "someone-else"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "no-dns-names", "namespace": "erp-global"}, "spec": {"secretName": "no-dns-names", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: issuer-kind, namespace: erp}
-spec: {"secretName": "issuer-kind", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "cert-manager.io", "kind": "ClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "other-issuer", "namespace": "erp"}, "spec": {"secretName": "other-issuer", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "someone-else"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: no-duration, namespace: erp}
-spec: {"secretName": "no-duration", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "issuer-kind", "namespace": "erp"}, "spec": {"secretName": "issuer-kind", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "cert-manager.io", "kind": "ClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: two-days, namespace: erp}
-spec: {"secretName": "two-days", "duration": "48h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "other-namespace", "namespace": "default"}, "spec": {"secretName": "other-namespace", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: late-renewal, namespace: erp}
-spec: {"secretName": "late-renewal", "duration": "24h", "renewBefore": "1h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "no-duration", "namespace": "erp"}, "spec": {"secretName": "no-duration", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: no-usages, namespace: erp}
-spec: {"secretName": "no-usages", "duration": "24h", "renewBefore": "8h", "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "two-days", "namespace": "erp"}, "spec": {"secretName": "two-days", "duration": "48h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: code-signing, namespace: erp}
-spec: {"secretName": "code-signing", "duration": "24h", "renewBefore": "8h", "usages": ["server auth", "code signing"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "late-renewal", "namespace": "erp"}, "spec": {"secretName": "late-renewal", "duration": "24h", "renewBefore": "1h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: no-spiffe, namespace: erp}
-spec: {"secretName": "no-spiffe", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "no-usages", "namespace": "erp"}, "spec": {"secretName": "no-usages", "duration": "24h", "renewBefore": "8h", "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: two-identities, namespace: erp}
-spec: {"secretName": "two-identities", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server", "spiffe://dev.erp.example/dev-1/erp-router"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "code-signing", "namespace": "erp"}, "spec": {"secretName": "code-signing", "duration": "24h", "renewBefore": "8h", "usages": ["server auth", "code signing"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
 ---
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata: {name: other-domain, namespace: erp}
-spec: {"secretName": "other-domain", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://prod.erp.example/prod-1/erp-server"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "is-ca", "namespace": "erp"}, "spec": {"secretName": "is-ca", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}, "isCA": true}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "no-spiffe", "namespace": "erp"}, "spec": {"secretName": "no-spiffe", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "two-identities", "namespace": "erp"}, "spec": {"secretName": "two-identities", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server", "spiffe://dev.erp.example/dev-1/erp-router"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "other-domain", "namespace": "erp"}, "spec": {"secretName": "other-domain", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://prod.erp.example/prod-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "public-name", "namespace": "erp"}, "spec": {"secretName": "public-name", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["api.example.com"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "ip-address", "namespace": "erp"}, "spec": {"secretName": "ip-address", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}, "ipAddresses": ["10.0.0.1"]}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "Certificate", "metadata": {"name": "email", "namespace": "erp"}, "spec": {"secretName": "email", "duration": "24h", "renewBefore": "8h", "usages": ["digital signature", "key encipherment", "server auth", "client auth"], "uris": ["spiffe://dev.erp.example/dev-1/erp-server"], "dnsNames": ["erp-server.erp.svc", "erp-server.erp.svc.cluster.local"], "privateKey": {"algorithm": "ECDSA", "size": 256}, "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}, "emailAddresses": ["ops@example.com"]}}
