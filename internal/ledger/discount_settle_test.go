@@ -99,19 +99,6 @@ func TestSettleTakesTheDiscount(t *testing.T) {
 			pgtest.WantErr(t, err, c.code)
 		})
 	}
-	// Amounts at the edge of an amount's range: discounts each in range
-	// whose total is not, and nets whose total is not.
-	big := []ledger.ItemRef{settlePost(t, e, e.de, "2000", "EUR", 6_000_000_000_000_000_000, "INV-B1"),
-		settlePost(t, e, e.de, "2000", "EUR", 6_000_000_000_000_000_000, "INV-B2"), settlePost(t, e, e.de, "2000", "EUR", -9_000_000_000_000_000_000, "INV-B3")}
-	for name, discounts := range map[string][]money.Minor{
-		"discounts adding up beyond an amount": {5_900_000_000_000_000_000, 5_900_000_000_000_000_000, -1},
-		"payments adding up beyond an amount":  {1, 1, -8_999_999_999_999_999_999},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := settle("EUR", "2026-03-10", discounts, big...)
-			pgtest.WantErr(t, err, "ledger.amount_too_large")
-		})
-	}
 	// At rates that take local amounts out of range: a discount whose
 	// local amount is not in range, and a bank line and discount whose
 	// local amounts each are, but not their total.

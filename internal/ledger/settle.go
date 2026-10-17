@@ -242,13 +242,9 @@ type settled struct{ tc, lc, gc money.Minor }
 // date's rates, and what that leaves of the items' local and group totals
 // as exchange differences.
 func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, items []item, total settled) ([]Line, settlementBank, error) {
-	discount, err := settlementDiscount(in, items)
+	discount, bankTC, err := settlementDiscount(in, items, total.tc)
 	if err != nil {
 		return nil, settlementBank{}, err
-	}
-	bankTC, err := money.Sum(total.tc, discount) // the items' total is negative (paid), the discount positive
-	if err != nil {
-		return nil, settlementBank{}, errTotalTooLarge("items")
 	}
 	bank, err := e.bankAmounts(ctx, tx, in, le, bankTC)
 	if err != nil {
@@ -274,29 +270,33 @@ func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, 
 }
 
 // settlementDiscount is the total of the discounts taken on the items, in
-// the sign they are paid in: one per item (or none at all), each 0 or of
-// the item's sign and smaller than it (422 ledger.invalid_discount).
-func settlementDiscount(in Settlement, items []item) (money.Minor, error) {
+// the sign they are paid in, and what the bank pays after them (the items'
+// total tc, negative when paid out, less the discounts): one discount per
+// item (or none at all), each 0 or of the item's sign and smaller than it
+// (422 ledger.invalid_discount).
+func settlementDiscount(in Settlement, items []item, tc money.Minor) (discount, bank money.Minor, err error) {
 	if len(in.Discounts) == 0 {
-		return 0, nil
+		return 0, tc, nil
 	}
 	invalid := func(detail string) error {
 		return problem.Unprocessable("ledger.invalid_discount", "A settlement's cash discounts "+detail+".")
 	}
 	if len(in.Discounts) != len(items) {
-		return 0, invalid(fmt.Sprintf("are one per item: %d for %d items", len(in.Discounts), len(items)))
+		return 0, 0, invalid(fmt.Sprintf("are one per item: %d for %d items", len(in.Discounts), len(items)))
 	}
 	for i, d := range in.Discounts {
 		paid := -items[i].tc
 		if d != 0 && ((d > 0) != (paid > 0) || d.Abs() >= paid.Abs()) {
-			return 0, invalid(fmt.Sprintf("are of their item's sign and smaller than it: %d on an item paid at %d", d, paid))
+			return 0, 0, invalid(fmt.Sprintf("are of their item's sign and smaller than it: %d on an item paid at %d", d, paid))
 		}
 	}
-	total, err := money.Sum(in.Discounts...)
-	if err != nil {
-		return 0, errTotalTooLarge("discounts")
+	if discount, err = money.Sum(in.Discounts...); err == nil {
+		bank, err = money.Sum(tc, discount)
 	}
-	return total, nil
+	if err != nil {
+		return 0, 0, errTotalTooLarge("discounts")
+	}
+	return discount, bank, nil
 }
 
 // discountLine credits the discounts taken to the legal entity's
