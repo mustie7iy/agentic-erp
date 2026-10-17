@@ -15,7 +15,7 @@ import (
 func TestDueByTheTermsPostedWith(t *testing.T) {
 	e := setup(t)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
-	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01") // NT30: due 31 March
+	invoice := e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01") // NT30: due 31 March
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET payment_term_code = 'NT14', version = version + 1 WHERE tenant_id = $1 AND partner_id = $2`,
 		e.Tenant.ID, e.Supplier)
 	e.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-03-01", "posting_date": "2026-03-01",
@@ -30,8 +30,17 @@ func TestDueByTheTermsPostedWith(t *testing.T) {
 		t.Errorf("payment due by 20 March: got %v, want 40.00, the manual credit due 15 March by NT14 (the invoice is due 31 March by the terms it posted with)", got)
 	}
 	open, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+e.Supplier.String(), "", "")
-	item := open["items"].([]any)[0].(map[string]any)
-	if got := item["payment_terms"].(map[string]any)["net_due_date"]; got != "2026-03-31" {
+	var terms any
+	for _, it := range open["items"].([]any) { // the invoice's and the manual credit's, of the same posting date
+		if item := it.(map[string]any); item["journal_entry_id"] == invoice["journal_entry_id"] {
+			terms = item["payment_terms"]
+		}
+	}
+	shown, ok := terms.(map[string]any)
+	if !ok {
+		t.Fatalf("the invoice's open item terms: got %v, want them shown", terms)
+	}
+	if got := shown["net_due_date"]; got != "2026-03-31" {
 		t.Errorf("open item net due date: got %v, want 2026-03-31", got)
 	}
 }
