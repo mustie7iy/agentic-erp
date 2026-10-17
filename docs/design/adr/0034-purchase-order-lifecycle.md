@@ -77,9 +77,9 @@ the same moment therefore deadlock. PostgreSQL detects it and aborts one
 completes, and the order, the change and the request agree either way
 (`TestApproveAndCloseAtOnce` shows it for a change's approval and a
 close). This is accepted: the collision needs two people acting on the
-same order within the deadlock timeout, and the retry is safe. Taking the order's lock before the request's in the Decider
-would remove it, at the cost of the approvals context knowing each object
-type's row.
+same order within the deadlock timeout, and the retry is safe. Taking
+the order's lock before the request's in the Decider would remove it, at
+the cost of the approvals context knowing each object type's row.
 
 **Configuration keys are added before they are required.** The new keys
 (`purchasing.order_release_approval`, `purchasing.contract_expiry_notice_days`)
