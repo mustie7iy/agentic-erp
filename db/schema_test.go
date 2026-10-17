@@ -2419,3 +2419,62 @@ func TestModelBudgets(t *testing.T) {
 		})
 	})
 }
+
+// TestAIPolicy: a tenant's AI policy is one row, the tenant's alone; a
+// suspension says why and nothing else does; a cap is in the prices'
+// currency with its amount, never negative; routes are an object; the
+// permissions to read and manage it exist and are no approvals (ADR-0036).
+func TestAIPolicy(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	mustApp(t, a.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO agents.ai_policy (tenant_id, updated_by) VALUES ($1, $2)", a.tenant, a.actor)
+	})
+	for _, c := range []struct {
+		name, set, constraint string
+	}{
+		{"a suspension says why", "suspended = true", "ai_policy_suspension_reason"},
+		{"only a suspension has a reason", "suspended_reason = 'audit'", "ai_policy_suspension_reason"},
+		{"a cap has its currency", "monthly_cap = 100", "ai_policy_cap_currency"},
+		{"a cap is not negative", "monthly_cap = -1, cap_currency = 'USD'", "ai_policy_monthly_cap_check"},
+		{"a cap is in the prices' currency", "monthly_cap = 100, cap_currency = 'EUR'", "ai_policy_cap_currency_check"},
+		{"routes are an object", "routes = '[]'", "ai_policy_routes_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			failsOn(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE agents.ai_policy SET "+c.set+", version = version + 1 WHERE tenant_id = $1", a.tenant)
+			}), c.constraint)
+		})
+	}
+	t.Run("one policy a tenant", func(t *testing.T) {
+		failsOn(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO agents.ai_policy (tenant_id) VALUES ($1)", a.tenant)
+		}), "ai_policy_pkey")
+	})
+	t.Run("a suspension with its reason", func(t *testing.T) {
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.ai_policy SET suspended = true, suspended_reason = 'billing dispute', version = version + 1 WHERE tenant_id = $1", a.tenant)
+		})
+	})
+	t.Run("another tenant sees none", func(t *testing.T) {
+		mustApp(t, b.tenant, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM agents.ai_policy").Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				return fmt.Errorf("policies visible to another tenant: %d", n)
+			}
+			return nil
+		})
+	})
+	t.Run("the permissions exist", func(t *testing.T) {
+		var n int
+		if err := testDB.QueryRow(context.Background(), `SELECT count(*) FROM ref.permission WHERE code IN ('agents.ai_policy.read', 'agents.ai_policy.manage') AND NOT is_approval`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 2 {
+			t.Errorf("AI policy permissions: got %d, want 2", n)
+		}
+	})
+}
