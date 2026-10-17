@@ -65,6 +65,25 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 			errs = append(errs, err)
 		}
 	}
+	errs = append(errs, c.loadIssuers(getenv)...)
+	var err error
+	if c.CacheTTL, err = time.ParseDuration(get("ERP_DIRECTORY_CACHE", "30s")); err != nil || c.CacheTTL <= 0 {
+		errs = append(errs, errors.New("ERP_DIRECTORY_CACHE must be a positive duration such as 30s"))
+	}
+	if c.ShutdownTimeout, err = time.ParseDuration(get("ERP_SHUTDOWN_TIMEOUT", "20s")); err != nil || c.ShutdownTimeout <= 0 {
+		errs = append(errs, errors.New("ERP_SHUTDOWN_TIMEOUT must be a positive duration such as 20s"))
+	}
+	if err := c.LogLevel.UnmarshalText([]byte(get("ERP_LOG_LEVEL", "info"))); err != nil {
+		errs = append(errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
+	}
+	errs = append(errs, c.loadTLS(getenv)...)
+	return c, errors.Join(errs...)
+}
+
+// loadIssuers reads the static issuers and the operators' issuers, with
+// the page token key the operators' lists need.
+func (c *Config) loadIssuers(getenv func(string) string) []error {
+	var errs []error
 	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.Issuers); err != nil || len(c.Issuers) == 0 {
 			errs = append(errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} when set`))
@@ -82,18 +101,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 			errs = append(errs, errors.New("ERP_OPERATOR_ISSUERS needs ERP_PAGE_TOKEN_KEY, base64 of at least 32 random bytes, the same on every router"))
 		}
 	}
-	var err error
-	if c.CacheTTL, err = time.ParseDuration(get("ERP_DIRECTORY_CACHE", "30s")); err != nil || c.CacheTTL <= 0 {
-		errs = append(errs, errors.New("ERP_DIRECTORY_CACHE must be a positive duration such as 30s"))
-	}
-	if c.ShutdownTimeout, err = time.ParseDuration(get("ERP_SHUTDOWN_TIMEOUT", "20s")); err != nil || c.ShutdownTimeout <= 0 {
-		errs = append(errs, errors.New("ERP_SHUTDOWN_TIMEOUT must be a positive duration such as 20s"))
-	}
-	if err := c.LogLevel.UnmarshalText([]byte(get("ERP_LOG_LEVEL", "info"))); err != nil {
-		errs = append(errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
-	}
-	errs = append(errs, c.loadTLS(getenv)...)
-	return c, errors.Join(errs...)
+	return errs
 }
 
 // loadTLS reads the router's TLS material and trust domain (ADR-0033):

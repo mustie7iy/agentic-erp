@@ -129,17 +129,8 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		return err
 	}
 	ctx := r.Context()
-	// A bound token without its certificate is refused before its session
-	// is touched: replayed by whoever stole it, it would otherwise keep
-	// its owner's session alive (ADR-0033).
-	if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), false); err != nil {
-		m.Log.WarnContext(ctx, "certificate binding refused", "issuer", claims.Issuer, "subject", claims.Subject, "bound", true)
+	if err := m.admit(ctx, claims); err != nil {
 		return err
-	}
-	if m.Sessions != nil {
-		if err := m.Sessions.Check(ctx, claims); err != nil {
-			return err
-		}
 	}
 	tx, err := m.begin(ctx, database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: req == nil})
 	if err != nil {
@@ -151,20 +142,8 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	if err != nil {
 		return err
 	}
-	// Multi-factor is asked of people only: services and agents use their
-	// own credentials, which prove no second factor (ADR-0031).
-	// identity.Sessions applies the same rule to decide which tokens start
-	// or touch a session; the two stay in step.
-	if principal.Kind == reqctx.KindHuman {
-		if err := authn.CheckMFA(claims); err != nil {
-			return err
-		}
-	}
-	if m.RequireBoundAgents && principal.Kind == reqctx.KindAgent {
-		if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), true); err != nil {
-			m.Log.WarnContext(ctx, "certificate binding refused", "principal_id", principal.ID, "kind", principal.Kind, "bound", claims.CertThumbprint != "")
-			return err
-		}
+	if err := m.authorize(ctx, claims, principal); err != nil {
+		return err
 	}
 	info := reqctx.InfoFrom(ctx)
 	info.TenantID, info.PrincipalID = principal.TenantID, principal.ID
@@ -190,6 +169,41 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		return err
 	}
 	rec.send(w)
+	return nil
+}
+
+// admit checks what the token alone decides, before the transaction. A
+// bound token without its certificate is refused before its session is
+// touched: replayed by whoever stole it, it would otherwise keep its
+// owner's session alive (ADR-0033).
+func (m *Middleware) admit(ctx context.Context, claims reqctx.Claims) error {
+	if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), false); err != nil {
+		m.Log.WarnContext(ctx, "certificate binding refused", "issuer", claims.Issuer, "subject", claims.Subject, "bound", true)
+		return err
+	}
+	if m.Sessions != nil {
+		return m.Sessions.Check(ctx, claims)
+	}
+	return nil
+}
+
+// authorize checks what the token must prove for the principal it
+// resolved to. Multi-factor is asked of people only: services and agents
+// use their own credentials, which prove no second factor (ADR-0031).
+// identity.Sessions applies the same rule to decide which tokens start or
+// touch a session; the two stay in step.
+func (m *Middleware) authorize(ctx context.Context, claims reqctx.Claims, principal reqctx.Principal) error {
+	if principal.Kind == reqctx.KindHuman {
+		if err := authn.CheckMFA(claims); err != nil {
+			return err
+		}
+	}
+	if m.RequireBoundAgents && principal.Kind == reqctx.KindAgent {
+		if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), true); err != nil {
+			m.Log.WarnContext(ctx, "certificate binding refused", "principal_id", principal.ID, "kind", principal.Kind, "bound", claims.CertThumbprint != "")
+			return err
+		}
+	}
 	return nil
 }
 
