@@ -28,16 +28,19 @@ import (
 )
 
 // provider is a fake model provider: it answers with status and body, or
-// fails, and keeps what it was sent.
+// fails, and keeps what it was last sent (guarded, for concurrent calls).
 type provider struct {
 	status int
 	body   string
 	err    error
+	mu     sync.Mutex
 	sent   []byte
 	betas  []string
 }
 
 func (p *provider) Messages(_ context.Context, body []byte, betas []string) (int, []byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.sent, p.betas = body, betas
 	return p.status, []byte(p.body), p.err
 }
