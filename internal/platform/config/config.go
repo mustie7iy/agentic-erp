@@ -238,12 +238,18 @@ func Load(getenv func(string) string) (Config, error) {
 // Helm hook Job (ADR-0035), before the release's other resources exist and
 // without the keys, issuers and stores a server needs. ERP_MIGRATE_ON_START
 // is not read: the Job migrates whatever it says, and the pods keep it
-// false.
+// false. In production the database must be reached over verified TLS
+// (ADR-0033), as the server's.
 func LoadSchema(getenv func(string) string) (Config, error) {
 	l := newLoader(getenv)
 	c := Config{Vault: l.vault, Secrets: l.resolver, DatabaseURL: l.getenv("DATABASE_URL"), Environment: l.getenv("ERP_ENV")}
 	if c.DatabaseURL == "" {
 		l.errs = append(l.errs, errors.New("DATABASE_URL is required"))
+	} else if c.Environment == Production {
+		// The writer over verified TLS, as the server's own database.
+		if err := CheckDatabaseTLS("DATABASE_URL", c.DatabaseURL); err != nil {
+			l.errs = append(l.errs, err)
+		}
 	}
 	if err := CheckEnvironment(c.Environment); err != nil {
 		l.errs = append(l.errs, err)

@@ -20,8 +20,9 @@ import (
 // database to the binary's schema and partitions, runs started together
 // serialize on the runner's lock, and a later run applies nothing.
 func TestMigrateCommand(t *testing.T) {
-	// The Job's whole environment: no issuers, keys or object store.
-	env := map[string]string{"DATABASE_URL": pgtest.EmptyDatabase(t), "ERP_ENV": "production"}
+	// The Job's whole environment: no issuers, keys or object store, and
+	// the database over verified TLS, as production requires.
+	env := map[string]string{"DATABASE_URL": pgtest.TLS(t, pgtest.EmptyDatabase(t)), "ERP_ENV": "production"}
 	getenv := func(k string) string { return env[k] }
 	with := func(k, v string) func(string) string {
 		return func(key string) string {
@@ -46,6 +47,7 @@ func TestMigrateCommand(t *testing.T) {
 			"environment": {[]string{"migrate"}, with("ERP_ENV", "prod"), 2, "ERP_ENV"},
 			"log level":   {[]string{"migrate"}, with("ERP_LOG_LEVEL", "loud"), 2, "ERP_LOG_LEVEL"},
 			"pool size":   {[]string{"migrate"}, with("ERP_DB_MAX_CONNS", "-1"), 2, "ERP_DB_MAX_CONNS"},
+			"plaintext":   {[]string{"migrate"}, with("DATABASE_URL", pgtest.EmptyDatabase(t)), 2, "DATABASE_URL: "},
 		}
 		for name, c := range cases {
 			t.Run(name, func(t *testing.T) {
@@ -62,7 +64,7 @@ func TestMigrateCommand(t *testing.T) {
 
 	t.Run("database down", func(t *testing.T) {
 		var stderr bytes.Buffer
-		if got := cli(context.Background(), []string{"migrate"}, with("DATABASE_URL", "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"), io.Discard, &stderr, nil); got != 1 {
+		if got := cli(context.Background(), []string{"migrate"}, with("DATABASE_URL", "postgres://nobody@localhost:1/x?connect_timeout=1&sslmode=verify-full"), io.Discard, &stderr, nil); got != 1 {
 			t.Errorf("exit code: got %d, want 1 (%s)", got, stderr.String())
 		}
 		if !strings.Contains(stderr.String(), "erp-server migrate:") {

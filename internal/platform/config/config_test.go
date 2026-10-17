@@ -828,10 +828,11 @@ func TestTrustDomain(t *testing.T) {
 
 // TestLoadSchema: the migrations Job's configuration is the database and
 // how to log and pool, even in production, with the URL a secret
-// reference; anything else it is given is ignored.
+// reference; anything else it is given is ignored. Production requires
+// the database over verified TLS, as the server's configuration does.
 func TestLoadSchema(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "url"), []byte("postgres://erp@writer/erp\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "url"), []byte("postgres://erp@writer/erp?sslmode=verify-full\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	c, err := LoadSchema(env(map[string]string{
@@ -842,7 +843,7 @@ func TestLoadSchema(t *testing.T) {
 		t.Fatalf("load: got %v, want no error", err)
 	}
 	checkFields(t, []field{
-		{"DatabaseURL", c.DatabaseURL, "postgres://erp@writer/erp"},
+		{"DatabaseURL", c.DatabaseURL, "postgres://erp@writer/erp?sslmode=verify-full"},
 		{"Environment", c.Environment, Production},
 		{"LogLevel", c.LogLevel, slog.LevelWarn},
 		{"DBMaxConns", c.DBMaxConns, int32(2)},
@@ -854,6 +855,7 @@ func TestLoadSchema(t *testing.T) {
 		"no database": {map[string]string{"ERP_ENV": Production}, "DATABASE_URL is required"},
 		"unresolved":  {map[string]string{"DATABASE_URL": "file:" + filepath.Join(dir, "missing"), "ERP_ENV": Production}, "DATABASE_URL:"},
 		"environment": {map[string]string{"DATABASE_URL": "postgres://x"}, "ERP_ENV"},
+		"unverified":  {map[string]string{"DATABASE_URL": "postgres://erp@writer/erp?sslmode=require", "ERP_ENV": Production}, "DATABASE_URL: "},
 		"log level":   {map[string]string{"DATABASE_URL": "postgres://x", "ERP_ENV": Development, "ERP_LOG_LEVEL": "loud"}, "ERP_LOG_LEVEL"},
 		"pool size":   {map[string]string{"DATABASE_URL": "postgres://x", "ERP_ENV": Development, "ERP_DB_MAX_CONNS": "x"}, "ERP_DB_MAX_CONNS"},
 	}
