@@ -159,6 +159,13 @@ values="$chart/tests/values.yaml"
 validate "$work/erp-cell.yaml"
 "$CONFTEST" verify --policy deploy/helm/policy --namespace workloads --no-color
 "$CONFTEST" test --combine --policy deploy/helm/policy --namespace workloads --no-color "$work/erp-cell.yaml"
+# PgBouncer's own quoting (a doubled quote; a backslash is taken as it
+# is), as the pinned 1.26.0 was found to parse: a backslash escape would
+# make a rotated password with a quote unloadable.
+grep -qF "password='{{ .password | replace \"'\" \"''\" }}'" "$work/erp-cell.yaml" ||
+  { echo "helm-checks: erp-cell's pgbouncer.ini does not double the quotes of the master password" >&2; exit 1; }
+grep -qF '"erp" "{{ .clientPassword | replace "\"" "\"\"" }}"' "$work/erp-cell.yaml" ||
+  { echo "helm-checks: erp-cell's user list does not double the quotes of the client password" >&2; exit 1; }
 # required VALUE...: each value, removed in turn, fails the render and
 # names itself.
 required() {
