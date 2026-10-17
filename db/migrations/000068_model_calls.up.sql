@@ -46,6 +46,11 @@ CREATE INDEX model_call_by_session ON agents.model_call (tenant_id, session_id) 
 CREATE TRIGGER model_call_immutable BEFORE UPDATE OR DELETE ON agents.model_call FOR EACH ROW EXECUTE FUNCTION platform.forbid_mutation();
 SELECT platform.secure_table('agents.model_call'::regclass);
 
+-- Calling models through the gateway is a permission of its own; agents
+-- may hold it.
+INSERT INTO ref.permission (code, description, is_approval) VALUES
+  ('agents.model.invoke', 'Call models through the model gateway', false);
+
 -- A session's cost is the sum of its calls', exact; cost keeps it in minor
 -- units for the API.
 ALTER TABLE agents.session ADD COLUMN cost_micro bigint NOT NULL DEFAULT 0 CONSTRAINT session_cost_micro_check CHECK (cost_micro >= 0);

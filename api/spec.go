@@ -17,6 +17,9 @@ var controlYAML []byte
 //go:embed directory.yaml
 var directoryYAML []byte
 
+//go:embed model.yaml
+var modelYAML []byte
+
 // Operation is what the request pipeline needs to know about an operation
 // beyond what the generated server enforces.
 type Operation struct {
@@ -110,4 +113,15 @@ func DirectorySpec() []byte { return directoryYAML }
 // x-permission.
 func DirectoryOperations() (map[string]Operation, error) {
 	return parseOperations(directoryYAML, false)
+}
+
+// ModelSpec is the embedded model gateway contract (model.yaml): every
+// model call, served on the public listener outside the generated server
+// by hand-written handlers (internal/agents), ADR-0036.
+func ModelSpec() []byte { return modelYAML }
+
+// ModelOperations returns the model gateway's operations by operationId;
+// they declare their x-permission, as the public API's do.
+func ModelOperations() (map[string]Operation, error) {
+	return parseOperations(modelYAML, true)
 }

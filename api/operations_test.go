@@ -149,3 +149,25 @@ func TestControlOperations(t *testing.T) {
 		t.Fatal("control spec")
 	}
 }
+
+// TestModelOperations: the model gateway's one operation, permissioned and
+// open to agents (ADR-0036).
+func TestModelOperations(t *testing.T) {
+	ops, err := ModelOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, ok := ops["createModelMessage"]
+	if len(ops) != 1 || !ok {
+		t.Fatalf("operations: got %v, want createModelMessage alone", ops)
+	}
+	if got := op.Method + " " + op.Path; got != "POST /v1/model/v1/messages" {
+		t.Errorf("route: got %s, want POST /v1/model/v1/messages", got)
+	}
+	if op.Permission != "agents.model.invoke" || !op.AgentAllowed {
+		t.Errorf("operation: got permission %q, agents %v, want agents.model.invoke, open to agents", op.Permission, op.AgentAllowed)
+	}
+	if !strings.Contains(string(ModelSpec()), "\nopenapi: \"3.1") {
+		t.Fatal("model spec")
+	}
+}

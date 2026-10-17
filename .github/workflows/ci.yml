@@ -204,7 +204,7 @@ jobs:
           make generate
           git diff --exit-code -- api/gen || (echo "api/gen is stale: run make generate" && exit 1)
       - name: API contract lint
-        run: vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml
+        run: vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml api/model.yaml
       - name: API breaking-change check against main
         if: github.event_name == 'pull_request'
         run: |
