@@ -49,9 +49,10 @@ func (e *Endpoints) submitChange(ctx context.Context, order, id uuid.UUID, ifMat
 		return PurchaseOrderChange{}, err
 	}
 	// A draft change's order is released (cancelOpenChange). The check is
-	// for validation only: the stored proposal is frozen once submitted
-	// (purchase_order_change_frozen), and what it was built from cannot
-	// drift, as a contract changes only as a draft.
+	// for validation only: it reproduces the stored proposal, which it
+	// built from inputs that cannot drift (a contract changes only as a
+	// draft), and which is frozen from submission on
+	// (purchase_order_change_frozen).
 	if _, _, err := e.proposal(ctx, tx, o, ch.Proposed, ChangeInput{Items: proposedItems(ch)}); err != nil {
 		return PurchaseOrderChange{}, err
 	}
