@@ -20,7 +20,6 @@
 # from the pinned charts. KEEP=1 keeps the work directory for a look.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-ZOT="${ZOT:-zot}"
 CRANE="${CRANE:-crane}"
 COSIGN="${COSIGN:-cosign}"
 KYVERNO="${KYVERNO:-kyverno}"
@@ -29,35 +28,15 @@ CRDS="$(cd "$(dirname "${CRDS:?CRDS: a file of the add-ons CRDs, from scripts/he
 root="$PWD"
 tests="$root/deploy/helm/erp-cluster/tests"
 work="$(mktemp -d)"
-zot_pid=""
+# shellcheck source=scripts/lib/registry.sh
+. "$root/scripts/lib/registry.sh"
 cleanup() {
-  if [ -n "$zot_pid" ]; then
-    kill "$zot_pid" 2>/dev/null || true
-    wait "$zot_pid" 2>/dev/null || true
-  fi
+  stop_registry
   if [ -n "${KEEP:-}" ]; then echo "admission-checks: kept $work" >&2; else rm -rf "$work"; fi
 }
 trap cleanup EXIT
 cd "$work"
-
-# The registry, on a free port. Another process taking the port between
-# the probe and zot's bind makes zot exit, which the wait sees.
-port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-registry="localhost:$port"
-printf '{"distSpecVersion":"1.1.1","storage":{"rootDirectory":"%s/zot"},"http":{"address":"127.0.0.1","port":"%s"},"log":{"level":"error"}}\n' "$work" "$port" >zot.json
-"$ZOT" serve zot.json >zot.log 2>&1 &
-zot_pid=$!
-up=0
-for _ in $(seq 1 100); do
-  kill -0 "$zot_pid" 2>/dev/null || break
-  if curl -sf "http://$registry/v2/" >/dev/null; then up=1; break; fi
-  sleep 0.1
-done
-if [ "$up" -ne 1 ]; then
-  cat zot.log >&2
-  echo "admission-checks: the registry did not start" >&2
-  exit 1
-fi
+start_registry "$work"
 
 # Two keys: the release's, and another that must not be trusted.
 export COSIGN_PASSWORD=""
@@ -83,11 +62,9 @@ run() {
 # digest. (A function setting a variable, not a command substitution,
 # so that a failure stops the script.)
 image() {
-  printf '%s' "$1" >"layer-$1"
-  tar -cf "layer-$1.tar" "layer-$1"
-  run push.log "$CRANE" append --insecure --oci-empty-base -f "layer-$1.tar" -t "$registry/erp/$1:v1"
-  run digest.log "$CRANE" digest --insecure "$registry/erp/$1:v1"
-  ref="$registry/erp/$1@$(tail -n 1 digest.log)"
+  local digest
+  digest="$(push_image "erp/$1" v1)"
+  ref="$registry/erp/$1@$digest"
   case "$ref" in *@sha256:?*) ;; *) echo "admission-checks: no digest for $1" >&2; exit 1 ;; esac
 }
 sign() { run sign.log "$COSIGN" sign --yes --key "$2/cosign.key" --signing-config signing-config.json "$1"; }
