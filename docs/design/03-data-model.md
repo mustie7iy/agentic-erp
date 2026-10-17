@@ -1493,7 +1493,9 @@ activate, and orders under them are refused.
 `ref.model_price` (000068) holds each model's prices per million tokens
 (input, output, cache write, cache read) in millionths of the minor unit,
 versioned by `effective_from`; a call is priced at the version in force
-when it was made.
+when it was made. It starts empty: an operator records published prices
+(`erp-server prices load`, audited), and the gateway refuses a model
+without a price.
 
 ## 3.15 Platform (`platform`) and per-context outbox
 

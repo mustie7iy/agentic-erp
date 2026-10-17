@@ -18,12 +18,9 @@ CREATE TABLE ref.model_price (
 ALTER TABLE ref.model_price OWNER TO erp_owner;
 GRANT SELECT ON ref.model_price TO erp_app, erp_readonly;
 
--- Anthropic's first-party prices of 2026-10-06, USD per million tokens:
--- input, output, 5-minute cache write (1.25 × input), cache read.
-INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read) VALUES
-  ('claude-opus-5-5',   '2026-10-01', 'USD', 400000000, 2000000000, 500000000, 20000000),
-  ('claude-sonnet-5-5', '2026-10-01', 'USD', 200000000, 1000000000, 250000000, 20000000),
-  ('claude-haiku-5-5',  '2026-10-01', 'USD',  10000000,   50000000,  12500000,  1000000);
+-- Empty here: an operator records each model's published prices with
+-- their effective date (erp-server prices load), audited. The gateway
+-- refuses a model without a price, so no call goes unmetered.
 
 CREATE TABLE agents.model_call (
   tenant_id           uuid NOT NULL,

@@ -2279,11 +2279,8 @@ func TestModelCalls(t *testing.T) {
 	session, call := id(), id()
 	mustApp(t, a.tenant, func(tx pgx.Tx) error {
 		var n int
-		if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM ref.model_price WHERE model = 'claude-opus-5-5'").Scan(&n); err != nil {
-			return err
-		}
-		if n == 0 {
-			return errors.New("no price for claude-opus-5-5")
+		if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM ref.model_price").Scan(&n); err != nil {
+			return err // the application reads prices
 		}
 		if err := exec(tx, "INSERT INTO agents.session (tenant_id, id, agent_id, purpose, model, status, cost_currency) VALUES ($1,$2,$3,'test','erp-default','running','USD')", a.tenant, session, a.actor); err != nil {
 			return err
