@@ -168,6 +168,49 @@ the schema they were built for. Kyverno admits only images signed with the
 release key, requiring a `cosign/sign/v1` signature (cosign alone takes an
 attestation for one, T39b) and both attestations.
 
+**The erp-cell chart (T40c3).** In the `erp` namespace, after the add-ons
+and `erp-cluster` (which also creates the platform's namespaces, under
+Kubernetes' restricted Pod Security profile):
+- The server: three replicas spread over the zones, a disruption budget,
+  production settings only (TLS 1.3 as its certificate's SPIFFE identity,
+  `ERP_TRUST_DOMAIN`, operators' issuers, the field key and bucket through
+  the regional endpoints, `ERP_AT_REST`), its secrets as files, its IRSA
+  role, no service account token. NATS and Temporal settings come with
+  T40c4.
+- The migrations hook Job described above, with the writer's URL and the
+  RDS bundle as hooks of lower weight, so a first install has them.
+- PgBouncer: two replicas, transaction mode, `max_prepared_statements`
+  for pgx, TLS 1.3 to its clients (its certificate) and to the writer
+  (verified against RDS's bundle). The cell logs in to it with a static
+  password operators set (`erp/<cell>/database-client-password`); it logs
+  in to the writer with the RDS-managed master credentials, which RDS
+  rotates weekly. External Secrets refreshes them every five minutes and
+  a sidecar of the same image sends PgBouncer SIGHUP when its
+  configuration or its daily-renewed certificate changes, so the rotation
+  reaches no other component and drops no open connection; new server
+  connections opened between a rotation and the reload fail.
+- Certificates for the server and PgBouncer as `erp-service-certificates`
+  requires (a day, renewed with 8 hours left, one SPIFFE identity, the
+  service's own names); the environment's subordinate CA certificate is
+  the trust anchor (`ERP_TLS_CA`, the clients of PgBouncer).
+- Network policies: default deny; the API and admin listener from the
+  router's namespace; the server to PgBouncer and to 443 (the VPC's AWS
+  endpoints and the tenants' identity providers); PgBouncer and the Job to
+  the writer in the VPC; DNS.
+- Images by digest from the release registry. The upstream PgBouncer and
+  NATS images are pinned by their linux/arm64 digests in
+  `deploy/images/upstream.txt` and copied into `erp-pgbouncer` and
+  `erp-nats` with their SBOM by `scripts/mirror-images.sh`, which the
+  release runs before `sign-images.sh`, so they are signed and attested
+  like the platform's own.
+
+`scripts/helm-checks.sh` renders it, validates it against the add-ons'
+CRDs, refuses a render missing any value it requires or naming an image by
+tag, holds its workloads to `deploy/helm/policy/workloads.rego` (non-root,
+read-only root file system, no capability, no token, digests, resources,
+disruption budgets, default deny), and has Kyverno's CLI admit the whole
+chart rendered with images signed as the release signs them.
+
 **Cluster add-ons and policies (T40c2).** Each cell runs five upstream
 charts, pinned by version and by their archive's SHA-256 in
 `deploy/helm/addons/charts.txt`, each a release of its own in its

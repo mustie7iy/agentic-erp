@@ -1,0 +1,89 @@
+# The release's migrations (ADR-0035), once per release and cell, before
+# anything else of it: a pre-install and pre-upgrade hook Job running
+# `erp-server migrate`. Its database URL names the writer itself, never
+# PgBouncer: the migrations runner holds a session advisory lock and runs
+# statements outside transactions, which transaction pooling breaks. It
+# reads only that URL (config.LoadSchema), so it holds no key, issuer or
+# store; the URL's ExternalSecret and the RDS bundle are hooks of lower
+# weight, there before it. The pods keep ERP_MIGRATE_ON_START=false and are
+# ready only on the schema they were built for.
+{{- $master := required "database.masterSecretArn is required" .Values.database.masterSecretArn }}
+{{- $writer := required "database.writerHost is required: cell.database_endpoint" .Values.database.writerHost }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: erp-migrate
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-migrate") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: {{ .Values.secrets.store }}
+  target:
+    name: erp-migrate
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        database-url: "postgres://{{ "{{" }} .username | urlquery {{ "}}" }}:{{ "{{" }} .password | urlquery {{ "}}" }}@{{ $writer }}:5432/{{ .Values.database.name }}?sslmode=verify-full&sslrootcert=/etc/erp/rds/ca.pem"
+  data:
+    - secretKey: username
+      remoteRef:
+        key: {{ $master }}
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: {{ $master }}
+        property: password
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: erp-migrate
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-migrate") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    # A failed run stays for a look until the next release.
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: {{ .Values.migrations.deadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "erp-cell.labels" (dict "root" . "component" "erp-migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "erp-cell.podSecurity" (dict "uid" 65532) | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "erp-cell.image" (dict "root" . "name" "server") }}
+          args: [migrate]
+          env:
+            - {name: ERP_ENV, value: production}
+            - {name: ERP_LOG_LEVEL, value: {{ .Values.server.logLevel | quote }}}
+            - {name: DATABASE_URL, value: file:/etc/erp/migrate/database-url}
+          securityContext:
+            {{- include "erp-cell.containerSecurity" . | nindent 12 }}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: url, mountPath: /etc/erp/migrate, readOnly: true}
+            - {name: rds, mountPath: /etc/erp/rds, readOnly: true}
+      volumes:
+        - name: url
+          secret:
+            secretName: erp-migrate
+        - name: rds
+          configMap:
+            name: erp-rds-ca

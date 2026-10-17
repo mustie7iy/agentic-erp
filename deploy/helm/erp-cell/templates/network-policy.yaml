@@ -1,0 +1,103 @@
+# The cell's traffic (ADR-0035), default deny: what is not allowed here
+# does not happen.
+# - The API and the admin listener (/control, metrics) take connections
+#   from the router and the global plane's namespace only; kubelet's
+#   probes are not subject to policies.
+# - The server reaches PgBouncer and, on 443, the AWS endpoints in the VPC
+#   and the tenants' identity providers outside it.
+# - PgBouncer and the migrations Job reach the writer, in the VPC, only.
+# - Every Pod resolves names through the cluster's DNS.
+{{- $vpc := required "vpcCidr is required: cell.cidr" .Values.vpcCidr }}
+{{- $port := .Values.pgbouncer.port }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-default-deny
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-network") | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-server
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.routerNamespace }}
+      ports:
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 9090}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-pgbouncer") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: {{ $port }}}
+    - ports:
+        - {protocol: TCP, port: 443}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-pgbouncer
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-pgbouncer") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-pgbouncer") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: {{ $port }}}
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ $vpc }}
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-migrate
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-migrate") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-migrate") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ $vpc }}
+      ports:
+        - {protocol: TCP, port: 5432}

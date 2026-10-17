@@ -15,6 +15,9 @@ on:
       - scripts/deploy-checks.sh
       - scripts/helm-checks.sh
       - scripts/admission-checks.sh
+      - scripts/mirror-images.sh
+      - scripts/test-mirror-images.sh
+      - scripts/lib/**
       - .github/workflows/deploy.yml
   pull_request:
     paths: *paths
@@ -64,12 +67,14 @@ jobs:
       KYVERNO_SHA256: b38228f367fc0fdc2b08f4c83ea50ac5f16c60ff8d62d76a66157c33c47b70ae
       ZOT_VERSION: 2.1.22
       ZOT_SHA256: a053169f97b4ceaa051e054d53971799188a398cb36acbaf5e08622ec8664c44
+      SYFT_VERSION: 1.52.0
+      SYFT_SHA256: caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install Helm, kubeconform, Kyverno, zot, cosign, crane and conftest (pinned)
+      - name: Install Helm, kubeconform, Kyverno, zot, syft, cosign, crane and conftest (pinned)
         run: |
           cd "$RUNNER_TEMP"
           mkdir -p bin
@@ -82,6 +87,8 @@ jobs:
           tar -xzf kyverno.tgz -C bin kyverno
           fetch bin/zot "https://github.com/project-zot/zot/releases/download/v${ZOT_VERSION}/zot-linux-amd64-minimal" "$ZOT_SHA256"
           chmod +x bin/zot
+          fetch syft.tgz "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" "$SYFT_SHA256"
+          tar -xzf syft.tgz -C bin syft
           # The cosign the release signs with (ADR-0032).
           GOBIN="$RUNNER_TEMP/bin" go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1
           GOBIN="$RUNNER_TEMP/bin" go install github.com/google/go-containerregistry/cmd/crane@v0.20.6
@@ -89,3 +96,5 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Helm and admission checks
         run: ./scripts/helm-checks.sh
+      - name: Mirroring of the upstream images
+        run: ./scripts/test-mirror-images.sh

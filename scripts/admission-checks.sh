@@ -11,11 +11,12 @@
 #   - its certificate policies must admit only day-long certificates from
 #     the subordinate CA in the platform's namespaces, with server or client
 #     auth, one SPIFFE identity and cluster names only, and certificate
-#     requests only from cert-manager's controller.
+#     requests only from cert-manager's controller;
+#   - the erp-cell chart, rendered with those images, is admitted whole.
 # What the CLI cannot model is checked on the rendered policies instead:
 # ephemeral containers are added through a subresource, which both image
 # policies must match.
-# ZOT, CRANE, COSIGN, KYVERNO and HELM name the binaries; CRDS is a file of
+# ZOT, CRANE, COSIGN, KYVERNO, HELM and CONFTEST name the binaries; CRDS is a file of
 # the add-ons' CRDs (cert-manager's), which scripts/helm-checks.sh renders
 # from the pinned charts. KEEP=1 keeps the work directory for a look.
 set -euo pipefail
@@ -24,6 +25,7 @@ CRANE="${CRANE:-crane}"
 COSIGN="${COSIGN:-cosign}"
 KYVERNO="${KYVERNO:-kyverno}"
 HELM="${HELM:-helm}"
+CONFTEST="${CONFTEST:-conftest}"
 CRDS="$(cd "$(dirname "${CRDS:?CRDS: a file of the add-ons CRDs, from scripts/helm-checks.sh}")" && pwd)/$(basename "$CRDS")"
 root="$PWD"
 tests="$root/deploy/helm/erp-cluster/tests"
@@ -253,3 +255,22 @@ apply requests-other.json --resource certificate-requests.yaml --userinfo someon
 # shellcheck disable=SC2046 # the entries are words without spaces
 expect requests-other.json $(entries certificate-requests.yaml want-other)
 echo "admission-checks: certificates: only day-long subordinate-CA certificates of the platform's namespaces, requested by cert-manager, are admitted"
+
+# The erp-cell chart, with images signed as the release signs them: the
+# policies admit its controllers (and the hook Job) and its certificates.
+"$HELM" template erp-cell "$root/deploy/helm/erp-cell" --namespace erp -f "$root/deploy/helm/erp-cell/tests/values.yaml" \
+  --set "images.server.repository=${full%@*}" --set "images.server.digest=${full#*@}" \
+  --set "images.pgbouncer.repository=${full%@*}" --set "images.pgbouncer.digest=${full#*@}" >cell-rendered.yaml
+# As Helm installs them: in the release's namespace, which the template
+# leaves out of the manifests.
+"$CONFTEST" parse --parser yaml cell-rendered.yaml | python3 -c '
+import json, sys
+docs = [d for d in json.load(sys.stdin) if d]
+for d in docs:
+    d["metadata"].setdefault("namespace", "erp")
+print("\n---\n".join(json.dumps(d) for d in docs))
+' >cell.yaml
+apply cell.json --resource cell.yaml --registry
+expect cell.json erp-server:admitted erp-pgbouncer:admitted erp-migrate:admitted \
+  erp-server-tls:admitted erp-pgbouncer-tls:admitted
+echo "admission-checks: the erp-cell chart's workloads and certificates are admitted"

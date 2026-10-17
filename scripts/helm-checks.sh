@@ -7,9 +7,11 @@
 #     validated with kubeconform; the service account its IRSA role trusts
 #     (deploy/terraform/modules/cell/irsa.tf) must be the one it runs as,
 #     annotated with the role;
-#   - deploy/helm/erp-cluster is linted, rendered and validated against the
-#     pinned add-ons' own CRDs, and must refuse to render without each value
-#     it requires;
+#   - deploy/helm/erp-cluster and erp-cell are linted, rendered and
+#     validated against the pinned add-ons' own CRDs, and must refuse to
+#     render without each value they require; erp-cell's workloads must
+#     pass deploy/helm/policy (non-root, read-only, digests, budgets,
+#     default deny);
 #   - scripts/admission-checks.sh then runs its policies against signed
 #     images and certificates.
 # HELM, KUBECONFORM and CONFTEST (which turns YAML into JSON here) name the
@@ -149,4 +151,41 @@ if "$HELM" template erp-cluster "$chart" -f "$values" --set 'release.registries[
 fi
 echo "helm-checks: erp-cluster refuses to render without each value it requires"
 
-CRDS="$work/crds.yaml" HELM="$HELM" ./scripts/admission-checks.sh
+echo "== erp-cell"
+chart=deploy/helm/erp-cell
+values="$chart/tests/values.yaml"
+"$HELM" lint --strict "$chart" -f "$values"
+"$HELM" template erp-cell "$chart" --namespace erp -f "$values" >"$work/erp-cell.yaml"
+validate "$work/erp-cell.yaml"
+"$CONFTEST" verify --policy deploy/helm/policy --namespace workloads --no-color
+"$CONFTEST" test --combine --policy deploy/helm/policy --namespace workloads --no-color "$work/erp-cell.yaml"
+# required VALUE...: each value, removed in turn, fails the render and
+# names itself.
+required() {
+  local value
+  for value in "$@"; do
+    if "$HELM" template erp-cell "$chart" --namespace erp -f "$values" --set "$value=null" >/dev/null 2>"$work/err"; then
+      echo "helm-checks: erp-cell rendered without $value" >&2
+      exit 1
+    fi
+    if ! grep -q "$value" "$work/err"; then
+      cat "$work/err" >&2
+      echo "helm-checks: rendering erp-cell without $value failed for another reason" >&2
+      exit 1
+    fi
+  done
+}
+required cell region trustDomain vpcCidr trust.caBundle secrets.prefix \
+  images.server.repository images.server.digest images.pgbouncer.repository images.pgbouncer.digest \
+  server.roleArn server.operatorIssuers server.objectBucket server.fieldKmsKeyArn \
+  server.awsEndpoints.sts server.awsEndpoints.kms server.awsEndpoints.s3 \
+  database.writerHost database.masterSecretArn database.caBundle
+for bad in 'images.server.digest=latest' 'images.server.repository=registry.example/erp-server@sha256:1'; do
+  if "$HELM" template erp-cell "$chart" --namespace erp -f "$values" --set "$bad" >/dev/null 2>&1; then
+    echo "helm-checks: erp-cell took $bad" >&2
+    exit 1
+  fi
+done
+echo "helm-checks: erp-cell refuses to render without each value it requires, or with an image not by digest"
+
+CRDS="$work/crds.yaml" HELM="$HELM" CONFTEST="$CONFTEST" ./scripts/admission-checks.sh

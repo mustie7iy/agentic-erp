@@ -1,0 +1,130 @@
+# PgBouncer in transaction mode in front of the cell's writer (ADR-0035):
+# RDS Proxy pins every session that sets the tenant, PgBouncer does not,
+# since the platform sets it with SET LOCAL inside each transaction
+# (ADR-0003). TLS 1.3 both ways: clients verify its certificate (the
+# environment's CA), it verifies the writer's (RDS's bundle). Prepared
+# statements are tracked per client, so pgx's are safe in transaction mode.
+#
+# Its configuration and certificate change while it runs: RDS rotates the
+# master password weekly (External Secrets refreshes it within minutes)
+# and cert-manager renews the certificate daily. A sidecar of the same
+# image watches the mounted files and sends PgBouncer SIGHUP when they
+# change, which reloads both without dropping a connection.
+{{- $config := "/etc/pgbouncer/config" }}
+{{- $tls := "/etc/pgbouncer/tls" }}
+{{ include "erp-cell.certificate" (dict "root" . "name" "erp-pgbouncer-tls" "component" "erp-pgbouncer" "service" "erp-pgbouncer" "usages" (list "digital signature" "server auth")) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-pgbouncer
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-pgbouncer") | nindent 4 }}
+spec:
+  replicas: {{ .Values.pgbouncer.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-pgbouncer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "erp-cell.labels" (dict "root" . "component" "erp-pgbouncer") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      # The reloader signals PgBouncer across the containers.
+      shareProcessNamespace: true
+      # The image's pgbouncer user (deploy/images/upstream.txt).
+      securityContext:
+        {{- include "erp-cell.podSecurity" (dict "uid" 998) | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-pgbouncer") | nindent 14 }}
+      containers:
+        - name: pgbouncer
+          image: {{ include "erp-cell.image" (dict "root" . "name" "pgbouncer") }}
+          args: [{{ printf "%s/pgbouncer.ini" $config }}]
+          ports:
+            - {name: postgres, containerPort: {{ .Values.pgbouncer.port }}}
+          readinessProbe:
+            tcpSocket: {port: postgres}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: postgres}
+            periodSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            {{- include "erp-cell.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.pgbouncer.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: {{ $config }}, readOnly: true}
+            - {name: tls, mountPath: {{ $tls }}, readOnly: true}
+            - {name: rds, mountPath: /etc/pgbouncer/rds, readOnly: true}
+        - name: reload
+          image: {{ include "erp-cell.image" (dict "root" . "name" "pgbouncer") }}
+          command: [/bin/sh, -c]
+          args:
+            - |
+              files="{{ $config }}/pgbouncer.ini {{ $config }}/userlist.txt {{ $tls }}/tls.crt {{ $tls }}/tls.key"
+              state() { cat $files | sha256sum; }
+              last="$(state)"
+              while sleep 30; do
+                now="$(state)"
+                [ "$now" = "$last" ] && continue
+                for p in /proc/[0-9]*; do
+                  if [ "$(cat "$p/comm" 2>/dev/null)" = pgbouncer ]; then
+                    kill -HUP "${p#/proc/}" && echo "reload: configuration or certificate changed, PgBouncer reloaded"
+                  fi
+                done
+                last="$now"
+              done
+          securityContext:
+            {{- include "erp-cell.containerSecurity" . | nindent 12 }}
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {memory: 32Mi}
+          volumeMounts:
+            - {name: config, mountPath: {{ $config }}, readOnly: true}
+            - {name: tls, mountPath: {{ $tls }}, readOnly: true}
+            - {name: rds, mountPath: /etc/pgbouncer/rds, readOnly: true}
+      volumes:
+        - name: config
+          secret:
+            secretName: erp-pgbouncer
+        - name: tls
+          secret:
+            secretName: erp-pgbouncer-tls
+        - name: rds
+          configMap:
+            name: erp-rds-ca
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-pgbouncer
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-pgbouncer") | nindent 4 }}
+spec:
+  selector:
+    {{- include "erp-cell.selector" (dict "root" . "component" "erp-pgbouncer") | nindent 4 }}
+  ports:
+    - {name: postgres, port: {{ .Values.pgbouncer.port }}, targetPort: postgres}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: erp-pgbouncer
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-pgbouncer") | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-pgbouncer") | nindent 6 }}
